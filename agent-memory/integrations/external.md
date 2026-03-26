@@ -3,10 +3,10 @@
 ## Active Integrations
 | Service | Purpose | Config |
 |---------|---------|--------|
-| [Name] | [What it does] | [Env var] |
+| OpenAI-compatible API | Chat inference, streaming, and compaction summarization | Stored in `app_settings` from `/settings` |
 
-## [Service Name]
-- **Endpoint:** [Base URL]
-- **Auth:** [API key / OAuth / etc.]
-- **Usage:** [How/where it's used]
-- **Error Handling:** [Retry/fallback strategy]
+## OpenAI-compatible API
+- **Endpoint:** User-configurable `apiBaseUrl`
+- **Auth:** API key
+- **Usage:** Main chat responses and memory compaction summarization in `lib/provider.ts`
+- **Error Handling:** Bubble provider failures back to the UI with explicit error messages; no silent fallback provider

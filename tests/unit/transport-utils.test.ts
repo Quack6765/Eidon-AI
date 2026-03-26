@@ -1,0 +1,25 @@
+import { NextResponse } from "next/server";
+
+import { badRequest, ok } from "@/lib/http";
+import { encodeSseEvent } from "@/lib/sse";
+import { cn, formatTimestamp } from "@/lib/utils";
+
+describe("transport helpers", () => {
+  it("creates json responses for success and failure", async () => {
+    const success = ok({ hello: "world" });
+    const failure = badRequest("broken");
+
+    expect(success).toBeInstanceOf(NextResponse);
+    await expect(success.json()).resolves.toEqual({ hello: "world" });
+    await expect(failure.json()).resolves.toEqual({ error: "broken" });
+    expect(failure.status).toBe(400);
+  });
+
+  it("encodes SSE events and utility helpers", () => {
+    expect(
+      encodeSseEvent({ type: "answer_delta", text: "Hi" })
+    ).toBe('data: {"type":"answer_delta","text":"Hi"}\n\n');
+    expect(cn("a", undefined, "b")).toBe("a b");
+    expect(formatTimestamp("2026-03-26T15:20:00.000Z")).toMatch(/Mar/);
+  });
+});

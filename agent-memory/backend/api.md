@@ -1,20 +1,27 @@
 # API
 
 ## Style
-- **Type:** [REST / GraphQL / RPC / tRPC]
-- **Base Path:** [API base path]
+- **Type:** REST-style route handlers
+- **Base Path:** `/api`
 
 ## Patterns
-- **Read Operations:** [Pattern for queries/GET]
-- **Write Operations:** [Pattern for mutations/POST]
-- **Async Operations:** [Pattern for long-running tasks]
+- **Read Operations:** `GET` routes return JSON via `NextResponse.json`
+- **Write Operations:** `POST`, `PUT`, and `DELETE` mutate SQLite through `lib/` helpers
+- **Async Operations:** Chat streaming uses `ReadableStream` and `text/event-stream`
 
 ## Response Format
 ```
 {
-  [Standard success/error response shape]
+  "resource": "payloads are returned under descriptive keys"
+}
+```
+
+Errors return:
+```
+{
+  "error": "human readable message"
 }
 ```
 
 ## Versioning
-- **Strategy:** [URL path / Header / None]
+- **Strategy:** None

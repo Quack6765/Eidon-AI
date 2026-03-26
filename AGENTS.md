@@ -32,9 +32,9 @@ Since you are a single agent (no subagents), you perform all phases yourself:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    CODEX UNIFIED WORKFLOW                       │
+│                    UNIFIED WORKFLOW                                    │
 ├─────────────────────────────────────────────────────────────────┤
-│  1. DISCOVER  →  2. PLAN  →  3. BUILD  →  4. VERIFY  →  5. REPORT │
+│  1. DISCOVER  →  2. PLAN  →  3. BUILD  →  4. VERIFY  →  5. REPORT     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -321,7 +321,7 @@ For multi-file refactors, new features, or security-sensitive changes:
 
 ## Environment Notes
 
-You are running in **Codex CLI** — a single-agent environment without subagent support.
+You are running in **CLI** — a single-agent environment without subagent support.
 
 - All work is performed by you directly
 - Use shell commands for verification (lint, test, build)

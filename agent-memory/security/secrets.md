@@ -1,8 +1,8 @@
 # Secrets
 
 ## Storage
-- **Location:** [Environment variables / Secrets manager]
-- **Access:** [Who/what can access secrets]
+- **Location:** Environment variables for bootstrap secrets; encrypted SQLite field for provider API key
+- **Access:** Server-only code in route handlers and `lib/`
 
 ## Handling
 - **Never:** Commit to version control
@@ -10,9 +10,9 @@
 - **Never:** Expose to client
 
 ## Rotation
-- **Policy:** [How often secrets rotate]
-- **Process:** [How rotation happens]
+- **Policy:** Manual rotation
+- **Process:** Change env vars during redeploy and update provider API key from the settings UI
 
 ## PII
-- **Encryption:** [At rest / In transit]
-- **Logging:** [What PII rules apply]
+- **Encryption:** Provider API key encrypted at rest; credentials and sessions expected over HTTPS in transit
+- **Logging:** Do not log passwords, cookies, or decrypted provider keys

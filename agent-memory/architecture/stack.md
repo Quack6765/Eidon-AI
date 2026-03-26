@@ -1,18 +1,24 @@
 # Stack
 
 ## Languages
-- **Primary:** [Language, e.g., TypeScript]
-- **Secondary:** [If applicable]
+- **Primary:** TypeScript
+- **Secondary:** SQL (SQLite)
 
 ## Frameworks
-- **Frontend:** [Framework]
-- **Backend:** [Framework / Runtime]
+- **Frontend:** Next.js App Router + React 19 + Tailwind CSS
+- **Backend:** Next.js route handlers on Node.js
 
 ## Core Libraries
 | Library | Purpose |
 |---------|---------|
-| [Name] | [What it's used for] |
+| `better-sqlite3` | Persistent local storage for auth, settings, chats, and memory nodes |
+| `openai` | OpenAI-compatible provider client with streaming support |
+| `argon2` | Password hashing |
+| `jose` | Session token signing and verification |
+| `zod` | Request and settings validation |
+| `react-markdown` + `remark-gfm` | Assistant markdown rendering |
+| `gpt-tokenizer` | Token estimation for context budgeting |
 
 ## Build Tools
-- **Bundler:** [Tool]
-- **Package Manager:** [npm / pnpm / yarn]
+- **Bundler:** Next.js / Webpack
+- **Package Manager:** npm

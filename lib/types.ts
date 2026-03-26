@@ -1,0 +1,118 @@
+export type ApiMode = "responses" | "chat_completions";
+
+export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
+
+export type MessageRole = "user" | "assistant" | "system";
+
+export type MessageStatus = "idle" | "streaming" | "completed" | "error";
+
+export type MemoryNodeType = "leaf_summary" | "merged_summary";
+
+export type SystemMessageKind = "compaction_notice";
+
+export type AppSettings = {
+  apiBaseUrl: string;
+  apiKeyEncrypted: string;
+  model: string;
+  apiMode: ApiMode;
+  systemPrompt: string;
+  temperature: number;
+  maxOutputTokens: number;
+  reasoningEffort: ReasoningEffort;
+  reasoningSummaryEnabled: boolean;
+  modelContextLimit: number;
+  compactionThreshold: number;
+  freshTailCount: number;
+  updatedAt: string;
+};
+
+export type Conversation = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Message = {
+  id: string;
+  conversationId: string;
+  role: MessageRole;
+  content: string;
+  thinkingContent: string;
+  status: MessageStatus;
+  estimatedTokens: number;
+  systemKind: SystemMessageKind | null;
+  compactedAt: string | null;
+  createdAt: string;
+};
+
+export type MemoryNode = {
+  id: string;
+  conversationId: string;
+  type: MemoryNodeType;
+  depth: number;
+  content: string;
+  sourceStartMessageId: string;
+  sourceEndMessageId: string;
+  sourceTokenCount: number;
+  summaryTokenCount: number;
+  childNodeIds: string[];
+  supersededByNodeId: string | null;
+  createdAt: string;
+};
+
+export type CompactionEvent = {
+  id: string;
+  conversationId: string;
+  nodeId: string;
+  sourceStartMessageId: string;
+  sourceEndMessageId: string;
+  noticeMessageId: string;
+  createdAt: string;
+};
+
+export type AuthUser = {
+  id: string;
+  username: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AuthSession = {
+  id: string;
+  userId: string;
+  expiresAt: string;
+  createdAt: string;
+};
+
+export type ChatStreamEvent =
+  | { type: "message_start"; messageId: string }
+  | { type: "thinking_delta"; text: string }
+  | { type: "answer_delta"; text: string }
+  | { type: "system_notice"; text: string; kind: SystemMessageKind }
+  | {
+      type: "usage";
+      inputTokens?: number;
+      outputTokens?: number;
+      reasoningTokens?: number;
+    }
+  | { type: "done"; messageId: string }
+  | { type: "error"; message: string };
+
+export type SummaryPayload = {
+  factualCommitments: string[];
+  userPreferences: string[];
+  unresolvedItems: string[];
+  importantReferences: string[];
+  chronology: string[];
+  sourceSpan: {
+    startMessageId: string;
+    endMessageId: string;
+    messageCount: number;
+  };
+};
+
+export type PromptMessage = {
+  role: "system" | "user" | "assistant";
+  content: string;
+};

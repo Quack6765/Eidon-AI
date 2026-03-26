@@ -1,18 +1,20 @@
 # Routing
 
 ## Router
-- **Library:** [Router name]
-- **Type:** [File-based / Config-based]
+- **Library:** Next.js App Router
+- **Type:** File-based
 
 ## Page Structure
 | Route | Purpose |
 |-------|---------|
-| `/` | [Description] |
-| `/[path]` | [Description] |
+| `/` | Logged-in home and empty-state dashboard |
+| `/login` | Local username/password login |
+| `/chat/[conversationId]` | Conversation workspace |
+| `/settings` | Provider, auth, and context settings |
 
 ## Protected Routes
-- **Auth Check:** [Where/how authentication is verified]
-- **Redirect:** [Where unauthenticated users go]
+- **Auth Check:** `middleware.ts` verifies the signed session cookie and pages call `requireUser()`
+- **Redirect:** Unauthenticated users go to `/login`
 
 ## Navigation
-- **Pattern:** [How navigation is handled]
+- **Pattern:** Sidebar conversation list with direct route navigation plus `router.refresh()` after mutations
