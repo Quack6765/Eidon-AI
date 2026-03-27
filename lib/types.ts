@@ -29,6 +29,35 @@ export type AppSettings = {
 export type Conversation = {
   id: string;
   title: string;
+  folderId: string | null;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Folder = {
+  id: string;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type McpServer = {
+  id: string;
+  name: string;
+  url: string;
+  headers: Record<string, string>;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Skill = {
+  id: string;
+  name: string;
+  content: string;
+  enabled: boolean;
   createdAt: string;
   updatedAt: string;
 };

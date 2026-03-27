@@ -10,12 +10,16 @@ function nowIso() {
 function rowToConversation(row: {
   id: string;
   title: string;
+  folder_id: string | null;
+  sort_order: number;
   created_at: string;
   updated_at: string;
 }): Conversation {
   return {
     id: row.id,
     title: row.title,
+    folderId: row.folder_id,
+    sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -50,13 +54,15 @@ function rowToMessage(row: {
 export function listConversations() {
   const rows = getDb()
     .prepare(
-      `SELECT id, title, created_at, updated_at
+      `SELECT id, title, folder_id, sort_order, created_at, updated_at
        FROM conversations
        ORDER BY updated_at DESC`
     )
     .all() as Array<{
     id: string;
     title: string;
+    folder_id: string | null;
+    sort_order: number;
     created_at: string;
     updated_at: string;
   }>;
@@ -67,7 +73,7 @@ export function listConversations() {
 export function getConversation(conversationId: string) {
   const row = getDb()
     .prepare(
-      `SELECT id, title, created_at, updated_at
+      `SELECT id, title, folder_id, sort_order, created_at, updated_at
        FROM conversations
        WHERE id = ?`
     )
@@ -75,6 +81,8 @@ export function getConversation(conversationId: string) {
     | {
         id: string;
         title: string;
+        folder_id: string | null;
+        sort_order: number;
         created_at: string;
         updated_at: string;
       }
@@ -83,21 +91,35 @@ export function getConversation(conversationId: string) {
   return row ? rowToConversation(row) : null;
 }
 
-export function createConversation(title = "New conversation") {
+export function createConversation(title = "New conversation", folderId?: string | null) {
   const timestamp = nowIso();
+
+  const maxOrder = getDb()
+    .prepare("SELECT COALESCE(MAX(sort_order), -1) as max_order FROM conversations")
+    .get() as { max_order: number };
+
   const conversation = {
     id: createId("conv"),
     title,
+    folderId: folderId ?? null,
+    sortOrder: maxOrder.max_order + 1,
     createdAt: timestamp,
     updatedAt: timestamp
   };
 
   getDb()
     .prepare(
-      `INSERT INTO conversations (id, title, created_at, updated_at)
-       VALUES (?, ?, ?, ?)`
+      `INSERT INTO conversations (id, title, folder_id, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
     )
-    .run(conversation.id, conversation.title, conversation.createdAt, conversation.updatedAt);
+    .run(
+      conversation.id,
+      conversation.title,
+      conversation.folderId,
+      conversation.sortOrder,
+      conversation.createdAt,
+      conversation.updatedAt
+    );
 
   return conversation;
 }
@@ -330,4 +352,58 @@ export function maybeRetitleConversationFromFirstUserMessage(conversationId: str
   const title = rawTitle.length > 64 ? `${rawTitle.slice(0, 61)}...` : rawTitle;
 
   renameConversation(conversationId, title || "New conversation");
+}
+
+export function moveConversationToFolder(conversationId: string, folderId: string | null) {
+  const timestamp = nowIso();
+  getDb()
+    .prepare(
+      `UPDATE conversations SET folder_id = ?, updated_at = ? WHERE id = ?`
+    )
+    .run(folderId, timestamp, conversationId);
+}
+
+export function reorderConversations(items: Array<{ id: string; folderId: string | null }>) {
+  const statement = getDb()
+    .prepare("UPDATE conversations SET sort_order = ?, folder_id = ?, updated_at = ? WHERE id = ?");
+
+  const timestamp = nowIso();
+  const transaction = getDb().transaction(
+    (entries: Array<{ id: string; folderId: string | null; sortOrder: number }>) => {
+      entries.forEach((entry) => {
+        statement.run(entry.sortOrder, entry.folderId, timestamp, entry.id);
+      });
+    }
+  );
+
+  transaction(
+    items.map((item, index) => ({
+      id: item.id,
+      folderId: item.folderId,
+      sortOrder: index
+    }))
+  );
+}
+
+export function searchConversations(query: string) {
+  const likeQuery = `%${query}%`;
+
+  const rows = getDb()
+    .prepare(
+      `SELECT DISTINCT c.id, c.title, c.folder_id, c.sort_order, c.created_at, c.updated_at
+       FROM conversations c
+       LEFT JOIN messages m ON c.id = m.conversation_id
+       WHERE c.title LIKE ? OR m.content LIKE ?
+       ORDER BY c.updated_at DESC`
+    )
+    .all(likeQuery, likeQuery) as Array<{
+    id: string;
+    title: string;
+    folder_id: string | null;
+    sort_order: number;
+    created_at: string;
+    updated_at: string;
+  }>;
+
+  return rows.map(rowToConversation);
 }

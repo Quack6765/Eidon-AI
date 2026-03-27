@@ -4,16 +4,18 @@ import { Shell } from "@/components/shell";
 import { SettingsForm } from "@/components/settings-form";
 import { Button } from "@/components/ui/button";
 import { listConversations } from "@/lib/conversations";
+import { listFolders } from "@/lib/folders";
 import { getSanitizedSettings } from "@/lib/settings";
 import { requireUser } from "@/lib/auth";
 
 export default async function SettingsPage() {
   const user = await requireUser();
   const conversations = listConversations();
+  const folders = listFolders();
   const settings = getSanitizedSettings();
 
   return (
-    <Shell conversations={conversations}>
+    <Shell conversations={conversations} folders={folders}>
       <main className="space-y-5">
         <div className="flex items-center justify-between gap-4">
           <div>

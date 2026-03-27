@@ -47,11 +47,21 @@ function migrate(db: Database.Database) {
       fresh_tail_count INTEGER NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS folders (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
+      folder_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
     );
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
@@ -93,12 +103,41 @@ function migrate(db: Database.Database) {
       FOREIGN KEY (node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,
       FOREIGN KEY (notice_message_id) REFERENCES messages(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS mcp_servers (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      url TEXT NOT NULL,
+      headers TEXT NOT NULL DEFAULT '{}',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS skills (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_conversations_folder ON conversations(folder_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at ON messages(conversation_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_messages_compacted_at ON messages(conversation_id, compacted_at);
     CREATE INDEX IF NOT EXISTS idx_memory_nodes_conversation_depth ON memory_nodes(conversation_id, depth, created_at);
     CREATE INDEX IF NOT EXISTS idx_memory_nodes_superseded ON memory_nodes(conversation_id, superseded_by_node_id);
+    CREATE INDEX IF NOT EXISTS idx_folders_sort_order ON folders(sort_order);
   `);
+
+  // Migration: add folder_id and sort_order columns to existing conversations table
+  const cols = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
+  const colNames = cols.map((c) => c.name);
+  if (!colNames.includes("folder_id")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL");
+  }
+  if (!colNames.includes("sort_order")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
+  }
 
   db.prepare(
       `INSERT OR IGNORE INTO app_settings (

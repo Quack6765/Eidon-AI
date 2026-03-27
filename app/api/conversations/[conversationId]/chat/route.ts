@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth";
 import {
   createMessage,
   getConversation,
+  listMessages,
   maybeRetitleConversationFromFirstUserMessage,
   updateAssistantMessage
 } from "@/lib/conversations";
@@ -13,6 +14,8 @@ import { getSettingsWithApiKey } from "@/lib/settings";
 import { encodeSseEvent } from "@/lib/sse";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { streamProviderResponse } from "@/lib/provider";
+import { listEnabledMcpServers } from "@/lib/mcp-servers";
+import { listEnabledSkills } from "@/lib/skills";
 import type { ChatStreamEvent } from "@/lib/types";
 
 const bodySchema = z.object({
@@ -56,6 +59,21 @@ export async function POST(
     return badRequest("Set an API key in settings before starting a chat");
   }
 
+  // Feature 7: Insert system prompt as first message in new conversations only
+  const existingMessages = listMessages(conversation.id);
+  const hasSystemMessage = existingMessages.some(
+    (m) => m.role === "system" && !m.systemKind
+  );
+
+  if (!hasSystemMessage && settings.systemPrompt) {
+    createMessage({
+      conversationId: conversation.id,
+      role: "system",
+      content: settings.systemPrompt,
+      status: "completed"
+    });
+  }
+
   const userMessage = createMessage({
     conversationId: conversation.id,
     role: "user",
@@ -85,6 +103,41 @@ export async function POST(
       try {
         const compacted = await ensureCompactedContext(conversation.id);
 
+        // Append skills to the system prompt
+        const skills = listEnabledSkills();
+        let promptMessages = compacted.promptMessages;
+
+        if (skills.length) {
+          const skillContent = skills
+            .map((skill) => `## Skill: ${skill.name}\n${skill.content}`)
+            .join("\n\n");
+
+          promptMessages = [
+            ...promptMessages,
+            {
+              role: "system" as const,
+              content: `Active skills:\n\n${skillContent}`
+            }
+          ];
+        }
+
+        // Append MCP tool descriptions
+        const mcpServers = listEnabledMcpServers();
+        if (mcpServers.length) {
+          const { gatherAllMcpTools, buildMcpToolsDescription } = await import("@/lib/mcp-client");
+          const toolSets = await gatherAllMcpTools(mcpServers);
+          const description = buildMcpToolsDescription(toolSets);
+          if (description) {
+            promptMessages = [
+              ...promptMessages,
+              {
+                role: "system" as const,
+                content: `MCP tools are available. When appropriate, respond with a tool call in this format:\n\nTOOL_CALL: {"server": "server_name", "tool": "tool_name", "arguments": {}}\n\nAvailable tools:\n\n${description}`
+              }
+            ];
+          }
+        }
+
         if (compacted.compactionNoticeEvent) {
           write(compacted.compactionNoticeEvent);
         }
@@ -96,7 +149,7 @@ export async function POST(
 
         const providerStream = streamProviderResponse({
           settings,
-          promptMessages: compacted.promptMessages
+          promptMessages
         });
 
         let finalAnswer = "";

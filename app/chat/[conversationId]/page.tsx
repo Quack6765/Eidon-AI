@@ -5,6 +5,7 @@ import { Shell } from "@/components/shell";
 import { requireUser } from "@/lib/auth";
 import { getConversation, listConversations, listMessages } from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
+import { listFolders } from "@/lib/folders";
 
 export default async function ConversationPage({
   params
@@ -14,6 +15,7 @@ export default async function ConversationPage({
   await requireUser();
   const { conversationId } = await params;
   const conversations = listConversations();
+  const folders = listFolders();
   const conversation = getConversation(conversationId);
 
   if (!conversation) {
@@ -21,7 +23,7 @@ export default async function ConversationPage({
   }
 
   return (
-    <Shell conversations={conversations}>
+    <Shell conversations={conversations} folders={folders}>
       <ChatView
         payload={{
           conversation,
