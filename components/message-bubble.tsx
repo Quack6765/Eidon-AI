@@ -9,6 +9,12 @@ import remarkGfm from "remark-gfm";
 import { formatTimestamp } from "@/lib/utils";
 import type { Message } from "@/lib/types";
 
+function normalizeLineBreaks(text: string) {
+  return text.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
+}
+
+const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
+
 export function MessageBubble({
   message,
   streamingThinking,
@@ -22,11 +28,12 @@ export function MessageBubble({
   awaitingFirstToken?: boolean;
   thinkingInProgress?: boolean;
 }) {
-  const content = streamingAnswer ?? message.content;
-  const thinkingContent = streamingThinking ?? message.thinkingContent;
+  const rawContent = streamingAnswer ?? message.content;
+  const rawThinking = streamingThinking ?? message.thinkingContent;
+  const content = normalizeLineBreaks(rawContent);
+  const thinkingContent = normalizeLineBreaks(rawThinking);
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || Boolean(thinkingContent));
-  const markdownPlugins = [remarkGfm, remarkBreaks];
 
   if (message.role === "system") {
     return (
@@ -80,7 +87,7 @@ export function MessageBubble({
 
               {thinkingOpen && thinkingContent ? (
                 <div className="prose prose-invert mt-3 max-w-none prose-p:my-4 prose-p:leading-7 prose-pre:rounded-2xl prose-pre:border prose-pre:border-white/5 prose-pre:bg-black/20 prose-code:text-white/80 prose-li:my-1 prose-ul:my-4 prose-ol:my-4 text-white/70">
-                  <ReactMarkdown remarkPlugins={markdownPlugins}>{thinkingContent}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{thinkingContent}</ReactMarkdown>
                 </div>
               ) : null}
             </div>
@@ -92,7 +99,7 @@ export function MessageBubble({
             </div>
           ) : content ? (
             <div className="prose prose-invert max-w-none prose-p:my-2 prose-p:leading-7 prose-pre:rounded-xl prose-pre:bg-black/20 prose-pre:border prose-pre:border-white/5 prose-li:my-1 prose-ul:my-4 prose-ol:my-4 prose-a:text-blue-400">
-              <ReactMarkdown remarkPlugins={markdownPlugins}>{content}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{content}</ReactMarkdown>
             </div>
           ) : null}
         </div>

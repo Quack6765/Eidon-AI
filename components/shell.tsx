@@ -32,7 +32,7 @@ export function Shell({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex min-w-0 flex-1 flex-col relative w-full overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col relative w-full overflow-y-auto">
         {/* Mobile Header */}
         <div className="sticky top-0 z-30 flex h-14 items-center justify-between px-4 md:hidden bg-[var(--background)]/80 backdrop-blur-md border-b border-white/5">
           <button 
