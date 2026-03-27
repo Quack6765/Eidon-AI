@@ -1,36 +1,59 @@
-import Link from "next/link";
+"use client";
 
-import { Button } from "@/components/ui/button";
 import { Shell } from "@/components/shell";
-import { listConversations } from "@/lib/conversations";
-import { requireUser } from "@/lib/auth";
+import { Plus, Mic, ArrowUp } from "lucide-react";
+import { useEffect, useState } from "react";
+import type { Conversation } from "@/lib/types";
 
-export default async function HomePage() {
-  await requireUser();
-  const conversations = listConversations();
+export default function HomePage() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
+
+  useEffect(() => {
+    // In a real app we would pass these from server or fetch
+    // We fetch so it works smoothly with our client component rewrite
+    fetch("/api/conversations")
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.conversations) {
+          setConversations(data.conversations);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleCreate() {
+    try {
+      const response = await fetch("/api/conversations", { method: "POST" });
+      const payload = (await response.json()) as { conversation: Conversation };
+      window.location.href = `/chat/${payload.conversation.id}`;
+    } catch (e) {}
+  }
 
   return (
     <Shell conversations={conversations}>
-      <main className="panel grain flex h-full min-h-[calc(100vh-2rem)] items-center justify-center rounded-[2rem] border p-10">
-        <div className="max-w-2xl text-center">
-          <p className="text-[0.72rem] font-semibold uppercase tracking-[0.35em] text-[color:var(--accent)]">
-            Self-hosted chat
-          </p>
-          <h2
-            className="mt-6 text-6xl leading-none md:text-7xl"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            Persistent conversations with visible thinking.
-          </h2>
-          <p className="mx-auto mt-6 max-w-xl text-base leading-7 text-[color:var(--muted)]">
-            Create a new conversation from the left rail, configure your provider in settings,
-            and let Hermes compact older turns automatically as the context fills up.
-          </p>
-          <div className="mt-10 flex justify-center gap-4">
-            <Link href="/settings">
-              <Button variant="secondary">Open settings</Button>
-            </Link>
-          </div>
+      <main className="flex h-full min-h-screen flex-col items-center justify-center p-4">
+        <h2 className="mb-8 text-2xl font-medium md:text-3xl text-[var(--text)]">
+          What&apos;s on your mind today?
+        </h2>
+        
+        {/* Fake input designed to mimic ChatGPT's empty state input */}
+        <div className="w-full max-w-[700px] relative">
+            <button 
+              onClick={handleCreate}
+              className="group flex bg-white w-full min-h-[56px] rounded-[1.8rem] items-center px-4 hover:shadow-md transition cursor-text border border-gray-200 shadow-sm"
+            >
+               <span className="text-gray-400 group-hover:text-gray-600 transition"><Plus className="h-5 w-5" /></span>
+               <span className="ml-3 text-gray-400 group-hover:text-gray-600 transition text-base font-normal flex-1 text-left">Ask anything</span>
+               
+               <div className="flex items-center gap-2">
+                 <div className="p-2 text-gray-400 hover:text-gray-600 transition rounded-full hover:bg-gray-100">
+                   <Mic className="h-4 w-4" />
+                 </div>
+                 <div className="bg-[var(--accent)] text-white p-1.5 rounded-full">
+                   <ArrowUp className="h-4 w-4" />
+                 </div>
+               </div>
+            </button>
         </div>
       </main>
     </Shell>

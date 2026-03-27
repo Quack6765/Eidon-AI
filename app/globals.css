@@ -1,17 +1,29 @@
 @import "tailwindcss";
 
+@theme {
+  --color-background: var(--background);
+  --color-sidebar: var(--sidebar);
+  --color-panel: var(--panel);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+}
+
 :root {
-  --background: #0f1115;
-  --panel: rgba(23, 28, 36, 0.78);
-  --panel-strong: rgba(30, 37, 48, 0.92);
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.18);
-  --text: #f3efe7;
-  --muted: #a6a2a0;
-  --accent: #f0a852;
-  --accent-soft: rgba(240, 168, 82, 0.12);
-  --thinking: #7fc8ff;
-  --shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+  --background: #f9fafb;
+  --sidebar: #f3f4f6;
+  --panel: #ffffff;
+  --panel-strong: #020D2B; /* Deep Blue for primary interactions */
+  --line: rgba(0, 0, 0, 0.1);
+  --line-strong: rgba(0, 0, 0, 0.15);
+  --text: #111827;
+  --muted: #6b7280;
+  --accent: #020D2B; /* Using the Deep Blue as the core accent */
+  --accent-soft: rgba(2, 13, 43, 0.1);
+  --thinking: #ab68ff;
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 * {
@@ -19,10 +31,7 @@
 }
 
 html {
-  background:
-    radial-gradient(circle at top left, rgba(240, 168, 82, 0.16), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(127, 200, 255, 0.12), transparent 24%),
-    linear-gradient(180deg, #0d1014 0%, #11161d 100%);
+  background: var(--background);
   color: var(--text);
 }
 
@@ -30,22 +39,9 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  font-family: var(--font-body), sans-serif;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.02), transparent 30%),
-    radial-gradient(circle at top, rgba(255, 255, 255, 0.04), transparent 45%);
-}
-
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  background-size: 72px 72px;
-  mask-image: radial-gradient(circle at center, black 45%, transparent 90%);
+  font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, sans-serif;
+  background-color: var(--background);
+  /* Removed noise and gradient to match ChatGPT sleek, flat look */
 }
 
 a {
@@ -62,33 +58,18 @@ select {
 
 .panel {
   background: var(--panel);
-  border: 1px solid var(--line);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(24px);
-}
-
-.grain {
-  position: relative;
-}
-
-.grain::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.12;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.1' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.45'/%3E%3C/svg%3E");
-  mix-blend-mode: soft-light;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: rgba(240, 168, 82, 0.3) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
 }
 
 .scrollbar-thin::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-track {
@@ -96,6 +77,10 @@ select {
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(240, 168, 82, 0.3);
+  background: rgba(255, 255, 255, 0.2);
   border-radius: 999px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
 }

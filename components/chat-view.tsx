@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LoaderCircle, SendHorizontal } from "lucide-react";
+import { LoaderCircle, ArrowUp, Plus } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -221,72 +221,81 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  // Calculate textarea height dynamically if needed, but Tailwind max-height handles it.
   return (
-    <div className="panel grain flex min-h-[calc(100vh-2rem)] flex-col rounded-[2rem] border">
-      <div className="border-b border-white/8 px-6 py-5">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.32em] text-[color:var(--accent)]">
-              Active conversation
-            </p>
-            <h2
-              className="mt-2 text-4xl leading-none"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              {payload.conversation.title}
-            </h2>
-          </div>
-          <div className="grid gap-2 text-right text-xs text-[color:var(--muted)]">
-            <span>{payload.debug.rawTurnCount} raw turns stored</span>
-            <span>{payload.debug.memoryNodeCount} memory nodes</span>
-            <span>Latest compaction: {latestCompactionLabel}</span>
-          </div>
+    <div className="flex h-[100dvh] flex-col relative w-full bg-[var(--background)]">
+      {/* Optional Top debug header for desktop (mobile has one in Shell) */}
+      <div className="hidden md:flex justify-between items-center px-6 py-4 text-sm text-[var(--muted)]">
+         <span className="font-medium text-[var(--text)]">{payload.conversation.title}</span>
+         <div className="flex gap-3 text-xs opacity-50">
+           <span>{payload.debug.memoryNodeCount} memory nodes</span>
+           <span>Latest compaction: {latestCompactionLabel}</span>
+         </div>
+      </div>
+
+      <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 md:px-0 scroll-smooth">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 pt-4 pb-[160px] md:pb-[200px]">
+          {messages.map((message) => (
+            <MessageBubble key={message.id} message={message} />
+          ))}
+
+          {streamStartedAt ? (
+            <StreamingPlaceholder
+              createdAt={streamStartedAt}
+              thinking={streamThinkingDisplay}
+              answer={streamAnswerDisplay}
+              awaitingFirstToken={!hasReceivedFirstToken}
+              thinkingInProgress={Boolean(streamThinkingTarget) && !streamAnswerTarget}
+            />
+          ) : null}
+          
+          {error ? <p className="mt-3 text-sm text-red-500 text-center">{error}</p> : null}
         </div>
       </div>
 
-      <div ref={queueRef} className="scrollbar-thin min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-6">
-        {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} />
-        ))}
-
-        {streamStartedAt ? (
-          <StreamingPlaceholder
-            createdAt={streamStartedAt}
-            thinking={streamThinkingDisplay}
-            answer={streamAnswerDisplay}
-            awaitingFirstToken={!hasReceivedFirstToken}
-            thinkingInProgress={Boolean(streamThinkingTarget) && !streamAnswerTarget}
-          />
-        ) : null}
-      </div>
-
-      <div className="border-t border-white/8 px-5 py-5">
-        <div className="rounded-[2rem] border border-white/10 bg-black/15 p-3">
-          <Textarea
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="Ask anything. Hermes will compact context automatically when needed."
-            rows={4}
-            className="min-h-[120px] resize-none border-transparent bg-transparent px-2 py-2 focus:border-transparent focus:bg-transparent"
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void submit();
-              }
-            }}
-          />
-          <div className="mt-3 flex items-center justify-between gap-4">
-            <p className="text-xs text-[color:var(--muted)]">
-              Streaming reveals each answer progressively. Shift+Enter adds a new line.
-            </p>
-            <Button onClick={() => void submit()} disabled={isSending || !input.trim()} className="gap-2">
-              {isSending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
-              Send
-            </Button>
+      {/* Footer / Input area - Fixed bottom */}
+      <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-[var(--background)] via-[var(--background)] to-transparent pt-6 md:pt-14 pb-4 md:pb-6 pointer-events-none">
+        <div className="mx-auto w-full max-w-[700px] px-4 pointer-events-auto">
+          <div className="relative rounded-[1.8rem] border border-gray-200 bg-white p-2 shadow-sm flex flex-col">
+            <div className="flex max-h-[200px] w-full items-end pb-1 pr-1">
+              <button 
+                className="p-2 mb-1 ml-1 text-gray-400 hover:text-gray-600 transition rounded-full hover:bg-gray-100 shrink-0"
+                aria-label="Add attachment"
+              >
+                 <Plus className="h-5 w-5" />
+              </button>
+              
+              <Textarea
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="Ask anything"
+                className="max-h-[200px] min-h-[44px] flex-1 resize-none border-0 box-border bg-transparent px-3 py-3 text-base text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin rounded-none placeholder:text-gray-400"
+                style={{ height: "auto" }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void submit();
+                  }
+                }}
+              />
+              
+              <button 
+                onClick={() => void submit()} 
+                disabled={isSending || !input.trim()} 
+                className={`mb-1 mr-1 flex h-8 w-8 items-center justify-center rounded-full transition shrink-0 ${
+                  input.trim() && !isSending ? "bg-[var(--accent)] text-white hover:opacity-90" : "bg-gray-100 text-gray-400"
+                }`}
+                aria-label="Send message"
+              >
+                {isSending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
+              </button>
+            </div>
+            
+            <div className="px-3 pb-1 text-center text-[11px] text-gray-400">
+              Hermes can make mistakes. Check important info.
+            </div>
           </div>
         </div>
-
-        {error ? <p className="mt-3 text-sm text-red-300">{error}</p> : null}
       </div>
     </div>
   );
