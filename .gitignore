@@ -6,3 +6,4 @@ test-results
 .data
 .test-data
 .e2e-data
+.env*.local
