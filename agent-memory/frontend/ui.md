@@ -21,3 +21,5 @@
 ## Conventions
 - **Dark Mode:** Single dark theme
 - **Responsive:** Mobile-first Tailwind classes; desktop uses persistent sidebar and wide chat pane
+- **Settings Guidance:** The settings form shows whether the currently selected model/API mode can produce visible reasoning summaries
+- **Chat Rendering:** Assistant thinking blocks render collapsed by default; streaming shows a pre-token spinner and a compact spinning `Thinking...` header while reasoning is still in progress; assistant markdown uses `remark-breaks` so provider line breaks and blank-line paragraphs survive rendering

@@ -46,7 +46,7 @@ describe("provider integration", () => {
         apiBaseUrl: "https://api.example.com/v1",
         apiKeyEncrypted: "",
         apiKey: "sk-test",
-        model: "gpt-test",
+        model: "gpt-5-mini",
         apiMode: "responses",
         systemPrompt: "Be exact.",
         temperature: 0.2,
@@ -64,6 +64,50 @@ describe("provider integration", () => {
 
     expect(result).toBe("connected");
     expect(responsesCreate).toHaveBeenCalledOnce();
+    expect(responsesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reasoning: {
+          effort: "high",
+          summary: "auto"
+        }
+      })
+    );
+  });
+
+  it("omits reasoning config for non-reasoning models", async () => {
+    responsesCreate.mockResolvedValue({
+      output_text: "connected"
+    });
+
+    const { callProviderText } = await import("@/lib/provider");
+
+    await callProviderText({
+      settings: {
+        apiBaseUrl: "https://api.example.com/v1",
+        apiKeyEncrypted: "",
+        apiKey: "sk-test",
+        model: "gpt-4.1-mini",
+        apiMode: "responses",
+        systemPrompt: "Be exact.",
+        temperature: 0.2,
+        maxOutputTokens: 512,
+        reasoningEffort: "medium",
+        reasoningSummaryEnabled: true,
+        modelContextLimit: 16000,
+        compactionThreshold: 0.8,
+        freshTailCount: 12,
+        updatedAt: new Date().toISOString()
+      },
+      prompt: "Reply with connected",
+      purpose: "test"
+    });
+
+    expect(responsesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: "gpt-4.1-mini",
+        reasoning: undefined
+      })
+    );
   });
 
   it("reads responses text from output arrays and errors on empty chat completions", async () => {
@@ -180,7 +224,7 @@ describe("provider integration", () => {
         apiBaseUrl: "https://api.example.com/v1",
         apiKeyEncrypted: "",
         apiKey: "sk-test",
-        model: "gpt-test",
+        model: "gpt-5-mini",
         apiMode: "responses",
         systemPrompt: "Be exact.",
         temperature: 0.2,
@@ -373,6 +417,119 @@ describe("provider integration", () => {
       type: "usage",
       inputTokens: 4,
       outputTokens: 2
+    });
+  });
+
+  it("streams glm reasoning_content deltas when using chat_completions mode", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([
+        { choices: [{ delta: { reasoning_content: "Thinking " } }] },
+        { choices: [{ delta: { content: "Hi there" } }] }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: {
+        apiBaseUrl: "https://api.example.com/v1",
+        apiKeyEncrypted: "",
+        apiKey: "sk-test",
+        model: "glm-5-turbo",
+        apiMode: "chat_completions",
+        systemPrompt: "Be exact.",
+        temperature: 0.2,
+        maxOutputTokens: 512,
+        reasoningEffort: "medium",
+        reasoningSummaryEnabled: true,
+        modelContextLimit: 16000,
+        compactionThreshold: 0.8,
+        freshTailCount: 12,
+        updatedAt: new Date().toISOString()
+      },
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+
+      if (next.done) {
+        expect(next.value.thinking).toBe("Thinking ");
+        expect(next.value.answer).toBe("Hi there");
+        break;
+      }
+
+      events.push(next.value);
+    }
+
+    expect(chatCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extra_body: {
+          thinking: {
+            type: "enabled"
+          }
+        }
+      })
+    );
+
+    expect(events).toEqual([
+      { type: "thinking_delta", text: "Thinking " },
+      { type: "answer_delta", text: "Hi there" },
+      { type: "usage", inputTokens: 1, outputTokens: undefined }
+    ]);
+  });
+
+  it("decodes escaped newline sequences from provider deltas", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([
+        { choices: [{ delta: { reasoning_content: "Plan:\\n\\n- step one" } }] },
+        { choices: [{ delta: { content: "Hello\\n\\nWorld" } }] }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: {
+        apiBaseUrl: "https://api.example.com/v1",
+        apiKeyEncrypted: "",
+        apiKey: "sk-test",
+        model: "glm-5-turbo",
+        apiMode: "chat_completions",
+        systemPrompt: "Be exact.",
+        temperature: 0.2,
+        maxOutputTokens: 512,
+        reasoningEffort: "medium",
+        reasoningSummaryEnabled: true,
+        modelContextLimit: 16000,
+        compactionThreshold: 0.8,
+        freshTailCount: 12,
+        updatedAt: new Date().toISOString()
+      },
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+
+      if (next.done) {
+        expect(next.value.thinking).toBe("Plan:\n\n- step one");
+        expect(next.value.answer).toBe("Hello\n\nWorld");
+        break;
+      }
+
+      events.push(next.value);
+    }
+
+    expect(events).toContainEqual({
+      type: "thinking_delta",
+      text: "Plan:\n\n- step one"
+    });
+    expect(events).toContainEqual({
+      type: "answer_delta",
+      text: "Hello\n\nWorld"
     });
   });
 });

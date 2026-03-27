@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 
+import { supportsVisibleReasoning } from "@/lib/model-capabilities";
 import { estimateTextTokens } from "@/lib/tokenization";
 import type { AppSettings, ChatStreamEvent, PromptMessage } from "@/lib/types";
 
@@ -27,6 +28,10 @@ function normalizeReasoningEffort(
 }
 
 function buildReasoningConfig(settings: AppSettings) {
+  if (!supportsVisibleReasoning(settings.model, settings.apiMode)) {
+    return undefined;
+  }
+
   const effort = normalizeReasoningEffort(settings.reasoningEffort);
 
   if (settings.reasoningSummaryEnabled) {
@@ -39,6 +44,24 @@ function buildReasoningConfig(settings: AppSettings) {
   return {
     effort
   } as const;
+}
+
+function buildChatCompletionsOptions(settings: AppSettings) {
+  if (!supportsVisibleReasoning(settings.model, settings.apiMode)) {
+    return {};
+  }
+
+  return {
+    extra_body: {
+      thinking: {
+        type: settings.reasoningSummaryEnabled ? "enabled" : "disabled"
+      }
+    }
+  } as const;
+}
+
+function normalizeProviderText(text: string) {
+  return text.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
 }
 
 function getResponseText(output: unknown) {
@@ -92,14 +115,15 @@ export async function callProviderText(input: {
   const client = createClient(settings, settings.apiKey);
 
   if (settings.apiMode === "responses") {
+    const reasoning = buildReasoningConfig(settings);
     const response = await client.responses.create({
       model: settings.model,
       input: input.prompt,
       max_output_tokens: Math.min(settings.maxOutputTokens, 4000),
-      reasoning: buildReasoningConfig(settings)
+      reasoning
     });
 
-    const text = getResponseText(response);
+    const text = normalizeProviderText(getResponseText(response));
 
     if (!text.trim()) {
       throw new Error("Provider returned an empty response");
@@ -112,10 +136,15 @@ export async function callProviderText(input: {
     model: settings.model,
     messages: [{ role: "user", content: input.prompt }],
     temperature: settings.temperature,
-    max_completion_tokens: Math.min(settings.maxOutputTokens, 4000)
+    max_completion_tokens: Math.min(settings.maxOutputTokens, 4000),
+    ...buildChatCompletionsOptions(settings)
   });
 
-  const text = response.choices[0]?.message?.content ?? "";
+  const text = normalizeProviderText(
+    typeof response.choices[0]?.message?.content === "string"
+      ? response.choices[0]?.message?.content
+      : ""
+  );
 
   if (!text.trim()) {
     throw new Error("Provider returned an empty response");
@@ -145,18 +174,19 @@ export async function* streamProviderResponse(input: {
   };
 
   if (settings.apiMode === "responses") {
+    const reasoning = buildReasoningConfig(settings);
     const stream = await client.responses.create({
       model: settings.model,
       input: toResponsesInput(promptMessages),
       stream: true,
       temperature: settings.temperature,
       max_output_tokens: settings.maxOutputTokens,
-      reasoning: buildReasoningConfig(settings)
+      reasoning
     });
 
     for await (const event of stream) {
       if (event.type === "response.output_text.delta") {
-        const text = event.delta ?? "";
+        const text = normalizeProviderText(String(event.delta ?? ""));
         answer += text;
         yield { type: "answer_delta", text };
       }
@@ -165,7 +195,7 @@ export async function* streamProviderResponse(input: {
         event.type === "response.reasoning_summary_text.delta" ||
         event.type === "response.reasoning_text.delta"
       ) {
-        const text = "delta" in event ? String(event.delta ?? "") : "";
+        const text = "delta" in event ? normalizeProviderText(String(event.delta ?? "")) : "";
         thinking += text;
         yield { type: "thinking_delta", text };
       }
@@ -185,7 +215,7 @@ export async function* streamProviderResponse(input: {
         };
 
         if (item.type === "reasoning" && Array.isArray(item.summary)) {
-          const combined = item.summary.map((part) => part.text ?? "").join("");
+          const combined = normalizeProviderText(item.summary.map((part) => part.text ?? "").join(""));
 
           if (combined && combined !== thinking) {
             const delta = combined.slice(thinking.length);
@@ -214,11 +244,24 @@ export async function* streamProviderResponse(input: {
     messages: promptMessages,
     stream: true,
     temperature: settings.temperature,
-    max_completion_tokens: settings.maxOutputTokens
+    max_completion_tokens: settings.maxOutputTokens,
+    ...buildChatCompletionsOptions(settings)
   });
 
   for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content ?? "";
+    const reasoningDelta = normalizeProviderText(
+      "reasoning_content" in (chunk.choices[0]?.delta ?? {})
+        ? String(
+            (chunk.choices[0]?.delta as { reasoning_content?: string }).reasoning_content ?? ""
+          )
+        : ""
+    );
+    const delta = normalizeProviderText(chunk.choices[0]?.delta?.content ?? "");
+
+    if (reasoningDelta) {
+      thinking += reasoningDelta;
+      yield { type: "thinking_delta", text: reasoningDelta };
+    }
 
     if (delta) {
       answer += delta;

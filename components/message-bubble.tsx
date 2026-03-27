@@ -1,20 +1,30 @@
+import { useState } from "react";
+import { ChevronDown, ChevronRight, LoaderCircle } from "lucide-react";
 import ReactMarkdown from "react-markdown";
+import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
-import { cn, formatTimestamp } from "@/lib/utils";
+import { formatTimestamp } from "@/lib/utils";
 import type { Message } from "@/lib/types";
 
 export function MessageBubble({
   message,
   streamingThinking,
-  streamingAnswer
+  streamingAnswer,
+  awaitingFirstToken = false,
+  thinkingInProgress = false
 }: {
   message: Message;
   streamingThinking?: string;
   streamingAnswer?: string;
+  awaitingFirstToken?: boolean;
+  thinkingInProgress?: boolean;
 }) {
   const content = streamingAnswer ?? message.content;
   const thinkingContent = streamingThinking ?? message.thinkingContent;
+  const [thinkingOpen, setThinkingOpen] = useState(false);
+  const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || Boolean(thinkingContent));
+  const markdownPlugins = [remarkGfm, remarkBreaks];
 
   if (message.role === "system") {
     return (
@@ -42,20 +52,47 @@ export function MessageBubble({
           Hermes · {formatTimestamp(message.createdAt)}
         </p>
 
-        {thinkingContent ? (
+        {showThinkingShell ? (
           <div className="mb-4 rounded-[1.5rem] border border-sky-300/20 bg-sky-300/8 px-4 py-3">
-            <p className="mb-2 text-[0.68rem] font-semibold uppercase tracking-[0.24em] text-sky-200">
-              Thinking
-            </p>
-            <p className="whitespace-pre-wrap text-sm leading-7 text-sky-100/90">
-              {thinkingContent}
-            </p>
+            <button
+              type="button"
+              onClick={() => setThinkingOpen((current) => !current)}
+              className="flex w-full items-center justify-between gap-3 text-left text-sky-100"
+            >
+              <span className="flex items-center gap-2 text-[0.78rem] font-semibold uppercase tracking-[0.22em] text-sky-200">
+                {thinkingOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                {thinkingInProgress ? (
+                  <>
+                    <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                    Thinking...
+                  </>
+                ) : (
+                  "Thinking"
+                )}
+              </span>
+              <span className="text-[0.68rem] uppercase tracking-[0.18em] text-sky-100/60">
+                {thinkingOpen ? "Hide" : "Show"}
+              </span>
+            </button>
+
+            {thinkingOpen && thinkingContent ? (
+              <div className="prose prose-invert mt-3 max-w-none prose-p:my-4 prose-p:leading-7 prose-pre:rounded-2xl prose-pre:border prose-pre:border-sky-200/15 prose-pre:bg-[#0f1a24] prose-code:text-sky-100 prose-li:my-1 prose-ul:my-4 prose-ol:my-4">
+                <ReactMarkdown remarkPlugins={markdownPlugins}>{thinkingContent}</ReactMarkdown>
+              </div>
+            ) : null}
           </div>
         ) : null}
 
-        <div className="prose prose-invert max-w-none prose-p:leading-7 prose-pre:rounded-2xl prose-pre:border prose-pre:border-white/10 prose-pre:bg-[#10141b] prose-code:text-[color:var(--accent)]">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content || " "}</ReactMarkdown>
-        </div>
+        {awaitingFirstToken ? (
+          <div className="flex items-center gap-3 text-sm text-[color:var(--muted)]">
+            <LoaderCircle className="h-4 w-4 animate-spin text-[color:var(--accent)]" />
+            Loading...
+          </div>
+        ) : content ? (
+          <div className="prose prose-invert max-w-none prose-p:my-4 prose-p:leading-7 prose-pre:rounded-2xl prose-pre:border prose-pre:border-white/10 prose-pre:bg-[#10141b] prose-code:text-[color:var(--accent)] prose-li:my-1 prose-ul:my-4 prose-ol:my-4">
+            <ReactMarkdown remarkPlugins={markdownPlugins}>{content}</ReactMarkdown>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -64,11 +101,15 @@ export function MessageBubble({
 export function StreamingPlaceholder({
   createdAt,
   thinking,
-  answer
+  answer,
+  awaitingFirstToken,
+  thinkingInProgress
 }: {
   createdAt: string;
   thinking: string;
   answer: string;
+  awaitingFirstToken: boolean;
+  thinkingInProgress: boolean;
 }) {
   return (
     <MessageBubble
@@ -86,6 +127,8 @@ export function StreamingPlaceholder({
       }}
       streamingThinking={thinking}
       streamingAnswer={answer}
+      awaitingFirstToken={awaitingFirstToken}
+      thinkingInProgress={thinkingInProgress}
     />
   );
 }

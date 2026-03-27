@@ -9,7 +9,7 @@ export const LEAF_MIN_MESSAGE_COUNT = 6;
 export const MERGED_MIN_NODE_COUNT = 4;
 export const DEFAULT_SETTINGS = {
   apiBaseUrl: "https://api.openai.com/v1",
-  model: "gpt-4.1-mini",
+  model: "gpt-5-mini",
   apiMode: "responses",
   systemPrompt:
     "You are a precise, practical assistant. Answer clearly and directly.",

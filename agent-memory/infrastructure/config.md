@@ -15,6 +15,10 @@
 | `HERMES_DATA_DIR` | `./.data` | mounted volume | mounted volume |
 | bootstrap secrets | local `.env` values | deployment secret store | deployment secret store |
 
+## Runtime Defaults
+- Default OpenAI model: `gpt-5-mini`
+- Default API mode: `responses`
+
 ## Management
 - **Local:** `.env.local` (gitignored)
 - **Deployed:** Container environment

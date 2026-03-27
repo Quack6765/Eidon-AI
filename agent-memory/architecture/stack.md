@@ -16,7 +16,7 @@
 | `argon2` | Password hashing |
 | `jose` | Session token signing and verification |
 | `zod` | Request and settings validation |
-| `react-markdown` + `remark-gfm` | Assistant markdown rendering |
+| `react-markdown` + `remark-gfm` + `remark-breaks` | Assistant markdown rendering with preserved provider line breaks |
 | `gpt-tokenizer` | Token estimation for context budgeting |
 
 ## Build Tools

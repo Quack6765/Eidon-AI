@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { supportsVisibleReasoning } from "@/lib/model-capabilities";
 import type { AppSettings, AuthUser } from "@/lib/types";
 
 type SettingsPayload = Omit<AppSettings, "apiKeyEncrypted"> & {
@@ -27,6 +28,9 @@ export function SettingsForm({
   const [accountSuccess, setAccountSuccess] = useState("");
   const [testResult, setTestResult] = useState("");
   const [isPending, startTransition] = useTransition();
+  const [draftModel, setDraftModel] = useState(settings.model);
+  const [draftApiMode, setDraftApiMode] = useState(settings.apiMode);
+  const visibleReasoningSupported = supportsVisibleReasoning(draftModel, draftApiMode);
 
   async function handleSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -139,6 +143,7 @@ export function SettingsForm({
             <select
               name="apiMode"
               defaultValue={settings.apiMode}
+              onChange={(event) => setDraftApiMode(event.target.value as SettingsPayload["apiMode"])}
               className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
             >
               <option value="responses">responses</option>
@@ -148,7 +153,17 @@ export function SettingsForm({
 
           <div>
             <Label>Model</Label>
-            <Input name="model" defaultValue={settings.model} required />
+            <Input
+              name="model"
+              defaultValue={settings.model}
+              required
+              onChange={(event) => setDraftModel(event.target.value)}
+            />
+            <p className="mt-2 text-xs leading-5 text-[color:var(--muted)]">
+              {visibleReasoningSupported
+                ? "This model can emit visible reasoning summaries through the Responses API."
+                : "This model is treated as non-reasoning here, so visible thinking will stay hidden even if the toggle below is on."}
+            </p>
           </div>
 
           <div className="md:col-span-2">
@@ -203,6 +218,9 @@ export function SettingsForm({
               />
               Show reasoning when provider supports it
             </label>
+            <p className="mt-2 text-xs leading-5 text-[color:var(--muted)]">
+              Best results here come from reasoning-capable models like GPT-5 and OpenAI o-series models on the Responses API.
+            </p>
           </div>
 
           <div>

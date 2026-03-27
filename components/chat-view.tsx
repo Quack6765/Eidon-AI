@@ -51,6 +51,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [streamAnswerTarget, setStreamAnswerTarget] = useState("");
   const [streamAnswerDisplay, setStreamAnswerDisplay] = useState("");
   const [streamStartedAt, setStreamStartedAt] = useState<string | null>(null);
+  const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
   const queueRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -140,6 +141,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     setStreamAnswerTarget("");
     setStreamAnswerDisplay("");
     setStreamStartedAt(new Date().toISOString());
+    setHasReceivedFirstToken(false);
 
     try {
       const response = await fetch(`/api/conversations/${payload.conversation.id}/chat`, {
@@ -172,10 +174,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
         parsed.events.forEach((event) => {
           if (event.type === "thinking_delta") {
+            setHasReceivedFirstToken(true);
             setStreamThinkingTarget((current) => current + event.text);
           }
 
           if (event.type === "answer_delta") {
+            setHasReceivedFirstToken(true);
             setStreamAnswerTarget((current) => current + event.text);
           }
 
@@ -213,6 +217,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       setStreamAnswerTarget("");
       setStreamAnswerDisplay("");
       setIsSending(false);
+      setHasReceivedFirstToken(false);
     }
   }
 
@@ -249,6 +254,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             createdAt={streamStartedAt}
             thinking={streamThinkingDisplay}
             answer={streamAnswerDisplay}
+            awaitingFirstToken={!hasReceivedFirstToken}
+            thinkingInProgress={Boolean(streamThinkingTarget) && !streamAnswerTarget}
           />
         ) : null}
       </div>
