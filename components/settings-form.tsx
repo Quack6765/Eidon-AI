@@ -27,7 +27,7 @@ export function SettingsForm({
   const [success, setSuccess] = useState("");
   const [accountSuccess, setAccountSuccess] = useState("");
   const [testResult, setTestResult] = useState("");
-  const [isPending, startTransition] = useTransition();
+  const [isPending] = useTransition();
   const [draftModel, setDraftModel] = useState(settings.model);
   const [draftApiMode, setDraftApiMode] = useState(settings.apiMode);
   const visibleReasoningSupported = supportsVisibleReasoning(draftModel, draftApiMode);
@@ -108,10 +108,7 @@ export function SettingsForm({
 
   async function logout() {
     await fetch("/api/auth/logout", { method: "POST" });
-    startTransition(() => {
-      router.push("/login");
-      router.refresh();
-    });
+    window.location.href = "/login";
   }
 
   return (
