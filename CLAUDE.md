@@ -9,3 +9,8 @@ To validate:
 2. Take a screenshot to verify the visual output
 3. Test interactive elements (clicks, form inputs, navigation)
 4. Confirm the changes match the intended behavior
+
+### Dev Server
+
+- **Do NOT start the dev server yourself.** The user runs it separately and it supports hot-reload — no restarts needed after code changes.
+- If the app isn't reachable when validating, ask the user to start it.
