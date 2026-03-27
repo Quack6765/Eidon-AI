@@ -249,17 +249,17 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             />
           ) : null}
           
-          {error ? <p className="mt-3 text-sm text-red-500 text-center">{error}</p> : null}
+          {error ? <p className="mt-3 text-sm text-red-400 text-center">{error}</p> : null}
         </div>
       </div>
 
       {/* Footer / Input area - Fixed bottom */}
       <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-[var(--background)] via-[var(--background)] to-transparent pt-6 md:pt-14 pb-4 md:pb-6 pointer-events-none">
         <div className="mx-auto w-full max-w-[700px] px-4 pointer-events-auto">
-          <div className="relative rounded-[1.8rem] border border-gray-200 bg-white p-2 shadow-sm flex flex-col">
+          <div className="relative rounded-[1.8rem] border border-white/10 bg-[#2f2f2f] p-2 shadow-2xl flex flex-col">
             <div className="flex max-h-[200px] w-full items-end pb-1 pr-1">
               <button 
-                className="p-2 mb-1 ml-1 text-gray-400 hover:text-gray-600 transition rounded-full hover:bg-gray-100 shrink-0"
+                className="p-2 mb-1 ml-1 text-white/50 hover:text-white transition rounded-full hover:bg-white/10 shrink-0"
                 aria-label="Add attachment"
               >
                  <Plus className="h-5 w-5" />
@@ -269,7 +269,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="Ask anything"
-                className="max-h-[200px] min-h-[44px] flex-1 resize-none border-0 box-border bg-transparent px-3 py-3 text-base text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin rounded-none placeholder:text-gray-400"
+                className="max-h-[200px] min-h-[44px] flex-1 resize-none border-0 box-border bg-transparent px-3 py-3 text-base text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin rounded-none placeholder:text-white/40"
                 style={{ height: "auto" }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
@@ -282,8 +282,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               <button 
                 onClick={() => void submit()} 
                 disabled={isSending || !input.trim()} 
-                className={`mb-1 mr-1 flex h-8 w-8 items-center justify-center rounded-full transition shrink-0 ${
-                  input.trim() && !isSending ? "bg-[var(--accent)] text-white hover:opacity-90" : "bg-gray-100 text-gray-400"
+                className={`mb-1 mr-1 flex h-8 w-8 items-center justify-center rounded-full transition shrink-0 shadow-sm ${
+                  input.trim() && !isSending ? "bg-[var(--accent)] text-white hover:opacity-90" : "bg-white/10 text-white/40"
                 }`}
                 aria-label="Send message"
               >
@@ -291,7 +291,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               </button>
             </div>
             
-            <div className="px-3 pb-1 text-center text-[11px] text-gray-400">
+            <div className="px-3 pb-1 text-center text-[11px] text-white/40">
               Hermes can make mistakes. Check important info.
             </div>
           </div>

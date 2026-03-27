@@ -40,13 +40,13 @@ export default function HomePage() {
         <div className="w-full max-w-[700px] relative">
             <button 
               onClick={handleCreate}
-              className="group flex bg-white w-full min-h-[56px] rounded-[1.8rem] items-center px-4 hover:shadow-md transition cursor-text border border-gray-200 shadow-sm"
+              className="group flex bg-[#2f2f2f] w-full min-h-[56px] rounded-[1.8rem] items-center px-4 hover:bg-[#383838] transition cursor-text border border-white/5 shadow-lg"
             >
-               <span className="text-gray-400 group-hover:text-gray-600 transition"><Plus className="h-5 w-5" /></span>
-               <span className="ml-3 text-gray-400 group-hover:text-gray-600 transition text-base font-normal flex-1 text-left">Ask anything</span>
+               <span className="text-white/40 group-hover:text-white/60 transition"><Plus className="h-5 w-5" /></span>
+               <span className="ml-3 text-white/50 group-hover:text-white/70 transition text-base font-normal flex-1 text-left">Ask anything</span>
                
                <div className="flex items-center gap-2">
-                 <div className="p-2 text-gray-400 hover:text-gray-600 transition rounded-full hover:bg-gray-100">
+                 <div className="p-2 text-white/60 hover:text-white transition rounded-full hover:bg-white/10">
                    <Mic className="h-4 w-4" />
                  </div>
                  <div className="bg-[var(--accent)] text-white p-1.5 rounded-full">

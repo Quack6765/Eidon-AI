@@ -12,18 +12,18 @@
 }
 
 :root {
-  --background: #f9fafb;
-  --sidebar: #f3f4f6;
-  --panel: #ffffff;
+  --background: #212121;
+  --sidebar: #171717;
+  --panel: #2f2f2f;
   --panel-strong: #020D2B; /* Deep Blue for primary interactions */
-  --line: rgba(0, 0, 0, 0.1);
-  --line-strong: rgba(0, 0, 0, 0.15);
-  --text: #111827;
-  --muted: #6b7280;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.15);
+  --text: #ececec;
+  --muted: #b4b4b4;
   --accent: #020D2B; /* Using the Deep Blue as the core accent */
-  --accent-soft: rgba(2, 13, 43, 0.1);
+  --accent-soft: rgba(2, 13, 43, 0.5);
   --thinking: #ab68ff;
-  --shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  --shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
 }
 
 * {

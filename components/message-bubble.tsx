@@ -39,7 +39,7 @@ export function MessageBubble({
   if (message.role === "user") {
     return (
       <div className="ml-auto w-full max-w-3xl flex justify-end">
-        <div className="max-w-[75%] rounded-[1.4rem] bg-gray-100 px-5 py-3 text-[var(--text)] shadow-sm">
+        <div className="max-w-[75%] rounded-[1.4rem] bg-[#2f2f2f] px-5 py-3 text-[var(--text)]">
           <p className="whitespace-pre-wrap text-[15px] leading-7">{content}</p>
         </div>
       </div>
@@ -50,13 +50,13 @@ export function MessageBubble({
     <div className="w-full max-w-3xl">
       <div className="flex gap-4">
         {/* Avatar */}
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-gray-200 text-black font-semibold text-xs overflow-hidden mt-1">
+        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-white/10 text-black font-semibold text-xs overflow-hidden mt-1">
           <img src="/chat-icon.png" alt="Assistant" className="h-full w-full object-cover" />
         </div>
 
         <div className="flex-1 space-y-3 pt-1 text-[15px] text-[var(--text)]">
           {showThinkingShell ? (
-            <div className="mb-4 rounded-[1rem] border border-gray-200 bg-gray-50 px-4 py-3">
+            <div className="mb-4 rounded-[1rem] border border-sky-300/10 bg-sky-300/5 px-4 py-3">
               <button
                 type="button"
                 onClick={() => setThinkingOpen((current) => !current)}
@@ -73,13 +73,13 @@ export function MessageBubble({
                     "Thought Process"
                   )}
                 </span>
-                <span className="text-[0.68rem] uppercase tracking-[0.18em] text-gray-400">
+                <span className="text-[0.68rem] uppercase tracking-[0.18em] text-white/30">
                   {thinkingOpen ? "Hide" : "Show"}
                 </span>
               </button>
 
               {thinkingOpen && thinkingContent ? (
-                <div className="prose mt-3 max-w-none prose-p:my-4 prose-p:leading-7 prose-pre:rounded-2xl prose-pre:border prose-pre:border-gray-200 prose-pre:bg-gray-100 prose-code:text-gray-800 prose-li:my-1 prose-ul:my-4 prose-ol:my-4 text-gray-600">
+                <div className="prose prose-invert mt-3 max-w-none prose-p:my-4 prose-p:leading-7 prose-pre:rounded-2xl prose-pre:border prose-pre:border-white/5 prose-pre:bg-black/20 prose-code:text-white/80 prose-li:my-1 prose-ul:my-4 prose-ol:my-4 text-white/70">
                   <ReactMarkdown remarkPlugins={markdownPlugins}>{thinkingContent}</ReactMarkdown>
                 </div>
               ) : null}
@@ -88,10 +88,10 @@ export function MessageBubble({
 
           {awaitingFirstToken ? (
             <div className="flex items-center gap-3 py-1">
-              <div className="h-4 w-4 rounded-full bg-gray-400 animate-pulse" />
+              <div className="h-4 w-4 rounded-full bg-white/50 animate-pulse" />
             </div>
           ) : content ? (
-            <div className="prose max-w-none prose-p:my-2 prose-p:leading-7 prose-pre:rounded-xl prose-pre:bg-gray-100 prose-pre:border prose-pre:border-gray-200 prose-li:my-1 prose-ul:my-4 prose-ol:my-4 prose-a:text-blue-600 text-[var(--text)]">
+            <div className="prose prose-invert max-w-none prose-p:my-2 prose-p:leading-7 prose-pre:rounded-xl prose-pre:bg-black/20 prose-pre:border prose-pre:border-white/5 prose-li:my-1 prose-ul:my-4 prose-ol:my-4 prose-a:text-blue-400">
               <ReactMarkdown remarkPlugins={markdownPlugins}>{content}</ReactMarkdown>
             </div>
           ) : null}

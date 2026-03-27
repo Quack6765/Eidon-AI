@@ -31,11 +31,11 @@ export function Sidebar({
   }
 
   return (
-    <aside className="no-scrollbar flex h-full w-full flex-col bg-[var(--sidebar)] text-gray-800 border-r border-[var(--line)]">
+    <aside className="no-scrollbar flex h-full w-full flex-col bg-[var(--sidebar)] text-gray-300">
       <div className="flex h-full flex-col px-3 py-3">
         {/* Top Header */}
         <div className="flex items-center justify-between mb-2 mt-1">
-          <button className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-black/5 transition font-semibold text-[var(--text)] text-sm">
+          <button className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/5 transition font-semibold text-white/90 text-sm">
             <img src="/logo.png" alt="Logo" width={24} height={24} className="h-6 w-auto object-contain" />
             <span>Hermes</span>
           </button>
@@ -43,7 +43,7 @@ export function Sidebar({
           <div className="flex gap-1">
              <button 
                onClick={handleCreate} 
-               className="p-1.5 rounded-lg text-gray-500 hover:bg-black/5 hover:text-[var(--text)] transition"
+               className="p-1.5 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition"
                title="New chat"
              >
                <Plus className="h-5 w-5" />
@@ -53,7 +53,7 @@ export function Sidebar({
 
         {/* Global actions */}
         <div className="flex flex-col gap-1 mb-4">
-          <button className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm text-gray-600 hover:bg-black/5 hover:text-gray-900 transition">
+          <button className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm text-white/70 hover:bg-white/5 hover:text-white transition">
              <Search className="h-4 w-4" />
              <span>Search chats</span>
           </button>
@@ -63,10 +63,10 @@ export function Sidebar({
         <div className="scrollbar-thin flex-1 overflow-y-auto overflow-x-hidden pr-2 -mr-2 space-y-6">
            
            <div>
-             <h3 className="px-2 pb-2 text-xs font-semibold text-gray-500">Folders</h3>
+             <h3 className="px-2 pb-2 text-xs font-semibold text-white/40">Folders</h3>
              <div className="flex flex-col gap-1">
-               <button className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm text-gray-600 hover:bg-black/5 hover:text-gray-900 transition">
-                 <div className="h-4 w-4 border border-dashed border-gray-400 rounded-sm flex items-center justify-center">
+               <button className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm text-white/70 hover:bg-white/5 hover:text-white transition">
+                 <div className="h-4 w-4 border border-dashed border-white/50 rounded-sm flex items-center justify-center">
                    <Plus className="h-3 w-3" />
                  </div>
                  <span>New folder</span>
@@ -75,7 +75,7 @@ export function Sidebar({
            </div>
 
            <div>
-             <h3 className="px-2 pb-2 text-xs font-semibold text-gray-500">Your chats</h3>
+             <h3 className="px-2 pb-2 text-xs font-semibold text-white/40">Your chats</h3>
              <div className="flex flex-col">
                {conversations.map((conversation) => {
                  const active = pathname === `/chat/${conversation.id}`;
@@ -87,8 +87,8 @@ export function Sidebar({
                      onClick={onClose}
                      className={`group relative flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition ${
                        active
-                         ? "bg-black/5 text-gray-900 font-medium"
-                         : "text-gray-600 hover:bg-black/5 hover:text-gray-900"
+                         ? "bg-white/10 text-white font-medium"
+                         : "text-white/70 hover:bg-white/5 hover:text-white"
                      }`}
                    >
                      <div className="relative min-w-0 flex-1 overflow-hidden">
@@ -98,7 +98,7 @@ export function Sidebar({
                        
                        {/* Floating Options Button on Hover/Active */}
                        <div className={`absolute right-0 top-0 bottom-0 flex items-center bg-gradient-to-l from-[var(--sidebar)] via-[var(--sidebar)] to-transparent pl-4 pr-1 ${active ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
-                           <button className="text-gray-400 hover:text-gray-800 transition p-1">
+                           <button className="text-white/50 hover:text-white transition p-1">
                              <MoreHorizontal className="h-4 w-4" />
                            </button>
                        </div>
@@ -108,7 +108,7 @@ export function Sidebar({
                })}
 
                {!conversations.length ? (
-                 <div className="px-2 py-3 text-xs text-gray-500 italic">
+                 <div className="px-2 py-3 text-xs text-white/40 italic">
                    No conversations
                  </div>
                ) : null}
@@ -117,11 +117,11 @@ export function Sidebar({
         </div>
 
         {/* Bottom User / Settings profile area */}
-        <div className="mt-2 flex items-center border-t border-[var(--line)] pt-3 mb-1">
+        <div className="mt-2 flex items-center border-t border-white/10 pt-3 mb-1">
           <Link 
              href="/settings"
              onClick={onClose}
-             className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm text-gray-600 hover:bg-black/5 hover:text-gray-900 transition"
+             className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm text-white/80 hover:bg-white/5 transition"
           >
              <Settings className="h-4 w-4" />
              <span>Settings</span>
