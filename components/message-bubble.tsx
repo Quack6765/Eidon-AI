@@ -10,7 +10,12 @@ import { formatTimestamp } from "@/lib/utils";
 import type { Message } from "@/lib/types";
 
 function normalizeLineBreaks(text: string) {
-  return text.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
+  let result = text.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
+  result = result.replace(/\n{3,}/g, (match) => {
+    const extras = match.length - 2;
+    return "\n\n" + ("\u00A0\n\n".repeat(extras));
+  });
+  return result;
 }
 
 const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];

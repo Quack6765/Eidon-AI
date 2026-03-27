@@ -81,10 +81,19 @@ export function getSettings() {
 
 export function getSettingsWithApiKey() {
   const settings = getSettings();
+  let apiKey = "";
+
+  if (settings.apiKeyEncrypted) {
+    try {
+      apiKey = decryptValue(settings.apiKeyEncrypted);
+    } catch {
+      apiKey = "";
+    }
+  }
 
   return {
     ...settings,
-    apiKey: settings.apiKeyEncrypted ? decryptValue(settings.apiKeyEncrypted) : ""
+    apiKey
   };
 }
 

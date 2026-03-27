@@ -153,8 +153,19 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       });
 
       if (!response.ok || !response.body) {
-        const failure = (await response.json()) as { error?: string };
-        throw new Error(failure.error ?? "Unable to send message");
+        if (response.status === 401) {
+          router.push("/login");
+          return;
+        }
+
+        let message = "Unable to send message";
+
+        try {
+          const failure = (await response.json()) as { error?: string };
+          message = failure.error ?? message;
+        } catch {}
+
+        throw new Error(message);
       }
 
       const reader = response.body.getReader();

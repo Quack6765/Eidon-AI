@@ -218,11 +218,18 @@ export async function getCurrentUser() {
   return rowToUser(userRow);
 }
 
-export async function requireUser() {
+export async function requireUser(redirectToLogin?: true): Promise<AuthUser>
+export async function requireUser(redirectToLogin: false): Promise<AuthUser | null>
+export async function requireUser(redirectToLogin?: boolean): Promise<AuthUser | null> {
   const user = await getCurrentUser();
+  const shouldRedirect = redirectToLogin !== false;
 
   if (!user) {
-    redirect("/login");
+    if (shouldRedirect) {
+      redirect("/login");
+    }
+
+    return null;
   }
 
   return user;

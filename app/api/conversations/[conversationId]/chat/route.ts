@@ -27,7 +27,11 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ conversationId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser(false);
+
+  if (!user) {
+    return badRequest("Authentication required", 401);
+  }
   const params = paramsSchema.safeParse(await context.params);
 
   if (!params.success) {
