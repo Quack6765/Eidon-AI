@@ -592,11 +592,18 @@ export function SettingsForm({
           </p>
 
           <div className="mt-4 space-y-3">
-            {skills.map((skill) => (
+            {skills.map((skill) => {
+              const isBuiltin = skill.id.startsWith("builtin-");
+              return (
               <div key={skill.id} className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 px-4 py-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-[var(--text)]">{skill.name}</span>
+                    {isBuiltin && (
+                      <span className="inline-flex items-center rounded-md bg-amber-900/40 px-1.5 py-0.5 text-[0.65rem] font-medium text-amber-300">
+                        Built-in
+                      </span>
+                    )}
                     <span className="text-xs text-white/30 truncate max-w-[200px]">{skill.content.slice(0, 60)}...</span>
                   </div>
                 </div>
@@ -610,15 +617,20 @@ export function SettingsForm({
                     />
                     On
                   </label>
-                  <button onClick={() => editSkill(skill)} className="p-1 text-white/40 hover:text-white transition">
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button onClick={() => deleteSkill(skill.id)} className="p-1 text-red-400/60 hover:text-red-400 transition">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  {!isBuiltin && (
+                    <button onClick={() => editSkill(skill)} className="p-1 text-white/40 hover:text-white transition">
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {!isBuiltin && (
+                    <button onClick={() => deleteSkill(skill.id)} className="p-1 text-red-400/60 hover:text-red-400 transition">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
-            ))}
+              );
+            })}
 
             {showSkillForm ? (
               <div className="space-y-3 rounded-xl border border-white/10 bg-black/20 p-4">

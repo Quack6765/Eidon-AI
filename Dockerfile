@@ -19,6 +19,9 @@ ENV HERMES_DATA_DIR=/app/data
 # Install uv for uvx (Python-based MCP servers)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
+# Install agent-browser for headless browser automation
+RUN npm install -g agent-browser && agent-browser install --with-deps
+
 RUN groupadd --system hermes && useradd --system --gid hermes hermes
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
