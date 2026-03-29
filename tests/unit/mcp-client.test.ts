@@ -8,6 +8,10 @@ describe("MCP client utilities", () => {
       name: "Test Server",
       url: "https://mcp.example.com",
       headers: {},
+      transport: "streamable_http",
+      command: null,
+      args: null,
+      env: null,
       enabled: true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -42,6 +46,10 @@ describe("MCP client utilities", () => {
       name: "Empty",
       url: "https://mcp.example.com",
       headers: {},
+      transport: "streamable_http",
+      command: null,
+      args: null,
+      env: null,
       enabled: true,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()

@@ -18,6 +18,10 @@ export async function PATCH(
     name?: string;
     url?: string;
     headers?: Record<string, string>;
+    transport?: "streamable_http" | "stdio";
+    command?: string | null;
+    args?: string[] | null;
+    env?: Record<string, string> | null;
     enabled?: boolean;
   };
 

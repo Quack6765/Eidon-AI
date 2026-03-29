@@ -130,13 +130,29 @@ function migrate(db: Database.Database) {
   `);
 
   // Migration: add folder_id and sort_order columns to existing conversations table
-  const cols = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
-  const colNames = cols.map((c) => c.name);
-  if (!colNames.includes("folder_id")) {
+  const convCols = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
+  const convColNames = convCols.map((c) => c.name);
+  if (!convColNames.includes("folder_id")) {
     db.exec("ALTER TABLE conversations ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL");
   }
-  if (!colNames.includes("sort_order")) {
+  if (!convColNames.includes("sort_order")) {
     db.exec("ALTER TABLE conversations ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
+  }
+
+  // Migration: add transport, command, args, env columns to mcp_servers
+  const mcpCols = db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;
+  const mcpColNames = mcpCols.map((c) => c.name);
+  if (!mcpColNames.includes("transport")) {
+    db.exec("ALTER TABLE mcp_servers ADD COLUMN transport TEXT NOT NULL DEFAULT 'streamable_http'");
+  }
+  if (!mcpColNames.includes("command")) {
+    db.exec("ALTER TABLE mcp_servers ADD COLUMN command TEXT");
+  }
+  if (!mcpColNames.includes("args")) {
+    db.exec("ALTER TABLE mcp_servers ADD COLUMN args TEXT");
+  }
+  if (!mcpColNames.includes("env")) {
+    db.exec("ALTER TABLE mcp_servers ADD COLUMN env TEXT");
   }
 
   db.prepare(

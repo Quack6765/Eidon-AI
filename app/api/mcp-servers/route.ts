@@ -9,11 +9,23 @@ export async function GET() {
   return ok({ servers: listMcpServers() });
 }
 
-const createSchema = z.object({
-  name: z.string().min(1).max(100),
-  url: z.string().url(),
-  headers: z.record(z.string()).optional()
-});
+const createSchema = z.discriminatedUnion("transport", [
+  z.object({
+    transport: z.literal("streamable_http"),
+    name: z.string().min(1).max(100),
+    url: z.string().url(),
+    headers: z.record(z.string()).optional()
+  }),
+  z.object({
+    transport: z.literal("stdio"),
+    name: z.string().min(1).max(100),
+    command: z.string().min(1),
+    args: z.array(z.string()).optional(),
+    env: z.record(z.string()).optional(),
+    url: z.string().optional(),
+    headers: z.record(z.string()).optional()
+  })
+]);
 
 export async function POST(request: Request) {
   await requireUser();
