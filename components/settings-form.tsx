@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
-import type { AppSettings, AuthUser, McpServer, Skill } from "@/lib/types";
+import type { AppSettings, AuthUser, McpServer, McpTransport, Skill } from "@/lib/types";
 
 type SettingsPayload = Omit<AppSettings, "apiKeyEncrypted"> & {
   hasApiKey: boolean;
@@ -35,9 +35,13 @@ export function SettingsForm({
   // MCP Servers state
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [showMcpForm, setShowMcpForm] = useState(false);
+  const [mcpTransport, setMcpTransport] = useState<McpTransport>("streamable_http");
   const [mcpName, setMcpName] = useState("");
   const [mcpUrl, setMcpUrl] = useState("");
   const [mcpHeaders, setMcpHeaders] = useState("");
+  const [mcpCommand, setMcpCommand] = useState("");
+  const [mcpArgs, setMcpArgs] = useState("");
+  const [mcpEnv, setMcpEnv] = useState("");
   const [editingMcpId, setEditingMcpId] = useState<string | null>(null);
 
   // Skills state
@@ -130,23 +134,55 @@ export function SettingsForm({
 
   // MCP Server handlers
   async function saveMcpServer() {
-    if (!mcpName.trim() || !mcpUrl.trim()) return;
+    if (!mcpName.trim()) return;
+    if (mcpTransport === "streamable_http" && !mcpUrl.trim()) return;
+    if (mcpTransport === "stdio" && !mcpCommand.trim()) return;
+
     let headersObj: Record<string, string> = {};
-    if (mcpHeaders.trim()) {
+    if (mcpTransport === "streamable_http" && mcpHeaders.trim()) {
       try { headersObj = JSON.parse(mcpHeaders); } catch { headersObj = {}; }
+    }
+
+    let argsArr: string[] | undefined;
+    if (mcpTransport === "stdio" && mcpArgs.trim()) {
+      try {
+        const parsed = JSON.parse(mcpArgs);
+        argsArr = Array.isArray(parsed) ? parsed : mcpArgs.split(/\s+/).filter(Boolean);
+      } catch {
+        argsArr = mcpArgs.split(/\s+/).filter(Boolean);
+      }
+    }
+
+    let envObj: Record<string, string> | undefined;
+    if (mcpTransport === "stdio" && mcpEnv.trim()) {
+      try { envObj = JSON.parse(mcpEnv); } catch { envObj = undefined; }
+    }
+
+    const payload: Record<string, unknown> = {
+      name: mcpName,
+      transport: mcpTransport
+    };
+
+    if (mcpTransport === "streamable_http") {
+      payload.url = mcpUrl;
+      payload.headers = headersObj;
+    } else {
+      payload.command = mcpCommand;
+      if (argsArr) payload.args = argsArr;
+      if (envObj) payload.env = envObj;
     }
 
     if (editingMcpId) {
       await fetch(`/api/mcp-servers/${editingMcpId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: mcpName, url: mcpUrl, headers: headersObj })
+        body: JSON.stringify(payload)
       });
     } else {
       await fetch("/api/mcp-servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: mcpName, url: mcpUrl, headers: headersObj })
+        body: JSON.stringify(payload)
       });
     }
 
@@ -173,16 +209,24 @@ export function SettingsForm({
   function editMcpServer(server: McpServer) {
     setEditingMcpId(server.id);
     setMcpName(server.name);
+    setMcpTransport(server.transport ?? "streamable_http");
     setMcpUrl(server.url);
     setMcpHeaders(JSON.stringify(server.headers, null, 2));
+    setMcpCommand(server.command ?? "");
+    setMcpArgs(server.args ? JSON.stringify(server.args) : "");
+    setMcpEnv(server.env ? JSON.stringify(server.env, null, 2) : "");
     setShowMcpForm(true);
   }
 
   function resetMcpForm() {
     setShowMcpForm(false);
+    setMcpTransport("streamable_http");
     setMcpName("");
     setMcpUrl("");
     setMcpHeaders("");
+    setMcpCommand("");
+    setMcpArgs("");
+    setMcpEnv("");
     setEditingMcpId(null);
   }
 
@@ -403,7 +447,7 @@ export function SettingsForm({
             </div>
           </div>
           <p className="mt-3 text-sm text-[color:var(--muted)]">
-            Add HTTP streamable MCP servers to make external tools available in chat.
+            Add HTTP streamable or local stdio MCP servers to make external tools available in chat.
           </p>
 
           <div className="mt-4 space-y-3">
@@ -412,7 +456,20 @@ export function SettingsForm({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-[var(--text)]">{server.name}</span>
-                    <span className="text-xs text-white/30">{server.url}</span>
+                    {server.transport === "stdio" ? (
+                      <span className="inline-flex items-center rounded-md bg-emerald-900/40 px-1.5 py-0.5 text-[0.65rem] font-medium text-emerald-300">
+                        stdio
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center rounded-md bg-sky-900/40 px-1.5 py-0.5 text-[0.65rem] font-medium text-sky-300">
+                        http
+                      </span>
+                    )}
+                    <span className="text-xs text-white/30">
+                      {server.transport === "stdio"
+                        ? `${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`
+                        : server.url}
+                    </span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 ml-2">
@@ -442,18 +499,60 @@ export function SettingsForm({
                   <Input value={mcpName} onChange={(e) => setMcpName(e.target.value)} placeholder="My MCP Server" />
                 </div>
                 <div>
-                  <Label>URL</Label>
-                  <Input value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)} placeholder="https://..." />
+                  <Label>Transport</Label>
+                  <select
+                    value={mcpTransport}
+                    onChange={(e) => setMcpTransport(e.target.value as McpTransport)}
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
+                  >
+                    <option value="streamable_http">Streamable HTTP</option>
+                    <option value="stdio">Local stdio</option>
+                  </select>
                 </div>
-                <div>
-                  <Label>Headers (JSON)</Label>
-                  <Textarea
-                    value={mcpHeaders}
-                    onChange={(e) => setMcpHeaders(e.target.value)}
-                    placeholder='{"Authorization": "Bearer ..."}'
-                    rows={2}
-                  />
-                </div>
+                {mcpTransport === "streamable_http" ? (
+                  <>
+                    <div>
+                      <Label>URL</Label>
+                      <Input value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)} placeholder="https://..." />
+                    </div>
+                    <div>
+                      <Label>Headers (JSON)</Label>
+                      <Textarea
+                        value={mcpHeaders}
+                        onChange={(e) => setMcpHeaders(e.target.value)}
+                        placeholder='{"Authorization": "Bearer ..."}'
+                        rows={2}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <Label>Command</Label>
+                      <Input value={mcpCommand} onChange={(e) => setMcpCommand(e.target.value)} placeholder="uvx or npx" />
+                      <p className="mt-1 text-xs text-white/30">
+                        Use &quot;uvx&quot; for Python-based servers or &quot;npx&quot; for Node.js-based servers.
+                      </p>
+                    </div>
+                    <div>
+                      <Label>Args (JSON array or space-separated)</Label>
+                      <Input
+                        value={mcpArgs}
+                        onChange={(e) => setMcpArgs(e.target.value)}
+                        placeholder={mcpCommand === "npx" ? "-y @modelcontextprotocol/server-fetch" : "mcp-server-fetch"}
+                      />
+                    </div>
+                    <div>
+                      <Label>Environment variables (JSON, optional)</Label>
+                      <Textarea
+                        value={mcpEnv}
+                        onChange={(e) => setMcpEnv(e.target.value)}
+                        placeholder='{"API_KEY": "..."}'
+                        rows={2}
+                      />
+                    </div>
+                  </>
+                )}
                 <div className="flex gap-2">
                   <Button type="button" onClick={saveMcpServer}>
                     {editingMcpId ? "Update" : "Add server"}

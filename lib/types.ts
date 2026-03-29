@@ -43,11 +43,17 @@ export type Folder = {
   updatedAt: string;
 };
 
+export type McpTransport = "streamable_http" | "stdio";
+
 export type McpServer = {
   id: string;
   name: string;
   url: string;
   headers: Record<string, string>;
+  transport: McpTransport;
+  command: string | null;
+  args: string[] | null;
+  env: Record<string, string> | null;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;

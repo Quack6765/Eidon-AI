@@ -15,6 +15,10 @@ FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HERMES_DATA_DIR=/app/data
+
+# Install uv for uvx (Python-based MCP servers)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
 RUN groupadd --system hermes && useradd --system --gid hermes hermes
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
