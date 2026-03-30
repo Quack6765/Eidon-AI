@@ -14,13 +14,19 @@ export async function PATCH(
   const params = paramsSchema.safeParse(await context.params);
   if (!params.success) return badRequest("Invalid skill id");
 
+  const { skillId } = params.data;
   const body = await request.json() as {
     name?: string;
     content?: string;
     enabled?: boolean;
   };
 
-  const updated = updateSkill(params.data.skillId, body);
+  const isBuiltin = skillId.startsWith("builtin-");
+  if (isBuiltin && (body.name !== undefined || body.content !== undefined)) {
+    return badRequest("Cannot modify name or content of built-in skills");
+  }
+
+  const updated = updateSkill(skillId, body);
   if (!updated) return badRequest("Skill not found", 404);
 
   return ok({ skill: updated });
@@ -33,6 +39,10 @@ export async function DELETE(
   await requireUser();
   const params = paramsSchema.safeParse(await context.params);
   if (!params.success) return badRequest("Invalid skill id");
+
+  if (params.data.skillId.startsWith("builtin-")) {
+    return badRequest("Cannot delete built-in skills");
+  }
 
   deleteSkill(params.data.skillId);
   return ok({ success: true });
