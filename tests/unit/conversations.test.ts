@@ -5,12 +5,15 @@ import {
   getMessage,
   listMessages,
   markMessagesCompacted,
-  maybeRetitleConversationFromFirstUserMessage
+  maybeRetitleConversationFromFirstUserMessage,
+  updateConversationProviderProfile
 } from "@/lib/conversations";
+import { getSettings, listProviderProfiles } from "@/lib/settings";
 
 describe("conversation helpers", () => {
   it("creates conversations and retitles them from the first user message", () => {
     const conversation = createConversation();
+    const defaultProfileId = getSettings().defaultProviderProfileId;
 
     createMessage({
       conversationId: conversation.id,
@@ -23,6 +26,7 @@ describe("conversation helpers", () => {
     expect(getConversation(conversation.id)?.title).toBe(
       "Build a small deployment checklist for me"
     );
+    expect(getConversation(conversation.id)?.providerProfileId).toBe(defaultProfileId);
   });
 
   it("stores messages in chronological order", () => {
@@ -63,5 +67,14 @@ describe("conversation helpers", () => {
     expect(getMessage(message.id)?.compactedAt).not.toBeNull();
     maybeRetitleConversationFromFirstUserMessage(conversation.id);
     expect(getConversation(conversation.id)?.title).toBe("New conversation");
+  });
+
+  it("updates the conversation provider profile", () => {
+    const conversation = createConversation();
+    const nextProfileId = listProviderProfiles().at(-1)?.id ?? getSettings().defaultProviderProfileId;
+
+    updateConversationProviderProfile(conversation.id, nextProfileId);
+
+    expect(getConversation(conversation.id)?.providerProfileId).toBe(nextProfileId);
   });
 });

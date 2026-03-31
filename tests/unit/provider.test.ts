@@ -1,4 +1,4 @@
-import type { ChatStreamEvent } from "@/lib/types";
+import type { ChatStreamEvent, ProviderProfileWithApiKey } from "@/lib/types";
 
 const responsesCreate = vi.fn();
 const chatCreate = vi.fn();
@@ -28,6 +28,49 @@ function createAsyncStream<T>(events: T[]) {
   };
 }
 
+function createSettings(
+  overrides: Partial<{
+    id: string;
+    name: string;
+    apiBaseUrl: string;
+    apiKeyEncrypted: string;
+    apiKey: string;
+    model: string;
+    apiMode: "responses" | "chat_completions";
+    systemPrompt: string;
+    temperature: number;
+    maxOutputTokens: number;
+    reasoningEffort: "low" | "medium" | "high" | "xhigh";
+    reasoningSummaryEnabled: boolean;
+    modelContextLimit: number;
+    compactionThreshold: number;
+    freshTailCount: number;
+    createdAt: string;
+    updatedAt: string;
+  }> = {}
+): ProviderProfileWithApiKey {
+  return {
+    id: "profile_test",
+    name: "Test profile",
+    apiBaseUrl: "https://api.example.com/v1",
+    apiKeyEncrypted: "",
+    apiKey: "sk-test",
+    model: "gpt-test",
+    apiMode: "responses",
+    systemPrompt: "Be exact.",
+    temperature: 0.2,
+    maxOutputTokens: 512,
+    reasoningEffort: "medium",
+    reasoningSummaryEnabled: true,
+    modelContextLimit: 16000,
+    compactionThreshold: 0.8,
+    freshTailCount: 12,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides
+  };
+}
+
 describe("provider integration", () => {
   beforeEach(() => {
     responsesCreate.mockReset();
@@ -42,22 +85,10 @@ describe("provider integration", () => {
     const { callProviderText } = await import("@/lib/provider");
 
     const result = await callProviderText({
-      settings: {
-        apiBaseUrl: "https://api.example.com/v1",
-        apiKeyEncrypted: "",
-        apiKey: "sk-test",
+      settings: createSettings({
         model: "gpt-5-mini",
-        apiMode: "responses",
-        systemPrompt: "Be exact.",
-        temperature: 0.2,
-        maxOutputTokens: 512,
-        reasoningEffort: "xhigh",
-        reasoningSummaryEnabled: true,
-        modelContextLimit: 16000,
-        compactionThreshold: 0.8,
-        freshTailCount: 12,
-        updatedAt: new Date().toISOString()
-      },
+        reasoningEffort: "xhigh"
+      }),
       prompt: "Reply with connected",
       purpose: "test"
     });
@@ -82,22 +113,9 @@ describe("provider integration", () => {
     const { callProviderText } = await import("@/lib/provider");
 
     await callProviderText({
-      settings: {
-        apiBaseUrl: "https://api.example.com/v1",
-        apiKeyEncrypted: "",
-        apiKey: "sk-test",
-        model: "gpt-4.1-mini",
-        apiMode: "responses",
-        systemPrompt: "Be exact.",
-        temperature: 0.2,
-        maxOutputTokens: 512,
-        reasoningEffort: "medium",
-        reasoningSummaryEnabled: true,
-        modelContextLimit: 16000,
-        compactionThreshold: 0.8,
-        freshTailCount: 12,
-        updatedAt: new Date().toISOString()
-      },
+      settings: createSettings({
+        model: "gpt-4.1-mini"
+      }),
       prompt: "Reply with connected",
       purpose: "test"
     });
@@ -123,22 +141,9 @@ describe("provider integration", () => {
 
     await expect(
       callProviderText({
-        settings: {
-          apiBaseUrl: "https://api.example.com/v1",
-          apiKeyEncrypted: "",
-          apiKey: "sk-test",
-          model: "gpt-test",
-          apiMode: "responses",
-          systemPrompt: "Be exact.",
-          temperature: 0.2,
-          maxOutputTokens: 512,
-          reasoningEffort: "medium",
-          reasoningSummaryEnabled: false,
-          modelContextLimit: 16000,
-          compactionThreshold: 0.8,
-          freshTailCount: 12,
-          updatedAt: new Date().toISOString()
-        },
+        settings: createSettings({
+          reasoningSummaryEnabled: false
+        }),
         prompt: "Reply with connected",
         purpose: "test"
       })
@@ -148,22 +153,9 @@ describe("provider integration", () => {
 
     await expect(
       callProviderText({
-        settings: {
-          apiBaseUrl: "https://api.example.com/v1",
-          apiKeyEncrypted: "",
-          apiKey: "sk-test",
-          model: "gpt-test",
-          apiMode: "responses",
-          systemPrompt: "Be exact.",
-          temperature: 0.2,
-          maxOutputTokens: 512,
-          reasoningEffort: "medium",
-          reasoningSummaryEnabled: false,
-          modelContextLimit: 16000,
-          compactionThreshold: 0.8,
-          freshTailCount: 12,
-          updatedAt: new Date().toISOString()
-        },
+        settings: createSettings({
+          reasoningSummaryEnabled: false
+        }),
         prompt: "Reply with connected",
         purpose: "test"
       })
@@ -175,22 +167,10 @@ describe("provider integration", () => {
 
     await expect(
       callProviderText({
-        settings: {
-          apiBaseUrl: "https://api.example.com/v1",
-          apiKeyEncrypted: "",
-          apiKey: "sk-test",
-          model: "gpt-test",
+        settings: createSettings({
           apiMode: "chat_completions",
-          systemPrompt: "Be exact.",
-          temperature: 0.2,
-          maxOutputTokens: 512,
-          reasoningEffort: "medium",
-          reasoningSummaryEnabled: false,
-          modelContextLimit: 16000,
-          compactionThreshold: 0.8,
-          freshTailCount: 12,
-          updatedAt: new Date().toISOString()
-        },
+          reasoningSummaryEnabled: false
+        }),
         prompt: "Reply with connected",
         purpose: "test"
       })
@@ -220,22 +200,10 @@ describe("provider integration", () => {
 
     const { streamProviderResponse } = await import("@/lib/provider");
     const stream = streamProviderResponse({
-      settings: {
-        apiBaseUrl: "https://api.example.com/v1",
-        apiKeyEncrypted: "",
-        apiKey: "sk-test",
+      settings: createSettings({
         model: "gpt-5-mini",
-        apiMode: "responses",
-        systemPrompt: "Be exact.",
-        temperature: 0.2,
-        maxOutputTokens: 512,
-        reasoningEffort: "high",
-        reasoningSummaryEnabled: true,
-        modelContextLimit: 16000,
-        compactionThreshold: 0.8,
-        freshTailCount: 12,
-        updatedAt: new Date().toISOString()
-      },
+        reasoningEffort: "high"
+      }),
       promptMessages: [{ role: "user", content: "Hi" }]
     });
 
@@ -277,22 +245,7 @@ describe("provider integration", () => {
 
     const { streamProviderResponse } = await import("@/lib/provider");
     const stream = streamProviderResponse({
-      settings: {
-        apiBaseUrl: "https://api.example.com/v1",
-        apiKeyEncrypted: "",
-        apiKey: "sk-test",
-        model: "gpt-test",
-        apiMode: "responses",
-        systemPrompt: "Be exact.",
-        temperature: 0.2,
-        maxOutputTokens: 512,
-        reasoningEffort: "medium",
-        reasoningSummaryEnabled: true,
-        modelContextLimit: 16000,
-        compactionThreshold: 0.8,
-        freshTailCount: 12,
-        updatedAt: new Date().toISOString()
-      },
+      settings: createSettings(),
       promptMessages: [{ role: "user", content: "Hi" }]
     });
 
@@ -321,22 +274,9 @@ describe("provider integration", () => {
 
     await expect(
       callProviderText({
-        settings: {
-          apiBaseUrl: "https://api.example.com/v1",
-          apiKeyEncrypted: "",
-          apiKey: "sk-test",
-          model: "gpt-test",
-          apiMode: "responses",
-          systemPrompt: "Be exact.",
-          temperature: 0.2,
-          maxOutputTokens: 512,
-          reasoningEffort: "medium",
-          reasoningSummaryEnabled: false,
-          modelContextLimit: 16000,
-          compactionThreshold: 0.8,
-          freshTailCount: 12,
-          updatedAt: new Date().toISOString()
-        },
+        settings: createSettings({
+          reasoningSummaryEnabled: false
+        }),
         prompt: "Reply with connected",
         purpose: "test"
       })
@@ -347,22 +287,7 @@ describe("provider integration", () => {
     );
 
     const stream = streamProviderResponse({
-      settings: {
-        apiBaseUrl: "https://api.example.com/v1",
-        apiKeyEncrypted: "",
-        apiKey: "sk-test",
-        model: "gpt-test",
-        apiMode: "responses",
-        systemPrompt: "Be exact.",
-        temperature: 0.2,
-        maxOutputTokens: 512,
-        reasoningEffort: "medium",
-        reasoningSummaryEnabled: true,
-        modelContextLimit: 16000,
-        compactionThreshold: 0.8,
-        freshTailCount: 12,
-        updatedAt: new Date().toISOString()
-      },
+      settings: createSettings(),
       promptMessages: [{ role: "user", content: "Hi" }]
     });
 
@@ -381,22 +306,10 @@ describe("provider integration", () => {
 
     const { streamProviderResponse } = await import("@/lib/provider");
     const stream = streamProviderResponse({
-      settings: {
-        apiBaseUrl: "https://api.example.com/v1",
-        apiKeyEncrypted: "",
-        apiKey: "sk-test",
-        model: "gpt-test",
+      settings: createSettings({
         apiMode: "chat_completions",
-        systemPrompt: "Be exact.",
-        temperature: 0.2,
-        maxOutputTokens: 512,
-        reasoningEffort: "medium",
-        reasoningSummaryEnabled: false,
-        modelContextLimit: 16000,
-        compactionThreshold: 0.8,
-        freshTailCount: 12,
-        updatedAt: new Date().toISOString()
-      },
+        reasoningSummaryEnabled: false
+      }),
       promptMessages: [{ role: "user", content: "Hi" }]
     });
 
@@ -430,22 +343,10 @@ describe("provider integration", () => {
 
     const { streamProviderResponse } = await import("@/lib/provider");
     const stream = streamProviderResponse({
-      settings: {
-        apiBaseUrl: "https://api.example.com/v1",
-        apiKeyEncrypted: "",
-        apiKey: "sk-test",
+      settings: createSettings({
         model: "glm-5-turbo",
-        apiMode: "chat_completions",
-        systemPrompt: "Be exact.",
-        temperature: 0.2,
-        maxOutputTokens: 512,
-        reasoningEffort: "medium",
-        reasoningSummaryEnabled: true,
-        modelContextLimit: 16000,
-        compactionThreshold: 0.8,
-        freshTailCount: 12,
-        updatedAt: new Date().toISOString()
-      },
+        apiMode: "chat_completions"
+      }),
       promptMessages: [{ role: "user", content: "Hi" }]
     });
 
@@ -490,22 +391,10 @@ describe("provider integration", () => {
 
     const { streamProviderResponse } = await import("@/lib/provider");
     const stream = streamProviderResponse({
-      settings: {
-        apiBaseUrl: "https://api.example.com/v1",
-        apiKeyEncrypted: "",
-        apiKey: "sk-test",
+      settings: createSettings({
         model: "glm-5-turbo",
-        apiMode: "chat_completions",
-        systemPrompt: "Be exact.",
-        temperature: 0.2,
-        maxOutputTokens: 512,
-        reasoningEffort: "medium",
-        reasoningSummaryEnabled: true,
-        modelContextLimit: 16000,
-        compactionThreshold: 0.8,
-        freshTailCount: 12,
-        updatedAt: new Date().toISOString()
-      },
+        apiMode: "chat_completions"
+      }),
       promptMessages: [{ role: "user", content: "Hi" }]
     });
 

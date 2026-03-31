@@ -1,15 +1,23 @@
 import { requireUser } from "@/lib/auth";
 import { badRequest, ok } from "@/lib/http";
 import { callProviderText } from "@/lib/provider";
-import { getSettingsWithApiKey } from "@/lib/settings";
+import {
+  getDefaultProviderProfileWithApiKey,
+  getProviderProfileWithApiKey
+} from "@/lib/settings";
 
-export async function POST() {
+export async function POST(request: Request) {
   await requireUser();
 
   try {
-    const settings = getSettingsWithApiKey();
+    const body = (await request.json().catch(() => ({}))) as {
+      providerProfileId?: string;
+    };
+    const settings =
+      (body.providerProfileId ? getProviderProfileWithApiKey(body.providerProfileId) : null) ??
+      getDefaultProviderProfileWithApiKey();
 
-    if (!settings.apiKey) {
+    if (!settings?.apiKey) {
       return badRequest("Set an API key before running a connection test");
     }
 

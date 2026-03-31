@@ -5,10 +5,12 @@ import {
   deleteConversation,
   getConversation,
   listMessages,
-  moveConversationToFolder
+  moveConversationToFolder,
+  updateConversationProviderProfile
 } from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
 import { badRequest, ok } from "@/lib/http";
+import { getProviderProfile } from "@/lib/settings";
 
 const paramsSchema = z.object({
   conversationId: z.string().min(1)
@@ -53,9 +55,15 @@ export async function DELETE(
   return ok({ success: true });
 }
 
-const updateSchema = z.object({
-  folderId: z.string().nullable()
-});
+const updateSchema = z
+  .object({
+    folderId: z.string().nullable().optional(),
+    providerProfileId: z.string().min(1).optional()
+  })
+  .refine(
+    (value) => value.folderId !== undefined || value.providerProfileId !== undefined,
+    "Invalid conversation update"
+  );
 
 export async function PATCH(
   request: Request,
@@ -80,6 +88,19 @@ export async function PATCH(
     return badRequest("Conversation not found", 404);
   }
 
-  moveConversationToFolder(conversation.id, body.data.folderId);
+  if (body.data.folderId !== undefined) {
+    moveConversationToFolder(conversation.id, body.data.folderId);
+  }
+
+  if (body.data.providerProfileId !== undefined) {
+    const providerProfile = getProviderProfile(body.data.providerProfileId);
+
+    if (!providerProfile) {
+      return badRequest("Provider profile not found", 404);
+    }
+
+    updateConversationProviderProfile(conversation.id, providerProfile.id);
+  }
+
   return ok({ conversation: getConversation(conversation.id) });
 }

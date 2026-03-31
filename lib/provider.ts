@@ -2,9 +2,14 @@ import OpenAI from "openai";
 
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
 import { estimateTextTokens } from "@/lib/tokenization";
-import type { AppSettings, ChatStreamEvent, PromptMessage } from "@/lib/types";
+import type {
+  ChatStreamEvent,
+  PromptMessage,
+  ProviderProfile,
+  ProviderProfileWithApiKey
+} from "@/lib/types";
 
-function createClient(settings: AppSettings, apiKey: string) {
+function createClient(settings: ProviderProfile, apiKey: string) {
   return new OpenAI({
     apiKey,
     baseURL: settings.apiBaseUrl
@@ -18,7 +23,7 @@ function toResponsesInput(messages: PromptMessage[]) {
 }
 
 function normalizeReasoningEffort(
-  effort: AppSettings["reasoningEffort"]
+  effort: ProviderProfile["reasoningEffort"]
 ): "low" | "medium" | "high" {
   if (effort === "xhigh") {
     return "high";
@@ -27,7 +32,7 @@ function normalizeReasoningEffort(
   return effort;
 }
 
-function buildReasoningConfig(settings: AppSettings) {
+function buildReasoningConfig(settings: ProviderProfile) {
   if (!supportsVisibleReasoning(settings.model, settings.apiMode)) {
     return undefined;
   }
@@ -46,7 +51,7 @@ function buildReasoningConfig(settings: AppSettings) {
   } as const;
 }
 
-function buildChatCompletionsOptions(settings: AppSettings) {
+function buildChatCompletionsOptions(settings: ProviderProfile) {
   if (!supportsVisibleReasoning(settings.model, settings.apiMode)) {
     return {};
   }
@@ -106,7 +111,7 @@ function getResponseText(output: unknown) {
 }
 
 export async function callProviderText(input: {
-  settings: AppSettings & { apiKey: string };
+  settings: ProviderProfileWithApiKey;
   prompt: string;
   purpose: "compaction" | "test";
   conversationId?: string;
@@ -154,7 +159,7 @@ export async function callProviderText(input: {
 }
 
 export async function* streamProviderResponse(input: {
-  settings: AppSettings & { apiKey: string };
+  settings: ProviderProfileWithApiKey;
   promptMessages: PromptMessage[];
 }): AsyncGenerator<ChatStreamEvent, { answer: string; thinking: string; usage: {
   inputTokens?: number;

@@ -18,9 +18,15 @@ import {
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { callProviderText } from "@/lib/provider";
-import { getSettingsWithApiKey } from "@/lib/settings";
 import { estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
-import type { ChatStreamEvent, MemoryNode, Message, PromptMessage, SummaryPayload } from "@/lib/types";
+import type {
+  ChatStreamEvent,
+  MemoryNode,
+  Message,
+  PromptMessage,
+  ProviderProfileWithApiKey,
+  SummaryPayload
+} from "@/lib/types";
 
 const summarySchema = z.object({
   factualCommitments: z.array(z.string()),
@@ -180,9 +186,9 @@ function buildSummaryPrompt(label: string, blocks: string, sourceSpan: {
 
 async function summarizeBlocks(
   conversationId: string,
-  prompt: string
+  prompt: string,
+  settings: ProviderProfileWithApiKey
 ): Promise<SummaryPayload> {
-  const settings = getSettingsWithApiKey();
   const summaryText = await callProviderText({
     settings,
     prompt,
@@ -205,7 +211,11 @@ function getCompactionEligibleMessages(messages: Message[], freshTailCount: numb
   return rawMessages.slice(0, rawMessages.length - freshTailCount);
 }
 
-async function compactLeafMessages(conversationId: string, messages: Message[]) {
+async function compactLeafMessages(
+  conversationId: string,
+  messages: Message[],
+  settings: ProviderProfileWithApiKey
+) {
   if (messages.length < LEAF_MIN_MESSAGE_COUNT) {
     return null;
   }
@@ -254,7 +264,8 @@ async function compactLeafMessages(conversationId: string, messages: Message[]) 
       startMessageId: selected[0].id,
       endMessageId: selected[selected.length - 1].id,
       messageCount: selected.length
-    })
+    }),
+    settings
   );
 
   const content = JSON.stringify(payload);
@@ -309,7 +320,10 @@ async function compactLeafMessages(conversationId: string, messages: Message[]) 
   };
 }
 
-async function condenseMemoryNodes(conversationId: string) {
+async function condenseMemoryNodes(
+  conversationId: string,
+  settings: ProviderProfileWithApiKey
+) {
   let created = false;
 
   while (true) {
@@ -339,7 +353,8 @@ async function condenseMemoryNodes(conversationId: string) {
         startMessageId: selected[0].sourceStartMessageId,
         endMessageId: selected[selected.length - 1].sourceEndMessageId,
         messageCount: selected.length
-      })
+      }),
+      settings
     );
     const content = JSON.stringify(payload);
     const merged = insertMemoryNode({
@@ -420,7 +435,8 @@ export function buildPromptMessages(input: {
 }
 
 export async function ensureCompactedContext(
-  conversationId: string
+  conversationId: string,
+  settings: ProviderProfileWithApiKey
 ): Promise<{
   promptMessages: PromptMessage[];
   promptTokens: number;
@@ -432,7 +448,6 @@ export async function ensureCompactedContext(
     throw new Error("Conversation not found");
   }
 
-  const settings = getSettingsWithApiKey();
   const allowedPromptTokens =
     settings.modelContextLimit - settings.maxOutputTokens - SAFETY_MARGIN_TOKENS;
   const compactionLimit = Math.floor(allowedPromptTokens * settings.compactionThreshold);
@@ -459,7 +474,7 @@ export async function ensureCompactedContext(
     }
 
     const eligible = getCompactionEligibleMessages(messages, settings.freshTailCount);
-    const compacted = await compactLeafMessages(conversationId, eligible);
+    const compacted = await compactLeafMessages(conversationId, eligible, settings);
 
     if (!compacted) {
       throw new Error(
@@ -473,7 +488,7 @@ export async function ensureCompactedContext(
       kind: "compaction_notice"
     };
 
-    await condenseMemoryNodes(conversationId);
+    await condenseMemoryNodes(conversationId, settings);
     bumpConversation(conversationId);
   }
 }

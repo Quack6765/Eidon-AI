@@ -3,8 +3,13 @@ import path from "node:path";
 
 import Database from "better-sqlite3";
 
-import { DEFAULT_SETTINGS, SETTINGS_ROW_ID } from "@/lib/constants";
+import {
+  DEFAULT_PROVIDER_PROFILE_NAME,
+  DEFAULT_PROVIDER_SETTINGS,
+  SETTINGS_ROW_ID
+} from "@/lib/constants";
 import { env } from "@/lib/env";
+import { createId } from "@/lib/ids";
 
 const BUILTIN_AGENT_BROWSER_SKILL = {
   id: "builtin-agent-browser",
@@ -75,6 +80,7 @@ function migrate(db: Database.Database) {
     );
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
+      default_provider_profile_id TEXT,
       api_base_url TEXT NOT NULL,
       api_key_encrypted TEXT NOT NULL,
       model TEXT NOT NULL,
@@ -89,6 +95,24 @@ function migrate(db: Database.Database) {
       fresh_tail_count INTEGER NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS provider_profiles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      api_base_url TEXT NOT NULL,
+      api_key_encrypted TEXT NOT NULL,
+      model TEXT NOT NULL,
+      api_mode TEXT NOT NULL,
+      system_prompt TEXT NOT NULL,
+      temperature REAL NOT NULL,
+      max_output_tokens INTEGER NOT NULL,
+      reasoning_effort TEXT NOT NULL,
+      reasoning_summary_enabled INTEGER NOT NULL,
+      model_context_limit INTEGER NOT NULL,
+      compaction_threshold REAL NOT NULL,
+      fresh_tail_count INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS folders (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -100,10 +124,12 @@ function migrate(db: Database.Database) {
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       folder_id TEXT,
+      provider_profile_id TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL
+      FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL,
+      FOREIGN KEY (provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
     );
     CREATE TABLE IF NOT EXISTS messages (
       id TEXT PRIMARY KEY,
@@ -162,13 +188,6 @@ function migrate(db: Database.Database) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_conversations_folder ON conversations(folder_id, sort_order);
-    CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at ON messages(conversation_id, created_at ASC);
-    CREATE INDEX IF NOT EXISTS idx_messages_compacted_at ON messages(conversation_id, compacted_at);
-    CREATE INDEX IF NOT EXISTS idx_memory_nodes_conversation_depth ON memory_nodes(conversation_id, depth, created_at);
-    CREATE INDEX IF NOT EXISTS idx_memory_nodes_superseded ON memory_nodes(conversation_id, superseded_by_node_id);
-    CREATE INDEX IF NOT EXISTS idx_folders_sort_order ON folders(sort_order);
   `);
 
   // Migration: add folder_id and sort_order columns to existing conversations table
@@ -179,6 +198,17 @@ function migrate(db: Database.Database) {
   }
   if (!convColNames.includes("sort_order")) {
     db.exec("ALTER TABLE conversations ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!convColNames.includes("provider_profile_id")) {
+    db.exec(
+      "ALTER TABLE conversations ADD COLUMN provider_profile_id TEXT REFERENCES provider_profiles(id) ON DELETE SET NULL"
+    );
+  }
+
+  const settingsCols = db.prepare("PRAGMA table_info(app_settings)").all() as Array<{ name: string }>;
+  const settingsColNames = settingsCols.map((c) => c.name);
+  if (!settingsColNames.includes("default_provider_profile_id")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN default_provider_profile_id TEXT");
   }
 
   // Migration: add transport, command, args, env columns to mcp_servers
@@ -197,9 +227,20 @@ function migrate(db: Database.Database) {
     db.exec("ALTER TABLE mcp_servers ADD COLUMN env TEXT");
   }
 
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_conversations_folder ON conversations(folder_id, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at ON messages(conversation_id, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_messages_compacted_at ON messages(conversation_id, compacted_at);
+    CREATE INDEX IF NOT EXISTS idx_memory_nodes_conversation_depth ON memory_nodes(conversation_id, depth, created_at);
+    CREATE INDEX IF NOT EXISTS idx_memory_nodes_superseded ON memory_nodes(conversation_id, superseded_by_node_id);
+    CREATE INDEX IF NOT EXISTS idx_folders_sort_order ON folders(sort_order);
+  `);
+
   db.prepare(
       `INSERT OR IGNORE INTO app_settings (
         id,
+        default_provider_profile_id,
         api_base_url,
         api_key_encrypted,
         model,
@@ -215,6 +256,7 @@ function migrate(db: Database.Database) {
         updated_at
       ) VALUES (
         @id,
+        '',
         @apiBaseUrl,
         '',
         @model,
@@ -231,10 +273,142 @@ function migrate(db: Database.Database) {
       )`
     ).run({
       id: SETTINGS_ROW_ID,
-      ...DEFAULT_SETTINGS,
-      reasoningSummaryEnabled: DEFAULT_SETTINGS.reasoningSummaryEnabled ? 1 : 0,
+      ...DEFAULT_PROVIDER_SETTINGS,
+      reasoningSummaryEnabled: DEFAULT_PROVIDER_SETTINGS.reasoningSummaryEnabled ? 1 : 0,
       updatedAt: new Date().toISOString()
     });
+
+  const appSettingsRow = db
+    .prepare(
+      `SELECT
+        default_provider_profile_id,
+        api_base_url,
+        api_key_encrypted,
+        model,
+        api_mode,
+        system_prompt,
+        temperature,
+        max_output_tokens,
+        reasoning_effort,
+        reasoning_summary_enabled,
+        model_context_limit,
+        compaction_threshold,
+        fresh_tail_count,
+        updated_at
+      FROM app_settings
+      WHERE id = ?`
+    )
+    .get(SETTINGS_ROW_ID) as {
+    default_provider_profile_id: string | null;
+    api_base_url: string;
+    api_key_encrypted: string;
+    model: string;
+    api_mode: string;
+    system_prompt: string;
+    temperature: number;
+    max_output_tokens: number;
+    reasoning_effort: string;
+    reasoning_summary_enabled: number;
+    model_context_limit: number;
+    compaction_threshold: number;
+    fresh_tail_count: number;
+    updated_at: string;
+  };
+
+  const profileCount = (
+    db.prepare("SELECT COUNT(*) as count FROM provider_profiles").get() as { count: number }
+  ).count;
+
+  if (profileCount === 0) {
+    const profileId = createId("profile");
+    db.prepare(
+      `INSERT INTO provider_profiles (
+        id,
+        name,
+        api_base_url,
+        api_key_encrypted,
+        model,
+        api_mode,
+        system_prompt,
+        temperature,
+        max_output_tokens,
+        reasoning_effort,
+        reasoning_summary_enabled,
+        model_context_limit,
+        compaction_threshold,
+        fresh_tail_count,
+        created_at,
+        updated_at
+      ) VALUES (
+        @id,
+        @name,
+        @apiBaseUrl,
+        @apiKeyEncrypted,
+        @model,
+        @apiMode,
+        @systemPrompt,
+        @temperature,
+        @maxOutputTokens,
+        @reasoningEffort,
+        @reasoningSummaryEnabled,
+        @modelContextLimit,
+        @compactionThreshold,
+        @freshTailCount,
+        @createdAt,
+        @updatedAt
+      )`
+    ).run({
+      id: profileId,
+      name: DEFAULT_PROVIDER_PROFILE_NAME,
+      apiBaseUrl: appSettingsRow.api_base_url,
+      apiKeyEncrypted: appSettingsRow.api_key_encrypted,
+      model: appSettingsRow.model,
+      apiMode: appSettingsRow.api_mode,
+      systemPrompt: appSettingsRow.system_prompt,
+      temperature: appSettingsRow.temperature,
+      maxOutputTokens: appSettingsRow.max_output_tokens,
+      reasoningEffort: appSettingsRow.reasoning_effort,
+      reasoningSummaryEnabled: appSettingsRow.reasoning_summary_enabled,
+      modelContextLimit: appSettingsRow.model_context_limit,
+      compactionThreshold: appSettingsRow.compaction_threshold,
+      freshTailCount: appSettingsRow.fresh_tail_count,
+      createdAt: appSettingsRow.updated_at,
+      updatedAt: appSettingsRow.updated_at
+    });
+  }
+
+  const defaultProfileRow = db
+    .prepare(
+      `SELECT id
+       FROM provider_profiles
+       WHERE id = ?
+       LIMIT 1`
+    )
+    .get(appSettingsRow.default_provider_profile_id) as { id: string } | undefined;
+
+  const resolvedDefaultProfileId =
+    defaultProfileRow?.id ??
+    (
+      db.prepare(
+        `SELECT id
+         FROM provider_profiles
+         ORDER BY created_at ASC
+         LIMIT 1`
+      ).get() as { id: string }
+    ).id;
+
+  db.prepare(
+    `UPDATE app_settings
+     SET default_provider_profile_id = ?,
+         updated_at = ?
+     WHERE id = ?`
+  ).run(resolvedDefaultProfileId, new Date().toISOString(), SETTINGS_ROW_ID);
+
+  db.prepare(
+    `UPDATE conversations
+     SET provider_profile_id = ?
+     WHERE provider_profile_id IS NULL`
+  ).run(resolvedDefaultProfileId);
 
   // Seed built-in skills if they don't exist
   const builtinSkills = [BUILTIN_AGENT_BROWSER_SKILL];

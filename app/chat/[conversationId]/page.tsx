@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { getConversation, listConversations, listMessages } from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
 import { listFolders } from "@/lib/folders";
+import { getSanitizedSettings } from "@/lib/settings";
 
 export default async function ConversationPage({
   params
@@ -17,6 +18,7 @@ export default async function ConversationPage({
   const conversations = listConversations();
   const folders = listFolders();
   const conversation = getConversation(conversationId);
+  const settings = getSanitizedSettings();
 
   if (!conversation) {
     notFound();
@@ -28,6 +30,8 @@ export default async function ConversationPage({
         payload={{
           conversation,
           messages: listMessages(conversation.id),
+          providerProfiles: settings.providerProfiles,
+          defaultProviderProfileId: settings.defaultProviderProfileId,
           debug: getConversationDebugStats(conversation.id)
         }}
       />

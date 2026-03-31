@@ -10,7 +10,9 @@ export type MemoryNodeType = "leaf_summary" | "merged_summary";
 
 export type SystemMessageKind = "compaction_notice";
 
-export type AppSettings = {
+export type ProviderProfile = {
+  id: string;
+  name: string;
   apiBaseUrl: string;
   apiKeyEncrypted: string;
   model: string;
@@ -23,6 +25,16 @@ export type AppSettings = {
   modelContextLimit: number;
   compactionThreshold: number;
   freshTailCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProviderProfileWithApiKey = ProviderProfile & {
+  apiKey: string;
+};
+
+export type AppSettings = {
+  defaultProviderProfileId: string;
   updatedAt: string;
 };
 
@@ -30,6 +42,7 @@ export type Conversation = {
   id: string;
   title: string;
   folderId: string | null;
+  providerProfileId: string | null;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;

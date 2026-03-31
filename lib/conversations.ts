@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
+import { getSettings } from "@/lib/settings";
 import { estimateTextTokens } from "@/lib/tokenization";
 import type { Conversation, Message, MessageRole, MessageStatus, SystemMessageKind } from "@/lib/types";
 
@@ -11,6 +12,7 @@ function rowToConversation(row: {
   id: string;
   title: string;
   folder_id: string | null;
+  provider_profile_id: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -19,6 +21,7 @@ function rowToConversation(row: {
     id: row.id,
     title: row.title,
     folderId: row.folder_id,
+    providerProfileId: row.provider_profile_id,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -54,7 +57,7 @@ function rowToMessage(row: {
 export function listConversations() {
   const rows = getDb()
     .prepare(
-      `SELECT id, title, folder_id, sort_order, created_at, updated_at
+      `SELECT id, title, folder_id, provider_profile_id, sort_order, created_at, updated_at
        FROM conversations
        ORDER BY updated_at DESC`
     )
@@ -62,6 +65,7 @@ export function listConversations() {
     id: string;
     title: string;
     folder_id: string | null;
+    provider_profile_id: string | null;
     sort_order: number;
     created_at: string;
     updated_at: string;
@@ -73,7 +77,7 @@ export function listConversations() {
 export function getConversation(conversationId: string) {
   const row = getDb()
     .prepare(
-      `SELECT id, title, folder_id, sort_order, created_at, updated_at
+      `SELECT id, title, folder_id, provider_profile_id, sort_order, created_at, updated_at
        FROM conversations
        WHERE id = ?`
     )
@@ -82,6 +86,7 @@ export function getConversation(conversationId: string) {
         id: string;
         title: string;
         folder_id: string | null;
+        provider_profile_id: string | null;
         sort_order: number;
         created_at: string;
         updated_at: string;
@@ -93,6 +98,7 @@ export function getConversation(conversationId: string) {
 
 export function createConversation(title = "New conversation", folderId?: string | null) {
   const timestamp = nowIso();
+  const settings = getSettings();
 
   const maxOrder = getDb()
     .prepare("SELECT COALESCE(MAX(sort_order), -1) as max_order FROM conversations")
@@ -102,6 +108,7 @@ export function createConversation(title = "New conversation", folderId?: string
     id: createId("conv"),
     title,
     folderId: folderId ?? null,
+    providerProfileId: settings.defaultProviderProfileId,
     sortOrder: maxOrder.max_order + 1,
     createdAt: timestamp,
     updatedAt: timestamp
@@ -109,13 +116,21 @@ export function createConversation(title = "New conversation", folderId?: string
 
   getDb()
     .prepare(
-      `INSERT INTO conversations (id, title, folder_id, sort_order, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO conversations (
+        id,
+        title,
+        folder_id,
+        provider_profile_id,
+        sort_order,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       conversation.id,
       conversation.title,
       conversation.folderId,
+      conversation.providerProfileId,
       conversation.sortOrder,
       conversation.createdAt,
       conversation.updatedAt
@@ -363,6 +378,20 @@ export function moveConversationToFolder(conversationId: string, folderId: strin
     .run(folderId, timestamp, conversationId);
 }
 
+export function updateConversationProviderProfile(
+  conversationId: string,
+  providerProfileId: string
+) {
+  const timestamp = nowIso();
+  getDb()
+    .prepare(
+      `UPDATE conversations
+       SET provider_profile_id = ?, updated_at = ?
+       WHERE id = ?`
+    )
+    .run(providerProfileId, timestamp, conversationId);
+}
+
 export function reorderConversations(items: Array<{ id: string; folderId: string | null }>) {
   const statement = getDb()
     .prepare("UPDATE conversations SET sort_order = ?, folder_id = ?, updated_at = ? WHERE id = ?");
@@ -390,7 +419,7 @@ export function searchConversations(query: string) {
 
   const rows = getDb()
     .prepare(
-      `SELECT DISTINCT c.id, c.title, c.folder_id, c.sort_order, c.created_at, c.updated_at
+      `SELECT DISTINCT c.id, c.title, c.folder_id, c.provider_profile_id, c.sort_order, c.created_at, c.updated_at
        FROM conversations c
        LEFT JOIN messages m ON c.id = m.conversation_id
        WHERE c.title LIKE ? OR m.content LIKE ?
@@ -400,6 +429,7 @@ export function searchConversations(query: string) {
     id: string;
     title: string;
     folder_id: string | null;
+    provider_profile_id: string | null;
     sort_order: number;
     created_at: string;
     updated_at: string;

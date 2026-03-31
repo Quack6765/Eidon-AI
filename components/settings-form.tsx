@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState, useTransition, useEffect } from "react";
+import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut, Shield, Sparkles, Server, Zap, Plus, Trash2, Pencil } from "lucide-react";
 
@@ -9,10 +9,40 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
-import type { AppSettings, AuthUser, McpServer, McpTransport, Skill } from "@/lib/types";
+import type {
+  ApiMode,
+  AuthUser,
+  McpServer,
+  McpTransport,
+  ReasoningEffort,
+  Skill
+} from "@/lib/types";
 
-type SettingsPayload = Omit<AppSettings, "apiKeyEncrypted"> & {
-  hasApiKey: boolean;
+type SettingsPayload = {
+  defaultProviderProfileId: string;
+  providerProfiles: Array<{
+    id: string;
+    name: string;
+    apiBaseUrl: string;
+    model: string;
+    apiMode: ApiMode;
+    systemPrompt: string;
+    temperature: number;
+    maxOutputTokens: number;
+    reasoningEffort: ReasoningEffort;
+    reasoningSummaryEnabled: boolean;
+    modelContextLimit: number;
+    compactionThreshold: number;
+    freshTailCount: number;
+    createdAt: string;
+    updatedAt: string;
+    hasApiKey: boolean;
+  }>;
+  updatedAt: string;
+};
+
+type ProviderProfileDraft = SettingsPayload["providerProfiles"][number] & {
+  apiKey: string;
 };
 
 export function SettingsForm({
@@ -28,9 +58,27 @@ export function SettingsForm({
   const [accountSuccess, setAccountSuccess] = useState("");
   const [testResult, setTestResult] = useState("");
   const [isPending] = useTransition();
-  const [draftModel, setDraftModel] = useState(settings.model);
-  const [draftApiMode, setDraftApiMode] = useState(settings.apiMode);
-  const visibleReasoningSupported = supportsVisibleReasoning(draftModel, draftApiMode);
+  const [defaultProviderProfileId, setDefaultProviderProfileId] = useState(
+    settings.defaultProviderProfileId
+  );
+  const [selectedProviderProfileId, setSelectedProviderProfileId] = useState(
+    settings.defaultProviderProfileId
+  );
+  const [providerProfiles, setProviderProfiles] = useState<ProviderProfileDraft[]>(
+    settings.providerProfiles.map((profile) => ({
+      ...profile,
+      apiKey: ""
+    }))
+  );
+  const activeProviderProfile = useMemo(
+    () =>
+      providerProfiles.find((profile) => profile.id === selectedProviderProfileId) ??
+      providerProfiles[0],
+    [providerProfiles, selectedProviderProfileId]
+  );
+  const visibleReasoningSupported = activeProviderProfile
+    ? supportsVisibleReasoning(activeProviderProfile.model, activeProviderProfile.apiMode)
+    : false;
 
   // MCP Servers state
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
@@ -62,25 +110,99 @@ export function SettingsForm({
       .catch(() => {});
   }, []);
 
+  function updateActiveProviderProfile(
+    patch: Partial<ProviderProfileDraft>
+  ) {
+    if (!activeProviderProfile) {
+      return;
+    }
+
+    setProviderProfiles((current) =>
+      current.map((profile) =>
+        profile.id === activeProviderProfile.id ? { ...profile, ...patch } : profile
+      )
+    );
+  }
+
+  function addProviderProfile() {
+    const template = activeProviderProfile ?? providerProfiles[0];
+    const nextProfileId = `profile_${crypto.randomUUID()}`;
+    const nextProfile: ProviderProfileDraft = {
+      ...(template ?? {
+        apiBaseUrl: "https://api.openai.com/v1",
+        model: "gpt-5-mini",
+        apiMode: "responses" as ApiMode,
+        systemPrompt: "You are a precise, practical assistant. Answer clearly and directly.",
+        temperature: 0.7,
+        maxOutputTokens: 1200,
+        reasoningEffort: "medium" as ReasoningEffort,
+        reasoningSummaryEnabled: true,
+        modelContextLimit: 128000,
+        compactionThreshold: 0.78,
+        freshTailCount: 28,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        hasApiKey: false,
+        apiKey: "",
+        id: nextProfileId,
+        name: ""
+      }),
+      id: nextProfileId,
+      name: `Profile ${providerProfiles.length + 1}`,
+      hasApiKey: false,
+      apiKey: "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    setProviderProfiles((current) => [...current, nextProfile]);
+    setSelectedProviderProfileId(nextProfile.id);
+  }
+
+  function removeProviderProfile(profileId: string) {
+    if (providerProfiles.length === 1) {
+      return;
+    }
+
+    const nextProfiles = providerProfiles.filter((profile) => profile.id !== profileId);
+    const fallbackProfileId =
+      nextProfiles.find((profile) => profile.id === defaultProviderProfileId)?.id ??
+      nextProfiles[0]?.id ??
+      "";
+
+    setProviderProfiles(nextProfiles);
+    setSelectedProviderProfileId(
+      selectedProviderProfileId === profileId ? fallbackProfileId : selectedProviderProfileId
+    );
+
+    if (defaultProviderProfileId === profileId) {
+      setDefaultProviderProfileId(fallbackProfileId);
+    }
+  }
+
   async function handleSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     setSuccess("");
-    const formData = new FormData(event.currentTarget);
 
     const payload = {
-      apiBaseUrl: String(formData.get("apiBaseUrl") ?? ""),
-      apiKey: String(formData.get("apiKey") ?? ""),
-      model: String(formData.get("model") ?? ""),
-      apiMode: String(formData.get("apiMode") ?? ""),
-      systemPrompt: String(formData.get("systemPrompt") ?? ""),
-      temperature: Number(formData.get("temperature") ?? 0),
-      maxOutputTokens: Number(formData.get("maxOutputTokens") ?? 0),
-      reasoningEffort: String(formData.get("reasoningEffort") ?? "medium"),
-      reasoningSummaryEnabled: formData.get("reasoningSummaryEnabled") === "on",
-      modelContextLimit: Number(formData.get("modelContextLimit") ?? 0),
-      compactionThreshold: Number(formData.get("compactionThreshold") ?? 0),
-      freshTailCount: Number(formData.get("freshTailCount") ?? 0)
+      defaultProviderProfileId,
+      providerProfiles: providerProfiles.map((profile) => ({
+        id: profile.id,
+        name: profile.name,
+        apiBaseUrl: profile.apiBaseUrl,
+        apiKey: profile.apiKey,
+        model: profile.model,
+        apiMode: profile.apiMode,
+        systemPrompt: profile.systemPrompt,
+        temperature: profile.temperature,
+        maxOutputTokens: profile.maxOutputTokens,
+        reasoningEffort: profile.reasoningEffort,
+        reasoningSummaryEnabled: profile.reasoningSummaryEnabled,
+        modelContextLimit: profile.modelContextLimit,
+        compactionThreshold: profile.compactionThreshold,
+        freshTailCount: profile.freshTailCount
+      }))
     };
 
     const response = await fetch("/api/settings", {
@@ -122,7 +244,11 @@ export function SettingsForm({
 
   async function runConnectionTest() {
     setTestResult("");
-    const response = await fetch("/api/settings/test", { method: "POST" });
+    const response = await fetch("/api/settings/test", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ providerProfileId: selectedProviderProfileId })
+    });
     const result = (await response.json()) as { text?: string; error?: string };
     setTestResult(result.text ?? result.error ?? "No result");
   }
@@ -302,120 +428,270 @@ export function SettingsForm({
             </div>
           </div>
 
-          <div className="mt-8 grid gap-5 md:grid-cols-2">
-            <div className="md:col-span-2">
-              <Label>API base URL</Label>
-              <Input name="apiBaseUrl" defaultValue={settings.apiBaseUrl} required />
+          <div className="mt-8 space-y-6">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <Label>Saved profiles</Label>
+                  <p className="mt-2 text-xs leading-5 text-[color:var(--muted)]">
+                    Each profile stores a full runtime configuration. New conversations start with
+                    the default profile.
+                  </p>
+                </div>
+                <Button type="button" variant="secondary" onClick={addProviderProfile}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add profile
+                </Button>
+              </div>
+
+              <div className="space-y-3">
+                {providerProfiles.map((profile) => (
+                  <div
+                    key={profile.id}
+                    className={`rounded-2xl border px-4 py-3 ${
+                      profile.id === selectedProviderProfileId
+                        ? "border-white/20 bg-white/10"
+                        : "border-white/5 bg-black/20"
+                    }`}
+                  >
+                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <button
+                        type="button"
+                        className="min-w-0 text-left"
+                        onClick={() => setSelectedProviderProfileId(profile.id)}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-medium text-[var(--text)]">
+                            {profile.name}
+                          </span>
+                          {profile.id === defaultProviderProfileId ? (
+                            <span className="rounded-md bg-emerald-900/40 px-1.5 py-0.5 text-[0.65rem] font-medium text-emerald-300">
+                              default
+                            </span>
+                          ) : null}
+                          {!profile.hasApiKey && !profile.apiKey ? (
+                            <span className="rounded-md bg-amber-900/40 px-1.5 py-0.5 text-[0.65rem] font-medium text-amber-300">
+                              no key
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 truncate text-xs text-[color:var(--muted)]">
+                          {profile.model} · {profile.apiMode} · {profile.apiBaseUrl}
+                        </p>
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-2 text-xs text-[color:var(--muted)]">
+                          <input
+                            type="radio"
+                            name="defaultProviderProfileId"
+                            checked={profile.id === defaultProviderProfileId}
+                            onChange={() => setDefaultProviderProfileId(profile.id)}
+                          />
+                          Default
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => removeProviderProfile(profile.id)}
+                          disabled={providerProfiles.length === 1}
+                          className="p-1 text-red-400/60 transition hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
-            <div>
-              <Label>API mode</Label>
-              <select
-                name="apiMode"
-                defaultValue={settings.apiMode}
-                onChange={(event) => setDraftApiMode(event.target.value as SettingsPayload["apiMode"])}
-                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
-              >
-                <option value="responses">responses</option>
-                <option value="chat_completions">chat_completions</option>
-              </select>
-            </div>
+            {activeProviderProfile ? (
+              <div className="grid gap-5 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <Label>Profile name</Label>
+                  <Input
+                    value={activeProviderProfile.name}
+                    onChange={(event) => updateActiveProviderProfile({ name: event.target.value })}
+                    required
+                  />
+                </div>
 
-            <div>
-              <Label>Model</Label>
-              <Input
-                name="model"
-                defaultValue={settings.model}
-                required
-                onChange={(event) => setDraftModel(event.target.value)}
-              />
-              <p className="mt-2 text-xs leading-5 text-[color:var(--muted)]">
-                {visibleReasoningSupported
-                  ? "This model can emit visible reasoning summaries through the Responses API."
-                  : "This model is treated as non-reasoning here, so visible thinking will stay hidden even if the toggle below is on."}
-              </p>
-            </div>
+                <div className="md:col-span-2">
+                  <Label>API base URL</Label>
+                  <Input
+                    value={activeProviderProfile.apiBaseUrl}
+                    onChange={(event) =>
+                      updateActiveProviderProfile({ apiBaseUrl: event.target.value })
+                    }
+                    required
+                  />
+                </div>
 
-            <div className="md:col-span-2">
-              <Label>API key</Label>
-              <Input
-                name="apiKey"
-                type="password"
-                placeholder={settings.hasApiKey ? "Stored securely. Leave blank to keep." : "sk-..."}
-              />
-            </div>
+                <div>
+                  <Label>API mode</Label>
+                  <select
+                    value={activeProviderProfile.apiMode}
+                    onChange={(event) =>
+                      updateActiveProviderProfile({ apiMode: event.target.value as ApiMode })
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
+                  >
+                    <option value="responses">responses</option>
+                    <option value="chat_completions">chat_completions</option>
+                  </select>
+                </div>
 
-            <div className="md:col-span-2">
-              <Label>System prompt (applied to new conversations only)</Label>
-              <Textarea name="systemPrompt" defaultValue={settings.systemPrompt} rows={5} required />
-            </div>
+                <div>
+                  <Label>Model</Label>
+                  <Input
+                    value={activeProviderProfile.model}
+                    onChange={(event) => updateActiveProviderProfile({ model: event.target.value })}
+                    required
+                  />
+                  <p className="mt-2 text-xs leading-5 text-[color:var(--muted)]">
+                    {visibleReasoningSupported
+                      ? "This model can emit visible reasoning summaries through the Responses API."
+                      : "This model is treated as non-reasoning here, so visible thinking will stay hidden even if the toggle below is on."}
+                  </p>
+                </div>
 
-            <div>
-              <Label>Temperature</Label>
-              <Input name="temperature" type="number" step="0.1" defaultValue={settings.temperature} />
-            </div>
+                <div className="md:col-span-2">
+                  <Label>API key</Label>
+                  <Input
+                    type="password"
+                    value={activeProviderProfile.apiKey}
+                    onChange={(event) =>
+                      updateActiveProviderProfile({
+                        apiKey: event.target.value,
+                        hasApiKey: activeProviderProfile.hasApiKey || Boolean(event.target.value)
+                      })
+                    }
+                    placeholder={
+                      activeProviderProfile.hasApiKey
+                        ? "Stored securely. Leave blank to keep."
+                        : "sk-..."
+                    }
+                  />
+                </div>
 
-            <div>
-              <Label>Max output tokens</Label>
-              <Input
-                name="maxOutputTokens"
-                type="number"
-                defaultValue={settings.maxOutputTokens}
-              />
-            </div>
+                <div className="md:col-span-2">
+                  <Label>System prompt (applied to new conversations only)</Label>
+                  <Textarea
+                    value={activeProviderProfile.systemPrompt}
+                    onChange={(event) =>
+                      updateActiveProviderProfile({ systemPrompt: event.target.value })
+                    }
+                    rows={5}
+                    required
+                  />
+                </div>
 
-            <div>
-              <Label>Reasoning effort</Label>
-              <select
-                name="reasoningEffort"
-                defaultValue={settings.reasoningEffort}
-                className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
-              >
-                <option value="low">low</option>
-                <option value="medium">medium</option>
-                <option value="high">high</option>
-                <option value="xhigh">xhigh</option>
-              </select>
-            </div>
+                <div>
+                  <Label>Temperature</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    value={activeProviderProfile.temperature}
+                    onChange={(event) =>
+                      updateActiveProviderProfile({
+                        temperature: Number(event.target.value || 0)
+                      })
+                    }
+                  />
+                </div>
 
-            <div>
-              <Label>Reasoning summary</Label>
-              <label className="flex h-[50px] items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm">
-                <input
-                  name="reasoningSummaryEnabled"
-                  type="checkbox"
-                  defaultChecked={settings.reasoningSummaryEnabled}
-                />
-                Show reasoning when provider supports it
-              </label>
-              <p className="mt-2 text-xs leading-5 text-[color:var(--muted)]">
-                Best results here come from reasoning-capable models like GPT-5 and OpenAI o-series models on the Responses API.
-              </p>
-            </div>
+                <div>
+                  <Label>Max output tokens</Label>
+                  <Input
+                    type="number"
+                    value={activeProviderProfile.maxOutputTokens}
+                    onChange={(event) =>
+                      updateActiveProviderProfile({
+                        maxOutputTokens: Number(event.target.value || 0)
+                      })
+                    }
+                  />
+                </div>
 
-            <div>
-              <Label>Model context limit</Label>
-              <Input
-                name="modelContextLimit"
-                type="number"
-                defaultValue={settings.modelContextLimit}
-              />
-            </div>
+                <div>
+                  <Label>Reasoning effort</Label>
+                  <select
+                    value={activeProviderProfile.reasoningEffort}
+                    onChange={(event) =>
+                      updateActiveProviderProfile({
+                        reasoningEffort: event.target.value as ReasoningEffort
+                      })
+                    }
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
+                  >
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="xhigh">xhigh</option>
+                  </select>
+                </div>
 
-            <div>
-              <Label>Compaction threshold</Label>
-              <Input
-                name="compactionThreshold"
-                type="number"
-                step="0.01"
-                defaultValue={settings.compactionThreshold}
-              />
-            </div>
+                <div>
+                  <Label>Reasoning summary</Label>
+                  <label className="flex h-[50px] items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={activeProviderProfile.reasoningSummaryEnabled}
+                      onChange={(event) =>
+                        updateActiveProviderProfile({
+                          reasoningSummaryEnabled: event.target.checked
+                        })
+                      }
+                    />
+                    Show reasoning when provider supports it
+                  </label>
+                  <p className="mt-2 text-xs leading-5 text-[color:var(--muted)]">
+                    Best results here come from reasoning-capable models like GPT-5 and OpenAI
+                    o-series models on the Responses API.
+                  </p>
+                </div>
 
-            <div>
-              <Label>Fresh tail count</Label>
-              <Input name="freshTailCount" type="number" defaultValue={settings.freshTailCount} />
-            </div>
+                <div>
+                  <Label>Model context limit</Label>
+                  <Input
+                    type="number"
+                    value={activeProviderProfile.modelContextLimit}
+                    onChange={(event) =>
+                      updateActiveProviderProfile({
+                        modelContextLimit: Number(event.target.value || 0)
+                      })
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Compaction threshold</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={activeProviderProfile.compactionThreshold}
+                    onChange={(event) =>
+                      updateActiveProviderProfile({
+                        compactionThreshold: Number(event.target.value || 0)
+                      })
+                    }
+                  />
+                </div>
+
+                <div>
+                  <Label>Fresh tail count</Label>
+                  <Input
+                    type="number"
+                    value={activeProviderProfile.freshTailCount}
+                    onChange={(event) =>
+                      updateActiveProviderProfile({
+                        freshTailCount: Number(event.target.value || 0)
+                      })
+                    }
+                  />
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-6 flex flex-wrap items-center gap-3">

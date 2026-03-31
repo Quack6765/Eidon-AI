@@ -10,7 +10,10 @@ import {
 } from "@/lib/conversations";
 import { ensureCompactedContext } from "@/lib/compaction";
 import { badRequest } from "@/lib/http";
-import { getSettingsWithApiKey } from "@/lib/settings";
+import {
+  getDefaultProviderProfileWithApiKey,
+  getProviderProfileWithApiKey
+} from "@/lib/settings";
 import { encodeSseEvent } from "@/lib/sse";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { streamProviderResponse } from "@/lib/provider";
@@ -53,9 +56,12 @@ export async function POST(
     return badRequest("Conversation not found", 404);
   }
 
-  const settings = getSettingsWithApiKey();
+  const settings =
+    (conversation.providerProfileId
+      ? getProviderProfileWithApiKey(conversation.providerProfileId)
+      : null) ?? getDefaultProviderProfileWithApiKey();
 
-  if (!settings.apiKey) {
+  if (!settings?.apiKey) {
     return badRequest("Set an API key in settings before starting a chat");
   }
 
@@ -101,7 +107,7 @@ export async function POST(
       };
 
       try {
-        const compacted = await ensureCompactedContext(conversation.id);
+        const compacted = await ensureCompactedContext(conversation.id, settings);
 
         // Append skills to the system prompt
         const skills = listEnabledSkills();

@@ -4,7 +4,7 @@ import {
   getConversationDebugStats
 } from "@/lib/compaction";
 import { createConversation, createMessage, listMessages } from "@/lib/conversations";
-import { updateSettings } from "@/lib/settings";
+import { getDefaultProviderProfileWithApiKey, updateSettings } from "@/lib/settings";
 
 vi.mock("@/lib/provider", async () => {
   return {
@@ -28,6 +28,43 @@ vi.mock("@/lib/provider", async () => {
 });
 
 describe("lossless compaction", () => {
+  function updateDefaultProfile(overrides: Partial<{
+    apiBaseUrl: string;
+    apiKey: string;
+    model: string;
+    apiMode: "responses" | "chat_completions";
+    systemPrompt: string;
+    temperature: number;
+    maxOutputTokens: number;
+    reasoningEffort: "low" | "medium" | "high" | "xhigh";
+    reasoningSummaryEnabled: boolean;
+    modelContextLimit: number;
+    compactionThreshold: number;
+    freshTailCount: number;
+  }>) {
+    updateSettings({
+      defaultProviderProfileId: "profile_default",
+      providerProfiles: [
+        {
+          id: "profile_default",
+          name: "Default",
+          apiBaseUrl: overrides.apiBaseUrl ?? "https://api.example.com/v1",
+          apiKey: overrides.apiKey ?? "sk-test",
+          model: overrides.model ?? "gpt-test",
+          apiMode: overrides.apiMode ?? "responses",
+          systemPrompt: overrides.systemPrompt ?? "Preserve context exactly.",
+          temperature: overrides.temperature ?? 0.2,
+          maxOutputTokens: overrides.maxOutputTokens ?? 256,
+          reasoningEffort: overrides.reasoningEffort ?? "medium",
+          reasoningSummaryEnabled: overrides.reasoningSummaryEnabled ?? true,
+          modelContextLimit: overrides.modelContextLimit ?? 16000,
+          compactionThreshold: overrides.compactionThreshold ?? 0.8,
+          freshTailCount: overrides.freshTailCount ?? 8
+        }
+      ]
+    });
+  }
+
   it("builds prompts from compacted memory plus recent raw turns", () => {
     const prompt = buildPromptMessages({
       systemPrompt: "Stay concise.",
@@ -70,19 +107,9 @@ describe("lossless compaction", () => {
   });
 
   it("compacts older turns when the token threshold is exceeded", async () => {
-    updateSettings({
-      apiBaseUrl: "https://api.example.com/v1",
-      apiKey: "sk-test",
-      model: "gpt-test",
-      apiMode: "responses",
-      systemPrompt: "Preserve context exactly.",
-      temperature: 0.2,
-      maxOutputTokens: 256,
-      reasoningEffort: "medium",
-      reasoningSummaryEnabled: true,
+    updateDefaultProfile({
       modelContextLimit: 6000,
-      compactionThreshold: 0.7,
-      freshTailCount: 8
+      compactionThreshold: 0.7
     });
 
     const conversation = createConversation();
@@ -96,7 +123,10 @@ describe("lossless compaction", () => {
       });
     }
 
-    const result = await ensureCompactedContext(conversation.id);
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
     const stats = getConversationDebugStats(conversation.id);
     const messages = listMessages(conversation.id);
 
@@ -111,20 +141,7 @@ describe("lossless compaction", () => {
   });
 
   it("returns compacted context without compaction when the conversation fits and errors on missing conversations", async () => {
-    updateSettings({
-      apiBaseUrl: "https://api.example.com/v1",
-      apiKey: "sk-test",
-      model: "gpt-test",
-      apiMode: "responses",
-      systemPrompt: "Preserve context exactly.",
-      temperature: 0.2,
-      maxOutputTokens: 256,
-      reasoningEffort: "medium",
-      reasoningSummaryEnabled: true,
-      modelContextLimit: 16000,
-      compactionThreshold: 0.8,
-      freshTailCount: 8
-    });
+    updateDefaultProfile({});
 
     const conversation = createConversation();
     createMessage({
@@ -133,26 +150,21 @@ describe("lossless compaction", () => {
       content: "Short message"
     });
 
-    const result = await ensureCompactedContext(conversation.id);
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
 
     expect(result.compactionNoticeEvent).toBeNull();
-    await expect(ensureCompactedContext("missing")).rejects.toThrow("Conversation not found");
+    await expect(
+      ensureCompactedContext("missing", getDefaultProviderProfileWithApiKey()!)
+    ).rejects.toThrow("Conversation not found");
   });
 
   it("fails cleanly when the prompt is too large and nothing is eligible for compaction", async () => {
-    updateSettings({
-      apiBaseUrl: "https://api.example.com/v1",
-      apiKey: "sk-test",
-      model: "gpt-test",
-      apiMode: "responses",
-      systemPrompt: "Preserve context exactly.",
-      temperature: 0.2,
-      maxOutputTokens: 256,
-      reasoningEffort: "medium",
-      reasoningSummaryEnabled: true,
+    updateDefaultProfile({
       modelContextLimit: 4096,
-      compactionThreshold: 0.7,
-      freshTailCount: 8
+      compactionThreshold: 0.7
     });
 
     const conversation = createConversation();
@@ -165,7 +177,9 @@ describe("lossless compaction", () => {
       });
     }
 
-    await expect(ensureCompactedContext(conversation.id)).rejects.toThrow(
+    await expect(
+      ensureCompactedContext(conversation.id, getDefaultProviderProfileWithApiKey()!)
+    ).rejects.toThrow(
       "Conversation exceeds the configured context limit even after compaction."
     );
   });

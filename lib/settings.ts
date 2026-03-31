@@ -1,11 +1,20 @@
 import { z } from "zod";
 
-import { DEFAULT_SETTINGS, SETTINGS_ROW_ID } from "@/lib/constants";
+import {
+  DEFAULT_PROVIDER_PROFILE_NAME,
+  DEFAULT_PROVIDER_SETTINGS,
+  SETTINGS_ROW_ID
+} from "@/lib/constants";
 import { decryptValue, encryptValue } from "@/lib/crypto";
 import { getDb } from "@/lib/db";
-import type { AppSettings, ReasoningEffort } from "@/lib/types";
+import type {
+  AppSettings,
+  ProviderProfile,
+  ProviderProfileWithApiKey,
+  ReasoningEffort
+} from "@/lib/types";
 
-const settingsSchema = z.object({
+const runtimeSettingsSchema = z.object({
   apiBaseUrl: z.string().url(),
   apiKey: z.string().optional().default(""),
   model: z.string().min(1),
@@ -20,7 +29,48 @@ const settingsSchema = z.object({
   freshTailCount: z.coerce.number().int().min(8).max(128)
 });
 
-type SettingsRow = {
+const providerProfileInputSchema = runtimeSettingsSchema.extend({
+  id: z.string().min(1),
+  name: z.string().min(1)
+});
+
+const settingsSchema = z
+  .object({
+    defaultProviderProfileId: z.string().min(1),
+    providerProfiles: z.array(providerProfileInputSchema).min(1)
+  })
+  .superRefine((value, context) => {
+    const ids = new Set<string>();
+
+    value.providerProfiles.forEach((profile, index) => {
+      if (ids.has(profile.id)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Provider profile ids must be unique",
+          path: ["providerProfiles", index, "id"]
+        });
+      }
+
+      ids.add(profile.id);
+    });
+
+    if (!ids.has(value.defaultProviderProfileId)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Default provider profile must match a saved profile",
+        path: ["defaultProviderProfileId"]
+      });
+    }
+  });
+
+type AppSettingsRow = {
+  default_provider_profile_id: string;
+  updated_at: string;
+};
+
+type ProviderProfileRow = {
+  id: string;
+  name: string;
   api_base_url: string;
   api_key_encrypted: string;
   model: string;
@@ -33,11 +83,21 @@ type SettingsRow = {
   model_context_limit: number;
   compaction_threshold: number;
   fresh_tail_count: number;
+  created_at: string;
   updated_at: string;
 };
 
-function rowToSettings(row: SettingsRow): AppSettings {
+function rowToSettings(row: AppSettingsRow): AppSettings {
   return {
+    defaultProviderProfileId: row.default_provider_profile_id,
+    updatedAt: row.updated_at
+  };
+}
+
+function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
+  return {
+    id: row.id,
+    name: row.name,
     apiBaseUrl: row.api_base_url,
     apiKeyEncrypted: row.api_key_encrypted,
     model: row.model,
@@ -50,14 +110,17 @@ function rowToSettings(row: SettingsRow): AppSettings {
     modelContextLimit: row.model_context_limit,
     compactionThreshold: row.compaction_threshold,
     freshTailCount: row.fresh_tail_count,
+    createdAt: row.created_at,
     updatedAt: row.updated_at
   };
 }
 
-export function getSettings() {
-  const row = getDb()
+function listProviderProfileRows() {
+  return getDb()
     .prepare(
       `SELECT
+        id,
+        name,
         api_base_url,
         api_key_encrypted,
         model,
@@ -70,85 +133,237 @@ export function getSettings() {
         model_context_limit,
         compaction_threshold,
         fresh_tail_count,
+        created_at,
         updated_at
-      FROM app_settings
-      WHERE id = ?`
+      FROM provider_profiles
+      ORDER BY created_at ASC`
     )
-    .get(SETTINGS_ROW_ID) as SettingsRow;
-
-  return rowToSettings(row);
+    .all() as ProviderProfileRow[];
 }
 
-export function getSettingsWithApiKey() {
-  const settings = getSettings();
+function getProviderProfileRow(profileId: string) {
+  return getDb()
+    .prepare(
+      `SELECT
+        id,
+        name,
+        api_base_url,
+        api_key_encrypted,
+        model,
+        api_mode,
+        system_prompt,
+        temperature,
+        max_output_tokens,
+        reasoning_effort,
+        reasoning_summary_enabled,
+        model_context_limit,
+        compaction_threshold,
+        fresh_tail_count,
+        created_at,
+        updated_at
+      FROM provider_profiles
+      WHERE id = ?`
+    )
+    .get(profileId) as ProviderProfileRow | undefined;
+}
+
+function withApiKey(profile: ProviderProfile): ProviderProfileWithApiKey {
   let apiKey = "";
 
-  if (settings.apiKeyEncrypted) {
+  if (profile.apiKeyEncrypted) {
     try {
-      apiKey = decryptValue(settings.apiKeyEncrypted);
+      apiKey = decryptValue(profile.apiKeyEncrypted);
     } catch {
       apiKey = "";
     }
   }
 
   return {
-    ...settings,
+    ...profile,
     apiKey
   };
 }
 
+export function getSettings() {
+  const row = getDb()
+    .prepare(
+      `SELECT
+        default_provider_profile_id,
+        updated_at
+      FROM app_settings
+      WHERE id = ?`
+    )
+    .get(SETTINGS_ROW_ID) as AppSettingsRow;
+
+  return rowToSettings(row);
+}
+
+export function listProviderProfiles() {
+  return listProviderProfileRows().map(rowToProviderProfile);
+}
+
+export function listProviderProfilesWithApiKeys() {
+  return listProviderProfiles().map(withApiKey);
+}
+
+export function getProviderProfile(profileId: string) {
+  const row = getProviderProfileRow(profileId);
+  return row ? rowToProviderProfile(row) : null;
+}
+
+export function getProviderProfileWithApiKey(profileId: string) {
+  const profile = getProviderProfile(profileId);
+  return profile ? withApiKey(profile) : null;
+}
+
+export function getDefaultProviderProfile() {
+  const settings = getSettings();
+  return getProviderProfile(settings.defaultProviderProfileId);
+}
+
+export function getDefaultProviderProfileWithApiKey() {
+  const settings = getSettings();
+  return getProviderProfileWithApiKey(settings.defaultProviderProfileId);
+}
+
 export function getSanitizedSettings() {
   const settings = getSettings();
+  const providerProfiles = listProviderProfiles().map((profile) => {
+    const { apiKeyEncrypted: _apiKeyEncrypted, ...sanitizedProfile } = profile;
+
+    return {
+      ...sanitizedProfile,
+      hasApiKey: Boolean(profile.apiKeyEncrypted)
+    };
+  });
 
   return {
     ...settings,
-    hasApiKey: Boolean(settings.apiKeyEncrypted)
+    providerProfiles
   };
 }
 
 export function updateSettings(input: unknown) {
-  const current = getSettingsWithApiKey();
+  const currentProfiles = new Map(
+    listProviderProfilesWithApiKeys().map((profile) => [profile.id, profile])
+  );
   const parsed = settingsSchema.parse(input);
-  const apiKey = parsed.apiKey || current.apiKey;
   const timestamp = new Date().toISOString();
+  const incomingIds = new Set(parsed.providerProfiles.map((profile) => profile.id));
+  const removedProfileIds = [...currentProfiles.keys()].filter((id) => !incomingIds.has(id));
 
-  getDb()
-    .prepare(
-      `UPDATE app_settings
-       SET api_base_url = @apiBaseUrl,
-           api_key_encrypted = @apiKeyEncrypted,
-           model = @model,
-           api_mode = @apiMode,
-           system_prompt = @systemPrompt,
-           temperature = @temperature,
-           max_output_tokens = @maxOutputTokens,
-           reasoning_effort = @reasoningEffort,
-           reasoning_summary_enabled = @reasoningSummaryEnabled,
-           model_context_limit = @modelContextLimit,
-           compaction_threshold = @compactionThreshold,
-           fresh_tail_count = @freshTailCount,
-           updated_at = @updatedAt
-       WHERE id = ${SETTINGS_ROW_ID}`
-    )
-    .run({
-      apiBaseUrl: parsed.apiBaseUrl,
-      apiKeyEncrypted: apiKey ? encryptValue(apiKey) : "",
-      model: parsed.model,
-      apiMode: parsed.apiMode,
-      systemPrompt: parsed.systemPrompt,
-      temperature: parsed.temperature,
-      maxOutputTokens: parsed.maxOutputTokens,
-      reasoningEffort: parsed.reasoningEffort,
-      reasoningSummaryEnabled: parsed.reasoningSummaryEnabled ? 1 : 0,
-      modelContextLimit: parsed.modelContextLimit,
-      compactionThreshold: parsed.compactionThreshold,
-      freshTailCount: parsed.freshTailCount,
-      updatedAt: timestamp
+  const transaction = getDb().transaction(() => {
+    const upsertProfile = getDb().prepare(
+      `INSERT INTO provider_profiles (
+        id,
+        name,
+        api_base_url,
+        api_key_encrypted,
+        model,
+        api_mode,
+        system_prompt,
+        temperature,
+        max_output_tokens,
+        reasoning_effort,
+        reasoning_summary_enabled,
+        model_context_limit,
+        compaction_threshold,
+        fresh_tail_count,
+        created_at,
+        updated_at
+      ) VALUES (
+        @id,
+        @name,
+        @apiBaseUrl,
+        @apiKeyEncrypted,
+        @model,
+        @apiMode,
+        @systemPrompt,
+        @temperature,
+        @maxOutputTokens,
+        @reasoningEffort,
+        @reasoningSummaryEnabled,
+        @modelContextLimit,
+        @compactionThreshold,
+        @freshTailCount,
+        @createdAt,
+        @updatedAt
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        name = excluded.name,
+        api_base_url = excluded.api_base_url,
+        api_key_encrypted = excluded.api_key_encrypted,
+        model = excluded.model,
+        api_mode = excluded.api_mode,
+        system_prompt = excluded.system_prompt,
+        temperature = excluded.temperature,
+        max_output_tokens = excluded.max_output_tokens,
+        reasoning_effort = excluded.reasoning_effort,
+        reasoning_summary_enabled = excluded.reasoning_summary_enabled,
+        model_context_limit = excluded.model_context_limit,
+        compaction_threshold = excluded.compaction_threshold,
+        fresh_tail_count = excluded.fresh_tail_count,
+        updated_at = excluded.updated_at`
+    );
+
+    parsed.providerProfiles.forEach((profile) => {
+      const current = currentProfiles.get(profile.id);
+      const apiKey = profile.apiKey || current?.apiKey || "";
+
+      upsertProfile.run({
+        id: profile.id,
+        name: profile.name,
+        apiBaseUrl: profile.apiBaseUrl,
+        apiKeyEncrypted: apiKey ? encryptValue(apiKey) : "",
+        model: profile.model,
+        apiMode: profile.apiMode,
+        systemPrompt: profile.systemPrompt,
+        temperature: profile.temperature,
+        maxOutputTokens: profile.maxOutputTokens,
+        reasoningEffort: profile.reasoningEffort,
+        reasoningSummaryEnabled: profile.reasoningSummaryEnabled ? 1 : 0,
+        modelContextLimit: profile.modelContextLimit,
+        compactionThreshold: profile.compactionThreshold,
+        freshTailCount: profile.freshTailCount,
+        createdAt: current?.createdAt ?? timestamp,
+        updatedAt: timestamp
+      });
     });
+
+    if (removedProfileIds.length) {
+      const placeholders = removedProfileIds.map(() => "?").join(", ");
+
+      getDb()
+        .prepare(
+          `UPDATE conversations
+           SET provider_profile_id = ?
+           WHERE provider_profile_id IN (${placeholders})`
+        )
+        .run(parsed.defaultProviderProfileId, ...removedProfileIds);
+
+      getDb()
+        .prepare(`DELETE FROM provider_profiles WHERE id IN (${placeholders})`)
+        .run(...removedProfileIds);
+    }
+
+    getDb()
+      .prepare(
+        `UPDATE app_settings
+         SET default_provider_profile_id = ?,
+             updated_at = ?
+         WHERE id = ?`
+      )
+      .run(parsed.defaultProviderProfileId, timestamp, SETTINGS_ROW_ID);
+  });
+
+  transaction();
 
   return getSanitizedSettings();
 }
 
 export function getSettingsDefaults() {
-  return DEFAULT_SETTINGS;
+  return {
+    name: DEFAULT_PROVIDER_PROFILE_NAME,
+    ...DEFAULT_PROVIDER_SETTINGS
+  };
 }

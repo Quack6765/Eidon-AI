@@ -6,12 +6,14 @@ import {
   createMessage
 } from "@/lib/conversations";
 import { createFolder } from "@/lib/folders";
+import { getSettings } from "@/lib/settings";
 
 describe("conversations extended", () => {
   it("creates conversations with folder assignment", () => {
     const folder = createFolder("Work");
     const conv = createConversation("My Chat", folder.id);
     expect(conv.folderId).toBe(folder.id);
+    expect(conv.providerProfileId).toBe(getSettings().defaultProviderProfileId);
     expect(conv.title).toBe("My Chat");
   });
 

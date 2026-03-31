@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LoaderCircle, ArrowUp, Plus } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
 import { formatTimestamp } from "@/lib/utils";
@@ -13,6 +12,25 @@ import type { ChatStreamEvent, Conversation, Message } from "@/lib/types";
 type ConversationPayload = {
   conversation: Conversation;
   messages: Message[];
+  providerProfiles: Array<{
+    id: string;
+    name: string;
+    apiBaseUrl: string;
+    model: string;
+    apiMode: string;
+    systemPrompt: string;
+    temperature: number;
+    maxOutputTokens: number;
+    reasoningEffort: string;
+    reasoningSummaryEnabled: boolean;
+    modelContextLimit: number;
+    compactionThreshold: number;
+    freshTailCount: number;
+    createdAt: string;
+    updatedAt: string;
+    hasApiKey: boolean;
+  }>;
+  defaultProviderProfileId: string;
   debug: {
     rawTurnCount: number;
     memoryNodeCount: number;
@@ -52,11 +70,18 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [streamAnswerDisplay, setStreamAnswerDisplay] = useState("");
   const [streamStartedAt, setStreamStartedAt] = useState<string | null>(null);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
+  const [providerProfileId, setProviderProfileId] = useState(
+    payload.conversation.providerProfileId ?? payload.defaultProviderProfileId
+  );
   const queueRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setMessages(payload.messages);
   }, [payload.messages]);
+
+  useEffect(() => {
+    setProviderProfileId(payload.conversation.providerProfileId ?? payload.defaultProviderProfileId);
+  }, [payload.conversation.providerProfileId, payload.defaultProviderProfileId]);
 
   useEffect(() => {
     if (!queueRef.current) {
@@ -111,6 +136,48 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     return formatTimestamp(payload.debug.latestCompactionAt);
   }, [payload.debug.latestCompactionAt]);
+
+  const activeProviderProfile = useMemo(
+    () =>
+      payload.providerProfiles.find((profile) => profile.id === providerProfileId) ??
+      payload.providerProfiles.find((profile) => profile.id === payload.defaultProviderProfileId) ??
+      null,
+    [payload.defaultProviderProfileId, payload.providerProfiles, providerProfileId]
+  );
+
+  async function updateProviderProfile(nextProviderProfileId: string) {
+    const previousProviderProfileId = providerProfileId;
+    setError("");
+    setProviderProfileId(nextProviderProfileId);
+
+    try {
+      const response = await fetch(`/api/conversations/${payload.conversation.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ providerProfileId: nextProviderProfileId })
+      });
+
+      if (!response.ok) {
+        let message = "Unable to update provider profile";
+
+        try {
+          const failure = (await response.json()) as { error?: string };
+          message = failure.error ?? message;
+        } catch {}
+
+        throw new Error(message);
+      }
+
+      router.refresh();
+    } catch (caughtError) {
+      setProviderProfileId(previousProviderProfileId);
+      setError(
+        caughtError instanceof Error ? caughtError.message : "Unable to update provider profile"
+      );
+    }
+  }
 
   async function submit() {
     const value = input.trim();
@@ -235,13 +302,39 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   // Calculate textarea height dynamically if needed, but Tailwind max-height handles it.
   return (
     <div className="flex h-[100dvh] flex-col relative w-full bg-[var(--background)]">
-      {/* Optional Top debug header for desktop (mobile has one in Shell) */}
-      <div className="hidden md:flex justify-between items-center px-6 py-4 text-sm text-[var(--muted)]">
-         <span className="font-medium text-[var(--text)]">{payload.conversation.title}</span>
-         <div className="flex gap-3 text-xs opacity-50">
-           <span>{payload.debug.memoryNodeCount} memory nodes</span>
-           <span>Latest compaction: {latestCompactionLabel}</span>
-         </div>
+      <div className="border-b border-white/5 px-4 py-4 md:px-6">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div className="font-medium text-[var(--text)]">{payload.conversation.title}</div>
+            <div className="mt-1 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
+              <span>{payload.debug.memoryNodeCount} memory nodes</span>
+              <span>Latest compaction: {latestCompactionLabel}</span>
+            </div>
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-2 md:items-end">
+            <label className="text-[0.68rem] font-semibold uppercase tracking-[0.3em] text-[color:var(--accent)]">
+              Conversation model
+            </label>
+            <select
+              value={providerProfileId}
+              onChange={(event) => void updateProviderProfile(event.target.value)}
+              className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-[var(--text)] md:w-[320px]"
+              disabled={isSending || payload.providerProfiles.length === 0}
+            >
+              {payload.providerProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {profile.name} · {profile.model}
+                </option>
+              ))}
+            </select>
+            {activeProviderProfile ? (
+              <p className="text-xs text-[var(--muted)]">
+                {activeProviderProfile.apiMode} · {activeProviderProfile.apiBaseUrl}
+              </p>
+            ) : null}
+          </div>
+        </div>
       </div>
 
       <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 md:px-0 scroll-smooth">
