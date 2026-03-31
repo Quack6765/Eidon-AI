@@ -2,8 +2,13 @@ import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/components/login-form";
 import { getCurrentUser } from "@/lib/auth";
+import { isPasswordLoginEnabled } from "@/lib/env";
 
 export default async function LoginPage() {
+  if (!isPasswordLoginEnabled) {
+    redirect("/");
+  }
+
   const user = await getCurrentUser();
 
   if (user) {

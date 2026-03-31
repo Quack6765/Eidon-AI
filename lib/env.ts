@@ -2,6 +2,10 @@ import { z } from "zod";
 
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  HERMES_PASSWORD_LOGIN_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   HERMES_ADMIN_USERNAME: z.string().min(1).default("admin"),
   HERMES_ADMIN_PASSWORD: z.string().min(8).default("changeme123"),
   HERMES_SESSION_SECRET: z.string().min(32).default("development-session-secret-please-change"),
@@ -12,3 +16,4 @@ const envSchema = z.object({
 export const env = envSchema.parse(process.env);
 
 export const isProduction = env.NODE_ENV === "production";
+export const isPasswordLoginEnabled = env.HERMES_PASSWORD_LOGIN_ENABLED;

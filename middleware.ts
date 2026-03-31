@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
-import { env } from "@/lib/env";
+import { env, isPasswordLoginEnabled } from "@/lib/env";
 
 const secret = new TextEncoder().encode(env.HERMES_SESSION_SECRET);
 
@@ -11,6 +11,14 @@ const publicPaths = ["/login"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  if (!isPasswordLoginEnabled) {
+    if (pathname === "/login" || pathname.startsWith("/login/")) {
+      return NextResponse.redirect(new URL("/", request.url));
+    }
+
+    return NextResponse.next();
+  }
 
   if (
     pathname.startsWith("/_next") ||

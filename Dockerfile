@@ -15,6 +15,7 @@ FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HERMES_DATA_DIR=/app/data
+ENV HERMES_PASSWORD_LOGIN_ENABLED=true
 
 # Install uv for uvx (Python-based MCP servers)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/

@@ -6,6 +6,7 @@ import {
   setSessionCookie,
   verifyPassword
 } from "@/lib/auth";
+import { isPasswordLoginEnabled } from "@/lib/env";
 import { badRequest, ok } from "@/lib/http";
 
 const schema = z.object({
@@ -14,6 +15,10 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
+  if (!isPasswordLoginEnabled) {
+    return badRequest("Username/password login is disabled", 403);
+  }
+
   const body = schema.safeParse(await request.json());
 
   if (!body.success) {

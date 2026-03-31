@@ -90,4 +90,61 @@ describe("session lifecycle", () => {
     await auth.clearSessionCookie();
     expect(cookieState.has("hermes_session")).toBe(false);
   });
+
+  it("returns the bootstrap user when username/password login is disabled", async () => {
+    const previous = process.env.HERMES_PASSWORD_LOGIN_ENABLED;
+    process.env.HERMES_PASSWORD_LOGIN_ENABLED = "false";
+    vi.resetModules();
+
+    try {
+      const auth = await import("@/lib/auth");
+      const currentUser = await auth.getCurrentUser();
+
+      expect(currentUser?.username).toBe("admin");
+      await expect(auth.requireUser(false)).resolves.toEqual(currentUser);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.HERMES_PASSWORD_LOGIN_ENABLED;
+      } else {
+        process.env.HERMES_PASSWORD_LOGIN_ENABLED = previous;
+      }
+
+      vi.resetModules();
+    }
+  });
+
+  it("rejects login requests when username/password login is disabled", async () => {
+    const previous = process.env.HERMES_PASSWORD_LOGIN_ENABLED;
+    process.env.HERMES_PASSWORD_LOGIN_ENABLED = "false";
+    vi.resetModules();
+
+    try {
+      const { POST } = await import("@/app/api/auth/login/route");
+      const response = await POST(
+        new Request("http://localhost/api/auth/login", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            username: "admin",
+            password: "changeme123"
+          })
+        })
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({
+        error: "Username/password login is disabled"
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env.HERMES_PASSWORD_LOGIN_ENABLED;
+      } else {
+        process.env.HERMES_PASSWORD_LOGIN_ENABLED = previous;
+      }
+
+      vi.resetModules();
+    }
+  });
 });

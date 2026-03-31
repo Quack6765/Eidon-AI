@@ -13,6 +13,7 @@ export default defineConfig({
     env: {
       NODE_ENV: "test",
       HERMES_DATA_DIR: ".e2e-data",
+      HERMES_PASSWORD_LOGIN_ENABLED: "true",
       HERMES_ADMIN_USERNAME: "admin",
       HERMES_ADMIN_PASSWORD: "changeme123",
       HERMES_SESSION_SECRET: "e2e-session-secret-which-is-long-enough",

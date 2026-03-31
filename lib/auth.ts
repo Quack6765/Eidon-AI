@@ -6,7 +6,7 @@ import { SignJWT, jwtVerify } from "jose";
 
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import { getDb } from "@/lib/db";
-import { env, isProduction } from "@/lib/env";
+import { env, isPasswordLoginEnabled, isProduction } from "@/lib/env";
 import { createId } from "@/lib/ids";
 import type { AuthSession, AuthUser } from "@/lib/types";
 
@@ -75,6 +75,32 @@ export async function ensureAdminBootstrap() {
     timestamp,
     timestamp
   );
+}
+
+async function getBootstrapUser() {
+  await ensureAdminBootstrap();
+
+  const row = getDb()
+    .prepare(
+      `SELECT id, username, created_at, updated_at
+       FROM admin_users
+       ORDER BY created_at ASC
+       LIMIT 1`
+    )
+    .get() as
+    | {
+        id: string;
+        username: string;
+        created_at: string;
+        updated_at: string;
+      }
+    | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  return rowToUser(row);
 }
 
 export async function findUserByUsername(username: string) {
@@ -158,6 +184,10 @@ export async function getSessionPayload() {
 }
 
 export async function getCurrentUser() {
+  if (!isPasswordLoginEnabled) {
+    return getBootstrapUser();
+  }
+
   await ensureAdminBootstrap();
 
   const payload = await getSessionPayload();

@@ -8,6 +8,7 @@ const dataDir = path.resolve(".test-data");
 Object.assign(process.env, {
   NODE_ENV: "test",
   HERMES_DATA_DIR: dataDir,
+  HERMES_PASSWORD_LOGIN_ENABLED: "true",
   HERMES_ADMIN_USERNAME: "admin",
   HERMES_ADMIN_PASSWORD: "changeme123",
   HERMES_SESSION_SECRET: "test-session-secret-which-is-long-enough",

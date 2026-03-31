@@ -7,6 +7,7 @@
 ## Setup
 ```bash
 npm install
+export HERMES_PASSWORD_LOGIN_ENABLED=false
 export HERMES_ADMIN_USERNAME=admin
 export HERMES_ADMIN_PASSWORD=changeme123
 export HERMES_SESSION_SECRET=replace-with-32-plus-chars
