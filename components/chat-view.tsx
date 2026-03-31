@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LoaderCircle, ArrowUp, Plus, ChevronDown } from "lucide-react";
+import { LoaderCircle, ArrowUp, ChevronDown, Bot, Pen, Globe, Paperclip, LayoutGrid } from "lucide-react";
 
 import { Textarea } from "@/components/ui/textarea";
 import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
@@ -363,21 +363,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               </div>
             )}
           </div>
-
-          <div className="flex min-w-0 items-center gap-3">
-            <select
-              value={providerProfileId}
-              onChange={(event) => void updateProviderProfile(event.target.value)}
-              className="rounded-xl border border-white/6 bg-white/[0.03] px-3 py-2 text-sm text-[var(--text)] md:w-[280px] w-full outline-none focus:border-[var(--accent)]/30 transition-all duration-200 appearance-none cursor-pointer"
-              disabled={isSending || payload.providerProfiles.length === 0}
-            >
-              {payload.providerProfiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name} · {profile.model}
-                </option>
-              ))}
-            </select>
-          </div>
         </div>
       </div>
 
@@ -418,37 +403,22 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         <div className="h-24 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/90 to-transparent" />
         <div className="mx-auto w-full max-w-[700px] px-4 pb-4 md:pb-6 -mt-10 pointer-events-auto">
           <div className="relative rounded-2xl border border-white/6 bg-[var(--panel)] p-2 shadow-[var(--shadow)] transition-all duration-300 focus-within:border-[var(--accent)]/20 focus-within:shadow-[var(--shadow),0_0_0_3px_var(--accent-soft)]">
-            <div className="flex max-h-[200px] w-full items-end pb-0.5 pr-1">
-              <button
-                className="p-2 mb-0.5 ml-0.5 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0"
-                aria-label="Add attachment"
-              >
-                <Plus className="h-5 w-5" />
-              </button>
-
-              <Textarea
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                placeholder="Ask anything"
-                className="max-h-[200px] min-h-[44px] flex-1 resize-none border-0 box-border bg-transparent px-3 py-3 text-base text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin rounded-none placeholder:text-white/25"
-                style={{ height: "auto" }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
-                    event.preventDefault();
-                    void submit();
-                  }
-                }}
-              />
-
-              <select
-                value={toolExecutionMode}
-                onChange={(event) => void updateToolExecutionMode(event.target.value as ToolExecutionMode)}
-                className="mb-0.5 mr-2 h-8 rounded-lg border border-white/6 bg-white/[0.03] px-2 text-[11px] uppercase tracking-[0.12em] text-white/55 outline-none transition-all duration-200 focus:border-[var(--accent)]/30"
-                disabled={isSending}
-              >
-                <option value="read_only">Read-Only</option>
-                <option value="read_write">Read/Write</option>
-              </select>
+            <div className="flex max-h-[200px] w-full items-end gap-1 pb-0.5 pr-1">
+              <div className="flex-1 rounded-lg border border-white/8 bg-[#1f1f23]">
+                <Textarea
+                  value={input}
+                  onChange={(event) => setInput(event.target.value)}
+                  placeholder="Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+                  className="max-h-[200px] min-h-[44px] w-full resize-none border-0 box-border bg-transparent px-3 py-2 text-base text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin rounded-lg placeholder:text-white/25 caret-[var(--accent)]"
+                  style={{ height: "auto" }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      void submit();
+                    }
+                  }}
+                />
+              </div>
 
               <button
                 onClick={() => void submit()}
@@ -468,8 +438,73 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               </button>
             </div>
 
-            <div className="px-3 pb-0.5 text-center text-[11px] text-white/20">
-              Hermes can make mistakes. Check important info.
+            <div className="flex items-center justify-between px-2 pt-1.5">
+              <div className="flex items-center gap-1">
+                <button
+                  className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0"
+                  aria-label="Attach files"
+                >
+                  <Paperclip className="h-5 w-5" />
+                </button>
+                
+                <button
+                  className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0"
+                  aria-label="Web search"
+                >
+                  <Globe className="h-5 w-5" />
+                </button>
+                
+                <div className="relative group">
+                  <button
+                    className="p-2 text-cyan-400/80 hover:text-cyan-400 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0 flex items-center gap-1"
+                    aria-label="Select model"
+                  >
+                    <Bot className="h-5 w-5" />
+                  </button>
+                  <select
+                    value={providerProfileId}
+                    onChange={(event) => void updateProviderProfile(event.target.value)}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                    disabled={isSending || payload.providerProfiles.length === 0}
+                  >
+                    {payload.providerProfiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name} · {profile.model}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                
+                <button
+                  className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0"
+                  aria-label="Prompt templates"
+                >
+                  <LayoutGrid className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <div className="relative group">
+                  <button
+                    className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0 flex items-center gap-1"
+                    aria-label="Tool mode"
+                  >
+                    <Pen className="h-5 w-5" />
+                    <span className="text-[11px] text-white/40">
+                      {toolExecutionMode === "read_only" ? "Read" : "Write"}
+                    </span>
+                  </button>
+                  <select
+                    value={toolExecutionMode}
+                    onChange={(event) => void updateToolExecutionMode(event.target.value as ToolExecutionMode)}
+                    className="absolute inset-0 opacity-0 cursor-pointer"
+                    disabled={isSending}
+                  >
+                    <option value="read_only">Read-Only</option>
+                    <option value="read_write">Read/Write</option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
         </div>
