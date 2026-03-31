@@ -4,6 +4,7 @@ import {
   LEAF_MIN_MESSAGE_COUNT,
   LEAF_SOURCE_TOKEN_LIMIT,
   LEAF_TARGET_TOKENS,
+  MAX_ATTACHMENT_TEXT_RATIO,
   MERGED_MIN_NODE_COUNT,
   MERGED_TARGET_TOKENS,
   SAFETY_MARGIN_TOKENS
@@ -19,11 +20,13 @@ import {
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { callProviderText } from "@/lib/provider";
-import { estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
+import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
   ChatStreamEvent,
   MemoryNode,
   Message,
+  MessageAttachment,
+  PromptContentPart,
   PromptMessage,
   ProviderProfileWithApiKey,
   SummaryPayload
@@ -212,6 +215,128 @@ function getCompactionEligibleMessages(messages: Message[], freshTailCount: numb
   return rawMessages.slice(0, rawMessages.length - freshTailCount);
 }
 
+function renderAttachmentSummary(attachments: MessageAttachment[]) {
+  if (!attachments.length) {
+    return "";
+  }
+
+  return attachments
+    .map((attachment) => {
+      if (attachment.kind === "image") {
+        return `attachment image: ${attachment.filename} (${attachment.mimeType})`;
+      }
+
+      const parts = [`attachment file: ${attachment.filename}`];
+
+      if (attachment.extractedText) {
+        parts.push(attachment.extractedText);
+      }
+
+      return parts.join("\n");
+    })
+    .join("\n\n");
+}
+
+function truncateTextToTokenLimit(text: string, maxTokens: number) {
+  if (!text.trim() || maxTokens <= 0) {
+    return "";
+  }
+
+  if (estimateTextTokens(text) <= maxTokens) {
+    return text;
+  }
+
+  let low = 0;
+  let high = text.length;
+  let best = "";
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = text.slice(0, mid).trimEnd();
+
+    if (estimateTextTokens(candidate) <= maxTokens) {
+      best = candidate;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return best;
+}
+
+function buildTextAttachmentPart(
+  attachment: MessageAttachment,
+  remainingAttachmentTextTokens: { value: number }
+): PromptContentPart {
+  const header = `Attached file: ${attachment.filename}\n`;
+  const truncationMarker = "\n[truncated]";
+  const availableTokens = Math.max(
+    remainingAttachmentTextTokens.value -
+      estimateTextTokens(header) -
+      estimateTextTokens(truncationMarker),
+    0
+  );
+  const excerpt = truncateTextToTokenLimit(attachment.extractedText, availableTokens);
+  const needsTruncation = excerpt !== attachment.extractedText;
+  const text = `${header}${excerpt || (attachment.extractedText ? "" : "[empty file]")}${
+    needsTruncation ? truncationMarker : ""
+  }`.trimEnd();
+
+  remainingAttachmentTextTokens.value = Math.max(
+    remainingAttachmentTextTokens.value - estimateTextTokens(excerpt),
+    0
+  );
+
+  return {
+    type: "text",
+    text
+  };
+}
+
+function buildUserPromptContent(
+  message: Pick<Message, "content" | "attachments">,
+  remainingAttachmentTextTokens: { value: number }
+): PromptMessage["content"] {
+  const parts: PromptContentPart[] = [];
+
+  if (message.content) {
+    parts.push({
+      type: "text",
+      text: message.content
+    });
+  }
+
+  (message.attachments ?? []).forEach((attachment) => {
+    if (attachment.kind === "image") {
+      parts.push({
+        type: "text",
+        text: `Attached image: ${attachment.filename}`
+      });
+      parts.push({
+        type: "image",
+        attachmentId: attachment.id,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        relativePath: attachment.relativePath
+      });
+      return;
+    }
+
+    parts.push(buildTextAttachmentPart(attachment, remainingAttachmentTextTokens));
+  });
+
+  if (!parts.length) {
+    return "";
+  }
+
+  if (parts.length === 1 && parts[0]?.type === "text") {
+    return parts[0].text;
+  }
+
+  return parts;
+}
+
 async function compactLeafMessages(
   conversationId: string,
   messages: Message[],
@@ -225,10 +350,7 @@ async function compactLeafMessages(
   const selected: Message[] = [];
 
   for (const message of messages) {
-    const messageTokenCount = Math.max(
-      message.estimatedTokens,
-      estimateTextTokens(`${message.content}\n${message.thinkingContent}`)
-    );
+    const messageTokenCount = Math.max(message.estimatedTokens, estimateMessageTokens(message));
 
     if (
       selected.length >= LEAF_MIN_MESSAGE_COUNT &&
@@ -247,16 +369,24 @@ async function compactLeafMessages(
 
   const blocks = selected
     .map((message) => {
+      const attachmentSummary = renderAttachmentSummary(message.attachments ?? []);
+
       if (message.role === "assistant" && message.thinkingContent) {
         return [
           `[${message.role}] ${message.id}`,
           `thinking: ${message.thinkingContent}`,
-          `answer: ${message.content}`
-        ].join("\n");
+          `answer: ${message.content}`,
+          attachmentSummary
+        ]
+          .filter(Boolean)
+          .join("\n");
       }
 
-      return `[${message.role}] ${message.id}\n${message.content}`;
+      return [[`[${message.role}] ${message.id}`, message.content, attachmentSummary]
+        .filter(Boolean)
+        .join("\n")];
     })
+    .flat()
     .join("\n\n");
 
   const payload = await summarizeBlocks(
@@ -380,7 +510,11 @@ export function buildPromptMessages(input: {
   messages: Message[];
   activeMemoryNodes: MemoryNode[];
   userInput?: string;
+  maxAttachmentTextTokens?: number;
 }): PromptMessage[] {
+  const remainingAttachmentTextTokens = {
+    value: input.maxAttachmentTextTokens ?? Number.POSITIVE_INFINITY
+  };
   const promptMessages: PromptMessage[] = [
     {
       role: "system",
@@ -425,7 +559,7 @@ export function buildPromptMessages(input: {
 
     promptMessages.push({
       role: "user",
-      content: message.content
+      content: buildUserPromptContent(message, remainingAttachmentTextTokens)
     });
   });
 
@@ -466,7 +600,8 @@ export async function ensureCompactedContext(
     const promptMessages = buildPromptMessages({
       systemPrompt: settings.systemPrompt,
       messages: visibleMessages,
-      activeMemoryNodes
+      activeMemoryNodes,
+      maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO)
     });
     const promptTokens = estimatePromptTokens(promptMessages);
 

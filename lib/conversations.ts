@@ -1,11 +1,17 @@
+import {
+  assignAttachmentsToMessage,
+  deleteConversationAttachmentFiles,
+  listAttachmentsForMessageIds
+} from "@/lib/attachments";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { getSettings } from "@/lib/settings";
-import { estimateTextTokens } from "@/lib/tokenization";
+import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
   Conversation,
   ConversationListPage,
   Message,
+  MessageAttachment,
   MessageAction,
   MessageActionKind,
   MessageActionStatus,
@@ -73,7 +79,8 @@ function rowToMessage(row: {
     systemKind: row.system_kind,
     compactedAt: row.compacted_at,
     createdAt: row.created_at,
-    actions: []
+    actions: [],
+    attachments: []
   };
 }
 
@@ -257,7 +264,13 @@ export function createConversation(title = "New conversation", folderId?: string
 }
 
 export function deleteConversation(conversationId: string) {
-  getDb().prepare("DELETE FROM conversations WHERE id = ?").run(conversationId);
+  const transaction = getDb().transaction((id: string) => {
+    deleteConversationAttachmentFiles(id);
+    getDb().prepare("DELETE FROM message_attachments WHERE conversation_id = ?").run(id);
+    getDb().prepare("DELETE FROM conversations WHERE id = ?").run(id);
+  });
+
+  transaction(conversationId);
 }
 
 export function renameConversation(conversationId: string, title: string) {
@@ -331,7 +344,7 @@ export function createMessage(input: {
   return message;
 }
 
-export function updateAssistantMessage(
+export function updateMessage(
   messageId: string,
   patch: {
     content?: string;
@@ -356,7 +369,7 @@ export function updateAssistantMessage(
     | undefined;
 
   if (!current) {
-    return;
+    return null;
   }
 
   getDb()
@@ -375,6 +388,15 @@ export function updateAssistantMessage(
       patch.estimatedTokens ?? current.estimated_tokens,
       messageId
     );
+
+  const updated = getMessage(messageId);
+
+  if (!updated) {
+    return null;
+  }
+
+  bumpConversation(updated.conversationId);
+  return updated;
 }
 
 function listMessageActionsForMessageIds(messageIds: string[]) {
@@ -440,6 +462,29 @@ function attachActionsToMessages(messages: Message[]) {
   }));
 }
 
+function attachAttachmentsToMessages(messages: Message[]) {
+  const attachmentsByMessageId = new Map<string, MessageAttachment[]>();
+
+  listAttachmentsForMessageIds(messages.map((message) => message.id)).forEach((attachment) => {
+    if (!attachment.messageId) {
+      return;
+    }
+
+    const current = attachmentsByMessageId.get(attachment.messageId) ?? [];
+    current.push(attachment);
+    attachmentsByMessageId.set(attachment.messageId, current);
+  });
+
+  return messages.map((message) => ({
+    ...message,
+    attachments: attachmentsByMessageId.get(message.id) ?? []
+  }));
+}
+
+function hydrateMessages(messages: Message[]) {
+  return attachAttachmentsToMessages(attachActionsToMessages(messages));
+}
+
 export function listMessages(conversationId: string) {
   const rows = getDb()
     .prepare(
@@ -471,7 +516,7 @@ export function listMessages(conversationId: string) {
     created_at: string;
   }>;
 
-  return attachActionsToMessages(rows.map(rowToMessage));
+  return hydrateMessages(rows.map(rowToMessage));
 }
 
 export function listVisibleMessages(conversationId: string) {
@@ -514,7 +559,29 @@ export function getMessage(messageId: string) {
     return null;
   }
 
-  return attachActionsToMessages([rowToMessage(row)])[0] ?? null;
+  return hydrateMessages([rowToMessage(row)])[0] ?? null;
+}
+
+function updateMessageEstimatedTokens(messageId: string) {
+  const message = getMessage(messageId);
+
+  if (!message) {
+    return;
+  }
+
+  getDb()
+    .prepare(
+      `UPDATE messages
+       SET estimated_tokens = ?
+       WHERE id = ?`
+    )
+    .run(estimateMessageTokens(message), messageId);
+}
+
+export function bindAttachmentsToMessage(conversationId: string, messageId: string, attachmentIds: string[]) {
+  const attachments = assignAttachmentsToMessage(conversationId, messageId, attachmentIds);
+  updateMessageEstimatedTokens(messageId);
+  return attachments;
 }
 
 export function createMessageAction(input: {

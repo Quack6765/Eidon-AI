@@ -12,6 +12,8 @@ export const LEAF_SOURCE_TOKEN_LIMIT = 12000;
 export const MERGED_TARGET_TOKENS = 1600;
 export const LEAF_MIN_MESSAGE_COUNT = 6;
 export const MERGED_MIN_NODE_COUNT = 4;
+export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
+export const MAX_ATTACHMENT_TEXT_RATIO = 0.25;
 export const DEFAULT_PROVIDER_SETTINGS = {
   apiBaseUrl: "https://api.openai.com/v1",
   model: "gpt-5-mini",

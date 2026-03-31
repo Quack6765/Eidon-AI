@@ -5,6 +5,7 @@ import {
 } from "@/lib/compaction";
 import { createConversation, createMessage, listMessages } from "@/lib/conversations";
 import { getDefaultProviderProfileWithApiKey, updateSettings } from "@/lib/settings";
+import type { PromptMessage } from "@/lib/types";
 
 vi.mock("@/lib/provider", async () => {
   return {
@@ -28,6 +29,15 @@ vi.mock("@/lib/provider", async () => {
 });
 
 describe("lossless compaction", () => {
+  function getPromptText(message: Pick<PromptMessage, "content">) {
+    return typeof message.content === "string"
+      ? message.content
+      : message.content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
+  }
+
   function updateDefaultProfile(
     overrides: Partial<{
       apiBaseUrl: string;
@@ -104,9 +114,9 @@ describe("lossless compaction", () => {
       userInput: "Append this"
     });
 
-    expect(prompt[0].content).toContain("Stay concise.");
-    expect(prompt[1].content).toContain("Compacted conversation memory");
-    expect(prompt.at(-1)?.content).toBe("Append this");
+    expect(getPromptText(prompt[0]!)).toContain("Stay concise.");
+    expect(getPromptText(prompt[1]!)).toContain("Compacted conversation memory");
+    expect(getPromptText(prompt.at(-1)!)).toBe("Append this");
   });
 
   it("skips hidden stored system prompts when rebuilding provider input", () => {
@@ -153,11 +163,74 @@ describe("lossless compaction", () => {
       ]
     });
 
-    expect(prompt.map((message) => message.content)).toEqual([
+    expect(prompt.map((message) => getPromptText(message))).toEqual([
       "Primary system prompt.",
       "Compacted older messages into memory.",
       "Continue"
     ]);
+  });
+
+  it("keeps image attachments multimodal and truncates attached text to the configured budget", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Stay concise.",
+      activeMemoryNodes: [],
+      maxAttachmentTextTokens: 4,
+      messages: [
+        {
+          id: "msg_user",
+          conversationId: "conv_1",
+          role: "user",
+          content: "Review these attachments",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 1,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString(),
+          attachments: [
+            {
+              id: "att_image",
+              conversationId: "conv_1",
+              messageId: "msg_user",
+              filename: "photo.png",
+              mimeType: "image/png",
+              byteSize: 123,
+              sha256: "hash",
+              relativePath: "conv_1/att_image_photo.png",
+              kind: "image",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            },
+            {
+              id: "att_text",
+              conversationId: "conv_1",
+              messageId: "msg_user",
+              filename: "notes.txt",
+              mimeType: "text/plain",
+              byteSize: 123,
+              sha256: "hash",
+              relativePath: "conv_1/att_text_notes.txt",
+              kind: "text",
+              extractedText: "alpha beta gamma delta epsilon",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      ]
+    });
+
+    const userMessage = prompt.at(-1);
+
+    expect(typeof userMessage?.content).not.toBe("string");
+    expect(userMessage?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "image", filename: "photo.png" }),
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("[truncated]")
+        })
+      ])
+    );
   });
 
   it("compacts older turns when the token threshold is exceeded", async () => {
@@ -189,7 +262,7 @@ describe("lossless compaction", () => {
     expect(messages.some((message) => message.compactedAt)).toBe(true);
     expect(
       result.promptMessages.some((message) =>
-        message.content.includes("Compacted conversation memory")
+        getPromptText(message).includes("Compacted conversation memory")
       )
     ).toBe(true);
   });

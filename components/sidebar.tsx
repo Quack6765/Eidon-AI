@@ -521,6 +521,7 @@ export function Sidebar({
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SidebarConversation[] | null>(null);
+  const [showSearch, setShowSearch] = useState(false);
   const [localFolders, setLocalFolders] = useState<Folder[]>(initialFolders ?? []);
   const [localConversations, setLocalConversations] = useState(conversationPage.conversations);
   const [hasMoreConversations, setHasMoreConversations] = useState(conversationPage.hasMore);
@@ -799,25 +800,17 @@ export function Sidebar({
   return (
     <aside className="no-scrollbar flex h-full w-full flex-col bg-[var(--sidebar)] text-gray-300">
       <div className="flex h-full flex-col px-3 py-4">
-        <div className="flex items-center justify-between mb-4 px-1">
+        <div className="mb-4 px-1">
           <Link href="/" onClick={onClose} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] transition-colors duration-200">
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--accent)] text-white text-xs font-bold shadow-[0_0_12px_var(--accent-glow)]">
               H
             </div>
             <span className="font-semibold text-white/90 text-sm tracking-wide">Hermes</span>
           </Link>
-
-          <button
-            onClick={() => handleCreate()}
-            className="p-2 rounded-lg text-white/50 hover:bg-white/[0.04] hover:text-white transition-all duration-200"
-            title="New chat"
-          >
-            <Plus className="h-5 w-5" />
-          </button>
         </div>
 
         <div className="flex flex-col gap-1 mb-4">
-          {searchQuery || searchResults ? (
+          {showSearch || searchQuery || searchResults ? (
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/25" />
               <input
@@ -827,11 +820,13 @@ export function Sidebar({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && searchResults?.length) {
                     router.push(`/chat/${searchResults[0].id}`);
+                    setShowSearch(false);
                     setSearchQuery("");
                     setSearchResults(null);
                     if (onClose) onClose();
                   }
                   if (e.key === "Escape") {
+                    setShowSearch(false);
                     setSearchQuery("");
                     setSearchResults(null);
                   }
@@ -840,7 +835,11 @@ export function Sidebar({
                 className="w-full rounded-xl border border-white/6 bg-white/[0.03] py-2.5 pl-9 pr-8 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[var(--accent)]/30 transition-all duration-200"
               />
               <button
-                onClick={() => { setSearchQuery(""); setSearchResults(null); }}
+                onClick={() => {
+                  setShowSearch(false);
+                  setSearchQuery("");
+                  setSearchResults(null);
+                }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 text-white/25 hover:text-white transition-colors duration-200"
               >
                 <X className="h-3.5 w-3.5" />
@@ -848,13 +847,23 @@ export function Sidebar({
             </div>
           ) : (
             <button
-              onClick={() => handleSearch("")}
+              onClick={() => setShowSearch(true)}
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/40 hover:bg-white/[0.04] hover:text-white/60 transition-all duration-200"
             >
               <Search className="h-3.5 w-3.5" />
               <span>Search chats</span>
             </button>
           )}
+
+          <button
+            onClick={() => handleCreate()}
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent-soft)] px-3 py-3 text-sm font-medium text-white shadow-[0_0_18px_rgba(139,92,246,0.12)] transition-all duration-200 hover:border-[var(--accent)]/35 hover:bg-[var(--accent)]/16 hover:shadow-[0_0_22px_rgba(139,92,246,0.18)]"
+            title="New chat"
+            aria-label="New chat"
+          >
+            <Plus className="h-4 w-4" />
+            <span>New chat</span>
+          </button>
         </div>
 
         <div

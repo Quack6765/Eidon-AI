@@ -1,13 +1,33 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LoaderCircle, ArrowUp, ChevronDown, Bot, Pen, Globe, Paperclip, LayoutGrid } from "lucide-react";
+import {
+  AlertCircle,
+  LoaderCircle,
+  ArrowUp,
+  ChevronDown,
+  Bot,
+  Pen,
+  Globe,
+  Paperclip,
+  LayoutGrid,
+  FileText,
+  X
+} from "lucide-react";
 
 import { Textarea } from "@/components/ui/textarea";
 import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
+import { supportsImageInput } from "@/lib/model-capabilities";
 import { formatTimestamp } from "@/lib/utils";
-import type { ChatStreamEvent, Conversation, Message, MessageAction, ToolExecutionMode } from "@/lib/types";
+import type {
+  ChatStreamEvent,
+  Conversation,
+  Message,
+  MessageAction,
+  MessageAttachment,
+  ToolExecutionMode
+} from "@/lib/types";
 
 type ConversationPayload = {
   conversation: Conversation;
@@ -79,7 +99,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     payload.conversation.providerProfileId ?? payload.defaultProviderProfileId
   );
   const [showDebug, setShowDebug] = useState(false);
+  const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const queueRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dragDepthRef = useRef(0);
+  const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
 
   useEffect(() => {
     setMessages(payload.messages);
@@ -100,6 +127,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     queueRef.current.scrollTop = queueRef.current.scrollHeight;
   }, [messages, streamThinkingDisplay, streamAnswerDisplay, streamActions]);
+
+  useEffect(() => {
+    const handle = window.requestAnimationFrame(() => {
+      inputRef.current?.focus({ preventScroll: true });
+      const length = inputRef.current?.value.length ?? 0;
+      inputRef.current?.setSelectionRange(length, length);
+    });
+
+    return () => window.cancelAnimationFrame(handle);
+  }, [payload.conversation.id]);
 
   useEffect(() => {
     if (streamThinkingDisplay === streamThinkingTarget) {
@@ -146,6 +183,151 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     return formatTimestamp(payload.debug.latestCompactionAt);
   }, [payload.debug.latestCompactionAt]);
+
+  const selectedProfile = useMemo(
+    () => payload.providerProfiles.find((profile) => profile.id === providerProfileId) ?? null,
+    [payload.providerProfiles, providerProfileId]
+  );
+
+  const hasPendingImages = pendingAttachments.some((attachment) => attachment.kind === "image");
+  const showVisionWarning =
+    hasPendingImages &&
+    selectedProfile &&
+    !supportsImageInput(selectedProfile.model, selectedProfile.apiMode as "responses" | "chat_completions");
+
+  async function uploadFiles(files: File[]) {
+    if (!files.length) {
+      return;
+    }
+
+    setError("");
+    setIsUploadingAttachments(true);
+
+    try {
+      const formData = new FormData();
+      formData.append("conversationId", payload.conversation.id);
+      files.forEach((file) => {
+        formData.append("files", file);
+      });
+
+      const response = await fetch("/api/attachments", {
+        method: "POST",
+        body: formData
+      });
+
+      if (!response.ok) {
+        let message = "Unable to upload attachments";
+
+        try {
+          const failure = (await response.json()) as { error?: string };
+          message = failure.error ?? message;
+        } catch {}
+
+        throw new Error(message);
+      }
+
+      const data = (await response.json()) as { attachments: MessageAttachment[] };
+      setPendingAttachments((current) => [...current, ...data.attachments]);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : "Unable to upload attachments"
+      );
+    } finally {
+      setIsUploadingAttachments(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+    }
+  }
+
+  async function removePendingAttachment(attachmentId: string) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/attachments/${attachmentId}`, {
+        method: "DELETE"
+      });
+
+      if (!response.ok) {
+        let message = "Unable to remove attachment";
+
+        try {
+          const failure = (await response.json()) as { error?: string };
+          message = failure.error ?? message;
+        } catch {}
+
+        throw new Error(message);
+      }
+
+      setPendingAttachments((current) =>
+        current.filter((attachment) => attachment.id !== attachmentId)
+      );
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : "Unable to remove attachment"
+      );
+    }
+  }
+
+  async function updateUserMessage(messageId: string, content: string) {
+    const previousMessage = messages.find((message) => message.id === messageId);
+
+    if (!previousMessage) {
+      return;
+    }
+
+    setError("");
+    setUpdatingMessageId(messageId);
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId
+          ? {
+              ...message,
+              content
+            }
+          : message
+      )
+    );
+
+    try {
+      const response = await fetch(`/api/messages/${messageId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ content })
+      });
+
+      if (!response.ok) {
+        let message = "Unable to update message";
+
+        try {
+          const failure = (await response.json()) as { error?: string };
+          message = failure.error ?? message;
+        } catch {}
+
+        throw new Error(message);
+      }
+
+      const result = (await response.json()) as { message?: Message };
+
+      if (result.message) {
+        setMessages((current) =>
+          current.map((message) => (message.id === result.message?.id ? result.message : message))
+        );
+      }
+
+      router.refresh();
+    } catch (caughtError) {
+      setMessages((current) =>
+        current.map((message) => (message.id === previousMessage.id ? previousMessage : message))
+      );
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to update message");
+      throw caughtError;
+    } finally {
+      setUpdatingMessageId((current) => (current === messageId ? null : current));
+    }
+  }
 
   async function updateProviderProfile(nextProviderProfileId: string) {
     const previousProviderProfileId = providerProfileId;
@@ -216,7 +398,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   async function submit() {
     const value = input.trim();
 
-    if (!value || isSending) {
+    if ((!value && pendingAttachments.length === 0) || isSending || isUploadingAttachments) {
       return;
     }
 
@@ -231,12 +413,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       estimatedTokens: 0,
       systemKind: null,
       compactedAt: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      attachments: pendingAttachments
     };
 
     setIsSending(true);
     setMessages((current) => [...current, optimisticUserMessage]);
     setInput("");
+    setPendingAttachments([]);
     setStreamThinkingTarget("");
     setStreamThinkingDisplay("");
     setStreamAnswerTarget("");
@@ -253,7 +437,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({ message: value })
+        body: JSON.stringify({
+          message: value,
+          attachmentIds: pendingAttachments.map((attachment) => attachment.id)
+        })
       });
 
       if (!response.ok || !response.body) {
@@ -377,7 +564,58 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }
 
   return (
-    <div className="flex h-[100dvh] flex-col relative w-full bg-[var(--background)]">
+    <div
+      data-testid="chat-view-root"
+      className="relative flex h-[100dvh] w-full flex-col bg-[var(--background)]"
+      onDragEnter={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) {
+          return;
+        }
+
+        event.preventDefault();
+        dragDepthRef.current += 1;
+        setIsDraggingFiles(true);
+      }}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) {
+          return;
+        }
+
+        event.preventDefault();
+      }}
+      onDragLeave={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) {
+          return;
+        }
+
+        event.preventDefault();
+        dragDepthRef.current = Math.max(dragDepthRef.current - 1, 0);
+
+        if (dragDepthRef.current === 0) {
+          setIsDraggingFiles(false);
+        }
+      }}
+      onDrop={(event) => {
+        if (!event.dataTransfer.files.length) {
+          return;
+        }
+
+        event.preventDefault();
+        dragDepthRef.current = 0;
+        setIsDraggingFiles(false);
+        void uploadFiles(Array.from(event.dataTransfer.files));
+      }}
+    >
+      {isDraggingFiles ? (
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-black/45 backdrop-blur-sm">
+          <div className="rounded-2xl border border-[var(--accent)]/25 bg-[var(--panel)] px-6 py-5 text-center shadow-[var(--shadow)]">
+            <div className="text-sm font-medium text-[var(--text)]">Drop files to attach</div>
+            <div className="mt-1 text-xs text-white/45">
+              Images and text-like files are supported
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="border-b border-white/4 px-4 py-3.5 md:px-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
@@ -407,7 +645,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               className="animate-slide-up"
               style={{ animationDelay: `${Math.min(index * 30, 300)}ms`, animationFillMode: "backwards" }}
             >
-              <MessageBubble message={message} />
+              <MessageBubble
+                message={message}
+                onUpdateUserMessage={updateUserMessage}
+                isUpdating={updatingMessageId === message.id}
+              />
             </div>
           ))}
 
@@ -438,9 +680,55 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         <div className="h-24 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/90 to-transparent" />
         <div className="mx-auto w-full max-w-[980px] px-4 pb-4 md:pb-6 -mt-10 pointer-events-auto">
           <div className="relative rounded-2xl border border-white/6 bg-[var(--panel)] p-2 shadow-[var(--shadow)] transition-all duration-300 focus-within:border-[var(--accent)]/20 focus-within:shadow-[var(--shadow),0_0_0_3px_var(--accent-soft)]">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              accept=".png,.jpg,.jpeg,.webp,.gif,.txt,.md,.json,.csv,.tsv,.yaml,.yml,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.sh,.sql,.toml,.ini,.log"
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []);
+                void uploadFiles(files);
+              }}
+            />
+            {pendingAttachments.length ? (
+              <div className="mb-2 flex flex-wrap gap-2 px-1 pt-1">
+                {pendingAttachments.map((attachment) => (
+                  <div
+                    key={attachment.id}
+                    className="flex items-center gap-2 rounded-xl border border-white/8 bg-[#1f1f23] px-2.5 py-2 text-sm text-white/80"
+                  >
+                    {attachment.kind === "image" ? (
+                      <img
+                        src={`/api/attachments/${attachment.id}`}
+                        alt={attachment.filename}
+                        className="h-10 w-10 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/8 text-white/60">
+                        <FileText className="h-4 w-4" />
+                      </span>
+                    )}
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-white">{attachment.filename}</div>
+                      <div className="truncate text-[11px] text-white/40">{attachment.mimeType}</div>
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded-lg p-1 text-white/35 transition-colors duration-200 hover:bg-white/5 hover:text-white/65"
+                      onClick={() => void removePendingAttachment(attachment.id)}
+                      aria-label={`Remove ${attachment.filename}`}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
             <div className="flex max-h-[200px] w-full items-end gap-1 pb-0.5 pr-1">
               <div className="flex-1 rounded-lg border border-white/8 bg-[#1f1f23]">
                 <Textarea
+                  ref={inputRef}
                   value={input}
                   onChange={(event) => setInput(event.target.value)}
                   placeholder="Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
@@ -457,15 +745,15 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
               <button
                 onClick={() => void submit()}
-                disabled={isSending || !input.trim()}
+                disabled={isSending || isUploadingAttachments || (!input.trim() && pendingAttachments.length === 0)}
                 className={`mb-0.5 mr-0.5 flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-300 shrink-0 ${
-                  input.trim() && !isSending
+                  (input.trim() || pendingAttachments.length > 0) && !isSending && !isUploadingAttachments
                     ? "bg-[var(--accent)] text-white shadow-[0_0_12px_var(--accent-glow)] hover:shadow-[0_0_20px_var(--accent-glow)] active:scale-95"
                     : "bg-white/6 text-white/25"
                 }`}
                 aria-label="Send message"
               >
-                {isSending ? (
+                {isSending || isUploadingAttachments ? (
                   <LoaderCircle className="h-4 w-4 animate-spin" />
                 ) : (
                   <ArrowUp className="h-4 w-4" />
@@ -473,11 +761,22 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               </button>
             </div>
 
+            {showVisionWarning ? (
+              <div className="mt-2 flex items-center gap-2 rounded-xl border border-amber-400/10 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>
+                  This model may not support image input. Hermes will still send the attachment and surface any provider error.
+                </span>
+              </div>
+            ) : null}
+
             <div className="flex items-center justify-between px-2 pt-1.5">
               <div className="flex items-center gap-1">
                 <button
                   className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0"
                   aria-label="Attach files"
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
                 >
                   <Paperclip className="h-5 w-5" />
                 </button>

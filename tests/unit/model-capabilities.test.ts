@@ -1,4 +1,4 @@
-import { supportsVisibleReasoning } from "@/lib/model-capabilities";
+import { supportsImageInput, supportsVisibleReasoning } from "@/lib/model-capabilities";
 
 describe("model capabilities", () => {
   it("treats GPT-5 and o-series models as reasoning-capable on responses", () => {
@@ -13,5 +13,13 @@ describe("model capabilities", () => {
   it("treats GPT-4.1 and chat completions as non-reasoning for visible summaries", () => {
     expect(supportsVisibleReasoning("gpt-4.1-mini", "responses")).toBe(false);
     expect(supportsVisibleReasoning("gpt-5-mini", "chat_completions")).toBe(false);
+  });
+
+  it("detects likely image-capable models", () => {
+    expect(supportsImageInput("gpt-4o-mini", "chat_completions")).toBe(true);
+    expect(supportsImageInput("gpt-5-mini", "responses")).toBe(true);
+    expect(supportsImageInput("claude-3-7-sonnet", "chat_completions")).toBe(true);
+    expect(supportsImageInput("gemini-3-flash-preview", "chat_completions")).toBe(true);
+    expect(supportsImageInput("gpt-3.5-turbo", "chat_completions")).toBe(false);
   });
 });

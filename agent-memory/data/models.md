@@ -9,6 +9,7 @@
 | `provider_profiles` | Saved full runtime presets, including connection, model, prompt, and context controls |
 | `conversations` | Chat threads pinned to a provider profile |
 | `messages` | Raw user, assistant, and system messages |
+| `message_attachments` | Stored local attachment metadata for user messages and pending uploads |
 | `memory_nodes` | Hierarchical compacted summaries |
 | `compaction_events` | Visible compaction history and links |
 
@@ -16,8 +17,10 @@
 - **`admin_users` → `auth_sessions`:** one-to-many
 - **`provider_profiles` → `conversations`:** one-to-many
 - **`conversations` → `messages`:** one-to-many
+- **`conversations` → `message_attachments`:** one-to-many
 - **`conversations` → `memory_nodes`:** one-to-many
 - **`conversations` → `compaction_events`:** one-to-many
+- **`messages` → `message_attachments`:** one-to-many after pending uploads are bound to the created user turn
 
 ## Key Fields
 ### `provider_profiles`
@@ -40,6 +43,16 @@
 | `content` | `TEXT` | Final visible user/assistant text or system notice; provider system prompts stay in `provider_profiles.system_prompt` and are not shown in chat |
 | `thinking_content` | `TEXT` | Visible reasoning stored separately from final answer |
 | `compacted_at` | `TEXT \| NULL` | Marks raw turns already folded into memory nodes |
+
+### `message_attachments`
+| Field | Type | Description |
+|-------|------|-------------|
+| `conversation_id` / `message_id` | `TEXT` / `TEXT \| NULL` | Conversation ownership plus deferred binding to the eventual user message |
+| `filename` / `mime_type` | `TEXT` | Sanitized original name and normalized content type |
+| `byte_size` / `sha256` | `INTEGER` / `TEXT` | Stored file size and integrity hash |
+| `relative_path` | `TEXT` | Path under `HERMES_DATA_DIR/attachments/<conversationId>/...` |
+| `kind` | `TEXT` | `image` or `text` |
+| `extracted_text` | `TEXT \| NULL` | Server-side extracted content for text-like files used during prompt assembly and compaction |
 
 ### `memory_nodes`
 | Field | Type | Description |

@@ -1,5 +1,10 @@
+import fs from "node:fs";
+import path from "node:path";
+
+import { createAttachments } from "@/lib/attachments";
 import {
   createConversation,
+  deleteConversation,
   createMessageAction,
   createMessage,
   getConversation,
@@ -9,6 +14,7 @@ import {
   listVisibleMessages,
   markMessagesCompacted,
   maybeRetitleConversationFromFirstUserMessage,
+  updateMessage,
   updateConversationProviderProfile,
   updateConversationToolExecutionMode,
   updateMessageAction
@@ -162,11 +168,66 @@ describe("conversation helpers", () => {
     ]);
   });
 
+  it("updates message content and returns the refreshed message row", () => {
+    const conversation = createConversation();
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Original prompt"
+    });
+
+    const updated = updateMessage(message.id, {
+      content: "Revised prompt",
+      estimatedTokens: 42
+    });
+
+    expect(updated?.content).toBe("Revised prompt");
+    expect(updated?.estimatedTokens).toBe(42);
+    expect(getMessage(message.id)?.content).toBe("Revised prompt");
+  });
+
   it("updates the conversation tool execution mode", () => {
     const conversation = createConversation();
 
     updateConversationToolExecutionMode(conversation.id, "read_write");
 
     expect(getConversation(conversation.id)?.toolExecutionMode).toBe("read_write");
+  });
+
+  it("deletes conversation attachment records and files together", () => {
+    const conversation = createConversation();
+    const [attachment] = createAttachments(conversation.id, [
+      {
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("hello", "utf8")
+      }
+    ]);
+    const attachmentDir = path.resolve(process.env.HERMES_DATA_DIR!, "attachments", conversation.id);
+
+    deleteConversation(conversation.id);
+
+    expect(getConversation(conversation.id)).toBeNull();
+    expect(fs.existsSync(path.resolve(process.env.HERMES_DATA_DIR!, "attachments", attachment.relativePath))).toBe(
+      false
+    );
+    expect(fs.existsSync(attachmentDir)).toBe(false);
+  });
+
+  it("still deletes a conversation when an attachment file is already missing", () => {
+    const conversation = createConversation();
+    const [attachment] = createAttachments(conversation.id, [
+      {
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("hello", "utf8")
+      }
+    ]);
+    const absolutePath = path.resolve(process.env.HERMES_DATA_DIR!, "attachments", attachment.relativePath);
+
+    fs.unlinkSync(absolutePath);
+
+    expect(() => deleteConversation(conversation.id)).not.toThrow();
+    expect(getConversation(conversation.id)).toBeNull();
   });
 });

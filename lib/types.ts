@@ -12,6 +12,8 @@ export type MessageActionKind = "skill_load" | "mcp_tool_call";
 
 export type MessageActionStatus = "running" | "completed" | "error";
 
+export type AttachmentKind = "image" | "text";
+
 export type MemoryNodeType = "leaf_summary" | "merged_summary";
 
 export type SystemMessageKind = "compaction_notice";
@@ -145,6 +147,21 @@ export type Message = {
   compactedAt: string | null;
   createdAt: string;
   actions?: MessageAction[];
+  attachments?: MessageAttachment[];
+};
+
+export type MessageAttachment = {
+  id: string;
+  conversationId: string;
+  messageId: string | null;
+  filename: string;
+  mimeType: string;
+  byteSize: number;
+  sha256: string;
+  relativePath: string;
+  kind: AttachmentKind;
+  extractedText: string;
+  createdAt: string;
 };
 
 export type MessageAction = {
@@ -233,7 +250,22 @@ export type SummaryPayload = {
   };
 };
 
+export type PromptTextContentPart = {
+  type: "text";
+  text: string;
+};
+
+export type PromptImageContentPart = {
+  type: "image";
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  relativePath: string;
+};
+
+export type PromptContentPart = PromptTextContentPart | PromptImageContentPart;
+
 export type PromptMessage = {
   role: "system" | "user" | "assistant";
-  content: string;
+  content: string | PromptContentPart[];
 };

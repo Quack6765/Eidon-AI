@@ -12,7 +12,10 @@
 - **Sidebar Reads:** `GET /api/conversations` is cursor-paginated for the sidebar and returns `conversations`, `nextCursor`, and `hasMore`; the default page size is 10 and older pages are fetched by passing the returned cursor back as `?cursor=...`
 - **Settings Writes:** `PUT /api/settings` saves the full provider profile collection plus the default profile id
 - **Conversation Runtime Selection:** `PATCH /api/conversations/[conversationId]` also accepts `providerProfileId` and `toolExecutionMode` so the active thread can switch presets and tool permissions without leaving chat
+- **Message Editing:** `PATCH /api/messages/[messageId]` updates persisted user-message content and returns the refreshed `message` payload for the chat view
 - **Chat Streaming Events:** `POST /api/conversations/[conversationId]/chat` streams `thinking_delta`, `answer_delta`, `system_notice`, `action_start`, `action_complete`, `action_error`, `done`, and `error` SSE events
+- **Chat Attachments:** `POST /api/attachments` accepts authenticated multipart uploads for images and text-like files scoped to an existing conversation; `GET /api/attachments/[attachmentId]` serves stored attachment bytes back to authenticated users; `DELETE /api/attachments/[attachmentId]` removes only unbound pending uploads
+- **Chat Send Payload:** `POST /api/conversations/[conversationId]/chat` accepts either non-empty `message`, `attachmentIds`, or both; uploaded attachment ids are bound onto the created user message before provider streaming starts
 - **Message Action Persistence:** Assistant tool activity is stored separately from message content in `message_actions` rows keyed by `message_id`, then attached back onto assistant messages when conversations are loaded
 - **MCP Connection Testing:** `POST /api/mcp-servers/test` accepts either a saved `serverId` or a draft MCP config and returns negotiated protocol metadata plus discovered tool counts
 

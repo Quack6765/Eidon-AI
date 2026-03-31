@@ -2,6 +2,11 @@ import type { ChatStreamEvent, ProviderProfileWithApiKey } from "@/lib/types";
 
 const responsesCreate = vi.fn();
 const chatCreate = vi.fn();
+const getAttachmentDataUrl = vi.fn(() => "data:image/png;base64,abc123");
+
+vi.mock("@/lib/attachments", () => ({
+  getAttachmentDataUrl
+}));
 
 vi.mock("openai", () => {
   return {
@@ -75,6 +80,7 @@ describe("provider integration", () => {
   beforeEach(() => {
     responsesCreate.mockReset();
     chatCreate.mockReset();
+    getAttachmentDataUrl.mockClear();
   });
 
   it("calls responses text generation and returns output text", async () => {
@@ -336,6 +342,102 @@ describe("provider integration", () => {
     });
   });
 
+  it("serializes multimodal prompt parts for responses mode", async () => {
+    responsesCreate.mockResolvedValue(
+      createAsyncStream([{ type: "response.output_text.delta", delta: "done" }])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        model: "gpt-5-mini",
+        apiMode: "responses"
+      }),
+      promptMessages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "What is in this file?" },
+            {
+              type: "image",
+              attachmentId: "att_1",
+              filename: "photo.png",
+              mimeType: "image/png",
+              relativePath: "conv_1/att_1_photo.png"
+            }
+          ]
+        }
+      ]
+    });
+
+    await stream.next();
+
+    expect(responsesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: [
+          {
+            role: "user",
+            content: [
+              { type: "input_text", text: "What is in this file?" },
+              { type: "input_image", image_url: "data:image/png;base64,abc123" }
+            ]
+          }
+        ]
+      })
+    );
+  });
+
+  it("serializes multimodal prompt parts for chat completions mode", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([{ choices: [{ delta: { content: "done" } }] }])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        model: "gpt-4o-mini",
+        apiMode: "chat_completions",
+        reasoningSummaryEnabled: false
+      }),
+      promptMessages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Describe this image" },
+            {
+              type: "image",
+              attachmentId: "att_1",
+              filename: "photo.png",
+              mimeType: "image/png",
+              relativePath: "conv_1/att_1_photo.png"
+            }
+          ]
+        }
+      ]
+    });
+
+    await stream.next();
+
+    expect(chatCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "Describe this image" },
+              {
+                type: "image_url",
+                image_url: {
+                  url: "data:image/png;base64,abc123"
+                }
+              }
+            ]
+          }
+        ]
+      })
+    );
+  });
+
   it("streams glm reasoning_content deltas when using chat_completions mode", async () => {
     chatCreate.mockResolvedValue(
       createAsyncStream([
@@ -380,7 +482,7 @@ describe("provider integration", () => {
     expect(events).toEqual([
       { type: "thinking_delta", text: "Thinking " },
       { type: "answer_delta", text: "Hi there" },
-      { type: "usage", inputTokens: 1, outputTokens: undefined }
+      { type: "usage", inputTokens: 13, outputTokens: undefined }
     ]);
   });
 
@@ -431,7 +533,7 @@ describe("provider integration", () => {
     expect(events).toEqual([
       { type: "thinking_delta", text: "Thinking " },
       { type: "answer_delta", text: "Hi there" },
-      { type: "usage", inputTokens: 1, outputTokens: undefined }
+      { type: "usage", inputTokens: 13, outputTokens: undefined }
     ]);
   });
 

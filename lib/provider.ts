@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 
+import { getAttachmentDataUrl } from "@/lib/attachments";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
-import { estimateTextTokens } from "@/lib/tokenization";
+import { estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
 import { normalizeLineBreaks } from "@/lib/utils";
 import type {
   ChatStreamEvent,
@@ -17,10 +18,60 @@ function createClient(settings: ProviderProfile, apiKey: string) {
   });
 }
 
-function toResponsesInput(messages: PromptMessage[]) {
-  return messages
-    .map((message) => `${message.role.toUpperCase()}:\n${message.content}`)
-    .join("\n\n");
+function toResponseContentParts(content: PromptMessage["content"]) {
+  const parts = typeof content === "string"
+    ? [{ type: "text" as const, text: content }]
+    : content;
+
+  return parts.map((part) => {
+    if (part.type === "text") {
+      return {
+        type: "input_text" as const,
+        text: part.text
+      };
+    }
+
+    return {
+      type: "input_image" as const,
+      image_url: getAttachmentDataUrl(part)
+    };
+  });
+}
+
+function toChatCompletionContentParts(content: PromptMessage["content"]) {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  return content.map((part) => {
+    if (part.type === "text") {
+      return {
+        type: "text" as const,
+        text: part.text
+      };
+    }
+
+    return {
+      type: "image_url" as const,
+      image_url: {
+        url: getAttachmentDataUrl(part)
+      }
+    };
+  });
+}
+
+function buildResponsesInput(messages: PromptMessage[]): any[] {
+  return messages.map((message) => ({
+    role: message.role,
+    content: toResponseContentParts(message.content)
+  }));
+}
+
+function buildChatCompletionMessages(messages: PromptMessage[]): any[] {
+  return messages.map((message) => ({
+    role: message.role,
+    content: toChatCompletionContentParts(message.content)
+  }));
 }
 
 function normalizeReasoningEffort(
@@ -187,14 +238,14 @@ export async function* streamProviderResponse(input: {
     outputTokens?: number;
     reasoningTokens?: number;
   } = {
-    inputTokens: estimateTextTokens(promptMessages.map((message) => message.content).join("\n\n"))
+    inputTokens: estimatePromptTokens(promptMessages)
   };
 
   if (settings.apiMode === "responses") {
     const reasoning = buildReasoningConfig(settings);
     const stream = await client.responses.create({
       model: settings.model,
-      input: toResponsesInput(promptMessages),
+      input: buildResponsesInput(promptMessages),
       stream: true,
       temperature: settings.temperature,
       max_output_tokens: settings.maxOutputTokens,
@@ -258,7 +309,7 @@ export async function* streamProviderResponse(input: {
 
   const stream = await client.chat.completions.create({
     model: settings.model,
-    messages: promptMessages,
+    messages: buildChatCompletionMessages(promptMessages),
     stream: true,
     temperature: settings.temperature,
     max_completion_tokens: settings.maxOutputTokens,

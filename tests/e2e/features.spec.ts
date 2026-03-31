@@ -8,23 +8,42 @@ async function signIn(page: import("@playwright/test").Page) {
   await page.waitForURL(/localhost:3117\/$/, { timeout: 15000 });
 }
 
+async function mockChatResponse(page: import("@playwright/test").Page) {
+  await page.route("**/api/conversations/*/chat", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "text/event-stream",
+      body: [
+        'data: {"type":"message_start","messageId":"msg_assistant"}',
+        "",
+        'data: {"type":"answer_delta","text":"Attachment received"}',
+        "",
+        'data: {"type":"done","messageId":"msg_assistant"}',
+        "",
+      ].join("\n")
+    });
+  });
+}
+
 test.describe("Feature: Create and delete conversations", () => {
   test("creates a new chat and deletes it", async ({ page }) => {
     await signIn(page);
 
     // Create chat
-    await page.getByRole("button", { name: "New chat" }).click();
+    await page.getByRole("button", { name: "New chat", exact: true }).click();
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     // Verify the new conversation appears in sidebar
-    await expect(page.getByText("New conversation")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("link", { name: "New conversation" }).first()).toBeVisible({
+      timeout: 5000
+    });
 
     // Find the conversation item in sidebar, hover to reveal "..." button
-    const convLink = page.locator('aside a[href*="/chat/"]').first();
-    await convLink.hover();
+    const convRow = page.getByRole("button", { name: "New conversation" }).first();
+    await convRow.hover();
 
     // Click the more options button
-    const moreBtn = convLink.locator('button:has(.lucide-more-horizontal)');
+    const moreBtn = convRow.locator("button").last();
     await expect(moreBtn).toBeVisible({ timeout: 3000 });
     await moreBtn.click();
 
@@ -32,7 +51,7 @@ test.describe("Feature: Create and delete conversations", () => {
     await page.locator('aside').getByText("Delete").first().click();
 
     // Confirm the deletion
-    await page.getByRole("button", { name: "Delete" }).click({ timeout: 5000 });
+    await page.getByRole("button", { name: "Delete", exact: true }).click({ timeout: 5000 });
 
     // Should navigate away from the chat
     await page.waitForURL(/localhost:3117\/(chat\/)?$|^\/$/, { timeout: 5000 }).catch(() => {});
@@ -52,7 +71,9 @@ test.describe("Feature: Folders", () => {
     await folderInput.press("Enter");
 
     // Verify folder appears in sidebar
-    await expect(page.getByText("Work Chats")).toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole("button", { name: "Work Chats folder" }).first()).toBeVisible({
+      timeout: 3000
+    });
   });
 });
 
@@ -64,14 +85,16 @@ test.describe("Feature: Move conversation to folder", () => {
     await page.getByText("New folder").click();
     await page.getByPlaceholder("Folder name...").fill("Projects");
     await page.getByPlaceholder("Folder name...").press("Enter");
-    await expect(page.getByText("Projects")).toBeVisible({ timeout: 3000 });
+    await expect(page.getByRole("button", { name: "Projects folder" }).first()).toBeVisible({
+      timeout: 3000
+    });
 
     // Create a chat
-    await page.getByRole("button", { name: "New chat" }).click();
+    await page.getByRole("button", { name: "New chat", exact: true }).click();
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     const convLink = page.locator('aside a[href*="/chat/"]').first();
-    const folderRow = page.locator("aside").getByText("Projects").first();
+    const folderRow = page.getByRole("button", { name: "Projects folder" }).first();
 
     const convBox = await convLink.boundingBox();
     const folderBox = await folderRow.boundingBox();
@@ -87,7 +110,9 @@ test.describe("Feature: Move conversation to folder", () => {
     });
     await page.mouse.up();
 
-    await expect(page.locator('aside .ml-4 a[href*="/chat/"]').first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("button", { name: /Projects folder New conversation/ })).toBeVisible({
+      timeout: 5000
+    });
   });
 });
 
@@ -96,19 +121,22 @@ test.describe("Feature: Search conversations", () => {
     await signIn(page);
 
     // Create a chat
-    await page.getByRole("button", { name: "New chat" }).click();
+    await page.getByRole("button", { name: "New chat", exact: true }).click();
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     // Click search
-    await page.getByText("Search chats").click();
+    await page.getByRole("button", { name: "Search chats" }).click();
 
     // Type search query
     const searchInput = page.getByPlaceholder("Search chats...");
+    await expect(searchInput).toBeVisible({ timeout: 5000 });
     await searchInput.fill("New");
     await page.waitForTimeout(500);
 
     // Should show matching results
-    await expect(page.getByText("New conversation")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("link", { name: "New conversation" }).first()).toBeVisible({
+      timeout: 5000
+    });
   });
 });
 
@@ -147,7 +175,12 @@ test.describe("Feature: MCP Servers in settings", () => {
     await expect(page.locator("text=2 tools discovered").first()).toBeVisible({ timeout: 5000 });
 
     // Delete it
-    await page.locator('button:has(.lucide-trash-2)').last().click();
+    const serverRow = page
+      .locator("div")
+      .filter({ has: page.getByText(serverName, { exact: true }) })
+      .first();
+
+    await serverRow.locator('button:has(.lucide-trash-2)').last().click();
     await expect(page.getByText(serverName, { exact: true })).not.toBeVisible({ timeout: 3000 });
   });
 });
@@ -157,7 +190,7 @@ test.describe("Feature: Skills in settings", () => {
     await signIn(page);
 
     await page.getByRole("link", { name: "Open settings" }).click();
-    await expect(page.getByText("Skills")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("heading", { name: "Skills" })).toBeVisible({ timeout: 5000 });
 
     // Add skill
     await page.getByRole("button", { name: "Add skill" }).click();
@@ -169,7 +202,61 @@ test.describe("Feature: Skills in settings", () => {
     await expect(page.getByText("Test Skill")).toBeVisible({ timeout: 5000 });
 
     // Delete it
-    page.locator('div').filter({ hasText: /Test Skill/ }).first().locator('button:has(.lucide-trash-2)').click();
+    await page
+      .locator("div.flex.items-center.justify-between.rounded-xl")
+      .filter({ has: page.getByText("Test Skill", { exact: true }) })
+      .first()
+      .locator('button:has(.lucide-trash-2)')
+      .click();
     await expect(page.getByText("Test Skill")).not.toBeVisible({ timeout: 3000 });
+  });
+});
+
+test.describe("Feature: Chat attachments", () => {
+  test("attaches an image from the paperclip flow and sends it", async ({ page }) => {
+    await signIn(page);
+    await mockChatResponse(page);
+
+    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+    await page.locator('input[type="file"]').setInputFiles({
+      name: "photo.png",
+      mimeType: "image/png",
+      buffer: Buffer.from("fake-image")
+    });
+
+    await expect(page.getByRole("button", { name: "Remove photo.png" })).toBeVisible({
+      timeout: 5000
+    });
+    await page.getByPlaceholder(/Ask, create, or start a task/i).fill("Please inspect this");
+    await page.getByRole("button", { name: "Send message" }).click();
+
+    await expect(page.getByAltText("photo.png")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Attachment received")).toBeVisible({ timeout: 5000 });
+  });
+
+  test("attaches a text file via drag and drop", async ({ page }) => {
+    await signIn(page);
+    await mockChatResponse(page);
+
+    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+    await page.evaluate(async () => {
+      const target = document.querySelector('[data-testid="chat-view-root"]');
+
+      if (!target) {
+        throw new Error("Chat root not found");
+      }
+
+      const dataTransfer = new DataTransfer();
+      dataTransfer.items.add(new File(["hello"], "notes.txt", { type: "text/plain" }));
+
+      target.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer }));
+      target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+    });
+
+    await expect(page.getByText("notes.txt")).toBeVisible({ timeout: 5000 });
   });
 });

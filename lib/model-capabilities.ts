@@ -43,3 +43,33 @@ export function supportsVisibleReasoning(model: string, apiMode: ApiMode) {
 
   return false;
 }
+
+export function supportsImageInput(model: string, apiMode: ApiMode) {
+  const normalized = normalizeModel(model);
+
+  if (!normalized) {
+    return false;
+  }
+
+  if (
+    normalized.startsWith("gpt-5") ||
+    normalized.startsWith("gpt-4o") ||
+    normalized.startsWith("gpt-4.1") ||
+    normalized.startsWith("o1") ||
+    normalized.startsWith("o3") ||
+    normalized.startsWith("o4") ||
+    normalized.startsWith("claude-3") ||
+    normalized.startsWith("claude-4") ||
+    normalized.startsWith("gemini") ||
+    normalized.startsWith("glm-4") ||
+    normalized.startsWith("glm-5")
+  ) {
+    return true;
+  }
+
+  if (apiMode === "responses" && normalized.startsWith("gpt-oss")) {
+    return true;
+  }
+
+  return false;
+}

@@ -3,12 +3,13 @@ import { z } from "zod";
 import { resolveAssistantTurn } from "@/lib/assistant-runtime";
 import { requireUser } from "@/lib/auth";
 import {
+  bindAttachmentsToMessage,
   createMessageAction,
   createMessage,
   getConversation,
   maybeRetitleConversationFromFirstUserMessage,
+  updateMessage,
   updateMessageAction,
-  updateAssistantMessage
 } from "@/lib/conversations";
 import { ensureCompactedContext } from "@/lib/compaction";
 import { badRequest } from "@/lib/http";
@@ -23,9 +24,15 @@ import { listEnabledMcpServers } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
 import type { ChatStreamEvent } from "@/lib/types";
 
-const bodySchema = z.object({
-  message: z.string().min(1)
-});
+const bodySchema = z
+  .object({
+    message: z.string(),
+    attachmentIds: z.array(z.string().min(1)).default([])
+  })
+  .refine(
+    (value) => value.message.trim().length > 0 || value.attachmentIds.length > 0,
+    "Chat message or attachment is required"
+  );
 
 const paramsSchema = z.object({
   conversationId: z.string().min(1)
@@ -74,6 +81,8 @@ export async function POST(
     content: payload.data.message,
     estimatedTokens: estimateTextTokens(payload.data.message)
   });
+
+  bindAttachmentsToMessage(conversation.id, userMessage.id, payload.data.attachmentIds);
 
   maybeRetitleConversationFromFirstUserMessage(conversation.id);
 
@@ -197,7 +206,7 @@ export async function POST(
           }
         });
 
-        updateAssistantMessage(assistantMessage.id, {
+        updateMessage(assistantMessage.id, {
           content: providerResult.answer,
           thinkingContent: providerResult.thinking,
           status: "completed",
@@ -213,7 +222,7 @@ export async function POST(
         });
         controller.close();
       } catch (error) {
-        updateAssistantMessage(assistantMessage.id, {
+        updateMessage(assistantMessage.id, {
           content: "",
           thinkingContent: "",
           status: "error"

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
 import type { Message } from "@/lib/types";
@@ -12,6 +12,22 @@ function createAssistantMessage(): Message {
     conversationId: "conv_test",
     role: "assistant",
     content: "Final answer",
+    thinkingContent: "",
+    status: "completed",
+    estimatedTokens: 0,
+    systemKind: null,
+    compactedAt: null,
+    createdAt: new Date().toISOString(),
+    actions: []
+  };
+}
+
+function createUserMessage(): Message {
+  return {
+    id: "msg_user",
+    conversationId: "conv_test",
+    role: "user",
+    content: "User draft",
     thinkingContent: "",
     status: "completed",
     estimatedTokens: 0,
@@ -122,7 +138,6 @@ describe("message bubble", () => {
 
     expect(screen.getByText("Thinking")).toBeInTheDocument();
     expect(screen.getByText("...")).toBeInTheDocument();
-
     expect(screen.queryByText("Working through the prompt")).toBeNull();
 
     fireEvent.click(toggle);
@@ -227,5 +242,101 @@ describe("message bubble", () => {
     );
     expect(container.querySelector('input[type="checkbox"]')).not.toBeNull();
     expect(container.querySelector("hr")).not.toBeNull();
+  });
+
+  it("copies assistant output through the clipboard fallback", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true
+    });
+    vi.stubGlobal("ClipboardItem", undefined);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "## Copied heading\n\nLine two"
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalled();
+    });
+  });
+
+  it("allows editing user messages through the inline controls", async () => {
+    const onUpdateUserMessage = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: createUserMessage(),
+        onUpdateUserMessage
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Updated user draft" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save edit" }));
+
+    await waitFor(() => {
+      expect(onUpdateUserMessage).toHaveBeenCalledWith("msg_user", "Updated user draft");
+    });
+  });
+
+  it("renders user attachments alongside the message body", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          id: "msg_user",
+          conversationId: "conv_test",
+          role: "user",
+          content: "See attached",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 0,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString(),
+          attachments: [
+            {
+              id: "att_image",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "photo.png",
+              mimeType: "image/png",
+              byteSize: 10,
+              sha256: "hash",
+              relativePath: "conv_test/att_image_photo.png",
+              kind: "image",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            },
+            {
+              id: "att_text",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "notes.txt",
+              mimeType: "text/plain",
+              byteSize: 10,
+              sha256: "hash2",
+              relativePath: "conv_test/att_text_notes.txt",
+              kind: "text",
+              extractedText: "hello",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    expect(screen.getByAltText("photo.png")).toBeInTheDocument();
+    expect(screen.getByText("notes.txt")).toBeInTheDocument();
   });
 });

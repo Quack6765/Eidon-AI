@@ -13,6 +13,7 @@
 ## Conventions
 - **File Naming:** `*.test.ts` for Vitest, `*.spec.ts` for Playwright
 - **Test Structure:** `describe` / `it` with targeted coverage of auth, provider streaming, compaction, and storage
+- **E2E Isolation:** `npm run test:e2e` starts Next with a fresh `.e2e-data` and `test-results` directory for each run so sidebar, settings, and attachment flows do not inherit stale fixture state
 
 ## Mocking
 - **Strategy:** Mock the OpenAI-compatible client in unit tests
