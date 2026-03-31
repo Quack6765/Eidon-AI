@@ -1,7 +1,12 @@
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import { deleteConversation, getConversation, listMessages } from "@/lib/conversations";
+import {
+  deleteConversation,
+  getConversation,
+  listMessages,
+  moveConversationToFolder
+} from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
 import { badRequest, ok } from "@/lib/http";
 
@@ -46,4 +51,35 @@ export async function DELETE(
 
   deleteConversation(params.data.conversationId);
   return ok({ success: true });
+}
+
+const updateSchema = z.object({
+  folderId: z.string().nullable()
+});
+
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ conversationId: string }> }
+) {
+  await requireUser();
+  const params = paramsSchema.safeParse(await context.params);
+
+  if (!params.success) {
+    return badRequest("Invalid conversation id");
+  }
+
+  const body = updateSchema.safeParse(await request.json());
+
+  if (!body.success) {
+    return badRequest("Invalid conversation update");
+  }
+
+  const conversation = getConversation(params.data.conversationId);
+
+  if (!conversation) {
+    return badRequest("Conversation not found", 404);
+  }
+
+  moveConversationToFolder(conversation.id, body.data.folderId);
+  return ok({ conversation: getConversation(conversation.id) });
 }

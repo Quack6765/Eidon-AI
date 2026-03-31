@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import { deleteFolder, getFolder, renameFolder, reorderFolders } from "@/lib/folders";
+import { deleteFolder, getFolder, renameFolder } from "@/lib/folders";
 import { moveConversationToFolder } from "@/lib/conversations";
 import { badRequest, ok } from "@/lib/http";
 
@@ -28,8 +28,8 @@ export async function PATCH(
     moveConversationToFolder(body.conversationId, params.data.folderId);
   }
 
-  if (body.moveConversationTo !== undefined) {
-    moveConversationToFolder(params.data.folderId, null);
+  if (typeof body.moveConversationTo === "string") {
+    moveConversationToFolder(body.moveConversationTo, null);
   }
 
   return ok({ success: true });

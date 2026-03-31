@@ -21,19 +21,24 @@ import {
   DndContext,
   closestCenter,
   PointerSensor,
+  useDroppable,
   useSensor,
   useSensors,
-  type DragEndEvent,
-  type DragStartEvent
+  type DragEndEvent
 } from "@dnd-kit/core";
 import {
   SortableContext,
   useSortable,
-  verticalListSortingStrategy,
-  arrayMove
+  verticalListSortingStrategy
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
+import {
+  FOLDER_DROP_PREFIX,
+  moveConversationForSidebarDrop,
+  reorderSidebarFolders,
+  UNFILED_DROP_ID
+} from "@/lib/sidebar-dnd";
 import type { Conversation, Folder } from "@/lib/types";
 
 type SidebarConversation = Conversation & { matchSnippet?: string };
@@ -42,12 +47,14 @@ function ConversationItem({
   conversation,
   active,
   onClose,
-  allFolders
+  allFolders,
+  dragEnabled
 }: {
   conversation: SidebarConversation;
   active: boolean;
   onClose?: () => void;
   allFolders: Folder[];
+  dragEnabled: boolean;
 }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -103,7 +110,12 @@ function ConversationItem({
   }
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...(dragEnabled ? attributes : {})}
+      {...(dragEnabled ? listeners : {})}
+    >
       <Link
         href={`/chat/${conversation.id}`}
         onClick={onClose}
@@ -209,14 +221,18 @@ function FolderItem({
   folder,
   conversations,
   activeConversationId,
+  allFolders,
   onClose,
-  onCreateInFolder
+  onCreateInFolder,
+  dragEnabled
 }: {
   folder: Folder;
   conversations: SidebarConversation[];
   activeConversationId: string | null;
+  allFolders: Folder[];
   onClose?: () => void;
   onCreateInFolder: (folderId: string) => void;
+  dragEnabled: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -234,6 +250,12 @@ function FolderItem({
     transform,
     transition
   } = useSortable({ id: folder.id });
+  const {
+    setNodeRef: setFolderDropRef,
+    isOver: isOverFolderDrop
+  } = useDroppable({
+    id: `${FOLDER_DROP_PREFIX}${folder.id}`
+  });
 
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -281,10 +303,15 @@ function FolderItem({
   }
 
   return (
-    <div ref={setNodeRef} style={style} {...attributes}>
+    <div ref={setNodeRef} style={style} {...(dragEnabled ? attributes : {})}>
       <div
+        ref={dragEnabled ? setFolderDropRef : undefined}
         className="group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-white/70 hover:bg-white/5 transition cursor-pointer"
-        {...listeners}
+        data-folder-drop-id={folder.id}
+        data-folder-name={folder.name}
+        aria-label={`${folder.name} folder`}
+        style={dragEnabled && isOverFolderDrop ? { backgroundColor: "rgba(255,255,255,0.08)" } : undefined}
+        {...(dragEnabled ? listeners : {})}
       >
         <button onClick={() => setCollapsed(!collapsed)} className="p-0.5">
           {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
@@ -388,7 +415,8 @@ function FolderItem({
               conversation={conversation}
               active={activeConversationId === conversation.id}
               onClose={onClose}
-              allFolders={[]}
+              allFolders={allFolders}
+              dragEnabled={dragEnabled}
             />
           ))}
         </div>
@@ -418,6 +446,7 @@ export function Sidebar({
   const [localConversations, setLocalConversations] = useState(conversations);
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -427,6 +456,10 @@ export function Sidebar({
   useEffect(() => {
     setLocalFolders(initialFolders ?? []);
   }, [initialFolders]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -491,27 +524,45 @@ export function Sidebar({
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     const { active, over } = event;
-    if (!over || active.id === over.id) return;
+    if (!over || active.id === over.id || searchResults) return;
 
     const activeId = String(active.id);
     const overId = String(over.id);
+    const reorderedFolders = reorderSidebarFolders(localFolders, activeId, overId);
 
-    // Reorder conversations
-    const ids = localConversations.map((c) => c.id);
-    const oldIndex = ids.indexOf(activeId);
-    const newIndex = ids.indexOf(overId);
-
-    if (oldIndex !== -1 && newIndex !== -1) {
-      const reordered = arrayMove(localConversations, oldIndex, newIndex);
-      setLocalConversations(reordered);
-
-      fetch("/api/conversations", {
+    if (reorderedFolders) {
+      setLocalFolders(reorderedFolders);
+      void fetch("/api/folders", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(reordered.map((c) => ({ id: c.id, folderId: c.folderId })))
+        body: JSON.stringify(reorderedFolders.map((folder) => folder.id))
       });
+      return;
     }
-  }, [localConversations]);
+
+    const reorderedConversations = moveConversationForSidebarDrop(
+      localConversations,
+      activeId,
+      overId,
+      new Set(localFolders.map((folder) => folder.id))
+    );
+
+    if (!reorderedConversations) {
+      return;
+    }
+
+    setLocalConversations(reorderedConversations);
+    void fetch("/api/conversations", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        reorderedConversations.map((conversation) => ({
+          id: conversation.id,
+          folderId: conversation.folderId
+        }))
+      )
+    });
+  }, [localConversations, localFolders, searchResults]);
 
   const displayedConversations = searchResults ?? localConversations;
   const unfiled = displayedConversations.filter((c) => !c.folderId);
@@ -529,6 +580,59 @@ export function Sidebar({
     ...localFolders.map((f) => f.id),
     ...localConversations.map((c) => c.id)
   ];
+  const { setNodeRef: setUnfiledDropRef, isOver: isOverUnfiled } = useDroppable({
+    id: UNFILED_DROP_ID
+  });
+  const dragEnabled = mounted && !searchResults;
+
+  function renderConversationSections(enableDrag: boolean) {
+    return (
+      <>
+        {localFolders.map((folder) => {
+          const folderConvos = folderMap.get(folder.id) ?? [];
+          return (
+            <div key={folder.id} className="mb-2">
+              <FolderItem
+                folder={folder}
+                conversations={folderConvos}
+                activeConversationId={activeConversationId}
+                allFolders={localFolders}
+                onClose={onClose}
+                onCreateInFolder={(fId) => handleCreate(fId)}
+                dragEnabled={enableDrag}
+              />
+            </div>
+          );
+        })}
+
+        <div>
+          <h3 className="px-2 pb-2 text-xs font-semibold text-white/40">Your chats</h3>
+          <div
+            ref={enableDrag ? setUnfiledDropRef : undefined}
+            className={`flex flex-col rounded-lg transition ${
+              enableDrag && isOverUnfiled ? "bg-white/5" : ""
+            }`}
+          >
+            {unfiled.map((conversation) => (
+              <ConversationItem
+                key={conversation.id}
+                conversation={conversation}
+                active={activeConversationId === conversation.id}
+                onClose={onClose}
+                allFolders={localFolders}
+                dragEnabled={enableDrag}
+              />
+            ))}
+            {!unfiled.length && !localFolders.length ? (
+              <div className="px-2 py-3 text-xs text-white/40 italic">
+                No conversations
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </>
+    );
+  }
 
   return (
     <aside className="no-scrollbar flex h-full w-full flex-col bg-[var(--sidebar)] text-gray-300">
@@ -633,47 +737,15 @@ export function Sidebar({
             </div>
           </div>
 
-          {/* DnD Context wrapping folders and conversations */}
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-              {/* Folder groups */}
-              {localFolders.map((folder) => {
-                const folderConvos = folderMap.get(folder.id) ?? [];
-                return (
-                  <div key={folder.id} className="mb-2">
-                    <FolderItem
-                      folder={folder}
-                      conversations={folderConvos}
-                      activeConversationId={activeConversationId}
-                      onClose={onClose}
-                      onCreateInFolder={(fId) => handleCreate(fId)}
-                    />
-                  </div>
-                );
-              })}
-
-              {/* Unfiled conversations */}
-              <div>
-                <h3 className="px-2 pb-2 text-xs font-semibold text-white/40">Your chats</h3>
-                <div className="flex flex-col">
-                  {unfiled.map((conversation) => (
-                    <ConversationItem
-                      key={conversation.id}
-                      conversation={conversation}
-                      active={activeConversationId === conversation.id}
-                      onClose={onClose}
-                      allFolders={localFolders}
-                    />
-                  ))}
-                  {!unfiled.length && !localFolders.length ? (
-                    <div className="px-2 py-3 text-xs text-white/40 italic">
-                      No conversations
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            </SortableContext>
-          </DndContext>
+          {dragEnabled ? (
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+              <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+                {renderConversationSections(true)}
+              </SortableContext>
+            </DndContext>
+          ) : (
+            renderConversationSections(false)
+          )}
         </div>
 
         {/* Bottom Settings */}

@@ -3,6 +3,7 @@ node_modules
 coverage
 playwright-report
 test-results
+.playwright-cli
 .data
 .test-data
 .e2e-data

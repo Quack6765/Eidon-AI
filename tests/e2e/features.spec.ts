@@ -57,7 +57,7 @@ test.describe("Feature: Folders", () => {
 });
 
 test.describe("Feature: Move conversation to folder", () => {
-  test("moves a conversation into a folder", async ({ page }) => {
+  test("moves a conversation into a folder by dragging it onto the folder", async ({ page }) => {
     await signIn(page);
 
     // Create a folder first
@@ -70,15 +70,24 @@ test.describe("Feature: Move conversation to folder", () => {
     await page.getByRole("button", { name: "New chat" }).click();
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
-    // Hover over the conversation in sidebar, click "..."
     const convLink = page.locator('aside a[href*="/chat/"]').first();
-    await convLink.hover();
-    const moreBtn = convLink.locator('button:has(.lucide-more-horizontal)');
-    await expect(moreBtn).toBeVisible({ timeout: 3000 });
-    await moreBtn.click();
+    const folderRow = page.locator("aside").getByText("Projects").first();
 
-    // Click the folder name "Projects" in the context menu
-    await page.locator('aside').getByText("Projects").click();
+    const convBox = await convLink.boundingBox();
+    const folderBox = await folderRow.boundingBox();
+
+    if (!convBox || !folderBox) {
+      throw new Error("Could not find drag source or folder target");
+    }
+
+    await page.mouse.move(convBox.x + convBox.width / 2, convBox.y + convBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(folderBox.x + folderBox.width / 2, folderBox.y + folderBox.height / 2, {
+      steps: 20
+    });
+    await page.mouse.up();
+
+    await expect(page.locator('aside .ml-4 a[href*="/chat/"]').first()).toBeVisible({ timeout: 5000 });
   });
 });
 
