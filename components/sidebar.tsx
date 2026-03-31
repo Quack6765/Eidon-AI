@@ -15,7 +15,8 @@ import {
   Trash2,
   FolderInput,
   Pencil,
-  X
+  X,
+  MessageSquare
 } from "lucide-react";
 import {
   DndContext,
@@ -119,12 +120,14 @@ function ConversationItem({
       <Link
         href={`/chat/${conversation.id}`}
         onClick={onClose}
-        className={`group relative flex items-center gap-3 rounded-lg px-2 py-2 text-sm transition ${
+        className={`group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-200 ${
           active
-            ? "bg-white/10 text-white font-medium"
-            : "text-white/70 hover:bg-white/5 hover:text-white"
+            ? "bg-[var(--accent-soft)] text-white font-medium"
+            : "text-white/60 hover:bg-white/[0.04] hover:text-white/90"
         }`}
       >
+        <MessageSquare className="h-4 w-4 shrink-0 opacity-40" />
+
         <div className="relative min-w-0 flex-1 overflow-hidden">
           {conversation.matchSnippet ? (
             <div className="truncate" dangerouslySetInnerHTML={{ __html: conversation.matchSnippet }} />
@@ -135,13 +138,13 @@ function ConversationItem({
           )}
 
           <div
-            className={`absolute right-0 top-0 bottom-0 flex items-center bg-gradient-to-l from-[var(--sidebar)] via-[var(--sidebar)] to-transparent pl-4 pr-1 ${
+            className={`absolute right-0 top-0 bottom-0 flex items-center bg-gradient-to-l from-[var(--sidebar)] via-[var(--sidebar)] to-transparent pl-4 pr-1 transition-opacity duration-200 ${
               active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
             }`}
             onClick={(e) => e.preventDefault()}
           >
             <button
-              className="text-white/50 hover:text-white transition p-1"
+              className="text-white/40 hover:text-white transition-colors duration-200 p-1 rounded-md hover:bg-white/5"
               onClick={(e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -149,7 +152,7 @@ function ConversationItem({
                 setConfirmDelete(false);
               }}
             >
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
           </div>
         </div>
@@ -158,21 +161,21 @@ function ConversationItem({
       {menuOpen && (
         <div
           ref={menuRef}
-          className="absolute right-2 z-50 mt-1 w-52 rounded-xl border border-white/10 bg-[#2f2f2f] p-1 shadow-xl"
+          className="absolute right-4 z-50 mt-1 w-52 rounded-xl border border-white/8 bg-[#1e1e22] p-1.5 shadow-xl animate-fade-in"
         >
           {confirmDelete ? (
-            <div className="px-2 py-1">
-              <p className="text-xs text-white/70 mb-2 px-1">Delete this conversation?</p>
+            <div className="px-2 py-1.5">
+              <p className="text-xs text-white/60 mb-2.5 px-1">Delete this conversation?</p>
               <div className="flex gap-2">
                 <button
                   onClick={handleDelete}
-                  className="flex-1 rounded-lg bg-red-500/20 text-red-400 text-xs py-1.5 hover:bg-red-500/30 transition"
+                  className="flex-1 rounded-lg bg-red-500/15 text-red-400 text-xs py-2 hover:bg-red-500/25 transition-colors duration-200 font-medium"
                 >
                   Delete
                 </button>
                 <button
                   onClick={() => { setConfirmDelete(false); setMenuOpen(false); }}
-                  className="flex-1 rounded-lg bg-white/5 text-white/70 text-xs py-1.5 hover:bg-white/10 transition"
+                  className="flex-1 rounded-lg bg-white/5 text-white/60 text-xs py-2 hover:bg-white/10 transition-colors duration-200"
                 >
                   Cancel
                 </button>
@@ -184,18 +187,18 @@ function ConversationItem({
                 <>
                   <button
                     onClick={() => handleMoveToFolder(null)}
-                    className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/70 hover:bg-white/5 hover:text-white transition"
+                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/[0.04] hover:text-white transition-colors duration-200"
                   >
-                    <FolderInput className="h-4 w-4" />
+                    <FolderInput className="h-3.5 w-3.5" />
                     No folder
                   </button>
                   {allFolders.map((f) => (
                     <button
                       key={f.id}
                       onClick={() => handleMoveToFolder(f.id)}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/70 hover:bg-white/5 hover:text-white transition"
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/[0.04] hover:text-white transition-colors duration-200"
                     >
-                      <FolderIcon className="h-4 w-4" />
+                      <FolderIcon className="h-3.5 w-3.5" />
                       {f.name}
                     </button>
                   ))}
@@ -204,9 +207,9 @@ function ConversationItem({
               )}
               <button
                 onClick={handleDelete}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition"
+                className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-red-400 hover:bg-red-500/8 transition-colors duration-200"
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="h-3.5 w-3.5" />
                 Delete
               </button>
             </>
@@ -306,20 +309,20 @@ function FolderItem({
     <div ref={setNodeRef} style={style} {...(dragEnabled ? attributes : {})}>
       <div
         ref={dragEnabled ? setFolderDropRef : undefined}
-        className="group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm text-white/70 hover:bg-white/5 transition cursor-pointer"
+        className="group flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-white/60 hover:bg-white/[0.04] transition-all duration-200 cursor-pointer"
         data-folder-drop-id={folder.id}
         data-folder-name={folder.name}
         aria-label={`${folder.name} folder`}
-        style={dragEnabled && isOverFolderDrop ? { backgroundColor: "rgba(255,255,255,0.08)" } : undefined}
+        style={dragEnabled && isOverFolderDrop ? { backgroundColor: "rgba(255,255,255,0.04)" } : undefined}
         {...(dragEnabled ? listeners : {})}
       >
-        <button onClick={() => setCollapsed(!collapsed)} className="p-0.5">
+        <button onClick={() => setCollapsed(!collapsed)} className="p-0.5 opacity-50">
           {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
         </button>
         {collapsed ? (
-          <FolderIcon className="h-4 w-4 text-white/50" />
+          <FolderIcon className="h-4 w-4 opacity-40" />
         ) : (
-          <FolderOpen className="h-4 w-4 text-amber-400/70" />
+          <FolderOpen className="h-4 w-4 text-amber-400/50" />
         )}
         {renaming ? (
           <input
@@ -341,14 +344,14 @@ function FolderItem({
             {folder.name}
           </span>
         )}
-        <span className="text-xs text-white/30 mr-1">{conversations.length}</span>
+        <span className="text-[11px] text-white/25 mr-1 tabular-nums">{conversations.length}</span>
         <div
-          className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5"
+          className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity duration-200"
           onClick={(e) => e.stopPropagation()}
         >
           <button
             onClick={() => onCreateInFolder(folder.id)}
-            className="p-0.5 text-white/40 hover:text-white transition"
+            className="p-0.5 text-white/30 hover:text-white transition-colors duration-200"
             title="New chat in folder"
           >
             <Plus className="h-3 w-3" />
@@ -356,28 +359,28 @@ function FolderItem({
           <div className="relative">
             <button
               onClick={() => { setFolderMenuOpen(!folderMenuOpen); setConfirmDeleteFolder(false); }}
-              className="p-0.5 text-white/40 hover:text-white transition"
+              className="p-0.5 text-white/30 hover:text-white transition-colors duration-200"
             >
               <MoreHorizontal className="h-3 w-3" />
             </button>
             {folderMenuOpen && (
               <div
                 ref={menuRef}
-                className="absolute right-0 top-full z-50 mt-1 w-40 rounded-xl border border-white/10 bg-[#2f2f2f] p-1 shadow-xl"
+                className="absolute right-0 top-full z-50 mt-1 w-40 rounded-xl border border-white/8 bg-[#1e1e22] p-1.5 shadow-xl animate-fade-in"
               >
                 {confirmDeleteFolder ? (
-                  <div className="px-2 py-1">
-                    <p className="text-xs text-white/70 mb-2 px-1">Delete folder?</p>
+                  <div className="px-2 py-1.5">
+                    <p className="text-xs text-white/60 mb-2 px-1">Delete folder?</p>
                     <div className="flex gap-2">
                       <button
                         onClick={handleDeleteFolder}
-                        className="flex-1 rounded-lg bg-red-500/20 text-red-400 text-xs py-1.5 hover:bg-red-500/30 transition"
+                        className="flex-1 rounded-lg bg-red-500/15 text-red-400 text-xs py-1.5 hover:bg-red-500/25 transition-colors duration-200"
                       >
                         Delete
                       </button>
                       <button
                         onClick={() => { setConfirmDeleteFolder(false); setFolderMenuOpen(false); }}
-                        className="flex-1 rounded-lg bg-white/5 text-white/70 text-xs py-1.5 hover:bg-white/10 transition"
+                        className="flex-1 rounded-lg bg-white/5 text-white/60 text-xs py-1.5 hover:bg-white/10 transition-colors duration-200"
                       >
                         Cancel
                       </button>
@@ -387,16 +390,16 @@ function FolderItem({
                   <>
                     <button
                       onClick={() => { setRenaming(true); setFolderMenuOpen(false); }}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-white/70 hover:bg-white/5 hover:text-white transition"
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-white/60 hover:bg-white/[0.04] hover:text-white transition-colors duration-200"
                     >
-                      <Pencil className="h-4 w-4" />
+                      <Pencil className="h-3.5 w-3.5" />
                       Rename
                     </button>
                     <button
                       onClick={handleDeleteFolder}
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 transition"
+                      className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-red-400 hover:bg-red-500/8 transition-colors duration-200"
                     >
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-3.5 w-3.5" />
                       Delete
                     </button>
                   </>
@@ -408,7 +411,7 @@ function FolderItem({
       </div>
 
       {!collapsed && conversations.length > 0 && (
-        <div className="ml-4 flex flex-col">
+        <div className="ml-5 flex flex-col">
           {conversations.map((conversation) => (
             <ConversationItem
               key={conversation.id}
@@ -480,7 +483,7 @@ export function Sidebar({
 
     searchTimeoutRef.current = setTimeout(async () => {
       const res = await fetch(`/api/conversations/search?q=${encodeURIComponent(query)}`);
-      const data = await res.json() as { conversations: Conversation[] };
+      const data = (await res.json()) as { conversations: Conversation[] };
 
       const highlighted = data.conversations.map((c) => ({
         ...c,
@@ -492,7 +495,7 @@ export function Sidebar({
 
   function highlightMatch(text: string, query: string): string {
     const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
-    return text.replace(regex, '<mark class="bg-amber-400/30 text-white rounded px-0.5">$1</mark>');
+    return text.replace(regex, '<mark class="bg-[var(--accent)]/30 text-white rounded px-0.5">$1</mark>');
   }
 
   async function handleCreate(folderId?: string) {
@@ -515,7 +518,7 @@ export function Sidebar({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: newFolderName.trim() })
     });
-    const data = await res.json() as { folder: Folder };
+    const data = (await res.json()) as { folder: Folder };
     setLocalFolders((prev) => [...prev, data.folder]);
     setNewFolderName("");
     setShowNewFolder(false);
@@ -591,7 +594,7 @@ export function Sidebar({
         {localFolders.map((folder) => {
           const folderConvos = folderMap.get(folder.id) ?? [];
           return (
-            <div key={folder.id} className="mb-2">
+            <div key={folder.id} className="mb-1">
               <FolderItem
                 folder={folder}
                 conversations={folderConvos}
@@ -606,11 +609,13 @@ export function Sidebar({
         })}
 
         <div>
-          <h3 className="px-2 pb-2 text-xs font-semibold text-white/40">Your chats</h3>
+          <div className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/25">
+            Your chats
+          </div>
           <div
             ref={enableDrag ? setUnfiledDropRef : undefined}
-            className={`flex flex-col rounded-lg transition ${
-              enableDrag && isOverUnfiled ? "bg-white/5" : ""
+            className={`flex flex-col rounded-xl transition-colors duration-200 ${
+              enableDrag && isOverUnfiled ? "bg-white/[0.03]" : ""
             }`}
           >
             {unfiled.map((conversation) => (
@@ -624,8 +629,8 @@ export function Sidebar({
               />
             ))}
             {!unfiled.length && !localFolders.length ? (
-              <div className="px-2 py-3 text-xs text-white/40 italic">
-                No conversations
+              <div className="px-3 py-4 text-xs text-white/20 italic text-center">
+                No conversations yet
               </div>
             ) : null}
           </div>
@@ -636,30 +641,28 @@ export function Sidebar({
 
   return (
     <aside className="no-scrollbar flex h-full w-full flex-col bg-[var(--sidebar)] text-gray-300">
-      <div className="flex h-full flex-col px-3 py-3">
-        {/* Top Header */}
-        <div className="flex items-center justify-between mb-2 mt-1">
-          <button className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-white/5 transition font-semibold text-white/90 text-sm">
-            <img src="/logo.png" alt="Logo" width={24} height={24} className="h-6 w-auto object-contain" />
-            <span>Hermes</span>
-          </button>
+      <div className="flex h-full flex-col px-3 py-4">
+        <div className="flex items-center justify-between mb-4 px-1">
+          <Link href="/" onClick={onClose} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] transition-colors duration-200">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--accent)] text-white text-xs font-bold shadow-[0_0_12px_var(--accent-glow)]">
+              H
+            </div>
+            <span className="font-semibold text-white/90 text-sm tracking-wide">Hermes</span>
+          </Link>
 
-          <div className="flex gap-1">
-             <button
-               onClick={() => handleCreate()}
-               className="p-1.5 rounded-lg text-white/70 hover:bg-white/5 hover:text-white transition"
-               title="New chat"
-             >
-               <Plus className="h-5 w-5" />
-             </button>
-          </div>
+          <button
+            onClick={() => handleCreate()}
+            className="p-2 rounded-lg text-white/50 hover:bg-white/[0.04] hover:text-white transition-all duration-200"
+            title="New chat"
+          >
+            <Plus className="h-5 w-5" />
+          </button>
         </div>
 
-        {/* Search */}
         <div className="flex flex-col gap-1 mb-4">
           {searchQuery || searchResults ? (
             <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/25" />
               <input
                 autoFocus
                 value={searchQuery}
@@ -677,34 +680,34 @@ export function Sidebar({
                   }
                 }}
                 placeholder="Search chats..."
-                className="w-full rounded-lg border border-white/10 bg-black/20 py-2 pl-8 pr-8 text-sm text-white placeholder:text-white/40 focus:outline-none focus:border-white/20"
+                className="w-full rounded-xl border border-white/6 bg-white/[0.03] py-2.5 pl-9 pr-8 text-sm text-white placeholder:text-white/25 focus:outline-none focus:border-[var(--accent)]/30 transition-all duration-200"
               />
               <button
                 onClick={() => { setSearchQuery(""); setSearchResults(null); }}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/25 hover:text-white transition-colors duration-200"
               >
-                <X className="h-4 w-4" />
+                <X className="h-3.5 w-3.5" />
               </button>
             </div>
           ) : (
             <button
               onClick={() => handleSearch("")}
-              className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm text-white/70 hover:bg-white/5 hover:text-white transition"
+              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/40 hover:bg-white/[0.04] hover:text-white/60 transition-all duration-200"
             >
-               <Search className="h-4 w-4" />
-               <span>Search chats</span>
+              <Search className="h-3.5 w-3.5" />
+              <span>Search chats</span>
             </button>
           )}
         </div>
 
-        {/* Scrollable Nav Area */}
-        <div className="scrollbar-thin flex-1 overflow-y-auto overflow-x-hidden pr-2 -mr-2 space-y-6">
-          {/* Folders Section */}
+        <div className="scrollbar-thin flex-1 overflow-y-auto overflow-x-hidden pr-1 -mr-1 space-y-4">
           <div>
-            <h3 className="px-2 pb-2 text-xs font-semibold text-white/40">Folders</h3>
-            <div className="flex flex-col gap-1">
+            <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/25">
+              Folders
+            </div>
+            <div className="flex flex-col gap-0.5">
               {showNewFolder ? (
-                <div className="flex items-center gap-2 px-2">
+                <div className="flex items-center gap-2 px-3">
                   <input
                     autoFocus
                     value={newFolderName}
@@ -714,22 +717,22 @@ export function Sidebar({
                       if (e.key === "Escape") { setShowNewFolder(false); setNewFolderName(""); }
                     }}
                     placeholder="Folder name..."
-                    className="flex-1 bg-transparent border-b border-white/20 text-sm text-white outline-none py-2 placeholder:text-white/40"
+                    className="flex-1 bg-transparent border-b border-white/15 text-sm text-white outline-none py-2 placeholder:text-white/25"
                   />
-                  <button onClick={handleCreateFolder} className="text-white/50 hover:text-white transition">
+                  <button onClick={handleCreateFolder} className="text-white/40 hover:text-white transition-colors duration-200">
                     <Plus className="h-4 w-4" />
                   </button>
-                  <button onClick={() => { setShowNewFolder(false); setNewFolderName(""); }} className="text-white/50 hover:text-white transition">
+                  <button onClick={() => { setShowNewFolder(false); setNewFolderName(""); }} className="text-white/40 hover:text-white transition-colors duration-200">
                     <X className="h-4 w-4" />
                   </button>
                 </div>
               ) : (
                 <button
                   onClick={() => setShowNewFolder(true)}
-                  className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm text-white/70 hover:bg-white/5 hover:text-white transition"
+                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/40 hover:bg-white/[0.04] hover:text-white/60 transition-all duration-200"
                 >
-                  <div className="h-4 w-4 border border-dashed border-white/50 rounded-sm flex items-center justify-center">
-                    <Plus className="h-3 w-3" />
+                  <div className="h-4 w-4 border border-dashed border-white/20 rounded flex items-center justify-center">
+                    <Plus className="h-2.5 w-2.5" />
                   </div>
                   <span>New folder</span>
                 </button>
@@ -748,16 +751,15 @@ export function Sidebar({
           )}
         </div>
 
-        {/* Bottom Settings */}
-        <div className="mt-2 flex items-center border-t border-white/10 pt-3 mb-1">
+        <div className="mt-3 flex items-center border-t border-white/6 pt-3">
           <Link
-             href="/settings"
-             onClick={onClose}
-             aria-label="Open settings"
-             className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-sm text-white/80 hover:bg-white/5 transition"
+            href="/settings"
+            onClick={onClose}
+            aria-label="Open settings"
+            className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/50 hover:bg-white/[0.04] hover:text-white/80 transition-all duration-200"
           >
-             <Settings className="h-4 w-4" />
-             <span>Settings</span>
+            <Settings className="h-4 w-4" />
+            <span>Settings</span>
           </Link>
         </div>
       </div>

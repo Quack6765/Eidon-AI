@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState, useTransition } from "react";
+import { type FormEvent, useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, Shield, Sparkles, Server, Zap, Plus, Trash2, Pencil } from "lucide-react";
+import { LogOut, Shield, Sparkles, Server, Zap, Plus, Trash2, Pencil, Check } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -446,20 +446,22 @@ export function SettingsForm({
   }
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[1.3fr,0.7fr]">
-      <div className="space-y-5">
+    <div className="grid gap-6 lg:grid-cols-[1.3fr,0.7fr]">
+      <div className="space-y-6">
         <form
           onSubmit={(event) => void handleSettings(event)}
-          className="panel grain rounded-[2rem] border p-6"
+          className="rounded-2xl border border-white/6 bg-white/[0.02] p-6 space-y-8"
         >
           <div className="flex items-center gap-3">
-            <Sparkles className="h-5 w-5 text-[color:var(--accent)]" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent-soft)] text-[var(--accent)]">
+              <Sparkles className="h-4 w-4" />
+            </div>
             <div>
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.3em] text-[color:var(--accent)]">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--accent)]">
                 Runtime settings
               </p>
               <h2
-                className="mt-2 text-4xl leading-none"
+                className="mt-1 text-3xl leading-none text-[var(--text)]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 Provider + context controls
@@ -467,73 +469,75 @@ export function SettingsForm({
             </div>
           </div>
 
-          <div className="mt-8 space-y-6">
+          <div className="space-y-6">
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <Label>Saved profiles</Label>
-                  <p className="mt-2 text-xs leading-5 text-[color:var(--muted)]">
+                  <p className="mt-1.5 text-xs leading-5 text-[var(--muted)]">
                     Each profile stores a full runtime configuration. New conversations start with
                     the default profile.
                   </p>
                 </div>
                 <Button type="button" variant="secondary" onClick={addProviderProfile}>
-                  <Plus className="mr-2 h-4 w-4" />
+                  <Plus className="mr-1.5 h-3.5 w-3.5" />
                   Add profile
                 </Button>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-2">
                 {providerProfiles.map((profile) => (
                   <div
                     key={profile.id}
-                    className={`rounded-2xl border px-4 py-3 ${
+                    className={`rounded-xl border px-4 py-3 transition-all duration-200 cursor-pointer ${
                       profile.id === selectedProviderProfileId
-                        ? "border-white/20 bg-white/10"
-                        : "border-white/5 bg-black/20"
+                        ? "border-[var(--accent)]/20 bg-[var(--accent-soft)]"
+                        : "border-white/4 bg-white/[0.01] hover:bg-white/[0.03]"
                     }`}
+                    onClick={() => setSelectedProviderProfileId(profile.id)}
                   >
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <button
-                        type="button"
-                        className="min-w-0 text-left"
-                        onClick={() => setSelectedProviderProfileId(profile.id)}
-                      >
+                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                      <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="truncate text-sm font-medium text-[var(--text)]">
                             {profile.name}
                           </span>
                           {profile.id === defaultProviderProfileId ? (
-                            <span className="rounded-md bg-emerald-900/40 px-1.5 py-0.5 text-[0.65rem] font-medium text-emerald-300">
+                            <span className="flex items-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
+                              <Check className="h-2.5 w-2.5" />
                               default
                             </span>
                           ) : null}
                           {!profile.hasApiKey && !profile.apiKey ? (
-                            <span className="rounded-md bg-amber-900/40 px-1.5 py-0.5 text-[0.65rem] font-medium text-amber-300">
+                            <span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
                               no key
                             </span>
                           ) : null}
                         </div>
-                        <p className="mt-1 truncate text-xs text-[color:var(--muted)]">
+                        <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
                           {profile.model} · {profile.apiMode} · {profile.apiBaseUrl}
                         </p>
-                      </button>
+                      </div>
 
-                      <div className="flex items-center gap-2">
-                        <label className="flex items-center gap-2 text-xs text-[color:var(--muted)]">
+                      <div className="flex items-center gap-3">
+                        <label className="flex items-center gap-1.5 text-xs text-[var(--muted)] cursor-pointer">
                           <input
                             type="radio"
                             name="defaultProviderProfileId"
                             checked={profile.id === defaultProviderProfileId}
                             onChange={() => setDefaultProviderProfileId(profile.id)}
+                            onClick={(e) => e.stopPropagation()}
                           />
                           Default
                         </label>
                         <button
                           type="button"
-                          onClick={() => removeProviderProfile(profile.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            removeProviderProfile(profile.id);
+                          }}
                           disabled={providerProfiles.length === 1}
-                          className="p-1 text-red-400/60 transition hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="p-1 text-red-400/40 transition-colors duration-200 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-30"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
@@ -559,7 +563,7 @@ export function SettingsForm({
 
                       applyPresetToActiveProviderProfile(nextPresetId);
                     }}
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
+                    className="w-full rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm outline-none focus:border-[var(--accent)]/30 transition-all duration-200"
                   >
                     <option value="">Manual configuration</option>
                     {PROVIDER_PRESETS.map((preset) => (
@@ -568,7 +572,7 @@ export function SettingsForm({
                       </option>
                     ))}
                   </select>
-                  <p className="mt-2 text-xs leading-5 text-[color:var(--muted)]">
+                  <p className="mt-1.5 text-xs leading-5 text-[var(--muted)]">
                     Applying a preset updates the provider connection fields while keeping your API
                     key, prompt, and runtime tuning.
                   </p>
@@ -601,7 +605,7 @@ export function SettingsForm({
                     onChange={(event) =>
                       updateActiveProviderProfile({ apiMode: event.target.value as ApiMode })
                     }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
+                    className="w-full rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm outline-none focus:border-[var(--accent)]/30 transition-all duration-200"
                   >
                     <option value="responses">responses</option>
                     <option value="chat_completions">chat_completions</option>
@@ -615,7 +619,7 @@ export function SettingsForm({
                     onChange={(event) => updateActiveProviderProfile({ model: event.target.value })}
                     required
                   />
-                  <p className="mt-2 text-xs leading-5 text-[color:var(--muted)]">
+                  <p className="mt-1.5 text-xs leading-5 text-[var(--muted)]">
                     {visibleReasoningSupported
                       ? "This model can emit visible reasoning summaries through the Responses API."
                       : "This model is treated as non-reasoning here, so visible thinking will stay hidden even if the toggle below is on."}
@@ -655,7 +659,7 @@ export function SettingsForm({
 
                 <div className="md:col-span-2">
                   <Label>Workspace skills</Label>
-                  <label className="flex h-[50px] items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm">
+                  <label className="flex h-[50px] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-4 text-sm cursor-pointer">
                     <input
                       type="checkbox"
                       checked={skillsEnabled}
@@ -701,7 +705,7 @@ export function SettingsForm({
                         reasoningEffort: event.target.value as ReasoningEffort
                       })
                     }
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
+                    className="w-full rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm outline-none focus:border-[var(--accent)]/30 transition-all duration-200"
                   >
                     <option value="low">low</option>
                     <option value="medium">medium</option>
@@ -712,7 +716,7 @@ export function SettingsForm({
 
                 <div>
                   <Label>Reasoning summary</Label>
-                  <label className="flex h-[50px] items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm">
+                  <label className="flex h-[50px] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-4 text-sm cursor-pointer">
                     <input
                       type="checkbox"
                       checked={activeProviderProfile.reasoningSummaryEnabled}
@@ -724,7 +728,7 @@ export function SettingsForm({
                     />
                     Show reasoning when provider supports it
                   </label>
-                  <p className="mt-2 text-xs leading-5 text-[color:var(--muted)]">
+                  <p className="mt-1.5 text-xs leading-5 text-[var(--muted)]">
                     Best results here come from reasoning-capable models like GPT-5 and OpenAI
                     o-series models on the Responses API.
                   </p>
@@ -773,56 +777,67 @@ export function SettingsForm({
             ) : null}
           </div>
 
-          <div className="mt-6 flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Button type="submit">Save settings</Button>
             <Button type="button" variant="secondary" onClick={runConnectionTest}>
               Test connection
             </Button>
-            {success ? <p className="text-sm text-emerald-300">{success}</p> : null}
-            {testResult ? <p className="text-sm text-[color:var(--muted)]">{testResult}</p> : null}
+            {success ? (
+              <div className="flex items-center gap-1.5 text-sm text-emerald-400">
+                <Check className="h-3.5 w-3.5" />
+                {success}
+              </div>
+            ) : null}
+            {testResult ? <p className="text-sm text-[var(--muted)]">{testResult}</p> : null}
           </div>
 
-          {error ? <p className="mt-3 text-sm text-red-300">{error}</p> : null}
+          {error ? (
+            <div className="rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300">
+              {error}
+            </div>
+          ) : null}
         </form>
 
-        <div className="panel grain rounded-[2rem] border p-6">
+        <div className="rounded-2xl border border-white/6 bg-white/[0.02] p-6 space-y-4">
           <div className="flex items-center gap-3">
-            <Server className="h-5 w-5 text-sky-300" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-400">
+              <Server className="h-4 w-4" />
+            </div>
             <div>
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.3em] text-sky-300">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-400">
                 Integrations
               </p>
               <h2
-                className="mt-2 text-4xl leading-none"
+                className="mt-1 text-3xl leading-none text-[var(--text)]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 MCP Servers
               </h2>
             </div>
           </div>
-          <p className="mt-3 text-sm text-[color:var(--muted)]">
+          <p className="text-sm text-[var(--muted)]">
             Add HTTP streamable or local stdio MCP servers to make external tools available in chat.
           </p>
 
-          <div className="mt-4 space-y-3">
+          <div className="space-y-2">
             {mcpServers.map((server) => (
               <div
                 key={server.id}
-                className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 px-4 py-3"
+                className="flex items-center justify-between rounded-xl border border-white/4 bg-white/[0.01] px-4 py-3"
               >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-[var(--text)]">{server.name}</span>
                     {server.transport === "stdio" ? (
-                      <span className="inline-flex items-center rounded-md bg-emerald-900/40 px-1.5 py-0.5 text-[0.65rem] font-medium text-emerald-300">
+                      <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
                         stdio
                       </span>
                     ) : (
-                      <span className="inline-flex items-center rounded-md bg-sky-900/40 px-1.5 py-0.5 text-[0.65rem] font-medium text-sky-300">
+                      <span className="inline-flex items-center rounded-md bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-sky-400">
                         http
                       </span>
                     )}
-                    <span className="text-xs text-white/30">
+                    <span className="text-xs text-white/20 truncate">
                       {server.transport === "stdio"
                         ? `${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`
                         : server.url}
@@ -830,7 +845,7 @@ export function SettingsForm({
                   </div>
                 </div>
                 <div className="ml-2 flex items-center gap-2">
-                  <label className="flex items-center gap-1.5 text-xs text-white/50">
+                  <label className="flex items-center gap-1.5 text-xs text-white/40 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={server.enabled}
@@ -841,13 +856,13 @@ export function SettingsForm({
                   </label>
                   <button
                     onClick={() => editMcpServer(server)}
-                    className="p-1 text-white/40 transition hover:text-white"
+                    className="p-1 text-white/30 transition-colors duration-200 hover:text-white"
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
                   <button
                     onClick={() => deleteMcpServer(server.id)}
-                    className="p-1 text-red-400/60 transition hover:text-red-400"
+                    className="p-1 text-red-400/40 transition-colors duration-200 hover:text-red-400"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
@@ -856,7 +871,7 @@ export function SettingsForm({
             ))}
 
             {showMcpForm ? (
-              <div className="space-y-3 rounded-xl border border-white/10 bg-black/20 p-4">
+              <div className="space-y-3 rounded-xl border border-white/6 bg-white/[0.02] p-4 animate-fade-in">
                 <div>
                   <Label>Name</Label>
                   <Input
@@ -870,7 +885,7 @@ export function SettingsForm({
                   <select
                     value={mcpTransport}
                     onChange={(e) => setMcpTransport(e.target.value as McpTransport)}
-                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
+                    className="w-full rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm outline-none focus:border-[var(--accent)]/30 transition-all duration-200"
                   >
                     <option value="streamable_http">Streamable HTTP</option>
                     <option value="stdio">Local stdio</option>
@@ -905,7 +920,7 @@ export function SettingsForm({
                         onChange={(e) => setMcpCommand(e.target.value)}
                         placeholder="uvx or npx"
                       />
-                      <p className="mt-1 text-xs text-white/30">
+                      <p className="mt-1 text-xs text-white/20">
                         Use &quot;uvx&quot; for Python-based servers or &quot;npx&quot; for Node.js-based servers.
                       </p>
                     </div>
@@ -946,56 +961,58 @@ export function SettingsForm({
                 type="button"
                 variant="secondary"
                 onClick={() => setShowMcpForm(true)}
-                className="gap-2"
+                className="gap-1.5"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-3.5 w-3.5" />
                 Add MCP server
               </Button>
             )}
           </div>
         </div>
 
-        <div className="panel grain rounded-[2rem] border p-6">
+        <div className="rounded-2xl border border-white/6 bg-white/[0.02] p-6 space-y-4">
           <div className="flex items-center gap-3">
-            <Zap className="h-5 w-5 text-amber-300" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400">
+              <Zap className="h-4 w-4" />
+            </div>
             <div>
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.3em] text-amber-300">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-400">
                 Prompts
               </p>
               <h2
-                className="mt-2 text-4xl leading-none"
+                className="mt-1 text-3xl leading-none text-[var(--text)]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 Skills
               </h2>
             </div>
           </div>
-          <p className="mt-3 text-sm text-[color:var(--muted)]">
+          <p className="text-sm text-[var(--muted)]">
             Skills expose `name` and `description` first, then load the full instructions only when
             the agent explicitly requests them.
           </p>
 
-          <div className="mt-4 space-y-3">
+          <div className="space-y-2">
             {skills.map((skill) => {
               const isBuiltin = skill.id.startsWith("builtin-");
               return (
                 <div
                   key={skill.id}
-                  className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 px-4 py-3"
+                  className="flex items-center justify-between rounded-xl border border-white/4 bg-white/[0.01] px-4 py-3"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-[var(--text)]">{skill.name}</span>
                       {isBuiltin ? (
-                        <span className="inline-flex items-center rounded-md bg-amber-900/40 px-1.5 py-0.5 text-[0.65rem] font-medium text-amber-300">
+                        <span className="inline-flex items-center rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
                           Built-in
                         </span>
                       ) : null}
                     </div>
-                    <p className="mt-1 truncate text-xs text-white/40">{skill.description}</p>
+                    <p className="mt-0.5 truncate text-xs text-white/30">{skill.description}</p>
                   </div>
                   <div className="ml-2 flex items-center gap-2">
-                    <label className="flex items-center gap-1.5 text-xs text-white/50">
+                    <label className="flex items-center gap-1.5 text-xs text-white/40 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={skill.enabled}
@@ -1007,7 +1024,7 @@ export function SettingsForm({
                     {!isBuiltin ? (
                       <button
                         onClick={() => editSkill(skill)}
-                        className="p-1 text-white/40 transition hover:text-white"
+                        className="p-1 text-white/30 transition-colors duration-200 hover:text-white"
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </button>
@@ -1015,7 +1032,7 @@ export function SettingsForm({
                     {!isBuiltin ? (
                       <button
                         onClick={() => deleteSkill(skill.id)}
-                        className="p-1 text-red-400/60 transition hover:text-red-400"
+                        className="p-1 text-red-400/40 transition-colors duration-200 hover:text-red-400"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1026,7 +1043,7 @@ export function SettingsForm({
             })}
 
             {showSkillForm ? (
-              <div className="space-y-3 rounded-xl border border-white/10 bg-black/20 p-4">
+              <div className="space-y-3 rounded-xl border border-white/6 bg-white/[0.02] p-4 animate-fade-in">
                 <div>
                   <Label>Name</Label>
                   <Input
@@ -1066,9 +1083,9 @@ export function SettingsForm({
                 type="button"
                 variant="secondary"
                 onClick={() => setShowSkillForm(true)}
-                className="gap-2"
+                className="gap-1.5"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-3.5 w-3.5" />
                 Add skill
               </Button>
             )}
@@ -1076,19 +1093,21 @@ export function SettingsForm({
         </div>
       </div>
 
-      <div className="space-y-5">
+      <div className="space-y-6">
         <form
           onSubmit={(event) => void handleAccount(event)}
-          className="panel grain rounded-[2rem] border p-6"
+          className="rounded-2xl border border-white/6 bg-white/[0.02] p-6 space-y-6"
         >
           <div className="flex items-center gap-3">
-            <Shield className="h-5 w-5 text-sky-200" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-300">
+              <Shield className="h-4 w-4" />
+            </div>
             <div>
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.3em] text-sky-200">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-300">
                 Account
               </p>
               <h2
-                className="mt-2 text-3xl leading-none"
+                className="mt-1 text-2xl leading-none text-[var(--text)]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 Local access
@@ -1096,7 +1115,7 @@ export function SettingsForm({
             </div>
           </div>
 
-          <div className="mt-6 space-y-4">
+          <div className="space-y-3">
             <div>
               <Label>Username</Label>
               <Input name="username" defaultValue={user.username} />
@@ -1111,23 +1130,30 @@ export function SettingsForm({
             </div>
           </div>
 
-          <div className="mt-6 space-y-3">
+          <div className="space-y-3">
             <Button type="submit" variant="secondary">
               Update account
             </Button>
-            {accountSuccess ? <p className="text-sm text-emerald-300">{accountSuccess}</p> : null}
+            {accountSuccess ? (
+              <div className="flex items-center gap-1.5 text-sm text-emerald-400">
+                <Check className="h-3.5 w-3.5" />
+                {accountSuccess}
+              </div>
+            ) : null}
           </div>
         </form>
 
-        <div className="panel grain rounded-[2rem] border p-6">
+        <div className="rounded-2xl border border-white/6 bg-white/[0.02] p-6 space-y-4">
           <div className="flex items-center gap-3">
-            <LogOut className="h-5 w-5 text-rose-200" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-500/10 text-rose-300">
+              <LogOut className="h-4 w-4" />
+            </div>
             <div>
-              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.3em] text-rose-200">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-rose-300">
                 Session
               </p>
               <h2
-                className="mt-2 text-3xl leading-none"
+                className="mt-1 text-2xl leading-none text-[var(--text)]"
                 style={{ fontFamily: "var(--font-display)" }}
               >
                 Sign out
@@ -1135,15 +1161,13 @@ export function SettingsForm({
             </div>
           </div>
 
-          <p className="mt-4 text-sm leading-6 text-[color:var(--muted)]">
+          <p className="text-sm leading-6 text-[var(--muted)]">
             End the current local session and return to the login screen.
           </p>
 
-          <div className="mt-6">
-            <Button type="button" variant="secondary" onClick={logout} disabled={isPending}>
-              Sign out
-            </Button>
-          </div>
+          <Button type="button" variant="danger" onClick={logout} disabled={isPending}>
+            Sign out
+          </Button>
         </div>
       </div>
     </div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LoaderCircle, ArrowUp, Plus } from "lucide-react";
+import { LoaderCircle, ArrowUp, Plus, ChevronDown } from "lucide-react";
 
 import { Textarea } from "@/components/ui/textarea";
 import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
@@ -73,6 +73,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [providerProfileId, setProviderProfileId] = useState(
     payload.conversation.providerProfileId ?? payload.defaultProviderProfileId
   );
+  const [showDebug, setShowDebug] = useState(false);
   const queueRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -136,14 +137,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     return formatTimestamp(payload.debug.latestCompactionAt);
   }, [payload.debug.latestCompactionAt]);
-
-  const activeProviderProfile = useMemo(
-    () =>
-      payload.providerProfiles.find((profile) => profile.id === providerProfileId) ??
-      payload.providerProfiles.find((profile) => profile.id === payload.defaultProviderProfileId) ??
-      null,
-    [payload.defaultProviderProfileId, payload.providerProfiles, providerProfileId]
-  );
 
   async function updateProviderProfile(nextProviderProfileId: string) {
     const previousProviderProfileId = providerProfileId;
@@ -299,27 +292,32 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
-  // Calculate textarea height dynamically if needed, but Tailwind max-height handles it.
   return (
     <div className="flex h-[100dvh] flex-col relative w-full bg-[var(--background)]">
-      <div className="border-b border-white/5 px-4 py-4 md:px-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div>
-            <div className="font-medium text-[var(--text)]">{payload.conversation.title}</div>
-            <div className="mt-1 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
+      <div className="border-b border-white/4 px-4 py-3.5 md:px-6">
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <div className="font-medium text-[var(--text)] truncate text-sm">{payload.conversation.title}</div>
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className="flex items-center gap-1 mt-0.5 text-[11px] text-white/25 hover:text-white/40 transition-colors duration-200"
+            >
               <span>{payload.debug.memoryNodeCount} memory nodes</span>
-              <span>Latest compaction: {latestCompactionLabel}</span>
-            </div>
+              <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${showDebug ? "rotate-180" : ""}`} />
+            </button>
+            {showDebug && (
+              <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-white/25 animate-fade-in">
+                <span>{payload.debug.rawTurnCount} raw turns</span>
+                <span>Latest compaction: {latestCompactionLabel}</span>
+              </div>
+            )}
           </div>
 
-          <div className="flex min-w-0 flex-col gap-2 md:items-end">
-            <label className="text-[0.68rem] font-semibold uppercase tracking-[0.3em] text-[color:var(--accent)]">
-              Conversation model
-            </label>
+          <div className="flex min-w-0 items-center gap-3">
             <select
               value={providerProfileId}
               onChange={(event) => void updateProviderProfile(event.target.value)}
-              className="w-full min-w-0 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-[var(--text)] md:w-[320px]"
+              className="rounded-xl border border-white/6 bg-white/[0.03] px-3 py-2 text-sm text-[var(--text)] md:w-[280px] w-full outline-none focus:border-[var(--accent)]/30 transition-all duration-200 appearance-none cursor-pointer"
               disabled={isSending || payload.providerProfiles.length === 0}
             >
               {payload.providerProfiles.map((profile) => (
@@ -328,52 +326,59 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 </option>
               ))}
             </select>
-            {activeProviderProfile ? (
-              <p className="text-xs text-[var(--muted)]">
-                {activeProviderProfile.apiMode} · {activeProviderProfile.apiBaseUrl}
-              </p>
-            ) : null}
           </div>
         </div>
       </div>
 
       <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 md:px-0 scroll-smooth">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 pt-4 pb-[160px] md:pb-[200px]">
-          {messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-1 pt-4 pb-[160px] md:pb-[200px]">
+          {messages.map((message, index) => (
+            <div
+              key={message.id}
+              className="animate-slide-up"
+              style={{ animationDelay: `${Math.min(index * 30, 300)}ms`, animationFillMode: "backwards" }}
+            >
+              <MessageBubble message={message} />
+            </div>
           ))}
 
           {streamStartedAt ? (
-            <StreamingPlaceholder
-              createdAt={streamStartedAt}
-              thinking={streamThinkingDisplay}
-              answer={streamAnswerDisplay}
-              awaitingFirstToken={!hasReceivedFirstToken}
-              thinkingInProgress={Boolean(streamThinkingTarget) && !streamAnswerTarget}
-            />
+            <div className="animate-slide-up">
+              <StreamingPlaceholder
+                createdAt={streamStartedAt}
+                thinking={streamThinkingDisplay}
+                answer={streamAnswerDisplay}
+                awaitingFirstToken={!hasReceivedFirstToken}
+                thinkingInProgress={Boolean(streamThinkingTarget) && !streamAnswerTarget}
+              />
+            </div>
           ) : null}
-          
-          {error ? <p className="mt-3 text-sm text-red-400 text-center">{error}</p> : null}
+
+          {error ? (
+            <div className="mt-3 rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
+              {error}
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {/* Footer / Input area - Fixed bottom */}
-      <div className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-[var(--background)] via-[var(--background)] to-transparent pt-6 md:pt-14 pb-4 md:pb-6 pointer-events-none">
-        <div className="mx-auto w-full max-w-[700px] px-4 pointer-events-auto">
-          <div className="relative rounded-[1.8rem] border border-white/10 bg-[#2f2f2f] p-2 shadow-2xl flex flex-col">
-            <div className="flex max-h-[200px] w-full items-end pb-1 pr-1">
-              <button 
-                className="p-2 mb-1 ml-1 text-white/50 hover:text-white transition rounded-full hover:bg-white/10 shrink-0"
+      <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none">
+        <div className="h-24 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/90 to-transparent" />
+        <div className="mx-auto w-full max-w-[700px] px-4 pb-4 md:pb-6 -mt-10 pointer-events-auto">
+          <div className="relative rounded-2xl border border-white/6 bg-[var(--panel)] p-2 shadow-[var(--shadow)] transition-all duration-300 focus-within:border-[var(--accent)]/20 focus-within:shadow-[var(--shadow),0_0_0_3px_var(--accent-soft)]">
+            <div className="flex max-h-[200px] w-full items-end pb-0.5 pr-1">
+              <button
+                className="p-2 mb-0.5 ml-0.5 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0"
                 aria-label="Add attachment"
               >
-                 <Plus className="h-5 w-5" />
+                <Plus className="h-5 w-5" />
               </button>
-              
+
               <Textarea
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="Ask anything"
-                className="max-h-[200px] min-h-[44px] flex-1 resize-none border-0 box-border bg-transparent px-3 py-3 text-base text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin rounded-none placeholder:text-white/40"
+                className="max-h-[200px] min-h-[44px] flex-1 resize-none border-0 box-border bg-transparent px-3 py-3 text-base text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin rounded-none placeholder:text-white/25"
                 style={{ height: "auto" }}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) {
@@ -382,20 +387,26 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                   }
                 }}
               />
-              
-              <button 
-                onClick={() => void submit()} 
-                disabled={isSending || !input.trim()} 
-                className={`mb-1 mr-1 flex h-8 w-8 items-center justify-center rounded-full transition shrink-0 shadow-sm ${
-                  input.trim() && !isSending ? "bg-[var(--accent)] text-white hover:opacity-90" : "bg-white/10 text-white/40"
+
+              <button
+                onClick={() => void submit()}
+                disabled={isSending || !input.trim()}
+                className={`mb-0.5 mr-0.5 flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-300 shrink-0 ${
+                  input.trim() && !isSending
+                    ? "bg-[var(--accent)] text-white shadow-[0_0_12px_var(--accent-glow)] hover:shadow-[0_0_20px_var(--accent-glow)] active:scale-95"
+                    : "bg-white/6 text-white/25"
                 }`}
                 aria-label="Send message"
               >
-                {isSending ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
+                {isSending ? (
+                  <LoaderCircle className="h-4 w-4 animate-spin" />
+                ) : (
+                  <ArrowUp className="h-4 w-4" />
+                )}
               </button>
             </div>
-            
-            <div className="px-3 pb-1 text-center text-[11px] text-white/40">
+
+            <div className="px-3 pb-0.5 text-center text-[11px] text-white/20">
               Hermes can make mistakes. Check important info.
             </div>
           </div>

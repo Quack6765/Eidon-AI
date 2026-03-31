@@ -9,21 +9,25 @@
   --color-muted: var(--muted);
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
+  --animate-fade-in: fade-in 0.4s ease-out forwards;
+  --animate-slide-up: slide-up 0.5s ease-out forwards;
+  --animate-slide-in-left: slide-in-left 0.3s ease-out forwards;
 }
 
 :root {
-  --background: #212121;
-  --sidebar: #171717;
-  --panel: #2f2f2f;
-  --panel-strong: #020D2B; /* Deep Blue for primary interactions */
-  --line: rgba(255, 255, 255, 0.1);
-  --line-strong: rgba(255, 255, 255, 0.15);
-  --text: #ececec;
-  --muted: #b4b4b4;
-  --accent: #020D2B; /* Using the Deep Blue as the core accent */
-  --accent-soft: rgba(2, 13, 43, 0.5);
-  --thinking: #ab68ff;
-  --shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  --background: #0a0a0a;
+  --sidebar: #0f0f0f;
+  --panel: #18181b;
+  --panel-strong: #27272a;
+  --line: rgba(255, 255, 255, 0.06);
+  --line-strong: rgba(255, 255, 255, 0.10);
+  --text: #f4f4f5;
+  --muted: #71717a;
+  --accent: #8b5cf6;
+  --accent-soft: rgba(139, 92, 246, 0.10);
+  --accent-glow: rgba(139, 92, 246, 0.25);
+  --thinking: #818cf8;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 * {
@@ -41,7 +45,13 @@ body {
   color: var(--text);
   font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, sans-serif;
   background-color: var(--background);
-  /* Removed noise and gradient to match ChatGPT sleek, flat look */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(139, 92, 246, 0.35);
+  color: white;
 }
 
 a {
@@ -56,20 +66,14 @@ select {
   font: inherit;
 }
 
-.panel {
-  background: var(--panel);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-}
-
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.08) transparent;
 }
 
 .scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 4px;
+  height: 4px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-track {
@@ -77,10 +81,62 @@ select {
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 999px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.3);
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes float-orb {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33% { transform: translate(30px, -40px) scale(1.05); }
+  66% { transform: translate(-20px, 25px) scale(0.95); }
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+@keyframes typing-dot {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.3; }
+  30% { transform: translateY(-6px); opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.3s ease-out forwards;
+}
+
+.animate-slide-up {
+  animation: slide-up 0.4s ease-out forwards;
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 0.3s ease-out forwards;
 }

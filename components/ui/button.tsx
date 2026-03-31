@@ -12,15 +12,15 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       <button
         ref={ref}
         className={cn(
-          "inline-flex items-center justify-center rounded-full border px-4 py-2 text-sm font-semibold transition duration-200 disabled:cursor-not-allowed disabled:opacity-50",
+          "inline-flex items-center justify-center rounded-full px-4 py-2 text-sm font-medium transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 active:scale-[0.97]",
           variant === "primary" &&
-            "border-[color:var(--accent)] bg-[color:var(--accent)] text-white hover:opacity-90",
+            "bg-[var(--accent)] text-white hover:brightness-110 shadow-[0_0_16px_var(--accent-glow)]",
           variant === "secondary" &&
-            "border-[color:var(--line-strong)] bg-white/5 text-[color:var(--text)] hover:bg-white/10",
+            "border border-white/8 bg-white/5 text-[var(--text)] hover:bg-white/10",
           variant === "ghost" &&
-            "border-transparent bg-transparent text-[color:var(--muted)] hover:text-[color:var(--text)]",
+            "text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/5",
           variant === "danger" &&
-            "border-red-400/30 bg-red-500/10 text-red-100 hover:bg-red-500/20",
+            "border border-red-400/20 bg-red-500/8 text-red-200 hover:bg-red-500/15",
           className
         )}
         {...props}

@@ -16,14 +16,14 @@ export default async function SettingsPage() {
 
   return (
     <Shell conversations={conversations} folders={folders}>
-      <main className="space-y-5">
+      <main className="flex-1 p-4 md:p-8 max-w-5xl mx-auto w-full space-y-6 animate-slide-up">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.3em] text-[color:var(--accent)]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[var(--accent)]">
               Configuration
             </p>
             <h1
-              className="mt-2 text-5xl leading-none"
+              className="mt-2 text-4xl md:text-5xl leading-none text-[var(--text)]"
               style={{ fontFamily: "var(--font-display)" }}
             >
               Settings
