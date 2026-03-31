@@ -35,6 +35,7 @@ export type ProviderProfileWithApiKey = ProviderProfile & {
 
 export type AppSettings = {
   defaultProviderProfileId: string;
+  skillsEnabled: boolean;
   updatedAt: string;
 };
 
@@ -75,6 +76,7 @@ export type McpServer = {
 export type Skill = {
   id: string;
   name: string;
+  description: string;
   content: string;
   enabled: boolean;
   createdAt: string;

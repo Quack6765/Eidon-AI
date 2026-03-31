@@ -11,14 +11,15 @@ import {
 import { ensureCompactedContext } from "@/lib/compaction";
 import { badRequest } from "@/lib/http";
 import {
+  getSettings,
   getDefaultProviderProfileWithApiKey,
   getProviderProfileWithApiKey
 } from "@/lib/settings";
 import { encodeSseEvent } from "@/lib/sse";
 import { estimateTextTokens } from "@/lib/tokenization";
-import { streamProviderResponse } from "@/lib/provider";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
+import { resolveAssistantWithSkills } from "@/lib/skill-runtime";
 import type { ChatStreamEvent } from "@/lib/types";
 
 const bodySchema = z.object({
@@ -60,6 +61,7 @@ export async function POST(
     (conversation.providerProfileId
       ? getProviderProfileWithApiKey(conversation.providerProfileId)
       : null) ?? getDefaultProviderProfileWithApiKey();
+  const appSettings = getSettings();
 
   if (!settings?.apiKey) {
     return badRequest("Set an API key in settings before starting a chat");
@@ -109,23 +111,8 @@ export async function POST(
       try {
         const compacted = await ensureCompactedContext(conversation.id, settings);
 
-        // Append skills to the system prompt
-        const skills = listEnabledSkills();
         let promptMessages = compacted.promptMessages;
-
-        if (skills.length) {
-          const skillContent = skills
-            .map((skill) => `## Skill: ${skill.name}\n${skill.content}`)
-            .join("\n\n");
-
-          promptMessages = [
-            ...promptMessages,
-            {
-              role: "system" as const,
-              content: `Active skills:\n\n${skillContent}`
-            }
-          ];
-        }
+        const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
 
         // Append MCP tool descriptions
         const mcpServers = listEnabledMcpServers();
@@ -153,56 +140,21 @@ export async function POST(
           messageId: assistantMessage.id
         });
 
-        const providerStream = streamProviderResponse({
+        const providerResult = await resolveAssistantWithSkills({
           settings,
-          promptMessages
+          promptMessages,
+          skills,
+          onEvent: write
         });
 
-        let finalAnswer = "";
-        let finalThinking = "";
-        let finalUsage: {
-          inputTokens?: number;
-          outputTokens?: number;
-          reasoningTokens?: number;
-        } = {};
-
-        while (true) {
-          const next = await providerStream.next();
-
-          if (next.done) {
-            finalAnswer = next.value.answer;
-            finalThinking = next.value.thinking;
-            finalUsage = next.value.usage;
-            break;
-          }
-
-          if (next.value.type === "answer_delta") {
-            finalAnswer += next.value.text;
-          }
-
-          if (next.value.type === "thinking_delta") {
-            finalThinking += next.value.text;
-          }
-
-          if (next.value.type === "usage") {
-            finalUsage = {
-              inputTokens: next.value.inputTokens,
-              outputTokens: next.value.outputTokens,
-              reasoningTokens: next.value.reasoningTokens
-            };
-          }
-
-          write(next.value);
-        }
-
         updateAssistantMessage(assistantMessage.id, {
-          content: finalAnswer,
-          thinkingContent: finalThinking,
+          content: providerResult.answer,
+          thinkingContent: providerResult.thinking,
           status: "completed",
           estimatedTokens:
-            (finalUsage.inputTokens ?? 0) +
-            (finalUsage.outputTokens ?? 0) +
-            (finalUsage.reasoningTokens ?? 0)
+            (providerResult.usage.inputTokens ?? 0) +
+            (providerResult.usage.outputTokens ?? 0) +
+            (providerResult.usage.reasoningTokens ?? 0)
         });
 
         write({

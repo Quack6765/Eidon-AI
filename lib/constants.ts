@@ -2,6 +2,7 @@ export const APP_NAME = "Hermes";
 export const SESSION_COOKIE_NAME = "hermes_session";
 export const SETTINGS_ROW_ID = 1;
 export const DEFAULT_PROVIDER_PROFILE_NAME = "Default profile";
+export const DEFAULT_SKILLS_ENABLED = true;
 export const SAFETY_MARGIN_TOKENS = 1200;
 export const LEAF_TARGET_TOKENS = 1200;
 export const LEAF_SOURCE_TOKEN_LIMIT = 12000;

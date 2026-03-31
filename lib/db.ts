@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import {
   DEFAULT_PROVIDER_PROFILE_NAME,
   DEFAULT_PROVIDER_SETTINGS,
+  DEFAULT_SKILLS_ENABLED,
   SETTINGS_ROW_ID
 } from "@/lib/constants";
 import { env } from "@/lib/env";
@@ -14,6 +15,8 @@ import { createId } from "@/lib/ids";
 const BUILTIN_AGENT_BROWSER_SKILL = {
   id: "builtin-agent-browser",
   name: "Agent Browser",
+  description:
+    "Use for web browsing, page inspection, form interaction, screenshots, and browser-based testing tasks.",
   content: `# Agent Browser
 
 A fast headless browser automation CLI for AI agents. Use it for any web browsing task.
@@ -55,6 +58,23 @@ Always use \`snapshot\` after \`open\` or any interaction to understand the page
 
 let database: Database.Database | null = null;
 
+function deriveSkillDescription(content: string) {
+  const lines = content
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines) {
+    if (line.startsWith("#")) {
+      continue;
+    }
+
+    return line.slice(0, 240);
+  }
+
+  return "Reusable skill instructions.";
+}
+
 function getDatabasePath() {
   const dir = path.resolve(env.HERMES_DATA_DIR);
   fs.mkdirSync(dir, { recursive: true });
@@ -86,6 +106,7 @@ function migrate(db: Database.Database) {
       model TEXT NOT NULL,
       api_mode TEXT NOT NULL,
       system_prompt TEXT NOT NULL,
+      skills_enabled INTEGER NOT NULL DEFAULT 1,
       temperature REAL NOT NULL,
       max_output_tokens INTEGER NOT NULL,
       reasoning_effort TEXT NOT NULL,
@@ -183,6 +204,7 @@ function migrate(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS skills (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
       content TEXT NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
@@ -190,7 +212,6 @@ function migrate(db: Database.Database) {
     );
   `);
 
-  // Migration: add folder_id and sort_order columns to existing conversations table
   const convCols = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
   const convColNames = convCols.map((c) => c.name);
   if (!convColNames.includes("folder_id")) {
@@ -210,8 +231,10 @@ function migrate(db: Database.Database) {
   if (!settingsColNames.includes("default_provider_profile_id")) {
     db.exec("ALTER TABLE app_settings ADD COLUMN default_provider_profile_id TEXT");
   }
+  if (!settingsColNames.includes("skills_enabled")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN skills_enabled INTEGER NOT NULL DEFAULT 1");
+  }
 
-  // Migration: add transport, command, args, env columns to mcp_servers
   const mcpCols = db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;
   const mcpColNames = mcpCols.map((c) => c.name);
   if (!mcpColNames.includes("transport")) {
@@ -227,6 +250,12 @@ function migrate(db: Database.Database) {
     db.exec("ALTER TABLE mcp_servers ADD COLUMN env TEXT");
   }
 
+  const skillCols = db.prepare("PRAGMA table_info(skills)").all() as Array<{ name: string }>;
+  const skillColNames = skillCols.map((c) => c.name);
+  if (!skillColNames.includes("description")) {
+    db.exec("ALTER TABLE skills ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+  }
+
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_conversations_folder ON conversations(folder_id, sort_order);
@@ -237,46 +266,62 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_folders_sort_order ON folders(sort_order);
   `);
 
+  const existingSkills = db
+    .prepare("SELECT id, content, description FROM skills")
+    .all() as Array<{ id: string; content: string; description: string }>;
+  const updateSkillDescription = db.prepare("UPDATE skills SET description = ? WHERE id = ?");
+
+  for (const skill of existingSkills) {
+    if (skill.description.trim()) {
+      continue;
+    }
+
+    updateSkillDescription.run(deriveSkillDescription(skill.content), skill.id);
+  }
+
   db.prepare(
-      `INSERT OR IGNORE INTO app_settings (
-        id,
-        default_provider_profile_id,
-        api_base_url,
-        api_key_encrypted,
-        model,
-        api_mode,
-        system_prompt,
-        temperature,
-        max_output_tokens,
-        reasoning_effort,
-        reasoning_summary_enabled,
-        model_context_limit,
-        compaction_threshold,
-        fresh_tail_count,
-        updated_at
-      ) VALUES (
-        @id,
-        '',
-        @apiBaseUrl,
-        '',
-        @model,
-        @apiMode,
-        @systemPrompt,
-        @temperature,
-        @maxOutputTokens,
-        @reasoningEffort,
-        @reasoningSummaryEnabled,
-        @modelContextLimit,
-        @compactionThreshold,
-        @freshTailCount,
-        @updatedAt
-      )`
-    ).run({
-      id: SETTINGS_ROW_ID,
-      ...DEFAULT_PROVIDER_SETTINGS,
-      reasoningSummaryEnabled: DEFAULT_PROVIDER_SETTINGS.reasoningSummaryEnabled ? 1 : 0,
-      updatedAt: new Date().toISOString()
-    });
+    `INSERT OR IGNORE INTO app_settings (
+      id,
+      default_provider_profile_id,
+      api_base_url,
+      api_key_encrypted,
+      model,
+      api_mode,
+      system_prompt,
+      skills_enabled,
+      temperature,
+      max_output_tokens,
+      reasoning_effort,
+      reasoning_summary_enabled,
+      model_context_limit,
+      compaction_threshold,
+      fresh_tail_count,
+      updated_at
+    ) VALUES (
+      @id,
+      '',
+      @apiBaseUrl,
+      '',
+      @model,
+      @apiMode,
+      @systemPrompt,
+      @skillsEnabled,
+      @temperature,
+      @maxOutputTokens,
+      @reasoningEffort,
+      @reasoningSummaryEnabled,
+      @modelContextLimit,
+      @compactionThreshold,
+      @freshTailCount,
+      @updatedAt
+    )`
+  ).run({
+    id: SETTINGS_ROW_ID,
+    ...DEFAULT_PROVIDER_SETTINGS,
+    skillsEnabled: DEFAULT_SKILLS_ENABLED ? 1 : 0,
+    reasoningSummaryEnabled: DEFAULT_PROVIDER_SETTINGS.reasoningSummaryEnabled ? 1 : 0,
+    updatedAt: new Date().toISOString()
+  });
 
   const appSettingsRow = db
     .prepare(
@@ -287,6 +332,7 @@ function migrate(db: Database.Database) {
         model,
         api_mode,
         system_prompt,
+        skills_enabled,
         temperature,
         max_output_tokens,
         reasoning_effort,
@@ -305,6 +351,7 @@ function migrate(db: Database.Database) {
     model: string;
     api_mode: string;
     system_prompt: string;
+    skills_enabled: number;
     temperature: number;
     max_output_tokens: number;
     reasoning_effort: string;
@@ -410,15 +457,14 @@ function migrate(db: Database.Database) {
      WHERE provider_profile_id IS NULL`
   ).run(resolvedDefaultProfileId);
 
-  // Seed built-in skills if they don't exist
   const builtinSkills = [BUILTIN_AGENT_BROWSER_SKILL];
   const insertSkill = db.prepare(
-    `INSERT OR IGNORE INTO skills (id, name, content, enabled, created_at, updated_at)
-     VALUES (?, ?, ?, 1, ?, ?)`
+    `INSERT OR IGNORE INTO skills (id, name, description, content, enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 1, ?, ?)`
   );
   const now = new Date().toISOString();
   for (const skill of builtinSkills) {
-    insertSkill.run(skill.id, skill.name, skill.content, now, now);
+    insertSkill.run(skill.id, skill.name, skill.description, skill.content, now, now);
   }
 }
 

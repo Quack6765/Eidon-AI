@@ -20,6 +20,7 @@ import type {
 
 type SettingsPayload = {
   defaultProviderProfileId: string;
+  skillsEnabled: boolean;
   providerProfiles: Array<{
     id: string;
     name: string;
@@ -61,6 +62,7 @@ export function SettingsForm({
   const [defaultProviderProfileId, setDefaultProviderProfileId] = useState(
     settings.defaultProviderProfileId
   );
+  const [skillsEnabled, setSkillsEnabled] = useState(settings.skillsEnabled);
   const [selectedProviderProfileId, setSelectedProviderProfileId] = useState(
     settings.defaultProviderProfileId
   );
@@ -80,7 +82,6 @@ export function SettingsForm({
     ? supportsVisibleReasoning(activeProviderProfile.model, activeProviderProfile.apiMode)
     : false;
 
-  // MCP Servers state
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [showMcpForm, setShowMcpForm] = useState(false);
   const [mcpTransport, setMcpTransport] = useState<McpTransport>("streamable_http");
@@ -92,27 +93,29 @@ export function SettingsForm({
   const [mcpEnv, setMcpEnv] = useState("");
   const [editingMcpId, setEditingMcpId] = useState<string | null>(null);
 
-  // Skills state
   const [skills, setSkills] = useState<Skill[]>([]);
   const [showSkillForm, setShowSkillForm] = useState(false);
   const [skillName, setSkillName] = useState("");
+  const [skillDescription, setSkillDescription] = useState("");
   const [skillContent, setSkillContent] = useState("");
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/mcp-servers")
       .then((r) => r.json())
-      .then((d) => { if (d.servers) setMcpServers(d.servers); })
+      .then((d) => {
+        if (d.servers) setMcpServers(d.servers);
+      })
       .catch(() => {});
     fetch("/api/skills")
       .then((r) => r.json())
-      .then((d) => { if (d.skills) setSkills(d.skills); })
+      .then((d) => {
+        if (d.skills) setSkills(d.skills);
+      })
       .catch(() => {});
   }, []);
 
-  function updateActiveProviderProfile(
-    patch: Partial<ProviderProfileDraft>
-  ) {
+  function updateActiveProviderProfile(patch: Partial<ProviderProfileDraft>) {
     if (!activeProviderProfile) {
       return;
     }
@@ -187,6 +190,7 @@ export function SettingsForm({
 
     const payload = {
       defaultProviderProfileId,
+      skillsEnabled,
       providerProfiles: providerProfiles.map((profile) => ({
         id: profile.id,
         name: profile.name,
@@ -258,7 +262,6 @@ export function SettingsForm({
     window.location.href = "/login";
   }
 
-  // MCP Server handlers
   async function saveMcpServer() {
     if (!mcpName.trim()) return;
     if (mcpTransport === "streamable_http" && !mcpUrl.trim()) return;
@@ -266,7 +269,11 @@ export function SettingsForm({
 
     let headersObj: Record<string, string> = {};
     if (mcpTransport === "streamable_http" && mcpHeaders.trim()) {
-      try { headersObj = JSON.parse(mcpHeaders); } catch { headersObj = {}; }
+      try {
+        headersObj = JSON.parse(mcpHeaders);
+      } catch {
+        headersObj = {};
+      }
     }
 
     let argsArr: string[] | undefined;
@@ -281,7 +288,11 @@ export function SettingsForm({
 
     let envObj: Record<string, string> | undefined;
     if (mcpTransport === "stdio" && mcpEnv.trim()) {
-      try { envObj = JSON.parse(mcpEnv); } catch { envObj = undefined; }
+      try {
+        envObj = JSON.parse(mcpEnv);
+      } catch {
+        envObj = undefined;
+      }
     }
 
     const payload: Record<string, unknown> = {
@@ -313,7 +324,7 @@ export function SettingsForm({
     }
 
     const res = await fetch("/api/mcp-servers");
-    const data = await res.json() as { servers: McpServer[] };
+    const data = (await res.json()) as { servers: McpServer[] };
     setMcpServers(data.servers);
     resetMcpForm();
   }
@@ -329,7 +340,7 @@ export function SettingsForm({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled })
     });
-    setMcpServers((prev) => prev.map((s) => s.id === id ? { ...s, enabled } : s));
+    setMcpServers((prev) => prev.map((s) => (s.id === id ? { ...s, enabled } : s)));
   }
 
   function editMcpServer(server: McpServer) {
@@ -356,26 +367,33 @@ export function SettingsForm({
     setEditingMcpId(null);
   }
 
-  // Skill handlers
   async function saveSkill() {
-    if (!skillName.trim() || !skillContent.trim()) return;
+    if (!skillName.trim() || !skillDescription.trim() || !skillContent.trim()) return;
 
     if (editingSkillId) {
       await fetch(`/api/skills/${editingSkillId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: skillName, content: skillContent })
+        body: JSON.stringify({
+          name: skillName,
+          description: skillDescription,
+          content: skillContent
+        })
       });
     } else {
       await fetch("/api/skills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: skillName, content: skillContent })
+        body: JSON.stringify({
+          name: skillName,
+          description: skillDescription,
+          content: skillContent
+        })
       });
     }
 
     const res = await fetch("/api/skills");
-    const data = await res.json() as { skills: Skill[] };
+    const data = (await res.json()) as { skills: Skill[] };
     setSkills(data.skills);
     resetSkillForm();
   }
@@ -391,12 +409,13 @@ export function SettingsForm({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ enabled })
     });
-    setSkills((prev) => prev.map((s) => s.id === id ? { ...s, enabled } : s));
+    setSkills((prev) => prev.map((s) => (s.id === id ? { ...s, enabled } : s)));
   }
 
   function editSkill(skill: Skill) {
     setEditingSkillId(skill.id);
     setSkillName(skill.name);
+    setSkillDescription(skill.description);
     setSkillContent(skill.content);
     setShowSkillForm(true);
   }
@@ -404,15 +423,18 @@ export function SettingsForm({
   function resetSkillForm() {
     setShowSkillForm(false);
     setSkillName("");
+    setSkillDescription("");
     setSkillContent("");
     setEditingSkillId(null);
   }
 
   return (
     <div className="grid gap-5 lg:grid-cols-[1.3fr,0.7fr]">
-      {/* Left column: Provider settings + MCP + Skills */}
       <div className="space-y-5">
-        <form onSubmit={(event) => void handleSettings(event)} className="panel grain rounded-[2rem] border p-6">
+        <form
+          onSubmit={(event) => void handleSettings(event)}
+          className="panel grain rounded-[2rem] border p-6"
+        >
           <div className="flex items-center gap-3">
             <Sparkles className="h-5 w-5 text-[color:var(--accent)]" />
             <div>
@@ -586,6 +608,18 @@ export function SettingsForm({
                   />
                 </div>
 
+                <div className="md:col-span-2">
+                  <Label>Workspace skills</Label>
+                  <label className="flex h-[50px] items-center gap-3 rounded-2xl border border-white/10 bg-black/20 px-4 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={skillsEnabled}
+                      onChange={(event) => setSkillsEnabled(event.target.checked)}
+                    />
+                    Make enabled skills available to every chat in this workspace
+                  </label>
+                </div>
+
                 <div>
                   <Label>Temperature</Label>
                   <Input
@@ -706,7 +740,6 @@ export function SettingsForm({
           {error ? <p className="mt-3 text-sm text-red-300">{error}</p> : null}
         </form>
 
-        {/* MCP Servers Section */}
         <div className="panel grain rounded-[2rem] border p-6">
           <div className="flex items-center gap-3">
             <Server className="h-5 w-5 text-sky-300" />
@@ -728,7 +761,10 @@ export function SettingsForm({
 
           <div className="mt-4 space-y-3">
             {mcpServers.map((server) => (
-              <div key={server.id} className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 px-4 py-3">
+              <div
+                key={server.id}
+                className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 px-4 py-3"
+              >
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-[var(--text)]">{server.name}</span>
@@ -748,7 +784,7 @@ export function SettingsForm({
                     </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 ml-2">
+                <div className="ml-2 flex items-center gap-2">
                   <label className="flex items-center gap-1.5 text-xs text-white/50">
                     <input
                       type="checkbox"
@@ -758,10 +794,16 @@ export function SettingsForm({
                     />
                     On
                   </label>
-                  <button onClick={() => editMcpServer(server)} className="p-1 text-white/40 hover:text-white transition">
+                  <button
+                    onClick={() => editMcpServer(server)}
+                    className="p-1 text-white/40 transition hover:text-white"
+                  >
                     <Pencil className="h-3.5 w-3.5" />
                   </button>
-                  <button onClick={() => deleteMcpServer(server.id)} className="p-1 text-red-400/60 hover:text-red-400 transition">
+                  <button
+                    onClick={() => deleteMcpServer(server.id)}
+                    className="p-1 text-red-400/60 transition hover:text-red-400"
+                  >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </div>
@@ -772,7 +814,11 @@ export function SettingsForm({
               <div className="space-y-3 rounded-xl border border-white/10 bg-black/20 p-4">
                 <div>
                   <Label>Name</Label>
-                  <Input value={mcpName} onChange={(e) => setMcpName(e.target.value)} placeholder="My MCP Server" />
+                  <Input
+                    value={mcpName}
+                    onChange={(e) => setMcpName(e.target.value)}
+                    placeholder="My MCP Server"
+                  />
                 </div>
                 <div>
                   <Label>Transport</Label>
@@ -789,7 +835,11 @@ export function SettingsForm({
                   <>
                     <div>
                       <Label>URL</Label>
-                      <Input value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)} placeholder="https://..." />
+                      <Input
+                        value={mcpUrl}
+                        onChange={(e) => setMcpUrl(e.target.value)}
+                        placeholder="https://..."
+                      />
                     </div>
                     <div>
                       <Label>Headers (JSON)</Label>
@@ -805,7 +855,11 @@ export function SettingsForm({
                   <>
                     <div>
                       <Label>Command</Label>
-                      <Input value={mcpCommand} onChange={(e) => setMcpCommand(e.target.value)} placeholder="uvx or npx" />
+                      <Input
+                        value={mcpCommand}
+                        onChange={(e) => setMcpCommand(e.target.value)}
+                        placeholder="uvx or npx"
+                      />
                       <p className="mt-1 text-xs text-white/30">
                         Use &quot;uvx&quot; for Python-based servers or &quot;npx&quot; for Node.js-based servers.
                       </p>
@@ -815,7 +869,11 @@ export function SettingsForm({
                       <Input
                         value={mcpArgs}
                         onChange={(e) => setMcpArgs(e.target.value)}
-                        placeholder={mcpCommand === "npx" ? "-y @modelcontextprotocol/server-fetch" : "mcp-server-fetch"}
+                        placeholder={
+                          mcpCommand === "npx"
+                            ? "-y @modelcontextprotocol/server-fetch"
+                            : "mcp-server-fetch"
+                        }
                       />
                     </div>
                     <div>
@@ -839,7 +897,12 @@ export function SettingsForm({
                 </div>
               </div>
             ) : (
-              <Button type="button" variant="secondary" onClick={() => setShowMcpForm(true)} className="gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowMcpForm(true)}
+                className="gap-2"
+              >
                 <Plus className="h-4 w-4" />
                 Add MCP server
               </Button>
@@ -847,7 +910,6 @@ export function SettingsForm({
           </div>
         </div>
 
-        {/* Skills Section */}
         <div className="panel grain rounded-[2rem] border p-6">
           <div className="flex items-center gap-3">
             <Zap className="h-5 w-5 text-amber-300" />
@@ -864,47 +926,57 @@ export function SettingsForm({
             </div>
           </div>
           <p className="mt-3 text-sm text-[color:var(--muted)]">
-            Define reusable skills that are injected into the system prompt for all chats when enabled.
+            Skills expose `name` and `description` first, then load the full instructions only when
+            the agent explicitly requests them.
           </p>
 
           <div className="mt-4 space-y-3">
             {skills.map((skill) => {
               const isBuiltin = skill.id.startsWith("builtin-");
               return (
-              <div key={skill.id} className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 px-4 py-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-[var(--text)]">{skill.name}</span>
-                    {isBuiltin && (
-                      <span className="inline-flex items-center rounded-md bg-amber-900/40 px-1.5 py-0.5 text-[0.65rem] font-medium text-amber-300">
-                        Built-in
-                      </span>
-                    )}
-                    <span className="text-xs text-white/30 truncate max-w-[200px]">{skill.content.slice(0, 60)}...</span>
+                <div
+                  key={skill.id}
+                  className="flex items-center justify-between rounded-xl border border-white/5 bg-black/20 px-4 py-3"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-[var(--text)]">{skill.name}</span>
+                      {isBuiltin ? (
+                        <span className="inline-flex items-center rounded-md bg-amber-900/40 px-1.5 py-0.5 text-[0.65rem] font-medium text-amber-300">
+                          Built-in
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="mt-1 truncate text-xs text-white/40">{skill.description}</p>
+                  </div>
+                  <div className="ml-2 flex items-center gap-2">
+                    <label className="flex items-center gap-1.5 text-xs text-white/50">
+                      <input
+                        type="checkbox"
+                        checked={skill.enabled}
+                        onChange={(e) => toggleSkill(skill.id, e.target.checked)}
+                        className="rounded"
+                      />
+                      On
+                    </label>
+                    {!isBuiltin ? (
+                      <button
+                        onClick={() => editSkill(skill)}
+                        className="p-1 text-white/40 transition hover:text-white"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
+                    {!isBuiltin ? (
+                      <button
+                        onClick={() => deleteSkill(skill.id)}
+                        className="p-1 text-red-400/60 transition hover:text-red-400"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    ) : null}
                   </div>
                 </div>
-                <div className="flex items-center gap-2 ml-2">
-                  <label className="flex items-center gap-1.5 text-xs text-white/50">
-                    <input
-                      type="checkbox"
-                      checked={skill.enabled}
-                      onChange={(e) => toggleSkill(skill.id, e.target.checked)}
-                      className="rounded"
-                    />
-                    On
-                  </label>
-                  {!isBuiltin && (
-                    <button onClick={() => editSkill(skill)} className="p-1 text-white/40 hover:text-white transition">
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                  {!isBuiltin && (
-                    <button onClick={() => deleteSkill(skill.id)} className="p-1 text-red-400/60 hover:text-red-400 transition">
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
               );
             })}
 
@@ -912,15 +984,27 @@ export function SettingsForm({
               <div className="space-y-3 rounded-xl border border-white/10 bg-black/20 p-4">
                 <div>
                   <Label>Name</Label>
-                  <Input value={skillName} onChange={(e) => setSkillName(e.target.value)} placeholder="Skill name" />
+                  <Input
+                    value={skillName}
+                    onChange={(e) => setSkillName(e.target.value)}
+                    placeholder="Skill name"
+                  />
                 </div>
                 <div>
-                  <Label>Instructions / Prompt</Label>
+                  <Label>Description</Label>
+                  <Input
+                    value={skillDescription}
+                    onChange={(e) => setSkillDescription(e.target.value)}
+                    placeholder="Explain when this skill should and should not trigger"
+                  />
+                </div>
+                <div>
+                  <Label>SKILL.md instructions</Label>
                   <Textarea
                     value={skillContent}
                     onChange={(e) => setSkillContent(e.target.value)}
-                    placeholder="Enter the skill instructions..."
-                    rows={4}
+                    placeholder="Enter the full skill instructions..."
+                    rows={6}
                   />
                 </div>
                 <div className="flex gap-2">
@@ -933,7 +1017,12 @@ export function SettingsForm({
                 </div>
               </div>
             ) : (
-              <Button type="button" variant="secondary" onClick={() => setShowSkillForm(true)} className="gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setShowSkillForm(true)}
+                className="gap-2"
+              >
                 <Plus className="h-4 w-4" />
                 Add skill
               </Button>
@@ -942,9 +1031,11 @@ export function SettingsForm({
         </div>
       </div>
 
-      {/* Right column: Account + Session */}
       <div className="space-y-5">
-        <form onSubmit={(event) => void handleAccount(event)} className="panel grain rounded-[2rem] border p-6">
+        <form
+          onSubmit={(event) => void handleAccount(event)}
+          className="panel grain rounded-[2rem] border p-6"
+        >
           <div className="flex items-center gap-3">
             <Shield className="h-5 w-5 text-sky-200" />
             <div>
@@ -967,7 +1058,11 @@ export function SettingsForm({
             </div>
             <div>
               <Label>New password</Label>
-              <Input name="password" type="password" placeholder="Leave blank to keep current password" />
+              <Input
+                name="password"
+                type="password"
+                placeholder="Leave blank to keep current password"
+              />
             </div>
           </div>
 
@@ -980,57 +1075,31 @@ export function SettingsForm({
         </form>
 
         <div className="panel grain rounded-[2rem] border p-6">
-          <p className="text-[0.68rem] font-semibold uppercase tracking-[0.3em] text-[color:var(--accent)]">
-            Session
+          <div className="flex items-center gap-3">
+            <LogOut className="h-5 w-5 text-rose-200" />
+            <div>
+              <p className="text-[0.68rem] font-semibold uppercase tracking-[0.3em] text-rose-200">
+                Session
+              </p>
+              <h2
+                className="mt-2 text-3xl leading-none"
+                style={{ fontFamily: "var(--font-display)" }}
+              >
+                Sign out
+              </h2>
+            </div>
+          </div>
+
+          <p className="mt-4 text-sm leading-6 text-[color:var(--muted)]">
+            End the current local session and return to the login screen.
           </p>
-          <h2
-            className="mt-2 text-3xl leading-none"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            {user.username}
-          </h2>
-          <p className="mt-3 text-sm leading-6 text-[color:var(--muted)]">
-            The app runs as a single private workspace with secure cookie sessions and encrypted provider credentials.
-          </p>
-          <Button variant="danger" className="mt-6 gap-2" onClick={logout} disabled={isPending}>
-            <LogOut className="h-4 w-4" />
-            Sign out
-          </Button>
+
+          <div className="mt-6">
+            <Button type="button" variant="secondary" onClick={logout} disabled={isPending}>
+              Sign out
+            </Button>
+          </div>
         </div>
-
-        {/* Active Skills Summary */}
-        {skills.filter((s) => s.enabled).length > 0 && (
-          <div className="panel grain rounded-[2rem] border p-6">
-            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.3em] text-amber-300">
-              Active skills
-            </p>
-            <div className="mt-3 space-y-2">
-              {skills.filter((s) => s.enabled).map((skill) => (
-                <div key={skill.id} className="flex items-center gap-2 text-sm text-[var(--text)]">
-                  <Zap className="h-3 w-3 text-amber-400" />
-                  {skill.name}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Active MCP Summary */}
-        {mcpServers.filter((s) => s.enabled).length > 0 && (
-          <div className="panel grain rounded-[2rem] border p-6">
-            <p className="text-[0.68rem] font-semibold uppercase tracking-[0.3em] text-sky-300">
-              Active MCP servers
-            </p>
-            <div className="mt-3 space-y-2">
-              {mcpServers.filter((s) => s.enabled).map((server) => (
-                <div key={server.id} className="flex items-center gap-2 text-sm text-[var(--text)]">
-                  <Server className="h-3 w-3 text-sky-400" />
-                  {server.name}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

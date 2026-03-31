@@ -11,6 +11,7 @@ export async function GET() {
 
 const createSchema = z.object({
   name: z.string().min(1).max(100),
+  description: z.string().min(1).max(240),
   content: z.string().min(1)
 });
 
