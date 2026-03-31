@@ -4,7 +4,6 @@ import { requireUser } from "@/lib/auth";
 import {
   createMessage,
   getConversation,
-  listMessages,
   maybeRetitleConversationFromFirstUserMessage,
   updateAssistantMessage
 } from "@/lib/conversations";
@@ -65,21 +64,6 @@ export async function POST(
 
   if (!settings?.apiKey) {
     return badRequest("Set an API key in settings before starting a chat");
-  }
-
-  // Feature 7: Insert system prompt as first message in new conversations only
-  const existingMessages = listMessages(conversation.id);
-  const hasSystemMessage = existingMessages.some(
-    (m) => m.role === "system" && !m.systemKind
-  );
-
-  if (!hasSystemMessage && settings.systemPrompt) {
-    createMessage({
-      conversationId: conversation.id,
-      role: "system",
-      content: settings.systemPrompt,
-      status: "completed"
-    });
   }
 
   const userMessage = createMessage({

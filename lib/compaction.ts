@@ -12,6 +12,7 @@ import {
   bumpConversation,
   createMessage,
   getConversation,
+  isVisibleMessage,
   listMessages,
   markMessagesCompacted
 } from "@/lib/conversations";
@@ -397,11 +398,15 @@ export function buildPromptMessages(input: {
   }
 
   input.messages.forEach((message) => {
-    if (message.role === "system") {
+    if (message.role === "system" && isVisibleMessage(message)) {
       promptMessages.push({
         role: "system",
         content: message.content
       });
+      return;
+    }
+
+    if (message.role === "system") {
       return;
     }
 

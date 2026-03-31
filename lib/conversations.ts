@@ -70,6 +70,12 @@ function rowToMessage(row: {
   };
 }
 
+export function isVisibleMessage(
+  message: Pick<Message, "role" | "systemKind">
+) {
+  return message.role !== "system" || message.systemKind !== null;
+}
+
 function encodeConversationCursor(cursor: ConversationCursor) {
   return Buffer.from(JSON.stringify(cursor)).toString("base64url");
 }
@@ -360,6 +366,10 @@ export function listMessages(conversationId: string) {
   return rows.map(rowToMessage);
 }
 
+export function listVisibleMessages(conversationId: string) {
+  return listMessages(conversationId).filter(isVisibleMessage);
+}
+
 export function getMessage(messageId: string) {
   const row = getDb()
     .prepare(
@@ -488,7 +498,11 @@ export function searchConversations(query: string) {
       `SELECT DISTINCT c.id, c.title, c.folder_id, c.provider_profile_id, c.sort_order, c.created_at, c.updated_at
        FROM conversations c
        LEFT JOIN messages m ON c.id = m.conversation_id
-       WHERE c.title LIKE ? OR m.content LIKE ?
+       WHERE c.title LIKE ?
+          OR (
+            m.content LIKE ?
+            AND (m.role != 'system' OR m.system_kind IS NOT NULL)
+          )
        ORDER BY c.updated_at DESC`
     )
     .all(likeQuery, likeQuery) as Array<{

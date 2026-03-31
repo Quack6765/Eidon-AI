@@ -3,7 +3,9 @@ import {
   createMessage,
   getConversation,
   getMessage,
+  isVisibleMessage,
   listMessages,
+  listVisibleMessages,
   markMessagesCompacted,
   maybeRetitleConversationFromFirstUserMessage,
   updateConversationProviderProfile
@@ -46,6 +48,39 @@ describe("conversation helpers", () => {
     const messages = listMessages(conversation.id);
 
     expect(messages.map((message) => message.content)).toEqual(["First", "Second"]);
+  });
+
+  it("hides background system prompts from visible message lists", () => {
+    const conversation = createConversation();
+
+    createMessage({
+      conversationId: conversation.id,
+      role: "system",
+      content: "Hidden prompt"
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "system",
+      content: "Compacted older messages into memory.",
+      systemKind: "compaction_notice"
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Visible user message"
+    });
+
+    expect(listMessages(conversation.id)).toHaveLength(3);
+    expect(listVisibleMessages(conversation.id).map((message) => message.content)).toEqual([
+      "Compacted older messages into memory.",
+      "Visible user message"
+    ]);
+    expect(
+      isVisibleMessage({
+        role: "system",
+        systemKind: null
+      })
+    ).toBe(false);
   });
 
   it("retrieves and compacts messages, and handles missing rows safely", () => {

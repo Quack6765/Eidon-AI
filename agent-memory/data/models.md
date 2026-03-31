@@ -37,7 +37,7 @@
 ### `messages`
 | Field | Type | Description |
 |-------|------|-------------|
-| `content` | `TEXT` | Final visible user/assistant text or system notice |
+| `content` | `TEXT` | Final visible user/assistant text or system notice; provider system prompts stay in `provider_profiles.system_prompt` and are not shown in chat |
 | `thinking_content` | `TEXT` | Visible reasoning stored separately from final answer |
 | `compacted_at` | `TEXT \| NULL` | Marks raw turns already folded into memory nodes |
 

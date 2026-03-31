@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth";
 import {
   deleteConversation,
   getConversation,
-  listMessages,
+  listVisibleMessages,
   moveConversationToFolder,
   updateConversationProviderProfile
 } from "@/lib/conversations";
@@ -35,7 +35,7 @@ export async function GET(
 
   return ok({
     conversation,
-    messages: listMessages(conversation.id),
+    messages: listVisibleMessages(conversation.id),
     debug: getConversationDebugStats(conversation.id)
   });
 }

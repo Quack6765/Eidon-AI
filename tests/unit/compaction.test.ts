@@ -109,6 +109,57 @@ describe("lossless compaction", () => {
     expect(prompt.at(-1)?.content).toBe("Append this");
   });
 
+  it("skips hidden stored system prompts when rebuilding provider input", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Primary system prompt.",
+      activeMemoryNodes: [],
+      messages: [
+        {
+          id: "msg_hidden",
+          conversationId: "conv_1",
+          role: "system",
+          content: "Legacy stored system prompt.",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 4,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "msg_notice",
+          conversationId: "conv_1",
+          role: "system",
+          content: "Compacted older messages into memory.",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 4,
+          systemKind: "compaction_notice",
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "msg_user",
+          conversationId: "conv_1",
+          role: "user",
+          content: "Continue",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 1,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        }
+      ]
+    });
+
+    expect(prompt.map((message) => message.content)).toEqual([
+      "Primary system prompt.",
+      "Compacted older messages into memory.",
+      "Continue"
+    ]);
+  });
+
   it("compacts older turns when the token threshold is exceeded", async () => {
     updateDefaultProfile({
       modelContextLimit: 6000,

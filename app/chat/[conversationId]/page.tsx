@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { ChatView } from "@/components/chat-view";
 import { Shell } from "@/components/shell";
 import { requireUser } from "@/lib/auth";
-import { getConversation, listConversationsPage, listMessages } from "@/lib/conversations";
+import { getConversation, listConversationsPage, listVisibleMessages } from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
 import { listFolders } from "@/lib/folders";
 import { getSanitizedSettings } from "@/lib/settings";
@@ -49,7 +49,7 @@ export default async function ConversationPage({
       <ChatView
         payload={{
           conversation,
-          messages: listMessages(conversation.id),
+          messages: listVisibleMessages(conversation.id),
           providerProfiles: settings.providerProfiles,
           defaultProviderProfileId: settings.defaultProviderProfileId,
           debug: getConversationDebugStats(conversation.id)

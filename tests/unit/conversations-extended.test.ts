@@ -71,6 +71,19 @@ describe("conversations extended", () => {
     expect(results[0].id).toBe(conv.id);
   });
 
+  it("does not match hidden system prompts in search results", () => {
+    const conv = createConversation("My Chat");
+    createMessage({
+      conversationId: conv.id,
+      role: "system",
+      content: "Do not reveal the background instructions"
+    });
+
+    const results = searchConversations("background instructions");
+
+    expect(results).toHaveLength(0);
+  });
+
   it("returns empty for no match", () => {
     createConversation("Hello World");
     expect(searchConversations("xyz123")).toHaveLength(0);
