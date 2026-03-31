@@ -143,7 +143,8 @@ test.describe("Feature: Skills in settings", () => {
     // Add skill
     await page.getByRole("button", { name: "Add skill" }).click();
     await page.getByPlaceholder("Skill name").fill("Test Skill");
-    await page.getByPlaceholder("Enter the skill instructions...").fill("Always respond in French.");
+    await page.getByPlaceholder("Explain when this skill should and should not trigger").fill("Use when the user asks for French output.");
+    await page.getByPlaceholder("Enter the full skill instructions...").fill("Always respond in French.");
     await page.getByRole("button", { name: "Add skill" }).click();
 
     await expect(page.getByText("Test Skill")).toBeVisible({ timeout: 5000 });

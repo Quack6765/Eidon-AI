@@ -17,13 +17,14 @@ export async function PATCH(
   const { skillId } = params.data;
   const body = await request.json() as {
     name?: string;
+    description?: string;
     content?: string;
     enabled?: boolean;
   };
 
   const isBuiltin = skillId.startsWith("builtin-");
-  if (isBuiltin && (body.name !== undefined || body.content !== undefined)) {
-    return badRequest("Cannot modify name or content of built-in skills");
+  if (isBuiltin && (body.name !== undefined || body.description !== undefined || body.content !== undefined)) {
+    return badRequest("Cannot modify built-in skill metadata or instructions");
   }
 
   const updated = updateSkill(skillId, body);

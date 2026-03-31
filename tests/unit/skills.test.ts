@@ -12,10 +12,12 @@ describe("skills", () => {
     const initialCount = listSkills().length;
     const skill = createSkill({
       name: "Code Reviewer",
+      description: "Use when reviewing code changes for correctness and safety.",
       content: "Always review code for security issues."
     });
 
     expect(skill.name).toBe("Code Reviewer");
+    expect(skill.description).toBe("Use when reviewing code changes for correctness and safety.");
     expect(skill.content).toBe("Always review code for security issues.");
     expect(skill.enabled).toBe(true);
 
@@ -25,9 +27,14 @@ describe("skills", () => {
     const fetched = getSkill(skill.id);
     expect(fetched?.name).toBe("Code Reviewer");
 
-    updateSkill(skill.id, { name: "Security Reviewer", enabled: false });
+    updateSkill(skill.id, {
+      name: "Security Reviewer",
+      description: "Use when reviewing security-sensitive changes.",
+      enabled: false
+    });
     const updated = getSkill(skill.id);
     expect(updated?.name).toBe("Security Reviewer");
+    expect(updated?.description).toBe("Use when reviewing security-sensitive changes.");
     expect(updated?.enabled).toBe(false);
 
     deleteSkill(skill.id);
@@ -37,8 +44,16 @@ describe("skills", () => {
 
   it("lists only enabled skills", () => {
     const initialEnabledIds = new Set(listEnabledSkills().map((skill) => skill.id));
-    const s1 = createSkill({ name: "Active", content: "Active skill" });
-    const s2 = createSkill({ name: "Inactive", content: "Inactive skill" });
+    const s1 = createSkill({
+      name: "Active",
+      description: "Use when the active path applies.",
+      content: "Active skill"
+    });
+    const s2 = createSkill({
+      name: "Inactive",
+      description: "Use when the inactive path applies.",
+      content: "Inactive skill"
+    });
 
     updateSkill(s2.id, { enabled: false });
 
@@ -53,5 +68,14 @@ describe("skills", () => {
   it("returns null for missing skill update", () => {
     const result = updateSkill("nonexistent", { name: "X" });
     expect(result).toBeNull();
+  });
+
+  it("derives a description from instructions when one is not provided", () => {
+    const skill = createSkill({
+      name: "Release Notes",
+      content: "# Release Notes\nSummarize notable product changes for end users."
+    });
+
+    expect(skill.description).toBe("Summarize notable product changes for end users.");
   });
 });

@@ -6,22 +6,24 @@ import {
   updateSettings
 } from "@/lib/settings";
 
-function buildProfile(overrides: Partial<{
-  id: string;
-  name: string;
-  apiBaseUrl: string;
-  apiKey: string;
-  model: string;
-  apiMode: "responses" | "chat_completions";
-  systemPrompt: string;
-  temperature: number;
-  maxOutputTokens: number;
-  reasoningEffort: "low" | "medium" | "high" | "xhigh";
-  reasoningSummaryEnabled: boolean;
-  modelContextLimit: number;
-  compactionThreshold: number;
-  freshTailCount: number;
-}> = {}) {
+function buildProfile(
+  overrides: Partial<{
+    id: string;
+    name: string;
+    apiBaseUrl: string;
+    apiKey: string;
+    model: string;
+    apiMode: "responses" | "chat_completions";
+    systemPrompt: string;
+    temperature: number;
+    maxOutputTokens: number;
+    reasoningEffort: "low" | "medium" | "high" | "xhigh";
+    reasoningSummaryEnabled: boolean;
+    modelContextLimit: number;
+    compactionThreshold: number;
+    freshTailCount: number;
+  }> = {}
+) {
   return {
     id: overrides.id ?? `profile_${crypto.randomUUID()}`,
     name: overrides.name ?? "Profile",
@@ -57,6 +59,7 @@ describe("settings storage", () => {
 
     updateSettings({
       defaultProviderProfileId: alpha.id,
+      skillsEnabled: true,
       providerProfiles: [alpha, beta]
     });
 
@@ -64,6 +67,7 @@ describe("settings storage", () => {
     const defaultProfile = getDefaultProviderProfileWithApiKey();
 
     expect(getSettings().defaultProviderProfileId).toBe(alpha.id);
+    expect(getSettings().skillsEnabled).toBe(true);
     expect(storedProfiles).toHaveLength(2);
     expect(storedProfiles.map((profile) => profile.name)).toEqual(["Alpha", "Beta"]);
     expect(decryptValue(storedProfiles[0].apiKeyEncrypted)).toBe("sk-alpha");
@@ -72,6 +76,7 @@ describe("settings storage", () => {
 
     updateSettings({
       defaultProviderProfileId: beta.id,
+      skillsEnabled: false,
       providerProfiles: [
         {
           ...alpha,
@@ -85,6 +90,7 @@ describe("settings storage", () => {
     });
 
     expect(getSettings().defaultProviderProfileId).toBe(beta.id);
+    expect(getSettings().skillsEnabled).toBe(false);
     expect(getDefaultProviderProfileWithApiKey()?.apiKey).toBe("sk-beta");
     expect(
       decryptValue(

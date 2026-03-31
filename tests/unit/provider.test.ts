@@ -300,7 +300,10 @@ describe("provider integration", () => {
     chatCreate.mockResolvedValue(
       createAsyncStream([
         { choices: [{ delta: { content: "Hi " } }] },
-        { choices: [{ delta: { content: "there" } }], usage: { prompt_tokens: 4, completion_tokens: 2 } }
+        {
+          choices: [{ delta: { content: "there" } }],
+          usage: { prompt_tokens: 4, completion_tokens: 2 }
+        }
       ])
     );
 

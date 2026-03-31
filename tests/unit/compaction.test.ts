@@ -28,22 +28,25 @@ vi.mock("@/lib/provider", async () => {
 });
 
 describe("lossless compaction", () => {
-  function updateDefaultProfile(overrides: Partial<{
-    apiBaseUrl: string;
-    apiKey: string;
-    model: string;
-    apiMode: "responses" | "chat_completions";
-    systemPrompt: string;
-    temperature: number;
-    maxOutputTokens: number;
-    reasoningEffort: "low" | "medium" | "high" | "xhigh";
-    reasoningSummaryEnabled: boolean;
-    modelContextLimit: number;
-    compactionThreshold: number;
-    freshTailCount: number;
-  }>) {
+  function updateDefaultProfile(
+    overrides: Partial<{
+      apiBaseUrl: string;
+      apiKey: string;
+      model: string;
+      apiMode: "responses" | "chat_completions";
+      systemPrompt: string;
+      temperature: number;
+      maxOutputTokens: number;
+      reasoningEffort: "low" | "medium" | "high" | "xhigh";
+      reasoningSummaryEnabled: boolean;
+      modelContextLimit: number;
+      compactionThreshold: number;
+      freshTailCount: number;
+    }>
+  ) {
     updateSettings({
       defaultProviderProfileId: "profile_default",
+      skillsEnabled: true,
       providerProfiles: [
         {
           id: "profile_default",
