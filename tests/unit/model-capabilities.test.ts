@@ -6,6 +6,8 @@ describe("model capabilities", () => {
     expect(supportsVisibleReasoning("gpt-5.4", "responses")).toBe(true);
     expect(supportsVisibleReasoning("o4-mini", "responses")).toBe(true);
     expect(supportsVisibleReasoning("glm-5-turbo", "chat_completions")).toBe(true);
+    expect(supportsVisibleReasoning("glm-5.1", "chat_completions")).toBe(true);
+    expect(supportsVisibleReasoning("glm-4.7:cloud", "chat_completions")).toBe(true);
   });
 
   it("treats GPT-4.1 and chat completions as non-reasoning for visible summaries", () => {

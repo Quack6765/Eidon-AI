@@ -9,6 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
+import {
+  applyProviderPreset,
+  getMatchingProviderPresetId,
+  PROVIDER_PRESETS,
+  type ProviderPresetId
+} from "@/lib/provider-presets";
 import type {
   ApiMode,
   AuthUser,
@@ -81,6 +87,9 @@ export function SettingsForm({
   const visibleReasoningSupported = activeProviderProfile
     ? supportsVisibleReasoning(activeProviderProfile.model, activeProviderProfile.apiMode)
     : false;
+  const activeProviderPresetId = activeProviderProfile
+    ? getMatchingProviderPresetId(activeProviderProfile)
+    : null;
 
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [showMcpForm, setShowMcpForm] = useState(false);
@@ -160,6 +169,14 @@ export function SettingsForm({
 
     setProviderProfiles((current) => [...current, nextProfile]);
     setSelectedProviderProfileId(nextProfile.id);
+  }
+
+  function applyPresetToActiveProviderProfile(presetId: ProviderPresetId) {
+    if (!activeProviderProfile) {
+      return;
+    }
+
+    updateActiveProviderProfile(applyProviderPreset(activeProviderProfile, presetId));
   }
 
   function removeProviderProfile(profileId: string) {
@@ -529,6 +546,34 @@ export function SettingsForm({
 
             {activeProviderProfile ? (
               <div className="grid gap-5 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <Label>Provider preset</Label>
+                  <select
+                    value={activeProviderPresetId ?? ""}
+                    onChange={(event) => {
+                      const nextPresetId = event.target.value as ProviderPresetId;
+
+                      if (!nextPresetId) {
+                        return;
+                      }
+
+                      applyPresetToActiveProviderProfile(nextPresetId);
+                    }}
+                    className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm"
+                  >
+                    <option value="">Manual configuration</option>
+                    {PROVIDER_PRESETS.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs leading-5 text-[color:var(--muted)]">
+                    Applying a preset updates the provider connection fields while keeping your API
+                    key, prompt, and runtime tuning.
+                  </p>
+                </div>
+
                 <div className="md:col-span-2">
                   <Label>Profile name</Label>
                   <Input
