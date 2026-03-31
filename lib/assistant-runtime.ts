@@ -1,4 +1,5 @@
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
+import { createGuardedAnswerEmitter } from "@/lib/control-output";
 import { callMcpTool, summarizeToolResult } from "@/lib/mcp-client";
 import { buildLoadedSkillsMessage, buildSkillsMetadataMessage, extractSkillRequest } from "@/lib/skill-runtime";
 import { streamProviderResponse } from "@/lib/provider";
@@ -152,11 +153,11 @@ export async function resolveAssistantTurn(input: {
   let totalUsage: Usage = {};
 
   for (let step = 0; step < MAX_ASSISTANT_CONTROL_STEPS; step += 1) {
+    const guardedAnswerEmitter = createGuardedAnswerEmitter(["SKILL_REQUEST:", "TOOL_CALL:"]);
     const providerStream = streamProviderResponse({
       settings: input.settings,
       promptMessages
     });
-    const bufferedEvents: ChatStreamEvent[] = [];
     let answer = "";
     let thinking = "";
     let usage: Usage = {};
@@ -172,7 +173,18 @@ export async function resolveAssistantTurn(input: {
         break;
       }
 
-      bufferedEvents.push(next.value);
+      if (next.value.type === "thinking_delta") {
+        input.onEvent?.(next.value);
+        continue;
+      }
+
+      if (next.value.type === "answer_delta") {
+        const events = guardedAnswerEmitter.push(next.value.text);
+        events.forEach((event) => input.onEvent?.(event));
+        continue;
+      }
+
+      input.onEvent?.(next.value);
     }
 
     const requestedSkillNames = extractSkillRequest(answer);
@@ -295,7 +307,7 @@ export async function resolveAssistantTurn(input: {
       continue;
     }
 
-    bufferedEvents.forEach((event) => input.onEvent?.(event));
+    guardedAnswerEmitter.flush().forEach((event) => input.onEvent?.(event));
 
     return {
       answer,

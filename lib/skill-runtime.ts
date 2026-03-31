@@ -1,3 +1,4 @@
+import { createGuardedAnswerEmitter } from "@/lib/control-output";
 import { streamProviderResponse } from "@/lib/provider";
 import type {
   ChatStreamEvent,
@@ -89,12 +90,12 @@ export async function resolveAssistantWithSkills(input: {
     : input.promptMessages;
 
   for (let pass = 0; pass < maxPasses; pass += 1) {
+    const guardedAnswerEmitter = createGuardedAnswerEmitter(["SKILL_REQUEST:"]);
     const providerStream = streamProviderResponse({
       settings: input.settings,
       promptMessages
     });
 
-    const bufferedEvents: ChatStreamEvent[] = [];
     let answer = "";
     let thinking = "";
     let usage: Usage = {};
@@ -109,7 +110,18 @@ export async function resolveAssistantWithSkills(input: {
         break;
       }
 
-      bufferedEvents.push(next.value);
+      if (next.value.type === "thinking_delta") {
+        input.onEvent?.(next.value);
+        continue;
+      }
+
+      if (next.value.type === "answer_delta") {
+        const events = guardedAnswerEmitter.push(next.value.text);
+        events.forEach((event) => input.onEvent?.(event));
+        continue;
+      }
+
+      input.onEvent?.(next.value);
     }
 
     const requestedSkillNames = extractSkillRequest(answer);
@@ -144,7 +156,7 @@ export async function resolveAssistantWithSkills(input: {
       continue;
     }
 
-    bufferedEvents.forEach((event) => input.onEvent?.(event));
+    guardedAnswerEmitter.flush().forEach((event) => input.onEvent?.(event));
 
     return {
       answer,

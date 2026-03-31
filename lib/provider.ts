@@ -56,6 +56,21 @@ function buildChatCompletionsOptions(settings: ProviderProfile) {
     return {};
   }
 
+  const effort = normalizeReasoningEffort(settings.reasoningEffort);
+
+  if (settings.apiBaseUrl.includes("ollama.com")) {
+    const ollamaEffort = settings.reasoningSummaryEnabled ? effort : "none";
+
+    return {
+      extra_body: {
+        reasoning_effort: ollamaEffort,
+        reasoning: {
+          effort: ollamaEffort
+        }
+      }
+    } as const;
+  }
+
   return {
     extra_body: {
       thinking: {
@@ -254,13 +269,16 @@ export async function* streamProviderResponse(input: {
   });
 
   for await (const chunk of stream) {
-    const reasoningDelta = normalizeProviderText(
-      "reasoning_content" in (chunk.choices[0]?.delta ?? {})
-        ? String(
-            (chunk.choices[0]?.delta as { reasoning_content?: string }).reasoning_content ?? ""
-          )
-        : ""
-    );
+    const rawDelta = chunk.choices[0]?.delta ?? {};
+    const reasoningValue =
+      "reasoning_content" in rawDelta
+        ? (rawDelta as { reasoning_content?: string }).reasoning_content
+        : "thinking" in rawDelta
+          ? (rawDelta as { thinking?: string }).thinking
+          : "reasoning" in rawDelta
+            ? (rawDelta as { reasoning?: string }).reasoning
+            : "";
+    const reasoningDelta = normalizeProviderText(String(reasoningValue ?? ""));
     const delta = normalizeProviderText(chunk.choices[0]?.delta?.content ?? "");
 
     if (reasoningDelta) {

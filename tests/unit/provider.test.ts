@@ -384,6 +384,57 @@ describe("provider integration", () => {
     ]);
   });
 
+  it("uses ollama reasoning controls and parses thinking deltas", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([
+        { choices: [{ delta: { thinking: "Thinking " } }] },
+        { choices: [{ delta: { content: "Hi there" } }] }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        name: "Ollama Cloud",
+        apiBaseUrl: "https://ollama.com/v1",
+        model: "kimi-k2.5",
+        apiMode: "chat_completions"
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+
+      if (next.done) {
+        expect(next.value.thinking).toBe("Thinking ");
+        expect(next.value.answer).toBe("Hi there");
+        break;
+      }
+
+      events.push(next.value);
+    }
+
+    expect(chatCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extra_body: {
+          reasoning_effort: "medium",
+          reasoning: {
+            effort: "medium"
+          }
+        }
+      })
+    );
+
+    expect(events).toEqual([
+      { type: "thinking_delta", text: "Thinking " },
+      { type: "answer_delta", text: "Hi there" },
+      { type: "usage", inputTokens: 1, outputTokens: undefined }
+    ]);
+  });
+
   it("decodes escaped newline sequences from provider deltas", async () => {
     chatCreate.mockResolvedValue(
       createAsyncStream([

@@ -15,6 +15,10 @@ export function supportsVisibleReasoning(model: string, apiMode: ApiMode) {
     return true;
   }
 
+  if (normalized.startsWith("kimi-k2")) {
+    return true;
+  }
+
   if (apiMode !== "responses") {
     return false;
   }

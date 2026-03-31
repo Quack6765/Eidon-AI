@@ -30,6 +30,17 @@ function createProviderStream(
   })();
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
 function createSettings(): ProviderProfileWithApiKey {
   return {
     id: "profile_test",
@@ -132,6 +143,123 @@ describe("assistant runtime", () => {
     );
     expect(emitted).toEqual([{ type: "answer_delta", text: "Done" }]);
     expect(result.answer).toBe("Done");
+  });
+
+  it("streams visible thinking and answer deltas before the provider finishes", async () => {
+    const gate = createDeferred<void>();
+    streamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "thinking_delta", text: "Thinking " } satisfies ChatStreamEvent;
+        yield { type: "answer_delta", text: "Hello" } satisfies ChatStreamEvent;
+        await gate.promise;
+
+        return {
+          answer: "Hello",
+          thinking: "Thinking ",
+          usage: { outputTokens: 1, reasoningTokens: 1 }
+        };
+      })()
+    );
+
+    const emitted: ChatStreamEvent[] = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const pending = resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Say hello" }],
+      skills: [],
+      mcpToolSets: [],
+      onEvent: (event) => emitted.push(event)
+    });
+
+    await vi.waitFor(() => {
+      expect(emitted).toEqual([
+        { type: "thinking_delta", text: "Thinking " },
+        { type: "answer_delta", text: "Hello" }
+      ]);
+    });
+
+    gate.resolve();
+
+    const result = await pending;
+
+    expect(result.answer).toBe("Hello");
+    expect(result.thinking).toBe("Thinking ");
+  });
+
+  it("does not leak tool-call control text while the first pass is still unresolved", async () => {
+    const gate = createDeferred<void>();
+    streamProviderResponse
+      .mockReturnValueOnce(
+        (async function* () {
+          yield { type: "answer_delta", text: "TOOL" } satisfies ChatStreamEvent;
+          yield { type: "answer_delta", text: "_CALL:" } satisfies ChatStreamEvent;
+          await gate.promise;
+
+          return {
+            answer: 'TOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"MCP"}}',
+            thinking: "",
+            usage: { inputTokens: 9 }
+          };
+        })()
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Final answer" }], {
+          answer: "Final answer",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+    callMcpTool.mockResolvedValue({
+      content: [{ type: "text", text: "Found MCP docs" }]
+    });
+
+    const emitted: ChatStreamEvent[] = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const pending = resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find MCP docs" }],
+      skills: [],
+      mcpToolSets: [
+        {
+          server: {
+            id: "mcp_docs",
+            name: "Docs",
+            url: "https://mcp.example.com",
+            headers: {},
+            transport: "streamable_http",
+            command: null,
+            args: null,
+            env: null,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          tools: [
+            {
+              name: "search_docs",
+              description: "Search docs",
+              inputSchema: { type: "object" },
+              annotations: { readOnlyHint: true }
+            }
+          ]
+        }
+      ],
+      onEvent: (event) => emitted.push(event),
+      onActionStart: () => "act_tool",
+      onActionComplete: () => undefined
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(emitted).toEqual([]);
+
+    gate.resolve();
+
+    const result = await pending;
+
+    expect(emitted).toEqual([{ type: "answer_delta", text: "Final answer" }]);
+    expect(result.answer).toBe("Final answer");
   });
 
   it("executes MCP tool calls as action steps and feeds the result back into the next model pass", async () => {

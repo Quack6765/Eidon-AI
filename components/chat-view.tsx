@@ -72,6 +72,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [streamStartedAt, setStreamStartedAt] = useState<string | null>(null);
   const [streamActions, setStreamActions] = useState<MessageAction[]>([]);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
+  const thinkingStartTimeRef = useRef<number | null>(null);
+  const [thinkingDuration, setThinkingDuration] = useState<number | undefined>(undefined);
   const [toolExecutionMode, setToolExecutionMode] = useState(payload.toolExecutionMode);
   const [providerProfileId, setProviderProfileId] = useState(
     payload.conversation.providerProfileId ?? payload.defaultProviderProfileId
@@ -242,6 +244,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     setStreamStartedAt(new Date().toISOString());
     setStreamActions([]);
     setHasReceivedFirstToken(false);
+    thinkingStartTimeRef.current = null;
+    setThinkingDuration(undefined);
 
     try {
       const response = await fetch(`/api/conversations/${payload.conversation.id}/chat`, {
@@ -271,6 +275,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      let localThinking = "";
+      let localAnswer = "";
 
       while (true) {
         const { done, value: chunk } = await reader.read();
@@ -286,12 +292,21 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         parsed.events.forEach((event) => {
           if (event.type === "thinking_delta") {
             setHasReceivedFirstToken(true);
-            setStreamThinkingTarget((current) => current + event.text);
+            localThinking += event.text;
+            setStreamThinkingTarget(localThinking);
+            if (!thinkingStartTimeRef.current) {
+              thinkingStartTimeRef.current = Date.now();
+            }
           }
 
           if (event.type === "answer_delta") {
             setHasReceivedFirstToken(true);
-            setStreamAnswerTarget((current) => current + event.text);
+            localAnswer += event.text;
+            setStreamAnswerTarget(localAnswer);
+            if (thinkingStartTimeRef.current && !thinkingDuration) {
+              const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
+              setThinkingDuration(duration);
+            }
           }
 
           if (event.type === "system_notice") {
@@ -326,6 +341,24 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             setError(event.message);
           }
         });
+      }
+
+      if (localAnswer || localThinking) {
+        setMessages((current) => [
+          ...current,
+          {
+            id: `streamed_${crypto.randomUUID()}`,
+            conversationId: payload.conversation.id,
+            role: "assistant",
+            content: localAnswer,
+            thinkingContent: localThinking,
+            status: "completed",
+            estimatedTokens: 0,
+            systemKind: null,
+            compactedAt: null,
+            createdAt: new Date().toISOString()
+          }
+        ]);
       }
 
       router.refresh();
@@ -387,6 +420,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 actions={streamActions}
                 awaitingFirstToken={!hasReceivedFirstToken}
                 thinkingInProgress={Boolean(streamThinkingTarget) && !streamAnswerTarget}
+                thinkingDuration={thinkingDuration}
+                hasThinking={Boolean(streamThinkingTarget)}
               />
             </div>
           ) : null}

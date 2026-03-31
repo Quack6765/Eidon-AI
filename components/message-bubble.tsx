@@ -78,13 +78,17 @@ export function MessageBubble({
   streamingThinking,
   streamingAnswer,
   awaitingFirstToken = false,
-  thinkingInProgress = false
+  thinkingInProgress = false,
+  thinkingDuration,
+  hasThinking = false
 }: {
   message: Message;
   streamingThinking?: string;
   streamingAnswer?: string;
   awaitingFirstToken?: boolean;
   thinkingInProgress?: boolean;
+  thinkingDuration?: number;
+  hasThinking?: boolean;
 }) {
   const rawContent = streamingAnswer ?? message.content;
   const rawThinking = streamingThinking ?? message.thinkingContent;
@@ -92,7 +96,7 @@ export function MessageBubble({
   const content = normalizeLineBreaks(rawContent);
   const thinkingContent = normalizeLineBreaks(rawThinking);
   const [thinkingOpen, setThinkingOpen] = useState(false);
-  const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || Boolean(thinkingContent));
+  const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || hasThinking || Boolean(thinkingContent));
 
   if (message.role === "system") {
     return (
@@ -123,34 +127,38 @@ export function MessageBubble({
           <MessageActions actions={actions} />
 
           {showThinkingShell ? (
-            <div className="mb-3 rounded-xl border border-[var(--thinking)]/10 bg-[var(--thinking)]/[0.03] px-4 py-3 transition-all duration-300">
+            <div className="mb-3 rounded-xl border border-white/6 bg-white/[0.02] px-3 py-2.5 transition-all duration-300">
               <button
                 type="button"
                 onClick={() => setThinkingOpen((current) => !current)}
-                className="flex w-full items-center justify-between gap-3 text-left hover:opacity-80 transition-opacity duration-200"
+                className="flex w-full items-center gap-2 text-left hover:opacity-80 transition-opacity duration-200"
               >
-                <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--thinking)]/80">
-                  {thinkingOpen ? (
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  ) : (
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  )}
+                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
                   {thinkingInProgress ? (
-                    <>
-                      <LoaderCircle className="h-3 w-3 animate-spin" />
-                      Thinking...
-                    </>
+                    <LoaderCircle className="h-3.5 w-3.5 animate-spin text-white/55" />
                   ) : (
-                    "Thought Process"
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
                   )}
                 </span>
-                <span className="text-[10px] uppercase tracking-[0.15em] text-white/25">
-                  {thinkingOpen ? "Hide" : "Show"}
+                <span className="flex items-center gap-1.5 text-[13px] text-white/70">
+                  <span className="font-medium">{thinkingInProgress ? "Thinking" : "Thought"}</span>
+                  {thinkingInProgress ? (
+                    <span className="text-white/40">...</span>
+                  ) : thinkingDuration ? (
+                    <span className="text-white/40">(in {thinkingDuration.toFixed(1)}s)</span>
+                  ) : null}
+                </span>
+                <span className="ml-auto flex items-center">
+                  {thinkingOpen ? (
+                    <ChevronDown className="h-4 w-4 text-white/40" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-white/40" />
+                  )}
                 </span>
               </button>
 
               {thinkingOpen && thinkingContent ? (
-                <div className="prose prose-invert mt-3 max-w-none prose-p:my-3 prose-p:leading-7 prose-pre:rounded-xl prose-pre:border prose-pre:border-white/4 prose-pre:bg-white/[0.02] prose-code:text-white/70 prose-li:my-0.5 prose-ul:my-3 prose-ol:my-3 text-white/55 text-sm">
+                <div className="prose prose-invert mt-2 max-w-none prose-p:my-3 prose-p:leading-7 prose-pre:rounded-xl prose-pre:border prose-pre:border-white/4 prose-pre:bg-white/[0.02] prose-code:text-white/70 prose-li:my-0.5 prose-ul:my-3 prose-ol:my-3 text-white/55 text-sm">
                   <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{thinkingContent}</ReactMarkdown>
                 </div>
               ) : null}
@@ -176,7 +184,9 @@ export function StreamingPlaceholder({
   answer,
   actions,
   awaitingFirstToken,
-  thinkingInProgress
+  thinkingInProgress,
+  thinkingDuration,
+  hasThinking = false
 }: {
   createdAt: string;
   thinking: string;
@@ -184,6 +194,8 @@ export function StreamingPlaceholder({
   actions: MessageAction[];
   awaitingFirstToken: boolean;
   thinkingInProgress: boolean;
+  thinkingDuration?: number;
+  hasThinking?: boolean;
 }) {
   return (
     <MessageBubble
@@ -204,6 +216,8 @@ export function StreamingPlaceholder({
       streamingAnswer={answer}
       awaitingFirstToken={awaitingFirstToken}
       thinkingInProgress={thinkingInProgress}
+      thinkingDuration={thinkingDuration}
+      hasThinking={hasThinking}
     />
   );
 }

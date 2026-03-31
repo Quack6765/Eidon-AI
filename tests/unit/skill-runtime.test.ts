@@ -19,6 +19,17 @@ function createProviderStream(
   })();
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+
+  return { promise, resolve, reject };
+}
+
 function createSettings() {
   return {
     id: "profile_test",
@@ -130,5 +141,46 @@ describe("skill runtime", () => {
     expect(streamProviderResponse).toHaveBeenCalledTimes(1);
     expect(emitted).toEqual([{ type: "answer_delta", text: "Hello" }]);
     expect(result.answer).toBe("Hello");
+  });
+
+  it("streams visible deltas before the provider finishes when no skill request is made", async () => {
+    const gate = createDeferred<void>();
+    streamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "thinking_delta", text: "Thinking " } satisfies ChatStreamEvent;
+        yield { type: "answer_delta", text: "Hello" } satisfies ChatStreamEvent;
+        await gate.promise;
+
+        return {
+          answer: "Hello",
+          thinking: "Thinking ",
+          usage: { outputTokens: 1, reasoningTokens: 1 }
+        };
+      })()
+    );
+
+    const { resolveAssistantWithSkills } = await import("@/lib/skill-runtime");
+    const emitted: ChatStreamEvent[] = [];
+
+    const pending = resolveAssistantWithSkills({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Say hello" }],
+      skills: [createSkill()],
+      onEvent: (event) => emitted.push(event)
+    });
+
+    await vi.waitFor(() => {
+      expect(emitted).toEqual([
+        { type: "thinking_delta", text: "Thinking " },
+        { type: "answer_delta", text: "Hello" }
+      ]);
+    });
+
+    gate.resolve();
+
+    const result = await pending;
+
+    expect(result.answer).toBe("Hello");
+    expect(result.thinking).toBe("Thinking ");
   });
 });
