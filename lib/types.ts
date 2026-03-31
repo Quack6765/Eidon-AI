@@ -49,6 +49,12 @@ export type Conversation = {
   updatedAt: string;
 };
 
+export type ConversationListPage = {
+  conversations: Conversation[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
+
 export type Folder = {
   id: string;
   name: string;

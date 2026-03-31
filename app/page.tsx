@@ -3,7 +3,7 @@
 import { Shell } from "@/components/shell";
 import { ArrowUp, Sparkles, BookOpen, Code2, Lightbulb } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { Conversation, Folder } from "@/lib/types";
+import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
 
 const SUGGESTIONS = [
   { icon: Lightbulb, label: "Help me brainstorm ideas", color: "text-amber-400/60" },
@@ -13,14 +13,24 @@ const SUGGESTIONS = [
 ];
 
 export default function HomePage() {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversationPage, setConversationPage] = useState<ConversationListPage>({
+    conversations: [],
+    nextCursor: null,
+    hasMore: false
+  });
   const [folders, setFolders] = useState<Folder[]>([]);
 
   useEffect(() => {
     fetch("/api/conversations")
       .then((res) => res.json())
       .then((data) => {
-        if (data.conversations) setConversations(data.conversations);
+        if (data.conversations) {
+          setConversationPage({
+            conversations: data.conversations,
+            nextCursor: data.nextCursor ?? null,
+            hasMore: Boolean(data.hasMore)
+          });
+        }
       })
       .catch(() => {});
     fetch("/api/folders")
@@ -40,7 +50,7 @@ export default function HomePage() {
   }
 
   return (
-    <Shell conversations={conversations} folders={folders}>
+    <Shell conversationPage={conversationPage} folders={folders}>
       <main className="flex h-full min-h-screen flex-col items-center justify-center px-4 pb-8">
         <div className="animate-slide-up">
           <div className="text-center mb-10">

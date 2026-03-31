@@ -2,13 +2,18 @@ import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { getSettings } from "@/lib/settings";
 import { estimateTextTokens } from "@/lib/tokenization";
-import type { Conversation, Message, MessageRole, MessageStatus, SystemMessageKind } from "@/lib/types";
+import type {
+  Conversation,
+  ConversationListPage,
+  Message,
+  MessageRole,
+  MessageStatus,
+  SystemMessageKind
+} from "@/lib/types";
 
-function nowIso() {
-  return new Date().toISOString();
-}
+export const DEFAULT_CONVERSATION_PAGE_SIZE = 10;
 
-function rowToConversation(row: {
+type ConversationRow = {
   id: string;
   title: string;
   folder_id: string | null;
@@ -16,7 +21,18 @@ function rowToConversation(row: {
   sort_order: number;
   created_at: string;
   updated_at: string;
-}): Conversation {
+};
+
+type ConversationCursor = {
+  updatedAt: string;
+  id: string;
+};
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function rowToConversation(row: ConversationRow): Conversation {
   return {
     id: row.id,
     title: row.title,
@@ -54,6 +70,21 @@ function rowToMessage(row: {
   };
 }
 
+function encodeConversationCursor(cursor: ConversationCursor) {
+  return Buffer.from(JSON.stringify(cursor)).toString("base64url");
+}
+
+function decodeConversationCursor(cursor: string): ConversationCursor {
+  const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as Partial<ConversationCursor>;
+  if (typeof parsed.updatedAt !== "string" || typeof parsed.id !== "string") {
+    throw new Error("Invalid conversation cursor");
+  }
+  return {
+    updatedAt: parsed.updatedAt,
+    id: parsed.id
+  };
+}
+
 export function listConversations() {
   const rows = getDb()
     .prepare(
@@ -61,17 +92,52 @@ export function listConversations() {
        FROM conversations
        ORDER BY updated_at DESC`
     )
-    .all() as Array<{
-    id: string;
-    title: string;
-    folder_id: string | null;
-    provider_profile_id: string | null;
-    sort_order: number;
-    created_at: string;
-    updated_at: string;
-  }>;
+    .all() as ConversationRow[];
 
   return rows.map(rowToConversation);
+}
+
+export function listConversationsPage(input: {
+  limit?: number;
+  cursor?: string | null;
+} = {}): ConversationListPage {
+  const limit = input.limit ?? DEFAULT_CONVERSATION_PAGE_SIZE;
+  const cursor = input.cursor ? decodeConversationCursor(input.cursor) : null;
+
+  const rows = cursor
+    ? (getDb()
+        .prepare(
+          `SELECT id, title, folder_id, provider_profile_id, sort_order, created_at, updated_at
+           FROM conversations
+           WHERE updated_at < ?
+             OR (updated_at = ? AND id < ?)
+           ORDER BY updated_at DESC, id DESC
+           LIMIT ?`
+        )
+        .all(cursor.updatedAt, cursor.updatedAt, cursor.id, limit + 1) as ConversationRow[])
+    : (getDb()
+        .prepare(
+          `SELECT id, title, folder_id, provider_profile_id, sort_order, created_at, updated_at
+           FROM conversations
+           ORDER BY updated_at DESC, id DESC
+           LIMIT ?`
+        )
+        .all(limit + 1) as ConversationRow[]);
+
+  const hasMore = rows.length > limit;
+  const conversations = rows.slice(0, limit).map(rowToConversation);
+  const lastConversation = conversations.at(-1);
+
+  return {
+    conversations,
+    nextCursor: hasMore && lastConversation
+      ? encodeConversationCursor({
+          updatedAt: lastConversation.updatedAt,
+          id: lastConversation.id
+        })
+      : null,
+    hasMore
+  };
 }
 
 export function getConversation(conversationId: string) {

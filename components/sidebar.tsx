@@ -40,9 +40,81 @@ import {
   reorderSidebarFolders,
   UNFILED_DROP_ID
 } from "@/lib/sidebar-dnd";
-import type { Conversation, Folder } from "@/lib/types";
+import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
 
 type SidebarConversation = Conversation & { matchSnippet?: string };
+
+type ConversationSection = {
+  label: string;
+  conversations: SidebarConversation[];
+};
+
+function compareConversations(left: Conversation, right: Conversation) {
+  if (left.updatedAt === right.updatedAt) {
+    return right.id.localeCompare(left.id);
+  }
+  return left.updatedAt > right.updatedAt ? -1 : 1;
+}
+
+function mergeConversations(current: Conversation[], incoming: Conversation[]) {
+  const merged = new Map(current.map((conversation) => [conversation.id, conversation]));
+  incoming.forEach((conversation) => {
+    merged.set(conversation.id, conversation);
+  });
+  return [...merged.values()].sort(compareConversations);
+}
+
+function getConversationSectionLabel(timestamp: string, now: Date) {
+  const current = new Date(now);
+  current.setHours(0, 0, 0, 0);
+
+  const updatedAt = new Date(timestamp);
+  const updatedDay = new Date(updatedAt);
+  updatedDay.setHours(0, 0, 0, 0);
+
+  if (updatedDay.getTime() === current.getTime()) {
+    return "Today";
+  }
+
+  const yesterday = new Date(current);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (updatedDay.getTime() === yesterday.getTime()) {
+    return "Yesterday";
+  }
+
+  const weekStart = new Date(current);
+  const offset = (weekStart.getDay() + 6) % 7;
+  weekStart.setDate(weekStart.getDate() - offset);
+  if (updatedDay >= weekStart) {
+    return "This Week";
+  }
+
+  const monthStart = new Date(current.getFullYear(), current.getMonth(), 1);
+  if (updatedDay >= monthStart) {
+    return "This Month";
+  }
+
+  return "Older";
+}
+
+function buildConversationSections(conversations: SidebarConversation[]) {
+  const sections = new Map<string, SidebarConversation[]>();
+  const now = new Date();
+
+  conversations.forEach((conversation) => {
+    const label = getConversationSectionLabel(conversation.updatedAt, now);
+    const list = sections.get(label) ?? [];
+    list.push(conversation);
+    sections.set(label, list);
+  });
+
+  return ["Today", "Yesterday", "This Week", "This Month", "Older"]
+    .map((label) => ({
+      label,
+      conversations: sections.get(label) ?? []
+    }))
+    .filter((section) => section.conversations.length > 0);
+}
 
 function ConversationItem({
   conversation,
@@ -227,7 +299,8 @@ function FolderItem({
   allFolders,
   onClose,
   onCreateInFolder,
-  dragEnabled
+  dragEnabled,
+  showCount
 }: {
   folder: Folder;
   conversations: SidebarConversation[];
@@ -236,6 +309,7 @@ function FolderItem({
   onClose?: () => void;
   onCreateInFolder: (folderId: string) => void;
   dragEnabled: boolean;
+  showCount: boolean;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [renaming, setRenaming] = useState(false);
@@ -344,7 +418,9 @@ function FolderItem({
             {folder.name}
           </span>
         )}
-        <span className="text-[11px] text-white/25 mr-1 tabular-nums">{conversations.length}</span>
+        {showCount ? (
+          <span className="text-[11px] text-white/25 mr-1 tabular-nums">{conversations.length}</span>
+        ) : null}
         <div
           className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity duration-200"
           onClick={(e) => e.stopPropagation()}
@@ -429,11 +505,11 @@ function FolderItem({
 }
 
 export function Sidebar({
-  conversations,
+  conversationPage,
   folders: initialFolders,
   onClose
 }: {
-  conversations: Conversation[];
+  conversationPage: ConversationListPage;
   folders?: Folder[];
   onClose?: () => void;
 }) {
@@ -446,15 +522,22 @@ export function Sidebar({
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<SidebarConversation[] | null>(null);
   const [localFolders, setLocalFolders] = useState<Folder[]>(initialFolders ?? []);
-  const [localConversations, setLocalConversations] = useState(conversations);
+  const [localConversations, setLocalConversations] = useState(conversationPage.conversations);
+  const [hasMoreConversations, setHasMoreConversations] = useState(conversationPage.hasMore);
+  const [nextCursor, setNextCursor] = useState(conversationPage.nextCursor);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [mounted, setMounted] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const pendingBottomOffsetRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setLocalConversations(conversations);
-  }, [conversations]);
+    setLocalConversations(conversationPage.conversations);
+    setHasMoreConversations(conversationPage.hasMore);
+    setNextCursor(conversationPage.nextCursor);
+  }, [conversationPage]);
 
   useEffect(() => {
     setLocalFolders(initialFolders ?? []);
@@ -463,6 +546,18 @@ export function Sidebar({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (pendingBottomOffsetRef.current === null || !scrollContainerRef.current) {
+      return;
+    }
+
+    scrollContainerRef.current.scrollTop = Math.max(
+      0,
+      scrollContainerRef.current.scrollHeight - pendingBottomOffsetRef.current
+    );
+    pendingBottomOffsetRef.current = null;
+  }, [localConversations]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -492,6 +587,56 @@ export function Sidebar({
       setSearchResults(highlighted);
     }, 200);
   }, []);
+
+  const loadMoreConversations = useCallback(async () => {
+    if (isLoadingMore || !hasMoreConversations || !nextCursor || searchResults) {
+      return;
+    }
+
+    if (scrollContainerRef.current) {
+      pendingBottomOffsetRef.current =
+        scrollContainerRef.current.scrollHeight - scrollContainerRef.current.scrollTop;
+    }
+
+    setIsLoadingMore(true);
+
+    try {
+      const params = new URLSearchParams({ cursor: nextCursor });
+      const response = await fetch(`/api/conversations?${params.toString()}`);
+      const data = (await response.json()) as ConversationListPage;
+      setLocalConversations((current) => mergeConversations(current, data.conversations));
+      setHasMoreConversations(data.hasMore);
+      setNextCursor(data.nextCursor);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [hasMoreConversations, isLoadingMore, nextCursor, searchResults]);
+
+  const handleScroll = useCallback(() => {
+    if (!scrollContainerRef.current || isLoadingMore || !hasMoreConversations || searchResults) {
+      return;
+    }
+
+    const { scrollTop, clientHeight, scrollHeight } = scrollContainerRef.current;
+    if (scrollTop + clientHeight >= scrollHeight - 160) {
+      void loadMoreConversations();
+    }
+  }, [hasMoreConversations, isLoadingMore, loadMoreConversations, searchResults]);
+
+  useEffect(() => {
+    if (
+      searchResults ||
+      isLoadingMore ||
+      !hasMoreConversations ||
+      !scrollContainerRef.current
+    ) {
+      return;
+    }
+
+    if (scrollContainerRef.current.scrollHeight <= scrollContainerRef.current.clientHeight + 40) {
+      void loadMoreConversations();
+    }
+  }, [hasMoreConversations, isLoadingMore, loadMoreConversations, localConversations, searchResults]);
 
   function highlightMatch(text: string, query: string): string {
     const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
@@ -569,6 +714,7 @@ export function Sidebar({
 
   const displayedConversations = searchResults ?? localConversations;
   const unfiled = displayedConversations.filter((c) => !c.folderId);
+  const unfiledSections = buildConversationSections(unfiled);
 
   const folderMap = new Map<string, SidebarConversation[]>();
   for (const conv of displayedConversations) {
@@ -587,6 +733,7 @@ export function Sidebar({
     id: UNFILED_DROP_ID
   });
   const dragEnabled = mounted && !searchResults;
+  const showFolderCounts = !hasMoreConversations && !searchResults;
 
   function renderConversationSections(enableDrag: boolean) {
     return (
@@ -603,34 +750,44 @@ export function Sidebar({
                 onClose={onClose}
                 onCreateInFolder={(fId) => handleCreate(fId)}
                 dragEnabled={enableDrag}
+                showCount={showFolderCounts}
               />
             </div>
           );
         })}
 
         <div>
-          <div className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/25">
-            Your chats
-          </div>
           <div
             ref={enableDrag ? setUnfiledDropRef : undefined}
             className={`flex flex-col rounded-xl transition-colors duration-200 ${
               enableDrag && isOverUnfiled ? "bg-white/[0.03]" : ""
             }`}
           >
-            {unfiled.map((conversation) => (
-              <ConversationItem
-                key={conversation.id}
-                conversation={conversation}
-                active={activeConversationId === conversation.id}
-                onClose={onClose}
-                allFolders={localFolders}
-                dragEnabled={enableDrag}
-              />
+            {unfiledSections.map((section) => (
+              <div key={section.label}>
+                <div className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/25">
+                  {section.label}
+                </div>
+                {section.conversations.map((conversation) => (
+                  <ConversationItem
+                    key={conversation.id}
+                    conversation={conversation}
+                    active={activeConversationId === conversation.id}
+                    onClose={onClose}
+                    allFolders={localFolders}
+                    dragEnabled={enableDrag}
+                  />
+                ))}
+              </div>
             ))}
             {!unfiled.length && !localFolders.length ? (
               <div className="px-3 py-4 text-xs text-white/20 italic text-center">
                 No conversations yet
+              </div>
+            ) : null}
+            {isLoadingMore ? (
+              <div className="px-3 py-3 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/20">
+                Loading older chats
               </div>
             ) : null}
           </div>
@@ -700,7 +857,11 @@ export function Sidebar({
           )}
         </div>
 
-        <div className="scrollbar-thin flex-1 overflow-y-auto overflow-x-hidden pr-1 -mr-1 space-y-4">
+        <div
+          ref={scrollContainerRef}
+          onScroll={handleScroll}
+          className="scrollbar-thin flex-1 overflow-y-auto overflow-x-hidden pr-1 -mr-1 space-y-4"
+        >
           <div>
             <div className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/25">
               Folders

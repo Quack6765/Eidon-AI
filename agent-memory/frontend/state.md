@@ -17,3 +17,4 @@
 - **Loading States:** Buttons disable during pending work; composer shows inline spinner on send
 - **Streaming State:** `components/chat-view.tsx` tracks whether the first token has arrived so the assistant placeholder can show a waiting spinner before any reasoning or answer text appears
 - **Error States:** Inline error copy near the active form or composer
+- **Sidebar Data:** `components/sidebar.tsx` keeps its own cursor, `hasMore`, and incremental conversation state so the initial render only hydrates the newest page and older conversations are fetched on sidebar scroll

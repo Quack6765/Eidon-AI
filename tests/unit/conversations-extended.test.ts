@@ -3,8 +3,10 @@ import {
   moveConversationToFolder,
   reorderConversations,
   searchConversations,
-  createMessage
+  createMessage,
+  listConversationsPage
 } from "@/lib/conversations";
+import { getDb } from "@/lib/db";
 import { createFolder } from "@/lib/folders";
 import { getSettings } from "@/lib/settings";
 
@@ -72,5 +74,48 @@ describe("conversations extended", () => {
   it("returns empty for no match", () => {
     createConversation("Hello World");
     expect(searchConversations("xyz123")).toHaveLength(0);
+  });
+
+  it("lists conversations in cursor-based pages", () => {
+    const timestamps = [
+      "2026-03-31T16:00:00.000Z",
+      "2026-03-30T16:00:00.000Z",
+      "2026-03-29T16:00:00.000Z"
+    ];
+
+    const conversations = timestamps.map((timestamp, index) => {
+      const conversation = createConversation(`Conversation ${index + 1}`);
+      getDb()
+        .prepare("UPDATE conversations SET updated_at = ? WHERE id = ?")
+        .run(timestamp, conversation.id);
+      return {
+        ...conversation,
+        updatedAt: timestamp
+      };
+    });
+
+    const firstPage = listConversationsPage({ limit: 2 });
+
+    expect(firstPage.conversations.map((conversation) => conversation.id)).toEqual([
+      conversations[0].id,
+      conversations[1].id
+    ]);
+    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+
+    const secondPage = listConversationsPage({
+      limit: 2,
+      cursor: firstPage.nextCursor
+    });
+
+    expect(secondPage.conversations.map((conversation) => conversation.id)).toEqual([
+      conversations[2].id
+    ]);
+    expect(secondPage.hasMore).toBe(false);
+    expect(secondPage.nextCursor).toBeNull();
+  });
+
+  it("rejects invalid conversation page cursors", () => {
+    expect(() => listConversationsPage({ cursor: "invalid" })).toThrow();
   });
 });

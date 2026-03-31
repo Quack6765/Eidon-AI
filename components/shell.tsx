@@ -4,13 +4,13 @@ import { useState, type PropsWithChildren } from "react";
 import { Menu, Plus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/sidebar";
-import type { Conversation, Folder } from "@/lib/types";
+import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
 
 export function Shell({
-  conversations,
+  conversationPage,
   folders,
   children
-}: PropsWithChildren<{ conversations: Conversation[]; folders?: Folder[] }>) {
+}: PropsWithChildren<{ conversationPage: ConversationListPage; folders?: Folder[] }>) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   return (
@@ -34,7 +34,7 @@ export function Shell({
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <Sidebar conversations={conversations} folders={folders} onClose={() => setIsSidebarOpen(false)} />
+        <Sidebar conversationPage={conversationPage} folders={folders} onClose={() => setIsSidebarOpen(false)} />
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col relative w-full overflow-y-auto">

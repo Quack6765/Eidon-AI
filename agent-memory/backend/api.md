@@ -9,6 +9,7 @@
 - **Write Operations:** `POST`, `PUT`, and `DELETE` mutate SQLite through `lib/` helpers
 - **Async Operations:** Chat streaming uses `ReadableStream` and `text/event-stream`
 - **Sidebar Writes:** `PATCH /api/conversations/[conversationId]` updates a conversation folder assignment, and `PUT /api/folders` persists folder reorder payloads as ordered folder id arrays
+- **Sidebar Reads:** `GET /api/conversations` is cursor-paginated for the sidebar and returns `conversations`, `nextCursor`, and `hasMore`; the default page size is 10 and older pages are fetched by passing the returned cursor back as `?cursor=...`
 - **Settings Writes:** `PUT /api/settings` saves the full provider profile collection plus the default profile id
 - **Conversation Runtime Selection:** `PATCH /api/conversations/[conversationId]` also accepts `providerProfileId` so the active thread can switch presets without leaving chat
 

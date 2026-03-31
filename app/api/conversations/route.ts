@@ -1,12 +1,33 @@
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import { createConversation, listConversations, reorderConversations } from "@/lib/conversations";
+import {
+  createConversation,
+  DEFAULT_CONVERSATION_PAGE_SIZE,
+  listConversationsPage,
+  reorderConversations
+} from "@/lib/conversations";
 import { badRequest, ok } from "@/lib/http";
 
-export async function GET() {
+const listSchema = z.object({
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(DEFAULT_CONVERSATION_PAGE_SIZE)
+});
+
+export async function GET(request: Request) {
   await requireUser();
-  return ok({ conversations: listConversations() });
+  const params = Object.fromEntries(new URL(request.url).searchParams.entries());
+  const query = listSchema.safeParse(params);
+
+  if (!query.success) {
+    return badRequest("Invalid conversation list params");
+  }
+
+  try {
+    return ok(listConversationsPage(query.data));
+  } catch {
+    return badRequest("Invalid conversation list cursor");
+  }
 }
 
 const createSchema = z.object({
