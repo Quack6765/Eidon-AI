@@ -12,5 +12,6 @@ To validate:
 
 ### Dev Server
 
-- **Do NOT start the dev server yourself.** The user runs it separately and it supports hot-reload — no restarts needed after code changes.
-- If the app isn't reachable when validating, ask the user to start it.
+- You may start the dev server (`npm run dev`) when needed.
+- **Before starting**, check if something is already running on port 3000 (`lsof -i :3000`). If a process is found, kill it first, then start fresh.
+- After starting, wait for the server to be ready before proceeding with validation.
