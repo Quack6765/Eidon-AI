@@ -19,7 +19,7 @@
 
 ## Spacing & Layout
 - **Grid:** Full-bleed ChatGPT-style layout with fixed left sidebar (280px, off-canvas on mobile) and central chat view
-- **Max Content Width:** `max-w-3xl` for messages, `max-w-[680px]` for home input
+- **Max Content Width:** `max-w-5xl` for chat messages on desktop, `max-w-[980px]` for the floating composer, `max-w-[680px]` for the home input
 - **Input Area:** Floating pill at bottom with gradient fade-out, accent-colored send button with glow
 
 ## Conventions
@@ -28,7 +28,7 @@
 - **Animations:** `animate-slide-up` for page content, `animate-fade-in` for menus/dropdowns, CSS transitions (200-300ms ease) for all interactive states, `typing-dot` keyframes for loading indicator
 - **Responsive:** Mobile hamburger toggle for sidebar; desktop shows sidebar inline. Touch targets follow minimum 44px
 - **Settings:** Two-column card layout (`lg:grid-cols-[1.3fr,0.7fr]`), rounded-xl form elements, section headers with icon badges
-- **Chat Rendering:** User messages: right-aligned rounded pill with accent background. Assistant: left-aligned with avatar, full markdown support. Thinking: collapsible accordion with indigo border.
+- **Chat Rendering:** User messages: right-aligned rounded pill with accent background. Assistant: left-aligned with avatar and a compact `w-fit` reply bubble capped to the same width as user messages, using custom `.markdown-body` styling for headings, lists, tables, blockquotes, code, task lists, links, images, and horizontal rules. Thinking: collapsible accordion with indigo border.
 - **Conversation Controls:** Compact header with collapsible debug info, model selector dropdown
 - **Tool Activity Rows:** Assistant turns can render compact action rows above the answer body for skill loads and MCP tool calls. Running actions use a small spinner; successful actions use a green check; errors use a red X. Persisted rows replay after refresh because they are hydrated from message action records.
 - **Composer Runtime Controls:** The chat composer includes a per-conversation tool mode selector with `Read-Only` and `Read/Write` options alongside the send button.

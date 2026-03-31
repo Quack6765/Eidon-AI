@@ -143,4 +143,89 @@ describe("message bubble", () => {
     expect(screen.getByText("Thought")).toBeInTheDocument();
     expect(screen.queryByText("Reasoning summary")).toBeNull();
   });
+
+  it("renders double-escaped assistant and thinking line breaks as markdown paragraphs", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "First line\\\\nSecond line\\\\n\\\\nThird paragraph\\\\n\\\\n\\\\nFourth paragraph",
+          thinkingContent: "Thought one\\\\nThought two\\\\n\\\\nThought three\\\\n\\\\n\\\\nThought four"
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Thought/i }));
+
+    const markdownBlocks = Array.from(container.querySelectorAll(".markdown-body"));
+
+    expect(markdownBlocks).toHaveLength(2);
+    expect(markdownBlocks[0]?.innerHTML).toContain("<p>Thought one<br>");
+    expect(markdownBlocks[0]?.innerHTML).toContain("<p>Thought three</p>");
+    expect(markdownBlocks[0]?.innerHTML).toContain("<p>&nbsp;</p>");
+    expect(markdownBlocks[0]?.innerHTML).toContain("<p>Thought four</p>");
+    expect(markdownBlocks[1]?.innerHTML).toContain("<p>First line<br>");
+    expect(markdownBlocks[1]?.innerHTML).toContain("<p>Third paragraph</p>");
+    expect(markdownBlocks[1]?.innerHTML).toContain("<p>&nbsp;</p>");
+    expect(markdownBlocks[1]?.innerHTML).toContain("<p>Fourth paragraph</p>");
+  });
+
+  it("renders markdown elements inside a compact assistant bubble", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: [
+            "# Markdown Test Report",
+            "",
+            "This is a **diagnostic document** with _inline emphasis_.",
+            "",
+            "## Lists",
+            "",
+            "- Alpha",
+            "- Beta",
+            "  - Nested bullet",
+            "",
+            "1. First item",
+            "2. Second item",
+            "",
+            "- [x] Completed task",
+            "- [ ] Incomplete task",
+            "",
+            "> Single line quote.",
+            "",
+            "```py",
+            "def verify_rendering():",
+            '    return "Syntax highlighting works"',
+            "```",
+            "",
+            "| Feature | Rendered |",
+            "| --- | --- |",
+            "| Bold | Yes |",
+            "",
+            "[Test Link](https://example.com)",
+            "",
+            "![Placeholder Image](https://example.com/image.png)",
+            "",
+            "---"
+          ].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-message-bubble").className).toContain("w-fit");
+    expect(screen.getByRole("heading", { level: 1, name: "Markdown Test Report" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Lists" })).toBeInTheDocument();
+    expect(screen.getAllByRole("list").length).toBeGreaterThanOrEqual(3);
+    expect(container.querySelector("blockquote")).not.toBeNull();
+    expect(container.querySelector("pre code")).not.toBeNull();
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Test Link" })).toHaveAttribute("href", "https://example.com");
+    expect(screen.getByRole("img", { name: "Placeholder Image" })).toHaveAttribute(
+      "src",
+      "https://example.com/image.png"
+    );
+    expect(container.querySelector('input[type="checkbox"]')).not.toBeNull();
+    expect(container.querySelector("hr")).not.toBeNull();
+  });
 });

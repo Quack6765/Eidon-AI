@@ -400,7 +400,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       </div>
 
       <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 md:px-0 scroll-smooth">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-1 pt-4 pb-[160px] md:pb-[200px]">
+        <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pt-4 pb-[160px] md:pb-[200px]">
           {messages.map((message, index) => (
             <div
               key={message.id}
@@ -436,7 +436,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
       <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none">
         <div className="h-24 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/90 to-transparent" />
-        <div className="mx-auto w-full max-w-[700px] px-4 pb-4 md:pb-6 -mt-10 pointer-events-auto">
+        <div className="mx-auto w-full max-w-[980px] px-4 pb-4 md:pb-6 -mt-10 pointer-events-auto">
           <div className="relative rounded-2xl border border-white/6 bg-[var(--panel)] p-2 shadow-[var(--shadow)] transition-all duration-300 focus-within:border-[var(--accent)]/20 focus-within:shadow-[var(--shadow),0_0_0_3px_var(--accent-soft)]">
             <div className="flex max-h-[200px] w-full items-end gap-1 pb-0.5 pr-1">
               <div className="flex-1 rounded-lg border border-white/8 bg-[#1f1f23]">

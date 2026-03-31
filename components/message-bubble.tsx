@@ -8,15 +8,7 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
 import type { Message, MessageAction } from "@/lib/types";
-
-function normalizeLineBreaks(text: string) {
-  let result = text.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
-  result = result.replace(/\n{3,}/g, (match) => {
-    const extras = match.length - 2;
-    return "\n\n" + ("\u00A0\n\n".repeat(extras));
-  });
-  return result;
-}
+import { normalizeMarkdownLineBreaks } from "@/lib/utils";
 
 const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
 
@@ -73,6 +65,10 @@ function MessageActions({ actions }: { actions: MessageAction[] }) {
   );
 }
 
+const ASSISTANT_MAX_WIDTH = "max-w-[84%] md:max-w-[82%]";
+const ASSISTANT_BUBBLE =
+  "w-fit rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-[var(--text)] shadow-[0_8px_24px_rgba(0,0,0,0.28)]";
+
 export function MessageBubble({
   message,
   streamingThinking,
@@ -93,8 +89,8 @@ export function MessageBubble({
   const rawContent = streamingAnswer ?? message.content;
   const rawThinking = streamingThinking ?? message.thinkingContent;
   const actions = message.actions ?? [];
-  const content = normalizeLineBreaks(rawContent);
-  const thinkingContent = normalizeLineBreaks(rawThinking);
+  const content = normalizeMarkdownLineBreaks(rawContent);
+  const thinkingContent = normalizeMarkdownLineBreaks(rawThinking);
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || hasThinking || Boolean(thinkingContent));
 
@@ -109,7 +105,7 @@ export function MessageBubble({
   if (message.role === "user") {
     return (
       <div className="flex w-full justify-end">
-        <div className="max-w-[80%] md:max-w-[70%] rounded-2xl bg-[var(--accent-soft)] border border-[var(--accent)]/10 px-4 py-3 text-[var(--text)]">
+        <div className="max-w-[84%] md:max-w-[82%] rounded-2xl bg-[var(--accent-soft)] border border-[var(--accent)]/10 px-4 py-3 text-[var(--text)]">
           <p className="whitespace-pre-wrap text-[14.5px] leading-7">{content}</p>
         </div>
       </div>
@@ -123,55 +119,65 @@ export function MessageBubble({
           <img src="/chat-icon.png" alt="" className="h-full w-full object-cover" />
         </div>
 
-        <div className="flex-1 space-y-3 pt-0.5 text-[14.5px] text-[var(--text)]">
-          <MessageActions actions={actions} />
+        <div className="min-w-0 flex-1 pt-0.5 text-[14.5px] text-[var(--text)]">
+          <div className="flex flex-col items-start gap-3">
+            {actions.length ? (
+              <div className={`w-full ${ASSISTANT_MAX_WIDTH}`}>
+                <MessageActions actions={actions} />
+              </div>
+            ) : null}
 
-          {showThinkingShell ? (
-            <div className="mb-3 rounded-xl border border-white/6 bg-white/[0.02] px-3 py-2.5 transition-all duration-300">
-              <button
-                type="button"
-                onClick={() => setThinkingOpen((current) => !current)}
-                className="flex w-full items-center gap-2 text-left hover:opacity-80 transition-opacity duration-200"
-              >
-                <span className="flex h-4 w-4 shrink-0 items-center justify-center">
-                  {thinkingInProgress ? (
-                    <LoaderCircle className="h-3.5 w-3.5 animate-spin text-white/55" />
-                  ) : (
-                    <Check className="h-3.5 w-3.5 text-emerald-400" />
-                  )}
-                </span>
-                <span className="flex items-center gap-1.5 text-[13px] text-white/70">
-                  <span className="font-medium">{thinkingInProgress ? "Thinking" : "Thought"}</span>
-                  {thinkingInProgress ? (
-                    <span className="text-white/40">...</span>
-                  ) : thinkingDuration ? (
-                    <span className="text-white/40">(in {thinkingDuration.toFixed(1)}s)</span>
-                  ) : null}
-                </span>
-                <span className="ml-auto flex items-center">
-                  {thinkingOpen ? (
-                    <ChevronDown className="h-4 w-4 text-white/40" />
-                  ) : (
-                    <ChevronRight className="h-4 w-4 text-white/40" />
-                  )}
-                </span>
-              </button>
+            {showThinkingShell ? (
+              <div className={`w-full ${ASSISTANT_MAX_WIDTH} rounded-xl border border-white/6 bg-white/[0.02] px-3 py-2.5 transition-all duration-300`}>
+                <button
+                  type="button"
+                  onClick={() => setThinkingOpen((current) => !current)}
+                  className="flex w-full items-center gap-2 text-left hover:opacity-80 transition-opacity duration-200"
+                >
+                  <span className="flex h-4 w-4 shrink-0 items-center justify-center">
+                    {thinkingInProgress ? (
+                      <LoaderCircle className="h-3.5 w-3.5 animate-spin text-white/55" />
+                    ) : (
+                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    )}
+                  </span>
+                  <span className="flex items-center gap-1.5 text-[13px] text-white/70">
+                    <span className="font-medium">{thinkingInProgress ? "Thinking" : "Thought"}</span>
+                    {thinkingInProgress ? (
+                      <span className="text-white/40">...</span>
+                    ) : thinkingDuration ? (
+                      <span className="text-white/40">(in {thinkingDuration.toFixed(1)}s)</span>
+                    ) : null}
+                  </span>
+                  <span className="ml-auto flex items-center">
+                    {thinkingOpen ? (
+                      <ChevronDown className="h-4 w-4 text-white/40" />
+                    ) : (
+                      <ChevronRight className="h-4 w-4 text-white/40" />
+                    )}
+                  </span>
+                </button>
 
-              {thinkingOpen && thinkingContent ? (
-                <div className="prose prose-invert mt-2 max-w-none prose-p:my-3 prose-p:leading-7 prose-pre:rounded-xl prose-pre:border prose-pre:border-white/4 prose-pre:bg-white/[0.02] prose-code:text-white/70 prose-li:my-0.5 prose-ul:my-3 prose-ol:my-3 text-white/55 text-sm">
-                  <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{thinkingContent}</ReactMarkdown>
+                {thinkingOpen && thinkingContent ? (
+                  <div className="markdown-body mt-2 text-sm text-white/55">
+                    <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{thinkingContent}</ReactMarkdown>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {awaitingFirstToken ? (
+              <div className={`${ASSISTANT_MAX_WIDTH} ${ASSISTANT_BUBBLE}`} data-testid="assistant-message-bubble">
+                <TypingIndicator />
+              </div>
+            ) : content ? (
+              <div className={`${ASSISTANT_MAX_WIDTH} ${ASSISTANT_BUBBLE}`} data-testid="assistant-message-bubble">
+                <div className="markdown-body">
+                  <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{content}</ReactMarkdown>
                 </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {awaitingFirstToken ? (
-            <TypingIndicator />
-          ) : content ? (
-            <div className="prose prose-invert max-w-none prose-p:my-2 prose-p:leading-7 prose-pre:rounded-xl prose-pre:bg-white/[0.02] prose-pre:border prose-pre:border-white/4 prose-li:my-0.5 prose-ul:my-3 prose-ol:my-3 prose-a:text-[var(--accent)] prose-strong:text-white/90">
-              <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{content}</ReactMarkdown>
-            </div>
-          ) : null}
+              </div>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

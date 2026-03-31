@@ -2,6 +2,7 @@ import OpenAI from "openai";
 
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
 import { estimateTextTokens } from "@/lib/tokenization";
+import { normalizeLineBreaks } from "@/lib/utils";
 import type {
   ChatStreamEvent,
   PromptMessage,
@@ -80,10 +81,6 @@ function buildChatCompletionsOptions(settings: ProviderProfile) {
   } as const;
 }
 
-function normalizeProviderText(text: string) {
-  return text.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
-}
-
 function getResponseText(output: unknown) {
   if (typeof output === "string") {
     return output;
@@ -143,7 +140,7 @@ export async function callProviderText(input: {
       reasoning
     });
 
-    const text = normalizeProviderText(getResponseText(response));
+    const text = normalizeLineBreaks(getResponseText(response));
 
     if (!text.trim()) {
       throw new Error("Provider returned an empty response");
@@ -160,7 +157,7 @@ export async function callProviderText(input: {
     ...buildChatCompletionsOptions(settings)
   });
 
-  const text = normalizeProviderText(
+  const text = normalizeLineBreaks(
     typeof response.choices[0]?.message?.content === "string"
       ? response.choices[0]?.message?.content
       : ""
@@ -206,7 +203,7 @@ export async function* streamProviderResponse(input: {
 
     for await (const event of stream) {
       if (event.type === "response.output_text.delta") {
-        const text = normalizeProviderText(String(event.delta ?? ""));
+        const text = normalizeLineBreaks(String(event.delta ?? ""));
         answer += text;
         yield { type: "answer_delta", text };
       }
@@ -215,7 +212,7 @@ export async function* streamProviderResponse(input: {
         event.type === "response.reasoning_summary_text.delta" ||
         event.type === "response.reasoning_text.delta"
       ) {
-        const text = "delta" in event ? normalizeProviderText(String(event.delta ?? "")) : "";
+        const text = "delta" in event ? normalizeLineBreaks(String(event.delta ?? "")) : "";
         thinking += text;
         yield { type: "thinking_delta", text };
       }
@@ -235,7 +232,7 @@ export async function* streamProviderResponse(input: {
         };
 
         if (item.type === "reasoning" && Array.isArray(item.summary)) {
-          const combined = normalizeProviderText(item.summary.map((part) => part.text ?? "").join(""));
+          const combined = normalizeLineBreaks(item.summary.map((part) => part.text ?? "").join(""));
 
           if (combined && combined !== thinking) {
             const delta = combined.slice(thinking.length);
@@ -278,8 +275,8 @@ export async function* streamProviderResponse(input: {
           : "reasoning" in rawDelta
             ? (rawDelta as { reasoning?: string }).reasoning
             : "";
-    const reasoningDelta = normalizeProviderText(String(reasoningValue ?? ""));
-    const delta = normalizeProviderText(chunk.choices[0]?.delta?.content ?? "");
+    const reasoningDelta = normalizeLineBreaks(String(reasoningValue ?? ""));
+    const delta = normalizeLineBreaks(chunk.choices[0]?.delta?.content ?? "");
 
     if (reasoningDelta) {
       thinking += reasoningDelta;

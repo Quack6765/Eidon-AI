@@ -475,4 +475,45 @@ describe("provider integration", () => {
       text: "Hello\n\nWorld"
     });
   });
+
+  it("decodes double-escaped newline sequences from provider deltas", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([
+        { choices: [{ delta: { reasoning_content: "Plan:\\\\n\\\\n- step one" } }] },
+        { choices: [{ delta: { content: "Hello\\\\n\\\\nWorld" } }] }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        model: "glm-5-turbo",
+        apiMode: "chat_completions"
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+
+      if (next.done) {
+        expect(next.value.thinking).toBe("Plan:\n\n- step one");
+        expect(next.value.answer).toBe("Hello\n\nWorld");
+        break;
+      }
+
+      events.push(next.value);
+    }
+
+    expect(events).toContainEqual({
+      type: "thinking_delta",
+      text: "Plan:\n\n- step one"
+    });
+    expect(events).toContainEqual({
+      type: "answer_delta",
+      text: "Hello\n\nWorld"
+    });
+  });
 });
