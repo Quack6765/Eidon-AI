@@ -6,6 +6,7 @@ import Database from "better-sqlite3";
 import {
   DEFAULT_PROVIDER_PROFILE_NAME,
   DEFAULT_PROVIDER_SETTINGS,
+  DEFAULT_TOOL_EXECUTION_MODE,
   DEFAULT_SKILLS_ENABLED,
   SETTINGS_ROW_ID
 } from "@/lib/constants";
@@ -146,6 +147,7 @@ function migrate(db: Database.Database) {
       title TEXT NOT NULL,
       folder_id TEXT,
       provider_profile_id TEXT,
+      tool_execution_mode TEXT NOT NULL DEFAULT 'read_only',
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -201,6 +203,23 @@ function migrate(db: Database.Database) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS message_actions (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      server_id TEXT,
+      skill_id TEXT,
+      tool_name TEXT,
+      label TEXT NOT NULL,
+      detail TEXT NOT NULL DEFAULT '',
+      arguments_json TEXT,
+      result_summary TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS skills (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -223,6 +242,11 @@ function migrate(db: Database.Database) {
   if (!convColNames.includes("provider_profile_id")) {
     db.exec(
       "ALTER TABLE conversations ADD COLUMN provider_profile_id TEXT REFERENCES provider_profiles(id) ON DELETE SET NULL"
+    );
+  }
+  if (!convColNames.includes("tool_execution_mode")) {
+    db.exec(
+      `ALTER TABLE conversations ADD COLUMN tool_execution_mode TEXT NOT NULL DEFAULT '${DEFAULT_TOOL_EXECUTION_MODE}'`
     );
   }
 
@@ -261,6 +285,7 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_conversations_folder ON conversations(folder_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at ON messages(conversation_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_messages_compacted_at ON messages(conversation_id, compacted_at);
+    CREATE INDEX IF NOT EXISTS idx_message_actions_message_sort_order ON message_actions(message_id, sort_order, started_at);
     CREATE INDEX IF NOT EXISTS idx_memory_nodes_conversation_depth ON memory_nodes(conversation_id, depth, created_at);
     CREATE INDEX IF NOT EXISTS idx_memory_nodes_superseded ON memory_nodes(conversation_id, superseded_by_node_id);
     CREATE INDEX IF NOT EXISTS idx_folders_sort_order ON folders(sort_order);

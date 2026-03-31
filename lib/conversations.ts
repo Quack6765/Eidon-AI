@@ -6,9 +6,13 @@ import type {
   Conversation,
   ConversationListPage,
   Message,
+  MessageAction,
+  MessageActionKind,
+  MessageActionStatus,
   MessageRole,
   MessageStatus,
-  SystemMessageKind
+  SystemMessageKind,
+  ToolExecutionMode
 } from "@/lib/types";
 
 export const DEFAULT_CONVERSATION_PAGE_SIZE = 10;
@@ -18,6 +22,7 @@ type ConversationRow = {
   title: string;
   folder_id: string | null;
   provider_profile_id: string | null;
+  tool_execution_mode: ToolExecutionMode;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -38,6 +43,7 @@ function rowToConversation(row: ConversationRow): Conversation {
     title: row.title,
     folderId: row.folder_id,
     providerProfileId: row.provider_profile_id,
+    toolExecutionMode: row.tool_execution_mode,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -66,7 +72,42 @@ function rowToMessage(row: {
     estimatedTokens: row.estimated_tokens,
     systemKind: row.system_kind,
     compactedAt: row.compacted_at,
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    actions: []
+  };
+}
+
+function rowToMessageAction(row: {
+  id: string;
+  message_id: string;
+  kind: MessageActionKind;
+  status: MessageActionStatus;
+  server_id: string | null;
+  skill_id: string | null;
+  tool_name: string | null;
+  label: string;
+  detail: string;
+  arguments_json: string | null;
+  result_summary: string;
+  sort_order: number;
+  started_at: string;
+  completed_at: string | null;
+}): MessageAction {
+  return {
+    id: row.id,
+    messageId: row.message_id,
+    kind: row.kind,
+    status: row.status,
+    serverId: row.server_id,
+    skillId: row.skill_id,
+    toolName: row.tool_name,
+    label: row.label,
+    detail: row.detail,
+    arguments: row.arguments_json ? (JSON.parse(row.arguments_json) as Record<string, unknown>) : null,
+    resultSummary: row.result_summary,
+    sortOrder: row.sort_order,
+    startedAt: row.started_at,
+    completedAt: row.completed_at
   };
 }
 
@@ -94,7 +135,7 @@ function decodeConversationCursor(cursor: string): ConversationCursor {
 export function listConversations() {
   const rows = getDb()
     .prepare(
-      `SELECT id, title, folder_id, provider_profile_id, sort_order, created_at, updated_at
+      `SELECT id, title, folder_id, provider_profile_id, tool_execution_mode, sort_order, created_at, updated_at
        FROM conversations
        ORDER BY updated_at DESC`
     )
@@ -113,7 +154,7 @@ export function listConversationsPage(input: {
   const rows = cursor
     ? (getDb()
         .prepare(
-          `SELECT id, title, folder_id, provider_profile_id, sort_order, created_at, updated_at
+          `SELECT id, title, folder_id, provider_profile_id, tool_execution_mode, sort_order, created_at, updated_at
            FROM conversations
            WHERE updated_at < ?
              OR (updated_at = ? AND id < ?)
@@ -123,7 +164,7 @@ export function listConversationsPage(input: {
         .all(cursor.updatedAt, cursor.updatedAt, cursor.id, limit + 1) as ConversationRow[])
     : (getDb()
         .prepare(
-          `SELECT id, title, folder_id, provider_profile_id, sort_order, created_at, updated_at
+          `SELECT id, title, folder_id, provider_profile_id, tool_execution_mode, sort_order, created_at, updated_at
            FROM conversations
            ORDER BY updated_at DESC, id DESC
            LIMIT ?`
@@ -149,7 +190,7 @@ export function listConversationsPage(input: {
 export function getConversation(conversationId: string) {
   const row = getDb()
     .prepare(
-      `SELECT id, title, folder_id, provider_profile_id, sort_order, created_at, updated_at
+      `SELECT id, title, folder_id, provider_profile_id, tool_execution_mode, sort_order, created_at, updated_at
        FROM conversations
        WHERE id = ?`
     )
@@ -159,6 +200,7 @@ export function getConversation(conversationId: string) {
         title: string;
         folder_id: string | null;
         provider_profile_id: string | null;
+        tool_execution_mode: ToolExecutionMode;
         sort_order: number;
         created_at: string;
         updated_at: string;
@@ -181,6 +223,7 @@ export function createConversation(title = "New conversation", folderId?: string
     title,
     folderId: folderId ?? null,
     providerProfileId: settings.defaultProviderProfileId,
+    toolExecutionMode: "read_only" as ToolExecutionMode,
     sortOrder: maxOrder.max_order + 1,
     createdAt: timestamp,
     updatedAt: timestamp
@@ -193,16 +236,18 @@ export function createConversation(title = "New conversation", folderId?: string
         title,
         folder_id,
         provider_profile_id,
+        tool_execution_mode,
         sort_order,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       conversation.id,
       conversation.title,
       conversation.folderId,
       conversation.providerProfileId,
+      conversation.toolExecutionMode,
       conversation.sortOrder,
       conversation.createdAt,
       conversation.updatedAt
@@ -332,6 +377,69 @@ export function updateAssistantMessage(
     );
 }
 
+function listMessageActionsForMessageIds(messageIds: string[]) {
+  if (!messageIds.length) {
+    return [];
+  }
+
+  const placeholders = messageIds.map(() => "?").join(", ");
+
+  const rows = getDb()
+    .prepare(
+      `SELECT
+        id,
+        message_id,
+        kind,
+        status,
+        server_id,
+        skill_id,
+        tool_name,
+        label,
+        detail,
+        arguments_json,
+        result_summary,
+        sort_order,
+        started_at,
+        completed_at
+       FROM message_actions
+       WHERE message_id IN (${placeholders})
+       ORDER BY message_id ASC, sort_order ASC, started_at ASC`
+    )
+    .all(...messageIds) as Array<{
+      id: string;
+      message_id: string;
+      kind: MessageActionKind;
+      status: MessageActionStatus;
+      server_id: string | null;
+      skill_id: string | null;
+      tool_name: string | null;
+      label: string;
+      detail: string;
+      arguments_json: string | null;
+      result_summary: string;
+      sort_order: number;
+      started_at: string;
+      completed_at: string | null;
+    }>;
+
+  return rows.map(rowToMessageAction);
+}
+
+function attachActionsToMessages(messages: Message[]) {
+  const actionsByMessageId = new Map<string, MessageAction[]>();
+
+  listMessageActionsForMessageIds(messages.map((message) => message.id)).forEach((action) => {
+    const current = actionsByMessageId.get(action.messageId) ?? [];
+    current.push(action);
+    actionsByMessageId.set(action.messageId, current);
+  });
+
+  return messages.map((message) => ({
+    ...message,
+    actions: actionsByMessageId.get(message.id) ?? []
+  }));
+}
+
 export function listMessages(conversationId: string) {
   const rows = getDb()
     .prepare(
@@ -363,7 +471,7 @@ export function listMessages(conversationId: string) {
     created_at: string;
   }>;
 
-  return rows.map(rowToMessage);
+  return attachActionsToMessages(rows.map(rowToMessage));
 }
 
 export function listVisibleMessages(conversationId: string) {
@@ -402,7 +510,150 @@ export function getMessage(messageId: string) {
       }
     | undefined;
 
-  return row ? rowToMessage(row) : null;
+  if (!row) {
+    return null;
+  }
+
+  return attachActionsToMessages([rowToMessage(row)])[0] ?? null;
+}
+
+export function createMessageAction(input: {
+  messageId: string;
+  kind: MessageActionKind;
+  status?: MessageActionStatus;
+  serverId?: string | null;
+  skillId?: string | null;
+  toolName?: string | null;
+  label: string;
+  detail?: string;
+  arguments?: Record<string, unknown> | null;
+  resultSummary?: string;
+  sortOrder?: number;
+}) {
+  const timestamp = nowIso();
+  const action: MessageAction = {
+    id: createId("act"),
+    messageId: input.messageId,
+    kind: input.kind,
+    status: input.status ?? "running",
+    serverId: input.serverId ?? null,
+    skillId: input.skillId ?? null,
+    toolName: input.toolName ?? null,
+    label: input.label,
+    detail: input.detail ?? "",
+    arguments: input.arguments ?? null,
+    resultSummary: input.resultSummary ?? "",
+    sortOrder: input.sortOrder ?? 0,
+    startedAt: timestamp,
+    completedAt: null
+  };
+
+  getDb()
+    .prepare(
+      `INSERT INTO message_actions (
+        id,
+        message_id,
+        kind,
+        status,
+        server_id,
+        skill_id,
+        tool_name,
+        label,
+        detail,
+        arguments_json,
+        result_summary,
+        sort_order,
+        started_at,
+        completed_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      action.id,
+      action.messageId,
+      action.kind,
+      action.status,
+      action.serverId,
+      action.skillId,
+      action.toolName,
+      action.label,
+      action.detail,
+      action.arguments ? JSON.stringify(action.arguments) : null,
+      action.resultSummary,
+      action.sortOrder,
+      action.startedAt,
+      action.completedAt
+    );
+
+  return action;
+}
+
+export function updateMessageAction(
+  actionId: string,
+  patch: {
+    status?: MessageActionStatus;
+    detail?: string;
+    resultSummary?: string;
+    completedAt?: string | null;
+  }
+) {
+  const current = getDb()
+    .prepare(
+      `SELECT
+        id,
+        message_id,
+        kind,
+        status,
+        server_id,
+        skill_id,
+        tool_name,
+        label,
+        detail,
+        arguments_json,
+        result_summary,
+        sort_order,
+        started_at,
+        completed_at
+       FROM message_actions
+       WHERE id = ?`
+    )
+    .get(actionId) as
+    | {
+        id: string;
+        message_id: string;
+        kind: MessageActionKind;
+        status: MessageActionStatus;
+        server_id: string | null;
+        skill_id: string | null;
+        tool_name: string | null;
+        label: string;
+        detail: string;
+        arguments_json: string | null;
+        result_summary: string;
+        sort_order: number;
+        started_at: string;
+        completed_at: string | null;
+      }
+    | undefined;
+
+  if (!current) {
+    return null;
+  }
+
+  getDb()
+    .prepare(
+      `UPDATE message_actions
+       SET status = ?, detail = ?, result_summary = ?, completed_at = ?
+       WHERE id = ?`
+    )
+    .run(
+      patch.status ?? current.status,
+      patch.detail ?? current.detail,
+      patch.resultSummary ?? current.result_summary,
+      patch.completedAt !== undefined ? patch.completedAt : current.completed_at,
+      actionId
+    );
+
+  return listMessageActionsForMessageIds([current.message_id]).find((action) => action.id === actionId) ?? null;
 }
 
 export function markMessagesCompacted(messageIds: string[]) {
@@ -468,6 +719,20 @@ export function updateConversationProviderProfile(
     .run(providerProfileId, timestamp, conversationId);
 }
 
+export function updateConversationToolExecutionMode(
+  conversationId: string,
+  toolExecutionMode: ToolExecutionMode
+) {
+  const timestamp = nowIso();
+  getDb()
+    .prepare(
+      `UPDATE conversations
+       SET tool_execution_mode = ?, updated_at = ?
+       WHERE id = ?`
+    )
+    .run(toolExecutionMode, timestamp, conversationId);
+}
+
 export function reorderConversations(items: Array<{ id: string; folderId: string | null }>) {
   const statement = getDb()
     .prepare("UPDATE conversations SET sort_order = ?, folder_id = ?, updated_at = ? WHERE id = ?");
@@ -495,7 +760,15 @@ export function searchConversations(query: string) {
 
   const rows = getDb()
     .prepare(
-      `SELECT DISTINCT c.id, c.title, c.folder_id, c.provider_profile_id, c.sort_order, c.created_at, c.updated_at
+      `SELECT DISTINCT
+        c.id,
+        c.title,
+        c.folder_id,
+        c.provider_profile_id,
+        c.tool_execution_mode,
+        c.sort_order,
+        c.created_at,
+        c.updated_at
        FROM conversations c
        LEFT JOIN messages m ON c.id = m.conversation_id
        WHERE c.title LIKE ?
@@ -510,6 +783,7 @@ export function searchConversations(query: string) {
     title: string;
     folder_id: string | null;
     provider_profile_id: string | null;
+    tool_execution_mode: ToolExecutionMode;
     sort_order: number;
     created_at: string;
     updated_at: string;

@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach } from "vitest";
 
 const dataDir = path.resolve(".test-data");

@@ -1,5 +1,6 @@
 import {
   createConversation,
+  createMessageAction,
   createMessage,
   getConversation,
   getMessage,
@@ -8,7 +9,9 @@ import {
   listVisibleMessages,
   markMessagesCompacted,
   maybeRetitleConversationFromFirstUserMessage,
-  updateConversationProviderProfile
+  updateConversationProviderProfile,
+  updateConversationToolExecutionMode,
+  updateMessageAction
 } from "@/lib/conversations";
 import { getSettings, listProviderProfiles } from "@/lib/settings";
 
@@ -29,6 +32,7 @@ describe("conversation helpers", () => {
       "Build a small deployment checklist for me"
     );
     expect(getConversation(conversation.id)?.providerProfileId).toBe(defaultProfileId);
+    expect(getConversation(conversation.id)?.toolExecutionMode).toBe("read_only");
   });
 
   it("stores messages in chronological order", () => {
@@ -111,5 +115,58 @@ describe("conversation helpers", () => {
     updateConversationProviderProfile(conversation.id, nextProfileId);
 
     expect(getConversation(conversation.id)?.providerProfileId).toBe(nextProfileId);
+  });
+
+  it("stores message actions on assistant turns and hydrates them from message reads", () => {
+    const conversation = createConversation();
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Reply"
+    });
+
+    const action = createMessageAction({
+      messageId: message.id,
+      kind: "mcp_tool_call",
+      serverId: "mcp_docs",
+      toolName: "search_docs",
+      label: "Search docs",
+      detail: "query=MCP",
+      arguments: { query: "MCP" },
+      sortOrder: 0
+    });
+
+    const updated = updateMessageAction(action.id, {
+      status: "completed",
+      resultSummary: "Found docs",
+      completedAt: new Date().toISOString()
+    });
+
+    expect(updated?.status).toBe("completed");
+    expect(updated?.resultSummary).toBe("Found docs");
+    expect(getMessage(message.id)?.actions).toEqual([
+      expect.objectContaining({
+        id: action.id,
+        label: "Search docs",
+        resultSummary: "Found docs",
+        serverId: "mcp_docs",
+        toolName: "search_docs",
+        arguments: { query: "MCP" }
+      })
+    ]);
+    expect(listMessages(conversation.id)[0]?.actions).toEqual([
+      expect.objectContaining({
+        id: action.id,
+        status: "completed"
+      })
+    ]);
+  });
+
+  it("updates the conversation tool execution mode", () => {
+    const conversation = createConversation();
+
+    updateConversationToolExecutionMode(conversation.id, "read_write");
+
+    expect(getConversation(conversation.id)?.toolExecutionMode).toBe("read_write");
   });
 });

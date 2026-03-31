@@ -1,10 +1,13 @@
 import { z } from "zod";
 
+import { resolveAssistantTurn } from "@/lib/assistant-runtime";
 import { requireUser } from "@/lib/auth";
 import {
+  createMessageAction,
   createMessage,
   getConversation,
   maybeRetitleConversationFromFirstUserMessage,
+  updateMessageAction,
   updateAssistantMessage
 } from "@/lib/conversations";
 import { ensureCompactedContext } from "@/lib/compaction";
@@ -18,7 +21,6 @@ import { encodeSseEvent } from "@/lib/sse";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
-import { resolveAssistantWithSkills } from "@/lib/skill-runtime";
 import type { ChatStreamEvent } from "@/lib/types";
 
 const bodySchema = z.object({
@@ -98,18 +100,21 @@ export async function POST(
         let promptMessages = compacted.promptMessages;
         const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
 
-        // Append MCP tool descriptions
         const mcpServers = listEnabledMcpServers();
+        let mcpToolSets: Array<{
+          server: (typeof mcpServers)[number];
+          tools: Awaited<ReturnType<typeof import("@/lib/mcp-client")["discoverMcpTools"]>>;
+        }> = [];
         if (mcpServers.length) {
           const { gatherAllMcpTools, buildMcpToolsDescription } = await import("@/lib/mcp-client");
-          const toolSets = await gatherAllMcpTools(mcpServers);
-          const description = buildMcpToolsDescription(toolSets);
+          mcpToolSets = await gatherAllMcpTools(mcpServers, conversation.toolExecutionMode);
+          const description = buildMcpToolsDescription(mcpToolSets);
           if (description) {
             promptMessages = [
               ...promptMessages,
               {
                 role: "system" as const,
-                content: `MCP tools are available. When appropriate, respond with a tool call in this format:\n\nTOOL_CALL: {"server": "server_name", "tool": "tool_name", "arguments": {}}\n\nAvailable tools:\n\n${description}`
+                content: `MCP tools are available. When appropriate, respond with a tool call in this format:\n\nTOOL_CALL: {"serverId": "server_id", "tool": "tool_name", "arguments": {}}\n\nOnly emit TOOL_CALL when you want Hermes to execute a tool instead of answering normally.\n\nAvailable tools:\n\n${description}`
               }
             ];
           }
@@ -124,11 +129,72 @@ export async function POST(
           messageId: assistantMessage.id
         });
 
-        const providerResult = await resolveAssistantWithSkills({
+        let actionSortOrder = 0;
+
+        const providerResult = await resolveAssistantTurn({
           settings,
           promptMessages,
           skills,
-          onEvent: write
+          mcpToolSets,
+          onEvent: write,
+          onActionStart(action) {
+            const persisted = createMessageAction({
+              messageId: assistantMessage.id,
+              kind: action.kind,
+              label: action.label,
+              detail: action.detail,
+              serverId: action.serverId,
+              skillId: action.skillId,
+              toolName: action.toolName,
+              arguments: action.arguments,
+              sortOrder: actionSortOrder++
+            });
+
+            write({
+              type: "action_start",
+              action: persisted
+            });
+
+            return persisted.id;
+          },
+          onActionComplete(handle, patch) {
+            if (!handle) {
+              return;
+            }
+
+            const updated = updateMessageAction(handle, {
+              status: "completed",
+              detail: patch.detail,
+              resultSummary: patch.resultSummary,
+              completedAt: new Date().toISOString()
+            });
+
+            if (updated) {
+              write({
+                type: "action_complete",
+                action: updated
+              });
+            }
+          },
+          onActionError(handle, patch) {
+            if (!handle) {
+              return;
+            }
+
+            const updated = updateMessageAction(handle, {
+              status: "error",
+              detail: patch.detail,
+              resultSummary: patch.resultSummary,
+              completedAt: new Date().toISOString()
+            });
+
+            if (updated) {
+              write({
+                type: "action_error",
+                action: updated
+              });
+            }
+          }
         });
 
         updateAssistantMessage(assistantMessage.id, {

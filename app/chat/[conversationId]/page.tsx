@@ -50,6 +50,7 @@ export default async function ConversationPage({
         payload={{
           conversation,
           messages: listVisibleMessages(conversation.id),
+          toolExecutionMode: conversation.toolExecutionMode,
           providerProfiles: settings.providerProfiles,
           defaultProviderProfileId: settings.defaultProviderProfileId,
           debug: getConversationDebugStats(conversation.id)

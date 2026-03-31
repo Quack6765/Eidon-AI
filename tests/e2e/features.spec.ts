@@ -113,23 +113,42 @@ test.describe("Feature: Search conversations", () => {
 });
 
 test.describe("Feature: MCP Servers in settings", () => {
-  test("adds and removes an MCP server", async ({ page }) => {
+  test("adds, tests, retests, and removes an MCP server", async ({ page }) => {
     await signIn(page);
+    const serverName = `Test MCP ${Date.now()}`;
+
+    await page.route("**/api/mcp-servers/test", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          protocolVersion: "2025-03-26",
+          toolCount: 2,
+          text: "2 tools discovered"
+        })
+      });
+    });
 
     await page.getByRole("link", { name: "Open settings" }).click();
-    await expect(page.getByText("MCP Servers")).toBeVisible({ timeout: 5000 });
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByRole("heading", { name: "MCP Servers" })).toBeVisible({ timeout: 10000 });
 
     // Add MCP server
     await page.getByRole("button", { name: "Add MCP server" }).click();
-    await page.getByPlaceholder("My MCP Server").fill("Test MCP");
+    await page.getByPlaceholder("My MCP Server").fill(serverName);
     await page.getByPlaceholder("https://...").fill("https://mcp.example.com/api");
+    await page.getByRole("button", { name: "Test", exact: true }).click();
+    await expect(page.locator("text=2 tools discovered").first()).toBeVisible({ timeout: 5000 });
     await page.getByRole("button", { name: "Add server" }).click();
 
-    await expect(page.getByText("Test MCP")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(serverName, { exact: true })).toBeVisible({ timeout: 5000 });
+    await page.getByRole("button", { name: "Retest" }).last().click();
+    await expect(page.locator("text=2 tools discovered").first()).toBeVisible({ timeout: 5000 });
 
     // Delete it
-    page.locator('div').filter({ hasText: /Test MCP/ }).first().locator('button:has(.lucide-trash-2)').click();
-    await expect(page.getByText("Test MCP")).not.toBeVisible({ timeout: 3000 });
+    await page.locator('button:has(.lucide-trash-2)').last().click();
+    await expect(page.getByText(serverName, { exact: true })).not.toBeVisible({ timeout: 3000 });
   });
 });
 

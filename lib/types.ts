@@ -6,6 +6,12 @@ export type MessageRole = "user" | "assistant" | "system";
 
 export type MessageStatus = "idle" | "streaming" | "completed" | "error";
 
+export type ToolExecutionMode = "read_only" | "read_write";
+
+export type MessageActionKind = "skill_load" | "mcp_tool_call";
+
+export type MessageActionStatus = "running" | "completed" | "error";
+
 export type MemoryNodeType = "leaf_summary" | "merged_summary";
 
 export type SystemMessageKind = "compaction_notice";
@@ -44,6 +50,7 @@ export type Conversation = {
   title: string;
   folderId: string | null;
   providerProfileId: string | null;
+  toolExecutionMode: ToolExecutionMode;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -79,6 +86,43 @@ export type McpServer = {
   updatedAt: string;
 };
 
+export type McpTool = {
+  name: string;
+  title?: string;
+  description?: string;
+  inputSchema?: {
+    type: string;
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
+  annotations?: {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
+};
+
+export type McpToolCallResult = {
+  content: Array<{
+    type: string;
+    text?: string;
+    data?: string;
+    mimeType?: string;
+    resource?: {
+      uri: string;
+      text?: string;
+      blob?: string;
+      mimeType?: string;
+    };
+    uri?: string;
+    name?: string;
+  }>;
+  structuredContent?: Record<string, unknown>;
+  isError?: boolean;
+};
+
 export type Skill = {
   id: string;
   name: string;
@@ -100,6 +144,24 @@ export type Message = {
   systemKind: SystemMessageKind | null;
   compactedAt: string | null;
   createdAt: string;
+  actions?: MessageAction[];
+};
+
+export type MessageAction = {
+  id: string;
+  messageId: string;
+  kind: MessageActionKind;
+  status: MessageActionStatus;
+  serverId: string | null;
+  skillId: string | null;
+  toolName: string | null;
+  label: string;
+  detail: string;
+  arguments: Record<string, unknown> | null;
+  resultSummary: string;
+  sortOrder: number;
+  startedAt: string;
+  completedAt: string | null;
 };
 
 export type MemoryNode = {
@@ -145,6 +207,9 @@ export type ChatStreamEvent =
   | { type: "message_start"; messageId: string }
   | { type: "thinking_delta"; text: string }
   | { type: "answer_delta"; text: string }
+  | { type: "action_start"; action: MessageAction }
+  | { type: "action_complete"; action: MessageAction }
+  | { type: "action_error"; action: MessageAction }
   | { type: "system_notice"; text: string; kind: SystemMessageKind }
   | {
       type: "usage";

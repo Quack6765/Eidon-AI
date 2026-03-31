@@ -7,11 +7,12 @@ import { LoaderCircle, ArrowUp, Plus, ChevronDown } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
 import { formatTimestamp } from "@/lib/utils";
-import type { ChatStreamEvent, Conversation, Message } from "@/lib/types";
+import type { ChatStreamEvent, Conversation, Message, MessageAction, ToolExecutionMode } from "@/lib/types";
 
 type ConversationPayload = {
   conversation: Conversation;
   messages: Message[];
+  toolExecutionMode: ToolExecutionMode;
   providerProfiles: Array<{
     id: string;
     name: string;
@@ -69,7 +70,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [streamAnswerTarget, setStreamAnswerTarget] = useState("");
   const [streamAnswerDisplay, setStreamAnswerDisplay] = useState("");
   const [streamStartedAt, setStreamStartedAt] = useState<string | null>(null);
+  const [streamActions, setStreamActions] = useState<MessageAction[]>([]);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
+  const [toolExecutionMode, setToolExecutionMode] = useState(payload.toolExecutionMode);
   const [providerProfileId, setProviderProfileId] = useState(
     payload.conversation.providerProfileId ?? payload.defaultProviderProfileId
   );
@@ -81,6 +84,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [payload.messages]);
 
   useEffect(() => {
+    setToolExecutionMode(payload.toolExecutionMode);
+  }, [payload.toolExecutionMode]);
+
+  useEffect(() => {
     setProviderProfileId(payload.conversation.providerProfileId ?? payload.defaultProviderProfileId);
   }, [payload.conversation.providerProfileId, payload.defaultProviderProfileId]);
 
@@ -90,7 +97,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     queueRef.current.scrollTop = queueRef.current.scrollHeight;
-  }, [messages, streamThinkingDisplay, streamAnswerDisplay]);
+  }, [messages, streamThinkingDisplay, streamAnswerDisplay, streamActions]);
 
   useEffect(() => {
     if (streamThinkingDisplay === streamThinkingTarget) {
@@ -172,6 +179,38 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  async function updateToolExecutionMode(nextToolExecutionMode: ToolExecutionMode) {
+    const previousToolExecutionMode = toolExecutionMode;
+    setError("");
+    setToolExecutionMode(nextToolExecutionMode);
+
+    try {
+      const response = await fetch(`/api/conversations/${payload.conversation.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ toolExecutionMode: nextToolExecutionMode })
+      });
+
+      if (!response.ok) {
+        let message = "Unable to update tool mode";
+
+        try {
+          const failure = (await response.json()) as { error?: string };
+          message = failure.error ?? message;
+        } catch {}
+
+        throw new Error(message);
+      }
+
+      router.refresh();
+    } catch (caughtError) {
+      setToolExecutionMode(previousToolExecutionMode);
+      setError(caughtError instanceof Error ? caughtError.message : "Unable to update tool mode");
+    }
+  }
+
   async function submit() {
     const value = input.trim();
 
@@ -201,6 +240,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     setStreamAnswerTarget("");
     setStreamAnswerDisplay("");
     setStreamStartedAt(new Date().toISOString());
+    setStreamActions([]);
     setHasReceivedFirstToken(false);
 
     try {
@@ -272,6 +312,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             ]);
           }
 
+          if (event.type === "action_start") {
+            setStreamActions((current) => [...current, event.action]);
+          }
+
+          if (event.type === "action_complete" || event.type === "action_error") {
+            setStreamActions((current) =>
+              current.map((action) => (action.id === event.action.id ? event.action : action))
+            );
+          }
+
           if (event.type === "error") {
             setError(event.message);
           }
@@ -283,6 +333,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       setError(caughtError instanceof Error ? caughtError.message : "Chat failed");
     } finally {
       setStreamStartedAt(null);
+      setStreamActions([]);
       setStreamThinkingTarget("");
       setStreamThinkingDisplay("");
       setStreamAnswerTarget("");
@@ -348,6 +399,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 createdAt={streamStartedAt}
                 thinking={streamThinkingDisplay}
                 answer={streamAnswerDisplay}
+                actions={streamActions}
                 awaitingFirstToken={!hasReceivedFirstToken}
                 thinkingInProgress={Boolean(streamThinkingTarget) && !streamAnswerTarget}
               />
@@ -387,6 +439,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                   }
                 }}
               />
+
+              <select
+                value={toolExecutionMode}
+                onChange={(event) => void updateToolExecutionMode(event.target.value as ToolExecutionMode)}
+                className="mb-0.5 mr-2 h-8 rounded-lg border border-white/6 bg-white/[0.03] px-2 text-[11px] uppercase tracking-[0.12em] text-white/55 outline-none transition-all duration-200 focus:border-[var(--accent)]/30"
+                disabled={isSending}
+              >
+                <option value="read_only">Read-Only</option>
+                <option value="read_write">Read/Write</option>
+              </select>
 
               <button
                 onClick={() => void submit()}

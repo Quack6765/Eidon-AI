@@ -30,3 +30,6 @@
 - **Settings:** Two-column card layout (`lg:grid-cols-[1.3fr,0.7fr]`), rounded-xl form elements, section headers with icon badges
 - **Chat Rendering:** User messages: right-aligned rounded pill with accent background. Assistant: left-aligned with avatar, full markdown support. Thinking: collapsible accordion with indigo border.
 - **Conversation Controls:** Compact header with collapsible debug info, model selector dropdown
+- **Tool Activity Rows:** Assistant turns can render compact action rows above the answer body for skill loads and MCP tool calls. Running actions use a small spinner; successful actions use a green check; errors use a red X. Persisted rows replay after refresh because they are hydrated from message action records.
+- **Composer Runtime Controls:** The chat composer includes a per-conversation tool mode selector with `Read-Only` and `Read/Write` options alongside the send button.
+- **MCP Settings UX:** The MCP settings card supports draft testing before save and row-level retesting after save, with inline connection result text beneath each server row or form.

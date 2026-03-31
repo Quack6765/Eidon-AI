@@ -6,7 +6,8 @@ import {
   getConversation,
   listVisibleMessages,
   moveConversationToFolder,
-  updateConversationProviderProfile
+  updateConversationProviderProfile,
+  updateConversationToolExecutionMode
 } from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
 import { badRequest, ok } from "@/lib/http";
@@ -58,10 +59,14 @@ export async function DELETE(
 const updateSchema = z
   .object({
     folderId: z.string().nullable().optional(),
-    providerProfileId: z.string().min(1).optional()
+    providerProfileId: z.string().min(1).optional(),
+    toolExecutionMode: z.enum(["read_only", "read_write"]).optional()
   })
   .refine(
-    (value) => value.folderId !== undefined || value.providerProfileId !== undefined,
+    (value) =>
+      value.folderId !== undefined ||
+      value.providerProfileId !== undefined ||
+      value.toolExecutionMode !== undefined,
     "Invalid conversation update"
   );
 
@@ -100,6 +105,10 @@ export async function PATCH(
     }
 
     updateConversationProviderProfile(conversation.id, providerProfile.id);
+  }
+
+  if (body.data.toolExecutionMode !== undefined) {
+    updateConversationToolExecutionMode(conversation.id, body.data.toolExecutionMode);
   }
 
   return ok({ conversation: getConversation(conversation.id) });

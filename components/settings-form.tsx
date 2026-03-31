@@ -101,6 +101,9 @@ export function SettingsForm({
   const [mcpArgs, setMcpArgs] = useState("");
   const [mcpEnv, setMcpEnv] = useState("");
   const [editingMcpId, setEditingMcpId] = useState<string | null>(null);
+  const [mcpDraftTestResult, setMcpDraftTestResult] = useState("");
+  const [mcpRowTestResults, setMcpRowTestResults] = useState<Record<string, string>>({});
+  const [mcpTestingTarget, setMcpTestingTarget] = useState<string | null>(null);
 
   const [skills, setSkills] = useState<Skill[]>([]);
   const [showSkillForm, setShowSkillForm] = useState(false);
@@ -346,6 +349,83 @@ export function SettingsForm({
     resetMcpForm();
   }
 
+  async function testMcpServer(serverId?: string) {
+    setError("");
+    const target = serverId ?? "draft";
+    setMcpTestingTarget(target);
+
+    try {
+      let payload: Record<string, unknown>;
+
+      if (serverId) {
+        payload = { serverId };
+      } else {
+        if (!mcpName.trim()) return;
+        if (mcpTransport === "streamable_http" && !mcpUrl.trim()) return;
+        if (mcpTransport === "stdio" && !mcpCommand.trim()) return;
+
+        payload = {
+          name: mcpName,
+          transport: mcpTransport
+        };
+
+        if (mcpTransport === "streamable_http") {
+          payload.url = mcpUrl;
+          payload.headers = mcpHeaders.trim() ? JSON.parse(mcpHeaders) : {};
+        } else {
+          payload.command = mcpCommand;
+          payload.args = mcpArgs.trim()
+            ? (() => {
+                try {
+                  const parsed = JSON.parse(mcpArgs);
+                  return Array.isArray(parsed) ? parsed : mcpArgs.split(/\s+/).filter(Boolean);
+                } catch {
+                  return mcpArgs.split(/\s+/).filter(Boolean);
+                }
+              })()
+            : [];
+          payload.env = mcpEnv.trim() ? JSON.parse(mcpEnv) : {};
+          payload.url = "";
+          payload.headers = {};
+        }
+      }
+
+      const response = await fetch("/api/mcp-servers/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const result = (await response.json()) as { text?: string; error?: string; toolCount?: number };
+      const message = result.text ?? result.error ?? "No result";
+
+      if (serverId) {
+        setMcpRowTestResults((current) => ({
+          ...current,
+          [serverId]: message
+        }));
+      } else {
+        setMcpDraftTestResult(message);
+      }
+
+      if (!response.ok) {
+        setError(message);
+      }
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : "MCP connection test failed";
+      if (serverId) {
+        setMcpRowTestResults((current) => ({
+          ...current,
+          [serverId]: message
+        }));
+      } else {
+        setMcpDraftTestResult(message);
+      }
+      setError(message);
+    } finally {
+      setMcpTestingTarget(null);
+    }
+  }
+
   async function deleteMcpServer(id: string) {
     await fetch(`/api/mcp-servers/${id}`, { method: "DELETE" });
     setMcpServers((prev) => prev.filter((s) => s.id !== id));
@@ -369,6 +449,7 @@ export function SettingsForm({
     setMcpCommand(server.command ?? "");
     setMcpArgs(server.args ? JSON.stringify(server.args) : "");
     setMcpEnv(server.env ? JSON.stringify(server.env, null, 2) : "");
+    setMcpDraftTestResult(mcpRowTestResults[server.id] ?? "");
     setShowMcpForm(true);
   }
 
@@ -382,6 +463,7 @@ export function SettingsForm({
     setMcpArgs("");
     setMcpEnv("");
     setEditingMcpId(null);
+    setMcpDraftTestResult("");
   }
 
   async function saveSkill() {
@@ -823,50 +905,62 @@ export function SettingsForm({
             {mcpServers.map((server) => (
               <div
                 key={server.id}
-                className="flex items-center justify-between rounded-xl border border-white/4 bg-white/[0.01] px-4 py-3"
+                className="rounded-xl border border-white/4 bg-white/[0.01] px-4 py-3"
               >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-[var(--text)]">{server.name}</span>
-                    {server.transport === "stdio" ? (
-                      <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
-                        stdio
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-[var(--text)]">{server.name}</span>
+                      {server.transport === "stdio" ? (
+                        <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
+                          stdio
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded-md bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-sky-400">
+                          http
+                        </span>
+                      )}
+                      <span className="truncate text-xs text-white/20">
+                        {server.transport === "stdio"
+                          ? `${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`
+                          : server.url}
                       </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-md bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-sky-400">
-                        http
-                      </span>
-                    )}
-                    <span className="text-xs text-white/20 truncate">
-                      {server.transport === "stdio"
-                        ? `${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`
-                        : server.url}
-                    </span>
+                    </div>
+                  </div>
+                  <div className="ml-2 flex items-center gap-2">
+                    <button
+                      onClick={() => void testMcpServer(server.id)}
+                      className="rounded-md border border-white/6 px-2 py-1 text-[11px] uppercase tracking-[0.12em] text-white/45 transition-colors duration-200 hover:text-white"
+                      disabled={mcpTestingTarget === server.id}
+                    >
+                      {mcpTestingTarget === server.id ? "Testing" : "Retest"}
+                    </button>
+                    <label className="flex cursor-pointer items-center gap-1.5 text-xs text-white/40">
+                      <input
+                        type="checkbox"
+                        checked={server.enabled}
+                        onChange={(e) => toggleMcpServer(server.id, e.target.checked)}
+                        className="rounded"
+                      />
+                      On
+                    </label>
+                    <button
+                      onClick={() => editMcpServer(server)}
+                      className="p-1 text-white/30 transition-colors duration-200 hover:text-white"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => deleteMcpServer(server.id)}
+                      className="p-1 text-red-400/40 transition-colors duration-200 hover:text-red-400"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
                 </div>
-                <div className="ml-2 flex items-center gap-2">
-                  <label className="flex items-center gap-1.5 text-xs text-white/40 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={server.enabled}
-                      onChange={(e) => toggleMcpServer(server.id, e.target.checked)}
-                      className="rounded"
-                    />
-                    On
-                  </label>
-                  <button
-                    onClick={() => editMcpServer(server)}
-                    className="p-1 text-white/30 transition-colors duration-200 hover:text-white"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={() => deleteMcpServer(server.id)}
-                    className="p-1 text-red-400/40 transition-colors duration-200 hover:text-red-400"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
+                {mcpRowTestResults[server.id] ? (
+                  <p className="mt-2 truncate text-xs text-white/30">{mcpRowTestResults[server.id]}</p>
+                ) : null}
               </div>
             ))}
 
@@ -948,6 +1042,14 @@ export function SettingsForm({
                   </>
                 )}
                 <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() => void testMcpServer()}
+                    disabled={mcpTestingTarget === "draft"}
+                  >
+                    {mcpTestingTarget === "draft" ? "Testing" : "Test"}
+                  </Button>
                   <Button type="button" onClick={saveMcpServer}>
                     {editingMcpId ? "Update" : "Add server"}
                   </Button>
@@ -955,6 +1057,9 @@ export function SettingsForm({
                     Cancel
                   </Button>
                 </div>
+                {mcpDraftTestResult ? (
+                  <p className="text-xs text-white/35">{mcpDraftTestResult}</p>
+                ) : null}
               </div>
             ) : (
               <Button

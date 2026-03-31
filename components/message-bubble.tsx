@@ -1,12 +1,13 @@
 "use client";
 
+import React from "react";
 import { useState } from "react";
-import { ChevronDown, ChevronRight, LoaderCircle } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, LoaderCircle, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
-import type { Message } from "@/lib/types";
+import type { Message, MessageAction } from "@/lib/types";
 
 function normalizeLineBreaks(text: string) {
   let result = text.replace(/\\r\\n/g, "\n").replace(/\\n/g, "\n").replace(/\\r/g, "\n");
@@ -36,6 +37,42 @@ function TypingIndicator() {
   );
 }
 
+function MessageActions({ actions }: { actions: MessageAction[] }) {
+  if (!actions.length) {
+    return null;
+  }
+
+  return (
+    <div className="space-y-2">
+      {actions.map((action) => (
+        <div
+          key={action.id}
+          className="flex items-center gap-2.5 rounded-xl border border-white/6 bg-white/[0.02] px-3 py-2.5 text-sm"
+        >
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
+            {action.status === "running" ? (
+              <LoaderCircle className="h-3 w-3 animate-spin text-white/55" />
+            ) : action.status === "completed" ? (
+              <Check className="h-3 w-3 text-emerald-400" />
+            ) : (
+              <X className="h-3 w-3 text-red-400" />
+            )}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[13px] font-medium text-white/85">
+              {action.label}
+              {action.detail ? <span className="font-normal text-white/55">: {action.detail}</span> : null}
+            </div>
+            {action.status !== "running" && action.resultSummary ? (
+              <p className="truncate text-xs text-white/35">{action.resultSummary}</p>
+            ) : null}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function MessageBubble({
   message,
   streamingThinking,
@@ -51,6 +88,7 @@ export function MessageBubble({
 }) {
   const rawContent = streamingAnswer ?? message.content;
   const rawThinking = streamingThinking ?? message.thinkingContent;
+  const actions = message.actions ?? [];
   const content = normalizeLineBreaks(rawContent);
   const thinkingContent = normalizeLineBreaks(rawThinking);
   const [thinkingOpen, setThinkingOpen] = useState(false);
@@ -82,6 +120,8 @@ export function MessageBubble({
         </div>
 
         <div className="flex-1 space-y-3 pt-0.5 text-[14.5px] text-[var(--text)]">
+          <MessageActions actions={actions} />
+
           {showThinkingShell ? (
             <div className="mb-3 rounded-xl border border-[var(--thinking)]/10 bg-[var(--thinking)]/[0.03] px-4 py-3 transition-all duration-300">
               <button
@@ -134,12 +174,14 @@ export function StreamingPlaceholder({
   createdAt,
   thinking,
   answer,
+  actions,
   awaitingFirstToken,
   thinkingInProgress
 }: {
   createdAt: string;
   thinking: string;
   answer: string;
+  actions: MessageAction[];
   awaitingFirstToken: boolean;
   thinkingInProgress: boolean;
 }) {
@@ -155,7 +197,8 @@ export function StreamingPlaceholder({
         estimatedTokens: 0,
         systemKind: null,
         compactedAt: null,
-        createdAt
+        createdAt,
+        actions
       }}
       streamingThinking={thinking}
       streamingAnswer={answer}
