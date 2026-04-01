@@ -19,5 +19,8 @@
 - **Client Implementation:** Hermes uses the official `@modelcontextprotocol/sdk` client for both `stdio` and `streamable_http` transports
 - **Protocol Baseline:** Hermes advertises and tests against MCP protocol version `2025-03-26`
 - **Tool Permissions:** In `Read-Only` mode, Hermes only exposes tools with `annotations.readOnlyHint === true`; unannotated tools are treated as non-read-only and hidden
+- **Capability Inventory:** Before each assistant turn, Hermes merges a unified capability inventory into the primary system prompt so the model sees enabled skills, configured MCP servers, and currently executable MCP tools in one place
+- **Capability Questions:** Direct "what tools / skills / MCP servers do you have?" questions are answered from Hermes' own runtime inventory instead of relying on the model to describe its environment from memory
 - **Runtime Flow:** The assistant can emit `TOOL_CALL: {...}` control messages, Hermes executes the MCP tool itself, then injects the structured result back into the prompt loop before the final answer
+- **Auto Tool Use:** Hermes can proactively trigger the best matching MCP tool on the first pass for obvious current-information and web-research requests before asking the model to answer
 - **Connection Testing:** Settings-level MCP tests perform a real SDK initialize plus `listTools` request and show the discovered tool count inline

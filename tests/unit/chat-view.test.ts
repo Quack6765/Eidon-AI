@@ -187,6 +187,43 @@ describe("chat view attachments", () => {
         }
       })
     } as Response);
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        conversation: createPayload().conversation,
+        messages: [
+          {
+            id: "msg_user",
+            conversationId: "conv_1",
+            role: "user",
+            content: "Bootstrap prompt",
+            thinkingContent: "",
+            status: "completed",
+            estimatedTokens: 0,
+            systemKind: null,
+            compactedAt: null,
+            createdAt: new Date().toISOString(),
+            actions: [],
+            attachments: []
+          },
+          {
+            id: "msg_assistant",
+            conversationId: "conv_1",
+            role: "assistant",
+            content: "Done",
+            thinkingContent: "",
+            status: "completed",
+            estimatedTokens: 0,
+            systemKind: null,
+            compactedAt: null,
+            createdAt: new Date().toISOString(),
+            actions: [],
+            attachments: []
+          }
+        ],
+        debug: createPayload().debug
+      })
+    } as Response);
 
     render(React.createElement(ChatView, { payload: createPayload() }));
 
@@ -197,6 +234,10 @@ describe("chat view attachments", () => {
           method: "POST"
         })
       );
+    });
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/conversations/conv_1");
     });
   });
 
@@ -217,6 +258,47 @@ describe("chat view attachments", () => {
             );
             controller.close();
           }
+        })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          conversation: {
+            ...createPayload().conversation,
+            title: "Conversation",
+            titleGenerationStatus: "pending"
+          },
+          messages: [
+            {
+              id: "msg_user",
+              conversationId: "conv_1",
+              role: "user",
+              content: "Build a deployment checklist",
+              thinkingContent: "",
+              status: "completed",
+              estimatedTokens: 0,
+              systemKind: null,
+              compactedAt: null,
+              createdAt: new Date().toISOString(),
+              actions: [],
+              attachments: []
+            },
+            {
+              id: "msg_assistant",
+              conversationId: "conv_1",
+              role: "assistant",
+              content: "Done",
+              thinkingContent: "",
+              status: "completed",
+              estimatedTokens: 0,
+              systemKind: null,
+              compactedAt: null,
+              createdAt: new Date().toISOString(),
+              actions: [],
+              attachments: []
+            }
+          ],
+          debug: createPayload().debug
         })
       } as Response)
       .mockResolvedValueOnce({
@@ -265,6 +347,6 @@ describe("chat view attachments", () => {
       expect(screen.getByText("Deployment Checklist")).toBeInTheDocument();
     });
 
-    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

@@ -8,6 +8,7 @@
 - **Data Fetching:** Server components read directly from SQLite-backed helpers in `lib/`
 - **Caching:** No separate client cache layer
 - **Revalidation:** Client actions call route handlers and then `router.refresh()`
+- **Chat Turn Sync:** `components/chat-view.tsx` no longer forces a full `router.refresh()` after each streamed assistant turn; it rehydrates the active conversation in place via `GET /api/conversations/[conversationId]` to avoid visible page reloads and preserve local stream UX
 
 ## Form State
 - **Library:** Native forms plus React state

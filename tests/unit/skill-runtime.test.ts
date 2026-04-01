@@ -108,12 +108,18 @@ describe("skill runtime", () => {
     });
 
     expect(streamProviderResponse).toHaveBeenCalledTimes(2);
-    expect(streamProviderResponse.mock.calls[0][0].promptMessages.at(-1)?.content).toContain(
-      "You currently have access only to skill metadata."
-    );
-    expect(streamProviderResponse.mock.calls[1][0].promptMessages.at(-1)?.content).toContain(
-      "Summarize changes for end users in concise release notes."
-    );
+    const metadataMessage = streamProviderResponse.mock.calls[0][0].promptMessages.find(
+      (message: { role: string; content: string }) =>
+        message.role === "system" && message.content.includes("You currently have access only to skill metadata.")
+    )?.content;
+
+    expect(metadataMessage).toContain("You currently have access only to skill metadata.");
+    const loadedSkillPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
+      (message: { role: string; content: string }) =>
+        message.role === "system" && message.content.includes("Summarize changes for end users in concise release notes.")
+    )?.content;
+
+    expect(loadedSkillPrompt).toContain("Summarize changes for end users in concise release notes.");
     expect(emitted).toEqual([{ type: "answer_delta", text: "Done" }]);
     expect(result.answer).toBe("Done");
     expect(result.usage.outputTokens).toBe(1);

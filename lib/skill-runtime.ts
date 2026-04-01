@@ -13,6 +13,23 @@ type Usage = {
   reasoningTokens?: number;
 };
 
+function mergeSystemMessage(promptMessages: PromptMessage[], content: string): PromptMessage[] {
+  const systemIndex = promptMessages.findIndex((message) => message.role === "system");
+
+  if (systemIndex === -1) {
+    return [{ role: "system", content }, ...promptMessages];
+  }
+
+  return promptMessages.map((message, index) =>
+    index === systemIndex
+      ? {
+          ...message,
+          content: `${message.content}\n\n${content}`
+        }
+      : message
+  );
+}
+
 function normalizeSkillName(name: string) {
   return name.trim().toLowerCase();
 }
@@ -80,13 +97,7 @@ export async function resolveAssistantWithSkills(input: {
   const loadedSkillIds = new Set<string>();
   const maxPasses = Math.max(1, input.skills.length + 1);
   let promptMessages = input.skills.length
-    ? [
-        ...input.promptMessages,
-        {
-          role: "system" as const,
-          content: buildSkillsMetadataMessage(input.skills)
-        }
-      ]
+    ? mergeSystemMessage(input.promptMessages, buildSkillsMetadataMessage(input.skills))
     : input.promptMessages;
 
   for (let pass = 0; pass < maxPasses; pass += 1) {
@@ -136,23 +147,17 @@ export async function resolveAssistantWithSkills(input: {
 
       if (requestedSkills.length) {
         requestedSkills.forEach((skill) => loadedSkillIds.add(skill.id));
-        promptMessages = [
-          ...promptMessages,
-          {
-            role: "system" as const,
-            content: buildLoadedSkillsMessage(requestedSkills)
-          }
-        ];
+        promptMessages = mergeSystemMessage(
+          promptMessages,
+          buildLoadedSkillsMessage(requestedSkills)
+        );
         continue;
       }
 
-      promptMessages = [
-        ...promptMessages,
-        {
-          role: "system" as const,
-          content: "The requested skill is unavailable or already loaded. Continue and answer the user without another SKILL_REQUEST."
-        }
-      ];
+      promptMessages = mergeSystemMessage(
+        promptMessages,
+        "The requested skill is unavailable or already loaded. Continue and answer the user without another SKILL_REQUEST."
+      );
       continue;
     }
 

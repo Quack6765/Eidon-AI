@@ -115,18 +115,8 @@ export async function POST(
           tools: Awaited<ReturnType<typeof import("@/lib/mcp-client")["discoverMcpTools"]>>;
         }> = [];
         if (mcpServers.length) {
-          const { gatherAllMcpTools, buildMcpToolsDescription } = await import("@/lib/mcp-client");
+          const { gatherAllMcpTools } = await import("@/lib/mcp-client");
           mcpToolSets = await gatherAllMcpTools(mcpServers, conversation.toolExecutionMode);
-          const description = buildMcpToolsDescription(mcpToolSets);
-          if (description) {
-            promptMessages = [
-              ...promptMessages,
-              {
-                role: "system" as const,
-                content: `MCP tools are available. When appropriate, respond with a tool call in this format:\n\nTOOL_CALL: {"serverId": "server_id", "tool": "tool_name", "arguments": {}}\n\nOnly emit TOOL_CALL when you want Hermes to execute a tool instead of answering normally.\n\nAvailable tools:\n\n${description}`
-              }
-            ];
-          }
         }
 
         if (compacted.compactionNoticeEvent) {
@@ -144,6 +134,7 @@ export async function POST(
           settings,
           promptMessages,
           skills,
+          mcpServers,
           mcpToolSets,
           onEvent: write,
           onActionStart(action) {

@@ -60,6 +60,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [titleGenerationStatus, setTitleGenerationStatus] = useState(
     payload.conversation.titleGenerationStatus
   );
+  const [debug, setDebug] = useState(payload.debug);
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -102,6 +103,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     setTitleGenerationStatus(payload.conversation.titleGenerationStatus);
   }, [payload.conversation.titleGenerationStatus]);
+
+  useEffect(() => {
+    setDebug(payload.debug);
+  }, [payload.debug]);
 
   useEffect(() => {
     setToolExecutionMode(payload.toolExecutionMode);
@@ -177,6 +182,25 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }, 1000);
   }
 
+  async function syncConversationState() {
+    const response = await fetch(`/api/conversations/${payload.conversation.id}`);
+
+    if (!response.ok) {
+      return;
+    }
+
+    const result = (await response.json()) as {
+      conversation: Conversation;
+      messages: Message[];
+      debug: ConversationPayload["debug"];
+    };
+
+    setMessages(result.messages);
+    setConversationTitle(result.conversation.title);
+    setTitleGenerationStatus(result.conversation.titleGenerationStatus);
+    setDebug(result.debug);
+  }
+
   function startTitlePolling() {
     if (
       titlePollTimeoutRef.current !== null ||
@@ -238,12 +262,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [streamAnswerDisplay, streamAnswerTarget]);
 
   const latestCompactionLabel = useMemo(() => {
-    if (!payload.debug.latestCompactionAt) {
+    if (!debug.latestCompactionAt) {
       return "No compaction yet";
     }
 
-    return formatTimestamp(payload.debug.latestCompactionAt);
-  }, [payload.debug.latestCompactionAt]);
+    return formatTimestamp(debug.latestCompactionAt);
+  }, [debug.latestCompactionAt]);
 
   const selectedProfile = useMemo(
     () => payload.providerProfiles.find((profile) => profile.id === providerProfileId) ?? null,
@@ -616,7 +640,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         ]);
       }
 
-      router.refresh();
+      await syncConversationState();
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Chat failed");
     } finally {
@@ -714,7 +738,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             </button>
             {showDebug && (
               <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-white/25 animate-fade-in">
-                <span>{payload.debug.rawTurnCount} raw turns</span>
+                <span>{debug.rawTurnCount} raw turns</span>
                 <span>Latest compaction: {latestCompactionLabel}</span>
               </div>
             )}

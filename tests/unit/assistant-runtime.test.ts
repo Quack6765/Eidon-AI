@@ -138,11 +138,161 @@ describe("assistant runtime", () => {
         resultSummary: "Skill instructions loaded."
       }
     ]);
-    expect(streamProviderResponse.mock.calls[1][0].promptMessages.at(-1)?.content).toContain(
-      "Summarize changes for end users in concise release notes."
-    );
+    const loadedSkillPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
+      (message: { role: string; content: string }) =>
+        message.role === "system" && message.content.includes("Summarize changes for end users in concise release notes.")
+    )?.content;
+
+    expect(loadedSkillPrompt).toContain("Summarize changes for end users in concise release notes.");
     expect(emitted).toEqual([{ type: "answer_delta", text: "Done" }]);
     expect(result.answer).toBe("Done");
+  });
+
+  it("injects a unified capability inventory with skill aliases and MCP servers", async () => {
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    const emitted: ChatStreamEvent[] = [];
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "What tools do you have access to?" }],
+      skills: [
+        createSkill({
+          id: "builtin-agent-browser",
+          name: "Agent Browser",
+          description: "Use for browser automation and page inspection."
+        })
+      ],
+      mcpToolSets: [
+        {
+          server: {
+            id: "mcp_exa",
+            name: "Exa",
+            url: "https://mcp.exa.ai",
+            headers: {},
+            transport: "streamable_http",
+            command: null,
+            args: null,
+            env: null,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          tools: [
+            {
+              name: "search",
+              title: "Web search",
+              description: "Search the web.",
+              inputSchema: { type: "object" },
+              annotations: { readOnlyHint: true }
+            }
+          ]
+        }
+      ],
+      mcpServers: [
+        {
+          id: "mcp_exa",
+          name: "Exa",
+          url: "https://mcp.exa.ai",
+          headers: {},
+          transport: "streamable_http",
+          command: null,
+          args: null,
+          env: null,
+          enabled: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      ],
+      onEvent: (event) => emitted.push(event)
+    });
+
+    expect(streamProviderResponse).not.toHaveBeenCalled();
+    expect(result.answer).toContain("MCP servers: Exa.");
+    expect(result.answer).toContain("Skills: agent-browser.");
+    expect(result.answer).toContain("Executable MCP tools in the current mode: Exa.search.");
+    expect(emitted).toEqual([{ type: "answer_delta", text: result.answer }]);
+  });
+
+  it("uses Exa automatically for current-information requests before the first model pass", async () => {
+    callMcpTool.mockResolvedValue({
+      content: [{ type: "text", text: "Current findings" }]
+    });
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "Here is the answer." }], {
+        answer: "Here is the answer.",
+        thinking: "",
+        usage: { inputTokens: 9, outputTokens: 4 }
+      })
+    );
+
+    const started: Array<{ label: string; detail?: string; serverId?: string | null }> = [];
+    const completed: Array<{ handle?: string; resultSummary?: string }> = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "What is the latest news about OpenAI today?" }],
+      skills: [],
+      mcpToolSets: [
+        {
+          server: {
+            id: "mcp_exa",
+            name: "Exa",
+            url: "https://mcp.exa.ai",
+            headers: {},
+            transport: "streamable_http",
+            command: null,
+            args: null,
+            env: null,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          tools: [
+            {
+              name: "web_search_exa",
+              title: "Web search",
+              description: "Search the web.",
+              inputSchema: { type: "object" },
+              annotations: { readOnlyHint: true }
+            }
+          ]
+        }
+      ],
+      onActionStart: (action) => {
+        started.push(action);
+        return "act_tool";
+      },
+      onActionComplete: (handle, patch) => {
+        completed.push({ handle, resultSummary: patch.resultSummary });
+      }
+    });
+
+    expect(callMcpTool).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "mcp_exa" }),
+      "web_search_exa",
+      { query: "What is the latest news about OpenAI today?" }
+    );
+    expect(started).toEqual([
+      expect.objectContaining({
+        label: "Web search",
+        detail: "query=What is the latest news about OpenAI today?",
+        serverId: "mcp_exa"
+      })
+    ]);
+    expect(completed).toEqual([
+      {
+        handle: "act_tool",
+        resultSummary: "Current findings"
+      }
+    ]);
+    const promptWithToolResult = streamProviderResponse.mock.calls[0][0].promptMessages.find(
+      (message: { role: string; content: string }) =>
+        message.role === "system" && message.content.includes("Current findings")
+    )?.content;
+
+    expect(promptWithToolResult).toContain("Current findings");
+    expect(result.answer).toBe("Here is the answer.");
   });
 
   it("streams visible thinking and answer deltas before the provider finishes", async () => {
@@ -345,9 +495,12 @@ describe("assistant runtime", () => {
         resultSummary: "Found MCP docs"
       }
     ]);
-    expect(streamProviderResponse.mock.calls[1][0].promptMessages.at(-1)?.content).toContain(
-      "Found MCP docs"
-    );
+    const toolResultPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
+      (message: { role: string; content: string }) =>
+        message.role === "system" && message.content.includes("Found MCP docs")
+    )?.content;
+
+    expect(toolResultPrompt).toContain("Found MCP docs");
     expect(emitted).toEqual([{ type: "answer_delta", text: "Final answer" }]);
     expect(result.answer).toBe("Final answer");
   });
@@ -417,9 +570,12 @@ describe("assistant runtime", () => {
         resultSummary: "permission denied"
       }
     ]);
-    expect(streamProviderResponse.mock.calls[1][0].promptMessages.at(-1)?.content).toContain(
-      "Status: error"
-    );
+    const erroredToolPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
+      (message: { role: string; content: string }) =>
+        message.role === "system" && message.content.includes("Status: error")
+    )?.content;
+
+    expect(erroredToolPrompt).toContain("Status: error");
     expect(result.answer).toBe("Recovered answer");
   });
 
@@ -450,9 +606,12 @@ describe("assistant runtime", () => {
     });
 
     expect(streamProviderResponse).toHaveBeenCalledTimes(2);
-    expect(streamProviderResponse.mock.calls[1][0].promptMessages.at(-1)?.content).toContain(
-      "The requested MCP tool is unavailable"
-    );
+    const unavailableToolPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
+      (message: { role: string; content: string }) =>
+        message.role === "system" && message.content.includes("The requested MCP tool is unavailable")
+    )?.content;
+
+    expect(unavailableToolPrompt).toContain("The requested MCP tool is unavailable");
     expect(result.answer).toBe("Fallback answer");
   });
 
