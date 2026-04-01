@@ -295,6 +295,94 @@ describe("assistant runtime", () => {
     expect(result.answer).toBe("Here is the answer.");
   });
 
+  it("uses Exa automatically for availability and booking lookups", async () => {
+    callMcpTool
+      .mockResolvedValueOnce({
+        content: [
+          {
+            type: "text",
+            text: "Title: Home - Le Centre de Pickleball Marcotte Sports\nURL: https://centrepickleballmarcottesports.com/en/"
+          }
+        ]
+      })
+      .mockResolvedValueOnce({
+        content: [{ type: "text", text: "Facility booking details" }]
+      });
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "Here are the booking options." }], {
+        answer: "Here are the booking options.",
+        thinking: "",
+        usage: { inputTokens: 12, outputTokens: 5 }
+      })
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [
+        {
+          role: "user",
+          content:
+            "can you tell me the exact timeslot available to rent a court for 1h at pickleball marcotte for this weekend ?"
+        }
+      ],
+      skills: [],
+      mcpToolSets: [
+        {
+          server: {
+            id: "mcp_exa",
+            name: "Exa",
+            url: "https://mcp.exa.ai",
+            headers: {},
+            transport: "streamable_http",
+            command: null,
+            args: null,
+            env: null,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          tools: [
+            {
+              name: "web_search_exa",
+              title: "Web search",
+              description: "Search the web.",
+              inputSchema: { type: "object" },
+              annotations: { readOnlyHint: true }
+            },
+            {
+              name: "crawling_exa",
+              title: "Crawl web pages",
+              description: "Crawl one or more web pages.",
+              inputSchema: { type: "object" },
+              annotations: { readOnlyHint: true }
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(callMcpTool).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ id: "mcp_exa" }),
+      "web_search_exa",
+      {
+        query:
+          "can you tell me the exact timeslot available to rent a court for 1h at pickleball marcotte for this weekend ?"
+      }
+    );
+    expect(callMcpTool).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ id: "mcp_exa" }),
+      "crawling_exa",
+      {
+        urls: ["https://centrepickleballmarcottesports.com/en/"]
+      }
+    );
+    expect(result.answer).toBe("Here are the booking options.");
+  });
+
   it("streams visible thinking and answer deltas before the provider finishes", async () => {
     const gate = createDeferred<void>();
     streamProviderResponse.mockReturnValueOnce(
@@ -505,6 +593,68 @@ describe("assistant runtime", () => {
     expect(result.answer).toBe("Final answer");
   });
 
+  it("executes trailing MCP tool calls even when the model prefixes them with explanatory text", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer:
+            'I found the facility website. TOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"booking"}}',
+          thinking: "",
+          usage: { inputTokens: 7 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Here are the booking options." }], {
+          answer: "Here are the booking options.",
+          thinking: "",
+          usage: { inputTokens: 9, outputTokens: 5 }
+        })
+      );
+    callMcpTool.mockResolvedValue({
+      content: [{ type: "text", text: "Saturday 9am and 10am available" }]
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find court booking options" }],
+      skills: [],
+      mcpToolSets: [
+        {
+          server: {
+            id: "mcp_docs",
+            name: "Docs",
+            url: "https://mcp.example.com",
+            headers: {},
+            transport: "streamable_http",
+            command: null,
+            args: null,
+            env: null,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          tools: [
+            {
+              name: "search_docs",
+              description: "Search docs",
+              inputSchema: { type: "object" },
+              annotations: { readOnlyHint: true }
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(callMcpTool).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "mcp_docs" }),
+      "search_docs",
+      { query: "booking" }
+    );
+    expect(result.answer).toBe("Here are the booking options.");
+  });
+
   it("reports MCP tool execution errors through the error callback", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
@@ -577,6 +727,76 @@ describe("assistant runtime", () => {
 
     expect(erroredToolPrompt).toContain("Status: error");
     expect(result.answer).toBe("Recovered answer");
+  });
+
+  it("retries when the first post-tool model pass is empty", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: 'TOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"MCP"}}',
+          thinking: "",
+          usage: { inputTokens: 5 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          usage: { inputTokens: 4 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Final answer after retry" }], {
+          answer: "Final answer after retry",
+          thinking: "",
+          usage: { inputTokens: 6, outputTokens: 4 }
+        })
+      );
+    callMcpTool.mockResolvedValue({
+      content: [{ type: "text", text: "Found MCP docs" }]
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Use MCP" }],
+      skills: [],
+      mcpToolSets: [
+        {
+          server: {
+            id: "mcp_docs",
+            name: "Docs",
+            url: "https://mcp.example.com",
+            headers: {},
+            transport: "streamable_http",
+            command: null,
+            args: null,
+            env: null,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          tools: [
+            {
+              name: "search_docs",
+              description: "Search docs",
+              inputSchema: { type: "object" },
+              annotations: { readOnlyHint: true }
+            }
+          ]
+        }
+      ]
+    });
+
+    expect(streamProviderResponse).toHaveBeenCalledTimes(3);
+    const retryPrompt = streamProviderResponse.mock.calls[2][0].promptMessages.find(
+      (message: { role: string; content: string }) =>
+        message.role === "system" && message.content.includes("Your previous response was empty")
+    )?.content;
+
+    expect(retryPrompt).toContain("Your previous response was empty");
+    expect(result.answer).toBe("Final answer after retry");
   });
 
   it("adds a correction prompt when the requested MCP tool is unavailable", async () => {

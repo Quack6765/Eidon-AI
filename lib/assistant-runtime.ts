@@ -41,10 +41,20 @@ type ToolCallPayload = {
   arguments?: Record<string, unknown>;
 };
 
+type ExtractedToolCall = {
+  payload: ToolCallPayload;
+  leadingText: string;
+};
+
 type PlannedToolCall = {
   server: McpServer;
   tool: McpTool;
   args: Record<string, unknown>;
+};
+
+type ExecutedToolCall = PlannedToolCall & {
+  resultSummary: string;
+  isError: boolean;
 };
 
 function mergeSystemMessage(promptMessages: PromptMessage[], content: string): PromptMessage[] {
@@ -170,15 +180,27 @@ function buildCapabilitiesMessage(skills: Skill[], mcpServers: McpServer[], mcpT
   return lines.join("\n");
 }
 
-function extractToolCall(answer: string) {
-  const match = answer.trim().match(/^TOOL_CALL:\s*(\{[\s\S]+\})$/);
+function extractToolCall(answer: string): ExtractedToolCall | null {
+  const trimmed = answer.trim();
+  const markerIndex = trimmed.lastIndexOf("TOOL_CALL:");
+
+  if (markerIndex === -1) {
+    return null;
+  }
+
+  const leadingText = trimmed.slice(0, markerIndex).trim();
+  const payloadSource = trimmed.slice(markerIndex);
+  const match = payloadSource.match(/^TOOL_CALL:\s*(\{[\s\S]+\})$/);
 
   if (!match) {
     return null;
   }
 
   try {
-    return JSON.parse(match[1]) as ToolCallPayload;
+    return {
+      payload: JSON.parse(match[1]) as ToolCallPayload,
+      leadingText
+    };
   } catch {
     return null;
   }
@@ -346,7 +368,13 @@ function shouldUseCodeSearch(text: string) {
 }
 
 function shouldUseWebSearch(text: string) {
-  return /\b(latest|current|today|recent|news|up[- ]to[- ]date|look up|lookup|search|find|research|verify|check online|web)\b/i.test(
+  return /\b(latest|current|today|tonight|tomorrow|recent|news|up[- ]to[- ]date|look up|lookup|search|find|research|verify|check online|web|this weekend|this week|next week|available|availability|timeslot|time slot|slot|schedule|hours|opening hours|book|booking|reservation|reserve|rent|rental|court|facility|venue|address|phone|contact|menu|pricing|price|cost)\b/i.test(
+    text
+  );
+}
+
+function shouldDeepDiveWebsite(text: string) {
+  return /\b(available|availability|timeslot|time slot|slot|schedule|hours|opening hours|book|booking|reservation|reserve|rent|rental|court|facility|venue|address|phone|contact|menu|pricing|price|cost)\b/i.test(
     text
   );
 }
@@ -402,6 +430,41 @@ function planAutomaticToolCall(lastUserText: string, toolSets: ToolSet[]) {
   return null;
 }
 
+function planAutomaticFollowUpToolCall(input: {
+  lastUserText: string;
+  executedTool: McpTool;
+  resultSummary: string;
+  toolSets: ToolSet[];
+}) {
+  if (input.executedTool.name !== "web_search_exa") {
+    return null;
+  }
+
+  if (!shouldDeepDiveWebsite(input.lastUserText)) {
+    return null;
+  }
+
+  const crawlingTool = findToolByName(input.toolSets, "crawling_exa");
+
+  if (!crawlingTool) {
+    return null;
+  }
+
+  const urls = [...new Set(extractUrls(input.resultSummary))].slice(0, 1);
+
+  if (!urls.length) {
+    return null;
+  }
+
+  return {
+    server: crawlingTool.server,
+    tool: crawlingTool.tool,
+    args: {
+      urls
+    }
+  } satisfies PlannedToolCall;
+}
+
 export async function resolveAssistantTurn(input: {
   settings: ProviderProfileWithApiKey;
   promptMessages: PromptMessage[];
@@ -446,50 +509,72 @@ export async function resolveAssistantTurn(input: {
         )
       : input.promptMessages;
   let totalUsage: Usage = {};
+  let executedControlAction = false;
+
+  const executeToolCall = async (plannedToolCall: PlannedToolCall): Promise<ExecutedToolCall> => {
+    const handle = await input.onActionStart?.({
+      kind: "mcp_tool_call",
+      label: getToolLabel(plannedToolCall.tool),
+      detail: buildArgumentsSummary(plannedToolCall.args),
+      serverId: plannedToolCall.server.id,
+      toolName: plannedToolCall.tool.name,
+      arguments: plannedToolCall.args
+    });
+    const actionHandle = typeof handle === "string" ? handle : undefined;
+    const result = await callMcpTool(
+      plannedToolCall.server,
+      plannedToolCall.tool.name,
+      plannedToolCall.args
+    );
+    executedControlAction = true;
+    const resultSummary = summarizeToolResult(result);
+
+    if (result.isError) {
+      await input.onActionError?.(actionHandle, {
+        detail: buildArgumentsSummary(plannedToolCall.args),
+        resultSummary
+      });
+    } else {
+      await input.onActionComplete?.(actionHandle, {
+        detail: buildArgumentsSummary(plannedToolCall.args),
+        resultSummary
+      });
+    }
+
+    promptMessages = mergeSystemMessage(
+      promptMessages,
+      renderToolResultForPrompt({
+        server: plannedToolCall.server,
+        tool: plannedToolCall.tool,
+        args: plannedToolCall.args,
+        resultSummary,
+        isError: Boolean(result.isError)
+      })
+    );
+
+    return {
+      ...plannedToolCall,
+      resultSummary,
+      isError: Boolean(result.isError)
+    };
+  };
 
   for (let step = 0; step < MAX_ASSISTANT_CONTROL_STEPS; step += 1) {
     if (step === 0) {
       const plannedToolCall = planAutomaticToolCall(lastUserText, input.mcpToolSets);
 
       if (plannedToolCall) {
-        const handle = await input.onActionStart?.({
-          kind: "mcp_tool_call",
-          label: getToolLabel(plannedToolCall.tool),
-          detail: buildArgumentsSummary(plannedToolCall.args),
-          serverId: plannedToolCall.server.id,
-          toolName: plannedToolCall.tool.name,
-          arguments: plannedToolCall.args
+        const executedToolCall = await executeToolCall(plannedToolCall);
+        const followUpToolCall = planAutomaticFollowUpToolCall({
+          lastUserText,
+          executedTool: executedToolCall.tool,
+          resultSummary: executedToolCall.resultSummary,
+          toolSets: input.mcpToolSets
         });
-        const actionHandle = typeof handle === "string" ? handle : undefined;
-        const result = await callMcpTool(
-          plannedToolCall.server,
-          plannedToolCall.tool.name,
-          plannedToolCall.args
-        );
-        const resultSummary = summarizeToolResult(result);
 
-        if (result.isError) {
-          await input.onActionError?.(actionHandle, {
-            detail: buildArgumentsSummary(plannedToolCall.args),
-            resultSummary
-          });
-        } else {
-          await input.onActionComplete?.(actionHandle, {
-            detail: buildArgumentsSummary(plannedToolCall.args),
-            resultSummary
-          });
+        if (followUpToolCall) {
+          await executeToolCall(followUpToolCall);
         }
-
-        promptMessages = mergeSystemMessage(
-          promptMessages,
-          renderToolResultForPrompt({
-            server: plannedToolCall.server,
-            tool: plannedToolCall.tool,
-            args: plannedToolCall.args,
-            resultSummary,
-            isError: Boolean(result.isError)
-          })
-        );
       }
     }
 
@@ -551,6 +636,7 @@ export async function resolveAssistantTurn(input: {
 
       for (const skill of requestedSkills) {
         loadedSkillIds.add(skill.id);
+        executedControlAction = true;
         const handle = await input.onActionStart?.({
           kind: "skill_load",
           label: `Load skill`,
@@ -574,9 +660,10 @@ export async function resolveAssistantTurn(input: {
       continue;
     }
 
-    const toolCall = extractToolCall(answer);
+    const extractedToolCall = extractToolCall(answer);
 
-    if (toolCall) {
+    if (extractedToolCall) {
+      const toolCall = extractedToolCall.payload;
       const resolved = findTool(input.mcpToolSets, toolCall);
       const toolArgs = toolCall.arguments ?? {};
 
@@ -588,53 +675,32 @@ export async function resolveAssistantTurn(input: {
           ),
           {
             role: "assistant" as const,
-            content: answer
+            content: extractedToolCall.leadingText || answer
           }
         ];
         continue;
       }
 
-      const handle = await input.onActionStart?.({
-        kind: "mcp_tool_call",
-        label: getToolLabel(resolved.tool),
-        detail: buildArgumentsSummary(toolArgs),
-        serverId: resolved.server.id,
-        toolName: resolved.tool.name,
-        arguments: toolArgs
+      const executedToolCall = await executeToolCall({
+        server: resolved.server,
+        tool: resolved.tool,
+        args: toolArgs
       });
-      const actionHandle = typeof handle === "string" ? handle : undefined;
-
-      const result = await callMcpTool(resolved.server, resolved.tool.name, toolArgs);
-      const resultSummary = summarizeToolResult(result);
-
-      if (result.isError) {
-        await input.onActionError?.(actionHandle, {
-          detail: buildArgumentsSummary(toolArgs),
-          resultSummary
-        });
-      } else {
-        await input.onActionComplete?.(actionHandle, {
-          detail: buildArgumentsSummary(toolArgs),
-          resultSummary
-        });
-      }
-
       promptMessages = [
-        ...mergeSystemMessage(
-          promptMessages,
-          renderToolResultForPrompt({
-            server: resolved.server,
-            tool: resolved.tool,
-            args: toolArgs,
-            resultSummary,
-            isError: Boolean(result.isError)
-          })
-        ),
+        ...promptMessages,
         {
           role: "assistant" as const,
-          content: answer
+          content: extractedToolCall.leadingText || answer
         }
       ];
+      continue;
+    }
+
+    if (!answer.trim() && executedControlAction) {
+      promptMessages = mergeSystemMessage(
+        promptMessages,
+        "Your previous response was empty after using tools or skills. Answer the user directly with the best available information from the loaded tool results. Do not emit an empty response."
+      );
       continue;
     }
 
