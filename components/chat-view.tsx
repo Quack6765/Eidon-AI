@@ -607,22 +607,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             }
           }
 
-          if (event.type === "answer_commit") {
-            localAnswer = "";
-            setStreamTimeline((current) => [
-              ...current,
-              {
-                id: `stream_text_${crypto.randomUUID()}`,
-                timelineKind: "text",
-                sortOrder: current.length,
-                createdAt: new Date().toISOString(),
-                content: event.text
-              }
-            ]);
-            setStreamAnswerTarget("");
-            setStreamAnswerDisplay("");
-          }
-
           if (event.type === "system_notice") {
             setMessages((current) => [
               ...current,
