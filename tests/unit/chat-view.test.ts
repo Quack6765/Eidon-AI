@@ -349,4 +349,174 @@ describe("chat view attachments", () => {
 
     expect(refresh).not.toHaveBeenCalled();
   });
+
+  it("renders assistant text and tool actions in chronological order after sync", async () => {
+    const encoder = new TextEncoder();
+    storeChatBootstrap("conv_1", {
+      message: "Check booking availability",
+      attachments: []
+    });
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode('data: {"type":"answer_delta","text":"Checking the official site.\\n\\n"}\n\n')
+            );
+            controller.enqueue(
+              encoder.encode('data: {"type":"answer_commit","text":"Checking the official site.\\n\\n"}\n\n')
+            );
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({
+                  type: "action_start",
+                  action: {
+                    id: "act_1",
+                    messageId: "msg_assistant",
+                    kind: "mcp_tool_call",
+                    status: "completed",
+                    serverId: "exa",
+                    skillId: null,
+                    toolName: "web_search_exa",
+                    label: "web_search_exa",
+                    detail: "query=booking",
+                    arguments: { query: "booking" },
+                    resultSummary: "Found official site",
+                    sortOrder: 1,
+                    startedAt: new Date().toISOString(),
+                    completedAt: new Date().toISOString()
+                  }
+                })}\n\n`
+              )
+            );
+            controller.enqueue(
+              encoder.encode('data: {"type":"answer_delta","text":"The first available slot is Saturday at 9:00 AM."}\n\n')
+            );
+            controller.enqueue(
+              encoder.encode('data: {"type":"answer_commit","text":"The first available slot is Saturday at 9:00 AM."}\n\n')
+            );
+            controller.close();
+          }
+        })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          conversation: createPayload().conversation,
+          messages: [
+            {
+              id: "msg_user",
+              conversationId: "conv_1",
+              role: "user",
+              content: "Check booking availability",
+              thinkingContent: "",
+              status: "completed",
+              estimatedTokens: 0,
+              systemKind: null,
+              compactedAt: null,
+              createdAt: new Date().toISOString(),
+              actions: [],
+              attachments: []
+            },
+            {
+              id: "msg_assistant",
+              conversationId: "conv_1",
+              role: "assistant",
+              content: "Checking the official site.\n\nThe first available slot is Saturday at 9:00 AM.",
+              thinkingContent: "",
+              status: "completed",
+              estimatedTokens: 0,
+              systemKind: null,
+              compactedAt: null,
+              createdAt: new Date().toISOString(),
+              actions: [
+                {
+                  id: "act_1",
+                  messageId: "msg_assistant",
+                  kind: "mcp_tool_call",
+                  status: "completed",
+                  serverId: "exa",
+                  skillId: null,
+                  toolName: "web_search_exa",
+                  label: "web_search_exa",
+                  detail: "query=booking",
+                  arguments: { query: "booking" },
+                  resultSummary: "Found official site",
+                  sortOrder: 1,
+                  startedAt: new Date().toISOString(),
+                  completedAt: new Date().toISOString()
+                }
+              ],
+              textSegments: [
+                {
+                  id: "seg_1",
+                  messageId: "msg_assistant",
+                  content: "Checking the official site.\n\n",
+                  sortOrder: 0,
+                  createdAt: new Date().toISOString()
+                },
+                {
+                  id: "seg_2",
+                  messageId: "msg_assistant",
+                  content: "The first available slot is Saturday at 9:00 AM.",
+                  sortOrder: 2,
+                  createdAt: new Date().toISOString()
+                }
+              ],
+              timeline: [
+                {
+                  id: "seg_1",
+                  timelineKind: "text",
+                  content: "Checking the official site.\n\n",
+                  sortOrder: 0,
+                  createdAt: new Date().toISOString()
+                },
+                {
+                  id: "act_1",
+                  timelineKind: "action",
+                  kind: "mcp_tool_call",
+                  messageId: "msg_assistant",
+                  status: "completed",
+                  serverId: "exa",
+                  skillId: null,
+                  toolName: "web_search_exa",
+                  label: "web_search_exa",
+                  detail: "query=booking",
+                  arguments: { query: "booking" },
+                  resultSummary: "Found official site",
+                  sortOrder: 1,
+                  startedAt: new Date().toISOString(),
+                  completedAt: new Date().toISOString()
+                },
+                {
+                  id: "seg_2",
+                  timelineKind: "text",
+                  content: "The first available slot is Saturday at 9:00 AM.",
+                  sortOrder: 2,
+                  createdAt: new Date().toISOString()
+                }
+              ],
+              attachments: []
+            }
+          ],
+          debug: createPayload().debug
+        })
+      } as Response);
+
+    const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/conversations/conv_1");
+    });
+
+    const blocks = Array.from(
+      container.querySelectorAll('[data-testid="assistant-message-bubble"], [data-testid="assistant-actions-shell"]')
+    );
+
+    expect(blocks[0]?.textContent).toContain("Checking the official site.");
+    expect(blocks[1]?.textContent).toContain("web_search_exa");
+    expect(blocks[2]?.textContent).toContain("The first available slot is Saturday at 9:00 AM.");
+  });
 });

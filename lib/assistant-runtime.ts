@@ -318,6 +318,69 @@ function getLastUserText(promptMessages: PromptMessage[]) {
   return "";
 }
 
+function getPromptMessagesText(promptMessages: PromptMessage[]) {
+  return promptMessages
+    .map((message) => {
+      if (typeof message.content === "string") {
+        return message.content;
+      }
+
+      return message.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n");
+    })
+    .join("\n");
+}
+
+function tokenizeForSkillMatching(text: string) {
+  const tokens = new Set(
+    text
+      .toLowerCase()
+      .split(/[^a-z0-9]+/g)
+      .map((token) => token.trim())
+      .filter((token) => token.length >= 3)
+  );
+
+  if (/https?:\/\//i.test(text)) {
+    ["url", "website", "page", "browser", "web"].forEach((token) => tokens.add(token));
+  }
+
+  return tokens;
+}
+
+function planAutomaticSkillLoad(input: {
+  promptMessages: PromptMessage[];
+  skills: Skill[];
+  loadedSkillIds: Set<string>;
+}) {
+  const contextTokens = tokenizeForSkillMatching(getPromptMessagesText(input.promptMessages));
+  let bestMatch: Skill | null = null;
+  let bestScore = 0;
+
+  for (const skill of input.skills) {
+    if (input.loadedSkillIds.has(skill.id)) {
+      continue;
+    }
+
+    const skillTokens = tokenizeForSkillMatching(
+      `${getSkillResolvedName(skill)}\n${getSkillResolvedDescription(skill)}`
+    );
+    const score = [...skillTokens].filter((token) => contextTokens.has(token)).length;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = skill;
+    }
+  }
+
+  if (!bestMatch || bestScore < 2) {
+    return [];
+  }
+
+  return [bestMatch];
+}
+
 function isCapabilityInventoryQuestion(text: string) {
   const normalized = text.trim().toLowerCase();
 
@@ -531,6 +594,7 @@ export async function resolveAssistantTurn(input: {
   mcpServers?: McpServer[];
   mcpToolSets: ToolSet[];
   onEvent?: (event: ChatStreamEvent) => void;
+  onAnswerSegment?: (segment: string) => Promise<void> | void;
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
   onActionComplete?: (
     handle: string | undefined,
@@ -569,6 +633,23 @@ export async function resolveAssistantTurn(input: {
       : input.promptMessages;
   let totalUsage: Usage = {};
   let executedControlAction = false;
+  const committedAnswerSegments: string[] = [];
+
+  const commitAnswerSegment = async (segment: string) => {
+    if (!segment) {
+      return;
+    }
+
+    committedAnswerSegments.push(segment);
+
+    if (input.onAnswerSegment) {
+      input.onEvent?.({
+        type: "answer_commit",
+        text: segment
+      });
+      await input.onAnswerSegment(segment);
+    }
+  };
 
   const executeToolCall = async (plannedToolCall: PlannedToolCall): Promise<ExecutedToolCall> => {
     const handle = await input.onActionStart?.({
@@ -717,6 +798,16 @@ export async function resolveAssistantTurn(input: {
       }
     }
 
+    const plannedSkills = planAutomaticSkillLoad({
+      promptMessages,
+      skills: input.skills,
+      loadedSkillIds
+    });
+
+    if (plannedSkills.length) {
+      await loadSkills(plannedSkills);
+    }
+
     const guardedAnswerEmitter = createGuardedAnswerEmitter(["SKILL_REQUEST:", "TOOL_CALL:", "SHELL_CALL:"]);
     const providerStream = streamProviderResponse({
       settings: input.settings,
@@ -725,26 +816,49 @@ export async function resolveAssistantTurn(input: {
     let answer = "";
     let thinking = "";
     let usage: Usage = {};
+    let partialAnswer = "";
+    let partialThinking = "";
+    let shouldStopProviderPass = false;
 
     while (true) {
       const next = await providerStream.next();
 
       if (next.done) {
-        answer = next.value.answer;
-        thinking = next.value.thinking;
+        answer = shouldStopProviderPass ? partialAnswer : next.value.answer;
+        thinking = shouldStopProviderPass ? partialThinking : next.value.thinking;
         usage = next.value.usage;
         totalUsage = addUsage(totalUsage, usage);
         break;
       }
 
       if (next.value.type === "thinking_delta") {
+        partialThinking += next.value.text;
         input.onEvent?.(next.value);
         continue;
       }
 
       if (next.value.type === "answer_delta") {
+        partialAnswer += next.value.text;
         const events = guardedAnswerEmitter.push(next.value.text);
         events.forEach((event) => input.onEvent?.(event));
+
+        if (
+          extractSkillRequest(partialAnswer) ||
+          extractShellCall(partialAnswer) ||
+          extractToolCall(partialAnswer)
+        ) {
+          shouldStopProviderPass = true;
+          totalUsage = addUsage(totalUsage, usage);
+          await providerStream.return?.({
+            answer: partialAnswer,
+            thinking: partialThinking,
+            usage
+          });
+          answer = partialAnswer;
+          thinking = partialThinking;
+          break;
+        }
+
         continue;
       }
 
@@ -754,6 +868,10 @@ export async function resolveAssistantTurn(input: {
     const requestedSkillRequest = extractSkillRequest(answer);
 
     if (requestedSkillRequest) {
+      if (requestedSkillRequest.leadingText) {
+        await commitAnswerSegment(requestedSkillRequest.leadingText);
+      }
+
       const requestedSkills = requestedSkillRequest.names
         .map((name) => input.skills.find((skill) => normalizeSkillName(getSkillResolvedName(skill)) === name))
         .filter((skill): skill is Skill => Boolean(skill))
@@ -764,11 +882,7 @@ export async function resolveAssistantTurn(input: {
           ...mergeSystemMessage(
             promptMessages,
             "The requested skill is unavailable or already loaded. Continue and answer the user without another SKILL_REQUEST."
-          ),
-          {
-            role: "assistant" as const,
-            content: requestedSkillRequest.leadingText || answer
-          }
+          )
         ];
         continue;
       }
@@ -776,10 +890,14 @@ export async function resolveAssistantTurn(input: {
       await loadSkills(requestedSkills);
       promptMessages = [
         ...promptMessages,
-        {
-          role: "assistant" as const,
-          content: requestedSkillRequest.leadingText || answer
-        }
+        ...(requestedSkillRequest.leadingText
+          ? [
+              {
+                role: "assistant" as const,
+                content: requestedSkillRequest.leadingText
+              }
+            ]
+          : [])
       ];
       continue;
     }
@@ -787,6 +905,10 @@ export async function resolveAssistantTurn(input: {
     const extractedShellCall = extractShellCall(answer);
 
     if (extractedShellCall) {
+      if (extractedShellCall.leadingText) {
+        await commitAnswerSegment(extractedShellCall.leadingText);
+      }
+
       try {
         await executeShellCall(extractedShellCall.payload);
       } catch (error) {
@@ -796,21 +918,21 @@ export async function resolveAssistantTurn(input: {
             error instanceof Error
               ? `${error.message} Continue and answer the user without another SHELL_CALL.`
               : "The requested shell command could not be executed. Continue and answer the user without another SHELL_CALL."
-          ),
-          {
-            role: "assistant" as const,
-            content: extractedShellCall.leadingText || answer
-          }
+          )
         ];
         continue;
       }
 
       promptMessages = [
         ...promptMessages,
-        {
-          role: "assistant" as const,
-          content: extractedShellCall.leadingText || answer
-        }
+        ...(extractedShellCall.leadingText
+          ? [
+              {
+                role: "assistant" as const,
+                content: extractedShellCall.leadingText
+              }
+            ]
+          : [])
       ];
       continue;
     }
@@ -818,6 +940,10 @@ export async function resolveAssistantTurn(input: {
     const extractedToolCall = extractToolCall(answer);
 
     if (extractedToolCall) {
+      if (extractedToolCall.leadingText) {
+        await commitAnswerSegment(extractedToolCall.leadingText);
+      }
+
       const toolCall = extractedToolCall.payload;
       const resolved = findTool(input.mcpToolSets, toolCall);
       const toolArgs = toolCall.arguments ?? {};
@@ -827,11 +953,7 @@ export async function resolveAssistantTurn(input: {
           ...mergeSystemMessage(
             promptMessages,
             "The requested MCP tool is unavailable in the current tool mode or does not exist. Continue and answer the user without calling it again."
-          ),
-          {
-            role: "assistant" as const,
-            content: extractedToolCall.leadingText || answer
-          }
+          )
         ];
         continue;
       }
@@ -843,10 +965,14 @@ export async function resolveAssistantTurn(input: {
       });
       promptMessages = [
         ...promptMessages,
-        {
-          role: "assistant" as const,
-          content: extractedToolCall.leadingText || answer
-        }
+        ...(extractedToolCall.leadingText
+          ? [
+              {
+                role: "assistant" as const,
+                content: extractedToolCall.leadingText
+              }
+            ]
+          : [])
       ];
       continue;
     }
@@ -860,6 +986,7 @@ export async function resolveAssistantTurn(input: {
     }
 
     guardedAnswerEmitter.flush().forEach((event) => input.onEvent?.(event));
+    await commitAnswerSegment(answer);
 
     return {
       answer,

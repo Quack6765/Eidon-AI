@@ -158,6 +158,8 @@ export type Message = {
   compactedAt: string | null;
   createdAt: string;
   actions?: MessageAction[];
+  textSegments?: MessageTextSegment[];
+  timeline?: MessageTimelineItem[];
   attachments?: MessageAttachment[];
 };
 
@@ -191,6 +193,26 @@ export type MessageAction = {
   startedAt: string;
   completedAt: string | null;
 };
+
+export type MessageTextSegment = {
+  id: string;
+  messageId: string;
+  content: string;
+  sortOrder: number;
+  createdAt: string;
+};
+
+export type MessageTimelineItem =
+  | {
+      id: string;
+      timelineKind: "text";
+      sortOrder: number;
+      createdAt: string;
+      content: string;
+    }
+  | ({
+      timelineKind: "action";
+    } & MessageAction);
 
 export type MemoryNode = {
   id: string;
@@ -235,6 +257,7 @@ export type ChatStreamEvent =
   | { type: "message_start"; messageId: string }
   | { type: "thinking_delta"; text: string }
   | { type: "answer_delta"; text: string }
+  | { type: "answer_commit"; text: string }
   | { type: "action_start"; action: MessageAction }
   | { type: "action_complete"; action: MessageAction }
   | { type: "action_error"; action: MessageAction }

@@ -231,6 +231,7 @@ export async function* streamProviderResponse(input: {
 } }, void> {
   const { settings, promptMessages } = input;
   const client = createClient(settings, settings.apiKey);
+  const abortController = new AbortController();
   let answer = "";
   let thinking = "";
   let usage: {
@@ -250,50 +251,58 @@ export async function* streamProviderResponse(input: {
       temperature: settings.temperature,
       max_output_tokens: settings.maxOutputTokens,
       reasoning
+    }, {
+      signal: abortController.signal
     });
 
-    for await (const event of stream) {
-      if (event.type === "response.output_text.delta") {
-        const text = normalizeLineBreaks(String(event.delta ?? ""));
-        answer += text;
-        yield { type: "answer_delta", text };
-      }
+    try {
+      for await (const event of stream) {
+        if (event.type === "response.output_text.delta") {
+          const text = normalizeLineBreaks(String(event.delta ?? ""));
+          answer += text;
+          yield { type: "answer_delta", text };
+        }
 
-      if (
-        event.type === "response.reasoning_summary_text.delta" ||
-        event.type === "response.reasoning_text.delta"
-      ) {
-        const text = "delta" in event ? normalizeLineBreaks(String(event.delta ?? "")) : "";
-        thinking += text;
-        yield { type: "thinking_delta", text };
-      }
+        if (
+          event.type === "response.reasoning_summary_text.delta" ||
+          event.type === "response.reasoning_text.delta"
+        ) {
+          const text = "delta" in event ? normalizeLineBreaks(String(event.delta ?? "")) : "";
+          thinking += text;
+          yield { type: "thinking_delta", text };
+        }
 
-      if (event.type === "response.completed" && event.response?.usage) {
-        usage = {
-          inputTokens: event.response.usage.input_tokens,
-          outputTokens: event.response.usage.output_tokens,
-          reasoningTokens: event.response.usage.output_tokens_details?.reasoning_tokens
-        };
-      }
+        if (event.type === "response.completed" && event.response?.usage) {
+          usage = {
+            inputTokens: event.response.usage.input_tokens,
+            outputTokens: event.response.usage.output_tokens,
+            reasoningTokens: event.response.usage.output_tokens_details?.reasoning_tokens
+          };
+        }
 
-      if (event.type === "response.output_item.done") {
-        const item = event.item as {
-          type?: string;
-          summary?: Array<{ text?: string }>;
-        };
+        if (event.type === "response.output_item.done") {
+          const item = event.item as {
+            type?: string;
+            summary?: Array<{ text?: string }>;
+          };
 
-        if (item.type === "reasoning" && Array.isArray(item.summary)) {
-          const combined = normalizeLineBreaks(item.summary.map((part) => part.text ?? "").join(""));
+          if (item.type === "reasoning" && Array.isArray(item.summary)) {
+            const combined = normalizeLineBreaks(item.summary.map((part) => part.text ?? "").join(""));
 
-          if (combined && combined !== thinking) {
-            const delta = combined.slice(thinking.length);
-            thinking = combined;
+            if (combined && combined !== thinking) {
+              const delta = combined.slice(thinking.length);
+              thinking = combined;
 
-            if (delta) {
-              yield { type: "thinking_delta", text: delta };
+              if (delta) {
+                yield { type: "thinking_delta", text: delta };
+              }
             }
           }
         }
+      }
+    } finally {
+      if (!abortController.signal.aborted) {
+        abortController.abort();
       }
     }
 
@@ -314,36 +323,44 @@ export async function* streamProviderResponse(input: {
     temperature: settings.temperature,
     max_completion_tokens: settings.maxOutputTokens,
     ...buildChatCompletionsOptions(settings)
+  }, {
+    signal: abortController.signal
   });
 
-  for await (const chunk of stream) {
-    const rawDelta = chunk.choices[0]?.delta ?? {};
-    const reasoningValue =
-      "reasoning_content" in rawDelta
-        ? (rawDelta as { reasoning_content?: string }).reasoning_content
-        : "thinking" in rawDelta
-          ? (rawDelta as { thinking?: string }).thinking
-          : "reasoning" in rawDelta
-            ? (rawDelta as { reasoning?: string }).reasoning
-            : "";
-    const reasoningDelta = normalizeLineBreaks(String(reasoningValue ?? ""));
-    const delta = normalizeLineBreaks(chunk.choices[0]?.delta?.content ?? "");
+  try {
+    for await (const chunk of stream) {
+      const rawDelta = chunk.choices[0]?.delta ?? {};
+      const reasoningValue =
+        "reasoning_content" in rawDelta
+          ? (rawDelta as { reasoning_content?: string }).reasoning_content
+          : "thinking" in rawDelta
+            ? (rawDelta as { thinking?: string }).thinking
+            : "reasoning" in rawDelta
+              ? (rawDelta as { reasoning?: string }).reasoning
+              : "";
+      const reasoningDelta = normalizeLineBreaks(String(reasoningValue ?? ""));
+      const delta = normalizeLineBreaks(chunk.choices[0]?.delta?.content ?? "");
 
-    if (reasoningDelta) {
-      thinking += reasoningDelta;
-      yield { type: "thinking_delta", text: reasoningDelta };
+      if (reasoningDelta) {
+        thinking += reasoningDelta;
+        yield { type: "thinking_delta", text: reasoningDelta };
+      }
+
+      if (delta) {
+        answer += delta;
+        yield { type: "answer_delta", text: delta };
+      }
+
+      if (chunk.usage) {
+        usage = {
+          inputTokens: chunk.usage.prompt_tokens,
+          outputTokens: chunk.usage.completion_tokens
+        };
+      }
     }
-
-    if (delta) {
-      answer += delta;
-      yield { type: "answer_delta", text: delta };
-    }
-
-    if (chunk.usage) {
-      usage = {
-        inputTokens: chunk.usage.prompt_tokens,
-        outputTokens: chunk.usage.completion_tokens
-      };
+  } finally {
+    if (!abortController.signal.aborted) {
+      abortController.abort();
     }
   }
 

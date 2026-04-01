@@ -7,6 +7,7 @@ import {
   completeConversationTitleGeneration,
   createConversation,
   createMessageAction,
+  createMessageTextSegment,
   createMessage,
   deleteConversation,
   failConversationTitleGeneration,
@@ -287,6 +288,56 @@ describe("conversation helpers", () => {
       expect.objectContaining({
         id: action.id,
         status: "completed"
+      })
+    ]);
+  });
+
+  it("hydrates assistant text segments into a chronological timeline", () => {
+    const conversation = createConversation();
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "FirstSecond"
+    });
+
+    createMessageTextSegment({
+      messageId: message.id,
+      content: "First",
+      sortOrder: 0
+    });
+
+    createMessageAction({
+      messageId: message.id,
+      kind: "mcp_tool_call",
+      serverId: "mcp_docs",
+      toolName: "search_docs",
+      label: "Search docs",
+      detail: "query=MCP",
+      arguments: { query: "MCP" },
+      sortOrder: 1
+    });
+
+    createMessageTextSegment({
+      messageId: message.id,
+      content: "Second",
+      sortOrder: 2
+    });
+
+    expect(getMessage(message.id)?.timeline).toEqual([
+      expect.objectContaining({
+        timelineKind: "text",
+        content: "First",
+        sortOrder: 0
+      }),
+      expect.objectContaining({
+        timelineKind: "action",
+        label: "Search docs",
+        sortOrder: 1
+      }),
+      expect.objectContaining({
+        timelineKind: "text",
+        content: "Second",
+        sortOrder: 2
       })
     ]);
   });

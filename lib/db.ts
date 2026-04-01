@@ -235,6 +235,14 @@ function migrate(db: Database.Database) {
       completed_at TEXT,
       FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS message_text_segments (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS message_attachments (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
@@ -321,6 +329,7 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at ON messages(conversation_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_messages_compacted_at ON messages(conversation_id, compacted_at);
     CREATE INDEX IF NOT EXISTS idx_message_actions_message_sort_order ON message_actions(message_id, sort_order, started_at);
+    CREATE INDEX IF NOT EXISTS idx_message_text_segments_message_sort_order ON message_text_segments(message_id, sort_order, created_at);
     CREATE INDEX IF NOT EXISTS idx_message_attachments_message_created_at ON message_attachments(message_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_message_attachments_conversation_created_at ON message_attachments(conversation_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_memory_nodes_conversation_depth ON memory_nodes(conversation_id, depth, created_at);

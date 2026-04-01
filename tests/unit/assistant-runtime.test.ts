@@ -431,6 +431,72 @@ describe("assistant runtime", () => {
     expect(result.answer).toBe("Here are the booking options.");
   });
 
+  it("auto-loads the most relevant skill from metadata when the context matches it", async () => {
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "I can inspect that site." }], {
+        answer: "I can inspect that site.",
+        thinking: "",
+        usage: { inputTokens: 8, outputTokens: 4 }
+      })
+    );
+
+    const started: Array<{ label: string; detail?: string; skillId?: string | null }> = [];
+    const completed: Array<{ resultSummary?: string }> = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [
+        {
+          role: "user",
+          content: "Check this booking website and inspect the page: https://example.com/reservations"
+        }
+      ],
+      skills: [
+        createSkill({
+          id: "builtin-agent-browser",
+          name: "Agent Browser",
+          description: "Use for websites, pages, browser automation, and screenshots.",
+          content: `---
+name: Agent Browser
+description: Use for websites, pages, browser automation, and screenshots.
+shell_command_prefixes:
+  - agent-browser
+---
+
+Inspect pages with agent-browser.`
+        }),
+        createSkill({
+          id: "skill_docs",
+          name: "Doc Helper",
+          description: "Use for code documentation and API references.",
+          content: "Documentation helper"
+        })
+      ],
+      mcpToolSets: [],
+      onActionStart: (action) => {
+        started.push(action);
+        return "act_skill";
+      },
+      onActionComplete: (_handle, patch) => {
+        completed.push({ resultSummary: patch.resultSummary });
+      }
+    });
+
+    expect(started).toEqual([
+      expect.objectContaining({
+        label: "Load skill",
+        detail: "Agent Browser",
+        skillId: "builtin-agent-browser"
+      })
+    ]);
+    expect(completed).toEqual([
+      {
+        resultSummary: "Skill instructions loaded."
+      }
+    ]);
+  });
+
   it("loads a requested shell-enabled skill before executing shell calls", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
@@ -979,6 +1045,80 @@ Run browser commands.`
     expect(result.answer).toBe("Here are the booking options.");
   });
 
+  it("commits visible answer segments when timeline persistence is enabled", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer:
+            'Let me inspect the docs first.\n\nTOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"booking"}}',
+          thinking: "",
+          usage: { inputTokens: 7 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Here are the booking options." }], {
+          answer: "Here are the booking options.",
+          thinking: "",
+          usage: { inputTokens: 9, outputTokens: 5 }
+        })
+      );
+    callMcpTool.mockResolvedValue({
+      content: [{ type: "text", text: "Saturday 9am and 10am available" }]
+    });
+
+    const emitted: ChatStreamEvent[] = [];
+    const persistedSegments: string[] = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find court booking options" }],
+      skills: [],
+      mcpToolSets: [
+        {
+          server: {
+            id: "mcp_docs",
+            name: "Docs",
+            url: "https://mcp.example.com",
+            headers: {},
+            transport: "streamable_http",
+            command: null,
+            args: null,
+            env: null,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          tools: [
+            {
+              name: "search_docs",
+              description: "Search docs",
+              inputSchema: { type: "object" },
+              annotations: { readOnlyHint: true }
+            }
+          ]
+        }
+      ],
+      onEvent: (event) => emitted.push(event),
+      onAnswerSegment: (segment) => {
+        persistedSegments.push(segment);
+      }
+    });
+
+    expect(persistedSegments).toEqual([
+      "Let me inspect the docs first.",
+      "Here are the booking options."
+    ]);
+    expect(emitted).toContainEqual({
+      type: "answer_commit",
+      text: "Let me inspect the docs first."
+    });
+    expect(emitted).toContainEqual({
+      type: "answer_commit",
+      text: "Here are the booking options."
+    });
+  });
+
   it("reports MCP tool execution errors through the error callback", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
@@ -1206,6 +1346,6 @@ Run browser commands.`
       })
     ).rejects.toThrow("Assistant exceeded the maximum number of tool steps");
 
-    expect(streamProviderResponse).toHaveBeenCalledTimes(8);
+    expect(streamProviderResponse).toHaveBeenCalledTimes(16);
   });
 });

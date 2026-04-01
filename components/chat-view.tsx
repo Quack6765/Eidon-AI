@@ -16,6 +16,7 @@ import type {
   Message,
   MessageAction,
   MessageAttachment,
+  MessageTimelineItem,
   ProviderProfileSummary,
   ToolExecutionMode
 } from "@/lib/types";
@@ -53,6 +54,24 @@ function parseSseChunk(buffer: string) {
   return { events, remainder };
 }
 
+function appendStreamingAction(
+  timeline: MessageTimelineItem[],
+  action: MessageAction
+): MessageTimelineItem[] {
+  return [...timeline, { ...action, timelineKind: "action" }];
+}
+
+function updateStreamingAction(
+  timeline: MessageTimelineItem[],
+  action: MessageAction
+): MessageTimelineItem[] {
+  return timeline.map((item) =>
+    item.timelineKind === "action" && item.id === action.id
+      ? { ...action, timelineKind: "action" }
+      : item
+  );
+}
+
 export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
   const [messages, setMessages] = useState(payload.messages);
@@ -69,7 +88,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [streamAnswerTarget, setStreamAnswerTarget] = useState("");
   const [streamAnswerDisplay, setStreamAnswerDisplay] = useState("");
   const [streamStartedAt, setStreamStartedAt] = useState<string | null>(null);
-  const [streamActions, setStreamActions] = useState<MessageAction[]>([]);
+  const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
   const thinkingStartTimeRef = useRef<number | null>(null);
   const [thinkingDuration, setThinkingDuration] = useState<number | undefined>(undefined);
@@ -122,7 +141,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     queueRef.current.scrollTop = queueRef.current.scrollHeight;
-  }, [messages, streamThinkingDisplay, streamAnswerDisplay, streamActions]);
+  }, [messages, streamThinkingDisplay, streamAnswerDisplay, streamTimeline]);
 
   useEffect(() => {
     const handle = window.requestAnimationFrame(() => {
@@ -514,7 +533,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     setStreamAnswerTarget("");
     setStreamAnswerDisplay("");
     setStreamStartedAt(new Date().toISOString());
-    setStreamActions([]);
+    setStreamTimeline([]);
     setHasReceivedFirstToken(false);
     thinkingStartTimeRef.current = null;
     setThinkingDuration(undefined);
@@ -588,6 +607,22 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             }
           }
 
+          if (event.type === "answer_commit") {
+            localAnswer = "";
+            setStreamTimeline((current) => [
+              ...current,
+              {
+                id: `stream_text_${crypto.randomUUID()}`,
+                timelineKind: "text",
+                sortOrder: current.length,
+                createdAt: new Date().toISOString(),
+                content: event.text
+              }
+            ]);
+            setStreamAnswerTarget("");
+            setStreamAnswerDisplay("");
+          }
+
           if (event.type === "system_notice") {
             setMessages((current) => [
               ...current,
@@ -607,13 +642,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           }
 
           if (event.type === "action_start") {
-            setStreamActions((current) => [...current, event.action]);
+            setStreamTimeline((current) => appendStreamingAction(current, event.action));
           }
 
           if (event.type === "action_complete" || event.type === "action_error") {
-            setStreamActions((current) =>
-              current.map((action) => (action.id === event.action.id ? event.action : action))
-            );
+            setStreamTimeline((current) => updateStreamingAction(current, event.action));
           }
 
           if (event.type === "error") {
@@ -622,30 +655,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         });
       }
 
-      if (localAnswer || localThinking) {
-        setMessages((current) => [
-          ...current,
-          {
-            id: `streamed_${crypto.randomUUID()}`,
-            conversationId: payload.conversation.id,
-            role: "assistant",
-            content: localAnswer,
-            thinkingContent: localThinking,
-            status: "completed",
-            estimatedTokens: 0,
-            systemKind: null,
-            compactedAt: null,
-            createdAt: new Date().toISOString()
-          }
-        ]);
-      }
-
       await syncConversationState();
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Chat failed");
     } finally {
       setStreamStartedAt(null);
-      setStreamActions([]);
+      setStreamTimeline([]);
       setStreamThinkingTarget("");
       setStreamThinkingDisplay("");
       setStreamAnswerTarget("");
@@ -768,7 +783,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 createdAt={streamStartedAt}
                 thinking={streamThinkingDisplay}
                 answer={streamAnswerDisplay}
-                actions={streamActions}
+                timeline={streamTimeline}
                 awaitingFirstToken={!hasReceivedFirstToken}
                 thinkingInProgress={Boolean(streamThinkingTarget) && !streamAnswerTarget}
                 thinkingDuration={thinkingDuration}

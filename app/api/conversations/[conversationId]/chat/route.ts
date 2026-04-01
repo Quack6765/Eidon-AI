@@ -6,6 +6,7 @@ import {
   bindAttachmentsToMessage,
   createMessageAction,
   createMessage,
+  createMessageTextSegment,
   generateConversationTitleFromFirstUserMessage,
   getConversation,
   updateMessage,
@@ -128,7 +129,7 @@ export async function POST(
           messageId: assistantMessage.id
         });
 
-        let actionSortOrder = 0;
+        let timelineSortOrder = 0;
 
         const providerResult = await resolveAssistantTurn({
           settings,
@@ -137,6 +138,13 @@ export async function POST(
           mcpServers,
           mcpToolSets,
           onEvent: write,
+          onAnswerSegment(segment) {
+            createMessageTextSegment({
+              messageId: assistantMessage.id,
+              content: segment,
+              sortOrder: timelineSortOrder++
+            });
+          },
           onActionStart(action) {
             const persisted = createMessageAction({
               messageId: assistantMessage.id,
@@ -147,7 +155,7 @@ export async function POST(
               skillId: action.skillId,
               toolName: action.toolName,
               arguments: action.arguments,
-              sortOrder: actionSortOrder++
+              sortOrder: timelineSortOrder++
             });
 
             write({

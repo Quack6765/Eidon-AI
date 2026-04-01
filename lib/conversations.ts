@@ -26,6 +26,8 @@ import type {
   MessageAction,
   MessageActionKind,
   MessageActionStatus,
+  MessageTextSegment,
+  MessageTimelineItem,
   MessageRole,
   MessageStatus,
   SystemMessageKind,
@@ -138,6 +140,47 @@ function rowToMessageAction(row: {
     startedAt: row.started_at,
     completedAt: row.completed_at
   };
+}
+
+function rowToMessageTextSegment(row: {
+  id: string;
+  message_id: string;
+  content: string;
+  sort_order: number;
+  created_at: string;
+}): MessageTextSegment {
+  return {
+    id: row.id,
+    messageId: row.message_id,
+    content: row.content,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at
+  };
+}
+
+function buildMessageTimeline(message: Message): MessageTimelineItem[] {
+  const textItems = (message.textSegments ?? []).map((segment) => ({
+    id: segment.id,
+    timelineKind: "text" as const,
+    sortOrder: segment.sortOrder,
+    createdAt: segment.createdAt,
+    content: segment.content
+  }));
+  const actionItems = (message.actions ?? []).map((action) => ({
+    ...action,
+    timelineKind: "action" as const
+  }));
+
+  const getTimelineTimestamp = (item: MessageTimelineItem) =>
+    item.timelineKind === "text" ? item.createdAt : item.startedAt;
+
+  return [...textItems, ...actionItems].sort((left, right) => {
+    if (left.sortOrder !== right.sortOrder) {
+      return left.sortOrder - right.sortOrder;
+    }
+
+    return getTimelineTimestamp(left).localeCompare(getTimelineTimestamp(right));
+  });
 }
 
 export function isVisibleMessage(
@@ -561,6 +604,36 @@ function listMessageActionsForMessageIds(messageIds: string[]) {
   return rows.map(rowToMessageAction);
 }
 
+function listMessageTextSegmentsForMessageIds(messageIds: string[]) {
+  if (!messageIds.length) {
+    return [];
+  }
+
+  const placeholders = messageIds.map(() => "?").join(", ");
+
+  const rows = getDb()
+    .prepare(
+      `SELECT
+        id,
+        message_id,
+        content,
+        sort_order,
+        created_at
+       FROM message_text_segments
+       WHERE message_id IN (${placeholders})
+       ORDER BY message_id ASC, sort_order ASC, created_at ASC`
+    )
+    .all(...messageIds) as Array<{
+      id: string;
+      message_id: string;
+      content: string;
+      sort_order: number;
+      created_at: string;
+    }>;
+
+  return rows.map(rowToMessageTextSegment);
+}
+
 function attachActionsToMessages(messages: Message[]) {
   const actionsByMessageId = new Map<string, MessageAction[]>();
 
@@ -573,6 +646,21 @@ function attachActionsToMessages(messages: Message[]) {
   return messages.map((message) => ({
     ...message,
     actions: actionsByMessageId.get(message.id) ?? []
+  }));
+}
+
+function attachTextSegmentsToMessages(messages: Message[]) {
+  const textSegmentsByMessageId = new Map<string, MessageTextSegment[]>();
+
+  listMessageTextSegmentsForMessageIds(messages.map((message) => message.id)).forEach((segment) => {
+    const current = textSegmentsByMessageId.get(segment.messageId) ?? [];
+    current.push(segment);
+    textSegmentsByMessageId.set(segment.messageId, current);
+  });
+
+  return messages.map((message) => ({
+    ...message,
+    textSegments: textSegmentsByMessageId.get(message.id) ?? []
   }));
 }
 
@@ -596,7 +684,12 @@ function attachAttachmentsToMessages(messages: Message[]) {
 }
 
 function hydrateMessages(messages: Message[]) {
-  return attachAttachmentsToMessages(attachActionsToMessages(messages));
+  return attachAttachmentsToMessages(
+    attachTextSegmentsToMessages(attachActionsToMessages(messages))
+  ).map((message) => ({
+    ...message,
+    timeline: buildMessageTimeline(message)
+  }));
 }
 
 export function listMessages(conversationId: string) {
@@ -766,6 +859,40 @@ export function createMessageAction(input: {
     );
 
   return action;
+}
+
+export function createMessageTextSegment(input: {
+  messageId: string;
+  content: string;
+  sortOrder?: number;
+}) {
+  const segment: MessageTextSegment = {
+    id: createId("seg"),
+    messageId: input.messageId,
+    content: input.content,
+    sortOrder: input.sortOrder ?? 0,
+    createdAt: nowIso()
+  };
+
+  getDb()
+    .prepare(
+      `INSERT INTO message_text_segments (
+        id,
+        message_id,
+        content,
+        sort_order,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(
+      segment.id,
+      segment.messageId,
+      segment.content,
+      segment.sortOrder,
+      segment.createdAt
+    );
+
+  return segment;
 }
 
 export function updateMessageAction(

@@ -47,10 +47,11 @@ describe("message bubble", () => {
         answer: "",
         awaitingFirstToken: false,
         thinkingInProgress: false,
-        actions: [
+        timeline: [
           {
             id: "act_running",
             messageId: "msg_assistant",
+            timelineKind: "action",
             kind: "mcp_tool_call",
             status: "running",
             serverId: "mcp_docs",
@@ -140,6 +141,57 @@ describe("message bubble", () => {
     );
   });
 
+  it("renders assistant text and tool actions in timeline order", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "First segmentSecond segment",
+          timeline: [
+            {
+              id: "txt_1",
+              timelineKind: "text",
+              sortOrder: 0,
+              createdAt: new Date().toISOString(),
+              content: "First segment"
+            },
+            {
+              id: "act_done",
+              messageId: "msg_assistant",
+              timelineKind: "action",
+              kind: "mcp_tool_call",
+              status: "completed",
+              serverId: "mcp_docs",
+              skillId: null,
+              toolName: "search_docs",
+              label: "Search docs",
+              detail: "query=MCP",
+              arguments: { query: "MCP" },
+              resultSummary: "Found MCP documentation",
+              sortOrder: 1,
+              startedAt: new Date().toISOString(),
+              completedAt: new Date().toISOString()
+            },
+            {
+              id: "txt_2",
+              timelineKind: "text",
+              sortOrder: 2,
+              createdAt: new Date().toISOString(),
+              content: "Second segment"
+            }
+          ]
+        }
+      })
+    );
+
+    const blocks = Array.from(container.querySelectorAll('[data-testid="assistant-message-bubble"], [data-testid="assistant-actions-shell"]'));
+
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]?.textContent).toContain("First segment");
+    expect(blocks[1]?.textContent).toContain("Search docs");
+    expect(blocks[2]?.textContent).toContain("Second segment");
+  });
+
   it("keeps the thinking shell visible while streamed reasoning is buffered", () => {
     render(
       React.createElement(StreamingPlaceholder, {
@@ -149,7 +201,7 @@ describe("message bubble", () => {
         awaitingFirstToken: false,
         thinkingInProgress: false,
         hasThinking: true,
-        actions: []
+        timeline: []
       })
     );
 
@@ -166,7 +218,7 @@ describe("message bubble", () => {
         awaitingFirstToken: false,
         thinkingInProgress: true,
         hasThinking: true,
-        actions: []
+        timeline: []
       })
     );
 

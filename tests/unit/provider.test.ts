@@ -383,6 +383,9 @@ describe("provider integration", () => {
             ]
           }
         ]
+      }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal)
       })
     );
   });
@@ -434,6 +437,9 @@ describe("provider integration", () => {
             ]
           }
         ]
+      }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal)
       })
     );
   });
@@ -476,6 +482,9 @@ describe("provider integration", () => {
             type: "enabled"
           }
         }
+      }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal)
       })
     );
 
@@ -527,6 +536,9 @@ describe("provider integration", () => {
             effort: "medium"
           }
         }
+      }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal)
       })
     );
 

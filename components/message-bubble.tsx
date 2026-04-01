@@ -8,7 +8,12 @@ import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
 import { Textarea } from "@/components/ui/textarea";
-import type { Message, MessageAction, MessageAttachment } from "@/lib/types";
+import type {
+  Message,
+  MessageAction,
+  MessageAttachment,
+  MessageTimelineItem
+} from "@/lib/types";
 import { normalizeMarkdownLineBreaks } from "@/lib/utils";
 
 const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
@@ -31,38 +36,31 @@ function TypingIndicator() {
   );
 }
 
-function MessageActions({ actions }: { actions: MessageAction[] }) {
-  if (!actions.length) {
-    return null;
-  }
-
+function MessageActionRow({
+  action
+}: {
+  action: Extract<MessageTimelineItem, { timelineKind: "action" }>;
+}) {
   return (
-    <div className="space-y-2">
-      {actions.map((action) => (
-        <div
-          key={action.id}
-          className="flex items-center gap-2.5 rounded-xl border border-white/6 bg-white/[0.02] px-3 py-2.5 text-sm"
-        >
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
-            {action.status === "running" ? (
-              <LoaderCircle className="h-3 w-3 animate-spin text-white/55" />
-            ) : action.status === "completed" ? (
-              <Check className="h-3 w-3 text-emerald-400" />
-            ) : (
-              <X className="h-3 w-3 text-red-400" />
-            )}
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[13px] font-medium text-white/85">
-              {action.label}
-              {action.detail ? <span className="font-normal text-white/55">: {action.detail}</span> : null}
-            </div>
-            {action.status !== "running" && action.resultSummary ? (
-              <p className="truncate text-xs text-white/35">{action.resultSummary}</p>
-            ) : null}
-          </div>
+    <div className="flex items-center gap-2.5 rounded-xl border border-white/6 bg-white/[0.02] px-3 py-2.5 text-sm">
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
+        {action.status === "running" ? (
+          <LoaderCircle className="h-3 w-3 animate-spin text-white/55" />
+        ) : action.status === "completed" ? (
+          <Check className="h-3 w-3 text-emerald-400" />
+        ) : (
+          <X className="h-3 w-3 text-red-400" />
+        )}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[13px] font-medium text-white/85">
+          {action.label}
+          {action.detail ? <span className="font-normal text-white/55">: {action.detail}</span> : null}
         </div>
-      ))}
+        {action.status !== "running" && action.resultSummary ? (
+          <p className="truncate text-xs text-white/35">{action.resultSummary}</p>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -231,6 +229,55 @@ export function MessageBubble({
   const actions = message.actions ?? [];
   const content = normalizeMarkdownLineBreaks(rawContent);
   const thinkingContent = normalizeMarkdownLineBreaks(rawThinking);
+  const baseTimeline =
+    message.timeline ??
+    (message.role === "assistant"
+      ? [
+          ...actions.map((action) => ({
+            ...action,
+            timelineKind: "action" as const
+          })),
+          ...(rawContent
+            ? [
+                {
+                  id: `content_${message.id}`,
+                  timelineKind: "text" as const,
+                  sortOrder: actions.length,
+                  createdAt: message.createdAt,
+                  content: rawContent
+                }
+              ]
+            : [])
+        ]
+      : []);
+  const timeline = [
+    ...baseTimeline,
+    ...(message.role === "assistant" && message.timeline && streamingAnswer !== undefined && rawContent
+      ? [
+          {
+            id: `stream_content_${message.id}`,
+            timelineKind: "text" as const,
+            sortOrder: baseTimeline.length,
+            createdAt: message.createdAt,
+            content: rawContent
+          }
+        ]
+      : [])
+  ].map((item) =>
+    item.timelineKind === "text"
+      ? {
+          ...item,
+          content: normalizeMarkdownLineBreaks(item.content)
+        }
+      : item
+  );
+  const assistantText = timeline
+    .filter(
+      (item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> =>
+        item.timelineKind === "text"
+    )
+    .map((item) => item.content)
+    .join("");
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [isEditing, setIsEditing] = useState(false);
@@ -239,7 +286,8 @@ export function MessageBubble({
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   const copyResetHandle = useRef<number | null>(null);
   const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || hasThinking || Boolean(thinkingContent));
-  const showBubbleActions = Boolean(content) && !awaitingFirstToken;
+  const showUserBubbleActions = Boolean(content) && !awaitingFirstToken;
+  const showAssistantBubbleActions = Boolean(assistantText) && !awaitingFirstToken;
 
   useEffect(() => {
     setDraft(message.content);
@@ -280,11 +328,11 @@ export function MessageBubble({
     try {
       const html =
         message.role === "assistant"
-          ? contentRef.current?.innerHTML ?? ""
+          ? formatPlainTextHtml(assistantText)
           : formatPlainTextHtml(message.content);
       const text =
         message.role === "assistant"
-          ? contentRef.current?.innerText ?? rawContent
+          ? assistantText
           : message.content;
 
       await writeMessageToClipboard({ html, text });
@@ -359,7 +407,7 @@ export function MessageBubble({
             ) : null}
           </div>
 
-          {showBubbleActions ? (
+          {showUserBubbleActions ? (
             <div className="mt-2 flex items-center gap-1 opacity-100 transition md:pointer-events-none md:translate-y-1 md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:translate-y-0 md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100">
               <ActionButton
                 label={copyState === "copied" ? "Copied" : "Copy message"}
@@ -454,25 +502,33 @@ export function MessageBubble({
               </div>
             ) : null}
 
-            {actions.length ? (
-              <div data-testid="assistant-actions-shell" className={`w-full ${ASSISTANT_MAX_WIDTH}`}>
-                <MessageActions actions={actions} />
-              </div>
-            ) : null}
-
             {awaitingFirstToken ? (
               <div className={`${ASSISTANT_MAX_WIDTH} ${ASSISTANT_BUBBLE}`} data-testid="assistant-message-bubble">
                 <TypingIndicator />
               </div>
-            ) : content ? (
+            ) : timeline.length ? (
               <div className="group flex flex-col items-start">
-                <div className={`${ASSISTANT_MAX_WIDTH} ${ASSISTANT_BUBBLE}`} data-testid="assistant-message-bubble">
-                  <div ref={contentRef} className="markdown-body">
-                    <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{content}</ReactMarkdown>
-                  </div>
+                <div ref={contentRef} className={`flex w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
+                  {timeline.map((item) =>
+                    item.timelineKind === "action" ? (
+                      <div key={item.id} data-testid="assistant-actions-shell">
+                        <MessageActionRow action={item} />
+                      </div>
+                    ) : (
+                      <div
+                        key={item.id}
+                        className={ASSISTANT_BUBBLE}
+                        data-testid="assistant-message-bubble"
+                      >
+                        <div className="markdown-body">
+                          <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{item.content}</ReactMarkdown>
+                        </div>
+                      </div>
+                    )
+                  )}
                 </div>
 
-                {showBubbleActions ? (
+                {showAssistantBubbleActions ? (
                   <div className="mt-2 flex items-center gap-1 opacity-100 transition md:pointer-events-none md:translate-y-1 md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:translate-y-0 md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100">
                     <ActionButton
                       label={copyState === "copied" ? "Copied" : "Copy message"}
@@ -501,7 +557,7 @@ export function StreamingPlaceholder({
   createdAt,
   thinking,
   answer,
-  actions,
+  timeline,
   awaitingFirstToken,
   thinkingInProgress,
   thinkingDuration,
@@ -510,7 +566,7 @@ export function StreamingPlaceholder({
   createdAt: string;
   thinking: string;
   answer: string;
-  actions: MessageAction[];
+  timeline: MessageTimelineItem[];
   awaitingFirstToken: boolean;
   thinkingInProgress: boolean;
   thinkingDuration?: number;
@@ -529,7 +585,7 @@ export function StreamingPlaceholder({
         systemKind: null,
         compactedAt: null,
         createdAt,
-        actions
+        timeline
       }}
       streamingThinking={thinking}
       streamingAnswer={answer}
