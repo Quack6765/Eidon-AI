@@ -8,7 +8,9 @@ import type {
   ChatStreamEvent,
   PromptMessage,
   ProviderProfile,
-  ProviderProfileWithApiKey
+  ProviderProfileWithApiKey,
+  ToolDefinition,
+  ProviderToolCall
 } from "@/lib/types";
 
 function createClient(settings: ProviderProfile, apiKey: string) {
@@ -61,17 +63,70 @@ function toChatCompletionContentParts(content: PromptMessage["content"]) {
 }
 
 function buildResponsesInput(messages: PromptMessage[]): any[] {
-  return messages.map((message) => ({
-    role: message.role,
-    content: toResponseContentParts(message.content)
-  }));
+  const input: unknown[] = [];
+
+  for (const message of messages) {
+    if (message.role === "tool") {
+      input.push({
+        type: "function_call_output",
+        call_id: message.toolCallId,
+        output: typeof message.content === "string" ? message.content : message.content.map(p => "text" in p ? p.text : "").join("")
+      });
+      continue;
+    }
+
+    if (message.role === "assistant" && message.toolCalls?.length) {
+      for (const toolCall of message.toolCalls) {
+        input.push({
+          type: "function_call",
+          id: toolCall.id,
+          name: toolCall.name,
+          arguments: toolCall.arguments,
+          call_id: toolCall.id
+        });
+      }
+      if (typeof message.content === "string" && message.content.trim()) {
+        input.push({ role: "assistant", content: toResponseContentParts(message.content) });
+      }
+      continue;
+    }
+
+    input.push({
+      role: message.role,
+      content: toResponseContentParts(message.content)
+    });
+  }
+
+  return input;
 }
 
 function buildChatCompletionMessages(messages: PromptMessage[]): any[] {
-  return messages.map((message) => ({
-    role: message.role,
-    content: toChatCompletionContentParts(message.content)
-  }));
+  return messages.map((message) => {
+    if (message.role === "tool") {
+      return {
+        role: "tool" as const,
+        tool_call_id: message.toolCallId ?? "",
+        content: typeof message.content === "string" ? message.content : message.content.map(p => "text" in p ? p.text : "").join("")
+      };
+    }
+
+    if (message.role === "assistant" && message.toolCalls?.length) {
+      return {
+        role: "assistant" as const,
+        content: typeof message.content === "string" && message.content.trim() ? message.content : null,
+        tool_calls: message.toolCalls.map((tc) => ({
+          id: tc.id,
+          type: "function" as const,
+          function: { name: tc.name, arguments: tc.arguments }
+        }))
+      };
+    }
+
+    return {
+      role: message.role,
+      content: toChatCompletionContentParts(message.content)
+    };
+  });
 }
 
 function normalizeReasoningEffort(
@@ -224,11 +279,12 @@ export async function callProviderText(input: {
 export async function* streamProviderResponse(input: {
   settings: ProviderProfileWithApiKey;
   promptMessages: PromptMessage[];
-}): AsyncGenerator<ChatStreamEvent, { answer: string; thinking: string; usage: {
-  inputTokens?: number;
-  outputTokens?: number;
-  reasoningTokens?: number;
-} }, void> {
+  tools?: ToolDefinition[];
+}): AsyncGenerator<
+  ChatStreamEvent,
+  { answer: string; thinking: string; toolCalls?: ProviderToolCall[]; usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number } },
+  void
+> {
   const { settings, promptMessages } = input;
   const client = createClient(settings, settings.apiKey);
   const abortController = new AbortController();
@@ -244,19 +300,39 @@ export async function* streamProviderResponse(input: {
 
   if (settings.apiMode === "responses") {
     const reasoning = buildReasoningConfig(settings);
-    const stream = await client.responses.create({
+
+    const responseCreateParams: Record<string, unknown> = {
       model: settings.model,
       input: buildResponsesInput(promptMessages),
       stream: true,
       temperature: settings.temperature,
       max_output_tokens: settings.maxOutputTokens,
       reasoning
-    }, {
-      signal: abortController.signal
-    });
+    };
+
+    if (input.tools?.length) {
+      responseCreateParams.tools = input.tools.map((tool) => ({
+        type: "function",
+        name: tool.function.name,
+        description: tool.function.description,
+        parameters: tool.function.parameters ?? {},
+        strict: false
+      }));
+    }
+
+    const stream = await client.responses.create(
+      responseCreateParams as any,
+      { signal: abortController.signal }
+    ) as unknown as AsyncIterable<any>;
+
+    const pendingToolCalls = new Map<string, { name: string; arguments: string }>();
 
     try {
       for await (const event of stream) {
+        if (event.type === "response.function_call_arguments.delta") {
+          continue;
+        }
+
         if (event.type === "response.output_text.delta") {
           const text = normalizeLineBreaks(String(event.delta ?? ""));
           answer += text;
@@ -283,8 +359,18 @@ export async function* streamProviderResponse(input: {
         if (event.type === "response.output_item.done") {
           const item = event.item as {
             type?: string;
+            name?: string;
+            arguments?: string;
+            call_id?: string;
             summary?: Array<{ text?: string }>;
           };
+
+          if (item.type === "function_call" && item.call_id) {
+            pendingToolCalls.set(item.call_id, {
+              name: item.name ?? "",
+              arguments: item.arguments ?? ""
+            });
+          }
 
           if (item.type === "reasoning" && Array.isArray(item.summary)) {
             const combined = normalizeLineBreaks(item.summary.map((part) => part.text ?? "").join(""));
@@ -313,19 +399,33 @@ export async function* streamProviderResponse(input: {
       reasoningTokens: usage.reasoningTokens
     };
 
-    return { answer, thinking, usage };
+    const toolCalls: ProviderToolCall[] = [];
+    for (const [id, call] of pendingToolCalls) {
+      toolCalls.push({ id, name: call.name, arguments: call.arguments });
+    }
+
+    return { answer, thinking, toolCalls: toolCalls.length ? toolCalls : undefined, usage };
   }
 
-  const stream = await client.chat.completions.create({
+  const chatCreateParams: Record<string, unknown> = {
     model: settings.model,
     messages: buildChatCompletionMessages(promptMessages),
     stream: true,
     temperature: settings.temperature,
     max_completion_tokens: settings.maxOutputTokens,
     ...buildChatCompletionsOptions(settings)
-  }, {
-    signal: abortController.signal
-  });
+  };
+
+  if (input.tools?.length) {
+    chatCreateParams.tools = input.tools;
+  }
+
+  const stream = await client.chat.completions.create(
+    chatCreateParams as any,
+    { signal: abortController.signal }
+  ) as unknown as AsyncIterable<any>;
+
+  const toolCallChunks = new Map<string, { name: string; arguments: string }>();
 
   try {
     for await (const chunk of stream) {
@@ -351,6 +451,26 @@ export async function* streamProviderResponse(input: {
         yield { type: "answer_delta", text: delta };
       }
 
+      if (rawDelta.tool_calls) {
+        for (const toolCallChunk of rawDelta.tool_calls) {
+          const index = String(toolCallChunk.index ?? 0);
+          const existing = toolCallChunks.get(index);
+          if (!existing) {
+            toolCallChunks.set(index, {
+              name: toolCallChunk.function?.name ?? "",
+              arguments: toolCallChunk.function?.arguments ?? ""
+            });
+          } else {
+            if (toolCallChunk.function?.name) {
+              existing.name = toolCallChunk.function.name;
+            }
+            if (toolCallChunk.function?.arguments) {
+              existing.arguments += toolCallChunk.function.arguments;
+            }
+          }
+        }
+      }
+
       if (chunk.usage) {
         usage = {
           inputTokens: chunk.usage.prompt_tokens,
@@ -370,5 +490,10 @@ export async function* streamProviderResponse(input: {
     outputTokens: usage.outputTokens
   };
 
-  return { answer, thinking, usage };
+  const toolCalls: ProviderToolCall[] = [];
+  for (const [, call] of toolCallChunks) {
+    toolCalls.push({ id: `call_${toolCalls.length}`, name: call.name, arguments: call.arguments });
+  }
+
+  return { answer, thinking, toolCalls: toolCalls.length ? toolCalls : undefined, usage };
 }
