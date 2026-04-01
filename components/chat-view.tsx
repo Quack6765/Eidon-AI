@@ -817,7 +817,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 </button>
               </div>
 
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-white/40 select-none">Tool Selection</span>
                 <div className="relative group">
                   <button
                     className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0 flex items-center gap-1"
