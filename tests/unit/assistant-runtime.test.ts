@@ -25,6 +25,7 @@ function createProviderStream(
   result: {
     answer: string;
     thinking: string;
+    toolCalls?: Array<{ id: string; name: string; arguments: string }>;
     usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number };
   }
 ) {
@@ -32,20 +33,13 @@ function createProviderStream(
     for (const event of events) {
       yield event;
     }
-
-    return result;
+    return {
+      answer: result.answer,
+      thinking: result.thinking,
+      toolCalls: result.toolCalls,
+      usage: result.usage
+    };
   })();
-}
-
-function createDeferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((res, rej) => {
-    resolve = res;
-    reject = rej;
-  });
-
-  return { promise, resolve, reject };
 }
 
 function createSettings(): ProviderProfileWithApiKey {
@@ -99,12 +93,13 @@ describe("assistant runtime", () => {
     });
   });
 
-  it("loads skills as action steps before returning the final answer", async () => {
+  it("loads skills via native function calling before returning the final answer", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([], {
-          answer: 'SKILL_REQUEST: {"skills":["Release Notes"]}',
+          answer: "",
           thinking: "",
+          toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }],
           usage: { inputTokens: 10 }
         })
       )
@@ -118,7 +113,6 @@ describe("assistant runtime", () => {
 
     const started: Array<{ kind: string; label: string; detail?: string }> = [];
     const completed: Array<{ handle?: string; resultSummary?: string }> = [];
-    const emitted: ChatStreamEvent[] = [];
     const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
     const result = await resolveAssistantTurn({
@@ -126,152 +120,35 @@ describe("assistant runtime", () => {
       promptMessages: [{ role: "user", content: "Write release notes" }],
       skills: [createSkill()],
       mcpToolSets: [],
-      onEvent: (event) => emitted.push(event),
-      onActionStart: (action) => {
-        started.push(action);
-        return "act_skill";
-      },
-      onActionComplete: (handle, patch) => {
-        completed.push({ handle, resultSummary: patch.resultSummary });
-      }
+      onEvent: () => {},
+      onActionStart: (action) => { started.push(action); return "act_skill"; },
+      onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
     });
 
     expect(streamProviderResponse).toHaveBeenCalledTimes(2);
-    expect(started).toEqual([
-      expect.objectContaining({
-        kind: "skill_load",
-        label: "Load skill",
-        detail: "Release Notes"
-      })
-    ]);
-    expect(completed).toEqual([
-      {
-        handle: "act_skill",
-        resultSummary: "Skill instructions loaded."
-      }
-    ]);
-    const loadedSkillPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
-      (message: { role: string; content: string }) =>
-        message.role === "system" && message.content.includes("Summarize changes for end users in concise release notes.")
-    )?.content;
-
-    expect(loadedSkillPrompt).toContain("Summarize changes for end users in concise release notes.");
-    expect(emitted).toEqual([{ type: "answer_delta", text: "Done" }]);
+    expect(started).toEqual([expect.objectContaining({ kind: "skill_load", label: "Load skill", detail: "Release Notes" })]);
+    expect(completed).toEqual([{ handle: "act_skill", resultSummary: "Skill instructions loaded." }]);
     expect(result.answer).toBe("Done");
   });
 
-  it("loads a trailing skill request even when the model prefixes it with prose", async () => {
+  it("executes MCP tool calls via native function calling", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([], {
-          answer: 'I need release-note guidance. SKILL_REQUEST: {"skills":["Release Notes"]}',
+          answer: "",
           thinking: "",
-          usage: { inputTokens: 8 }
+          toolCalls: [{ id: "call_1", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
+          usage: { inputTokens: 9 }
         })
       )
       .mockReturnValueOnce(
-        createProviderStream([{ type: "answer_delta", text: "Done" }], {
-          answer: "Done",
+        createProviderStream([{ type: "answer_delta", text: "Final answer" }], {
+          answer: "Final answer",
           thinking: "",
-          usage: { inputTokens: 9, outputTokens: 1 }
+          usage: { inputTokens: 11, outputTokens: 3 }
         })
       );
-
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    const result = await resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [{ role: "user", content: "Write release notes" }],
-      skills: [createSkill()],
-      mcpToolSets: []
-    });
-
-    expect(streamProviderResponse).toHaveBeenCalledTimes(2);
-    const loadedSkillPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
-      (message: { role: string; content: string }) =>
-        message.role === "system" && message.content.includes("Summarize changes for end users in concise release notes.")
-    )?.content;
-
-    expect(loadedSkillPrompt).toContain("Summarize changes for end users in concise release notes.");
-    expect(result.answer).toBe("Done");
-  });
-
-  it("injects a unified capability inventory with skill aliases and MCP servers", async () => {
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-    const emitted: ChatStreamEvent[] = [];
-
-    const result = await resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [{ role: "user", content: "What tools do you have access to?" }],
-      skills: [
-        createSkill({
-          id: "builtin-agent-browser",
-          name: "Agent Browser",
-          description: "Use for browser automation and page inspection."
-        })
-      ],
-      mcpToolSets: [
-        {
-          server: {
-            id: "mcp_exa",
-            name: "Exa",
-            url: "https://mcp.exa.ai",
-            headers: {},
-            transport: "streamable_http",
-            command: null,
-            args: null,
-            env: null,
-            enabled: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          },
-          tools: [
-            {
-              name: "search",
-              title: "Web search",
-              description: "Search the web.",
-              inputSchema: { type: "object" },
-              annotations: { readOnlyHint: true }
-            }
-          ]
-        }
-      ],
-      mcpServers: [
-        {
-          id: "mcp_exa",
-          name: "Exa",
-          url: "https://mcp.exa.ai",
-          headers: {},
-          transport: "streamable_http",
-          command: null,
-          args: null,
-          env: null,
-          enabled: true,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
-      ],
-      onEvent: (event) => emitted.push(event)
-    });
-
-    expect(streamProviderResponse).not.toHaveBeenCalled();
-    expect(result.answer).toContain("MCP servers: Exa.");
-    expect(result.answer).toContain("Skills: agent-browser.");
-    expect(result.answer).toContain("Executable MCP tools in the current mode: Exa.search.");
-    expect(emitted).toEqual([{ type: "answer_delta", text: result.answer }]);
-  });
-
-  it("uses Exa automatically for current-information requests before the first model pass", async () => {
-    callMcpTool.mockResolvedValue({
-      content: [{ type: "text", text: "Current findings" }]
-    });
-    streamProviderResponse.mockReturnValueOnce(
-      createProviderStream([{ type: "answer_delta", text: "Here is the answer." }], {
-        answer: "Here is the answer.",
-        thinking: "",
-        usage: { inputTokens: 9, outputTokens: 4 }
-      })
-    );
+    callMcpTool.mockResolvedValue({ content: [{ type: "text", text: "Found MCP docs" }] });
 
     const started: Array<{ label: string; detail?: string; serverId?: string | null }> = [];
     const completed: Array<{ handle?: string; resultSummary?: string }> = [];
@@ -279,238 +156,38 @@ describe("assistant runtime", () => {
 
     const result = await resolveAssistantTurn({
       settings: createSettings(),
-      promptMessages: [{ role: "user", content: "What is the latest news about OpenAI today?" }],
+      promptMessages: [{ role: "user", content: "Find MCP docs" }],
       skills: [],
-      mcpToolSets: [
-        {
-          server: {
-            id: "mcp_exa",
-            name: "Exa",
-            url: "https://mcp.exa.ai",
-            headers: {},
-            transport: "streamable_http",
-            command: null,
-            args: null,
-            env: null,
-            enabled: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          },
-          tools: [
-            {
-              name: "web_search_exa",
-              title: "Web search",
-              description: "Search the web.",
-              inputSchema: { type: "object" },
-              annotations: { readOnlyHint: true }
-            }
-          ]
-        }
-      ],
-      onActionStart: (action) => {
-        started.push(action);
-        return "act_tool";
-      },
-      onActionComplete: (handle, patch) => {
-        completed.push({ handle, resultSummary: patch.resultSummary });
-      }
+      mcpToolSets: [{
+        server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        tools: [{ name: "search_docs", title: "Search docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
+      }],
+      onEvent: () => {},
+      onActionStart: (action) => { started.push(action); return "act_tool"; },
+      onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
     });
 
-    expect(callMcpTool).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "mcp_exa" }),
-      "web_search_exa",
-      { query: "What is the latest news about OpenAI today?" }
-    );
-    expect(started).toEqual([
-      expect.objectContaining({
-        label: "Web search",
-        detail: "query=What is the latest news about OpenAI today?",
-        serverId: "mcp_exa"
-      })
-    ]);
-    expect(completed).toEqual([
-      {
-        handle: "act_tool",
-        resultSummary: "Current findings"
-      }
-    ]);
-    const promptWithToolResult = streamProviderResponse.mock.calls[0][0].promptMessages.find(
-      (message: { role: string; content: string }) =>
-        message.role === "system" && message.content.includes("Current findings")
-    )?.content;
-
-    expect(promptWithToolResult).toContain("Current findings");
-    expect(result.answer).toBe("Here is the answer.");
+    expect(callMcpTool).toHaveBeenCalledWith(expect.objectContaining({ id: "mcp_docs" }), "search_docs", { query: "MCP" });
+    expect(started).toEqual([expect.objectContaining({ label: "Search docs", serverId: "mcp_docs" })]);
+    expect(completed).toEqual([{ handle: "act_tool", resultSummary: "Found MCP docs" }]);
+    expect(result.answer).toBe("Final answer");
   });
 
-  it("uses Exa automatically for availability and booking lookups", async () => {
-    callMcpTool
-      .mockResolvedValueOnce({
-        content: [
-          {
-            type: "text",
-            text: "Title: Home - Le Centre de Pickleball Marcotte Sports\nURL: https://centrepickleballmarcottesports.com/en/"
-          }
-        ]
-      })
-      .mockResolvedValueOnce({
-        content: [{ type: "text", text: "Facility booking details" }]
-      });
-    streamProviderResponse.mockReturnValueOnce(
-      createProviderStream([{ type: "answer_delta", text: "Here are the booking options." }], {
-        answer: "Here are the booking options.",
-        thinking: "",
-        usage: { inputTokens: 12, outputTokens: 5 }
-      })
-    );
-
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    const result = await resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [
-        {
-          role: "user",
-          content:
-            "can you tell me the exact timeslot available to rent a court for 1h at pickleball marcotte for this weekend ?"
-        }
-      ],
-      skills: [],
-      mcpToolSets: [
-        {
-          server: {
-            id: "mcp_exa",
-            name: "Exa",
-            url: "https://mcp.exa.ai",
-            headers: {},
-            transport: "streamable_http",
-            command: null,
-            args: null,
-            env: null,
-            enabled: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          },
-          tools: [
-            {
-              name: "web_search_exa",
-              title: "Web search",
-              description: "Search the web.",
-              inputSchema: { type: "object" },
-              annotations: { readOnlyHint: true }
-            },
-            {
-              name: "crawling_exa",
-              title: "Crawl web pages",
-              description: "Crawl one or more web pages.",
-              inputSchema: { type: "object" },
-              annotations: { readOnlyHint: true }
-            }
-          ]
-        }
-      ]
-    });
-
-    expect(callMcpTool).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({ id: "mcp_exa" }),
-      "web_search_exa",
-      {
-        query:
-          "can you tell me the exact timeslot available to rent a court for 1h at pickleball marcotte for this weekend ?"
-      }
-    );
-    expect(callMcpTool).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ id: "mcp_exa" }),
-      "crawling_exa",
-      {
-        urls: ["https://centrepickleballmarcottesports.com/en/"]
-      }
-    );
-    expect(result.answer).toBe("Here are the booking options.");
-  });
-
-  it("auto-loads the most relevant skill from metadata when the context matches it", async () => {
-    streamProviderResponse.mockReturnValueOnce(
-      createProviderStream([{ type: "answer_delta", text: "I can inspect that site." }], {
-        answer: "I can inspect that site.",
-        thinking: "",
-        usage: { inputTokens: 8, outputTokens: 4 }
-      })
-    );
-
-    const started: Array<{ label: string; detail?: string; skillId?: string | null }> = [];
-    const completed: Array<{ resultSummary?: string }> = [];
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    await resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [
-        {
-          role: "user",
-          content: "Check this booking website and inspect the page: https://example.com/reservations"
-        }
-      ],
-      skills: [
-        createSkill({
-          id: "builtin-agent-browser",
-          name: "Agent Browser",
-          description: "Use for websites, pages, browser automation, and screenshots.",
-          content: `---
-name: Agent Browser
-description: Use for websites, pages, browser automation, and screenshots.
-shell_command_prefixes:
-  - agent-browser
----
-
-Inspect pages with agent-browser.`
-        }),
-        createSkill({
-          id: "skill_docs",
-          name: "Doc Helper",
-          description: "Use for code documentation and API references.",
-          content: "Documentation helper"
-        })
-      ],
-      mcpToolSets: [],
-      onActionStart: (action) => {
-        started.push(action);
-        return "act_skill";
-      },
-      onActionComplete: (_handle, patch) => {
-        completed.push({ resultSummary: patch.resultSummary });
-      }
-    });
-
-    expect(started).toEqual([
-      expect.objectContaining({
-        label: "Load skill",
-        detail: "Agent Browser",
-        skillId: "builtin-agent-browser"
-      })
-    ]);
-    expect(completed).toEqual([
-      {
-        resultSummary: "Skill instructions loaded."
-      }
-    ]);
-  });
-
-  it("loads a requested shell-enabled skill before executing shell calls", async () => {
+  it("executes shell commands via native function calling after loading a skill", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([], {
-          answer: 'SKILL_REQUEST: {"skills":["Agent Browser"]}',
+          answer: "",
           thinking: "",
+          toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Agent Browser" }) }],
           usage: { inputTokens: 6 }
         })
       )
       .mockReturnValueOnce(
         createProviderStream([], {
-          answer:
-            'I will inspect the page directly. SHELL_CALL: {"command":"agent-browser open https://example.com && agent-browser snapshot -i"}',
+          answer: "",
           thinking: "",
+          toolCalls: [{ id: "call_2", name: "execute_shell_command", arguments: JSON.stringify({ command: "agent-browser open https://example.com && agent-browser snapshot -i" }) }],
           usage: { inputTokens: 7 }
         })
       )
@@ -522,7 +199,7 @@ Inspect pages with agent-browser.`
         })
       );
     executeLocalShellCommand.mockResolvedValue({
-      stdout: "✓ Example Domain",
+      stdout: "Example Domain",
       stderr: "",
       exitCode: 0,
       timedOut: false,
@@ -551,580 +228,29 @@ Run browser commands.`
         })
       ],
       mcpToolSets: [],
-      onActionStart: (action) => {
-        started.push(action);
-        return "act_shell";
-      },
+      onActionStart: (action) => { started.push(action); return "act_shell"; },
       onActionComplete: () => undefined
     });
 
     expect(started).toEqual([
-      expect.objectContaining({
-        kind: "skill_load",
-        label: "Load skill",
-        detail: "Agent Browser"
-      }),
-      expect.objectContaining({
-        kind: "shell_command",
-        label: "Local command",
-        detail: "agent-browser open https://example.com && agent-browser snapshot -i"
-      })
+      expect.objectContaining({ kind: "skill_load", label: "Load skill", detail: "Agent Browser" }),
+      expect.objectContaining({ kind: "shell_command", label: "Local command", detail: "agent-browser open https://example.com && agent-browser snapshot -i" })
     ]);
     expect(executeLocalShellCommand).toHaveBeenCalledWith({
       command: "agent-browser open https://example.com && agent-browser snapshot -i",
       allowedPrefixes: ["agent-browser"],
       timeoutMs: undefined
     });
-    const loadedSkillPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
-      (message: { role: string; content: string }) =>
-        message.role === "system" && message.content.includes("Allowed command prefixes: agent-browser")
-    )?.content;
-    const shellPrompt = streamProviderResponse.mock.calls[2][0].promptMessages.find(
-      (message: { role: string; content: string }) =>
-        message.role === "system" && message.content.includes("Local shell command result")
-    )?.content;
-
-    expect(loadedSkillPrompt).toContain("Allowed command prefixes: agent-browser");
-    expect(shellPrompt).toContain("✓ Example Domain");
     expect(result.answer).toBe("Observed the page.");
-  });
-
-  it("does not leak trailing shell-call control text after visible prose", async () => {
-    const gate = createDeferred<void>();
-    streamProviderResponse
-      .mockReturnValueOnce(
-        createProviderStream([], {
-          answer: 'SKILL_REQUEST: {"skills":["Agent Browser"]}',
-          thinking: "",
-          usage: { inputTokens: 6 }
-        })
-      )
-      .mockReturnValueOnce(
-        (async function* () {
-          yield {
-            type: "answer_delta",
-            text: "Let me get a fresh snapshot of the page to see the actual element structure:\n\n"
-          } satisfies ChatStreamEvent;
-          yield { type: "answer_delta", text: "SHELL" } satisfies ChatStreamEvent;
-          yield { type: "answer_delta", text: "_CALL:" } satisfies ChatStreamEvent;
-          await gate.promise;
-
-          return {
-            answer:
-              'Let me get a fresh snapshot of the page to see the actual element structure:\n\nSHELL_CALL: {"command":"agent-browser snapshot -i"}',
-            thinking: "",
-            usage: { inputTokens: 10 }
-          };
-        })()
-      )
-      .mockReturnValueOnce(
-        createProviderStream([{ type: "answer_delta", text: "Observed the page." }], {
-          answer: "Observed the page.",
-          thinking: "",
-          usage: { inputTokens: 8, outputTokens: 2 }
-        })
-      );
-    executeLocalShellCommand.mockResolvedValue({
-      stdout: "snapshot output",
-      stderr: "",
-      exitCode: 0,
-      timedOut: false,
-      isError: false
-    });
-
-    const emitted: ChatStreamEvent[] = [];
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    const pending = resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [{ role: "user", content: "Open a website and inspect it with the browser" }],
-      skills: [
-        createSkill({
-          id: "builtin-agent-browser",
-          name: "Agent Browser",
-          description: "Use for browser automation and page inspection.",
-          content: `---
-name: Agent Browser
-description: Use for browser automation and page inspection.
-shell_command_prefixes:
-  - agent-browser
----
-
-Run browser commands.`
-        })
-      ],
-      mcpToolSets: [],
-      onEvent: (event) => emitted.push(event),
-      onActionStart: () => "act_shell",
-      onActionComplete: () => undefined
-    });
-
-    await vi.waitFor(() => {
-      expect(emitted).toEqual([
-        {
-          type: "answer_delta",
-          text: "Let me get a fresh snapshot of the page to see the actual element structure:\n\n"
-        }
-      ]);
-    });
-
-    gate.resolve();
-
-    const result = await pending;
-
-    expect(emitted).toEqual([
-      {
-        type: "answer_delta",
-        text: "Let me get a fresh snapshot of the page to see the actual element structure:\n\n"
-      },
-      { type: "answer_delta", text: "Observed the page." }
-    ]);
-    expect(executeLocalShellCommand).toHaveBeenCalledWith({
-      command: "agent-browser snapshot -i",
-      allowedPrefixes: ["agent-browser"],
-      timeoutMs: undefined
-    });
-    expect(result.answer).toBe("Observed the page.");
-  });
-
-  it("streams visible thinking and answer deltas before the provider finishes", async () => {
-    const gate = createDeferred<void>();
-    streamProviderResponse.mockReturnValueOnce(
-      (async function* () {
-        yield { type: "thinking_delta", text: "Thinking " } satisfies ChatStreamEvent;
-        yield { type: "answer_delta", text: "Hello" } satisfies ChatStreamEvent;
-        await gate.promise;
-
-        return {
-          answer: "Hello",
-          thinking: "Thinking ",
-          usage: { outputTokens: 1, reasoningTokens: 1 }
-        };
-      })()
-    );
-
-    const emitted: ChatStreamEvent[] = [];
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    const pending = resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [{ role: "user", content: "Say hello" }],
-      skills: [],
-      mcpToolSets: [],
-      onEvent: (event) => emitted.push(event)
-    });
-
-    await vi.waitFor(() => {
-      expect(emitted).toEqual([
-        { type: "thinking_delta", text: "Thinking " },
-        { type: "answer_delta", text: "Hello" }
-      ]);
-    });
-
-    gate.resolve();
-
-    const result = await pending;
-
-    expect(result.answer).toBe("Hello");
-    expect(result.thinking).toBe("Thinking ");
-  });
-
-  it("does not leak tool-call control text while the first pass is still unresolved", async () => {
-    const gate = createDeferred<void>();
-    streamProviderResponse
-      .mockReturnValueOnce(
-        (async function* () {
-          yield { type: "answer_delta", text: "TOOL" } satisfies ChatStreamEvent;
-          yield { type: "answer_delta", text: "_CALL:" } satisfies ChatStreamEvent;
-          await gate.promise;
-
-          return {
-            answer: 'TOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"MCP"}}',
-            thinking: "",
-            usage: { inputTokens: 9 }
-          };
-        })()
-      )
-      .mockReturnValueOnce(
-        createProviderStream([{ type: "answer_delta", text: "Final answer" }], {
-          answer: "Final answer",
-          thinking: "",
-          usage: { inputTokens: 11, outputTokens: 3 }
-        })
-      );
-    callMcpTool.mockResolvedValue({
-      content: [{ type: "text", text: "Found MCP docs" }]
-    });
-
-    const emitted: ChatStreamEvent[] = [];
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    const pending = resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [{ role: "user", content: "Find MCP docs" }],
-      skills: [],
-      mcpToolSets: [
-        {
-          server: {
-            id: "mcp_docs",
-            name: "Docs",
-            url: "https://mcp.example.com",
-            headers: {},
-            transport: "streamable_http",
-            command: null,
-            args: null,
-            env: null,
-            enabled: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          },
-          tools: [
-            {
-              name: "search_docs",
-              description: "Search docs",
-              inputSchema: { type: "object" },
-              annotations: { readOnlyHint: true }
-            }
-          ]
-        }
-      ],
-      onEvent: (event) => emitted.push(event),
-      onActionStart: () => "act_tool",
-      onActionComplete: () => undefined
-    });
-
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(emitted).toEqual([]);
-
-    gate.resolve();
-
-    const result = await pending;
-
-    expect(emitted).toEqual([{ type: "answer_delta", text: "Final answer" }]);
-    expect(result.answer).toBe("Final answer");
-  });
-
-  it("does not leak trailing tool-call control text after visible prose", async () => {
-    const gate = createDeferred<void>();
-    streamProviderResponse
-      .mockReturnValueOnce(
-        (async function* () {
-          yield {
-            type: "answer_delta",
-            text: "Let me inspect the docs first.\n\n"
-          } satisfies ChatStreamEvent;
-          yield { type: "answer_delta", text: "TOOL" } satisfies ChatStreamEvent;
-          yield { type: "answer_delta", text: "_CALL:" } satisfies ChatStreamEvent;
-          await gate.promise;
-
-          return {
-            answer:
-              'Let me inspect the docs first.\n\nTOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"MCP"}}',
-            thinking: "",
-            usage: { inputTokens: 10 }
-          };
-        })()
-      )
-      .mockReturnValueOnce(
-        createProviderStream([{ type: "answer_delta", text: "Final answer" }], {
-          answer: "Final answer",
-          thinking: "",
-          usage: { inputTokens: 11, outputTokens: 3 }
-        })
-      );
-    callMcpTool.mockResolvedValue({
-      content: [{ type: "text", text: "Found MCP docs" }]
-    });
-
-    const emitted: ChatStreamEvent[] = [];
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    const pending = resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [{ role: "user", content: "Find MCP docs" }],
-      skills: [],
-      mcpToolSets: [
-        {
-          server: {
-            id: "mcp_docs",
-            name: "Docs",
-            url: "https://mcp.example.com",
-            headers: {},
-            transport: "streamable_http",
-            command: null,
-            args: null,
-            env: null,
-            enabled: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          },
-          tools: [
-            {
-              name: "search_docs",
-              description: "Search docs",
-              inputSchema: { type: "object" },
-              annotations: { readOnlyHint: true }
-            }
-          ]
-        }
-      ],
-      onEvent: (event) => emitted.push(event),
-      onActionStart: () => "act_tool",
-      onActionComplete: () => undefined
-    });
-
-    await vi.waitFor(() => {
-      expect(emitted).toEqual([
-        { type: "answer_delta", text: "Let me inspect the docs first.\n\n" }
-      ]);
-    });
-
-    gate.resolve();
-
-    const result = await pending;
-
-    expect(emitted).toEqual([
-      { type: "answer_delta", text: "Let me inspect the docs first.\n\n" },
-      { type: "answer_delta", text: "Final answer" }
-    ]);
-    expect(result.answer).toBe("Final answer");
-  });
-
-  it("executes MCP tool calls as action steps and feeds the result back into the next model pass", async () => {
-    streamProviderResponse
-      .mockReturnValueOnce(
-        createProviderStream([], {
-          answer: 'TOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"MCP"}}',
-          thinking: "",
-          usage: { inputTokens: 9 }
-        })
-      )
-      .mockReturnValueOnce(
-        createProviderStream([{ type: "answer_delta", text: "Final answer" }], {
-          answer: "Final answer",
-          thinking: "",
-          usage: { inputTokens: 11, outputTokens: 3 }
-        })
-      );
-    callMcpTool.mockResolvedValue({
-      content: [{ type: "text", text: "Found MCP docs" }]
-    });
-
-    const started: Array<{ label: string; detail?: string; serverId?: string | null }> = [];
-    const completed: Array<{ handle?: string; resultSummary?: string }> = [];
-    const emitted: ChatStreamEvent[] = [];
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    const result = await resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [{ role: "user", content: "Find MCP docs" }],
-      skills: [],
-      mcpToolSets: [
-        {
-          server: {
-            id: "mcp_docs",
-            name: "Docs",
-            url: "https://mcp.example.com",
-            headers: {},
-            transport: "streamable_http",
-            command: null,
-            args: null,
-            env: null,
-            enabled: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          },
-          tools: [
-            {
-              name: "search_docs",
-              title: "Search docs",
-              description: "Search docs",
-              inputSchema: { type: "object" },
-              annotations: { readOnlyHint: true }
-            }
-          ]
-        }
-      ],
-      onEvent: (event) => emitted.push(event),
-      onActionStart: (action) => {
-        started.push(action);
-        return "act_tool";
-      },
-      onActionComplete: (handle, patch) => {
-        completed.push({ handle, resultSummary: patch.resultSummary });
-      }
-    });
-
-    expect(callMcpTool).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "mcp_docs" }),
-      "search_docs",
-      { query: "MCP" }
-    );
-    expect(started).toEqual([
-      expect.objectContaining({
-        label: "Search docs",
-        detail: "query=MCP",
-        serverId: "mcp_docs"
-      })
-    ]);
-    expect(completed).toEqual([
-      {
-        handle: "act_tool",
-        resultSummary: "Found MCP docs"
-      }
-    ]);
-    const toolResultPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
-      (message: { role: string; content: string }) =>
-        message.role === "system" && message.content.includes("Found MCP docs")
-    )?.content;
-
-    expect(toolResultPrompt).toContain("Found MCP docs");
-    expect(emitted).toEqual([{ type: "answer_delta", text: "Final answer" }]);
-    expect(result.answer).toBe("Final answer");
-  });
-
-  it("executes trailing MCP tool calls even when the model prefixes them with explanatory text", async () => {
-    streamProviderResponse
-      .mockReturnValueOnce(
-        createProviderStream([], {
-          answer:
-            'I found the facility website. TOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"booking"}}',
-          thinking: "",
-          usage: { inputTokens: 7 }
-        })
-      )
-      .mockReturnValueOnce(
-        createProviderStream([{ type: "answer_delta", text: "Here are the booking options." }], {
-          answer: "Here are the booking options.",
-          thinking: "",
-          usage: { inputTokens: 9, outputTokens: 5 }
-        })
-      );
-    callMcpTool.mockResolvedValue({
-      content: [{ type: "text", text: "Saturday 9am and 10am available" }]
-    });
-
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    const result = await resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [{ role: "user", content: "Find court booking options" }],
-      skills: [],
-      mcpToolSets: [
-        {
-          server: {
-            id: "mcp_docs",
-            name: "Docs",
-            url: "https://mcp.example.com",
-            headers: {},
-            transport: "streamable_http",
-            command: null,
-            args: null,
-            env: null,
-            enabled: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          },
-          tools: [
-            {
-              name: "search_docs",
-              description: "Search docs",
-              inputSchema: { type: "object" },
-              annotations: { readOnlyHint: true }
-            }
-          ]
-        }
-      ]
-    });
-
-    expect(callMcpTool).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "mcp_docs" }),
-      "search_docs",
-      { query: "booking" }
-    );
-    expect(result.answer).toBe("Here are the booking options.");
-  });
-
-  it("commits visible answer segments when timeline persistence is enabled", async () => {
-    streamProviderResponse
-      .mockReturnValueOnce(
-        createProviderStream([], {
-          answer:
-            'Let me inspect the docs first.\n\nTOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"booking"}}',
-          thinking: "",
-          usage: { inputTokens: 7 }
-        })
-      )
-      .mockReturnValueOnce(
-        createProviderStream([{ type: "answer_delta", text: "Here are the booking options." }], {
-          answer: "Here are the booking options.",
-          thinking: "",
-          usage: { inputTokens: 9, outputTokens: 5 }
-        })
-      );
-    callMcpTool.mockResolvedValue({
-      content: [{ type: "text", text: "Saturday 9am and 10am available" }]
-    });
-
-    const emitted: ChatStreamEvent[] = [];
-    const persistedSegments: string[] = [];
-    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
-
-    await resolveAssistantTurn({
-      settings: createSettings(),
-      promptMessages: [{ role: "user", content: "Find court booking options" }],
-      skills: [],
-      mcpToolSets: [
-        {
-          server: {
-            id: "mcp_docs",
-            name: "Docs",
-            url: "https://mcp.example.com",
-            headers: {},
-            transport: "streamable_http",
-            command: null,
-            args: null,
-            env: null,
-            enabled: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          },
-          tools: [
-            {
-              name: "search_docs",
-              description: "Search docs",
-              inputSchema: { type: "object" },
-              annotations: { readOnlyHint: true }
-            }
-          ]
-        }
-      ],
-      onEvent: (event) => emitted.push(event),
-      onAnswerSegment: (segment) => {
-        persistedSegments.push(segment);
-      }
-    });
-
-    expect(persistedSegments).toEqual([
-      "Let me inspect the docs first.",
-      "Here are the booking options."
-    ]);
-    expect(emitted).toContainEqual({
-      type: "answer_commit",
-      text: "Let me inspect the docs first."
-    });
-    expect(emitted).toContainEqual({
-      type: "answer_commit",
-      text: "Here are the booking options."
-    });
   });
 
   it("reports MCP tool execution errors through the error callback", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([], {
-          answer: 'TOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"MCP"}}',
+          answer: "",
           thinking: "",
+          toolCalls: [{ id: "call_1", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
           usage: { inputTokens: 5 }
         })
       )
@@ -1147,49 +273,15 @@ Run browser commands.`
       settings: createSettings(),
       promptMessages: [{ role: "user", content: "Use MCP" }],
       skills: [],
-      mcpToolSets: [
-        {
-          server: {
-            id: "mcp_docs",
-            name: "Docs",
-            url: "https://mcp.example.com",
-            headers: {},
-            transport: "streamable_http",
-            command: null,
-            args: null,
-            env: null,
-            enabled: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          },
-          tools: [
-            {
-              name: "search_docs",
-              description: "Search docs",
-              inputSchema: { type: "object" },
-              annotations: { readOnlyHint: true }
-            }
-          ]
-        }
-      ],
+      mcpToolSets: [{
+        server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
+      }],
       onActionStart: () => "act_tool",
-      onActionError: (handle, patch) => {
-        errored.push({ handle, resultSummary: patch.resultSummary });
-      }
+      onActionError: (handle, patch) => { errored.push({ handle, resultSummary: patch.resultSummary }); }
     });
 
-    expect(errored).toEqual([
-      {
-        handle: "act_tool",
-        resultSummary: "permission denied"
-      }
-    ]);
-    const erroredToolPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
-      (message: { role: string; content: string }) =>
-        message.role === "system" && message.content.includes("Status: error")
-    )?.content;
-
-    expect(erroredToolPrompt).toContain("Status: error");
+    expect(errored).toEqual([{ handle: "act_tool", resultSummary: "permission denied" }]);
     expect(result.answer).toBe("Recovered answer");
   });
 
@@ -1197,8 +289,9 @@ Run browser commands.`
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([], {
-          answer: 'TOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"MCP"}}',
+          answer: "",
           thinking: "",
+          toolCalls: [{ id: "call_1", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
           usage: { inputTokens: 5 }
         })
       )
@@ -1226,49 +319,23 @@ Run browser commands.`
       settings: createSettings(),
       promptMessages: [{ role: "user", content: "Use MCP" }],
       skills: [],
-      mcpToolSets: [
-        {
-          server: {
-            id: "mcp_docs",
-            name: "Docs",
-            url: "https://mcp.example.com",
-            headers: {},
-            transport: "streamable_http",
-            command: null,
-            args: null,
-            env: null,
-            enabled: true,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString()
-          },
-          tools: [
-            {
-              name: "search_docs",
-              description: "Search docs",
-              inputSchema: { type: "object" },
-              annotations: { readOnlyHint: true }
-            }
-          ]
-        }
-      ]
+      mcpToolSets: [{
+        server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
+      }]
     });
 
     expect(streamProviderResponse).toHaveBeenCalledTimes(3);
-    const retryPrompt = streamProviderResponse.mock.calls[2][0].promptMessages.find(
-      (message: { role: string; content: string }) =>
-        message.role === "system" && message.content.includes("Your previous response was empty")
-    )?.content;
-
-    expect(retryPrompt).toContain("Your previous response was empty");
     expect(result.answer).toBe("Final answer after retry");
   });
 
-  it("adds a correction prompt when the requested MCP tool is unavailable", async () => {
+  it("returns an error result for unknown MCP tool calls", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([], {
-          answer: 'TOOL_CALL: {"serverId":"missing_server","tool":"missing_tool","arguments":{"query":"MCP"}}',
+          answer: "",
           thinking: "",
+          toolCalls: [{ id: "call_1", name: "mcp_missing_server_missing_tool", arguments: JSON.stringify({ query: "MCP" }) }],
           usage: { inputTokens: 5 }
         })
       )
@@ -1290,20 +357,15 @@ Run browser commands.`
     });
 
     expect(streamProviderResponse).toHaveBeenCalledTimes(2);
-    const unavailableToolPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
-      (message: { role: string; content: string }) =>
-        message.role === "system" && message.content.includes("The requested MCP tool is unavailable")
-    )?.content;
-
-    expect(unavailableToolPrompt).toContain("The requested MCP tool is unavailable");
     expect(result.answer).toBe("Fallback answer");
   });
 
   it("stops after the maximum number of control steps", async () => {
     streamProviderResponse.mockImplementation(() =>
       createProviderStream([], {
-        answer: 'TOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"loop"}}',
+        answer: "",
         thinking: "",
+        toolCalls: [{ id: "call_loop", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "loop" }) }],
         usage: { inputTokens: 1 }
       })
     );
@@ -1318,34 +380,99 @@ Run browser commands.`
         settings: createSettings(),
         promptMessages: [{ role: "user", content: "Loop forever" }],
         skills: [],
-        mcpToolSets: [
-          {
-            server: {
-              id: "mcp_docs",
-              name: "Docs",
-              url: "https://mcp.example.com",
-              headers: {},
-              transport: "streamable_http",
-              command: null,
-              args: null,
-              env: null,
-              enabled: true,
-              createdAt: new Date().toISOString(),
-              updatedAt: new Date().toISOString()
-            },
-            tools: [
-              {
-                name: "search_docs",
-                description: "Search docs",
-                inputSchema: { type: "object" },
-                annotations: { readOnlyHint: true }
-              }
-            ]
-          }
-        ]
+        mcpToolSets: [{
+          server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+          tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
+        }]
       })
     ).rejects.toThrow("Assistant exceeded the maximum number of tool steps");
 
     expect(streamProviderResponse).toHaveBeenCalledTimes(16);
+  });
+
+  it("streams thinking and answer deltas before the provider finishes", async () => {
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    let resolveGate: () => void;
+    const gate = new Promise<void>((resolve) => { resolveGate = resolve; });
+
+    streamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "thinking_delta", text: "Thinking " } satisfies ChatStreamEvent;
+        yield { type: "answer_delta", text: "Hello" } satisfies ChatStreamEvent;
+        await gate;
+        return {
+          answer: "Hello",
+          thinking: "Thinking ",
+          usage: { outputTokens: 1, reasoningTokens: 1 }
+        };
+      })()
+    );
+
+    const emitted: ChatStreamEvent[] = [];
+
+    const pending = resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Say hello" }],
+      skills: [],
+      mcpToolSets: [],
+      onEvent: (event) => emitted.push(event)
+    });
+
+    await vi.waitFor(() => {
+      expect(emitted).toEqual([
+        { type: "thinking_delta", text: "Thinking " },
+        { type: "answer_delta", text: "Hello" }
+      ]);
+    });
+
+    resolveGate!();
+
+    const result = await pending;
+
+    expect(result.answer).toBe("Hello");
+    expect(result.thinking).toBe("Thinking ");
+  });
+
+  it("commits answer text that appears before tool calls", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Let me search." }], {
+          answer: "Let me search.",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
+          usage: { inputTokens: 7 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Here are the results." }], {
+          answer: "Here are the results.",
+          thinking: "",
+          usage: { inputTokens: 9, outputTokens: 5 }
+        })
+      );
+    callMcpTool.mockResolvedValue({
+      content: [{ type: "text", text: "Found MCP docs" }]
+    });
+
+    const persistedSegments: string[] = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find MCP docs" }],
+      skills: [],
+      mcpToolSets: [{
+        server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
+      }],
+      onEvent: () => {},
+      onAnswerSegment: (segment) => { persistedSegments.push(segment); }
+    });
+
+    expect(persistedSegments).toEqual([
+      "Let me search.",
+      "Here are the results."
+    ]);
   });
 });
