@@ -12,13 +12,21 @@ import {
 } from "@/lib/constants";
 import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
+import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 
 const BUILTIN_AGENT_BROWSER_SKILL = {
   id: "builtin-agent-browser",
   name: "Agent Browser",
   description:
     "Use for web browsing, page inspection, form interaction, screenshots, and browser-based testing tasks.",
-  content: `# Agent Browser
+  content: `---
+name: Agent Browser
+description: Use for web browsing, page inspection, form interaction, screenshots, and browser-based testing tasks.
+shell_command_prefixes:
+  - agent-browser
+---
+
+# Agent Browser
 
 A fast headless browser automation CLI for AI agents. Use it for any web browsing task.
 
@@ -60,6 +68,12 @@ Always use \`snapshot\` after \`open\` or any interaction to understand the page
 let database: Database.Database | null = null;
 
 function deriveSkillDescription(content: string) {
+  const metadata = parseSkillContentMetadata(content);
+
+  if (metadata.description?.trim()) {
+    return metadata.description.trim().slice(0, 240);
+  }
+
   const lines = content
     .split("\n")
     .map((line) => line.trim())
@@ -315,16 +329,18 @@ function migrate(db: Database.Database) {
   `);
 
   const existingSkills = db
-    .prepare("SELECT id, content, description FROM skills")
-    .all() as Array<{ id: string; content: string; description: string }>;
-  const updateSkillDescription = db.prepare("UPDATE skills SET description = ? WHERE id = ?");
+    .prepare("SELECT id, name, content, description FROM skills")
+    .all() as Array<{ id: string; name: string; content: string; description: string }>;
+  const updateSkillMetadata = db.prepare("UPDATE skills SET name = ?, description = ? WHERE id = ?");
 
   for (const skill of existingSkills) {
-    if (skill.description.trim()) {
-      continue;
-    }
+    const metadata = parseSkillContentMetadata(skill.content);
+    const nextName = metadata.name?.trim() || skill.name;
+    const nextDescription = metadata.description?.trim() || skill.description.trim() || deriveSkillDescription(skill.content);
 
-    updateSkillDescription.run(deriveSkillDescription(skill.content), skill.id);
+    if (nextName !== skill.name || nextDescription !== skill.description) {
+      updateSkillMetadata.run(nextName, nextDescription, skill.id);
+    }
   }
 
   db.prepare(
@@ -512,13 +528,17 @@ function migrate(db: Database.Database) {
   ).run();
 
   const builtinSkills = [BUILTIN_AGENT_BROWSER_SKILL];
-  const insertSkill = db.prepare(
-    `INSERT OR IGNORE INTO skills (id, name, description, content, enabled, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 1, ?, ?)`
+  const upsertSkill = db.prepare(
+    `INSERT INTO skills (id, name, description, content, enabled, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 1, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       name = excluded.name,
+       description = excluded.description,
+       content = excluded.content`
   );
   const now = new Date().toISOString();
   for (const skill of builtinSkills) {
-    insertSkill.run(skill.id, skill.name, skill.description, skill.content, now, now);
+    upsertSkill.run(skill.id, skill.name, skill.description, skill.content, now, now);
   }
 }
 

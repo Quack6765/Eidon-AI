@@ -104,6 +104,42 @@ describe("message bubble", () => {
     expect(screen.getByText("Found MCP documentation")).toBeInTheDocument();
   });
 
+  it("keeps the thought shell above action rows", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          thinkingContent: "Reasoning summary",
+          actions: [
+            {
+              id: "act_done",
+              messageId: "msg_assistant",
+              kind: "mcp_tool_call",
+              status: "completed",
+              serverId: "mcp_docs",
+              skillId: null,
+              toolName: "search_docs",
+              label: "Search docs",
+              detail: "query=MCP",
+              arguments: { query: "MCP" },
+              resultSummary: "Found MCP documentation",
+              sortOrder: 0,
+              startedAt: new Date().toISOString(),
+              completedAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    const thinkingShell = screen.getByTestId("assistant-thinking-shell");
+    const actionsShell = screen.getByTestId("assistant-actions-shell");
+
+    expect(thinkingShell.compareDocumentPosition(actionsShell)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+  });
+
   it("keeps the thinking shell visible while streamed reasoning is buffered", () => {
     render(
       React.createElement(StreamingPlaceholder, {

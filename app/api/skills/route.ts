@@ -10,8 +10,8 @@ export async function GET() {
 }
 
 const createSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().min(1).max(240),
+  name: z.string().trim().min(1).max(100).optional().default("Untitled Skill"),
+  description: z.string().trim().min(1).max(240).optional(),
   content: z.string().min(1)
 });
 

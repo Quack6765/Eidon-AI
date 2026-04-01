@@ -3,6 +3,8 @@ import type { ChatStreamEvent, ProviderProfileWithApiKey, Skill } from "@/lib/ty
 const streamProviderResponse = vi.fn();
 const callMcpTool = vi.fn();
 const summarizeToolResult = vi.fn();
+const executeLocalShellCommand = vi.fn();
+const summarizeShellResult = vi.fn();
 
 vi.mock("@/lib/provider", () => ({
   streamProviderResponse
@@ -11,6 +13,11 @@ vi.mock("@/lib/provider", () => ({
 vi.mock("@/lib/mcp-client", () => ({
   callMcpTool,
   summarizeToolResult
+}));
+
+vi.mock("@/lib/local-shell", () => ({
+  executeLocalShellCommand,
+  summarizeShellResult
 }));
 
 function createProviderStream(
@@ -82,8 +89,13 @@ describe("assistant runtime", () => {
     streamProviderResponse.mockReset();
     callMcpTool.mockReset();
     summarizeToolResult.mockReset();
+    executeLocalShellCommand.mockReset();
+    summarizeShellResult.mockReset();
     summarizeToolResult.mockImplementation((result: { content?: Array<{ text?: string }> }) => {
       return result.content?.[0]?.text ?? "done";
+    });
+    summarizeShellResult.mockImplementation((result: { stdout?: string; stderr?: string }) => {
+      return result.stdout || result.stderr || "done";
     });
   });
 
@@ -145,6 +157,42 @@ describe("assistant runtime", () => {
 
     expect(loadedSkillPrompt).toContain("Summarize changes for end users in concise release notes.");
     expect(emitted).toEqual([{ type: "answer_delta", text: "Done" }]);
+    expect(result.answer).toBe("Done");
+  });
+
+  it("loads a trailing skill request even when the model prefixes it with prose", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: 'I need release-note guidance. SKILL_REQUEST: {"skills":["Release Notes"]}',
+          thinking: "",
+          usage: { inputTokens: 8 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done",
+          thinking: "",
+          usage: { inputTokens: 9, outputTokens: 1 }
+        })
+      );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Write release notes" }],
+      skills: [createSkill()],
+      mcpToolSets: []
+    });
+
+    expect(streamProviderResponse).toHaveBeenCalledTimes(2);
+    const loadedSkillPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
+      (message: { role: string; content: string }) =>
+        message.role === "system" && message.content.includes("Summarize changes for end users in concise release notes.")
+    )?.content;
+
+    expect(loadedSkillPrompt).toContain("Summarize changes for end users in concise release notes.");
     expect(result.answer).toBe("Done");
   });
 
@@ -383,6 +431,196 @@ describe("assistant runtime", () => {
     expect(result.answer).toBe("Here are the booking options.");
   });
 
+  it("loads a requested shell-enabled skill before executing shell calls", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: 'SKILL_REQUEST: {"skills":["Agent Browser"]}',
+          thinking: "",
+          usage: { inputTokens: 6 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer:
+            'I will inspect the page directly. SHELL_CALL: {"command":"agent-browser open https://example.com && agent-browser snapshot -i"}',
+          thinking: "",
+          usage: { inputTokens: 7 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Observed the page." }], {
+          answer: "Observed the page.",
+          thinking: "",
+          usage: { inputTokens: 8, outputTokens: 2 }
+        })
+      );
+    executeLocalShellCommand.mockResolvedValue({
+      stdout: "✓ Example Domain",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+      isError: false
+    });
+
+    const started: Array<{ kind: string; label: string; detail?: string }> = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Open a website and inspect it with the browser" }],
+      skills: [
+        createSkill({
+          id: "builtin-agent-browser",
+          name: "Agent Browser",
+          description: "Use for browser automation and page inspection.",
+          content: `---
+name: Agent Browser
+description: Use for browser automation and page inspection.
+shell_command_prefixes:
+  - agent-browser
+---
+
+Run browser commands.`
+        })
+      ],
+      mcpToolSets: [],
+      onActionStart: (action) => {
+        started.push(action);
+        return "act_shell";
+      },
+      onActionComplete: () => undefined
+    });
+
+    expect(started).toEqual([
+      expect.objectContaining({
+        kind: "skill_load",
+        label: "Load skill",
+        detail: "Agent Browser"
+      }),
+      expect.objectContaining({
+        kind: "shell_command",
+        label: "Local command",
+        detail: "agent-browser open https://example.com && agent-browser snapshot -i"
+      })
+    ]);
+    expect(executeLocalShellCommand).toHaveBeenCalledWith({
+      command: "agent-browser open https://example.com && agent-browser snapshot -i",
+      allowedPrefixes: ["agent-browser"],
+      timeoutMs: undefined
+    });
+    const loadedSkillPrompt = streamProviderResponse.mock.calls[1][0].promptMessages.find(
+      (message: { role: string; content: string }) =>
+        message.role === "system" && message.content.includes("Allowed command prefixes: agent-browser")
+    )?.content;
+    const shellPrompt = streamProviderResponse.mock.calls[2][0].promptMessages.find(
+      (message: { role: string; content: string }) =>
+        message.role === "system" && message.content.includes("Local shell command result")
+    )?.content;
+
+    expect(loadedSkillPrompt).toContain("Allowed command prefixes: agent-browser");
+    expect(shellPrompt).toContain("✓ Example Domain");
+    expect(result.answer).toBe("Observed the page.");
+  });
+
+  it("does not leak trailing shell-call control text after visible prose", async () => {
+    const gate = createDeferred<void>();
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: 'SKILL_REQUEST: {"skills":["Agent Browser"]}',
+          thinking: "",
+          usage: { inputTokens: 6 }
+        })
+      )
+      .mockReturnValueOnce(
+        (async function* () {
+          yield {
+            type: "answer_delta",
+            text: "Let me get a fresh snapshot of the page to see the actual element structure:\n\n"
+          } satisfies ChatStreamEvent;
+          yield { type: "answer_delta", text: "SHELL" } satisfies ChatStreamEvent;
+          yield { type: "answer_delta", text: "_CALL:" } satisfies ChatStreamEvent;
+          await gate.promise;
+
+          return {
+            answer:
+              'Let me get a fresh snapshot of the page to see the actual element structure:\n\nSHELL_CALL: {"command":"agent-browser snapshot -i"}',
+            thinking: "",
+            usage: { inputTokens: 10 }
+          };
+        })()
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Observed the page." }], {
+          answer: "Observed the page.",
+          thinking: "",
+          usage: { inputTokens: 8, outputTokens: 2 }
+        })
+      );
+    executeLocalShellCommand.mockResolvedValue({
+      stdout: "snapshot output",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+      isError: false
+    });
+
+    const emitted: ChatStreamEvent[] = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const pending = resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Open a website and inspect it with the browser" }],
+      skills: [
+        createSkill({
+          id: "builtin-agent-browser",
+          name: "Agent Browser",
+          description: "Use for browser automation and page inspection.",
+          content: `---
+name: Agent Browser
+description: Use for browser automation and page inspection.
+shell_command_prefixes:
+  - agent-browser
+---
+
+Run browser commands.`
+        })
+      ],
+      mcpToolSets: [],
+      onEvent: (event) => emitted.push(event),
+      onActionStart: () => "act_shell",
+      onActionComplete: () => undefined
+    });
+
+    await vi.waitFor(() => {
+      expect(emitted).toEqual([
+        {
+          type: "answer_delta",
+          text: "Let me get a fresh snapshot of the page to see the actual element structure:\n\n"
+        }
+      ]);
+    });
+
+    gate.resolve();
+
+    const result = await pending;
+
+    expect(emitted).toEqual([
+      {
+        type: "answer_delta",
+        text: "Let me get a fresh snapshot of the page to see the actual element structure:\n\n"
+      },
+      { type: "answer_delta", text: "Observed the page." }
+    ]);
+    expect(executeLocalShellCommand).toHaveBeenCalledWith({
+      command: "agent-browser snapshot -i",
+      allowedPrefixes: ["agent-browser"],
+      timeoutMs: undefined
+    });
+    expect(result.answer).toBe("Observed the page.");
+  });
+
   it("streams visible thinking and answer deltas before the provider finishes", async () => {
     const gate = createDeferred<void>();
     streamProviderResponse.mockReturnValueOnce(
@@ -497,6 +735,92 @@ describe("assistant runtime", () => {
     const result = await pending;
 
     expect(emitted).toEqual([{ type: "answer_delta", text: "Final answer" }]);
+    expect(result.answer).toBe("Final answer");
+  });
+
+  it("does not leak trailing tool-call control text after visible prose", async () => {
+    const gate = createDeferred<void>();
+    streamProviderResponse
+      .mockReturnValueOnce(
+        (async function* () {
+          yield {
+            type: "answer_delta",
+            text: "Let me inspect the docs first.\n\n"
+          } satisfies ChatStreamEvent;
+          yield { type: "answer_delta", text: "TOOL" } satisfies ChatStreamEvent;
+          yield { type: "answer_delta", text: "_CALL:" } satisfies ChatStreamEvent;
+          await gate.promise;
+
+          return {
+            answer:
+              'Let me inspect the docs first.\n\nTOOL_CALL: {"serverId":"mcp_docs","tool":"search_docs","arguments":{"query":"MCP"}}',
+            thinking: "",
+            usage: { inputTokens: 10 }
+          };
+        })()
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Final answer" }], {
+          answer: "Final answer",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+    callMcpTool.mockResolvedValue({
+      content: [{ type: "text", text: "Found MCP docs" }]
+    });
+
+    const emitted: ChatStreamEvent[] = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const pending = resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find MCP docs" }],
+      skills: [],
+      mcpToolSets: [
+        {
+          server: {
+            id: "mcp_docs",
+            name: "Docs",
+            url: "https://mcp.example.com",
+            headers: {},
+            transport: "streamable_http",
+            command: null,
+            args: null,
+            env: null,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          tools: [
+            {
+              name: "search_docs",
+              description: "Search docs",
+              inputSchema: { type: "object" },
+              annotations: { readOnlyHint: true }
+            }
+          ]
+        }
+      ],
+      onEvent: (event) => emitted.push(event),
+      onActionStart: () => "act_tool",
+      onActionComplete: () => undefined
+    });
+
+    await vi.waitFor(() => {
+      expect(emitted).toEqual([
+        { type: "answer_delta", text: "Let me inspect the docs first.\n\n" }
+      ]);
+    });
+
+    gate.resolve();
+
+    const result = await pending;
+
+    expect(emitted).toEqual([
+      { type: "answer_delta", text: "Let me inspect the docs first.\n\n" },
+      { type: "answer_delta", text: "Final answer" }
+    ]);
     expect(result.answer).toBe("Final answer");
   });
 

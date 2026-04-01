@@ -1,7 +1,19 @@
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
 import { createGuardedAnswerEmitter } from "@/lib/control-output";
+import {
+  executeLocalShellCommand,
+  summarizeShellResult,
+  type ShellCallPayload
+} from "@/lib/local-shell";
 import { callMcpTool, summarizeToolResult } from "@/lib/mcp-client";
-import { buildLoadedSkillsMessage, extractSkillRequest } from "@/lib/skill-runtime";
+import {
+  buildLoadedSkillsMessage,
+  extractSkillRequest,
+  getSkillAllowedCommandPrefixes,
+  getSkillResolvedDescription,
+  getSkillResolvedName,
+  normalizeSkillName
+} from "@/lib/skill-runtime";
 import { streamProviderResponse } from "@/lib/provider";
 import type {
   ChatStreamEvent,
@@ -57,6 +69,11 @@ type ExecutedToolCall = PlannedToolCall & {
   isError: boolean;
 };
 
+type ExtractedShellCall = {
+  payload: ShellCallPayload;
+  leadingText: string;
+};
+
 function mergeSystemMessage(promptMessages: PromptMessage[], content: string): PromptMessage[] {
   const systemIndex = promptMessages.findIndex((message) => message.role === "system");
 
@@ -90,16 +107,12 @@ function addUsage(total: Usage, next: Usage) {
   };
 }
 
-function normalizeSkillName(name: string) {
-  return name.trim().toLowerCase();
-}
-
 function getSkillAlias(skill: Skill) {
   if (skill.id.startsWith("builtin-")) {
     return skill.id.slice("builtin-".length);
   }
 
-  return slugifyCapabilityName(skill.name) || normalizeSkillName(skill.name);
+  return slugifyCapabilityName(getSkillResolvedName(skill)) || normalizeSkillName(getSkillResolvedName(skill));
 }
 
 function buildCapabilitiesMessage(skills: Skill[], mcpServers: McpServer[], mcpToolSets: ToolSet[]) {
@@ -110,6 +123,7 @@ function buildCapabilitiesMessage(skills: Skill[], mcpServers: McpServer[], mcpT
     "Use the best available MCP tools proactively when they would improve correctness, freshness, or completeness.",
     "Do not wait for the user to explicitly name a tool when the task clearly benefits from one.",
     "If the user asks for current, external, or verifiable information and a relevant MCP tool is available, prefer using it.",
+    "Review available skill metadata dynamically. If a skill seems useful for the current task, request the full skill before trying to use its instructions or any skill-scoped local commands.",
     ""
   ];
 
@@ -118,7 +132,7 @@ function buildCapabilitiesMessage(skills: Skill[], mcpServers: McpServer[], mcpT
   if (skills.length) {
     skills.forEach((skill) => {
       lines.push(
-        `- ${getSkillAlias(skill)} | display name=${skill.name} | ${skill.description}`
+        `- ${getSkillAlias(skill)} | display name=${getSkillResolvedName(skill)} | ${getSkillResolvedDescription(skill)}`
       );
     });
   } else {
@@ -129,6 +143,7 @@ function buildCapabilitiesMessage(skills: Skill[], mcpServers: McpServer[], mcpT
     "",
     "Skills are instruction modules, not executable MCP tools.",
     "You currently have access only to skill metadata.",
+    "Some skills unlock restricted local shell command execution after they are loaded.",
     "If you need one or more full skill bodies before answering, respond with exactly:",
     'SKILL_REQUEST: {"skills":["Skill Name"]}',
     "Do not answer the user in the same message as a skill request.",
@@ -223,6 +238,10 @@ function buildArgumentsSummary(args: Record<string, unknown> | null | undefined)
   return json.length > 120 ? `${json.slice(0, 117)}...` : json;
 }
 
+function buildShellDetail(command: string) {
+  return command.length > 140 ? `${command.slice(0, 137)}...` : command;
+}
+
 function findTool(toolSets: ToolSet[], payload: ToolCallPayload) {
   const server = toolSets.find(
     (entry) => entry.server.id === payload.serverId || entry.server.name === payload.server
@@ -259,6 +278,20 @@ function renderToolResultForPrompt(input: {
     `Arguments: ${JSON.stringify(input.args)}`,
     `Status: ${input.isError ? "error" : "success"}`,
     `Result:`,
+    input.resultSummary
+  ].join("\n");
+}
+
+function renderShellResultForPrompt(input: {
+  command: string;
+  resultSummary: string;
+  isError: boolean;
+}) {
+  return [
+    "Local shell command result",
+    `Command: ${input.command}`,
+    `Status: ${input.isError ? "error" : "success"}`,
+    "Result:",
     input.resultSummary
   ].join("\n");
 }
@@ -465,6 +498,32 @@ function planAutomaticFollowUpToolCall(input: {
   } satisfies PlannedToolCall;
 }
 
+function extractShellCall(answer: string): ExtractedShellCall | null {
+  const trimmed = answer.trim();
+  const markerIndex = trimmed.lastIndexOf("SHELL_CALL:");
+
+  if (markerIndex === -1) {
+    return null;
+  }
+
+  const leadingText = trimmed.slice(0, markerIndex).trim();
+  const payloadSource = trimmed.slice(markerIndex);
+  const match = payloadSource.match(/^SHELL_CALL:\s*(\{[\s\S]+\})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  try {
+    return {
+      payload: JSON.parse(match[1]) as ShellCallPayload,
+      leadingText
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function resolveAssistantTurn(input: {
   settings: ProviderProfileWithApiKey;
   promptMessages: PromptMessage[];
@@ -559,6 +618,86 @@ export async function resolveAssistantTurn(input: {
     };
   };
 
+  const loadSkills = async (skillsToLoad: Skill[]) => {
+    const pendingSkills = skillsToLoad.filter((skill) => !loadedSkillIds.has(skill.id));
+
+    if (!pendingSkills.length) {
+      return;
+    }
+
+    for (const skill of pendingSkills) {
+      loadedSkillIds.add(skill.id);
+      executedControlAction = true;
+      const handle = await input.onActionStart?.({
+        kind: "skill_load",
+        label: "Load skill",
+        detail: getSkillResolvedName(skill),
+        skillId: skill.id
+      });
+      const actionHandle = typeof handle === "string" ? handle : undefined;
+      await input.onActionComplete?.(actionHandle, {
+        detail: getSkillResolvedName(skill),
+        resultSummary: "Skill instructions loaded."
+      });
+    }
+
+    promptMessages = mergeSystemMessage(promptMessages, buildLoadedSkillsMessage(pendingSkills));
+  };
+
+  const executeShellCall = async (payload: ShellCallPayload) => {
+    const allowedPrefixes = input.skills
+      .filter((skill) => loadedSkillIds.has(skill.id))
+      .flatMap((skill) => getSkillAllowedCommandPrefixes(skill));
+    const command = payload.command?.trim();
+
+    if (!command) {
+      throw new Error("Shell command is required");
+    }
+
+    if (!allowedPrefixes.length) {
+      throw new Error("No loaded skill currently permits local shell commands");
+    }
+
+    const handle = await input.onActionStart?.({
+      kind: "shell_command",
+      label: "Local command",
+      detail: buildShellDetail(command),
+      arguments: {
+        command,
+        timeoutMs: payload.timeoutMs
+      }
+    });
+    const actionHandle = typeof handle === "string" ? handle : undefined;
+    const result = await executeLocalShellCommand({
+      command,
+      allowedPrefixes,
+      timeoutMs: payload.timeoutMs
+    });
+    executedControlAction = true;
+    const resultSummary = summarizeShellResult(result);
+
+    if (result.isError) {
+      await input.onActionError?.(actionHandle, {
+        detail: buildShellDetail(command),
+        resultSummary
+      });
+    } else {
+      await input.onActionComplete?.(actionHandle, {
+        detail: buildShellDetail(command),
+        resultSummary
+      });
+    }
+
+    promptMessages = mergeSystemMessage(
+      promptMessages,
+      renderShellResultForPrompt({
+        command,
+        resultSummary,
+        isError: result.isError
+      })
+    );
+  };
+
   for (let step = 0; step < MAX_ASSISTANT_CONTROL_STEPS; step += 1) {
     if (step === 0) {
       const plannedToolCall = planAutomaticToolCall(lastUserText, input.mcpToolSets);
@@ -578,7 +717,7 @@ export async function resolveAssistantTurn(input: {
       }
     }
 
-    const guardedAnswerEmitter = createGuardedAnswerEmitter(["SKILL_REQUEST:", "TOOL_CALL:"]);
+    const guardedAnswerEmitter = createGuardedAnswerEmitter(["SKILL_REQUEST:", "TOOL_CALL:", "SHELL_CALL:"]);
     const providerStream = streamProviderResponse({
       settings: input.settings,
       promptMessages
@@ -612,11 +751,11 @@ export async function resolveAssistantTurn(input: {
       input.onEvent?.(next.value);
     }
 
-    const requestedSkillNames = extractSkillRequest(answer);
+    const requestedSkillRequest = extractSkillRequest(answer);
 
-    if (requestedSkillNames) {
-      const requestedSkills = requestedSkillNames
-        .map((name) => input.skills.find((skill) => normalizeSkillName(skill.name) === name))
+    if (requestedSkillRequest) {
+      const requestedSkills = requestedSkillRequest.names
+        .map((name) => input.skills.find((skill) => normalizeSkillName(getSkillResolvedName(skill)) === name))
         .filter((skill): skill is Skill => Boolean(skill))
         .filter((skill) => !loadedSkillIds.has(skill.id));
 
@@ -628,33 +767,49 @@ export async function resolveAssistantTurn(input: {
           ),
           {
             role: "assistant" as const,
-            content: answer
+            content: requestedSkillRequest.leadingText || answer
           }
         ];
         continue;
       }
 
-      for (const skill of requestedSkills) {
-        loadedSkillIds.add(skill.id);
-        executedControlAction = true;
-        const handle = await input.onActionStart?.({
-          kind: "skill_load",
-          label: `Load skill`,
-          detail: skill.name,
-          skillId: skill.id
-        });
-        const actionHandle = typeof handle === "string" ? handle : undefined;
-        await input.onActionComplete?.(actionHandle, {
-          detail: skill.name,
-          resultSummary: "Skill instructions loaded."
-        });
+      await loadSkills(requestedSkills);
+      promptMessages = [
+        ...promptMessages,
+        {
+          role: "assistant" as const,
+          content: requestedSkillRequest.leadingText || answer
+        }
+      ];
+      continue;
+    }
+
+    const extractedShellCall = extractShellCall(answer);
+
+    if (extractedShellCall) {
+      try {
+        await executeShellCall(extractedShellCall.payload);
+      } catch (error) {
+        promptMessages = [
+          ...mergeSystemMessage(
+            promptMessages,
+            error instanceof Error
+              ? `${error.message} Continue and answer the user without another SHELL_CALL.`
+              : "The requested shell command could not be executed. Continue and answer the user without another SHELL_CALL."
+          ),
+          {
+            role: "assistant" as const,
+            content: extractedShellCall.leadingText || answer
+          }
+        ];
+        continue;
       }
 
       promptMessages = [
-        ...mergeSystemMessage(promptMessages, buildLoadedSkillsMessage(requestedSkills)),
+        ...promptMessages,
         {
           role: "assistant" as const,
-          content: answer
+          content: extractedShellCall.leadingText || answer
         }
       ];
       continue;
@@ -681,7 +836,7 @@ export async function resolveAssistantTurn(input: {
         continue;
       }
 
-      const executedToolCall = await executeToolCall({
+      await executeToolCall({
         server: resolved.server,
         tool: resolved.tool,
         args: toolArgs

@@ -78,4 +78,29 @@ describe("skills", () => {
 
     expect(skill.description).toBe("Summarize notable product changes for end users.");
   });
+
+  it("derives skill metadata from frontmatter headers", () => {
+    const skill = createSkill({
+      name: "Temporary Name",
+      content: `---
+name: Browser Agent
+description: Use for browser-driven workflows.
+shell_command_prefixes:
+  - agent-browser
+---
+
+# Browser Agent
+
+Open websites and inspect them.`
+    });
+
+    expect(skill.name).toBe("Browser Agent");
+    expect(skill.description).toBe("Use for browser-driven workflows.");
+
+    const fetched = getSkill(skill.id);
+    expect(fetched?.name).toBe("Browser Agent");
+    expect(fetched?.description).toBe("Use for browser-driven workflows.");
+
+    deleteSkill(skill.id);
+  });
 });

@@ -14,7 +14,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "mcp_tool_call";
+export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command";
 
 export type MessageActionStatus = "running" | "completed" | "error";
 

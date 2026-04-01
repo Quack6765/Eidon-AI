@@ -80,6 +80,40 @@ describe("skill runtime", () => {
     expect(message).not.toContain("Summarize changes for end users in concise release notes.");
   });
 
+  it("reads shell command prefixes from skill frontmatter metadata", async () => {
+    const { buildSkillsMetadataMessage, getSkillAllowedCommandPrefixes } = await import("@/lib/skill-runtime");
+    const skill = createSkill({
+      name: "Temporary Name",
+      description: "Temporary description",
+      content: `---
+name: Browser Agent
+description: Use for browser-driven workflows.
+shell_command_prefixes:
+  - agent-browser
+---
+
+Open websites and inspect them.`
+    });
+
+    expect(getSkillAllowedCommandPrefixes(skill)).toEqual(["agent-browser"]);
+
+    const message = buildSkillsMetadataMessage([skill]);
+    expect(message).toContain("Browser Agent");
+    expect(message).toContain("Use for browser-driven workflows.");
+    expect(message).toContain("agent-browser");
+  });
+
+  it("parses trailing skill requests from the model output", async () => {
+    const { extractSkillRequest } = await import("@/lib/skill-runtime");
+
+    expect(
+      extractSkillRequest('I need extra guidance. SKILL_REQUEST: {"skills":["Release Notes"]}')
+    ).toEqual({
+      names: ["release notes"],
+      leadingText: "I need extra guidance."
+    });
+  });
+
   it("loads a requested skill body before emitting the final answer", async () => {
     streamProviderResponse
       .mockReturnValueOnce(

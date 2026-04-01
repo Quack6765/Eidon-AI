@@ -412,14 +412,11 @@ export function MessageBubble({
 
         <div className="min-w-0 flex-1 pt-0.5 text-[14.5px] text-[var(--text)]">
           <div className="flex flex-col items-start gap-3">
-            {actions.length ? (
-              <div className={`w-full ${ASSISTANT_MAX_WIDTH}`}>
-                <MessageActions actions={actions} />
-              </div>
-            ) : null}
-
             {showThinkingShell ? (
-              <div className={`w-full ${ASSISTANT_MAX_WIDTH} rounded-lg border border-white/5 bg-white/[0.015] px-2.5 py-1.5 transition-all duration-300`}>
+              <div
+                data-testid="assistant-thinking-shell"
+                className={`w-full ${ASSISTANT_MAX_WIDTH} rounded-lg border border-white/5 bg-white/[0.015] px-2.5 py-1.5 transition-all duration-300`}
+              >
                 <button
                   type="button"
                   onClick={() => setThinkingOpen((current) => !current)}
@@ -454,6 +451,12 @@ export function MessageBubble({
                     <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{thinkingContent}</ReactMarkdown>
                   </div>
                 ) : null}
+              </div>
+            ) : null}
+
+            {actions.length ? (
+              <div data-testid="assistant-actions-shell" className={`w-full ${ASSISTANT_MAX_WIDTH}`}>
+                <MessageActions actions={actions} />
               </div>
             ) : null}
 

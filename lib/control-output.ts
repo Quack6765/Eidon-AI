@@ -1,56 +1,78 @@
 import type { ChatStreamEvent } from "@/lib/types";
 
-function shouldBufferForControlPrefix(answer: string, controlPrefixes: string[]) {
-  const normalized = answer.trimStart();
+function findEarliestControlPrefixIndex(buffer: string, controlPrefixes: string[]) {
+  const indexes = controlPrefixes
+    .map((prefix) => buffer.indexOf(prefix))
+    .filter((index) => index >= 0);
 
-  if (!normalized) {
-    return true;
+  if (!indexes.length) {
+    return -1;
   }
 
-  return controlPrefixes.some(
-    (prefix) => prefix.startsWith(normalized) || normalized.startsWith(prefix)
-  );
+  return Math.min(...indexes);
+}
+
+function getBufferedSuffixLength(buffer: string, controlPrefixes: string[]) {
+  if (!buffer.trim()) {
+    return buffer.length;
+  }
+
+  let keepLength = 0;
+
+  for (const prefix of controlPrefixes) {
+    const maxLength = Math.min(prefix.length - 1, buffer.length);
+
+    for (let length = maxLength; length > 0; length -= 1) {
+      if (prefix.startsWith(buffer.slice(-length))) {
+        keepLength = Math.max(keepLength, length);
+        break;
+      }
+    }
+  }
+
+  return keepLength;
 }
 
 export function createGuardedAnswerEmitter(controlPrefixes: string[]) {
-  let streamingUnlocked = false;
-  let pendingTexts: string[] = [];
+  let hiddenControlDetected = false;
+  let pendingBuffer = "";
 
   return {
     push(text: string): ChatStreamEvent[] {
-      if (!text) {
+      if (!text || hiddenControlDetected) {
         return [];
       }
 
-      if (streamingUnlocked) {
-        return [{ type: "answer_delta", text }];
+      pendingBuffer += text;
+
+      const controlIndex = findEarliestControlPrefixIndex(pendingBuffer, controlPrefixes);
+
+      if (controlIndex >= 0) {
+        const visibleText = pendingBuffer.slice(0, controlIndex);
+        pendingBuffer = pendingBuffer.slice(controlIndex);
+        hiddenControlDetected = true;
+
+        return visibleText ? [{ type: "answer_delta", text: visibleText }] : [];
       }
 
-      pendingTexts.push(text);
+      const bufferedSuffixLength = getBufferedSuffixLength(pendingBuffer, controlPrefixes);
 
-      if (shouldBufferForControlPrefix(pendingTexts.join(""), controlPrefixes)) {
+      if (bufferedSuffixLength >= pendingBuffer.length) {
         return [];
       }
 
-      streamingUnlocked = true;
-      const flushed = pendingTexts.map((pendingText) => ({
-        type: "answer_delta" as const,
-        text: pendingText
-      }));
-      pendingTexts = [];
-      return flushed;
+      const visibleText = pendingBuffer.slice(0, pendingBuffer.length - bufferedSuffixLength);
+      pendingBuffer = pendingBuffer.slice(pendingBuffer.length - bufferedSuffixLength);
+
+      return visibleText ? [{ type: "answer_delta", text: visibleText }] : [];
     },
     flush(): ChatStreamEvent[] {
-      if (!pendingTexts.length) {
+      if (!pendingBuffer.length || hiddenControlDetected) {
         return [];
       }
 
-      streamingUnlocked = true;
-      const flushed = pendingTexts.map((pendingText) => ({
-        type: "answer_delta" as const,
-        text: pendingText
-      }));
-      pendingTexts = [];
+      const flushed = [{ type: "answer_delta" as const, text: pendingBuffer }];
+      pendingBuffer = "";
       return flushed;
     }
   };
