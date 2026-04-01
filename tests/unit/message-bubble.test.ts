@@ -427,4 +427,38 @@ describe("message bubble", () => {
     expect(screen.getByAltText("photo.png")).toBeInTheDocument();
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
   });
+
+  it("renders streaming actions before the streaming answer text", () => {
+    render(
+      React.createElement(StreamingPlaceholder, {
+        createdAt: new Date().toISOString(),
+        thinking: "",
+        answer: "Here are the results.",
+        awaitingFirstToken: false,
+        thinkingInProgress: false,
+        timeline: [
+          {
+            id: "act_done",
+            messageId: "msg_streaming",
+            timelineKind: "action",
+            kind: "mcp_tool_call",
+            status: "completed",
+            serverId: "mcp_exa",
+            skillId: null,
+            toolName: "web_search_exa",
+            label: "Web search",
+            detail: "query=test",
+            arguments: { query: "test" },
+            resultSummary: "Found results",
+            sortOrder: 0,
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString()
+          }
+        ]
+      })
+    );
+
+    expect(screen.getByText("Web search")).toBeInTheDocument();
+    expect(screen.getByText("Here are the results.")).toBeInTheDocument();
+  });
 });

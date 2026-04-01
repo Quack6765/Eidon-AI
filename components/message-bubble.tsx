@@ -486,7 +486,7 @@ export function MessageBubble({
               <div className={`${ASSISTANT_MAX_WIDTH} ${ASSISTANT_BUBBLE}`} data-testid="assistant-message-bubble">
                 <TypingIndicator />
               </div>
-            ) : timeline.length ? (
+            ) : timeline.length || content ? (
               <div className="group flex flex-col items-start">
                 <div ref={contentRef} className={`flex w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
                   {timeline.map((item) =>
@@ -506,6 +506,16 @@ export function MessageBubble({
                       </div>
                     )
                   )}
+                  {timeline.every((item) => item.timelineKind === "action") && content ? (
+                    <div
+                      className={ASSISTANT_BUBBLE}
+                      data-testid="assistant-message-bubble"
+                    >
+                      <div className="markdown-body">
+                        <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{content}</ReactMarkdown>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
 
                 {showAssistantBubbleActions ? (
