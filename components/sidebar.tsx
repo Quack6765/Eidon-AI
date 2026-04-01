@@ -40,6 +40,10 @@ import {
   reorderSidebarFolders,
   UNFILED_DROP_ID
 } from "@/lib/sidebar-dnd";
+import {
+  CONVERSATION_TITLE_UPDATED_EVENT,
+  type ConversationTitleUpdatedDetail
+} from "@/lib/conversation-events";
 import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
 
 type SidebarConversation = Conversation & { matchSnippet?: string };
@@ -532,12 +536,19 @@ export function Sidebar({
   const [mounted, setMounted] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const pendingBottomOffsetRef = useRef<number | null>(null);
 
   useEffect(() => {
-    setLocalConversations(conversationPage.conversations);
+    setLocalConversations((current) => {
+      if (!current.length) {
+        return conversationPage.conversations;
+      }
+
+      const incomingIds = new Set(conversationPage.conversations.map((conversation) => conversation.id));
+      const retained = current.filter((conversation) => !incomingIds.has(conversation.id));
+      return mergeConversations(retained, conversationPage.conversations);
+    });
     setHasMoreConversations(conversationPage.hasMore);
-    setNextCursor(conversationPage.nextCursor);
+    setNextCursor((current) => current ?? conversationPage.nextCursor);
   }, [conversationPage]);
 
   useEffect(() => {
@@ -547,18 +558,6 @@ export function Sidebar({
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  useEffect(() => {
-    if (pendingBottomOffsetRef.current === null || !scrollContainerRef.current) {
-      return;
-    }
-
-    scrollContainerRef.current.scrollTop = Math.max(
-      0,
-      scrollContainerRef.current.scrollHeight - pendingBottomOffsetRef.current
-    );
-    pendingBottomOffsetRef.current = null;
-  }, [localConversations]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -594,11 +593,6 @@ export function Sidebar({
       return;
     }
 
-    if (scrollContainerRef.current) {
-      pendingBottomOffsetRef.current =
-        scrollContainerRef.current.scrollHeight - scrollContainerRef.current.scrollTop;
-    }
-
     setIsLoadingMore(true);
 
     try {
@@ -613,31 +607,48 @@ export function Sidebar({
     }
   }, [hasMoreConversations, isLoadingMore, nextCursor, searchResults]);
 
-  const handleScroll = useCallback(() => {
-    if (!scrollContainerRef.current || isLoadingMore || !hasMoreConversations || searchResults) {
-      return;
-    }
-
-    const { scrollTop, clientHeight, scrollHeight } = scrollContainerRef.current;
-    if (scrollTop + clientHeight >= scrollHeight - 160) {
-      void loadMoreConversations();
-    }
-  }, [hasMoreConversations, isLoadingMore, loadMoreConversations, searchResults]);
-
   useEffect(() => {
-    if (
-      searchResults ||
-      isLoadingMore ||
-      !hasMoreConversations ||
-      !scrollContainerRef.current
+    function handleConversationTitleUpdated(
+      event: Event
     ) {
-      return;
+      const detail = (event as CustomEvent<ConversationTitleUpdatedDetail>).detail;
+
+      setLocalConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === detail.conversationId
+            ? { ...conversation, title: detail.title }
+            : conversation
+        )
+      );
+      setSearchResults((current) =>
+        current
+          ? current.map((conversation) =>
+              conversation.id === detail.conversationId
+                ? {
+                    ...conversation,
+                    title: detail.title,
+                    matchSnippet: searchQuery.trim()
+                      ? highlightMatch(detail.title, searchQuery)
+                      : conversation.matchSnippet
+                  }
+                : conversation
+            )
+          : current
+      );
     }
 
-    if (scrollContainerRef.current.scrollHeight <= scrollContainerRef.current.clientHeight + 40) {
-      void loadMoreConversations();
-    }
-  }, [hasMoreConversations, isLoadingMore, loadMoreConversations, localConversations, searchResults]);
+    window.addEventListener(
+      CONVERSATION_TITLE_UPDATED_EVENT,
+      handleConversationTitleUpdated as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        CONVERSATION_TITLE_UPDATED_EVENT,
+        handleConversationTitleUpdated as EventListener
+      );
+    };
+  }, [searchQuery]);
 
   function highlightMatch(text: string, query: string): string {
     const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
@@ -791,6 +802,17 @@ export function Sidebar({
                 Loading older chats
               </div>
             ) : null}
+            {hasMoreConversations && !searchResults ? (
+              <div className="flex justify-center px-3 py-1">
+                <button
+                  type="button"
+                  onClick={() => void loadMoreConversations()}
+                  className="inline-flex h-6 items-center rounded-md px-2 text-[10px] font-medium tracking-[0.08em] text-white/24 transition-colors duration-150 hover:bg-white/[0.03] hover:text-white/48"
+                >
+                  Load more
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       </>
@@ -868,7 +890,6 @@ export function Sidebar({
 
         <div
           ref={scrollContainerRef}
-          onScroll={handleScroll}
           className="scrollbar-thin flex-1 overflow-y-auto overflow-x-hidden pr-1 -mr-1 space-y-4"
         >
           <div>

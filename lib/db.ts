@@ -145,6 +145,7 @@ function migrate(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
+      title_generation_status TEXT NOT NULL DEFAULT 'completed',
       folder_id TEXT,
       provider_profile_id TEXT,
       tool_execution_mode TEXT NOT NULL DEFAULT 'read_only',
@@ -257,6 +258,11 @@ function migrate(db: Database.Database) {
   if (!convColNames.includes("provider_profile_id")) {
     db.exec(
       "ALTER TABLE conversations ADD COLUMN provider_profile_id TEXT REFERENCES provider_profiles(id) ON DELETE SET NULL"
+    );
+  }
+  if (!convColNames.includes("title_generation_status")) {
+    db.exec(
+      "ALTER TABLE conversations ADD COLUMN title_generation_status TEXT NOT NULL DEFAULT 'completed'"
     );
   }
   if (!convColNames.includes("tool_execution_mode")) {
@@ -498,6 +504,12 @@ function migrate(db: Database.Database) {
      SET provider_profile_id = ?
      WHERE provider_profile_id IS NULL`
   ).run(resolvedDefaultProfileId);
+
+  db.prepare(
+    `UPDATE conversations
+     SET title_generation_status = 'completed'
+     WHERE COALESCE(title_generation_status, '') = ''`
+  ).run();
 
   const builtinSkills = [BUILTIN_AGENT_BROWSER_SKILL];
   const insertSkill = db.prepare(

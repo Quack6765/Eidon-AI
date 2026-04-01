@@ -6,8 +6,8 @@ import {
   bindAttachmentsToMessage,
   createMessageAction,
   createMessage,
+  generateConversationTitleFromFirstUserMessage,
   getConversation,
-  maybeRetitleConversationFromFirstUserMessage,
   updateMessage,
   updateMessageAction,
 } from "@/lib/conversations";
@@ -84,7 +84,7 @@ export async function POST(
 
   bindAttachmentsToMessage(conversation.id, userMessage.id, payload.data.attachmentIds);
 
-  maybeRetitleConversationFromFirstUserMessage(conversation.id);
+  void generateConversationTitleFromFirstUserMessage(conversation.id, userMessage.id);
 
   const assistantMessage = createMessage({
     conversationId: conversation.id,

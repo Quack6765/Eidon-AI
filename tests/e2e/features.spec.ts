@@ -34,12 +34,12 @@ test.describe("Feature: Create and delete conversations", () => {
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     // Verify the new conversation appears in sidebar
-    await expect(page.getByRole("link", { name: "New conversation" }).first()).toBeVisible({
+    await expect(page.getByRole("link", { name: "Conversation" }).first()).toBeVisible({
       timeout: 5000
     });
 
     // Find the conversation item in sidebar, hover to reveal "..." button
-    const convRow = page.getByRole("button", { name: "New conversation" }).first();
+    const convRow = page.getByRole("button", { name: "Conversation" }).first();
     await convRow.hover();
 
     // Click the more options button
@@ -110,7 +110,7 @@ test.describe("Feature: Move conversation to folder", () => {
     });
     await page.mouse.up();
 
-    await expect(page.getByRole("button", { name: /Projects folder New conversation/ })).toBeVisible({
+    await expect(page.getByRole("button", { name: /Projects folder Conversation/ })).toBeVisible({
       timeout: 5000
     });
   });
@@ -134,7 +134,7 @@ test.describe("Feature: Search conversations", () => {
     await page.waitForTimeout(500);
 
     // Should show matching results
-    await expect(page.getByRole("link", { name: "New conversation" }).first()).toBeVisible({
+    await expect(page.getByRole("link", { name: "Conversation" }).first()).toBeVisible({
       timeout: 5000
     });
   });

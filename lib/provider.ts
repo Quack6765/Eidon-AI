@@ -176,7 +176,7 @@ function getResponseText(output: unknown) {
 export async function callProviderText(input: {
   settings: ProviderProfileWithApiKey;
   prompt: string;
-  purpose: "compaction" | "test";
+  purpose: "compaction" | "test" | "title";
   conversationId?: string;
 }) {
   const { settings } = input;

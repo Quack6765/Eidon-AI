@@ -3,7 +3,6 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import {
   getMessage,
-  maybeRetitleConversationFromFirstUserMessage,
   updateMessage
 } from "@/lib/conversations";
 import { badRequest, ok } from "@/lib/http";
@@ -52,8 +51,5 @@ export async function PATCH(
   if (!updated) {
     return badRequest("Message not found", 404);
   }
-
-  maybeRetitleConversationFromFirstUserMessage(updated.conversationId);
-
   return ok({ message: updated });
 }

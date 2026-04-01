@@ -8,6 +8,12 @@ export type MessageStatus = "idle" | "streaming" | "completed" | "error";
 
 export type ToolExecutionMode = "read_only" | "read_write";
 
+export type ConversationTitleGenerationStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed";
+
 export type MessageActionKind = "skill_load" | "mcp_tool_call";
 
 export type MessageActionStatus = "running" | "completed" | "error";
@@ -54,6 +60,7 @@ export type AppSettings = {
 export type Conversation = {
   id: string;
   title: string;
+  titleGenerationStatus: ConversationTitleGenerationStatus;
   folderId: string | null;
   providerProfileId: string | null;
   toolExecutionMode: ToolExecutionMode;

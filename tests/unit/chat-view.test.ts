@@ -39,6 +39,7 @@ function createPayload() {
     conversation: {
       id: "conv_1",
       title: "Test conversation",
+      titleGenerationStatus: "completed" as const,
       folderId: null,
       providerProfileId: "profile_default",
       toolExecutionMode: "read_only" as const,
@@ -82,6 +83,7 @@ describe("chat view attachments", () => {
     push.mockReset();
     refresh.mockReset();
     global.fetch = vi.fn();
+    vi.useRealTimers();
   });
 
   it("uploads an attachment from the file input and removes it from the pending list", async () => {
@@ -196,5 +198,73 @@ describe("chat view attachments", () => {
         })
       );
     });
+  });
+
+  it("polls for a generated title after the first user turn", async () => {
+    const encoder = new TextEncoder();
+    storeChatBootstrap("conv_1", {
+      message: "Build a deployment checklist",
+      attachments: []
+    });
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        body: new ReadableStream({
+          start(controller) {
+            controller.enqueue(
+              encoder.encode('data: {"type":"answer_delta","text":"Done"}\n\n')
+            );
+            controller.close();
+          }
+        })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          conversation: {
+            ...createPayload().conversation,
+            title: "Deployment Checklist",
+            titleGenerationStatus: "completed"
+          }
+        })
+      } as Response);
+
+    render(
+      React.createElement(ChatView, {
+        payload: {
+          ...createPayload(),
+          conversation: {
+            ...createPayload().conversation,
+            title: "Conversation",
+            titleGenerationStatus: "pending"
+          }
+        }
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/conversations/conv_1/chat",
+        expect.objectContaining({
+          method: "POST"
+        })
+      );
+    });
+
+    await waitFor(
+      () => {
+        expect(global.fetch).toHaveBeenCalledWith("/api/conversations/conv_1");
+      },
+      {
+        timeout: 2000
+      }
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText("Deployment Checklist")).toBeInTheDocument();
+    });
+
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 });

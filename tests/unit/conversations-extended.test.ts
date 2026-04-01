@@ -131,4 +131,38 @@ describe("conversations extended", () => {
   it("rejects invalid conversation page cursors", () => {
     expect(() => listConversationsPage({ cursor: "invalid" })).toThrow();
   });
+
+  it("orders pagination by the latest visible message activity", () => {
+    const olderConversation = createConversation("Older");
+    const newerConversation = createConversation("Newer");
+
+    const olderMessage = createMessage({
+      conversationId: olderConversation.id,
+      role: "user",
+      content: "Older prompt"
+    });
+    const newerMessage = createMessage({
+      conversationId: newerConversation.id,
+      role: "assistant",
+      content: "Newer reply"
+    });
+
+    getDb()
+      .prepare("UPDATE messages SET created_at = ? WHERE id = ?")
+      .run("2026-03-30T12:00:00.000Z", olderMessage.id);
+    getDb()
+      .prepare("UPDATE messages SET created_at = ? WHERE id = ?")
+      .run("2026-03-31T12:00:00.000Z", newerMessage.id);
+    getDb()
+      .prepare("UPDATE conversations SET updated_at = ? WHERE id IN (?, ?)")
+      .run("2026-04-01T00:00:00.000Z", olderConversation.id, newerConversation.id);
+
+    const page = listConversationsPage({ limit: 2 });
+
+    expect(page.conversations.map((conversation) => conversation.id)).toEqual([
+      newerConversation.id,
+      olderConversation.id
+    ]);
+    expect(page.conversations[0]?.updatedAt).toBe("2026-03-31T12:00:00.000Z");
+  });
 });

@@ -3,14 +3,24 @@ import {
   deleteConversationAttachmentFiles,
   listAttachmentsForMessageIds
 } from "@/lib/attachments";
+import {
+  DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE,
+  DEFAULT_CONVERSATION_TITLE,
+  generateConversationTitle
+} from "@/lib/conversation-title-generator";
 import { DEFAULT_TOOL_EXECUTION_MODE } from "@/lib/constants";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
-import { getSettings } from "@/lib/settings";
+import {
+  getDefaultProviderProfileWithApiKey,
+  getProviderProfileWithApiKey,
+  getSettings
+} from "@/lib/settings";
 import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
   Conversation,
   ConversationListPage,
+  ConversationTitleGenerationStatus,
   Message,
   MessageAttachment,
   MessageAction,
@@ -27,6 +37,7 @@ export const DEFAULT_CONVERSATION_PAGE_SIZE = 10;
 type ConversationRow = {
   id: string;
   title: string;
+  title_generation_status: ConversationTitleGenerationStatus;
   folder_id: string | null;
   provider_profile_id: string | null;
   tool_execution_mode: ToolExecutionMode;
@@ -40,6 +51,15 @@ type ConversationCursor = {
   id: string;
 };
 
+function conversationActivityTimestampSql(alias: string) {
+  return `COALESCE((
+    SELECT MAX(m.created_at)
+    FROM messages m
+    WHERE m.conversation_id = ${alias}.id
+      AND m.role != 'system'
+  ), ${alias}.updated_at)`;
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -48,6 +68,7 @@ function rowToConversation(row: ConversationRow): Conversation {
   return {
     id: row.id,
     title: row.title,
+    titleGenerationStatus: row.title_generation_status,
     folderId: row.folder_id,
     providerProfileId: row.provider_profile_id,
     toolExecutionMode: row.tool_execution_mode,
@@ -141,11 +162,21 @@ function decodeConversationCursor(cursor: string): ConversationCursor {
 }
 
 export function listConversations() {
+  const activityTimestamp = conversationActivityTimestampSql("c");
   const rows = getDb()
     .prepare(
-      `SELECT id, title, folder_id, provider_profile_id, tool_execution_mode, sort_order, created_at, updated_at
-       FROM conversations
-       ORDER BY updated_at DESC`
+      `SELECT
+        c.id,
+        c.title,
+        c.title_generation_status,
+        c.folder_id,
+        c.provider_profile_id,
+        c.tool_execution_mode,
+        c.sort_order,
+        c.created_at,
+        ${activityTimestamp} AS updated_at
+       FROM conversations c
+       ORDER BY ${activityTimestamp} DESC, c.id DESC`
     )
     .all() as ConversationRow[];
 
@@ -158,23 +189,42 @@ export function listConversationsPage(input: {
 } = {}): ConversationListPage {
   const limit = input.limit ?? DEFAULT_CONVERSATION_PAGE_SIZE;
   const cursor = input.cursor ? decodeConversationCursor(input.cursor) : null;
+  const activityTimestamp = conversationActivityTimestampSql("c");
 
   const rows = cursor
     ? (getDb()
         .prepare(
-          `SELECT id, title, folder_id, provider_profile_id, tool_execution_mode, sort_order, created_at, updated_at
-           FROM conversations
-           WHERE updated_at < ?
-             OR (updated_at = ? AND id < ?)
-           ORDER BY updated_at DESC, id DESC
+          `SELECT
+            c.id,
+            c.title,
+            c.title_generation_status,
+            c.folder_id,
+            c.provider_profile_id,
+            c.tool_execution_mode,
+            c.sort_order,
+            c.created_at,
+            ${activityTimestamp} AS updated_at
+           FROM conversations c
+           WHERE ${activityTimestamp} < ?
+             OR (${activityTimestamp} = ? AND c.id < ?)
+           ORDER BY ${activityTimestamp} DESC, c.id DESC
            LIMIT ?`
         )
         .all(cursor.updatedAt, cursor.updatedAt, cursor.id, limit + 1) as ConversationRow[])
     : (getDb()
         .prepare(
-          `SELECT id, title, folder_id, provider_profile_id, tool_execution_mode, sort_order, created_at, updated_at
-           FROM conversations
-           ORDER BY updated_at DESC, id DESC
+          `SELECT
+            c.id,
+            c.title,
+            c.title_generation_status,
+            c.folder_id,
+            c.provider_profile_id,
+            c.tool_execution_mode,
+            c.sort_order,
+            c.created_at,
+            ${activityTimestamp} AS updated_at
+           FROM conversations c
+           ORDER BY ${activityTimestamp} DESC, c.id DESC
            LIMIT ?`
         )
         .all(limit + 1) as ConversationRow[]);
@@ -196,16 +246,27 @@ export function listConversationsPage(input: {
 }
 
 export function getConversation(conversationId: string) {
+  const activityTimestamp = conversationActivityTimestampSql("c");
   const row = getDb()
     .prepare(
-      `SELECT id, title, folder_id, provider_profile_id, tool_execution_mode, sort_order, created_at, updated_at
-       FROM conversations
-       WHERE id = ?`
+      `SELECT
+        c.id,
+        c.title,
+        c.title_generation_status,
+        c.folder_id,
+        c.provider_profile_id,
+        c.tool_execution_mode,
+        c.sort_order,
+        c.created_at,
+        ${activityTimestamp} AS updated_at
+       FROM conversations c
+       WHERE c.id = ?`
     )
     .get(conversationId) as
     | {
         id: string;
         title: string;
+        title_generation_status: ConversationTitleGenerationStatus;
         folder_id: string | null;
         provider_profile_id: string | null;
         tool_execution_mode: ToolExecutionMode;
@@ -219,7 +280,7 @@ export function getConversation(conversationId: string) {
 }
 
 export function createConversation(
-  title = "New conversation",
+  title?: string | null,
   folderId?: string | null,
   options?: {
     providerProfileId?: string | null;
@@ -228,6 +289,7 @@ export function createConversation(
 ) {
   const timestamp = nowIso();
   const settings = getSettings();
+  const trimmedTitle = title?.trim() ?? "";
 
   const maxOrder = getDb()
     .prepare("SELECT COALESCE(MAX(sort_order), -1) as max_order FROM conversations")
@@ -235,7 +297,8 @@ export function createConversation(
 
   const conversation = {
     id: createId("conv"),
-    title,
+    title: trimmedTitle || DEFAULT_CONVERSATION_TITLE,
+    titleGenerationStatus: (trimmedTitle ? "completed" : "pending") as ConversationTitleGenerationStatus,
     folderId: folderId ?? null,
     providerProfileId: options?.providerProfileId ?? settings.defaultProviderProfileId,
     toolExecutionMode:
@@ -251,17 +314,19 @@ export function createConversation(
       `INSERT INTO conversations (
         id,
         title,
+        title_generation_status,
         folder_id,
         provider_profile_id,
         tool_execution_mode,
         sort_order,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       conversation.id,
       conversation.title,
+      conversation.titleGenerationStatus,
       conversation.folderId,
       conversation.providerProfileId,
       conversation.toolExecutionMode,
@@ -284,14 +349,53 @@ export function deleteConversation(conversationId: string) {
 }
 
 export function renameConversation(conversationId: string, title: string) {
-  const timestamp = nowIso();
+  updateConversationTitleRecord({
+    conversationId,
+    title,
+    titleGenerationStatus: "completed"
+  });
+}
+
+function updateConversationTitleRecord(input: {
+  conversationId: string;
+  title?: string;
+  titleGenerationStatus?: ConversationTitleGenerationStatus;
+  updateTimestamp?: boolean;
+}) {
+  const current = getDb()
+    .prepare(
+      `SELECT title, title_generation_status, updated_at
+       FROM conversations
+       WHERE id = ?`
+    )
+    .get(input.conversationId) as
+    | {
+        title: string;
+        title_generation_status: ConversationTitleGenerationStatus;
+        updated_at: string;
+      }
+    | undefined;
+
+  if (!current) {
+    return false;
+  }
+
   getDb()
     .prepare(
       `UPDATE conversations
-       SET title = ?, updated_at = ?
+       SET title = ?,
+           title_generation_status = ?,
+           updated_at = ?
        WHERE id = ?`
     )
-    .run(title, timestamp, conversationId);
+    .run(
+      input.title ?? current.title,
+      input.titleGenerationStatus ?? current.title_generation_status,
+      input.updateTimestamp === false ? current.updated_at : nowIso(),
+      input.conversationId
+    );
+
+  return true;
 }
 
 export function bumpConversation(conversationId: string) {
@@ -752,25 +856,105 @@ export function markMessagesCompacted(messageIds: string[]) {
   transaction(messageIds);
 }
 
-export function maybeRetitleConversationFromFirstUserMessage(conversationId: string) {
-  const firstUserMessage = getDb()
+export function claimConversationTitleGeneration(conversationId: string, userMessageId: string) {
+  const result = getDb()
     .prepare(
-      `SELECT content
-       FROM messages
-       WHERE conversation_id = ? AND role = 'user'
-       ORDER BY created_at ASC
-       LIMIT 1`
+      `UPDATE conversations
+       SET title_generation_status = 'running'
+       WHERE id = ?
+         AND title_generation_status = 'pending'
+         AND ? = (
+           SELECT id
+           FROM messages
+           WHERE conversation_id = ?
+             AND role = 'user'
+           ORDER BY rowid ASC
+           LIMIT 1
+         )`
     )
-    .get(conversationId) as { content: string } | undefined;
+    .run(conversationId, userMessageId, conversationId);
 
-  if (!firstUserMessage) {
-    return;
+  return result.changes > 0;
+}
+
+export function completeConversationTitleGeneration(conversationId: string, title: string) {
+  return updateConversationTitleRecord({
+    conversationId,
+    title,
+    titleGenerationStatus: "completed",
+    updateTimestamp: false
+  });
+}
+
+export function failConversationTitleGeneration(conversationId: string) {
+  return updateConversationTitleRecord({
+    conversationId,
+    title: DEFAULT_CONVERSATION_TITLE,
+    titleGenerationStatus: "failed",
+    updateTimestamp: false
+  });
+}
+
+export async function generateConversationTitleFromFirstUserMessage(
+  conversationId: string,
+  userMessageId: string
+) {
+  if (!claimConversationTitleGeneration(conversationId, userMessageId)) {
+    return false;
   }
 
-  const rawTitle = firstUserMessage.content.trim().replace(/\s+/g, " ");
-  const title = rawTitle.length > 64 ? `${rawTitle.slice(0, 61)}...` : rawTitle;
+  try {
+    const firstUserMessage = getDb()
+      .prepare(
+        `SELECT content
+         FROM messages
+         WHERE id = ? AND conversation_id = ? AND role = 'user'`
+      )
+      .get(userMessageId, conversationId) as { content: string } | undefined;
 
-  renameConversation(conversationId, title || "New conversation");
+    if (!firstUserMessage) {
+      failConversationTitleGeneration(conversationId);
+      return false;
+    }
+
+    const trimmedContent = firstUserMessage.content.trim();
+
+    if (!trimmedContent) {
+      completeConversationTitleGeneration(
+        conversationId,
+        DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE
+      );
+      return true;
+    }
+
+    const conversation = getConversation(conversationId);
+
+    if (!conversation) {
+      failConversationTitleGeneration(conversationId);
+      return false;
+    }
+
+    const settings =
+      (conversation.providerProfileId
+        ? getProviderProfileWithApiKey(conversation.providerProfileId)
+        : null) ?? getDefaultProviderProfileWithApiKey();
+
+    if (!settings?.apiKey) {
+      failConversationTitleGeneration(conversationId);
+      return false;
+    }
+
+    const title = await generateConversationTitle({
+      settings,
+      firstMessage: trimmedContent
+    });
+
+    completeConversationTitleGeneration(conversationId, title);
+    return true;
+  } catch {
+    failConversationTitleGeneration(conversationId);
+    return false;
+  }
 }
 
 export function moveConversationToFolder(conversationId: string, folderId: string | null) {
@@ -834,18 +1018,20 @@ export function reorderConversations(items: Array<{ id: string; folderId: string
 
 export function searchConversations(query: string) {
   const likeQuery = `%${query}%`;
+  const activityTimestamp = conversationActivityTimestampSql("c");
 
   const rows = getDb()
     .prepare(
       `SELECT DISTINCT
         c.id,
         c.title,
+        c.title_generation_status,
         c.folder_id,
         c.provider_profile_id,
         c.tool_execution_mode,
         c.sort_order,
         c.created_at,
-        c.updated_at
+        ${activityTimestamp} AS updated_at
        FROM conversations c
        LEFT JOIN messages m ON c.id = m.conversation_id
        WHERE c.title LIKE ?
@@ -853,11 +1039,12 @@ export function searchConversations(query: string) {
             m.content LIKE ?
             AND (m.role != 'system' OR m.system_kind IS NOT NULL)
           )
-       ORDER BY c.updated_at DESC`
+       ORDER BY ${activityTimestamp} DESC, c.id DESC`
     )
     .all(likeQuery, likeQuery) as Array<{
     id: string;
     title: string;
+    title_generation_status: ConversationTitleGenerationStatus;
     folder_id: string | null;
     provider_profile_id: string | null;
     tool_execution_mode: ToolExecutionMode;

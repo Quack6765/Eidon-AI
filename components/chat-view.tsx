@@ -7,6 +7,7 @@ import { ChevronDown } from "lucide-react";
 import { ChatComposer } from "@/components/chat-composer";
 import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
 import { consumeChatBootstrap } from "@/lib/chat-bootstrap";
+import { dispatchConversationTitleUpdated } from "@/lib/conversation-events";
 import { supportsImageInput } from "@/lib/model-capabilities";
 import { formatTimestamp } from "@/lib/utils";
 import type {
@@ -55,6 +56,10 @@ function parseSseChunk(buffer: string) {
 export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
   const [messages, setMessages] = useState(payload.messages);
+  const [conversationTitle, setConversationTitle] = useState(payload.conversation.title);
+  const [titleGenerationStatus, setTitleGenerationStatus] = useState(
+    payload.conversation.titleGenerationStatus
+  );
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -80,6 +85,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const dragDepthRef = useRef(0);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
   const bootstrappedRef = useRef(false);
+  const titlePollTimeoutRef = useRef<number | null>(null);
+  const titlePollAttemptsRef = useRef(0);
   const submitRef = useRef<
     (nextInput?: string, nextPendingAttachments?: MessageAttachment[]) => Promise<void>
   >(async () => {});
@@ -87,6 +94,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     setMessages(payload.messages);
   }, [payload.messages]);
+
+  useEffect(() => {
+    setConversationTitle(payload.conversation.title);
+  }, [payload.conversation.title]);
+
+  useEffect(() => {
+    setTitleGenerationStatus(payload.conversation.titleGenerationStatus);
+  }, [payload.conversation.titleGenerationStatus]);
 
   useEffect(() => {
     setToolExecutionMode(payload.toolExecutionMode);
@@ -113,6 +128,76 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     return () => window.cancelAnimationFrame(handle);
   }, [payload.conversation.id]);
+
+  function stopTitlePolling() {
+    if (titlePollTimeoutRef.current !== null) {
+      window.clearTimeout(titlePollTimeoutRef.current);
+      titlePollTimeoutRef.current = null;
+    }
+  }
+
+  async function pollConversationTitle() {
+    try {
+      const response = await fetch(`/api/conversations/${payload.conversation.id}`);
+
+      if (!response.ok) {
+        throw new Error("Unable to refresh conversation");
+      }
+
+      const result = (await response.json()) as {
+        conversation: Conversation;
+      };
+
+      setConversationTitle(result.conversation.title);
+      setTitleGenerationStatus(result.conversation.titleGenerationStatus);
+
+      if (
+        result.conversation.titleGenerationStatus === "completed" ||
+        result.conversation.titleGenerationStatus === "failed"
+      ) {
+        stopTitlePolling();
+        dispatchConversationTitleUpdated({
+          conversationId: result.conversation.id,
+          title: result.conversation.title
+        });
+
+        return;
+      }
+    } catch {}
+
+    titlePollAttemptsRef.current += 1;
+
+    if (titlePollAttemptsRef.current >= 20) {
+      stopTitlePolling();
+      return;
+    }
+
+    titlePollTimeoutRef.current = window.setTimeout(() => {
+      void pollConversationTitle();
+    }, 1000);
+  }
+
+  function startTitlePolling() {
+    if (
+      titlePollTimeoutRef.current !== null ||
+      titleGenerationStatus !== "pending"
+    ) {
+      return;
+    }
+
+    titlePollAttemptsRef.current = 0;
+    titlePollTimeoutRef.current = window.setTimeout(() => {
+      void pollConversationTitle();
+    }, 400);
+  }
+
+  useEffect(() => stopTitlePolling, []);
+
+  useEffect(() => {
+    if (titleGenerationStatus === "completed" || titleGenerationStatus === "failed") {
+      stopTitlePolling();
+    }
+  }, [titleGenerationStatus]);
 
   useEffect(() => {
     if (streamThinkingDisplay === streamThinkingTarget) {
@@ -373,6 +458,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     nextPendingAttachments = pendingAttachments
   ) {
     const value = nextInput.trim();
+    const shouldPollConversationTitle =
+      titleGenerationStatus === "pending" &&
+      !messages.some((message) => message.role === "user");
 
     if ((!value && nextPendingAttachments.length === 0) || isSending || isUploadingAttachments) {
       return;
@@ -433,6 +521,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         } catch {}
 
         throw new Error(message);
+      }
+
+      if (shouldPollConversationTitle) {
+        startTitlePolling();
       }
 
       const reader = response.body.getReader();
@@ -612,7 +704,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       <div className="border-b border-white/4 px-4 py-3.5 md:px-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <div className="font-medium text-[var(--text)] truncate text-sm">{payload.conversation.title}</div>
+            <div className="font-medium text-[var(--text)] truncate text-sm">{conversationTitle}</div>
             <button
               onClick={() => setShowDebug(!showDebug)}
               className="flex items-center gap-1 mt-0.5 text-[11px] text-white/25 hover:text-white/40 transition-colors duration-200"

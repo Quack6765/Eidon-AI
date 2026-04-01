@@ -36,6 +36,8 @@
 | Field | Type | Description |
 |-------|------|-------------|
 | `provider_profile_id` | `TEXT \| NULL` | Selected runtime preset for the thread; migrations backfill this to the default profile |
+| `title` | `TEXT` | Sidebar/header label. New threads start as `Conversation`, attachment-only first turns resolve to `Files`, and explicit titles skip auto-generation |
+| `title_generation_status` | `TEXT` | One-time auto-title lifecycle: `pending`, `running`, `completed`, or `failed` |
 
 ### `messages`
 | Field | Type | Description |

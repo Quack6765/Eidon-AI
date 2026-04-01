@@ -3,40 +3,86 @@ import path from "node:path";
 
 import { createAttachments } from "@/lib/attachments";
 import {
+  claimConversationTitleGeneration,
+  completeConversationTitleGeneration,
   createConversation,
-  deleteConversation,
   createMessageAction,
   createMessage,
+  deleteConversation,
+  failConversationTitleGeneration,
+  generateConversationTitleFromFirstUserMessage,
   getConversation,
   getMessage,
   isVisibleMessage,
   listMessages,
   listVisibleMessages,
   markMessagesCompacted,
-  maybeRetitleConversationFromFirstUserMessage,
   updateMessage,
   updateConversationProviderProfile,
   updateConversationToolExecutionMode,
   updateMessageAction
 } from "@/lib/conversations";
-import { getSettings, listProviderProfiles } from "@/lib/settings";
+import { getSettings, listProviderProfiles, updateSettings } from "@/lib/settings";
+
+const { generateConversationTitle } = vi.hoisted(() => ({
+  generateConversationTitle: vi.fn()
+}));
+
+vi.mock("@/lib/conversation-title-generator", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/conversation-title-generator")>();
+
+  return {
+    ...actual,
+    generateConversationTitle
+  };
+});
 
 describe("conversation helpers", () => {
-  it("creates conversations and retitles them from the first user message", () => {
+  beforeEach(() => {
+    generateConversationTitle.mockReset();
+    updateSettings({
+      defaultProviderProfileId: "profile_default",
+      skillsEnabled: true,
+      providerProfiles: [
+        {
+          id: "profile_default",
+          name: "Default",
+          apiBaseUrl: "https://api.example.com/v1",
+          apiKey: "sk-test",
+          model: "gpt-5-mini",
+          apiMode: "responses",
+          systemPrompt: "Be exact.",
+          temperature: 0.2,
+          maxOutputTokens: 512,
+          reasoningEffort: "medium",
+          reasoningSummaryEnabled: true,
+          modelContextLimit: 16000,
+          compactionThreshold: 0.8,
+          freshTailCount: 12
+        }
+      ]
+    });
+  });
+
+  it("creates conversations with a pending placeholder title and generates it from the first user message", async () => {
     const conversation = createConversation();
     const defaultProfileId = getSettings().defaultProviderProfileId;
 
-    createMessage({
+    expect(conversation.title).toBe("Conversation");
+    expect(conversation.titleGenerationStatus).toBe("pending");
+
+    const message = createMessage({
       conversationId: conversation.id,
       role: "user",
       content: "Build a small deployment checklist for me"
     });
 
-    maybeRetitleConversationFromFirstUserMessage(conversation.id);
+    generateConversationTitle.mockResolvedValue("Deployment Checklist");
 
-    expect(getConversation(conversation.id)?.title).toBe(
-      "Build a small deployment checklist for me"
-    );
+    await generateConversationTitleFromFirstUserMessage(conversation.id, message.id);
+
+    expect(getConversation(conversation.id)?.title).toBe("Deployment Checklist");
+    expect(getConversation(conversation.id)?.titleGenerationStatus).toBe("completed");
     expect(getConversation(conversation.id)?.providerProfileId).toBe(defaultProfileId);
     expect(getConversation(conversation.id)?.toolExecutionMode).toBe("read_only");
   });
@@ -110,8 +156,85 @@ describe("conversation helpers", () => {
     markMessagesCompacted([message.id]);
 
     expect(getMessage(message.id)?.compactedAt).not.toBeNull();
-    maybeRetitleConversationFromFirstUserMessage(conversation.id);
-    expect(getConversation(conversation.id)?.title).toBe("New conversation");
+    expect(getConversation(conversation.id)?.title).toBe("Conversation");
+    expect(getConversation(conversation.id)?.titleGenerationStatus).toBe("pending");
+  });
+
+  it("claims title generation only once for the first user message", () => {
+    const conversation = createConversation();
+    const firstMessage = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "First prompt"
+    });
+    const secondMessage = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Second prompt"
+    });
+
+    expect(claimConversationTitleGeneration(conversation.id, secondMessage.id)).toBe(false);
+    expect(claimConversationTitleGeneration(conversation.id, firstMessage.id)).toBe(true);
+    expect(claimConversationTitleGeneration(conversation.id, firstMessage.id)).toBe(false);
+  });
+
+  it("marks explicit conversation titles as completed", () => {
+    const conversation = createConversation("Pinned runtime");
+
+    expect(conversation.title).toBe("Pinned runtime");
+    expect(conversation.titleGenerationStatus).toBe("completed");
+  });
+
+  it("uses a deterministic title for attachment-only first turns", async () => {
+    const conversation = createConversation();
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: ""
+    });
+
+    await generateConversationTitleFromFirstUserMessage(conversation.id, message.id);
+
+    expect(getConversation(conversation.id)?.title).toBe("Files");
+    expect(getConversation(conversation.id)?.titleGenerationStatus).toBe("completed");
+    expect(generateConversationTitle).not.toHaveBeenCalled();
+  });
+
+  it("marks title generation as failed without changing updated_at when the provider errors", async () => {
+    const conversation = createConversation();
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Build a checklist"
+    });
+    const before = getConversation(conversation.id);
+
+    generateConversationTitle.mockRejectedValue(new Error("unreachable"));
+
+    await generateConversationTitleFromFirstUserMessage(conversation.id, message.id);
+
+    const after = getConversation(conversation.id);
+
+    expect(after?.title).toBe("Conversation");
+    expect(after?.titleGenerationStatus).toBe("failed");
+    expect(after?.updatedAt).toBe(before?.updatedAt);
+  });
+
+  it("can complete or fail title generation without bumping the conversation timestamp", () => {
+    const conversation = createConversation();
+    const before = getConversation(conversation.id);
+
+    completeConversationTitleGeneration(conversation.id, "Deployment Checklist");
+    const completed = getConversation(conversation.id);
+    failConversationTitleGeneration(conversation.id);
+    const failed = getConversation(conversation.id);
+
+    expect(completed?.title).toBe("Deployment Checklist");
+    expect(completed?.titleGenerationStatus).toBe("completed");
+    expect(completed?.updatedAt).toBe(before?.updatedAt);
+    expect(failed?.title).toBe("Conversation");
+    expect(failed?.titleGenerationStatus).toBe("failed");
+    expect(failed?.updatedAt).toBe(before?.updatedAt);
   });
 
   it("updates the conversation provider profile", () => {
