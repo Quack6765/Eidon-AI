@@ -257,7 +257,6 @@ export type ChatStreamEvent =
   | { type: "message_start"; messageId: string }
   | { type: "thinking_delta"; text: string }
   | { type: "answer_delta"; text: string }
-  | { type: "answer_commit"; text: string }
   | { type: "action_start"; action: MessageAction }
   | { type: "action_complete"; action: MessageAction }
   | { type: "action_error"; action: MessageAction }
@@ -300,6 +299,27 @@ export type PromptImageContentPart = {
 export type PromptContentPart = PromptTextContentPart | PromptImageContentPart;
 
 export type PromptMessage = {
-  role: "system" | "user" | "assistant";
+  role: "system" | "user" | "assistant" | "tool";
   content: string | PromptContentPart[];
+  toolCallId?: string;
+  toolCalls?: ProviderToolCall[];
+};
+
+export type ToolDefinition = {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters?: {
+      type: string;
+      properties?: Record<string, unknown>;
+      required?: string[];
+    };
+  };
+};
+
+export type ProviderToolCall = {
+  id: string;
+  name: string;
+  arguments: string;
 };
