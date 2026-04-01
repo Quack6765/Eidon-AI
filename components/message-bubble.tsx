@@ -251,18 +251,7 @@ export function MessageBubble({
         ]
       : []);
   const timeline = [
-    ...baseTimeline,
-    ...(message.role === "assistant" && message.timeline && streamingAnswer !== undefined && rawContent
-      ? [
-          {
-            id: `stream_content_${message.id}`,
-            timelineKind: "text" as const,
-            sortOrder: baseTimeline.length,
-            createdAt: message.createdAt,
-            content: rawContent
-          }
-        ]
-      : [])
+    ...baseTimeline
   ].map((item) =>
     item.timelineKind === "text"
       ? {
