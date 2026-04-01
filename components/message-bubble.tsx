@@ -250,16 +250,7 @@ export function MessageBubble({
             : [])
         ]
       : []);
-  const timeline = [
-    ...baseTimeline
-  ].map((item) =>
-    item.timelineKind === "text"
-      ? {
-          ...item,
-          content: normalizeMarkdownLineBreaks(item.content)
-        }
-      : item
-  );
+  const timeline = baseTimeline;
   const assistantText = timeline
     .filter(
       (item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> =>
