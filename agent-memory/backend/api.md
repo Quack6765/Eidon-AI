@@ -10,6 +10,7 @@
 - **Async Operations:** Chat streaming uses `ReadableStream` and `text/event-stream`
 - **Sidebar Writes:** `PATCH /api/conversations/[conversationId]` updates a conversation folder assignment, and `PUT /api/folders` persists folder reorder payloads as ordered folder id arrays
 - **Sidebar Reads:** `GET /api/conversations` is cursor-paginated for the sidebar and returns `conversations`, `nextCursor`, and `hasMore`; the default page size is 10 and older pages are fetched by passing the returned cursor back as `?cursor=...`
+- **Conversation Creation:** `POST /api/conversations` accepts optional `title`, `folderId`, `providerProfileId`, and `toolExecutionMode`, and empty JSON bodies are treated as the default new-chat flow
 - **Settings Writes:** `PUT /api/settings` saves the full provider profile collection plus the default profile id
 - **Conversation Runtime Selection:** `PATCH /api/conversations/[conversationId]` also accepts `providerProfileId` and `toolExecutionMode` so the active thread can switch presets and tool permissions without leaving chat
 - **Message Editing:** `PATCH /api/messages/[messageId]` updates persisted user-message content and returns the refreshed `message` payload for the chat view

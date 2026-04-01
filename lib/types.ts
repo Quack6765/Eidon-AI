@@ -41,6 +41,10 @@ export type ProviderProfileWithApiKey = ProviderProfile & {
   apiKey: string;
 };
 
+export type ProviderProfileSummary = Omit<ProviderProfile, "apiKeyEncrypted"> & {
+  hasApiKey: boolean;
+};
+
 export type AppSettings = {
   defaultProviderProfileId: string;
   skillsEnabled: boolean;

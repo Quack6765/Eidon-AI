@@ -2,22 +2,11 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  AlertCircle,
-  LoaderCircle,
-  ArrowUp,
-  ChevronDown,
-  Bot,
-  Pen,
-  Globe,
-  Paperclip,
-  LayoutGrid,
-  FileText,
-  X
-} from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
-import { Textarea } from "@/components/ui/textarea";
+import { ChatComposer } from "@/components/chat-composer";
 import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
+import { consumeChatBootstrap } from "@/lib/chat-bootstrap";
 import { supportsImageInput } from "@/lib/model-capabilities";
 import { formatTimestamp } from "@/lib/utils";
 import type {
@@ -26,6 +15,7 @@ import type {
   Message,
   MessageAction,
   MessageAttachment,
+  ProviderProfileSummary,
   ToolExecutionMode
 } from "@/lib/types";
 
@@ -33,24 +23,7 @@ type ConversationPayload = {
   conversation: Conversation;
   messages: Message[];
   toolExecutionMode: ToolExecutionMode;
-  providerProfiles: Array<{
-    id: string;
-    name: string;
-    apiBaseUrl: string;
-    model: string;
-    apiMode: string;
-    systemPrompt: string;
-    temperature: number;
-    maxOutputTokens: number;
-    reasoningEffort: string;
-    reasoningSummaryEnabled: boolean;
-    modelContextLimit: number;
-    compactionThreshold: number;
-    freshTailCount: number;
-    createdAt: string;
-    updatedAt: string;
-    hasApiKey: boolean;
-  }>;
+  providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string;
   debug: {
     rawTurnCount: number;
@@ -104,9 +77,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const queueRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const dragDepthRef = useRef(0);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
+  const bootstrappedRef = useRef(false);
+  const submitRef = useRef<
+    (nextInput?: string, nextPendingAttachments?: MessageAttachment[]) => Promise<void>
+  >(async () => {});
 
   useEffect(() => {
     setMessages(payload.messages);
@@ -234,9 +210,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       );
     } finally {
       setIsUploadingAttachments(false);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
     }
   }
 
@@ -395,10 +368,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
-  async function submit() {
-    const value = input.trim();
+  async function submit(
+    nextInput = input,
+    nextPendingAttachments = pendingAttachments
+  ) {
+    const value = nextInput.trim();
 
-    if ((!value && pendingAttachments.length === 0) || isSending || isUploadingAttachments) {
+    if ((!value && nextPendingAttachments.length === 0) || isSending || isUploadingAttachments) {
       return;
     }
 
@@ -414,7 +390,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       systemKind: null,
       compactedAt: null,
       createdAt: new Date().toISOString(),
-      attachments: pendingAttachments
+      attachments: nextPendingAttachments
     };
 
     setIsSending(true);
@@ -439,7 +415,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         },
         body: JSON.stringify({
           message: value,
-          attachmentIds: pendingAttachments.map((attachment) => attachment.id)
+          attachmentIds: nextPendingAttachments.map((attachment) => attachment.id)
         })
       });
 
@@ -563,6 +539,23 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  submitRef.current = submit;
+
+  useEffect(() => {
+    if (bootstrappedRef.current || messages.length > 0) {
+      return;
+    }
+
+    const bootstrap = consumeChatBootstrap(payload.conversation.id);
+
+    if (!bootstrap) {
+      return;
+    }
+
+    bootstrappedRef.current = true;
+    void submitRef.current(bootstrap.message, bootstrap.attachments);
+  }, [messages.length, payload.conversation.id]);
+
   return (
     <div
       data-testid="chat-view-root"
@@ -679,169 +672,23 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none">
         <div className="h-24 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/90 to-transparent" />
         <div className="mx-auto w-full max-w-[980px] px-4 pb-4 md:pb-6 -mt-10 pointer-events-auto">
-          <div className="relative rounded-2xl border border-white/6 bg-[var(--panel)] p-2 shadow-[var(--shadow)] transition-all duration-300 focus-within:border-[var(--accent)]/20 focus-within:shadow-[var(--shadow),0_0_0_3px_var(--accent-soft)]">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="hidden"
-              accept=".png,.jpg,.jpeg,.webp,.gif,.txt,.md,.json,.csv,.tsv,.yaml,.yml,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.sh,.sql,.toml,.ini,.log"
-              onChange={(event) => {
-                const files = Array.from(event.target.files ?? []);
-                void uploadFiles(files);
-              }}
-            />
-            {pendingAttachments.length ? (
-              <div className="mb-2 flex flex-wrap gap-2 px-1 pt-1">
-                {pendingAttachments.map((attachment) => (
-                  <div
-                    key={attachment.id}
-                    className="flex items-center gap-2 rounded-xl border border-white/8 bg-[#1f1f23] px-2.5 py-2 text-sm text-white/80"
-                  >
-                    {attachment.kind === "image" ? (
-                      <img
-                        src={`/api/attachments/${attachment.id}`}
-                        alt={attachment.filename}
-                        className="h-10 w-10 rounded-lg object-cover"
-                      />
-                    ) : (
-                      <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/8 text-white/60">
-                        <FileText className="h-4 w-4" />
-                      </span>
-                    )}
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-white">{attachment.filename}</div>
-                      <div className="truncate text-[11px] text-white/40">{attachment.mimeType}</div>
-                    </div>
-                    <button
-                      type="button"
-                      className="rounded-lg p-1 text-white/35 transition-colors duration-200 hover:bg-white/5 hover:text-white/65"
-                      onClick={() => void removePendingAttachment(attachment.id)}
-                      aria-label={`Remove ${attachment.filename}`}
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-            <div className="flex max-h-[200px] w-full items-end gap-1 pb-0.5 pr-1">
-              <div className="flex-1 rounded-lg border border-white/8 bg-[#1f1f23]">
-                <Textarea
-                  ref={inputRef}
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  placeholder="Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-                  className="max-h-[200px] min-h-[44px] w-full resize-none border-0 box-border bg-transparent px-3 py-2 text-base text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin rounded-lg placeholder:text-white/25 caret-[var(--accent)]"
-                  style={{ height: "auto" }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      void submit();
-                    }
-                  }}
-                />
-              </div>
-
-              <button
-                onClick={() => void submit()}
-                disabled={isSending || isUploadingAttachments || (!input.trim() && pendingAttachments.length === 0)}
-                className={`mb-0.5 mr-0.5 flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-300 shrink-0 ${
-                  (input.trim() || pendingAttachments.length > 0) && !isSending && !isUploadingAttachments
-                    ? "bg-[var(--accent)] text-white shadow-[0_0_12px_var(--accent-glow)] hover:shadow-[0_0_20px_var(--accent-glow)] active:scale-95"
-                    : "bg-white/6 text-white/25"
-                }`}
-                aria-label="Send message"
-              >
-                {isSending || isUploadingAttachments ? (
-                  <LoaderCircle className="h-4 w-4 animate-spin" />
-                ) : (
-                  <ArrowUp className="h-4 w-4" />
-                )}
-              </button>
-            </div>
-
-            {showVisionWarning ? (
-              <div className="mt-2 flex items-center gap-2 rounded-xl border border-amber-400/10 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>
-                  This model may not support image input. Hermes will still send the attachment and surface any provider error.
-                </span>
-              </div>
-            ) : null}
-
-            <div className="flex items-center justify-between px-2 pt-1.5">
-              <div className="flex items-center gap-1">
-                <button
-                  className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0"
-                  aria-label="Attach files"
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Paperclip className="h-5 w-5" />
-                </button>
-                
-                <button
-                  className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0"
-                  aria-label="Web search"
-                >
-                  <Globe className="h-5 w-5" />
-                </button>
-                
-                <div className="relative group">
-                  <button
-                    className="p-2 text-cyan-400/80 hover:text-cyan-400 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0 flex items-center gap-1"
-                    aria-label="Select model"
-                  >
-                    <Bot className="h-5 w-5" />
-                  </button>
-                  <select
-                    value={providerProfileId}
-                    onChange={(event) => void updateProviderProfile(event.target.value)}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                    disabled={isSending || payload.providerProfiles.length === 0}
-                  >
-                    {payload.providerProfiles.map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name} · {profile.model}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                
-                <button
-                  className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0"
-                  aria-label="Prompt templates"
-                >
-                  <LayoutGrid className="h-5 w-5" />
-                </button>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-white/40 select-none">Tool Selection</span>
-                <div className="relative group">
-                  <button
-                    className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0 flex items-center gap-1"
-                    aria-label="Tool mode"
-                  >
-                    <Pen className="h-5 w-5" />
-                    <span className="text-[11px] text-white/40">
-                      {toolExecutionMode === "read_only" ? "Read" : "Write"}
-                    </span>
-                  </button>
-                  <select
-                    value={toolExecutionMode}
-                    onChange={(event) => void updateToolExecutionMode(event.target.value as ToolExecutionMode)}
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                    disabled={isSending}
-                  >
-                    <option value="read_only">Read-Only</option>
-                    <option value="read_write">Read/Write</option>
-                  </select>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ChatComposer
+            input={input}
+            onInputChange={setInput}
+            onSubmit={submit}
+            isSending={isSending}
+            pendingAttachments={pendingAttachments}
+            isUploadingAttachments={isUploadingAttachments}
+            onUploadFiles={uploadFiles}
+            onRemovePendingAttachment={removePendingAttachment}
+            showVisionWarning={Boolean(showVisionWarning)}
+            providerProfiles={payload.providerProfiles}
+            providerProfileId={providerProfileId}
+            onProviderProfileChange={updateProviderProfile}
+            toolExecutionMode={toolExecutionMode}
+            onToolExecutionModeChange={updateToolExecutionMode}
+            textareaRef={inputRef}
+          />
         </div>
       </div>
     </div>

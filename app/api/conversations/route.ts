@@ -8,6 +8,7 @@ import {
   reorderConversations
 } from "@/lib/conversations";
 import { badRequest, ok } from "@/lib/http";
+import { getProviderProfile } from "@/lib/settings";
 
 const listSchema = z.object({
   cursor: z.string().min(1).optional(),
@@ -32,15 +33,41 @@ export async function GET(request: Request) {
 
 const createSchema = z.object({
   title: z.string().optional(),
-  folderId: z.string().nullable().optional()
+  folderId: z.string().nullable().optional(),
+  providerProfileId: z.string().min(1).optional(),
+  toolExecutionMode: z.enum(["read_only", "read_write"]).optional()
 });
 
 export async function POST(request: Request) {
   await requireUser();
-  const body = createSchema.safeParse(await request.json());
+  let parsedBody: unknown = {};
+
+  try {
+    const rawBody = await request.text();
+    parsedBody = rawBody ? JSON.parse(rawBody) : {};
+  } catch {
+    parsedBody = {};
+  }
+
+  const body = createSchema.safeParse(parsedBody);
   const title = body.success ? body.data.title : undefined;
   const folderId = body.success ? body.data.folderId : undefined;
-  return ok({ conversation: createConversation(title, folderId) }, { status: 201 });
+  const providerProfileId = body.success ? body.data.providerProfileId : undefined;
+  const toolExecutionMode = body.success ? body.data.toolExecutionMode : undefined;
+
+  if (providerProfileId !== undefined && !getProviderProfile(providerProfileId)) {
+    return badRequest("Provider profile not found", 404);
+  }
+
+  return ok(
+    {
+      conversation: createConversation(title, folderId, {
+        providerProfileId,
+        toolExecutionMode
+      })
+    },
+    { status: 201 }
+  );
 }
 
 export async function PUT(request: Request) {

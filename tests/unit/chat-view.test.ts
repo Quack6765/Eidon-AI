@@ -4,6 +4,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { ChatView } from "@/components/chat-view";
+import { storeChatBootstrap } from "@/lib/chat-bootstrap";
 import type { MessageAttachment } from "@/lib/types";
 
 const push = vi.fn();
@@ -53,11 +54,11 @@ function createPayload() {
         name: "Default",
         apiBaseUrl: "https://api.example.com/v1",
         model: "gpt-5-mini",
-        apiMode: "responses",
+        apiMode: "responses" as const,
         systemPrompt: "Be exact",
         temperature: 0.2,
         maxOutputTokens: 512,
-        reasoningEffort: "medium",
+        reasoningEffort: "medium" as const,
         reasoningSummaryEnabled: true,
         modelContextLimit: 16000,
         compactionThreshold: 0.8,
@@ -164,5 +165,36 @@ describe("chat view attachments", () => {
     });
 
     expect(screen.queryByText("Drop files to attach")).toBeNull();
+  });
+
+  it("submits a bootstrapped first prompt for a new conversation", async () => {
+    const encoder = new TextEncoder();
+    storeChatBootstrap("conv_1", {
+      message: "Bootstrap prompt",
+      attachments: []
+    });
+
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode('data: {"type":"answer_delta","text":"Done"}\n\n')
+          );
+          controller.close();
+        }
+      })
+    } as Response);
+
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/conversations/conv_1/chat",
+        expect.objectContaining({
+          method: "POST"
+        })
+      );
+    });
   });
 });

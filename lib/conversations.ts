@@ -3,6 +3,7 @@ import {
   deleteConversationAttachmentFiles,
   listAttachmentsForMessageIds
 } from "@/lib/attachments";
+import { DEFAULT_TOOL_EXECUTION_MODE } from "@/lib/constants";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { getSettings } from "@/lib/settings";
@@ -217,7 +218,14 @@ export function getConversation(conversationId: string) {
   return row ? rowToConversation(row) : null;
 }
 
-export function createConversation(title = "New conversation", folderId?: string | null) {
+export function createConversation(
+  title = "New conversation",
+  folderId?: string | null,
+  options?: {
+    providerProfileId?: string | null;
+    toolExecutionMode?: ToolExecutionMode;
+  }
+) {
   const timestamp = nowIso();
   const settings = getSettings();
 
@@ -229,8 +237,10 @@ export function createConversation(title = "New conversation", folderId?: string
     id: createId("conv"),
     title,
     folderId: folderId ?? null,
-    providerProfileId: settings.defaultProviderProfileId,
-    toolExecutionMode: "read_only" as ToolExecutionMode,
+    providerProfileId: options?.providerProfileId ?? settings.defaultProviderProfileId,
+    toolExecutionMode:
+      options?.toolExecutionMode ??
+      (DEFAULT_TOOL_EXECUTION_MODE as ToolExecutionMode),
     sortOrder: maxOrder.max_order + 1,
     createdAt: timestamp,
     updatedAt: timestamp

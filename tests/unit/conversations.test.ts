@@ -194,6 +194,19 @@ describe("conversation helpers", () => {
     expect(getConversation(conversation.id)?.toolExecutionMode).toBe("read_write");
   });
 
+  it("creates conversations with explicit runtime settings", () => {
+    const nextProfileId =
+      listProviderProfiles().at(-1)?.id ?? getSettings().defaultProviderProfileId;
+
+    const conversation = createConversation("Pinned runtime", null, {
+      providerProfileId: nextProfileId,
+      toolExecutionMode: "read_write"
+    });
+
+    expect(getConversation(conversation.id)?.providerProfileId).toBe(nextProfileId);
+    expect(getConversation(conversation.id)?.toolExecutionMode).toBe("read_write");
+  });
+
   it("deletes conversation attachment records and files together", () => {
     const conversation = createConversation();
     const [attachment] = createAttachments(conversation.id, [
