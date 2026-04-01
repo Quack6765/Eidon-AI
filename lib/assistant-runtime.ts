@@ -1,28 +1,18 @@
-import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
-import { createGuardedAnswerEmitter } from "@/lib/control-output";
-import {
-  executeLocalShellCommand,
-  summarizeShellResult,
-  type ShellCallPayload
-} from "@/lib/local-shell";
+import { parseSkillContentMetadata } from "@/lib/skill-metadata";
+import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, summarizeToolResult } from "@/lib/mcp-client";
-import {
-  buildLoadedSkillsMessage,
-  extractSkillRequest,
-  getSkillAllowedCommandPrefixes,
-  getSkillResolvedDescription,
-  getSkillResolvedName,
-  normalizeSkillName
-} from "@/lib/skill-runtime";
 import { streamProviderResponse } from "@/lib/provider";
+import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
 import type {
   ChatStreamEvent,
   McpServer,
   McpTool,
   MessageActionKind,
   ProviderProfileWithApiKey,
+  ProviderToolCall,
   PromptMessage,
-  Skill
+  Skill,
+  ToolDefinition
 } from "@/lib/types";
 
 type Usage = {
@@ -46,57 +36,28 @@ type RuntimeAction = {
   arguments?: Record<string, unknown> | null;
 };
 
-type ToolCallPayload = {
-  serverId?: string;
-  server?: string;
-  tool: string;
-  arguments?: Record<string, unknown>;
-};
-
-type ExtractedToolCall = {
-  payload: ToolCallPayload;
-  leadingText: string;
-};
-
-type PlannedToolCall = {
-  server: McpServer;
-  tool: McpTool;
-  args: Record<string, unknown>;
-};
-
-type ExecutedToolCall = PlannedToolCall & {
-  resultSummary: string;
-  isError: boolean;
-};
-
-type ExtractedShellCall = {
-  payload: ShellCallPayload;
-  leadingText: string;
-};
-
-function mergeSystemMessage(promptMessages: PromptMessage[], content: string): PromptMessage[] {
-  const systemIndex = promptMessages.findIndex((message) => message.role === "system");
-
-  if (systemIndex === -1) {
-    return [{ role: "system", content }, ...promptMessages];
-  }
-
-  return promptMessages.map((message, index) =>
-    index === systemIndex
-      ? {
-          ...message,
-          content: `${message.content}\n\n${content}`
-        }
-      : message
-  );
+function sanitizeForFunctionName(value: string) {
+  return value.replace(/[^a-zA-Z0-9_]/g, "_");
 }
 
-function slugifyCapabilityName(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+function mcpToolFunctionName(serverId: string, toolName: string) {
+  return `mcp_${sanitizeForFunctionName(serverId)}_${toolName}`;
+}
+
+function getSkillResolvedName(skill: Skill) {
+  return parseSkillContentMetadata(skill.content).name?.trim() || skill.name;
+}
+
+function getSkillResolvedDescription(skill: Skill) {
+  return parseSkillContentMetadata(skill.content).description?.trim() || skill.description;
+}
+
+function getSkillAllowedCommandPrefixes(skill: Skill) {
+  return parseSkillContentMetadata(skill.content).shellCommandPrefixes;
+}
+
+function getToolLabel(tool: McpTool) {
+  return tool.title ?? tool.annotations?.title ?? tool.name;
 }
 
 function addUsage(total: Usage, next: Usage) {
@@ -107,133 +68,10 @@ function addUsage(total: Usage, next: Usage) {
   };
 }
 
-function getSkillAlias(skill: Skill) {
-  if (skill.id.startsWith("builtin-")) {
-    return skill.id.slice("builtin-".length);
-  }
-
-  return slugifyCapabilityName(getSkillResolvedName(skill)) || normalizeSkillName(getSkillResolvedName(skill));
-}
-
-function buildCapabilitiesMessage(skills: Skill[], mcpServers: McpServer[], mcpToolSets: ToolSet[]) {
-  const lines = [
-    "Capability inventory for this conversation:",
-    "If the user asks what tools, skills, servers, or capabilities you have access to, answer directly from this inventory.",
-    "Do not claim that no tools are available when this inventory lists them.",
-    "Use the best available MCP tools proactively when they would improve correctness, freshness, or completeness.",
-    "Do not wait for the user to explicitly name a tool when the task clearly benefits from one.",
-    "If the user asks for current, external, or verifiable information and a relevant MCP tool is available, prefer using it.",
-    "Review available skill metadata dynamically. If a skill seems useful for the current task, request the full skill before trying to use its instructions or any skill-scoped local commands.",
-    ""
-  ];
-
-  lines.push("Skills:");
-
-  if (skills.length) {
-    skills.forEach((skill) => {
-      lines.push(
-        `- ${getSkillAlias(skill)} | display name=${getSkillResolvedName(skill)} | ${getSkillResolvedDescription(skill)}`
-      );
-    });
-  } else {
-    lines.push("- none");
-  }
-
-  lines.push(
-    "",
-    "Skills are instruction modules, not executable MCP tools.",
-    "You currently have access only to skill metadata.",
-    "Some skills unlock restricted local shell command execution after they are loaded.",
-    "If you need one or more full skill bodies before answering, respond with exactly:",
-    'SKILL_REQUEST: {"skills":["Skill Name"]}',
-    "Do not answer the user in the same message as a skill request.",
-    "Do not request a skill that has already been loaded.",
-    "",
-    "Configured MCP servers:"
-  );
-
-  if (mcpServers.length) {
-    mcpServers.forEach((server) => {
-      lines.push(`- ${server.name} | serverId=${server.id}`);
-    });
-  } else {
-    lines.push("- none");
-  }
-
-  lines.push(
-    "",
-    "Configured MCP servers are part of your available environment even if no tools are currently executable from them in the active tool mode.",
-    "",
-    "Executable MCP tools:"
-  );
-
-  if (mcpToolSets.length) {
-    mcpToolSets.forEach(({ server, tools }) => {
-      const toolSummary = tools
-        .map((tool) => {
-          const mode = tool.annotations?.readOnlyHint === true ? "read-only" : "read-write";
-          const label = getToolLabel(tool);
-          const description = tool.description?.trim();
-          return `${tool.name} (${label}; ${mode}${description ? `; ${description}` : ""})`;
-        })
-        .join(", ");
-
-      lines.push(`- ${server.name} | serverId=${server.id} | tools: ${toolSummary}`);
-    });
-  } else {
-    lines.push("- none");
-  }
-
-  lines.push(
-    "",
-    "To execute an MCP tool, respond with exactly:",
-    'TOOL_CALL: {"serverId": "server_id", "tool": "tool_name", "arguments": {}}',
-    "Only emit TOOL_CALL when you want Hermes to execute a tool instead of answering normally.",
-    "Only call MCP tools that appear in this inventory."
-  );
-
-  return lines.join("\n");
-}
-
-function extractToolCall(answer: string): ExtractedToolCall | null {
-  const trimmed = answer.trim();
-  const markerIndex = trimmed.lastIndexOf("TOOL_CALL:");
-
-  if (markerIndex === -1) {
-    return null;
-  }
-
-  const leadingText = trimmed.slice(0, markerIndex).trim();
-  const payloadSource = trimmed.slice(markerIndex);
-  const match = payloadSource.match(/^TOOL_CALL:\s*(\{[\s\S]+\})$/);
-
-  if (!match) {
-    return null;
-  }
-
-  try {
-    return {
-      payload: JSON.parse(match[1]) as ToolCallPayload,
-      leadingText
-    };
-  } catch {
-    return null;
-  }
-}
-
 function buildArgumentsSummary(args: Record<string, unknown> | null | undefined) {
-  if (!args || !Object.keys(args).length) {
-    return "";
-  }
-
-  const firstScalar = Object.entries(args).find(([, value]) =>
-    typeof value === "string" || typeof value === "number" || typeof value === "boolean"
-  );
-
-  if (firstScalar) {
-    return `${firstScalar[0]}=${String(firstScalar[1])}`;
-  }
-
+  if (!args || !Object.keys(args).length) return "";
+  const firstScalar = Object.entries(args).find(([, v]) => typeof v === "string" || typeof v === "number" || typeof v === "boolean");
+  if (firstScalar) return `${firstScalar[0]}=${String(firstScalar[1])}`;
   const json = JSON.stringify(args);
   return json.length > 120 ? `${json.slice(0, 117)}...` : json;
 }
@@ -242,29 +80,106 @@ function buildShellDetail(command: string) {
   return command.length > 140 ? `${command.slice(0, 137)}...` : command;
 }
 
-function findTool(toolSets: ToolSet[], payload: ToolCallPayload) {
-  const server = toolSets.find(
-    (entry) => entry.server.id === payload.serverId || entry.server.name === payload.server
-  );
+function buildToolDefinitions(input: {
+  mcpToolSets: ToolSet[];
+  skills: Skill[];
+  loadedSkillIds: Set<string>;
+  shellCommandPrefixes: string[];
+}): ToolDefinition[] {
+  const tools: ToolDefinition[] = [];
 
-  if (!server) {
-    return null;
+  for (const { server, tools: mcpTools } of input.mcpToolSets) {
+    for (const tool of mcpTools) {
+      tools.push({
+        type: "function",
+        function: {
+          name: mcpToolFunctionName(server.id, tool.name),
+          description: [
+            tool.annotations?.title ?? tool.name,
+            tool.description,
+            tool.annotations?.readOnlyHint ? "(read-only)" : undefined
+          ].filter(Boolean).join(" — "),
+          parameters: (tool.inputSchema as ToolDefinition["function"]["parameters"]) ?? { type: "object", properties: {} }
+        }
+      });
+    }
   }
 
-  const tool = server.tools.find((entry) => entry.name === payload.tool);
-
-  if (!tool) {
-    return null;
+  if (input.skills.length) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "load_skill",
+        description: `Load the full content and instructions of a skill. Available: ${input.skills.map((s) => getSkillResolvedName(s)).join(", ")}`,
+        parameters: {
+          type: "object",
+          properties: {
+            skill_name: { type: "string", description: "Name of the skill to load" }
+          },
+          required: ["skill_name"]
+        }
+      }
+    });
   }
 
-  return { server: server.server, tool };
+  if (input.shellCommandPrefixes.length) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "execute_shell_command",
+        description: `Execute a local shell command. Allowed prefixes: ${input.shellCommandPrefixes.join(", ")}`,
+        parameters: {
+          type: "object",
+          properties: {
+            command: { type: "string", description: "The command to execute" },
+            timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000)" }
+          },
+          required: ["command"]
+        }
+      }
+    });
+  }
+
+  return tools;
 }
 
-function getToolLabel(tool: McpTool) {
-  return tool.title ?? tool.annotations?.title ?? tool.name;
+function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[]) {
+  const lines: string[] = [];
+
+  if (skills.length) {
+    lines.push("Available skills (metadata only — call load_skill to get full instructions):");
+    for (const skill of skills) {
+      lines.push(`- ${getSkillResolvedName(skill)}: ${getSkillResolvedDescription(skill)}`);
+    }
+  }
+
+  if (mcpServers.length) {
+    lines.push("", "Configured MCP servers:");
+    for (const server of mcpServers) {
+      lines.push(`- ${server.name} (${server.id})`);
+    }
+  }
+
+  lines.push("", "Use available tools proactively when they would improve your answer.");
+
+  return lines.join("\n");
 }
 
-function renderToolResultForPrompt(input: {
+function mergeSystemMessage(promptMessages: PromptMessage[], content: string): PromptMessage[] {
+  const systemIndex = promptMessages.findIndex((m) => m.role === "system");
+  if (systemIndex === -1) return [{ role: "system", content }, ...promptMessages];
+  return promptMessages.map((m, i) => i === systemIndex ? { ...m, content: `${m.content}\n\n${content}` } : m);
+}
+
+function buildToolResultMessage(toolCallId: string, content: string): PromptMessage {
+  return {
+    role: "tool",
+    toolCallId,
+    content
+  };
+}
+
+function buildMcpToolResultForPrompt(input: {
   server: McpServer;
   tool: McpTool;
   args: Record<string, unknown>;
@@ -272,21 +187,17 @@ function renderToolResultForPrompt(input: {
   isError: boolean;
 }) {
   return [
-    `MCP tool result`,
+    "MCP tool result",
     `Server: ${input.server.name} (${input.server.id})`,
     `Tool: ${input.tool.name}`,
     `Arguments: ${JSON.stringify(input.args)}`,
     `Status: ${input.isError ? "error" : "success"}`,
-    `Result:`,
+    "Result:",
     input.resultSummary
   ].join("\n");
 }
 
-function renderShellResultForPrompt(input: {
-  command: string;
-  resultSummary: string;
-  isError: boolean;
-}) {
+function buildShellResultForPrompt(input: { command: string; resultSummary: string; isError: boolean }) {
   return [
     "Local shell command result",
     `Command: ${input.command}`,
@@ -296,295 +207,260 @@ function renderShellResultForPrompt(input: {
   ].join("\n");
 }
 
-function getLastUserText(promptMessages: PromptMessage[]) {
-  for (let index = promptMessages.length - 1; index >= 0; index -= 1) {
-    const message = promptMessages[index];
-
-    if (message?.role !== "user") {
-      continue;
-    }
-
-    if (typeof message.content === "string") {
-      return message.content.trim();
-    }
-
-    return message.content
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("\n")
-      .trim();
+async function executeMcpToolCall(
+  toolCallId: string,
+  functionName: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      mcpToolSets: ToolSet[];
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
   }
+) {
+  let sortOrder = context.timelineSortOrder;
+  const withoutPrefix = functionName.slice(4);
+  const toolSets = context.input.mcpToolSets;
+  let resolvedServer: McpServer | null = null;
+  let resolvedTool: McpTool | null = null;
 
-  return "";
-}
-
-function getPromptMessagesText(promptMessages: PromptMessage[]) {
-  return promptMessages
-    .map((message) => {
-      if (typeof message.content === "string") {
-        return message.content;
+  for (const { server, tools } of toolSets) {
+    if (withoutPrefix.startsWith(sanitizeForFunctionName(server.id) + "_")) {
+      const toolName = withoutPrefix.slice(sanitizeForFunctionName(server.id).length + 1);
+      const tool = tools.find((t) => t.name === toolName);
+      if (tool) {
+        resolvedServer = server;
+        resolvedTool = tool;
+        break;
       }
-
-      return message.content
-        .filter((part) => part.type === "text")
-        .map((part) => part.text)
-        .join("\n");
-    })
-    .join("\n");
-}
-
-function tokenizeForSkillMatching(text: string) {
-  const tokens = new Set(
-    text
-      .toLowerCase()
-      .split(/[^a-z0-9]+/g)
-      .map((token) => token.trim())
-      .filter((token) => token.length >= 3)
-  );
-
-  if (/https?:\/\//i.test(text)) {
-    ["url", "website", "page", "browser", "web"].forEach((token) => tokens.add(token));
-  }
-
-  return tokens;
-}
-
-function planAutomaticSkillLoad(input: {
-  promptMessages: PromptMessage[];
-  skills: Skill[];
-  loadedSkillIds: Set<string>;
-}) {
-  const contextTokens = tokenizeForSkillMatching(getPromptMessagesText(input.promptMessages));
-  let bestMatch: Skill | null = null;
-  let bestScore = 0;
-
-  for (const skill of input.skills) {
-    if (input.loadedSkillIds.has(skill.id)) {
-      continue;
-    }
-
-    const skillTokens = tokenizeForSkillMatching(
-      `${getSkillResolvedName(skill)}\n${getSkillResolvedDescription(skill)}`
-    );
-    const score = [...skillTokens].filter((token) => contextTokens.has(token)).length;
-
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = skill;
     }
   }
 
-  if (!bestMatch || bestScore < 2) {
-    return [];
+  if (!resolvedServer || !resolvedTool) {
+    const resultMsg = buildToolResultMessage(toolCallId, "The requested MCP tool is unavailable in the current tool mode or does not exist.");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  return [bestMatch];
-}
+  const handle = await context.input.onActionStart?.({
+    kind: "mcp_tool_call",
+    label: getToolLabel(resolvedTool),
+    detail: buildArgumentsSummary(args),
+    serverId: resolvedServer.id,
+    toolName: resolvedTool.name,
+    arguments: args
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
 
-function isCapabilityInventoryQuestion(text: string) {
-  const normalized = text.trim().toLowerCase();
+  const result = await callMcpTool(resolvedServer, resolvedTool.name, args);
+  const resultSummary = summarizeToolResult(result);
 
-  if (!normalized) {
-    return false;
-  }
+  sortOrder += 1;
 
-  return [
-    /what tools do you have/,
-    /which tools do you have/,
-    /what tools are available/,
-    /which tools are available/,
-    /what mcp servers do you have/,
-    /which mcp servers do you have/,
-    /what skills do you have/,
-    /which skills do you have/,
-    /what capabilities do you have/,
-    /which capabilities do you have/
-  ].some((pattern) => pattern.test(normalized));
-}
-
-function buildCapabilityInventoryAnswer(skills: Skill[], mcpServers: McpServer[], mcpToolSets: ToolSet[]) {
-  const lines: string[] = [];
-
-  if (mcpServers.length) {
-    lines.push(
-      `MCP servers: ${mcpServers
-        .map((server) => server.name)
-        .join(", ")}.`
-    );
+  if (result.isError) {
+    await context.input.onActionError?.(actionHandle, { detail: buildArgumentsSummary(args), resultSummary });
   } else {
-    lines.push("MCP servers: none.");
+    await context.input.onActionComplete?.(actionHandle, { detail: buildArgumentsSummary(args), resultSummary });
   }
 
-  if (skills.length) {
-    lines.push(
-      `Skills: ${skills
-        .map((skill) => getSkillAlias(skill))
-        .join(", ")}.`
-    );
-  } else {
-    lines.push("Skills: none.");
-  }
+  const resultText = buildMcpToolResultForPrompt({
+    server: resolvedServer,
+    tool: resolvedTool,
+    args,
+    resultSummary,
+    isError: Boolean(result.isError)
+  });
 
-  if (mcpToolSets.length) {
-    lines.push(
-      `Executable MCP tools in the current mode: ${mcpToolSets
-        .flatMap(({ server, tools }) => tools.map((tool) => `${server.name}.${tool.name}`))
-        .join(", ")}.`
-    );
-  } else {
-    lines.push("Executable MCP tools in the current mode: none.");
-  }
+  const resultMsg = buildToolResultMessage(toolCallId, resultText);
 
-  return lines.join("\n");
-}
-
-function extractUrls(text: string) {
-  return [...text.matchAll(/https?:\/\/[^\s)]+/gi)].map((match) => match[0]);
-}
-
-function findToolByName(toolSets: ToolSet[], toolName: string) {
-  for (const toolSet of toolSets) {
-    const tool = toolSet.tools.find((entry) => entry.name === toolName);
-
-    if (tool) {
-      return {
-        server: toolSet.server,
-        tool
-      };
-    }
-  }
-
-  return null;
-}
-
-function shouldUseCodeSearch(text: string) {
-  return /\b(api|sdk|library|framework|typescript|javascript|python|react|next\.?js|code|function|class|debug|error|implementation|example)\b/i.test(
-    text
-  );
-}
-
-function shouldUseWebSearch(text: string) {
-  return /\b(latest|current|today|tonight|tomorrow|recent|news|up[- ]to[- ]date|look up|lookup|search|find|research|verify|check online|web|this weekend|this week|next week|available|availability|timeslot|time slot|slot|schedule|hours|opening hours|book|booking|reservation|reserve|rent|rental|court|facility|venue|address|phone|contact|menu|pricing|price|cost)\b/i.test(
-    text
-  );
-}
-
-function shouldDeepDiveWebsite(text: string) {
-  return /\b(available|availability|timeslot|time slot|slot|schedule|hours|opening hours|book|booking|reservation|reserve|rent|rental|court|facility|venue|address|phone|contact|menu|pricing|price|cost)\b/i.test(
-    text
-  );
-}
-
-function planAutomaticToolCall(lastUserText: string, toolSets: ToolSet[]) {
-  if (!lastUserText.trim()) {
-    return null;
-  }
-
-  const urls = extractUrls(lastUserText);
-  if (urls.length) {
-    const crawlingTool = findToolByName(toolSets, "crawling_exa");
-
-    if (crawlingTool) {
-      return {
-        server: crawlingTool.server,
-        tool: crawlingTool.tool,
-        args: {
-          urls
-        }
-      } satisfies PlannedToolCall;
-    }
-  }
-
-  if (shouldUseCodeSearch(lastUserText)) {
-    const codeTool = findToolByName(toolSets, "get_code_context_exa");
-
-    if (codeTool) {
-      return {
-        server: codeTool.server,
-        tool: codeTool.tool,
-        args: {
-          query: lastUserText
-        }
-      } satisfies PlannedToolCall;
-    }
-  }
-
-  if (shouldUseWebSearch(lastUserText)) {
-    const webTool = findToolByName(toolSets, "web_search_exa");
-
-    if (webTool) {
-      return {
-        server: webTool.server,
-        tool: webTool.tool,
-        args: {
-          query: lastUserText
-        }
-      } satisfies PlannedToolCall;
-    }
-  }
-
-  return null;
-}
-
-function planAutomaticFollowUpToolCall(input: {
-  lastUserText: string;
-  executedTool: McpTool;
-  resultSummary: string;
-  toolSets: ToolSet[];
-}) {
-  if (input.executedTool.name !== "web_search_exa") {
-    return null;
-  }
-
-  if (!shouldDeepDiveWebsite(input.lastUserText)) {
-    return null;
-  }
-
-  const crawlingTool = findToolByName(input.toolSets, "crawling_exa");
-
-  if (!crawlingTool) {
-    return null;
-  }
-
-  const urls = [...new Set(extractUrls(input.resultSummary))].slice(0, 1);
-
-  if (!urls.length) {
-    return null;
-  }
+  const assistantMsg: PromptMessage = {
+    role: "assistant",
+    content: "",
+    toolCalls: [{ id: toolCallId, name: functionName, arguments: JSON.stringify(args) }]
+  };
 
   return {
-    server: crawlingTool.server,
-    tool: crawlingTool.tool,
-    args: {
-      urls
-    }
-  } satisfies PlannedToolCall;
+    nextSortOrder: sortOrder,
+    promptMessages: [...context.promptMessages, assistantMsg, resultMsg]
+  };
 }
 
-function extractShellCall(answer: string): ExtractedShellCall | null {
-  const trimmed = answer.trim();
-  const markerIndex = trimmed.lastIndexOf("SHELL_CALL:");
+async function executeLoadSkill(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      skills: Skill[];
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    loadedSkillIds: Set<string>;
+    allShellPrefixes: string[];
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  let sortOrder = context.timelineSortOrder;
+  const skillName = String(args.skill_name ?? "").trim().toLowerCase();
 
-  if (markerIndex === -1) {
-    return null;
+  const skill = context.input.skills.find(
+    (s) => (parseSkillContentMetadata(s.content).name?.trim() || s.name).toLowerCase() === skillName
+  );
+
+  if (!skill || context.loadedSkillIds.has(skill.id)) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      skill ? "This skill is already loaded." : `Skill "${skillName}" not found. Available: ${context.input.skills.map((s) => getSkillResolvedName(s)).join(", ")}`
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const leadingText = trimmed.slice(0, markerIndex).trim();
-  const payloadSource = trimmed.slice(markerIndex);
-  const match = payloadSource.match(/^SHELL_CALL:\s*(\{[\s\S]+\})$/);
+  context.loadedSkillIds.add(skill.id);
 
-  if (!match) {
-    return null;
+  const shellPrefixes = getSkillAllowedCommandPrefixes(skill);
+  if (shellPrefixes.length) {
+    context.allShellPrefixes.push(...shellPrefixes);
   }
+
+  const handle = await context.input.onActionStart?.({
+    kind: "skill_load",
+    label: "Load skill",
+    detail: getSkillResolvedName(skill),
+    skillId: skill.id
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  await context.input.onActionComplete?.(actionHandle, {
+    detail: getSkillResolvedName(skill),
+    resultSummary: "Skill instructions loaded."
+  });
+
+  sortOrder += 1;
+
+  let skillContent = [
+    `Skill loaded: ${getSkillResolvedName(skill)}`,
+    `Description: ${getSkillResolvedDescription(skill)}`,
+    "",
+    skill.content
+  ].join("\n");
+
+  if (shellPrefixes.length) {
+    skillContent += `\n\nLocal host command execution enabled. Allowed prefixes: ${shellPrefixes.join(", ")}`;
+  }
+
+  const resultMsg = buildToolResultMessage(toolCallId, skillContent);
+  return {
+    nextSortOrder: sortOrder,
+    promptMessages: [...context.promptMessages, resultMsg]
+  };
+}
+
+async function executeShellCommand(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    allShellPrefixes: string[];
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  let sortOrder = context.timelineSortOrder;
+  const command = String(args.command ?? "").trim();
+  const timeoutMs = typeof args.timeout_ms === "number" ? args.timeout_ms : undefined;
+
+  if (!command) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: Shell command is required.");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  if (!context.allShellPrefixes.length) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: No loaded skill currently permits local shell commands.");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const handle = await context.input.onActionStart?.({
+    kind: "shell_command",
+    label: "Local command",
+    detail: buildShellDetail(command),
+    arguments: { command, timeoutMs }
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
 
   try {
-    return {
-      payload: JSON.parse(match[1]) as ShellCallPayload,
-      leadingText
-    };
-  } catch {
-    return null;
+    const result = await executeLocalShellCommand({
+      command,
+      allowedPrefixes: context.allShellPrefixes,
+      timeoutMs
+    });
+    const resultSummary = summarizeShellResult(result);
+
+    sortOrder += 1;
+
+    if (result.isError) {
+      await context.input.onActionError?.(actionHandle, { detail: buildShellDetail(command), resultSummary });
+    } else {
+      await context.input.onActionComplete?.(actionHandle, { detail: buildShellDetail(command), resultSummary });
+    }
+
+    const resultText = buildShellResultForPrompt({ command, resultSummary, isError: result.isError });
+    const resultMsg = buildToolResultMessage(toolCallId, resultText);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Shell command execution failed";
+    await context.input.onActionError?.(actionHandle, { detail: buildShellDetail(command), resultSummary: message });
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
+}
+
+async function executeToolCall(
+  toolCall: ProviderToolCall,
+  context: {
+    input: {
+      skills: Skill[];
+      mcpToolSets: ToolSet[];
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    mcpServers: McpServer[];
+    loadedSkillIds: Set<string>;
+    allShellPrefixes: string[];
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  const { id: toolCallId, name, arguments: argsJson } = toolCall;
+  let args: Record<string, unknown>;
+  try {
+    args = JSON.parse(argsJson);
+  } catch {
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: Invalid JSON arguments for tool ${name}`);
+    return { nextSortOrder: context.timelineSortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  if (name === "load_skill") {
+    return executeLoadSkill(toolCallId, args, context);
+  }
+
+  if (name === "execute_shell_command") {
+    return executeShellCommand(toolCallId, args, context);
+  }
+
+  if (name.startsWith("mcp_")) {
+    return executeMcpToolCall(toolCallId, name, args, context);
+  }
+
+  const resultMsg = buildToolResultMessage(toolCallId, `Unknown tool: ${name}`);
+  return { nextSortOrder: context.timelineSortOrder, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
 export async function resolveAssistantTurn(input: {
@@ -605,394 +481,82 @@ export async function resolveAssistantTurn(input: {
     patch: { detail?: string; resultSummary?: string }
   ) => Promise<void> | void;
 }) {
+  const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
   const loadedSkillIds = new Set<string>();
-  const mcpServers = input.mcpServers ?? input.mcpToolSets.map((entry) => entry.server);
-  const lastUserText = getLastUserText(input.promptMessages);
-
-  if (isCapabilityInventoryQuestion(lastUserText)) {
-    const answer = buildCapabilityInventoryAnswer(input.skills, mcpServers, input.mcpToolSets);
-
-    input.onEvent?.({
-      type: "answer_delta",
-      text: answer
-    });
-
-    return {
-      answer,
-      thinking: "",
-      usage: {}
-    };
-  }
-
-  let promptMessages =
-    input.skills.length || mcpServers.length || input.mcpToolSets.length
-      ? mergeSystemMessage(
-          input.promptMessages,
-          buildCapabilitiesMessage(input.skills, mcpServers, input.mcpToolSets)
-        )
-      : input.promptMessages;
+  const allShellPrefixes: string[] = [];
   let totalUsage: Usage = {};
-  let executedControlAction = false;
-  const committedAnswerSegments: string[] = [];
+
+  let promptMessages = input.skills.length || mcpServers.length || input.mcpToolSets.length
+    ? mergeSystemMessage(input.promptMessages, buildCapabilitiesSystemMessage(input.skills, mcpServers))
+    : input.promptMessages;
+
+  let timelineSortOrder = 0;
 
   const commitAnswerSegment = async (segment: string) => {
-    if (!segment) {
-      return;
-    }
-
-    committedAnswerSegments.push(segment);
-
+    if (!segment) return;
     if (input.onAnswerSegment) {
-      input.onEvent?.({
-        type: "answer_commit",
-        text: segment
-      });
       await input.onAnswerSegment(segment);
     }
   };
 
-  const executeToolCall = async (plannedToolCall: PlannedToolCall): Promise<ExecutedToolCall> => {
-    const handle = await input.onActionStart?.({
-      kind: "mcp_tool_call",
-      label: getToolLabel(plannedToolCall.tool),
-      detail: buildArgumentsSummary(plannedToolCall.args),
-      serverId: plannedToolCall.server.id,
-      toolName: plannedToolCall.tool.name,
-      arguments: plannedToolCall.args
-    });
-    const actionHandle = typeof handle === "string" ? handle : undefined;
-    const result = await callMcpTool(
-      plannedToolCall.server,
-      plannedToolCall.tool.name,
-      plannedToolCall.args
-    );
-    executedControlAction = true;
-    const resultSummary = summarizeToolResult(result);
-
-    if (result.isError) {
-      await input.onActionError?.(actionHandle, {
-        detail: buildArgumentsSummary(plannedToolCall.args),
-        resultSummary
-      });
-    } else {
-      await input.onActionComplete?.(actionHandle, {
-        detail: buildArgumentsSummary(plannedToolCall.args),
-        resultSummary
-      });
-    }
-
-    promptMessages = mergeSystemMessage(
-      promptMessages,
-      renderToolResultForPrompt({
-        server: plannedToolCall.server,
-        tool: plannedToolCall.tool,
-        args: plannedToolCall.args,
-        resultSummary,
-        isError: Boolean(result.isError)
-      })
-    );
-
-    return {
-      ...plannedToolCall,
-      resultSummary,
-      isError: Boolean(result.isError)
-    };
-  };
-
-  const loadSkills = async (skillsToLoad: Skill[]) => {
-    const pendingSkills = skillsToLoad.filter((skill) => !loadedSkillIds.has(skill.id));
-
-    if (!pendingSkills.length) {
-      return;
-    }
-
-    for (const skill of pendingSkills) {
-      loadedSkillIds.add(skill.id);
-      executedControlAction = true;
-      const handle = await input.onActionStart?.({
-        kind: "skill_load",
-        label: "Load skill",
-        detail: getSkillResolvedName(skill),
-        skillId: skill.id
-      });
-      const actionHandle = typeof handle === "string" ? handle : undefined;
-      await input.onActionComplete?.(actionHandle, {
-        detail: getSkillResolvedName(skill),
-        resultSummary: "Skill instructions loaded."
-      });
-    }
-
-    promptMessages = mergeSystemMessage(promptMessages, buildLoadedSkillsMessage(pendingSkills));
-  };
-
-  const executeShellCall = async (payload: ShellCallPayload) => {
-    const allowedPrefixes = input.skills
-      .filter((skill) => loadedSkillIds.has(skill.id))
-      .flatMap((skill) => getSkillAllowedCommandPrefixes(skill));
-    const command = payload.command?.trim();
-
-    if (!command) {
-      throw new Error("Shell command is required");
-    }
-
-    if (!allowedPrefixes.length) {
-      throw new Error("No loaded skill currently permits local shell commands");
-    }
-
-    const handle = await input.onActionStart?.({
-      kind: "shell_command",
-      label: "Local command",
-      detail: buildShellDetail(command),
-      arguments: {
-        command,
-        timeoutMs: payload.timeoutMs
-      }
-    });
-    const actionHandle = typeof handle === "string" ? handle : undefined;
-    const result = await executeLocalShellCommand({
-      command,
-      allowedPrefixes,
-      timeoutMs: payload.timeoutMs
-    });
-    executedControlAction = true;
-    const resultSummary = summarizeShellResult(result);
-
-    if (result.isError) {
-      await input.onActionError?.(actionHandle, {
-        detail: buildShellDetail(command),
-        resultSummary
-      });
-    } else {
-      await input.onActionComplete?.(actionHandle, {
-        detail: buildShellDetail(command),
-        resultSummary
-      });
-    }
-
-    promptMessages = mergeSystemMessage(
-      promptMessages,
-      renderShellResultForPrompt({
-        command,
-        resultSummary,
-        isError: result.isError
-      })
-    );
-  };
-
   for (let step = 0; step < MAX_ASSISTANT_CONTROL_STEPS; step += 1) {
-    if (step === 0) {
-      const plannedToolCall = planAutomaticToolCall(lastUserText, input.mcpToolSets);
-
-      if (plannedToolCall) {
-        const executedToolCall = await executeToolCall(plannedToolCall);
-        const followUpToolCall = planAutomaticFollowUpToolCall({
-          lastUserText,
-          executedTool: executedToolCall.tool,
-          resultSummary: executedToolCall.resultSummary,
-          toolSets: input.mcpToolSets
-        });
-
-        if (followUpToolCall) {
-          await executeToolCall(followUpToolCall);
-        }
-      }
-    }
-
-    const plannedSkills = planAutomaticSkillLoad({
-      promptMessages,
+    const tools = buildToolDefinitions({
+      mcpToolSets: input.mcpToolSets,
       skills: input.skills,
-      loadedSkillIds
+      loadedSkillIds,
+      shellCommandPrefixes: allShellPrefixes
     });
 
-    if (plannedSkills.length) {
-      await loadSkills(plannedSkills);
-    }
-
-    const guardedAnswerEmitter = createGuardedAnswerEmitter(["SKILL_REQUEST:", "TOOL_CALL:", "SHELL_CALL:"]);
     const providerStream = streamProviderResponse({
       settings: input.settings,
-      promptMessages
+      promptMessages,
+      tools: tools.length ? tools : undefined
     });
+
     let answer = "";
     let thinking = "";
     let usage: Usage = {};
-    let partialAnswer = "";
-    let partialThinking = "";
-    let shouldStopProviderPass = false;
+    let toolCalls: ProviderToolCall[] = [];
 
     while (true) {
       const next = await providerStream.next();
-
       if (next.done) {
-        answer = shouldStopProviderPass ? partialAnswer : next.value.answer;
-        thinking = shouldStopProviderPass ? partialThinking : next.value.thinking;
+        answer = next.value.answer;
+        thinking = next.value.thinking;
         usage = next.value.usage;
+        toolCalls = next.value.toolCalls ?? [];
         totalUsage = addUsage(totalUsage, usage);
         break;
       }
-
-      if (next.value.type === "thinking_delta") {
-        partialThinking += next.value.text;
-        input.onEvent?.(next.value);
-        continue;
-      }
-
-      if (next.value.type === "answer_delta") {
-        partialAnswer += next.value.text;
-        const events = guardedAnswerEmitter.push(next.value.text);
-        events.forEach((event) => input.onEvent?.(event));
-
-        if (
-          extractSkillRequest(partialAnswer) ||
-          extractShellCall(partialAnswer) ||
-          extractToolCall(partialAnswer)
-        ) {
-          shouldStopProviderPass = true;
-          totalUsage = addUsage(totalUsage, usage);
-          await providerStream.return?.({
-            answer: partialAnswer,
-            thinking: partialThinking,
-            usage
-          });
-          answer = partialAnswer;
-          thinking = partialThinking;
-          break;
-        }
-
-        continue;
-      }
-
       input.onEvent?.(next.value);
     }
 
-    const requestedSkillRequest = extractSkillRequest(answer);
-
-    if (requestedSkillRequest) {
-      if (requestedSkillRequest.leadingText) {
-        await commitAnswerSegment(requestedSkillRequest.leadingText);
-      }
-
-      const requestedSkills = requestedSkillRequest.names
-        .map((name) => input.skills.find((skill) => normalizeSkillName(getSkillResolvedName(skill)) === name))
-        .filter((skill): skill is Skill => Boolean(skill))
-        .filter((skill) => !loadedSkillIds.has(skill.id));
-
-      if (!requestedSkills.length) {
-        promptMessages = [
-          ...mergeSystemMessage(
-            promptMessages,
-            "The requested skill is unavailable or already loaded. Continue and answer the user without another SKILL_REQUEST."
-          )
-        ];
+    if (!toolCalls.length) {
+      if (!answer.trim() && step > 0) {
+        promptMessages = mergeSystemMessage(promptMessages, "Your previous response was empty after using tools. Answer the user directly. Do not emit an empty response.");
         continue;
       }
-
-      await loadSkills(requestedSkills);
-      promptMessages = [
-        ...promptMessages,
-        ...(requestedSkillRequest.leadingText
-          ? [
-              {
-                role: "assistant" as const,
-                content: requestedSkillRequest.leadingText
-              }
-            ]
-          : [])
-      ];
-      continue;
+      await commitAnswerSegment(answer);
+      return { answer, thinking, usage: totalUsage };
     }
 
-    const extractedShellCall = extractShellCall(answer);
-
-    if (extractedShellCall) {
-      if (extractedShellCall.leadingText) {
-        await commitAnswerSegment(extractedShellCall.leadingText);
-      }
-
-      try {
-        await executeShellCall(extractedShellCall.payload);
-      } catch (error) {
-        promptMessages = [
-          ...mergeSystemMessage(
-            promptMessages,
-            error instanceof Error
-              ? `${error.message} Continue and answer the user without another SHELL_CALL.`
-              : "The requested shell command could not be executed. Continue and answer the user without another SHELL_CALL."
-          )
-        ];
-        continue;
-      }
-
-      promptMessages = [
-        ...promptMessages,
-        ...(extractedShellCall.leadingText
-          ? [
-              {
-                role: "assistant" as const,
-                content: extractedShellCall.leadingText
-              }
-            ]
-          : [])
-      ];
-      continue;
+    if (answer) {
+      await commitAnswerSegment(answer);
     }
 
-    const extractedToolCall = extractToolCall(answer);
-
-    if (extractedToolCall) {
-      if (extractedToolCall.leadingText) {
-        await commitAnswerSegment(extractedToolCall.leadingText);
-      }
-
-      const toolCall = extractedToolCall.payload;
-      const resolved = findTool(input.mcpToolSets, toolCall);
-      const toolArgs = toolCall.arguments ?? {};
-
-      if (!resolved) {
-        promptMessages = [
-          ...mergeSystemMessage(
-            promptMessages,
-            "The requested MCP tool is unavailable in the current tool mode or does not exist. Continue and answer the user without calling it again."
-          )
-        ];
-        continue;
-      }
-
-      await executeToolCall({
-        server: resolved.server,
-        tool: resolved.tool,
-        args: toolArgs
+    for (const toolCall of toolCalls) {
+      const result = await executeToolCall(toolCall, {
+        input,
+        mcpServers,
+        loadedSkillIds,
+        allShellPrefixes,
+        timelineSortOrder,
+        promptMessages
       });
-      promptMessages = [
-        ...promptMessages,
-        ...(extractedToolCall.leadingText
-          ? [
-              {
-                role: "assistant" as const,
-                content: extractedToolCall.leadingText
-              }
-            ]
-          : [])
-      ];
-      continue;
+
+      timelineSortOrder = result.nextSortOrder;
+      promptMessages = result.promptMessages;
     }
-
-    if (!answer.trim() && executedControlAction) {
-      promptMessages = mergeSystemMessage(
-        promptMessages,
-        "Your previous response was empty after using tools or skills. Answer the user directly with the best available information from the loaded tool results. Do not emit an empty response."
-      );
-      continue;
-    }
-
-    guardedAnswerEmitter.flush().forEach((event) => input.onEvent?.(event));
-    await commitAnswerSegment(answer);
-
-    return {
-      answer,
-      thinking,
-      usage: totalUsage
-    };
   }
 
   throw new Error("Assistant exceeded the maximum number of tool steps");
