@@ -304,6 +304,12 @@ function migrate(db: Database.Database) {
   if (!settingsColNames.includes("skills_enabled")) {
     db.exec("ALTER TABLE app_settings ADD COLUMN skills_enabled INTEGER NOT NULL DEFAULT 1");
   }
+  if (!settingsColNames.includes("conversation_retention")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN conversation_retention TEXT NOT NULL DEFAULT 'forever'");
+  }
+  if (!settingsColNames.includes("auto_compaction")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN auto_compaction INTEGER NOT NULL DEFAULT 1");
+  }
 
   const mcpCols = db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;
   const mcpColNames = mcpCols.map((c) => c.name);

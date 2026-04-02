@@ -1,5 +1,7 @@
 export type ApiMode = "responses" | "chat_completions";
 
+export type ConversationRetention = "forever" | "90d" | "30d" | "7d";
+
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export type MessageRole = "user" | "assistant" | "system";
@@ -54,6 +56,8 @@ export type ProviderProfileSummary = Omit<ProviderProfile, "apiKeyEncrypted"> & 
 export type AppSettings = {
   defaultProviderProfileId: string;
   skillsEnabled: boolean;
+  conversationRetention: ConversationRetention;
+  autoCompaction: boolean;
   updatedAt: string;
 };
 

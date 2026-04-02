@@ -38,6 +38,8 @@ const settingsSchema = z
   .object({
     defaultProviderProfileId: z.string().min(1),
     skillsEnabled: z.coerce.boolean(),
+    conversationRetention: z.enum(["forever", "90d", "30d", "7d"]),
+    autoCompaction: z.coerce.boolean(),
     providerProfiles: z.array(providerProfileInputSchema).min(1)
   })
   .superRefine((value, context) => {
@@ -67,6 +69,8 @@ const settingsSchema = z
 type AppSettingsRow = {
   default_provider_profile_id: string;
   skills_enabled: number;
+  conversation_retention: string;
+  auto_compaction: number;
   updated_at: string;
 };
 
@@ -93,6 +97,8 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
   return {
     defaultProviderProfileId: row.default_provider_profile_id,
     skillsEnabled: Boolean(row.skills_enabled),
+    conversationRetention: row.conversation_retention as AppSettings["conversationRetention"],
+    autoCompaction: Boolean(row.auto_compaction),
     updatedAt: row.updated_at
   };
 }
@@ -193,6 +199,8 @@ export function getSettings() {
       `SELECT
         default_provider_profile_id,
         skills_enabled,
+        conversation_retention,
+        auto_compaction,
         updated_at
       FROM app_settings
       WHERE id = ?`
@@ -355,12 +363,16 @@ export function updateSettings(input: unknown) {
         `UPDATE app_settings
          SET default_provider_profile_id = ?,
              skills_enabled = ?,
+             conversation_retention = ?,
+             auto_compaction = ?,
              updated_at = ?
          WHERE id = ?`
       )
       .run(
         parsed.defaultProviderProfileId,
         parsed.skillsEnabled ? 1 : 0,
+        parsed.conversationRetention,
+        parsed.autoCompaction ? 1 : 0,
         timestamp,
         SETTINGS_ROW_ID
       );
