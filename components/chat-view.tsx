@@ -769,8 +769,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       </div>
 
-      <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 md:px-0 scroll-smooth">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pt-4 pb-[160px] md:pb-[200px]">
+      <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 md:px-8 scroll-smooth">
+        <div className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4 pb-[140px] md:pb-[200px]">
           {messages.map((message, index) => (
             <div
               key={message.id}
@@ -810,7 +810,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
       <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none">
         <div className="h-24 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/90 to-transparent" />
-        <div className="mx-auto w-full max-w-[980px] px-4 pb-4 md:pb-6 -mt-10 pointer-events-auto">
+        <div className="mx-auto w-full px-4 pb-4 md:px-8 md:pb-6 -mt-10 pointer-events-auto">
           <ChatComposer
             input={input}
             onInputChange={setInput}
