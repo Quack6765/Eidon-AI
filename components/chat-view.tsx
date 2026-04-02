@@ -207,6 +207,21 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }, 1000);
   }
 
+  function mergeMessages(local: Message[], server: Message[]): Message[] {
+    if (local.length === 0) {
+      return server;
+    }
+
+    const serverMap = new Map(server.map((m) => [m.id, m]));
+    return local.map((localMsg) => {
+      const serverMsg = serverMap.get(localMsg.id);
+      if (!serverMsg) {
+        return localMsg;
+      }
+      return { ...localMsg, ...serverMsg };
+    });
+  }
+
   async function syncConversationState() {
     const response = await fetch(`/api/conversations/${payload.conversation.id}`);
 
@@ -220,7 +235,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       debug: ConversationPayload["debug"];
     };
 
-    setMessages(result.messages);
+    const merged = mergeMessages(messages, result.messages);
+    if (merged !== messages) {
+      setMessages(merged);
+    }
     setConversationTitle(result.conversation.title);
     setTitleGenerationStatus(result.conversation.titleGenerationStatus);
     setDebug(result.debug);
