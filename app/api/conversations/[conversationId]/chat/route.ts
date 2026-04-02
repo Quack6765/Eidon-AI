@@ -9,6 +9,7 @@ import {
   createMessageTextSegment,
   generateConversationTitleFromFirstUserMessage,
   getConversation,
+  setConversationActive,
   updateMessage,
   updateMessageAction,
 } from "@/lib/conversations";
@@ -129,6 +130,8 @@ export async function POST(
           messageId: assistantMessage.id
         });
 
+        setConversationActive(conversation.id, true);
+
         let timelineSortOrder = 0;
 
         const providerResult = await resolveAssistantTurn({
@@ -219,6 +222,7 @@ export async function POST(
           type: "done",
           messageId: assistantMessage.id
         });
+        setConversationActive(conversation.id, false);
         controller.close();
       } catch (error) {
         updateMessage(assistantMessage.id, {
@@ -231,6 +235,7 @@ export async function POST(
           type: "error",
           message: error instanceof Error ? error.message : "Chat stream failed"
         });
+        setConversationActive(conversation.id, false);
         controller.close();
       }
     }

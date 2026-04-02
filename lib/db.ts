@@ -292,6 +292,9 @@ function migrate(db: Database.Database) {
       `ALTER TABLE conversations ADD COLUMN tool_execution_mode TEXT NOT NULL DEFAULT '${DEFAULT_TOOL_EXECUTION_MODE}'`
     );
   }
+  if (!convColNames.includes("is_active")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0");
+  }
 
   const settingsCols = db.prepare("PRAGMA table_info(app_settings)").all() as Array<{ name: string }>;
   const settingsColNames = settingsCols.map((c) => c.name);

@@ -7,6 +7,7 @@ import {
   getConversation,
   listVisibleMessages,
   moveConversationToFolder,
+  setConversationActive,
   updateConversationProviderProfile,
   updateConversationToolExecutionMode
 } from "@/lib/conversations";
@@ -66,13 +67,15 @@ const updateSchema = z
   .object({
     folderId: z.string().nullable().optional(),
     providerProfileId: z.string().min(1).optional(),
-    toolExecutionMode: z.enum(["read_only", "read_write"]).optional()
+    toolExecutionMode: z.enum(["read_only", "read_write"]).optional(),
+    isActive: z.boolean().optional()
   })
   .refine(
     (value) =>
       value.folderId !== undefined ||
       value.providerProfileId !== undefined ||
-      value.toolExecutionMode !== undefined,
+      value.toolExecutionMode !== undefined ||
+      value.isActive !== undefined,
     "Invalid conversation update"
   );
 
@@ -115,6 +118,10 @@ export async function PATCH(
 
   if (body.data.toolExecutionMode !== undefined) {
     updateConversationToolExecutionMode(conversation.id, body.data.toolExecutionMode);
+  }
+
+  if (body.data.isActive !== undefined) {
+    setConversationActive(conversation.id, body.data.isActive);
   }
 
   return ok({ conversation: getConversation(conversation.id) });

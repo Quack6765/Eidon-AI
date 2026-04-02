@@ -67,6 +67,7 @@ export type Conversation = {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  isActive: boolean;
 };
 
 export type ConversationListPage = {

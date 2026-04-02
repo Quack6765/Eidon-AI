@@ -16,7 +16,8 @@ import {
   FolderInput,
   Pencil,
   X,
-  MessageSquare
+  MessageSquare,
+  LoaderCircle
 } from "lucide-react";
 import {
   DndContext,
@@ -222,7 +223,11 @@ function ConversationItem({
             : "text-white/60 hover:bg-white/[0.04] hover:text-white/90"
         }`}
       >
-        <MessageSquare className="h-4 w-4 shrink-0 opacity-40" />
+        {conversation.isActive ? (
+          <LoaderCircle className="h-3 w-3 shrink-0 animate-spin text-white/45 transition-opacity duration-200" />
+        ) : (
+          <MessageSquare className="h-4 w-4 shrink-0 opacity-40 transition-opacity duration-200" />
+        )}
 
         <div className="relative min-w-0 flex-1 overflow-hidden">
           {conversation.matchSnippet ? (

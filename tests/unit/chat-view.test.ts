@@ -45,7 +45,8 @@ function createPayload() {
       toolExecutionMode: "read_only" as const,
       sortOrder: 0,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      isActive: false
     },
     messages: [],
     toolExecutionMode: "read_only" as const,
