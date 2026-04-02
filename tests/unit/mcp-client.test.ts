@@ -327,7 +327,6 @@ describe("MCP client", () => {
     };
 
     const {
-      buildMcpToolsDescription,
       disconnectMcpServer,
       discoverMcpTools,
       shutdownAllProcesses
@@ -339,14 +338,9 @@ describe("MCP client", () => {
       discoverMcpTools(httpServer),
       discoverMcpTools(stdioServer)
     ]);
-    const description = buildMcpToolsDescription([
-      { server: httpServer, tools: httpTools },
-      { server: stdioServer, tools: stdioTools }
-    ]);
 
-    expect(description).toContain("### Search docs | name=search_docs");
-    expect(description).toContain("Mode: read-write");
-    expect(description).toContain('Parameters: {"query":{"type":"string"}}');
+    expect(httpTools.length).toBeGreaterThan(0);
+    expect(stdioTools.length).toBeGreaterThan(0);
 
     await disconnectMcpServer(httpServer);
     expect(httpTransportInstances[0].terminateSession).toHaveBeenCalledTimes(1);

@@ -128,10 +128,6 @@ async function closeTransport(transport: StdioClientTransport | StreamableHTTPCl
   await transport.close().catch(() => undefined);
 }
 
-function getToolDisplayName(tool: McpTool) {
-  return tool.title ?? tool.annotations?.title ?? tool.name;
-}
-
 function normalizeTool(tool: Awaited<ReturnType<Client["listTools"]>>["tools"][number]): McpTool {
   return {
     name: tool.name,
@@ -266,37 +262,6 @@ export async function gatherAllMcpTools(
   );
 
   return results.filter((result) => result.tools.length > 0);
-}
-
-export function buildMcpToolsDescription(
-  mcpToolSets: Array<{ server: McpServer; tools: McpTool[] }>
-): string {
-  const parts: string[] = [];
-
-  for (const { server, tools } of mcpToolSets) {
-    if (!tools.length) {
-      continue;
-    }
-
-    parts.push(`## MCP Server: ${server.name} (${server.id})`);
-    for (const tool of tools) {
-      parts.push(`### ${getToolDisplayName(tool)} | name=${tool.name}`);
-      if (tool.description) {
-        parts.push(tool.description);
-      }
-      if (tool.annotations?.readOnlyHint === true) {
-        parts.push("Mode: read-only");
-      } else {
-        parts.push("Mode: read-write");
-      }
-      if (tool.inputSchema?.properties) {
-        parts.push(`Parameters: ${JSON.stringify(tool.inputSchema.properties)}`);
-      }
-      parts.push("");
-    }
-  }
-
-  return parts.join("\n");
 }
 
 export async function disconnectMcpServer(server: McpServer) {
