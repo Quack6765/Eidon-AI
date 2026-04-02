@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Menu, Plus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/sidebar";
+import { SettingsNav } from "@/components/settings/settings-nav";
 import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 
@@ -19,6 +20,7 @@ export function Shell({
   const activeConversationId = pathname.startsWith("/chat/")
     ? pathname.split("/chat/")[1]
     : null;
+  const isSettingsPage = pathname.startsWith("/settings");
 
   return (
     <div className="flex h-[100dvh] w-full bg-[var(--background)] overflow-hidden">
@@ -41,7 +43,11 @@ export function Shell({
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <Sidebar conversationPage={conversationPage} folders={folders} onClose={() => setIsSidebarOpen(false)} />
+        {isSettingsPage ? (
+          <SettingsNav onClose={() => setIsSidebarOpen(false)} />
+        ) : (
+          <Sidebar conversationPage={conversationPage} folders={folders} onClose={() => setIsSidebarOpen(false)} />
+        )}
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col relative w-full overflow-y-auto">
