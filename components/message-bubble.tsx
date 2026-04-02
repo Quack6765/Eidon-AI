@@ -42,23 +42,23 @@ function MessageActionRow({
   action: Extract<MessageTimelineItem, { timelineKind: "action" }>;
 }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-xl border border-white/6 bg-white/[0.02] px-3 py-2.5 text-sm">
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
+    <div className="flex items-center gap-1.5 rounded-lg border border-white/6 bg-white/[0.02] px-2.5 py-1.5 text-xs">
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
         {action.status === "running" ? (
-          <LoaderCircle className="h-3 w-3 animate-spin text-white/55" />
+          <LoaderCircle className="h-2.5 w-2.5 animate-spin text-white/55" />
         ) : action.status === "completed" ? (
-          <Check className="h-3 w-3 text-emerald-400" />
+          <Check className="h-2.5 w-2.5 text-emerald-400" />
         ) : (
-          <X className="h-3 w-3 text-red-400" />
+          <X className="h-2.5 w-2.5 text-red-400" />
         )}
       </span>
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[13px] font-medium text-white/85">
+      <div className="min-w-0 flex-1 overflow-hidden">
+        <div className="truncate text-[12px] font-medium text-white/85">
           {action.label}
           {action.detail ? <span className="font-normal text-white/55">: {action.detail}</span> : null}
         </div>
         {action.status !== "running" && action.resultSummary ? (
-          <p className="truncate text-xs text-white/35">{action.resultSummary}</p>
+          <p className="truncate text-[11px] text-white/35">{action.resultSummary}</p>
         ) : null}
       </div>
     </div>
@@ -250,7 +250,19 @@ export function MessageBubble({
             : [])
         ]
       : []);
-  const timeline = baseTimeline;
+  const streamingContentAppend =
+    message.role === "assistant" && message.timeline && streamingAnswer !== undefined && rawContent
+      ? [
+          {
+            id: `stream_content_${message.id}`,
+            timelineKind: "text" as const,
+            sortOrder: baseTimeline.length,
+            createdAt: message.createdAt,
+            content: rawContent
+          }
+        ]
+      : [];
+  const timeline = [...baseTimeline, ...streamingContentAppend];
   const assistantText = timeline
     .filter(
       (item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> =>
@@ -506,7 +518,7 @@ export function MessageBubble({
                       </div>
                     )
                   )}
-                  {timeline.every((item) => item.timelineKind === "action") && content ? (
+                  {!message.timeline && !streamingAnswer && actions.length > 0 && rawContent ? (
                     <div
                       className={ASSISTANT_BUBBLE}
                       data-testid="assistant-message-bubble"
