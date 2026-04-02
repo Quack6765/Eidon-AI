@@ -106,7 +106,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const dragDepthRef = useRef(0);
   const messagesRef = useRef(payload.messages);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
-  const animatedIdsRef = useRef<Set<string>>(new Set());
   const bootstrappedRef = useRef(false);
   const titlePollTimeoutRef = useRef<number | null>(null);
   const titlePollAttemptsRef = useRef(0);
@@ -213,9 +212,30 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       return server;
     }
 
+    const localIds = new Set(local.map((m) => m.id));
     const serverMap = new Map(server.map((m) => [m.id, m]));
+    const isOptimistic = (id: string) => typeof id === "string" && id.startsWith("local_");
+
+    const optimisticToServer = new Map<string, Message>();
+    for (const serverMsg of server) {
+      if (localIds.has(serverMsg.id)) {
+        continue;
+      }
+      for (const localMsg of local) {
+        if (isOptimistic(localMsg.id) && localMsg.role === serverMsg.role && localMsg.content === serverMsg.content) {
+          optimisticToServer.set(localMsg.id, serverMsg);
+          break;
+        }
+      }
+    }
+
     let changed = false;
     const merged = local.map((localMsg) => {
+      const replacement = optimisticToServer.get(localMsg.id);
+      if (replacement) {
+        changed = true;
+        return replacement;
+      }
       const serverMsg = serverMap.get(localMsg.id);
       if (!serverMsg) {
         return localMsg;
@@ -226,6 +246,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       changed = true;
       return { ...localMsg, ...serverMsg };
     });
+
+    const replacedIds = new Set(Array.from(optimisticToServer.values()).map((m) => m.id));
+    const newFromServer = server.filter((sMsg) => !localIds.has(sMsg.id) && !replacedIds.has(sMsg.id));
+    if (newFromServer.length > 0) {
+      return [...merged, ...newFromServer];
+    }
 
     return changed ? merged : local;
   }
@@ -794,25 +820,19 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
       <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 md:px-8 scroll-smooth">
         <div className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4 pb-[140px] md:pb-[200px]">
-          {messages.map((message, index) => {
-            const isNew = !animatedIdsRef.current.has(message.id);
-            if (isNew) {
-              animatedIdsRef.current.add(message.id);
-            }
-            return (
-              <div
-                key={message.id}
-                className={isNew ? "animate-slide-up" : undefined}
-                style={isNew ? { animationDelay: `${Math.min(index * 30, 300)}ms`, animationFillMode: "backwards" } : undefined}
-              >
-                <MessageBubble
-                  message={message}
-                  onUpdateUserMessage={updateUserMessage}
-                  isUpdating={updatingMessageId === message.id}
-                />
-              </div>
-            );
-          })}
+          {messages.map((message, index) => (
+            <div
+              key={message.id}
+              className="animate-slide-up"
+              style={{ animationDelay: `${Math.min(index * 30, 300)}ms`, animationFillMode: "backwards" }}
+            >
+              <MessageBubble
+                message={message}
+                onUpdateUserMessage={updateUserMessage}
+                isUpdating={updatingMessageId === message.id}
+              />
+            </div>
+          ))}
 
           {streamStartedAt ? (
             <div className="animate-slide-up">
