@@ -1,0 +1,79 @@
+<h2>Settings Sidebar — Narrower Cards</h2>
+<p class="subtitle">Settings cards reduced to ~50% width. Label and control are closer together.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Content Area with Narrower Setting Cards</div>
+  <div class="mockup-body" style="display:flex;height:500px;background:#0a0a0a;font-family:system-ui;color:#fff;">
+    <div style="width:220px;background:#0f0f0f;border-right:1px solid #222;display:flex;flex-direction:column;">
+      <div style="padding:12px 16px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #222;">
+        <div style="width:28px;height:28px;border-radius:50%;background:#222;display:flex;align-items:center;justify-content:center;font-size:14px;cursor:pointer;">←</div>
+        <span style="font-size:14px;font-weight:600;">Settings</span>
+      </div>
+      <div style="flex:1;padding:8px;">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;background:rgba(139,92,246,0.15);border:1px solid rgba(139,92,246,0.3);cursor:pointer;">
+          <div style="width:32px;height:32px;border-radius:8px;background:#8b5cf6;display:flex;align-items:center;justify-content:center;font-size:14px;">⚙</div>
+          <span style="font-size:13px;color:#e2e8f0;font-weight:500;">General</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;margin-top:2px;cursor:pointer;">
+          <div style="width:32px;height:32px;border-radius:8px;background:#1e293b;display:flex;align-items:center;justify-content:center;font-size:14px;">✨</div>
+          <span style="font-size:13px;color:#94a3b8;">Providers</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;margin-top:2px;cursor:pointer;">
+          <div style="width:32px;height:32px;border-radius:8px;background:#0ea5e9;display:flex;align-items:center;justify-content:center;font-size:14px;">🔌</div>
+          <span style="font-size:13px;color:#94a3b8;">MCP Servers</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;margin-top:2px;cursor:pointer;">
+          <div style="width:32px;height:32px;border-radius:8px;background:#f59e0b;display:flex;align-items:center;justify-content:center;font-size:14px;">⚡</div>
+          <span style="font-size:13px;color:#94a3b8;">Skills</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;margin-top:2px;cursor:pointer;">
+          <div style="width:32px;height:32px;border-radius:8px;background:#38bdf8;display:flex;align-items:center;justify-content:center;font-size:14px;">👤</div>
+          <span style="font-size:13px;color:#94a3b8;">Account</span>
+        </div>
+      </div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column;">
+      <div style="padding:24px 32px 0;flex:1;overflow:auto;">
+        <h2 style="font-size:22px;margin:0 0 8px;">General</h2>
+        <p style="font-size:13px;color:#64748b;margin:0 0 28px;">Configure default conversation behavior and preferences.</p>
+
+        <div style="max-width:520px;">
+          <div style="background:#111;border-radius:12px;padding:24px;border:1px solid #1e1e2e;margin-bottom:16px;">
+            <h3 style="font-size:15px;margin:0 0 20px;font-weight:600;">Conversation Retention</h3>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-size:13px;">Keep conversations for</div>
+                <div style="font-size:11px;color:#64748b;margin-top:2px;">Older conversations will be automatically deleted</div>
+              </div>
+              <div style="background:#1e293b;padding:8px 14px;border-radius:8px;font-size:13px;border:1px solid #2e2e4e;cursor:pointer;white-space:nowrap;">Forever ▾</div>
+            </div>
+          </div>
+
+          <div style="background:#111;border-radius:12px;padding:24px;border:1px solid #1e1e2e;margin-bottom:16px;">
+            <h3 style="font-size:15px;margin:0 0 20px;font-weight:600;">Auto-Compaction</h3>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-size:13px;">Enable auto-compaction</div>
+                <div style="font-size:11px;color:#64748b;margin-top:2px;">Compact long conversations to stay within context limits</div>
+              </div>
+              <div style="width:40px;height:22px;border-radius:11px;background:#8b5cf6;position:relative;cursor:pointer;flex-shrink:0;">
+                <div style="width:18px;height:18px;border-radius:50%;background:#fff;position:absolute;right:2px;top:2px;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="background:#111;border-radius:12px;padding:24px;border:1px solid #1e1e2e;">
+            <h3 style="font-size:15px;margin:0 0 20px;font-weight:600;">Compaction Threshold</h3>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-size:13px;">Token threshold</div>
+                <div style="font-size:11px;color:#64748b;margin-top:2px;">Start compacting when this limit is exceeded</div>
+              </div>
+              <div style="background:#1e293b;padding:8px 14px;border-radius:8px;font-size:13px;border:1px solid #2e2e4e;width:90px;text-align:center;flex-shrink:0;">50,000</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
