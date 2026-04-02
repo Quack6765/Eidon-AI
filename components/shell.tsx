@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, type PropsWithChildren } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Menu, Plus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/sidebar";
 import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
+import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 
 export function Shell({
   conversationPage,
@@ -12,6 +14,11 @@ export function Shell({
   children
 }: PropsWithChildren<{ conversationPage: ConversationListPage; folders?: Folder[] }>) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const pathname = usePathname();
+  const router = useRouter();
+  const activeConversationId = pathname.startsWith("/chat/")
+    ? pathname.split("/chat/")[1]
+    : null;
 
   return (
     <div className="flex h-[100dvh] w-full bg-[var(--background)] overflow-hidden">
@@ -55,9 +62,10 @@ export function Shell({
             className="p-2 -mr-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
             onClick={async () => {
               try {
+                await deleteConversationIfStillEmpty(activeConversationId);
                 const res = await fetch("/api/conversations", { method: "POST" });
                 const data = (await res.json()) as { conversation: Conversation };
-                window.location.href = `/chat/${data.conversation.id}`;
+                router.push(`/chat/${data.conversation.id}`);
               } catch (e) {}
             }}
           >

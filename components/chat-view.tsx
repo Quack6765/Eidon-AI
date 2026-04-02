@@ -8,6 +8,7 @@ import { ChatComposer } from "@/components/chat-composer";
 import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
 import { consumeChatBootstrap } from "@/lib/chat-bootstrap";
 import { dispatchConversationTitleUpdated } from "@/lib/conversation-events";
+import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { supportsImageInput } from "@/lib/model-capabilities";
 import { formatTimestamp } from "@/lib/utils";
 import type {
@@ -103,6 +104,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const queueRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
+  const messagesRef = useRef(payload.messages);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
   const bootstrappedRef = useRef(false);
   const titlePollTimeoutRef = useRef<number | null>(null);
@@ -114,6 +116,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     setMessages(payload.messages);
   }, [payload.messages]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     setConversationTitle(payload.conversation.title);
@@ -235,6 +241,24 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }
 
   useEffect(() => stopTitlePolling, []);
+
+  useEffect(() => {
+    return () => {
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      if (window.location.pathname === `/chat/${payload.conversation.id}`) {
+        return;
+      }
+
+      if (messagesRef.current.length > 0) {
+        return;
+      }
+
+      void deleteConversationIfStillEmpty(payload.conversation.id).catch(() => {});
+    };
+  }, [payload.conversation.id]);
 
   useEffect(() => {
     if (titleGenerationStatus === "completed" || titleGenerationStatus === "failed") {

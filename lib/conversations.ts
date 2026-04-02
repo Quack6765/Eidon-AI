@@ -381,14 +381,42 @@ export function createConversation(
   return conversation;
 }
 
+function deleteConversationRecord(conversationId: string) {
+  deleteConversationAttachmentFiles(conversationId);
+  getDb().prepare("DELETE FROM message_attachments WHERE conversation_id = ?").run(conversationId);
+  return getDb().prepare("DELETE FROM conversations WHERE id = ?").run(conversationId).changes > 0;
+}
+
 export function deleteConversation(conversationId: string) {
   const transaction = getDb().transaction((id: string) => {
-    deleteConversationAttachmentFiles(id);
-    getDb().prepare("DELETE FROM message_attachments WHERE conversation_id = ?").run(id);
-    getDb().prepare("DELETE FROM conversations WHERE id = ?").run(id);
+    deleteConversationRecord(id);
   });
 
   transaction(conversationId);
+}
+
+export function deleteConversationIfEmpty(conversationId: string) {
+  const transaction = getDb().transaction((id: string) => {
+    const conversation = getDb()
+      .prepare("SELECT id FROM conversations WHERE id = ?")
+      .get(id) as { id: string } | undefined;
+
+    if (!conversation) {
+      return false;
+    }
+
+    const message = getDb()
+      .prepare("SELECT id FROM messages WHERE conversation_id = ? LIMIT 1")
+      .get(id) as { id: string } | undefined;
+
+    if (message) {
+      return false;
+    }
+
+    return deleteConversationRecord(id);
+  });
+
+  return transaction(conversationId);
 }
 
 export function renameConversation(conversationId: string, title: string) {

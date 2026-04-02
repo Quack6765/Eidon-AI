@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -41,9 +41,12 @@ import {
   UNFILED_DROP_ID
 } from "@/lib/sidebar-dnd";
 import {
+  CONVERSATION_REMOVED_EVENT,
   CONVERSATION_TITLE_UPDATED_EVENT,
+  type ConversationRemovedDetail,
   type ConversationTitleUpdatedDetail
 } from "@/lib/conversation-events";
+import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
 
 type SidebarConversation = Conversation & { matchSnippet?: string };
@@ -123,13 +126,13 @@ function buildConversationSections(conversations: SidebarConversation[]) {
 function ConversationItem({
   conversation,
   active,
-  onClose,
+  onNavigate,
   allFolders,
   dragEnabled
 }: {
   conversation: SidebarConversation;
   active: boolean;
-  onClose?: () => void;
+  onNavigate?: (conversationId: string, href: string) => void | Promise<void>;
   allFolders: Folder[];
   dragEnabled: boolean;
 }) {
@@ -150,6 +153,23 @@ function ConversationItem({
     transform: CSS.Transform.toString(transform),
     transition
   };
+
+  function handleNavigate(event: ReactMouseEvent<HTMLAnchorElement>) {
+    if (
+      !onNavigate ||
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.shiftKey ||
+      event.altKey
+    ) {
+      return;
+    }
+
+    event.preventDefault();
+    void onNavigate(conversation.id, `/chat/${conversation.id}`);
+  }
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -195,7 +215,7 @@ function ConversationItem({
     >
       <Link
         href={`/chat/${conversation.id}`}
-        onClick={onClose}
+        onClick={handleNavigate}
         className={`group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-all duration-200 ${
           active
             ? "bg-[var(--accent-soft)] text-white font-medium"
@@ -301,7 +321,7 @@ function FolderItem({
   conversations,
   activeConversationId,
   allFolders,
-  onClose,
+  onNavigate,
   onCreateInFolder,
   dragEnabled,
   showCount
@@ -310,7 +330,7 @@ function FolderItem({
   conversations: SidebarConversation[];
   activeConversationId: string | null;
   allFolders: Folder[];
-  onClose?: () => void;
+  onNavigate?: (conversationId: string, href: string) => void | Promise<void>;
   onCreateInFolder: (folderId: string) => void;
   dragEnabled: boolean;
   showCount: boolean;
@@ -497,7 +517,7 @@ function FolderItem({
               key={conversation.id}
               conversation={conversation}
               active={activeConversationId === conversation.id}
-              onClose={onClose}
+              onNavigate={onNavigate}
               allFolders={allFolders}
               dragEnabled={dragEnabled}
             />
@@ -536,6 +556,27 @@ export function Sidebar({
   const [mounted, setMounted] = useState(false);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  const navigateToHref = useCallback(
+    async (href: string, nextConversationId?: string) => {
+      if (href === pathname) {
+        if (onClose) {
+          onClose();
+        }
+        return;
+      }
+
+      if (activeConversationId && activeConversationId !== nextConversationId) {
+        await deleteConversationIfStillEmpty(activeConversationId);
+      }
+
+      router.push(href);
+      if (onClose) {
+        onClose();
+      }
+    },
+    [activeConversationId, onClose, pathname, router]
+  );
 
   useEffect(() => {
     setLocalConversations((current) => {
@@ -650,12 +691,40 @@ export function Sidebar({
     };
   }, [searchQuery]);
 
+  useEffect(() => {
+    function handleConversationRemoved(event: Event) {
+      const detail = (event as CustomEvent<ConversationRemovedDetail>).detail;
+
+      setLocalConversations((current) =>
+        current.filter((conversation) => conversation.id !== detail.conversationId)
+      );
+      setSearchResults((current) =>
+        current
+          ? current.filter((conversation) => conversation.id !== detail.conversationId)
+          : current
+      );
+    }
+
+    window.addEventListener(
+      CONVERSATION_REMOVED_EVENT,
+      handleConversationRemoved as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        CONVERSATION_REMOVED_EVENT,
+        handleConversationRemoved as EventListener
+      );
+    };
+  }, []);
+
   function highlightMatch(text: string, query: string): string {
     const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
     return text.replace(regex, '<mark class="bg-[var(--accent)]/30 text-white rounded px-0.5">$1</mark>');
   }
 
   async function handleCreate(folderId?: string) {
+    await deleteConversationIfStillEmpty(activeConversationId);
     const body = folderId ? { folderId } : {};
     const response = await fetch("/api/conversations", {
       method: "POST",
@@ -759,7 +828,7 @@ export function Sidebar({
                 conversations={folderConvos}
                 activeConversationId={activeConversationId}
                 allFolders={localFolders}
-                onClose={onClose}
+                onNavigate={navigateToHref}
                 onCreateInFolder={(fId) => handleCreate(fId)}
                 dragEnabled={enableDrag}
                 showCount={showFolderCounts}
@@ -785,7 +854,7 @@ export function Sidebar({
                     key={conversation.id}
                     conversation={conversation}
                     active={activeConversationId === conversation.id}
-                    onClose={onClose}
+                    onNavigate={navigateToHref}
                     allFolders={localFolders}
                     dragEnabled={enableDrag}
                   />
@@ -823,7 +892,25 @@ export function Sidebar({
     <aside className="no-scrollbar flex h-full w-full flex-col bg-[var(--sidebar)] text-gray-300">
       <div className="flex h-full flex-col px-3 py-4">
         <div className="mb-4 px-1">
-          <Link href="/" onClick={onClose} className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] transition-colors duration-200">
+          <Link
+            href="/"
+            onClick={(event) => {
+              if (
+                event.defaultPrevented ||
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+              ) {
+                return;
+              }
+
+              event.preventDefault();
+              void navigateToHref("/");
+            }}
+            className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] transition-colors duration-200"
+          >
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--accent)] text-white text-xs font-bold shadow-[0_0_12px_var(--accent-glow)]">
               H
             </div>
@@ -841,11 +928,10 @@ export function Sidebar({
                 onChange={(e) => handleSearch(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && searchResults?.length) {
-                    router.push(`/chat/${searchResults[0].id}`);
+                    void navigateToHref(`/chat/${searchResults[0].id}`, searchResults[0].id);
                     setShowSearch(false);
                     setSearchQuery("");
                     setSearchResults(null);
-                    if (onClose) onClose();
                   }
                   if (e.key === "Escape") {
                     setShowSearch(false);
@@ -945,7 +1031,21 @@ export function Sidebar({
         <div className="mt-3 flex items-center border-t border-white/6 pt-3">
           <Link
             href="/settings"
-            onClick={onClose}
+            onClick={(event) => {
+              if (
+                event.defaultPrevented ||
+                event.button !== 0 ||
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey
+              ) {
+                return;
+              }
+
+              event.preventDefault();
+              void navigateToHref("/settings");
+            }}
             aria-label="Open settings"
             className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-white/50 hover:bg-white/[0.04] hover:text-white/80 transition-all duration-200"
           >

@@ -10,6 +10,7 @@ import {
   createMessageTextSegment,
   createMessage,
   deleteConversation,
+  deleteConversationIfEmpty,
   failConversationTitleGeneration,
   generateConversationTitleFromFirstUserMessage,
   getConversation,
@@ -184,6 +185,23 @@ describe("conversation helpers", () => {
 
     expect(conversation.title).toBe("Pinned runtime");
     expect(conversation.titleGenerationStatus).toBe("completed");
+  });
+
+  it("deletes empty conversations only when they have no messages", () => {
+    const emptyConversation = createConversation();
+    const populatedConversation = createConversation();
+
+    createMessage({
+      conversationId: populatedConversation.id,
+      role: "user",
+      content: "Keep this thread"
+    });
+
+    expect(deleteConversationIfEmpty(populatedConversation.id)).toBe(false);
+    expect(getConversation(populatedConversation.id)).not.toBeNull();
+
+    expect(deleteConversationIfEmpty(emptyConversation.id)).toBe(true);
+    expect(getConversation(emptyConversation.id)).toBeNull();
   });
 
   it("uses a deterministic title for attachment-only first turns", async () => {

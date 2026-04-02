@@ -84,6 +84,7 @@ describe("chat view attachments", () => {
     refresh.mockReset();
     global.fetch = vi.fn();
     vi.useRealTimers();
+    window.history.pushState({}, "", "/chat/conv_1");
   });
 
   it("uploads an attachment from the file input and removes it from the pending list", async () => {
@@ -239,6 +240,36 @@ describe("chat view attachments", () => {
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith("/api/conversations/conv_1");
     });
+  });
+
+  it("deletes an empty conversation when navigating away before sending a message", async () => {
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, deleted: true })
+    } as Response);
+
+    const view = render(React.createElement(ChatView, { payload: createPayload() }));
+
+    window.history.pushState({}, "", "/");
+    view.unmount();
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/conversations/conv_1?onlyIfEmpty=1",
+        expect.objectContaining({
+          method: "DELETE",
+          keepalive: true
+        })
+      );
+    });
+  });
+
+  it("keeps an empty conversation when the chat view remounts on the same route", () => {
+    const view = render(React.createElement(ChatView, { payload: createPayload() }));
+
+    view.unmount();
+
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   it("polls for a generated title after the first user turn", async () => {

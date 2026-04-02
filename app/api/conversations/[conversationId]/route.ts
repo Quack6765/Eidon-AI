@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import {
   deleteConversation,
+  deleteConversationIfEmpty,
   getConversation,
   listVisibleMessages,
   moveConversationToFolder,
@@ -42,7 +43,7 @@ export async function GET(
 }
 
 export async function DELETE(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ conversationId: string }> }
 ) {
   await requireUser();
@@ -52,8 +53,13 @@ export async function DELETE(
     return badRequest("Invalid conversation id");
   }
 
-  deleteConversation(params.data.conversationId);
-  return ok({ success: true });
+  const onlyIfEmptyParam = new URL(request.url).searchParams.get("onlyIfEmpty");
+  const onlyIfEmpty = onlyIfEmptyParam === "1" || onlyIfEmptyParam === "true";
+  const deleted = onlyIfEmpty
+    ? deleteConversationIfEmpty(params.data.conversationId)
+    : (deleteConversation(params.data.conversationId), true);
+
+  return ok({ success: true, deleted });
 }
 
 const updateSchema = z

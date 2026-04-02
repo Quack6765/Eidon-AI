@@ -56,6 +56,34 @@ test.describe("Feature: Create and delete conversations", () => {
     // Should navigate away from the chat
     await page.waitForURL(/localhost:3117\/(chat\/)?$|^\/$/, { timeout: 5000 }).catch(() => {});
   });
+
+  test("removes an empty chat after leaving it for another conversation", async ({ page }) => {
+    await signIn(page);
+    await mockChatResponse(page);
+
+    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+    await page
+      .getByPlaceholder("Ask, create, or start a task. Press ⌘ ⏎ to insert a line break...")
+      .fill("Keep this thread");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.getByText("Attachment received")).toBeVisible({ timeout: 5000 });
+
+    const firstConversationPath = new URL(page.url()).pathname;
+
+    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+    const emptyConversationPath = new URL(page.url()).pathname;
+    await expect(page.locator(`aside a[href="${emptyConversationPath}"]`)).toBeVisible({
+      timeout: 5000
+    });
+
+    await page.locator(`aside a[href="${firstConversationPath}"]`).first().click();
+    await expect(page).toHaveURL(new RegExp(`${firstConversationPath}$`), { timeout: 10000 });
+    await expect(page.locator(`aside a[href="${emptyConversationPath}"]`)).toHaveCount(0);
+  });
 });
 
 test.describe("Feature: Folders", () => {
