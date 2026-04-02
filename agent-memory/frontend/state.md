@@ -17,6 +17,7 @@
 ## Conventions
 - **Loading States:** Buttons disable during pending work; composer shows inline spinner on send
 - **Streaming State:** `components/chat-view.tsx` tracks whether the first token has arrived so the assistant placeholder can show a waiting spinner before any reasoning or answer text appears
+- **Assistant Turn Finalization:** `components/chat-view.tsx` now inserts an optimistic assistant row into `messages` before streaming begins, updates that same row in place as tokens arrive, and only uses the post-stream conversation fetch to reconcile server metadata like real persisted ids and debug/title fields
 - **Error States:** Inline error copy near the active form or composer
 - **Sidebar Data:** `components/sidebar.tsx` hydrates the newest conversation page only, keeps the rest of the history behind an explicit `Load more` button, and leaves search backed by `/api/conversations/search` so queries still span all stored chats even when older pages are not loaded into the sidebar
 - **Conversation Titles:** `components/chat-view.tsx` keeps a local `conversationTitle` plus `titleGenerationStatus`. On the first user turn for a fresh thread it silently polls `/api/conversations/[conversationId]` until the background auto-title flow reaches `completed` or `failed`, then broadcasts a browser event so the sidebar can update the matching row without a full refresh

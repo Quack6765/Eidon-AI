@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 
 import { ChatComposer } from "@/components/chat-composer";
-import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
+import { MessageBubble } from "@/components/message-bubble";
 import { consumeChatBootstrap } from "@/lib/chat-bootstrap";
 import { dispatchConversationTitleUpdated } from "@/lib/conversation-events";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
@@ -88,7 +88,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [streamThinkingDisplay, setStreamThinkingDisplay] = useState("");
   const [streamAnswerTarget, setStreamAnswerTarget] = useState("");
   const [streamAnswerDisplay, setStreamAnswerDisplay] = useState("");
-  const [streamStartedAt, setStreamStartedAt] = useState<string | null>(null);
+  const [streamMessageId, setStreamMessageId] = useState<string | null>(null);
   const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
   const thinkingStartTimeRef = useRef<number | null>(null);
@@ -595,20 +595,40 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       createdAt: new Date().toISOString(),
       attachments: nextPendingAttachments
     };
+    const optimisticAssistantMessage: Message = {
+      id: `local_${crypto.randomUUID()}`,
+      conversationId: payload.conversation.id,
+      role: "assistant",
+      content: "",
+      thinkingContent: "",
+      status: "streaming",
+      estimatedTokens: 0,
+      systemKind: null,
+      compactedAt: null,
+      createdAt: new Date().toISOString(),
+      timeline: [],
+      actions: [],
+      attachments: []
+    };
 
     setIsSending(true);
-    setMessages((current) => [...current, optimisticUserMessage]);
+    setMessages((current) => [...current, optimisticUserMessage, optimisticAssistantMessage]);
     setInput("");
     setPendingAttachments([]);
     setStreamThinkingTarget("");
     setStreamThinkingDisplay("");
     setStreamAnswerTarget("");
     setStreamAnswerDisplay("");
-    setStreamStartedAt(new Date().toISOString());
+    setStreamMessageId(optimisticAssistantMessage.id);
     setStreamTimeline([]);
     setHasReceivedFirstToken(false);
     thinkingStartTimeRef.current = null;
     setThinkingDuration(undefined);
+    let localThinking = "";
+    let localAnswer = "";
+    let localTimeline: MessageTimelineItem[] = [];
+    let committedAnswerLength = 0;
+    let nextTimelineSortOrder = 0;
 
     try {
       const response = await fetch(`/api/conversations/${payload.conversation.id}/chat`, {
@@ -645,8 +665,46 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let localThinking = "";
-      let localAnswer = "";
+
+      const setLocalTimeline = (nextTimeline: MessageTimelineItem[]) => {
+        localTimeline = nextTimeline;
+        setStreamTimeline(nextTimeline);
+      };
+      const finalizeOptimisticAssistant = (status: Message["status"]) => {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === optimisticAssistantMessage.id
+              ? {
+                  ...message,
+                  content: localAnswer,
+                  thinkingContent: localThinking,
+                  status,
+                  timeline: localTimeline
+                }
+              : message
+          )
+        );
+      };
+
+      const commitPendingAnswerSegment = () => {
+        const content = localAnswer.slice(committedAnswerLength);
+
+        if (!content) {
+          return;
+        }
+
+        const textItem: Extract<MessageTimelineItem, { timelineKind: "text" }> = {
+          id: `stream_text_${optimisticAssistantMessage.id}_${nextTimelineSortOrder}`,
+          timelineKind: "text",
+          sortOrder: nextTimelineSortOrder,
+          createdAt: new Date().toISOString(),
+          content
+        };
+
+        committedAnswerLength = localAnswer.length;
+        nextTimelineSortOrder += 1;
+        setLocalTimeline([...localTimeline, textItem]);
+      };
 
       while (true) {
         const { done, value: chunk } = await reader.read();
@@ -660,6 +718,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         buffer = parsed.remainder;
 
         parsed.events.forEach((event) => {
+          if (event.type === "message_start" || event.type === "usage") {
+            return;
+          }
+
           if (event.type === "thinking_delta") {
             setHasReceivedFirstToken(true);
             localThinking += event.text;
@@ -698,11 +760,18 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           }
 
           if (event.type === "action_start") {
-            setStreamTimeline((current) => appendStreamingAction(current, event.action));
+            commitPendingAnswerSegment();
+            nextTimelineSortOrder = Math.max(nextTimelineSortOrder, event.action.sortOrder + 1);
+            setLocalTimeline(appendStreamingAction(localTimeline, event.action));
           }
 
           if (event.type === "action_complete" || event.type === "action_error") {
-            setStreamTimeline((current) => updateStreamingAction(current, event.action));
+            setLocalTimeline(updateStreamingAction(localTimeline, event.action));
+          }
+
+          if (event.type === "done") {
+            commitPendingAnswerSegment();
+            finalizeOptimisticAssistant("completed");
           }
 
           if (event.type === "error") {
@@ -711,11 +780,26 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         });
       }
 
+      commitPendingAnswerSegment();
+      finalizeOptimisticAssistant("completed");
       await syncConversationState();
     } catch (caughtError) {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === optimisticAssistantMessage.id
+            ? {
+                ...message,
+                content: localAnswer,
+                thinkingContent: localThinking,
+                status: "error",
+                timeline: localTimeline
+              }
+            : message
+        )
+      );
       setError(caughtError instanceof Error ? caughtError.message : "Chat failed");
     } finally {
-      setStreamStartedAt(null);
+      setStreamMessageId(null);
       setStreamTimeline([]);
       setStreamThinkingTarget("");
       setStreamThinkingDisplay("");
@@ -827,26 +911,21 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             >
               <MessageBubble
                 message={message}
+                streamingThinking={message.id === streamMessageId ? streamThinkingDisplay : undefined}
+                streamingAnswer={message.id === streamMessageId ? streamAnswerDisplay : undefined}
+                awaitingFirstToken={message.id === streamMessageId ? !hasReceivedFirstToken : false}
+                thinkingInProgress={
+                  message.id === streamMessageId
+                    ? Boolean(streamThinkingTarget) && !streamAnswerTarget
+                    : false
+                }
+                thinkingDuration={message.id === streamMessageId ? thinkingDuration : undefined}
+                hasThinking={message.id === streamMessageId ? Boolean(streamThinkingTarget) : false}
                 onUpdateUserMessage={updateUserMessage}
                 isUpdating={updatingMessageId === message.id}
               />
             </div>
           ))}
-
-          {streamStartedAt ? (
-            <div className="animate-slide-up">
-              <StreamingPlaceholder
-                createdAt={streamStartedAt}
-                thinking={streamThinkingDisplay}
-                answer={streamAnswerDisplay}
-                timeline={streamTimeline}
-                awaitingFirstToken={!hasReceivedFirstToken}
-                thinkingInProgress={Boolean(streamThinkingTarget) && !streamAnswerTarget}
-                thinkingDuration={thinkingDuration}
-                hasThinking={Boolean(streamThinkingTarget)}
-              />
-            </div>
-          ) : null}
 
           {error ? (
             <div className="mt-3 rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
