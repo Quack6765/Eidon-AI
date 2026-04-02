@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, Settings, Sparkles, Server, Zap, Shield } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -14,6 +15,7 @@ const NAV_ITEMS = [
 
 export function SettingsNav({ onClose }: { onClose: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
 
   return (
     <aside className="flex h-full flex-col">
@@ -24,6 +26,7 @@ export function SettingsNav({ onClose }: { onClose: () => void }) {
             if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && event.button === 0) {
               event.preventDefault();
               onClose();
+              router.push("/");
             }
           }}
           className="flex h-7 w-7 items-center justify-center rounded-full bg-white/5 hover:bg-white/10 transition-colors duration-200"
