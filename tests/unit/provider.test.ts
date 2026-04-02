@@ -183,6 +183,38 @@ describe("provider integration", () => {
     ).rejects.toThrow("Provider returned an empty response");
   });
 
+  it("returns chat completion text and uses disabled ollama reasoning when summaries are off", async () => {
+    chatCreate.mockResolvedValue({
+      choices: [{ message: { content: "connected" } }]
+    });
+
+    const { callProviderText } = await import("@/lib/provider");
+
+    await expect(
+      callProviderText({
+        settings: createSettings({
+          apiMode: "chat_completions",
+          apiBaseUrl: "https://ollama.com/v1",
+          model: "kimi-k2.5",
+          reasoningSummaryEnabled: false
+        }),
+        prompt: "Reply with connected",
+        purpose: "test"
+      })
+    ).resolves.toBe("connected");
+
+    expect(chatCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extra_body: {
+          reasoning_effort: "none",
+          reasoning: {
+            effort: "none"
+          }
+        }
+      })
+    );
+  });
+
   it("streams responses events into normalized deltas", async () => {
     responsesCreate.mockResolvedValue(
       createAsyncStream([
@@ -342,6 +374,72 @@ describe("provider integration", () => {
     });
   });
 
+  it("updates streamed chat tool call names and arguments across chunks", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([
+        {
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    function: {
+                      name: "search_docs",
+                      arguments: "{\"query\":"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    function: {
+                      name: "search_code",
+                      arguments: "\"MCP\"}"
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          usage: { prompt_tokens: 3, completion_tokens: 1 }
+        }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        apiMode: "chat_completions",
+        reasoningSummaryEnabled: false
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    while (true) {
+      const next = await stream.next();
+
+      if (next.done) {
+        expect(next.value.toolCalls).toEqual([
+          {
+            id: "call_0",
+            name: "search_code",
+            arguments: "{\"query\":\"MCP\"}"
+          }
+        ]);
+        break;
+      }
+    }
+  });
+
   it("serializes multimodal prompt parts for responses mode", async () => {
     responsesCreate.mockResolvedValue(
       createAsyncStream([{ type: "response.output_text.delta", delta: "done" }])
@@ -388,6 +486,125 @@ describe("provider integration", () => {
         signal: expect.any(AbortSignal)
       })
     );
+  });
+
+  it("serializes tool outputs and assistant tool calls for responses mode streams", async () => {
+    responsesCreate.mockResolvedValue(
+      createAsyncStream([
+        { type: "response.function_call_arguments.delta", delta: "{}" },
+        {
+          type: "response.output_item.done",
+          item: {
+            type: "function_call",
+            call_id: "call_1",
+            name: "search_docs",
+            arguments: "{\"query\":\"MCP\"}"
+          }
+        },
+        {
+          type: "response.output_item.done",
+          item: {
+            type: "reasoning",
+            summary: [{ text: "Recovered" }, { text: " reasoning" }]
+          }
+        },
+        { type: "response.output_text.delta", delta: "done" }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        apiMode: "responses"
+      }),
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "search_docs",
+            description: "Search docs",
+            parameters: { type: "object" }
+          }
+        }
+      ],
+      promptMessages: [
+        {
+          role: "assistant",
+          content: "I searched already.",
+          toolCalls: [
+            {
+              id: "call_0",
+              name: "search_docs",
+              arguments: "{\"query\":\"prior\"}"
+            }
+          ]
+        },
+        {
+          role: "tool",
+          toolCallId: "call_0",
+          content: "previous result"
+        }
+      ]
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+
+      if (next.done) {
+        expect(next.value.answer).toBe("done");
+        expect(next.value.thinking).toBe("Recovered reasoning");
+        expect(next.value.toolCalls).toEqual([
+          {
+            id: "call_1",
+            name: "search_docs",
+            arguments: "{\"query\":\"MCP\"}"
+          }
+        ]);
+        break;
+      }
+
+      events.push(next.value);
+    }
+
+    expect(responsesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: [
+          {
+            type: "function_call",
+            id: "call_0",
+            name: "search_docs",
+            arguments: "{\"query\":\"prior\"}",
+            call_id: "call_0"
+          },
+          {
+            role: "assistant",
+            content: [{ type: "input_text", text: "I searched already." }]
+          },
+          {
+            type: "function_call_output",
+            call_id: "call_0",
+            output: "previous result"
+          }
+        ],
+        tools: [
+          {
+            type: "function",
+            name: "search_docs",
+            description: "Search docs",
+            parameters: { type: "object" },
+            strict: false
+          }
+        ]
+      }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal)
+      })
+    );
+
+    expect(events).toContainEqual({ type: "thinking_delta", text: "Recovered reasoning" });
+    expect(events).toContainEqual({ type: "answer_delta", text: "done" });
   });
 
   it("serializes multimodal prompt parts for chat completions mode", async () => {
@@ -493,6 +710,151 @@ describe("provider integration", () => {
       { type: "answer_delta", text: "Hi there" },
       { type: "usage", inputTokens: 13, outputTokens: undefined }
     ]);
+  });
+
+  it("serializes assistant tool calls and accumulates streamed chat tool call chunks", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([
+        { choices: [{ delta: { reasoning: "Plan " } }] },
+        {
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    function: {
+                      name: "search_docs",
+                      arguments: "{\"query\":"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          choices: [
+            {
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    function: {
+                      arguments: "\"MCP\"}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          choices: [{ delta: { content: "Done" } }],
+          usage: { prompt_tokens: 7, completion_tokens: 3 }
+        }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        apiMode: "chat_completions",
+        model: "glm-5-turbo"
+      }),
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "search_docs",
+            description: "Search docs",
+            parameters: { type: "object" }
+          }
+        }
+      ],
+      promptMessages: [
+        {
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "call_0",
+              name: "search_docs",
+              arguments: "{\"query\":\"prior\"}"
+            }
+          ]
+        },
+        {
+          role: "tool",
+          toolCallId: "call_0",
+          content: "tool result"
+        }
+      ]
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+
+      if (next.done) {
+        expect(next.value.answer).toBe("Done");
+        expect(next.value.thinking).toBe("Plan ");
+        expect(next.value.toolCalls).toEqual([
+          {
+            id: "call_0",
+            name: "search_docs",
+            arguments: "{\"query\":\"MCP\"}"
+          }
+        ]);
+        break;
+      }
+
+      events.push(next.value);
+    }
+
+    expect(chatCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: [
+          {
+            type: "function",
+            function: {
+              name: "search_docs",
+              description: "Search docs",
+              parameters: { type: "object" }
+            }
+          }
+        ],
+        messages: [
+          {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call_0",
+                type: "function",
+                function: {
+                  name: "search_docs",
+                  arguments: "{\"query\":\"prior\"}"
+                }
+              }
+            ]
+          },
+          {
+            role: "tool",
+            tool_call_id: "call_0",
+            content: "tool result"
+          }
+        ]
+      }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal)
+      })
+    );
+
+    expect(events).toContainEqual({ type: "thinking_delta", text: "Plan " });
+    expect(events).toContainEqual({ type: "answer_delta", text: "Done" });
+    expect(events).toContainEqual({ type: "usage", inputTokens: 7, outputTokens: 3 });
   });
 
   it("uses ollama reasoning controls and parses thinking deltas", async () => {

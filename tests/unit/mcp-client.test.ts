@@ -248,6 +248,30 @@ describe("MCP client", () => {
     });
   });
 
+  it("tests stdio connections and falls back to the protocol default when no server version is available", async () => {
+    nextListToolsResult = {
+      tools: [
+        {
+          name: "read_file",
+          description: "Read file",
+          inputSchema: { type: "object" },
+          annotations: { readOnlyHint: true }
+        }
+      ]
+    };
+    nextServerVersion = undefined;
+
+    const { testMcpServerConnection } = await import("@/lib/mcp-client");
+    const result = await testMcpServerConnection(createStdioServer());
+
+    expect(result).toMatchObject({
+      protocolVersion: "2025-03-26",
+      sessionId: null,
+      serverInfo: null,
+      toolCount: 1
+    });
+  });
+
   it("normalizes transport failures and surfaces tool errors", async () => {
     nextListToolsError = new Error("list failed");
     nextCallToolError = new Error("tool exploded");
@@ -292,7 +316,8 @@ describe("MCP client", () => {
         content: [
           { type: "image", mimeType: "image/png" },
           { type: "audio", mimeType: "audio/mpeg" },
-          { type: "resource_link", uri: "https://example.com" }
+          { type: "resource_link", uri: "https://example.com" },
+          { type: "unknown" }
         ]
       })
     ).toContain("[image image/png]");
@@ -308,6 +333,29 @@ describe("MCP client", () => {
         isError: true
       })
     ).toBe("Tool call failed.");
+    expect(
+      summarizeToolResult({
+        content: [],
+        isError: false
+      })
+    ).toBe("Tool call completed.");
+  });
+
+  it("drops primitive structured content from callTool results", async () => {
+    nextCallToolResult = {
+      content: [{ type: "text", text: "ok" }],
+      structuredContent: "primitive value",
+      isError: false
+    };
+
+    const { callMcpTool } = await import("@/lib/mcp-client");
+    const result = await callMcpTool(createHttpServer(), "search_docs", { query: "MCP" });
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: "ok" }],
+      structuredContent: undefined,
+      isError: false
+    });
   });
 
   it("builds descriptions using tool titles and closes cached connections on shutdown", async () => {
@@ -348,5 +396,78 @@ describe("MCP client", () => {
 
     await shutdownAllProcesses();
     expect(stdioTransportInstances[0].close).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops cached clients when transports close or error and skips empty tool groups", async () => {
+    nextListToolsResult = {
+      tools: [
+        {
+          name: "safe_read",
+          description: "Safe read",
+          inputSchema: { type: "object" },
+          annotations: { readOnlyHint: true }
+        }
+      ]
+    };
+
+    const {
+      disconnectMcpServer,
+      discoverMcpTools,
+      gatherAllMcpTools
+    } = await import("@/lib/mcp-client");
+    const server = createHttpServer();
+
+    await discoverMcpTools(server);
+    expect(clientInstances).toHaveLength(1);
+
+    httpTransportInstances[0].onerror?.(new Error("socket dropped"));
+
+    await discoverMcpTools(server);
+    expect(clientInstances).toHaveLength(2);
+
+    httpTransportInstances[1].onclose?.();
+
+    await discoverMcpTools(server);
+    expect(clientInstances).toHaveLength(3);
+
+    nextListToolsResult = {
+      tools: [
+        {
+          name: "write_file",
+          description: "Write file",
+          inputSchema: { type: "object" },
+          annotations: {}
+        }
+      ]
+    };
+
+    await expect(gatherAllMcpTools([server], "read_only")).resolves.toEqual([]);
+    await expect(disconnectMcpServer(createStdioServer())).resolves.toBeUndefined();
+  });
+
+  it("truncates long summaries and preserves resource text content", async () => {
+    const { summarizeToolResult } = await import("@/lib/mcp-client");
+
+    expect(
+      summarizeToolResult({
+        content: [
+          {
+            type: "resource",
+            resource: {
+              uri: "file://report",
+              text: "resource text"
+            }
+          }
+        ]
+      })
+    ).toBe("resource text");
+
+    const longText = "x".repeat(400);
+    const summary = summarizeToolResult({
+      content: [{ type: "text", text: longText }]
+    });
+
+    expect(summary.length).toBe(280);
+    expect(summary.endsWith("...")).toBe(true);
   });
 });

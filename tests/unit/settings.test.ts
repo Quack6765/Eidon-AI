@@ -1,5 +1,11 @@
 import { decryptValue } from "@/lib/crypto";
+import { getDb } from "@/lib/db";
+import { createConversation, getConversation, updateConversationProviderProfile } from "@/lib/conversations";
 import {
+  getDefaultProviderProfile,
+  getProviderProfile,
+  getProviderProfileWithApiKey,
+  getSanitizedSettings,
   getDefaultProviderProfileWithApiKey,
   getSettings,
   listProviderProfiles,
@@ -97,5 +103,102 @@ describe("settings storage", () => {
         listProviderProfiles().find((profile) => profile.id === alpha.id)?.apiKeyEncrypted ?? ""
       )
     ).toBe("sk-alpha");
+  });
+
+  it("reassigns conversations when a provider profile is removed", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-alpha"
+    });
+    const beta = buildProfile({
+      id: "profile_beta",
+      name: "Beta",
+      apiKey: "sk-beta"
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: true,
+      providerProfiles: [alpha, beta]
+    });
+
+    const conversation = createConversation();
+    updateConversationProviderProfile(conversation.id, beta.id);
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: true,
+      providerProfiles: [alpha]
+    });
+
+    expect(getConversation(conversation.id)?.providerProfileId).toBe(alpha.id);
+    expect(listProviderProfiles().map((profile) => profile.id)).toEqual([alpha.id]);
+  });
+
+  it("sanitizes profiles and tolerates unreadable encrypted keys", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-alpha"
+    });
+    const beta = buildProfile({
+      id: "profile_beta",
+      name: "Beta",
+      apiKey: ""
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: false,
+      providerProfiles: [alpha, beta]
+    });
+
+    getDb()
+      .prepare("UPDATE provider_profiles SET api_key_encrypted = ? WHERE id = ?")
+      .run("not-valid-ciphertext", alpha.id);
+
+    const sanitized = getSanitizedSettings();
+
+    expect(sanitized.skillsEnabled).toBe(false);
+    expect(sanitized.providerProfiles).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: alpha.id, hasApiKey: true }),
+        expect.objectContaining({ id: beta.id, hasApiKey: false })
+      ])
+    );
+    expect(getProviderProfileWithApiKey(alpha.id)?.apiKey).toBe("");
+  });
+
+  it("returns null for missing profiles and exposes defaults", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-alpha"
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: true,
+      providerProfiles: [alpha]
+    });
+
+    expect(getProviderProfile("missing")).toBeNull();
+    expect(getProviderProfileWithApiKey("missing")).toBeNull();
+    expect(getDefaultProviderProfile()?.id).toBe(alpha.id);
+  });
+
+  it("rejects duplicate profile ids and invalid defaults", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha"
+    });
+
+    expect(() =>
+      updateSettings({
+        defaultProviderProfileId: "missing",
+        skillsEnabled: true,
+        providerProfiles: [alpha, { ...alpha }]
+      })
+    ).toThrow();
   });
 });

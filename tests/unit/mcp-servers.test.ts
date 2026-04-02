@@ -52,6 +52,32 @@ describe("mcp servers", () => {
     expect(server.headers).toEqual({});
   });
 
+  it("supports stdio servers and preserves nullified fields on update", () => {
+    const server = createMcpServer({
+      name: "Stdio",
+      transport: "stdio",
+      command: "node",
+      args: ["server.js"],
+      env: { TOKEN: "secret" }
+    });
+
+    expect(server.url).toBe("");
+    expect(server.transport).toBe("stdio");
+    expect(server.command).toBe("node");
+    expect(server.args).toEqual(["server.js"]);
+    expect(server.env).toEqual({ TOKEN: "secret" });
+
+    const updated = updateMcpServer(server.id, {
+      command: null,
+      args: null,
+      env: null
+    });
+
+    expect(updated?.command).toBeNull();
+    expect(updated?.args).toBeNull();
+    expect(updated?.env).toBeNull();
+  });
+
   it("returns null for missing server update", () => {
     const result = updateMcpServer("nonexistent", { name: "X" });
     expect(result).toBeNull();
