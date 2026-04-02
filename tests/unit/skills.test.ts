@@ -70,6 +70,17 @@ describe("skills", () => {
     expect(result).toBeNull();
   });
 
+  it("returns null for missing skills and falls back to reusable instructions when needed", () => {
+    expect(getSkill("missing")).toBeNull();
+
+    const skill = createSkill({
+      name: "Bare",
+      content: "# Bare"
+    });
+
+    expect(skill.description).toBe("Reusable skill instructions.");
+  });
+
   it("derives a description from instructions when one is not provided", () => {
     const skill = createSkill({
       name: "Release Notes",
@@ -102,5 +113,31 @@ Open websites and inspect them.`
     expect(fetched?.description).toBe("Use for browser-driven workflows.");
 
     deleteSkill(skill.id);
+  });
+
+  it("updates metadata from replacement content and preserves existing descriptions when needed", () => {
+    const skill = createSkill({
+      name: "Skill",
+      description: "Keep me",
+      content: "# Heading"
+    });
+
+    const frontmatterUpdate = updateSkill(skill.id, {
+      content: `---
+name: Browser Agent
+description: Use for browser-driven workflows.
+---
+
+# Browser Agent`
+    });
+
+    expect(frontmatterUpdate?.name).toBe("Browser Agent");
+    expect(frontmatterUpdate?.description).toBe("Use for browser-driven workflows.");
+
+    const preservedDescription = updateSkill(skill.id, {
+      content: "# Browser Agent"
+    });
+
+    expect(preservedDescription?.description).toBe("Use for browser-driven workflows.");
   });
 });

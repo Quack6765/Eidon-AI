@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown } from "lucide-react";
 
 import { ChatComposer } from "@/components/chat-composer";
-import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
+import { MessageBubble } from "@/components/message-bubble";
 import { consumeChatBootstrap } from "@/lib/chat-bootstrap";
 import { dispatchConversationTitleUpdated } from "@/lib/conversation-events";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
@@ -88,7 +88,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [streamThinkingDisplay, setStreamThinkingDisplay] = useState("");
   const [streamAnswerTarget, setStreamAnswerTarget] = useState("");
   const [streamAnswerDisplay, setStreamAnswerDisplay] = useState("");
-  const [streamStartedAt, setStreamStartedAt] = useState<string | null>(null);
+  const [streamMessageId, setStreamMessageId] = useState<string | null>(null);
   const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
   const thinkingStartTimeRef = useRef<number | null>(null);
@@ -207,6 +207,54 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }, 1000);
   }
 
+  function mergeMessages(local: Message[], server: Message[]): Message[] {
+    if (local.length === 0) {
+      return server;
+    }
+
+    const serverMap = new Map(server.map((m) => [m.id, m]));
+    const isOptimistic = (id: string) => typeof id === "string" && id.startsWith("local_");
+
+    const optimisticToServer = new Map<string, Message>();
+    for (const serverMsg of server) {
+      for (const localMsg of local) {
+        if (isOptimistic(localMsg.id) && localMsg.role === serverMsg.role && localMsg.content === serverMsg.content) {
+          optimisticToServer.set(localMsg.id, serverMsg);
+          break;
+        }
+      }
+    }
+
+    let changed = false;
+    const merged = local.map((localMsg) => {
+      const replacement = optimisticToServer.get(localMsg.id);
+      if (replacement) {
+        changed = true;
+        return { ...replacement, id: localMsg.id };
+      }
+      const serverMsg = serverMap.get(localMsg.id);
+      if (!serverMsg) {
+        return localMsg;
+      }
+      if (localMsg.content === serverMsg.content && localMsg.thinkingContent === serverMsg.thinkingContent && localMsg.status === serverMsg.status && localMsg.role === serverMsg.role) {
+        return localMsg;
+      }
+      changed = true;
+      return { ...localMsg, ...serverMsg };
+    });
+
+    const localIds = new Set(local.map((m) => m.id));
+    const newFromServer = server.filter((sMsg) => {
+      if (localIds.has(sMsg.id)) return false;
+      return ![...optimisticToServer.values()].some((r) => r.id === sMsg.id);
+    });
+    if (newFromServer.length > 0) {
+      return [...merged, ...newFromServer];
+    }
+
+    return changed ? merged : local;
+  }
+
   async function syncConversationState() {
     const response = await fetch(`/api/conversations/${payload.conversation.id}`);
 
@@ -220,7 +268,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       debug: ConversationPayload["debug"];
     };
 
-    setMessages(result.messages);
+    setMessages((current) => mergeMessages(current, result.messages));
     setConversationTitle(result.conversation.title);
     setTitleGenerationStatus(result.conversation.titleGenerationStatus);
     setDebug(result.debug);
@@ -547,20 +595,40 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       createdAt: new Date().toISOString(),
       attachments: nextPendingAttachments
     };
+    const optimisticAssistantMessage: Message = {
+      id: `local_${crypto.randomUUID()}`,
+      conversationId: payload.conversation.id,
+      role: "assistant",
+      content: "",
+      thinkingContent: "",
+      status: "streaming",
+      estimatedTokens: 0,
+      systemKind: null,
+      compactedAt: null,
+      createdAt: new Date().toISOString(),
+      timeline: [],
+      actions: [],
+      attachments: []
+    };
 
     setIsSending(true);
-    setMessages((current) => [...current, optimisticUserMessage]);
+    setMessages((current) => [...current, optimisticUserMessage, optimisticAssistantMessage]);
     setInput("");
     setPendingAttachments([]);
     setStreamThinkingTarget("");
     setStreamThinkingDisplay("");
     setStreamAnswerTarget("");
     setStreamAnswerDisplay("");
-    setStreamStartedAt(new Date().toISOString());
+    setStreamMessageId(optimisticAssistantMessage.id);
     setStreamTimeline([]);
     setHasReceivedFirstToken(false);
     thinkingStartTimeRef.current = null;
     setThinkingDuration(undefined);
+    let localThinking = "";
+    let localAnswer = "";
+    let localTimeline: MessageTimelineItem[] = [];
+    let committedAnswerLength = 0;
+    let nextTimelineSortOrder = 0;
 
     try {
       const response = await fetch(`/api/conversations/${payload.conversation.id}/chat`, {
@@ -597,8 +665,46 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      let localThinking = "";
-      let localAnswer = "";
+
+      const setLocalTimeline = (nextTimeline: MessageTimelineItem[]) => {
+        localTimeline = nextTimeline;
+        setStreamTimeline(nextTimeline);
+      };
+      const finalizeOptimisticAssistant = (status: Message["status"]) => {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === optimisticAssistantMessage.id
+              ? {
+                  ...message,
+                  content: localAnswer,
+                  thinkingContent: localThinking,
+                  status,
+                  timeline: localTimeline
+                }
+              : message
+          )
+        );
+      };
+
+      const commitPendingAnswerSegment = () => {
+        const content = localAnswer.slice(committedAnswerLength);
+
+        if (!content) {
+          return;
+        }
+
+        const textItem: Extract<MessageTimelineItem, { timelineKind: "text" }> = {
+          id: `stream_text_${optimisticAssistantMessage.id}_${nextTimelineSortOrder}`,
+          timelineKind: "text",
+          sortOrder: nextTimelineSortOrder,
+          createdAt: new Date().toISOString(),
+          content
+        };
+
+        committedAnswerLength = localAnswer.length;
+        nextTimelineSortOrder += 1;
+        setLocalTimeline([...localTimeline, textItem]);
+      };
 
       while (true) {
         const { done, value: chunk } = await reader.read();
@@ -612,6 +718,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         buffer = parsed.remainder;
 
         parsed.events.forEach((event) => {
+          if (event.type === "message_start" || event.type === "usage") {
+            return;
+          }
+
           if (event.type === "thinking_delta") {
             setHasReceivedFirstToken(true);
             localThinking += event.text;
@@ -650,11 +760,18 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           }
 
           if (event.type === "action_start") {
-            setStreamTimeline((current) => appendStreamingAction(current, event.action));
+            commitPendingAnswerSegment();
+            nextTimelineSortOrder = Math.max(nextTimelineSortOrder, event.action.sortOrder + 1);
+            setLocalTimeline(appendStreamingAction(localTimeline, event.action));
           }
 
           if (event.type === "action_complete" || event.type === "action_error") {
-            setStreamTimeline((current) => updateStreamingAction(current, event.action));
+            setLocalTimeline(updateStreamingAction(localTimeline, event.action));
+          }
+
+          if (event.type === "done") {
+            commitPendingAnswerSegment();
+            finalizeOptimisticAssistant("completed");
           }
 
           if (event.type === "error") {
@@ -663,11 +780,26 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         });
       }
 
+      commitPendingAnswerSegment();
+      finalizeOptimisticAssistant("completed");
       await syncConversationState();
     } catch (caughtError) {
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === optimisticAssistantMessage.id
+            ? {
+                ...message,
+                content: localAnswer,
+                thinkingContent: localThinking,
+                status: "error",
+                timeline: localTimeline
+              }
+            : message
+        )
+      );
       setError(caughtError instanceof Error ? caughtError.message : "Chat failed");
     } finally {
-      setStreamStartedAt(null);
+      setStreamMessageId(null);
       setStreamTimeline([]);
       setStreamThinkingTarget("");
       setStreamThinkingDisplay("");
@@ -769,36 +901,31 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       </div>
 
-      <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 md:px-0 scroll-smooth">
-        <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pt-4 pb-[160px] md:pb-[200px]">
-          {messages.map((message, index) => (
+      <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 md:px-8 scroll-smooth">
+        <div className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4 pb-[140px] md:pb-[200px]">
+          {messages.map((message) => (
             <div
               key={message.id}
               className="animate-slide-up"
-              style={{ animationDelay: `${Math.min(index * 30, 300)}ms`, animationFillMode: "backwards" }}
+              style={{ animationFillMode: "forwards" }}
             >
               <MessageBubble
                 message={message}
+                streamingThinking={message.id === streamMessageId ? streamThinkingDisplay : undefined}
+                streamingAnswer={message.id === streamMessageId ? streamAnswerDisplay : undefined}
+                awaitingFirstToken={message.id === streamMessageId ? !hasReceivedFirstToken : false}
+                thinkingInProgress={
+                  message.id === streamMessageId
+                    ? Boolean(streamThinkingTarget) && !streamAnswerTarget
+                    : false
+                }
+                thinkingDuration={message.id === streamMessageId ? thinkingDuration : undefined}
+                hasThinking={message.id === streamMessageId ? Boolean(streamThinkingTarget) : false}
                 onUpdateUserMessage={updateUserMessage}
                 isUpdating={updatingMessageId === message.id}
               />
             </div>
           ))}
-
-          {streamStartedAt ? (
-            <div className="animate-slide-up">
-              <StreamingPlaceholder
-                createdAt={streamStartedAt}
-                thinking={streamThinkingDisplay}
-                answer={streamAnswerDisplay}
-                timeline={streamTimeline}
-                awaitingFirstToken={!hasReceivedFirstToken}
-                thinkingInProgress={Boolean(streamThinkingTarget) && !streamAnswerTarget}
-                thinkingDuration={thinkingDuration}
-                hasThinking={Boolean(streamThinkingTarget)}
-              />
-            </div>
-          ) : null}
 
           {error ? (
             <div className="mt-3 rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
@@ -810,7 +937,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
       <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none">
         <div className="h-24 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/90 to-transparent" />
-        <div className="mx-auto w-full max-w-[980px] px-4 pb-4 md:pb-6 -mt-10 pointer-events-auto">
+        <div className="mx-auto w-full px-4 pb-4 md:px-8 md:pb-6 -mt-10 pointer-events-auto">
           <ChatComposer
             input={input}
             onInputChange={setInput}

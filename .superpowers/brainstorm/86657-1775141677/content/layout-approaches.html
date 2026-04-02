@@ -1,0 +1,137 @@
+<h2>Layout Approaches</h2>
+<p class="subtitle">Two strategies for the new content layout</p>
+
+<div class="section">
+  <div class="split">
+    <!-- Approach A -->
+    <div class="mockup">
+      <div class="mockup-header">A: Single Fluid Column (Recommended)</div>
+      <div class="mockup-body" style="background: #0a0a0f; padding: 20px;">
+        <div style="display: flex; min-height: 420px;">
+          <div style="width: 180px; background: #111118; border-right: 1px solid rgba(255,255,255,0.06); padding: 12px;">
+            <div style="font-size: 10px; color: rgba(255,255,255,0.3);">Sidebar 280px</div>
+          </div>
+          <div style="flex: 1; padding: 16px 32px;">
+            <div style="display: flex; flex-direction: column; gap: 14px;">
+              <!-- User message -->
+              <div style="display: flex; justify-content: flex-end;">
+                <div style="width: 90%; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); border-radius: 16px; padding: 10px 14px; color: white; font-size: 13px;">
+                  What are the latest developments in AI?
+                </div>
+              </div>
+              <!-- Thinking - COLLAPSED (compact!) -->
+              <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 4px 8px; cursor: pointer; width: fit-content;">
+                <div style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                  <span style="color: #4ade80; font-size: 9px;">✓</span>
+                </div>
+                <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Thought (2.3s)</span>
+                <span style="font-size: 9px; color: rgba(255,255,255,0.25);">▶</span>
+              </div>
+              <!-- Tool call - COLLAPSED (compact!) -->
+              <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 4px 8px; cursor: pointer; width: fit-content;">
+                <div style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                  <span style="color: #4ade80; font-size: 9px;">✓</span>
+                </div>
+                <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Web Search</span>
+                <span style="font-size: 9px; color: rgba(255,255,255,0.25);">▶</span>
+              </div>
+              <!-- Tool call - EXPANDED (wide, readable) -->
+              <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 14px; width: 90%;">
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: pointer;">
+                  <div style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                    <span style="color: #4ade80; font-size: 9px;">✓</span>
+                  </div>
+                  <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Web Search</span>
+                  <span style="font-size: 9px; color: rgba(255,255,255,0.25);">▼</span>
+                </div>
+                <div style="background: rgba(0,0,0,0.3); border-radius: 6px; padding: 8px 10px; font-family: monospace; font-size: 11px; color: rgba(255,255,255,0.5); line-height: 1.5; overflow-wrap: break-word;">
+                  {"urls":["https://decrypt.co/362805/microsoft-gpt-claude-work-together-ai-research","https://www.theverge.com/ai-artificial-intelligence/..."],"query":"latest AI developments 2025"}
+                </div>
+              </div>
+              <!-- Assistant message -->
+              <div style="display: flex; gap: 8px; width: 90%;">
+                <div style="width: 22px; height: 22px; border-radius: 50%; background: rgba(99,102,241,0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 10px; color: rgba(255,255,255,0.8);">AI</div>
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 10px 14px; color: rgba(255,255,255,0.85); font-size: 13px; line-height: 1.6; flex: 1;">
+                  Here are the latest AI developments... full markdown content rendered at comfortable width with plenty of room for code blocks, tables, and lists.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top: 12px; padding: 8px 12px; background: rgba(74,222,128,0.06); border: 1px solid rgba(74,222,128,0.15); border-radius: 8px;">
+          <div style="font-size: 12px; color: #4ade80; font-weight: 500;">How it works:</div>
+          <div style="font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 4px;">
+            Remove max-w-5xl column. Content fills ~90% of available space (viewport minus sidebar and small margins).
+            Collapsed cards are <b>fit-content</b> width (just icon + label). Expanded cards stretch to the full bubble width.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Approach B -->
+    <div class="mockup">
+      <div class="mockup-header">B: Centered Wide Column</div>
+      <div class="mockup-body" style="background: #0a0a0f; padding: 20px;">
+        <div style="display: flex; min-height: 420px;">
+          <div style="width: 180px; background: #111118; border-right: 1px solid rgba(255,255,255,0.06); padding: 12px;">
+            <div style="font-size: 10px; color: rgba(255,255,255,0.3);">Sidebar 280px</div>
+          </div>
+          <div style="flex: 1; padding: 16px;">
+            <div style="max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px;">
+              <!-- User message -->
+              <div style="display: flex; justify-content: flex-end;">
+                <div style="width: 85%; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); border-radius: 16px; padding: 10px 14px; color: white; font-size: 13px;">
+                  What are the latest developments in AI?
+                </div>
+              </div>
+              <!-- Tool calls side panel concept -->
+              <div style="display: flex; gap: 12px;">
+                <div style="flex: 1;">
+                  <!-- Assistant message -->
+                  <div style="display: flex; gap: 8px;">
+                    <div style="width: 22px; height: 22px; border-radius: 50%; background: rgba(99,102,241,0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 10px; color: rgba(255,255,255,0.8);">AI</div>
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 10px 14px; color: rgba(255,255,255,0.85); font-size: 13px; line-height: 1.6; flex: 1;">
+                      Here are the latest AI developments... content is rendered in a centered column.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top: 12px; padding: 8px 12px; background: rgba(255,180,50,0.06); border: 1px solid rgba(255,180,50,0.15); border-radius: 8px;">
+          <div style="font-size: 12px; color: #ffb432; font-weight: 500;">Trade-offs:</div>
+          <div style="font-size: 11px; color: rgba(255,255,255,0.5); margin-top: 4px;">
+            Keeps a centered column (max-w-7xl ~1280px) but wider than current. More balanced on ultrawide screens but still wastes space on >1600px monitors.
+            Less dramatic change from current layout.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 24px;">
+  <h3>Recommendation: Approach A</h3>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>Approach A Strengths</h4>
+      <ul>
+        <li>Maximum use of available screen space</li>
+        <li>Collapsed cards truly minimal — just icon + label, fit-content width</li>
+        <li>Expanded cards use full width for readability</li>
+        <li>Scales naturally on any screen size</li>
+        <li>Mobile can use the same system (just higher % width)</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>Approach B Weaknesses</h4>
+      <ul>
+        <li>Still constrains content on wide screens</li>
+        <li>Doesn't fully address the "horizontal space" concern</li>
+        <li>Centered column adds complexity for no clear benefit</li>
+        <li>Less natural responsive scaling</li>
+      </ul>
+    </div>
+  </div>
+</div>

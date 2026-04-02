@@ -70,7 +70,7 @@ describe("message bubble", () => {
     );
 
     expect(screen.getByText("Search docs")).toBeInTheDocument();
-    expect(screen.getByText(/query=MCP/)).toBeInTheDocument();
+    expect(screen.queryByText(/query=MCP/)).toBeNull();
     expect(container.querySelector(".animate-spin")).not.toBeNull();
   });
 
@@ -101,7 +101,14 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByText("Search docs")).toBeInTheDocument();
+    const toggle = screen.getByRole("button", { name: /Search docs/i });
+
+    expect(toggle).toBeInTheDocument();
+    expect(screen.queryByText("Found MCP documentation")).toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByText("query=MCP")).toBeInTheDocument();
     expect(screen.getByText("Found MCP documentation")).toBeInTheDocument();
   });
 
@@ -263,14 +270,16 @@ describe("message bubble", () => {
     const markdownBlocks = Array.from(container.querySelectorAll(".markdown-body"));
 
     expect(markdownBlocks).toHaveLength(2);
-    expect(markdownBlocks[0]?.innerHTML).toContain("<p>Thought one<br>");
-    expect(markdownBlocks[0]?.innerHTML).toContain("<p>Thought three</p>");
-    expect(markdownBlocks[0]?.innerHTML).toContain("<p>&nbsp;</p>");
-    expect(markdownBlocks[0]?.innerHTML).toContain("<p>Thought four</p>");
-    expect(markdownBlocks[1]?.innerHTML).toContain("<p>First line<br>");
-    expect(markdownBlocks[1]?.innerHTML).toContain("<p>Third paragraph</p>");
-    expect(markdownBlocks[1]?.innerHTML).toContain("<p>&nbsp;</p>");
-    expect(markdownBlocks[1]?.innerHTML).toContain("<p>Fourth paragraph</p>");
+    expect(markdownBlocks[0]?.textContent).toContain("Thought one");
+    expect(markdownBlocks[0]?.textContent).toContain("Thought two");
+    expect(markdownBlocks[0]?.textContent).toContain("Thought three");
+    expect(markdownBlocks[0]?.textContent).toContain("Thought four");
+    expect(markdownBlocks[0]?.textContent).not.toContain("\\\\n");
+    expect(markdownBlocks[1]?.textContent).toContain("First line");
+    expect(markdownBlocks[1]?.textContent).toContain("Second line");
+    expect(markdownBlocks[1]?.textContent).toContain("Third paragraph");
+    expect(markdownBlocks[1]?.textContent).toContain("Fourth paragraph");
+    expect(markdownBlocks[1]?.textContent).not.toContain("\\\\n");
   });
 
   it("renders markdown elements inside a compact assistant bubble", () => {

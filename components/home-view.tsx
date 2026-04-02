@@ -307,7 +307,7 @@ export function HomeView({
           </div>
         </div>
       ) : null}
-      <div className="w-full max-w-[980px] animate-slide-up">
+      <div className="w-full md:max-w-[980px] px-4 animate-slide-up">
         <div className="mb-10 text-center">
           <h2
             className="mb-3 text-3xl font-medium text-[var(--text)] md:text-4xl"
