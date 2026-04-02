@@ -38,8 +38,8 @@ const settingsSchema = z
   .object({
     defaultProviderProfileId: z.string().min(1),
     skillsEnabled: z.coerce.boolean(),
-    conversationRetention: z.enum(["forever", "90d", "30d", "7d"]),
-    autoCompaction: z.coerce.boolean(),
+    conversationRetention: z.enum(["forever", "90d", "30d", "7d"]).default("forever"),
+    autoCompaction: z.coerce.boolean().default(true),
     providerProfiles: z.array(providerProfileInputSchema).min(1)
   })
   .superRefine((value, context) => {
