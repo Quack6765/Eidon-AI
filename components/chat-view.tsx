@@ -106,6 +106,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const dragDepthRef = useRef(0);
   const messagesRef = useRef(payload.messages);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
+  const animatedIdsRef = useRef<Set<string>>(new Set());
   const bootstrappedRef = useRef(false);
   const titlePollTimeoutRef = useRef<number | null>(null);
   const titlePollAttemptsRef = useRef(0);
@@ -213,13 +214,20 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     const serverMap = new Map(server.map((m) => [m.id, m]));
-    return local.map((localMsg) => {
+    let changed = false;
+    const merged = local.map((localMsg) => {
       const serverMsg = serverMap.get(localMsg.id);
       if (!serverMsg) {
         return localMsg;
       }
+      if (localMsg.content === serverMsg.content && localMsg.thinkingContent === serverMsg.thinkingContent && localMsg.status === serverMsg.status && localMsg.role === serverMsg.role) {
+        return localMsg;
+      }
+      changed = true;
       return { ...localMsg, ...serverMsg };
     });
+
+    return changed ? merged : local;
   }
 
   async function syncConversationState() {
@@ -235,10 +243,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       debug: ConversationPayload["debug"];
     };
 
-    const merged = mergeMessages(messages, result.messages);
-    if (merged !== messages) {
-      setMessages(merged);
-    }
+    setMessages((current) => mergeMessages(current, result.messages));
     setConversationTitle(result.conversation.title);
     setTitleGenerationStatus(result.conversation.titleGenerationStatus);
     setDebug(result.debug);
@@ -789,19 +794,25 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
       <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 md:px-8 scroll-smooth">
         <div className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4 pb-[140px] md:pb-[200px]">
-          {messages.map((message, index) => (
-            <div
-              key={message.id}
-              className="animate-slide-up"
-              style={{ animationDelay: `${Math.min(index * 30, 300)}ms`, animationFillMode: "backwards" }}
-            >
-              <MessageBubble
-                message={message}
-                onUpdateUserMessage={updateUserMessage}
-                isUpdating={updatingMessageId === message.id}
-              />
-            </div>
-          ))}
+          {messages.map((message, index) => {
+            const isNew = !animatedIdsRef.current.has(message.id);
+            if (isNew) {
+              animatedIdsRef.current.add(message.id);
+            }
+            return (
+              <div
+                key={message.id}
+                className={isNew ? "animate-slide-up" : undefined}
+                style={isNew ? { animationDelay: `${Math.min(index * 30, 300)}ms`, animationFillMode: "backwards" } : undefined}
+              >
+                <MessageBubble
+                  message={message}
+                  onUpdateUserMessage={updateUserMessage}
+                  isUpdating={updatingMessageId === message.id}
+                />
+              </div>
+            );
+          })}
 
           {streamStartedAt ? (
             <div className="animate-slide-up">
