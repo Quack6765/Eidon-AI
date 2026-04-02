@@ -1,0 +1,98 @@
+<h2>Current Chat Layout Analysis</h2>
+<p class="subtitle">Understanding the existing layout before we redesign</p>
+
+<div class="section">
+  <h3>Desktop Layout (Current)</h3>
+  <div class="mockup">
+    <div class="mockup-header">Desktop: max-w-5xl (1024px) message column</div>
+    <div class="mockup-body" style="background: #0a0a0f; padding: 24px;">
+      <!-- Sidebar -->
+      <div style="display: flex; gap: 0; min-height: 400px;">
+        <div style="width: 240px; background: #111118; border-right: 1px solid rgba(255,255,255,0.06); padding: 16px;">
+          <div style="font-size: 11px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px;">Sidebar</div>
+          <div style="background: rgba(255,255,255,0.04); border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; font-size: 13px; color: rgba(255,255,255,0.7);">Chat 1</div>
+          <div style="background: rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; font-size: 13px; color: rgba(255,255,255,0.9);">Current Chat</div>
+          <div style="background: rgba(255,255,255,0.04); border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; font-size: 13px; color: rgba(255,255,255,0.7);">Chat 3</div>
+        </div>
+        <!-- Main content -->
+        <div style="flex: 1; display: flex; flex-direction: column; position: relative;">
+          <!-- Message area -->
+          <div style="flex: 1; padding: 16px 0; overflow-y: auto;">
+            <!-- Centered column -->
+            <div style="max-width: 1024px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; padding: 0 16px;">
+              <!-- User message - right aligned -->
+              <div style="display: flex; justify-content: flex-end;">
+                <div style="max-width: 82%; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); border-radius: 16px; padding: 12px 16px; color: white; font-size: 14px;">
+                  What are the latest developments in AI?
+                </div>
+              </div>
+              <!-- Thinking card -->
+              <div style="display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 6px 10px; cursor: pointer; max-width: 260px;">
+                <div style="width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center;">
+                  <span style="color: #4ade80; font-size: 10px;">✓</span>
+                </div>
+                <span style="font-size: 12px; color: rgba(255,255,255,0.7);">Thought (2.3s)</span>
+                <span style="font-size: 10px; color: rgba(255,255,255,0.3);">▶</span>
+              </div>
+              <!-- Tool call card (current - expanded, full width) -->
+              <div style="display: flex; align-items: flex-start; gap: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 6px 10px; max-width: 100%;">
+                <div style="width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                  <span style="color: #4ade80; font-size: 10px;">✓</span>
+                </div>
+                <div style="min-width: 0; flex: 1; overflow: hidden;">
+                  <div style="font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.85); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Web Search: AI developments 2025</div>
+                  <p style="font-size: 11px; color: rgba(255,255,255,0.35); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 2px 0 0 0;">{"urls":["https://example.com/article-1","https://example.com/article-2","https://exam...</p>
+                </div>
+              </div>
+              <!-- Another tool call -->
+              <div style="display: flex; align-items: flex-start; gap: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 6px 10px; max-width: 100%;">
+                <div style="width: 16px; height: 16px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.15); display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                  <span style="color: #4ade80; font-size: 10px;">✓</span>
+                </div>
+                <div style="min-width: 0; flex: 1; overflow: hidden;">
+                  <div style="font-size: 12px; font-weight: 500; color: rgba(255,255,255,0.85);">Shell Command: npm test</div>
+                  <p style="font-size: 11px; color: rgba(255,255,255,0.35); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 2px 0 0 0;">Ran 42 tests in 3.2s — 40 passed, 2 failed</p>
+                </div>
+              </div>
+              <!-- Assistant message -->
+              <div style="display: flex; gap: 8px; max-width: 82%;">
+                <div style="width: 24px; height: 24px; border-radius: 50%; background: rgba(99,102,241,0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 11px; color: rgba(255,255,255,0.8);">AI</div>
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 12px 16px; color: rgba(255,255,255,0.85); font-size: 14px; line-height: 1.6;">
+                  Here are the latest AI developments... <em style="color: rgba(255,255,255,0.4);">[markdown content rendered here]</em>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Composer -->
+          <div style="padding: 16px; border-top: 1px solid rgba(255,255,255,0.06);">
+            <div style="max-width: 980px; margin: 0 auto; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 12px 16px;">
+              <div style="color: rgba(255,255,255,0.4); font-size: 14px;">Type a message...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section" style="margin-top: 32px;">
+  <h3>Key Issues Identified</h3>
+  <div style="display: grid; gap: 12px;">
+    <div style="background: rgba(255,180,50,0.08); border: 1px solid rgba(255,180,50,0.2); border-radius: 8px; padding: 12px 16px;">
+      <div style="font-size: 13px; font-weight: 600; color: #ffb432; margin-bottom: 4px;">1. Desktop Horizontal Space Underused</div>
+      <div style="font-size: 13px; color: rgba(255,255,255,0.6);">Message column capped at 1024px (max-w-5xl) on wide screens. Bubbles further limited to 82% of that (~840px). On a 1920px screen, ~55% of width is empty.</div>
+    </div>
+    <div style="background: rgba(255,180,50,0.08); border: 1px solid rgba(255,180,50,0.2); border-radius: 8px; padding: 12px 16px;">
+      <div style="font-size: 13px; font-weight: 600; color: #ffb432; margin-bottom: 4px;">2. Tool Call Cards Too Wide</div>
+      <div style="font-size: 13px; color: rgba(255,255,255,0.6);">Tool calls stretch to fill the full column width instead of being compact. Content (JSON, URLs) is shown truncated rather than collapsible.</div>
+    </div>
+    <div style="background: rgba(255,180,50,0.08); border: 1px solid rgba(255,180,50,0.2); border-radius: 8px; padding: 12px 16px;">
+      <div style="font-size: 13px; font-weight: 600; color: #ffb432; margin-bottom: 4px;">3. Conversation Flash on Complete</div>
+      <div style="font-size: 13px; color: rgba(255,255,255,0.6);">syncConversationState() re-fetches all messages after stream ends, causing a visible flash/re-render of the entire conversation.</div>
+    </div>
+    <div style="background: rgba(255,180,50,0.08); border: 1px solid rgba(255,180,50,0.2); border-radius: 8px; padding: 12px 16px;">
+      <div style="font-size: 13px; font-weight: 600; color: #ffb432; margin-bottom: 4px;">4. Mobile Layout Not Optimized</div>
+      <div style="font-size: 13px; color: rgba(255,255,255,0.6);">Only 2% width difference between mobile (84%) and desktop (82%). No fluid typography or viewport-based sizing. Minimal responsive differentiation.</div>
+    </div>
+  </div>
+</div>

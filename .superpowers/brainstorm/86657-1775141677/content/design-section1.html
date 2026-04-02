@@ -1,0 +1,149 @@
+<h2>Design Section 1: Content Column & Bubble Layout</h2>
+<p class="subtitle">Desktop and mobile width strategy</p>
+
+<div class="section">
+  <h3>Desktop Layout (md+ breakpoint)</h3>
+  <div class="mockup">
+    <div class="mockup-header">Desktop: fluid ~90% of available space</div>
+    <div class="mockup-body" style="background: #0a0a0f; padding: 20px;">
+      <div style="display: flex; min-height: 480px;">
+        <div style="width: 180px; background: #111118; border-right: 1px solid rgba(255,255,255,0.06); padding: 12px;">
+          <div style="font-size: 10px; color: rgba(255,255,255,0.3);">Sidebar<br>280px</div>
+        </div>
+        <div style="flex: 1; position: relative; overflow: hidden;">
+          <!-- Padding indicators -->
+          <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 32px; background: rgba(255,180,50,0.05); border-right: 1px dashed rgba(255,180,50,0.2);"></div>
+          <div style="position: absolute; right: 0; top: 0; bottom: 0; width: 32px; background: rgba(255,180,50,0.05); border-left: 1px dashed rgba(255,180,50,0.2);"></div>
+          <div style="position: absolute; left: 4px; top: 50%; transform: translateY(-50%); font-size: 8px; color: rgba(255,180,50,0.5); writing-mode: vertical-rl;">px-4</div>
+          <div style="position: absolute; right: 4px; top: 50%; transform: translateY(-50%); font-size: 8px; color: rgba(255,180,50,0.5); writing-mode: vertical-rl;">px-4</div>
+
+          <div style="padding: 16px 32px; height: 100%;">
+            <div style="display: flex; flex-direction: column; gap: 16px;">
+              <!-- User message - right aligned, ~90% width -->
+              <div style="display: flex; justify-content: flex-end;">
+                <div style="width: 90%; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); border-radius: 16px; padding: 10px 14px; color: white; font-size: 13px;">
+                  What are the latest developments in AI and machine learning?
+                </div>
+              </div>
+              <!-- Thinking - COLLAPSED -->
+              <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 4px 10px; cursor: pointer; width: fit-content;">
+                <div style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                  <span style="color: #4ade80; font-size: 9px;">✓</span>
+                </div>
+                <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Thought (2.3s)</span>
+                <span style="font-size: 9px; color: rgba(255,255,255,0.25);">▶</span>
+              </div>
+              <!-- Tool call - COLLAPSED -->
+              <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 4px 10px; cursor: pointer; width: fit-content;">
+                <div style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                  <span style="color: #4ade80; font-size: 9px;">✓</span>
+                </div>
+                <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Web Search</span>
+                <span style="font-size: 9px; color: rgba(255,255,255,0.25);">▶</span>
+              </div>
+              <!-- Assistant message - ~90% width -->
+              <div style="display: flex; gap: 8px; width: 90%;">
+                <div style="width: 22px; height: 22px; border-radius: 50%; background: rgba(99,102,241,0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 10px; color: rgba(255,255,255,0.8);">AI</div>
+                <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 16px; padding: 10px 14px; color: rgba(255,255,255,0.85); font-size: 13px; line-height: 1.6; flex: 1;">
+                  Here are the latest developments in AI and machine learning. This content now has plenty of horizontal space for code blocks, tables, and inline content without feeling cramped.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top: 16px; font-size: 12px; color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 12px 16px;">
+    <b style="color: rgba(255,255,255,0.8);">Technical changes:</b><br>
+    • Remove <code>max-w-5xl</code> from message scroll area<br>
+    • Message column: <code>w-full px-8 md:px-8</code> (small margins on both sides)<br>
+    • User bubbles: <code>max-w-[95%]</code> (nearly full width, right-aligned)<br>
+    • Assistant bubbles: <code>max-w-[95%]</code> (nearly full width, left-aligned with avatar)
+  </div>
+</div>
+
+<div class="section" style="margin-top: 32px;">
+  <h3>Mobile Layout (below md breakpoint)</h3>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">Mobile: max density</div>
+      <div class="mockup-body" style="background: #0a0a0f; padding: 12px; max-width: 375px;">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <!-- User message -->
+          <div style="display: flex; justify-content: flex-end;">
+            <div style="width: 95%; background: rgba(99,102,241,0.15); border: 1px solid rgba(99,102,241,0.3); border-radius: 14px; padding: 8px 10px; color: white; font-size: 13px;">
+              What are the latest developments in AI?
+            </div>
+          </div>
+          <!-- Thinking collapsed -->
+          <div style="display: inline-flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 5px; padding: 3px 7px; cursor: pointer; width: fit-content;">
+            <div style="width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+              <span style="color: #4ade80; font-size: 8px;">✓</span>
+            </div>
+            <span style="font-size: 10px; color: rgba(255,255,255,0.6);">Thought (2.3s)</span>
+            <span style="font-size: 8px; color: rgba(255,255,255,0.25);">▶</span>
+          </div>
+          <!-- Tool call collapsed -->
+          <div style="display: inline-flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 5px; padding: 3px 7px; cursor: pointer; width: fit-content;">
+            <div style="width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+              <span style="color: #4ade80; font-size: 8px;">✓</span>
+            </div>
+            <span style="font-size: 10px; color: rgba(255,255,255,0.6);">Web Search</span>
+            <span style="font-size: 8px; color: rgba(255,255,255,0.25);">▶</span>
+          </div>
+          <!-- Assistant -->
+          <div style="display: flex; gap: 6px; width: 95%;">
+            <div style="width: 20px; height: 20px; border-radius: 50%; background: rgba(99,102,241,0.3); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 9px; color: rgba(255,255,255,0.8);">AI</div>
+            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; padding: 8px 10px; color: rgba(255,255,255,0.85); font-size: 13px; line-height: 1.5; flex: 1;">
+              Latest AI developments... content uses nearly full screen width.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">Mobile: tool expanded</div>
+      <div class="mockup-body" style="background: #0a0a0f; padding: 12px; max-width: 375px;">
+        <div style="display: flex; flex-direction: column; gap: 10px;">
+          <!-- Tool call EXPANDED on mobile - full width -->
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 10px; width: 100%;">
+            <div style="display: flex; align-items: center; gap: 5px; margin-bottom: 6px; cursor: pointer;">
+              <div style="width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                <span style="color: #4ade80; font-size: 8px;">✓</span>
+              </div>
+              <span style="font-size: 10px; color: rgba(255,255,255,0.6);">Web Search</span>
+              <span style="font-size: 8px; color: rgba(255,255,255,0.25);">▼</span>
+            </div>
+            <div style="background: rgba(0,0,0,0.3); border-radius: 5px; padding: 6px 8px; font-family: monospace; font-size: 10px; color: rgba(255,255,255,0.45); line-height: 1.4; overflow-wrap: break-word;">
+              {"urls":["https://decrypt.co/...","https://www.theverge.com/..."],"query":"latest AI developments 2025"}
+            </div>
+          </div>
+          <!-- Thinking EXPANDED on mobile -->
+          <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 10px; width: 100%;">
+            <div style="display: flex; align-items: center; gap: 5px; margin-bottom: 6px; cursor: pointer;">
+              <div style="width: 12px; height: 12px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                <span style="color: #4ade80; font-size: 8px;">✓</span>
+              </div>
+              <span style="font-size: 10px; color: rgba(255,255,255,0.6);">Thought (2.3s)</span>
+              <span style="font-size: 8px; color: rgba(255,255,255,0.25);">▼</span>
+            </div>
+            <div style="font-size: 11px; color: rgba(255,255,255,0.4); line-height: 1.5;">
+              Let me think about this... The user wants to know about AI developments. I should search for the most recent news and provide a comprehensive summary of the key areas...
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top: 16px; font-size: 12px; color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 12px 16px;">
+    <b style="color: rgba(255,255,255,0.8);">Mobile technical changes:</b><br>
+    • Message column: <code>px-2</code> (minimal side padding)<br>
+    • Bubbles: <code>max-w-[96%]</code> (nearly edge-to-edge)<br>
+    • Bubble padding: <code>px-2.5 py-2</code> (reduced from px-4 py-3)<br>
+    • Expanded cards: full width of message column<br>
+    • Vertical gaps: <code>gap-2.5</code> (reduced from gap-4)
+  </div>
+</div>

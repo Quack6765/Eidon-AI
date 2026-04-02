@@ -1,0 +1,131 @@
+<h2>Design Section 2: Collapsible Cards</h2>
+<p class="subtitle">Tool calls and thinking cards — collapsed vs expanded states</p>
+
+<div class="section">
+  <h3>Collapse/Expand Behavior</h3>
+  <div class="mockup">
+    <div class="mockup-header">State transitions — both card types work identically</div>
+    <div class="mockup-body" style="background: #0a0a0f; padding: 24px;">
+      <div style="display: flex; flex-direction: column; gap: 20px;">
+
+        <!-- Tool call states -->
+        <div>
+          <div style="font-size: 11px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Tool Call States</div>
+
+          <!-- Running (collapsed only) -->
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 10px; color: rgba(255,180,50,0.6); margin-bottom: 4px;">Running:</div>
+            <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 4px 10px; width: fit-content;">
+              <div style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                <span style="color: #60a5fa; font-size: 10px;">⟳</span>
+              </div>
+              <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Web Search</span>
+            </div>
+          </div>
+
+          <!-- Completed — Collapsed -->
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 10px; color: rgba(74,222,128,0.6); margin-bottom: 4px;">Completed — Collapsed (default):</div>
+            <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 4px 10px; cursor: pointer; width: fit-content;">
+              <div style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                <span style="color: #4ade80; font-size: 9px;">✓</span>
+              </div>
+              <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Web Search</span>
+              <span style="font-size: 9px; color: rgba(255,255,255,0.25);">▶</span>
+            </div>
+          </div>
+
+          <!-- Completed — Expanded -->
+          <div>
+            <div style="font-size: 10px; color: rgba(74,222,128,0.6); margin-bottom: 4px;">Completed — Expanded (on click):</div>
+            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 14px; max-width: 600px;">
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: pointer;">
+                <div style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                  <span style="color: #4ade80; font-size: 9px;">✓</span>
+                </div>
+                <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Web Search</span>
+                <span style="font-size: 9px; color: rgba(255,255,255,0.25);">▼</span>
+              </div>
+              <div style="background: rgba(0,0,0,0.3); border-radius: 6px; padding: 8px 10px; font-family: monospace; font-size: 11px; color: rgba(255,255,255,0.45); line-height: 1.5; overflow-wrap: break-word; white-space: pre-wrap;">
+{
+  "urls": [
+    "https://decrypt.co/362805/microsoft-gpt-claude-work-together-ai-research",
+    "https://www.theverge.com/ai-artificial-intelligence/601186/..."
+  ],
+  "query": "latest AI developments 2025"
+}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Thinking states -->
+        <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 20px;">
+          <div style="font-size: 11px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Thinking Card States</div>
+
+          <!-- In progress (collapsed only) -->
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 10px; color: rgba(96,165,250,0.6); margin-bottom: 4px;">In progress:</div>
+            <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 4px 10px; width: fit-content;">
+              <div style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                <span style="color: #60a5fa; font-size: 10px;">⟳</span>
+              </div>
+              <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Thinking...</span>
+            </div>
+          </div>
+
+          <!-- Completed — Collapsed -->
+          <div style="margin-bottom: 12px;">
+            <div style="font-size: 10px; color: rgba(74,222,128,0.6); margin-bottom: 4px;">Completed — Collapsed (default):</div>
+            <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 4px 10px; cursor: pointer; width: fit-content;">
+              <div style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                <span style="color: #4ade80; font-size: 9px;">✓</span>
+              </div>
+              <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Thought (2.3s)</span>
+              <span style="font-size: 9px; color: rgba(255,255,255,0.25);">▶</span>
+            </div>
+          </div>
+
+          <!-- Completed — Expanded -->
+          <div>
+            <div style="font-size: 10px; color: rgba(74,222,128,0.6); margin-bottom: 4px;">Completed — Expanded (on click):</div>
+            <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 14px; max-width: 600px;">
+              <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 8px; cursor: pointer;">
+                <div style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+                  <span style="color: #4ade80; font-size: 9px;">✓</span>
+                </div>
+                <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Thought (2.3s)</span>
+                <span style="font-size: 9px; color: rgba(255,255,255,0.25);">▼</span>
+              </div>
+              <div style="font-size: 12px; color: rgba(255,255,255,0.4); line-height: 1.6;">
+                Let me think about this... The user wants to know about AI developments. I should search for the most recent news and provide a comprehensive summary covering key areas like large language models, AI agents, and enterprise adoption.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Error state -->
+        <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 20px;">
+          <div style="font-size: 11px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Error State</div>
+          <div style="display: inline-flex; align-items: center; gap: 6px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; padding: 4px 10px; cursor: pointer; width: fit-content;">
+            <div style="width: 14px; height: 14px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.12); display: flex; align-items: center; justify-content: center;">
+              <span style="color: #f87171; font-size: 9px;">✕</span>
+            </div>
+            <span style="font-size: 11px; color: rgba(255,255,255,0.6);">Shell Command</span>
+            <span style="font-size: 9px; color: rgba(255,255,255,0.25);">▶</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-top: 16px; font-size: 12px; color: rgba(255,255,255,0.5); background: rgba(255,255,255,0.02); border-radius: 8px; padding: 12px 16px;">
+    <b style="color: rgba(255,255,255,0.8);">Key design rules:</b><br>
+    • <b>Both card types</b> follow the same pattern: collapsed = fit-content pill, expanded = wider card<br>
+    • <b>Collapsed</b> shows only: status icon + label (e.g. "Web Search" or "Thought (2.3s)") + chevron<br>
+    • <b>Expanded</b> shows the same header row + content area below<br>
+    • <b>Tool call content</b>: rendered in a monospace code block with line wrapping<br>
+    • <b>Thinking content</b>: rendered as markdown text (existing behavior)<br>
+    • <b>Running state</b>: shows spinner icon, never expandable (content not ready yet)<br>
+    • <b>Default state</b>: always collapsed when completed
+  </div>
+</div>

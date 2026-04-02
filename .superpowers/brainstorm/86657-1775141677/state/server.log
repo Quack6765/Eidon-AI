@@ -1,0 +1,7 @@
+{"type":"server-started","port":58350,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:58350","screen_dir":"/Users/charles/Documents/Github/hermes/.superpowers/brainstorm/86657-1775141677/content","state_dir":"/Users/charles/Documents/Github/hermes/.superpowers/brainstorm/86657-1775141677/state"}
+{"type":"screen-added","file":"/Users/charles/Documents/Github/hermes/.superpowers/brainstorm/86657-1775141677/content/current-layout.html"}
+{"type":"screen-added","file":"/Users/charles/Documents/Github/hermes/.superpowers/brainstorm/86657-1775141677/content/layout-approaches.html"}
+{"type":"screen-added","file":"/Users/charles/Documents/Github/hermes/.superpowers/brainstorm/86657-1775141677/content/design-section1.html"}
+{"type":"screen-added","file":"/Users/charles/Documents/Github/hermes/.superpowers/brainstorm/86657-1775141677/content/design-section2.html"}
+{"type":"screen-added","file":"/Users/charles/Documents/Github/hermes/.superpowers/brainstorm/86657-1775141677/content/waiting.html"}
+{"type":"server-stopped","reason":"idle timeout"}
