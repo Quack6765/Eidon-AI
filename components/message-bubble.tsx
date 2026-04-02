@@ -36,31 +36,57 @@ function TypingIndicator() {
   );
 }
 
-function MessageActionRow({
-  action
+function CollapsibleActionRow({
+  action,
+  isOpen,
+  onToggle
 }: {
   action: Extract<MessageTimelineItem, { timelineKind: "action" }>;
+  isOpen: boolean;
+  onToggle: () => void;
 }) {
-  return (
-    <div className="flex items-center gap-1.5 rounded-lg border border-white/6 bg-white/[0.02] px-2.5 py-1.5 text-xs">
-      <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
-        {action.status === "running" ? (
-          <LoaderCircle className="h-2.5 w-2.5 animate-spin text-white/55" />
-        ) : action.status === "completed" ? (
-          <Check className="h-2.5 w-2.5 text-emerald-400" />
-        ) : (
-          <X className="h-2.5 w-2.5 text-red-400" />
-        )}
-      </span>
-      <div className="min-w-0 flex-1 overflow-hidden">
-        <div className="truncate text-[12px] font-medium text-white/85">
-          {action.label}
-          {action.detail ? <span className="font-normal text-white/55">: {action.detail}</span> : null}
-        </div>
-        {action.status !== "running" && action.resultSummary ? (
-          <p className="truncate text-[11px] text-white/35">{action.resultSummary}</p>
-        ) : null}
+  const statusIcon = action.status === "running"
+    ? <LoaderCircle className="h-2.5 w-2.5 animate-spin text-white/55" />
+    : action.status === "completed"
+      ? <Check className="h-2.5 w-2.5 text-emerald-400" />
+      : <X className="h-2.5 w-2.5 text-red-400" />;
+
+  if (action.status === "running") {
+    return (
+      <div className="inline-flex items-center gap-1.5 rounded-lg border border-white/6 bg-white/[0.02] px-2.5 py-1.5 text-xs">
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
+          {statusIcon}
+        </span>
+        <span className="text-[12px] font-medium text-white/55">{action.label}</span>
       </div>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-white/5 bg-white/[0.015] transition-all duration-300">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left transition hover:opacity-80"
+      >
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
+          {statusIcon}
+        </span>
+        <span className="text-[12px] font-medium text-white/85">{action.label}</span>
+        <span className="ml-auto flex items-center">
+          {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-white/30" /> : <ChevronRight className="h-3.5 w-3.5 text-white/30" />}
+        </span>
+      </button>
+      {isOpen && (action.detail || action.resultSummary) ? (
+        <div className="px-2.5 pb-2">
+          {action.detail ? (
+            <pre className="overflow-x-auto rounded-md bg-black/30 p-2 text-[11px] leading-5 text-white/45 whitespace-pre-wrap break-words font-mono">{action.detail}</pre>
+          ) : null}
+          {action.resultSummary ? (
+            <p className="mt-1.5 text-[11px] text-white/35 break-words">{action.resultSummary}</p>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -271,6 +297,12 @@ export function MessageBubble({
     .map((item) => item.content)
     .join("");
   const [thinkingOpen, setThinkingOpen] = useState(false);
+  const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
+
+  function toggleToolItem(id: string) {
+    setToolOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
@@ -501,12 +533,19 @@ export function MessageBubble({
             ) : timeline.length || content ? (
               <div className="group flex flex-col items-start">
                 <div ref={contentRef} className={`flex w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
-                  {timeline.map((item) =>
-                    item.timelineKind === "action" ? (
-                      <div key={item.id} data-testid="assistant-actions-shell">
-                        <MessageActionRow action={item} />
-                      </div>
-                    ) : (
+                  {timeline.map((item) => {
+                    if (item.timelineKind === "action") {
+                      return (
+                        <div key={item.id} data-testid="assistant-actions-shell">
+                          <CollapsibleActionRow
+                            action={item}
+                            isOpen={toolOpenItems[item.id] ?? false}
+                            onToggle={() => toggleToolItem(item.id)}
+                          />
+                        </div>
+                      );
+                    }
+                    return (
                       <div
                         key={item.id}
                         className={ASSISTANT_BUBBLE}
@@ -516,8 +555,8 @@ export function MessageBubble({
                           <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{item.content}</ReactMarkdown>
                         </div>
                       </div>
-                    )
-                  )}
+                    );
+                  })}
                   {!message.timeline && !streamingAnswer && actions.length > 0 && rawContent ? (
                     <div
                       className={ASSISTANT_BUBBLE}
