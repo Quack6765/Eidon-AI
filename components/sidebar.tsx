@@ -42,8 +42,10 @@ import {
   UNFILED_DROP_ID
 } from "@/lib/sidebar-dnd";
 import {
+  CONVERSATION_ACTIVITY_UPDATED_EVENT,
   CONVERSATION_REMOVED_EVENT,
   CONVERSATION_TITLE_UPDATED_EVENT,
+  type ConversationActivityUpdatedDetail,
   type ConversationRemovedDetail,
   type ConversationTitleUpdatedDetail
 } from "@/lib/conversation-events";
@@ -719,6 +721,32 @@ export function Sidebar({
       window.removeEventListener(
         CONVERSATION_REMOVED_EVENT,
         handleConversationRemoved as EventListener
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    function handleConversationActivityUpdated(event: Event) {
+      const detail = (event as CustomEvent<ConversationActivityUpdatedDetail>).detail;
+
+      setLocalConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === detail.conversationId
+            ? { ...conversation, isActive: detail.isActive }
+            : conversation
+        )
+      );
+    }
+
+    window.addEventListener(
+      CONVERSATION_ACTIVITY_UPDATED_EVENT,
+      handleConversationActivityUpdated as EventListener
+    );
+
+    return () => {
+      window.removeEventListener(
+        CONVERSATION_ACTIVITY_UPDATED_EVENT,
+        handleConversationActivityUpdated as EventListener
       );
     };
   }, []);

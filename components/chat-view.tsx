@@ -7,7 +7,7 @@ import { ChevronDown } from "lucide-react";
 import { ChatComposer } from "@/components/chat-composer";
 import { MessageBubble } from "@/components/message-bubble";
 import { consumeChatBootstrap } from "@/lib/chat-bootstrap";
-import { dispatchConversationTitleUpdated } from "@/lib/conversation-events";
+import { dispatchConversationTitleUpdated, dispatchConversationActivityUpdated } from "@/lib/conversation-events";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { supportsImageInput } from "@/lib/model-capabilities";
 import { formatTimestamp } from "@/lib/utils";
@@ -658,6 +658,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         throw new Error(message);
       }
 
+      dispatchConversationActivityUpdated({
+        conversationId: payload.conversation.id,
+        isActive: true
+      });
+
       if (shouldPollConversationTitle) {
         startTitlePolling();
       }
@@ -799,6 +804,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       );
       setError(caughtError instanceof Error ? caughtError.message : "Chat failed");
     } finally {
+      dispatchConversationActivityUpdated({
+        conversationId: payload.conversation.id,
+        isActive: false
+      });
       setStreamMessageId(null);
       setStreamTimeline([]);
       setStreamThinkingTarget("");
