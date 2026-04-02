@@ -206,7 +206,7 @@ describe("message bubble", () => {
     );
 
     expect(screen.getByText("Thought")).toBeInTheDocument();
-    expect(screen.queryByText("Answer started")).not.toBeInTheDocument();
+    expect(screen.getByText("Answer started")).toBeInTheDocument();
   });
 
   it("reveals streamed thinking content after the user expands the panel", () => {
