@@ -8,3 +8,4 @@ test-results
 .test-data
 .e2e-data
 .env*.local
+tsconfig.tsbuildinfo
