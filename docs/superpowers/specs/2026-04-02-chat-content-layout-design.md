@@ -5,7 +5,7 @@
 
 ## Problem
 
-The chat interface has four layout issues:
+The chat interface has five layout issues:
 
 1. **Desktop horizontal space underused** — message column capped at `max-w-5xl` (1024px), bubbles further limited to 82% of that (~840px). On a 1920px screen, ~55% of width is empty.
 2. **Tool call cards too wide and not collapsible** — tool calls stretch to full column width showing truncated content. No way to collapse them.
@@ -47,7 +47,7 @@ Both tool call cards and thinking cards follow the same collapse/expand pattern.
 - Width: stretches to the assistant bubble max-width (matching the message content area)
 - Header row: same as collapsed (icon + label + down chevron `ChevronDown`)
 - Content area:
-  - **Tool calls**: monospace code block with line wrapping (renders JSON, URLs, etc.)
+  - **Tool calls**: raw content (action.detail, action.resultSummary) rendered as-is in a monospace code block with line wrapping — not parsed or formatted
   - **Thinking**: markdown text (existing rendering behavior, smaller font, lower opacity)
 
 **States:**
