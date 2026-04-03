@@ -10,10 +10,8 @@ export default async function SettingsLayout({ children }: { children: React.Rea
 
   return (
     <Shell conversationPage={conversationPage} folders={folders}>
-      <main className="flex-1 overflow-y-auto p-6 md:p-8 animate-fade-in">
-        <div className="max-w-[55%]">
-          {children}
-        </div>
+      <main className="flex-1 overflow-y-auto animate-fade-in">
+        {children}
       </main>
     </Shell>
   );
