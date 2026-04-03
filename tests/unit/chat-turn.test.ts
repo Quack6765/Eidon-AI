@@ -169,4 +169,53 @@ describe("chat-turn", () => {
     const errorMsg = sent.find((s: unknown) => (s as { type: string }).type === "error");
     expect(errorMsg).toBeDefined();
   });
+
+  it("flushes answer text to DB periodically during streaming", async () => {
+    vi.useFakeTimers();
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    let resolveStream: () => void;
+    const gate = new Promise<void>((resolve) => { resolveStream = resolve; });
+
+    streamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        yield { type: "answer_delta", text: " world" };
+        await gate;
+        return { answer: "Hello world", thinking: "", usage: { outputTokens: 2 } };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const pending = startChatTurn(manager, conv.id, "Hi", []);
+
+    await vi.advanceTimersByTimeAsync(200);
+    resolveStream!();
+    await pending;
+
+    const { getConversationSnapshot } = await import("@/lib/conversations");
+    const snapshot = getConversationSnapshot(conv.id);
+    const assistantMsg = snapshot!.messages.find((m) => m.role === "assistant");
+
+    expect(assistantMsg!.textSegments!.length).toBeGreaterThan(0);
+
+    vi.useRealTimers();
+  });
 });

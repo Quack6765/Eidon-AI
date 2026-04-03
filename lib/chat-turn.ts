@@ -113,6 +113,28 @@ export async function startChatTurn(
     }
 
     let timelineSortOrder = 0;
+    let answerBuffer = "";
+    let lastFlush = Date.now();
+    let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+    function flushAnswerBuffer() {
+      if (!answerBuffer) return;
+      createMessageTextSegment({
+        messageId: assistantMessage.id,
+        content: answerBuffer,
+        sortOrder: timelineSortOrder++
+      });
+      answerBuffer = "";
+      lastFlush = Date.now();
+    }
+
+    function scheduleFlush() {
+      if (flushTimer) return;
+      flushTimer = setTimeout(() => {
+        flushTimer = null;
+        flushAnswerBuffer();
+      }, 100);
+    }
 
     const providerResult = await resolveAssistantTurn({
       settings,
@@ -127,8 +149,18 @@ export async function startChatTurn(
           event
         });
         globalEmitter.emit("delta", conversationId, event);
+
+        if (event.type === "answer_delta") {
+          answerBuffer += event.text;
+          if (answerBuffer.length >= 500 || Date.now() - lastFlush >= 100) {
+            flushAnswerBuffer();
+          } else {
+            scheduleFlush();
+          }
+        }
       },
       onAnswerSegment(segment) {
+        flushAnswerBuffer();
         createMessageTextSegment({
           messageId: assistantMessage.id,
           content: segment,
@@ -190,6 +222,9 @@ export async function startChatTurn(
         }
       }
     });
+
+    if (flushTimer) clearTimeout(flushTimer);
+    flushAnswerBuffer();
 
     updateMessage(assistantMessage.id, {
       content: providerResult.answer,
