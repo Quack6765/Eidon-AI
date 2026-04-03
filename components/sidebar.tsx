@@ -348,7 +348,7 @@ function FolderItem({
   showCount: boolean;
   isDraggingConversation: boolean;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [renaming, setRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(folder.name);
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
@@ -527,7 +527,7 @@ function FolderItem({
       </div>
 
       {!collapsed && conversations.length > 0 && (
-        <div className="ml-5 flex flex-col">
+        <div className="ml-5 flex flex-col border-l border-white/6">
           {conversations.map((conversation) => (
             <ConversationItem
               key={conversation.id}
