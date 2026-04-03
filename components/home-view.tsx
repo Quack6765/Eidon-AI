@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { ChatComposer } from "@/components/chat-composer";
 import { storeChatBootstrap } from "@/lib/chat-bootstrap";
 import { supportsImageInput } from "@/lib/model-capabilities";
+import { shouldAutofocusTextInput } from "@/lib/utils";
 import type {
   Conversation,
   MessageAttachment,
@@ -37,6 +38,10 @@ export function HomeView({
   const dragDepthRef = useRef(0);
 
   useEffect(() => {
+    if (!shouldAutofocusTextInput()) {
+      return;
+    }
+
     const handle = window.requestAnimationFrame(() => {
       textareaRef.current?.focus({ preventScroll: true });
       const length = textareaRef.current?.value.length ?? 0;
@@ -242,6 +247,9 @@ export function HomeView({
 
     try {
       const conversationId = await ensureDraftConversation();
+      if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
       storeChatBootstrap(conversationId, {
         message: value,
         attachments: pendingAttachments

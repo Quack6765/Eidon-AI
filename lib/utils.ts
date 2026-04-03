@@ -31,3 +31,19 @@ export function formatTimestamp(value: string) {
     minute: "2-digit"
   }).format(new Date(value));
 }
+
+export function shouldAutofocusTextInput() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  if (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0) {
+    return false;
+  }
+
+  if (typeof window.matchMedia !== "function") {
+    return true;
+  }
+
+  return !window.matchMedia("(pointer: coarse)").matches;
+}

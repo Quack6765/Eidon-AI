@@ -50,7 +50,7 @@ export function Shell({
         )}
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col relative w-full overflow-y-auto">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col w-full overflow-hidden">
         <div className="sticky top-0 z-30 flex h-14 items-center justify-between px-4 md:hidden bg-[var(--background)]/80 backdrop-blur-xl border-b border-white/4">
           <button
             type="button"

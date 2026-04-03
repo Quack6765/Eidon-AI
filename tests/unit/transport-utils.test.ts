@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { badRequest, ok } from "@/lib/http";
-import { encodeSseEvent } from "@/lib/sse";
+import { encodeSseEvent, encodeSseFlushMarker, encodeSsePrelude } from "@/lib/sse";
 import { cn, formatTimestamp, normalizeLineBreaks, normalizeMarkdownLineBreaks } from "@/lib/utils";
 
 describe("transport helpers", () => {
@@ -19,6 +19,12 @@ describe("transport helpers", () => {
     expect(
       encodeSseEvent({ type: "answer_delta", text: "Hi" })
     ).toBe('data: {"type":"answer_delta","text":"Hi"}\n\n');
+    expect(encodeSsePrelude().startsWith(": ")).toBe(true);
+    expect(encodeSsePrelude().endsWith("\n\n")).toBe(true);
+    expect(encodeSsePrelude().length).toBe(2052);
+    expect(encodeSseFlushMarker().startsWith(": ")).toBe(true);
+    expect(encodeSseFlushMarker().endsWith("\n\n")).toBe(true);
+    expect(encodeSseFlushMarker().length).toBe(516);
     expect(cn("a", undefined, "b")).toBe("a b");
     expect(formatTimestamp("2026-03-26T15:20:00.000Z")).toMatch(/Mar/);
     expect(normalizeLineBreaks("One\\nTwo")).toBe("One\nTwo");

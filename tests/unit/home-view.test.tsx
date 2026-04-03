@@ -35,10 +35,24 @@ function createProviderProfile() {
 }
 
 describe("home view", () => {
+  const originalMaxTouchPoints = Object.getOwnPropertyDescriptor(navigator, "maxTouchPoints");
+
   beforeEach(() => {
     push.mockReset();
     sessionStorage.clear();
     global.fetch = vi.fn();
+  });
+
+  afterEach(() => {
+    if (originalMaxTouchPoints) {
+      Object.defineProperty(navigator, "maxTouchPoints", originalMaxTouchPoints);
+      return;
+    }
+
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 0
+    });
   });
 
   it("uses the shared composer and removes the old suggestion cards", async () => {
@@ -88,5 +102,25 @@ describe("home view", () => {
       "Start this thread"
     );
     expect(screen.queryByText("Help me brainstorm ideas")).toBeNull();
+  });
+
+  it("does not autofocus the composer on touch devices", () => {
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 1
+    });
+
+    render(
+      React.createElement(HomeView, {
+        providerProfiles: [createProviderProfile()],
+        defaultProviderProfileId: "profile_default"
+      })
+    );
+
+    expect(
+      screen.getByPlaceholderText(
+        "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+      )
+    ).not.toHaveFocus();
   });
 });
