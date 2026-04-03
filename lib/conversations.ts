@@ -762,6 +762,18 @@ export function listVisibleMessages(conversationId: string) {
   return listMessages(conversationId).filter(isVisibleMessage);
 }
 
+export type ConversationSnapshot = {
+  conversation: Conversation;
+  messages: Message[];
+};
+
+export function getConversationSnapshot(conversationId: string): ConversationSnapshot | null {
+  const conversation = getConversation(conversationId);
+  if (!conversation) return null;
+  const messages = listVisibleMessages(conversationId);
+  return { conversation, messages };
+}
+
 export function getMessage(messageId: string) {
   const row = getDb()
     .prepare(
