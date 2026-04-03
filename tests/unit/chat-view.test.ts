@@ -45,7 +45,8 @@ function createPayload() {
       toolExecutionMode: "read_only" as const,
       sortOrder: 0,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
+      isActive: false
     },
     messages: [],
     toolExecutionMode: "read_only" as const,
@@ -79,12 +80,26 @@ function createPayload() {
 }
 
 describe("chat view attachments", () => {
+  const originalMaxTouchPoints = Object.getOwnPropertyDescriptor(navigator, "maxTouchPoints");
+
   beforeEach(() => {
     push.mockReset();
     refresh.mockReset();
     global.fetch = vi.fn();
     vi.useRealTimers();
     window.history.pushState({}, "", "/chat/conv_1");
+  });
+
+  afterEach(() => {
+    if (originalMaxTouchPoints) {
+      Object.defineProperty(navigator, "maxTouchPoints", originalMaxTouchPoints);
+      return;
+    }
+
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 0
+    });
   });
 
   it("uploads an attachment from the file input and removes it from the pending list", async () => {
@@ -129,6 +144,21 @@ describe("chat view attachments", () => {
     await waitFor(() => {
       expect(textarea).toHaveFocus();
     });
+  });
+
+  it("does not autofocus the composer on touch devices", () => {
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 1
+    });
+
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    expect(
+      screen.getByPlaceholderText(
+        "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+      )
+    ).not.toHaveFocus();
   });
 
   it("shows a drop overlay and uploads dropped files", async () => {
@@ -675,5 +705,140 @@ describe("chat view attachments", () => {
     const wrappersAfterSync = Array.from(container.querySelectorAll(".animate-slide-up"));
     expect(wrappersAfterSync).toHaveLength(2);
     expect(wrappersAfterSync.at(-1)).toBe(assistantWrapper);
+  });
+
+  it("renders tool actions and answer text while the stream is still open", async () => {
+    let controllerRef: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const encoder = new TextEncoder();
+
+    storeChatBootstrap("conv_1", {
+      message: "Bootstrap prompt",
+      attachments: []
+    });
+
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controllerRef = controller;
+        }
+      })
+    } as Response);
+
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    await waitFor(() => {
+      expect(controllerRef).toBeDefined();
+    });
+
+    controllerRef?.enqueue(
+      encoder.encode('data: {"type":"message_start","messageId":"msg_assistant"}\n\n')
+    );
+    controllerRef?.enqueue(
+      encoder.encode('data: {"type":"thinking_delta","text":"Thinking"}\n\n')
+    );
+    controllerRef?.enqueue(
+      encoder.encode(
+        `data: ${JSON.stringify({
+          type: "action_start",
+          action: {
+            id: "act_live",
+            messageId: "msg_assistant",
+            kind: "mcp_tool_call",
+            status: "running",
+            serverId: "exa",
+            skillId: null,
+            toolName: "web_search_exa",
+            label: "web_search_exa",
+            detail: "query=booking",
+            arguments: { query: "booking" },
+            resultSummary: "",
+            sortOrder: 0,
+            startedAt: new Date().toISOString(),
+            completedAt: null
+          }
+        })}\n\n`
+      )
+    );
+    controllerRef?.enqueue(
+      encoder.encode('data: {"type":"answer_delta","text":"Working on it"}\n\n')
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId("assistant-actions-shell")).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Working on it")).toBeInTheDocument();
+    });
+  });
+
+  it("does not duplicate committed answer text while streaming after a tool call", async () => {
+    let controllerRef: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const encoder = new TextEncoder();
+
+    storeChatBootstrap("conv_1", {
+      message: "Bootstrap prompt",
+      attachments: []
+    });
+
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controllerRef = controller;
+        }
+      })
+    } as Response);
+
+    const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
+
+    await waitFor(() => {
+      expect(controllerRef).toBeDefined();
+    });
+
+    controllerRef?.enqueue(
+      encoder.encode('data: {"type":"message_start","messageId":"msg_assistant"}\n\n')
+    );
+    controllerRef?.enqueue(
+      encoder.encode('data: {"type":"answer_delta","text":"Checking the official site.\\n\\n"}\n\n')
+    );
+    controllerRef?.enqueue(
+      encoder.encode(
+        `data: ${JSON.stringify({
+          type: "action_start",
+          action: {
+            id: "act_live",
+            messageId: "msg_assistant",
+            kind: "mcp_tool_call",
+            status: "running",
+            serverId: "exa",
+            skillId: null,
+            toolName: "web_search_exa",
+            label: "web_search_exa",
+            detail: "query=booking",
+            arguments: { query: "booking" },
+            resultSummary: "",
+            sortOrder: 1,
+            startedAt: new Date().toISOString(),
+            completedAt: null
+          }
+        })}\n\n`
+      )
+    );
+    controllerRef?.enqueue(
+      encoder.encode('data: {"type":"answer_delta","text":"The first available slot is Saturday at 9:00 AM."}\n\n')
+    );
+
+    await waitFor(() => {
+      const bubbles = Array.from(
+        container.querySelectorAll('[data-testid="assistant-message-bubble"]')
+      );
+
+      expect(bubbles).toHaveLength(2);
+      expect(bubbles[0]?.textContent).toContain("Checking the official site.");
+      expect(bubbles[1]?.textContent).toContain("The first available slot is Saturday at 9:00 AM.");
+      expect(bubbles[1]?.textContent).not.toContain("Checking the official site.");
+    });
   });
 });

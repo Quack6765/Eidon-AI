@@ -19,6 +19,7 @@
 
 ## Spacing & Layout
 - **Grid:** Full-bleed ChatGPT-style layout with fixed left sidebar (280px, off-canvas on mobile) and central chat view
+- **Mobile Shell Height:** The shell owns the viewport height; chat pages fill the remaining column space under the mobile top bar instead of mounting their own extra `100dvh` viewport
 - **Max Content Width:** `max-w-5xl` for chat messages on desktop, `max-w-[980px]` for the floating composer, `max-w-[680px]` for the home input
 - **Input Area:** Floating pill at bottom with gradient fade-out, accent-colored send button with glow
 
@@ -27,6 +28,7 @@
 - **Glassmorphism:** `backdrop-blur` on overlays and login card
 - **Animations:** `animate-slide-up` for page content, `animate-fade-in` for menus/dropdowns, CSS transitions (200-300ms ease) for all interactive states, `typing-dot` keyframes for loading indicator
 - **Responsive:** Mobile hamburger toggle for sidebar; desktop shows sidebar inline. Touch targets follow minimum 44px
+- **Touch Focus:** Home and chat composers do not auto-focus on touch devices so mobile route transitions do not re-open the keyboard or destabilize the viewport
 - **Sidebar Actions:** The primary `New chat` action lives as a full-width CTA directly beneath the search control rather than as a small header icon.
 - **Settings:** Two-column card layout (`lg:grid-cols-[1.3fr,0.7fr]`), rounded-xl form elements, section headers with icon badges
 - **Chat Rendering:** User messages: right-aligned rounded pill with accent background. Assistant: left-aligned with avatar and a compact `w-fit` reply bubble capped to the same width as user messages, using custom `.markdown-body` styling for headings, lists, tables, blockquotes, code, task lists, links, images, and horizontal rules. Thinking: collapsible accordion with indigo border.

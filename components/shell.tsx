@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Menu, Plus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/sidebar";
+import { SettingsNav } from "@/components/settings/settings-nav";
 import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 
@@ -19,6 +20,7 @@ export function Shell({
   const activeConversationId = pathname.startsWith("/chat/")
     ? pathname.split("/chat/")[1]
     : null;
+  const isSettingsPage = pathname.startsWith("/settings");
 
   return (
     <div className="flex h-[100dvh] w-full bg-[var(--background)] overflow-hidden">
@@ -41,11 +43,15 @@ export function Shell({
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <Sidebar conversationPage={conversationPage} folders={folders} onClose={() => setIsSidebarOpen(false)} />
+        {isSettingsPage ? (
+          <SettingsNav onCloseAction={() => setIsSidebarOpen(false)} />
+        ) : (
+          <Sidebar conversationPage={conversationPage} folders={folders} onClose={() => setIsSidebarOpen(false)} />
+        )}
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col relative w-full overflow-y-auto">
-        <div className="sticky top-0 z-30 flex h-14 items-center justify-between px-4 md:hidden bg-[var(--background)]/80 backdrop-blur-xl border-b border-white/4">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col w-full overflow-hidden pt-14 md:pt-0">
+        <div className="fixed top-0 left-0 right-0 z-30 flex h-14 items-center justify-between px-4 md:hidden bg-[var(--background)]/80 backdrop-blur-xl border-b border-white/4">
           <button
             type="button"
             className="p-2 -ml-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"

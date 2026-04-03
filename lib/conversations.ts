@@ -46,6 +46,7 @@ type ConversationRow = {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  is_active: number;
 };
 
 type ConversationCursor = {
@@ -76,7 +77,8 @@ function rowToConversation(row: ConversationRow): Conversation {
     toolExecutionMode: row.tool_execution_mode,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    isActive: row.is_active === 1
   };
 }
 
@@ -217,7 +219,8 @@ export function listConversations() {
         c.tool_execution_mode,
         c.sort_order,
         c.created_at,
-        ${activityTimestamp} AS updated_at
+        ${activityTimestamp} AS updated_at,
+        c.is_active
        FROM conversations c
        ORDER BY ${activityTimestamp} DESC, c.id DESC`
     )
@@ -246,7 +249,8 @@ export function listConversationsPage(input: {
             c.tool_execution_mode,
             c.sort_order,
             c.created_at,
-            ${activityTimestamp} AS updated_at
+            ${activityTimestamp} AS updated_at,
+            c.is_active
            FROM conversations c
            WHERE ${activityTimestamp} < ?
              OR (${activityTimestamp} = ? AND c.id < ?)
@@ -265,7 +269,8 @@ export function listConversationsPage(input: {
             c.tool_execution_mode,
             c.sort_order,
             c.created_at,
-            ${activityTimestamp} AS updated_at
+            ${activityTimestamp} AS updated_at,
+            c.is_active
            FROM conversations c
            ORDER BY ${activityTimestamp} DESC, c.id DESC
            LIMIT ?`
@@ -301,23 +306,12 @@ export function getConversation(conversationId: string) {
         c.tool_execution_mode,
         c.sort_order,
         c.created_at,
-        ${activityTimestamp} AS updated_at
+        ${activityTimestamp} AS updated_at,
+        c.is_active
        FROM conversations c
        WHERE c.id = ?`
     )
-    .get(conversationId) as
-    | {
-        id: string;
-        title: string;
-        title_generation_status: ConversationTitleGenerationStatus;
-        folder_id: string | null;
-        provider_profile_id: string | null;
-        tool_execution_mode: ToolExecutionMode;
-        sort_order: number;
-        created_at: string;
-        updated_at: string;
-      }
-    | undefined;
+    .get(conversationId) as ConversationRow | undefined;
 
   return row ? rowToConversation(row) : null;
 }
@@ -349,7 +343,8 @@ export function createConversation(
       (DEFAULT_TOOL_EXECUTION_MODE as ToolExecutionMode),
     sortOrder: maxOrder.max_order + 1,
     createdAt: timestamp,
-    updatedAt: timestamp
+    updatedAt: timestamp,
+    isActive: false
   };
 
   getDb()
@@ -363,8 +358,9 @@ export function createConversation(
         tool_execution_mode,
         sort_order,
         created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        updated_at,
+        is_active
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       conversation.id,
@@ -375,7 +371,8 @@ export function createConversation(
       conversation.toolExecutionMode,
       conversation.sortOrder,
       conversation.createdAt,
-      conversation.updatedAt
+      conversation.updatedAt,
+      0
     );
 
   return conversation;
@@ -473,6 +470,13 @@ export function bumpConversation(conversationId: string) {
   getDb()
     .prepare("UPDATE conversations SET updated_at = ? WHERE id = ?")
     .run(nowIso(), conversationId);
+}
+
+export function setConversationActive(conversationId: string, active: boolean) {
+  const timestamp = nowIso();
+  getDb()
+    .prepare("UPDATE conversations SET is_active = ?, updated_at = ? WHERE id = ?")
+    .run(active ? 1 : 0, timestamp, conversationId);
 }
 
 export function createMessage(input: {
@@ -1015,7 +1019,8 @@ export function claimConversationTitleGeneration(conversationId: string, userMes
   const result = getDb()
     .prepare(
       `UPDATE conversations
-       SET title_generation_status = 'running'
+       SET title_generation_status = 'running',
+           is_active = 1
        WHERE id = ?
          AND title_generation_status = 'pending'
          AND ? = (
@@ -1033,21 +1038,31 @@ export function claimConversationTitleGeneration(conversationId: string, userMes
 }
 
 export function completeConversationTitleGeneration(conversationId: string, title: string) {
-  return updateConversationTitleRecord({
-    conversationId,
-    title,
-    titleGenerationStatus: "completed",
-    updateTimestamp: false
-  });
+  getDb()
+    .prepare(
+      `UPDATE conversations
+       SET title = ?,
+           title_generation_status = 'completed',
+           is_active = 0,
+           updated_at = ?
+       WHERE id = ?`
+    )
+    .run(title, nowIso(), conversationId);
+  return true;
 }
 
 export function failConversationTitleGeneration(conversationId: string) {
-  return updateConversationTitleRecord({
-    conversationId,
-    title: DEFAULT_CONVERSATION_TITLE,
-    titleGenerationStatus: "failed",
-    updateTimestamp: false
-  });
+  getDb()
+    .prepare(
+      `UPDATE conversations
+       SET title = ?,
+           title_generation_status = 'failed',
+           is_active = 0,
+           updated_at = ?
+       WHERE id = ?`
+    )
+    .run(DEFAULT_CONVERSATION_TITLE, nowIso(), conversationId);
+  return true;
 }
 
 export async function generateConversationTitleFromFirstUserMessage(
@@ -1186,7 +1201,8 @@ export function searchConversations(query: string) {
         c.tool_execution_mode,
         c.sort_order,
         c.created_at,
-        ${activityTimestamp} AS updated_at
+        ${activityTimestamp} AS updated_at,
+        c.is_active
        FROM conversations c
        LEFT JOIN messages m ON c.id = m.conversation_id
        WHERE c.title LIKE ?
@@ -1196,17 +1212,7 @@ export function searchConversations(query: string) {
           )
        ORDER BY ${activityTimestamp} DESC, c.id DESC`
     )
-    .all(likeQuery, likeQuery) as Array<{
-    id: string;
-    title: string;
-    title_generation_status: ConversationTitleGenerationStatus;
-    folder_id: string | null;
-    provider_profile_id: string | null;
-    tool_execution_mode: ToolExecutionMode;
-    sort_order: number;
-    created_at: string;
-    updated_at: string;
-  }>;
+    .all(likeQuery, likeQuery) as ConversationRow[];
 
   return rows.map(rowToConversation);
 }

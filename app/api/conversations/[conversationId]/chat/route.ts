@@ -9,6 +9,7 @@ import {
   createMessageTextSegment,
   generateConversationTitleFromFirstUserMessage,
   getConversation,
+  setConversationActive,
   updateMessage,
   updateMessageAction,
 } from "@/lib/conversations";
@@ -19,7 +20,7 @@ import {
   getDefaultProviderProfileWithApiKey,
   getProviderProfileWithApiKey
 } from "@/lib/settings";
-import { encodeSseEvent } from "@/lib/sse";
+import { encodeSseEvent, encodeSseFlushMarker, encodeSsePrelude } from "@/lib/sse";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
@@ -100,8 +101,14 @@ export async function POST(
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      controller.enqueue(encoder.encode(encodeSsePrelude()));
+
       const write = (event: ChatStreamEvent) => {
         controller.enqueue(encoder.encode(encodeSseEvent(event)));
+
+        if (event.type !== "thinking_delta") {
+          controller.enqueue(encoder.encode(encodeSseFlushMarker()));
+        }
       };
 
       try {
@@ -128,6 +135,8 @@ export async function POST(
           type: "message_start",
           messageId: assistantMessage.id
         });
+
+        setConversationActive(conversation.id, true);
 
         let timelineSortOrder = 0;
 
@@ -219,6 +228,7 @@ export async function POST(
           type: "done",
           messageId: assistantMessage.id
         });
+        setConversationActive(conversation.id, false);
         controller.close();
       } catch (error) {
         updateMessage(assistantMessage.id, {
@@ -231,6 +241,7 @@ export async function POST(
           type: "error",
           message: error instanceof Error ? error.message : "Chat stream failed"
         });
+        setConversationActive(conversation.id, false);
         controller.close();
       }
     }
@@ -240,7 +251,8 @@ export async function POST(
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive"
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no"
     }
   });
 }

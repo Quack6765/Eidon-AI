@@ -1,8 +1,12 @@
+import type { ConversationRetention } from "@/lib/types";
+
 export const APP_NAME = "Hermes";
 export const SESSION_COOKIE_NAME = "hermes_session";
 export const SETTINGS_ROW_ID = 1;
 export const DEFAULT_PROVIDER_PROFILE_NAME = "Default profile";
 export const DEFAULT_SKILLS_ENABLED = true;
+export const DEFAULT_CONVERSATION_RETENTION: ConversationRetention = "forever";
+export const DEFAULT_AUTO_COMPACTION = true;
 export const DEFAULT_TOOL_EXECUTION_MODE = "read_only";
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MAX_ASSISTANT_CONTROL_STEPS = 16;

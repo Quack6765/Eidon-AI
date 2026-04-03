@@ -231,6 +231,7 @@ function MessageAttachments({
 
 export function MessageBubble({
   message,
+  streamingTimeline,
   streamingThinking,
   streamingAnswer,
   awaitingFirstToken = false,
@@ -241,6 +242,7 @@ export function MessageBubble({
   isUpdating = false
 }: {
   message: Message;
+  streamingTimeline?: MessageTimelineItem[];
   streamingThinking?: string;
   streamingAnswer?: string;
   awaitingFirstToken?: boolean;
@@ -253,10 +255,18 @@ export function MessageBubble({
   const rawContent = streamingAnswer ?? message.content;
   const rawThinking = streamingThinking ?? message.thinkingContent;
   const actions = message.actions ?? [];
+  const liveTimeline = streamingTimeline ?? message.timeline;
   const content = normalizeMarkdownLineBreaks(rawContent);
   const thinkingContent = normalizeMarkdownLineBreaks(rawThinking);
+  const committedStreamingText = liveTimeline
+    ?.filter(
+      (item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> =>
+        item.timelineKind === "text"
+    )
+    .map((item) => item.content)
+    .join("") ?? "";
   const baseTimeline =
-    message.timeline ??
+    liveTimeline ??
     (message.role === "assistant"
       ? [
           ...actions.map((action) => ({
@@ -276,15 +286,21 @@ export function MessageBubble({
             : [])
         ]
       : []);
+  const pendingStreamingText =
+    liveTimeline && streamingAnswer !== undefined && rawContent
+      ? rawContent.startsWith(committedStreamingText)
+        ? rawContent.slice(committedStreamingText.length)
+        : rawContent
+      : "";
   const streamingContentAppend =
-    message.role === "assistant" && message.timeline && streamingAnswer !== undefined && rawContent
+    message.role === "assistant" && pendingStreamingText
       ? [
           {
             id: `stream_content_${message.id}`,
             timelineKind: "text" as const,
             sortOrder: baseTimeline.length,
             createdAt: message.createdAt,
-            content: rawContent
+            content: pendingStreamingText
           }
         ]
       : [];

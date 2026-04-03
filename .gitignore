@@ -9,3 +9,4 @@ test-results
 .e2e-data
 .env*.local
 tsconfig.tsbuildinfo
+.superpowers/

@@ -7,10 +7,11 @@ import { ChevronDown } from "lucide-react";
 import { ChatComposer } from "@/components/chat-composer";
 import { MessageBubble } from "@/components/message-bubble";
 import { consumeChatBootstrap } from "@/lib/chat-bootstrap";
-import { dispatchConversationTitleUpdated } from "@/lib/conversation-events";
+import { dispatchConversationTitleUpdated, dispatchConversationActivityUpdated } from "@/lib/conversation-events";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { supportsImageInput } from "@/lib/model-capabilities";
-import { formatTimestamp } from "@/lib/utils";
+import { createId } from "@/lib/ids";
+import { formatTimestamp, shouldAutofocusTextInput } from "@/lib/utils";
 import type {
   ChatStreamEvent,
   Conversation,
@@ -150,6 +151,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [messages, streamThinkingDisplay, streamAnswerDisplay, streamTimeline]);
 
   useEffect(() => {
+    if (!shouldAutofocusTextInput()) {
+      return;
+    }
+
     const handle = window.requestAnimationFrame(() => {
       inputRef.current?.focus({ preventScroll: true });
       const length = inputRef.current?.value.length ?? 0;
@@ -583,7 +588,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     setError("");
     const optimisticUserMessage: Message = {
-      id: `local_${crypto.randomUUID()}`,
+      id: createId("local"),
       conversationId: payload.conversation.id,
       role: "user",
       content: value,
@@ -596,7 +601,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       attachments: nextPendingAttachments
     };
     const optimisticAssistantMessage: Message = {
-      id: `local_${crypto.randomUUID()}`,
+      id: createId("local"),
       conversationId: payload.conversation.id,
       role: "assistant",
       content: "",
@@ -657,6 +662,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
         throw new Error(message);
       }
+
+      dispatchConversationActivityUpdated({
+        conversationId: payload.conversation.id,
+        isActive: true
+      });
 
       if (shouldPollConversationTitle) {
         startTitlePolling();
@@ -745,7 +755,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             setMessages((current) => [
               ...current,
               {
-                id: `notice_${crypto.randomUUID()}`,
+                id: createId("notice"),
                 conversationId: payload.conversation.id,
                 role: "system",
                 content: event.text,
@@ -799,6 +809,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       );
       setError(caughtError instanceof Error ? caughtError.message : "Chat failed");
     } finally {
+      dispatchConversationActivityUpdated({
+        conversationId: payload.conversation.id,
+        isActive: false
+      });
       setStreamMessageId(null);
       setStreamTimeline([]);
       setStreamThinkingTarget("");
@@ -830,7 +844,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   return (
     <div
       data-testid="chat-view-root"
-      className="relative flex h-[100dvh] w-full flex-col bg-[var(--background)]"
+      className="relative flex min-h-0 flex-1 w-full flex-col bg-[var(--background)]"
       onDragEnter={(event) => {
         if (!event.dataTransfer.types.includes("Files")) {
           return;
@@ -911,6 +925,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             >
               <MessageBubble
                 message={message}
+                streamingTimeline={message.id === streamMessageId ? streamTimeline : undefined}
                 streamingThinking={message.id === streamMessageId ? streamThinkingDisplay : undefined}
                 streamingAnswer={message.id === streamMessageId ? streamAnswerDisplay : undefined}
                 awaitingFirstToken={message.id === streamMessageId ? !hasReceivedFirstToken : false}
