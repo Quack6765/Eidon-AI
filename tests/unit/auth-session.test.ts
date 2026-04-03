@@ -182,4 +182,43 @@ describe("session lifecycle", () => {
       vi.resetModules();
     }
   });
+
+  it("returns null in production without a session cookie before bootstrap secrets are accessed", async () => {
+    const previous = {
+      NODE_ENV: process.env.NODE_ENV,
+      HERMES_PASSWORD_LOGIN_ENABLED: process.env.HERMES_PASSWORD_LOGIN_ENABLED,
+      HERMES_ADMIN_USERNAME: process.env.HERMES_ADMIN_USERNAME,
+      HERMES_ADMIN_PASSWORD: process.env.HERMES_ADMIN_PASSWORD,
+      HERMES_SESSION_SECRET: process.env.HERMES_SESSION_SECRET,
+      HERMES_ENCRYPTION_SECRET: process.env.HERMES_ENCRYPTION_SECRET
+    };
+
+    Object.assign(process.env, {
+      NODE_ENV: "production",
+      HERMES_PASSWORD_LOGIN_ENABLED: "true",
+      HERMES_ADMIN_USERNAME: "admin"
+    });
+    delete process.env.HERMES_ADMIN_PASSWORD;
+    delete process.env.HERMES_SESSION_SECRET;
+    delete process.env.HERMES_ENCRYPTION_SECRET;
+    cookieState.clear();
+    vi.resetModules();
+
+    try {
+      const auth = await import("@/lib/auth");
+
+      await expect(auth.getCurrentUser()).resolves.toBeNull();
+      await expect(auth.requireUser()).rejects.toThrow("redirect:/login");
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+
+      vi.resetModules();
+    }
+  });
 });
