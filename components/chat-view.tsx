@@ -84,6 +84,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
   const messagesRef = useRef(payload.messages);
+  const streamAnswerTargetRef = useRef("");
+  const streamThinkingTargetRef = useRef("");
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
   const titlePollTimeoutRef = useRef<number | null>(null);
   const titlePollAttemptsRef = useRef(0);
@@ -142,13 +144,37 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [payload.conversation.id]);
 
   function handleDelta(event: ChatStreamEvent) {
-    if (event.type === "message_start" || event.type === "usage") {
+    if (event.type === "message_start") {
+      setStreamMessageId(event.messageId);
+      setMessages((current) => [
+        ...current,
+        {
+          id: event.messageId,
+          conversationId: payload.conversation.id,
+          role: "assistant",
+          content: "",
+          thinkingContent: "",
+          status: "streaming",
+          estimatedTokens: 0,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        }
+      ]);
+      return;
+    }
+
+    if (event.type === "usage") {
       return;
     }
 
     if (event.type === "thinking_delta") {
       setHasReceivedFirstToken(true);
-      setStreamThinkingTarget((prev) => prev + event.text);
+      setStreamThinkingTarget((prev) => {
+        const next = prev + event.text;
+        streamThinkingTargetRef.current = next;
+        return next;
+      });
       if (!thinkingStartTimeRef.current) {
         thinkingStartTimeRef.current = Date.now();
       }
@@ -156,7 +182,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "answer_delta") {
       setHasReceivedFirstToken(true);
-      setStreamAnswerTarget((prev) => prev + event.text);
+      setStreamAnswerTarget((prev) => {
+        const next = prev + event.text;
+        streamAnswerTargetRef.current = next;
+        return next;
+      });
       if (thinkingStartTimeRef.current && !thinkingDuration) {
         const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
         setThinkingDuration(duration);
@@ -190,12 +220,38 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "done") {
+      const finalAnswer = streamAnswerTargetRef.current;
+      const finalThinking = streamThinkingTargetRef.current;
+
+      setMessages((current) =>
+        current.map((m) =>
+          m.id === event.messageId
+            ? {
+                ...m,
+                content: finalAnswer,
+                thinkingContent: finalThinking,
+                status: "completed" as const
+              }
+            : m
+        )
+      );
       setStreamMessageId(null);
       setStreamTimeline([]);
+      setStreamAnswerTarget("");
+      setStreamAnswerDisplay("");
+      setStreamThinkingTarget("");
+      setStreamThinkingDisplay("");
+      streamAnswerTargetRef.current = "";
+      streamThinkingTargetRef.current = "";
       setIsSending(false);
     }
 
     if (event.type === "error") {
+      setMessages((current) =>
+        current.map((m) =>
+          m.id === streamMessageId ? { ...m, status: "error" as const } : m
+        )
+      );
       setError(event.message);
       setStreamMessageId(null);
       setStreamTimeline([]);
@@ -574,12 +630,28 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     setStreamThinkingDisplay("");
     setStreamAnswerTarget("");
     setStreamAnswerDisplay("");
-    setStreamMessageId("streaming");
+    streamAnswerTargetRef.current = "";
+    streamThinkingTargetRef.current = "";
+    setStreamMessageId(null);
     setStreamTimeline([]);
     setHasReceivedFirstToken(false);
     thinkingStartTimeRef.current = null;
     setThinkingDuration(undefined);
     setIsSending(true);
+
+    const optimisticUserMessage = {
+      id: `local_${Date.now()}`,
+      conversationId: payload.conversation.id,
+      role: "user" as const,
+      content: value,
+      thinkingContent: "",
+      status: "completed" as const,
+      estimatedTokens: 0,
+      systemKind: null,
+      compactedAt: null,
+      createdAt: new Date().toISOString()
+    };
+    setMessages((current) => [...current, optimisticUserMessage]);
 
     wsSend({
       type: "message",

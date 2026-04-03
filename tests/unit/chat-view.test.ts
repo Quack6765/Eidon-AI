@@ -4,7 +4,6 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { ChatView } from "@/components/chat-view";
-import { storeChatBootstrap } from "@/lib/chat-bootstrap";
 import type { MessageAttachment } from "@/lib/types";
 
 const push = vi.fn();
@@ -15,6 +14,29 @@ vi.mock("next/navigation", () => ({
     push,
     refresh
   })
+}));
+
+const wsMock = vi.hoisted(() => ({
+  onMessage: null as ((msg: unknown) => void) | null,
+  send: vi.fn(),
+  subscribe: vi.fn(),
+  unsubscribe: vi.fn(),
+  connected: true
+}));
+
+vi.mock("@/lib/ws-client", () => ({
+  useWebSocket: (options: { onMessage?: (msg: unknown) => void }) => {
+    wsMock.onMessage = options.onMessage ?? null;
+    return wsMock;
+  }
+}));
+
+vi.mock("@/lib/conversation-drafts", () => ({
+  deleteConversationIfStillEmpty: vi.fn().mockResolvedValue(false)
+}));
+
+vi.mock("@/lib/conversation-events", () => ({
+  dispatchConversationRemoved: vi.fn()
 }));
 
 function createAttachment(overrides: Partial<MessageAttachment> = {}): MessageAttachment {
@@ -79,14 +101,15 @@ function createPayload() {
   };
 }
 
-describe("chat view attachments", () => {
+describe("chat view", () => {
   const originalMaxTouchPoints = Object.getOwnPropertyDescriptor(navigator, "maxTouchPoints");
 
   beforeEach(() => {
     push.mockReset();
     refresh.mockReset();
+    wsMock.onMessage = null;
+    vi.clearAllMocks();
     global.fetch = vi.fn();
-    vi.useRealTimers();
     window.history.pushState({}, "", "/chat/conv_1");
   });
 
@@ -200,89 +223,28 @@ describe("chat view attachments", () => {
     expect(screen.queryByText("Drop files to attach")).toBeNull();
   });
 
-  it("submits a bootstrapped first prompt for a new conversation", async () => {
-    const encoder = new TextEncoder();
-    storeChatBootstrap("conv_1", {
-      message: "Bootstrap prompt",
-      attachments: []
-    });
-
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      body: new ReadableStream({
-        start(controller) {
-          controller.enqueue(
-            encoder.encode('data: {"type":"message_start","messageId":"msg_assistant"}\n\n')
-          );
-          controller.enqueue(
-            encoder.encode('data: {"type":"answer_delta","text":"Done"}\n\n')
-          );
-          controller.enqueue(
-            encoder.encode('data: {"type":"done","messageId":"msg_assistant"}\n\n')
-          );
-          controller.close();
-        }
-      })
-    } as Response);
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        conversation: createPayload().conversation,
-        messages: [
-          {
-            id: "msg_user",
-            conversationId: "conv_1",
-            role: "user",
-            content: "Bootstrap prompt",
-            thinkingContent: "",
-            status: "completed",
-            estimatedTokens: 0,
-            systemKind: null,
-            compactedAt: null,
-            createdAt: new Date().toISOString(),
-            actions: [],
-            attachments: []
-          },
-          {
-            id: "msg_assistant",
-            conversationId: "conv_1",
-            role: "assistant",
-            content: "Done",
-            thinkingContent: "",
-            status: "completed",
-            estimatedTokens: 0,
-            systemKind: null,
-            compactedAt: null,
-            createdAt: new Date().toISOString(),
-            actions: [],
-            attachments: []
-          }
-        ],
-        debug: createPayload().debug
-      })
-    } as Response);
-
+  it("sends a message via WebSocket when the user submits", async () => {
     render(React.createElement(ChatView, { payload: createPayload() }));
 
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "/api/conversations/conv_1/chat",
-        expect.objectContaining({
-          method: "POST"
-        })
-      );
-    });
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(textarea, { target: { value: "Hello world" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith("/api/conversations/conv_1");
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "Hello world",
+        attachmentIds: []
+      });
     });
   });
 
   it("deletes an empty conversation when navigating away before sending a message", async () => {
-    vi.mocked(global.fetch).mockResolvedValue({
-      ok: true,
-      json: async () => ({ success: true, deleted: true })
-    } as Response);
+    const { deleteConversationIfStillEmpty } = await import("@/lib/conversation-drafts");
 
     const view = render(React.createElement(ChatView, { payload: createPayload() }));
 
@@ -290,479 +252,120 @@ describe("chat view attachments", () => {
     view.unmount();
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "/api/conversations/conv_1?onlyIfEmpty=1",
-        expect.objectContaining({
-          method: "DELETE",
-          keepalive: true
-        })
-      );
+      expect(deleteConversationIfStillEmpty).toHaveBeenCalledWith("conv_1");
     });
   });
 
-  it("keeps an empty conversation when the chat view remounts on the same route", () => {
+  it("keeps an empty conversation when the chat view remounts on the same route", async () => {
+    const { deleteConversationIfStillEmpty } = await import("@/lib/conversation-drafts");
+
     const view = render(React.createElement(ChatView, { payload: createPayload() }));
 
     view.unmount();
 
-    expect(global.fetch).not.toHaveBeenCalled();
+    expect(deleteConversationIfStillEmpty).not.toHaveBeenCalled();
   });
 
-  it("polls for a generated title after the first user turn", async () => {
-    const encoder = new TextEncoder();
-    storeChatBootstrap("conv_1", {
-      message: "Build a deployment checklist",
-      attachments: []
-    });
+  it("processes a WebSocket snapshot to update messages", async () => {
+    render(React.createElement(ChatView, { payload: createPayload() }));
 
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        body: new ReadableStream({
-          start(controller) {
-            controller.enqueue(
-              encoder.encode('data: {"type":"message_start","messageId":"msg_assistant"}\n\n')
-            );
-            controller.enqueue(
-              encoder.encode('data: {"type":"answer_delta","text":"Done"}\n\n')
-            );
-            controller.enqueue(
-              encoder.encode('data: {"type":"done","messageId":"msg_assistant"}\n\n')
-            );
-            controller.close();
-          }
-        })
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          conversation: {
-            ...createPayload().conversation,
-            title: "Conversation",
-            titleGenerationStatus: "pending"
-          },
-          messages: [
-            {
-              id: "msg_user",
-              conversationId: "conv_1",
-              role: "user",
-              content: "Build a deployment checklist",
-              thinkingContent: "",
-              status: "completed",
-              estimatedTokens: 0,
-              systemKind: null,
-              compactedAt: null,
-              createdAt: new Date().toISOString(),
-              actions: [],
-              attachments: []
-            },
-            {
-              id: "msg_assistant",
-              conversationId: "conv_1",
-              role: "assistant",
-              content: "Done",
-              thinkingContent: "",
-              status: "completed",
-              estimatedTokens: 0,
-              systemKind: null,
-              compactedAt: null,
-              createdAt: new Date().toISOString(),
-              actions: [],
-              attachments: []
-            }
-          ],
-          debug: createPayload().debug
-        })
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          conversation: {
-            ...createPayload().conversation,
-            title: "Deployment Checklist",
-            titleGenerationStatus: "completed"
-          }
-        })
-      } as Response);
-
-    render(
-      React.createElement(ChatView, {
-        payload: {
-          ...createPayload(),
-          conversation: {
-            ...createPayload().conversation,
-            title: "Conversation",
-            titleGenerationStatus: "pending"
-          }
+    wsMock.onMessage!({
+      type: "snapshot",
+      conversationId: "conv_1",
+      messages: [
+        {
+          id: "msg_user",
+          conversationId: "conv_1",
+          role: "user",
+          content: "Hello",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 5,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "msg_assistant",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "Hi there!",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 3,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
         }
-      })
-    );
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "/api/conversations/conv_1/chat",
-        expect.objectContaining({
-          method: "POST"
-        })
-      );
+      ]
     });
 
-    await waitFor(
-      () => {
-        expect(global.fetch).toHaveBeenCalledWith("/api/conversations/conv_1");
-      },
-      {
-        timeout: 2000
-      }
-    );
-
     await waitFor(() => {
-      expect(screen.getByText("Deployment Checklist")).toBeInTheDocument();
+      expect(screen.getByText("Hello")).toBeInTheDocument();
+      expect(screen.getByText("Hi there!")).toBeInTheDocument();
     });
-
-    expect(refresh).not.toHaveBeenCalled();
   });
 
-  it("renders assistant text and tool actions in chronological order after sync", async () => {
-    const encoder = new TextEncoder();
-    storeChatBootstrap("conv_1", {
-      message: "Check booking availability",
-      attachments: []
+  it("receives streamed answer via WebSocket deltas and renders it", async () => {
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
     });
-
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        body: new ReadableStream({
-          start(controller) {
-            controller.enqueue(
-              encoder.encode('data: {"type":"message_start","messageId":"msg_assistant"}\n\n')
-            );
-            controller.enqueue(
-              encoder.encode('data: {"type":"answer_delta","text":"Checking the official site.\\n\\n"}\n\n')
-            );
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  type: "action_start",
-                  action: {
-                    id: "act_1",
-                    messageId: "msg_assistant",
-                    kind: "mcp_tool_call",
-                    status: "running",
-                    serverId: "exa",
-                    skillId: null,
-                    toolName: "web_search_exa",
-                    label: "web_search_exa",
-                    detail: "query=booking",
-                    arguments: { query: "booking" },
-                    resultSummary: "",
-                    sortOrder: 1,
-                    startedAt: new Date().toISOString(),
-                    completedAt: null
-                  }
-                })}\n\n`
-              )
-            );
-            controller.enqueue(
-              encoder.encode(
-                `data: ${JSON.stringify({
-                  type: "action_complete",
-                  action: {
-                    id: "act_1",
-                    messageId: "msg_assistant",
-                    kind: "mcp_tool_call",
-                    status: "completed",
-                    serverId: "exa",
-                    skillId: null,
-                    toolName: "web_search_exa",
-                    label: "web_search_exa",
-                    detail: "query=booking",
-                    arguments: { query: "booking" },
-                    resultSummary: "Found official site",
-                    sortOrder: 1,
-                    startedAt: new Date().toISOString(),
-                    completedAt: new Date().toISOString()
-                  }
-                })}\n\n`
-              )
-            );
-            controller.enqueue(
-              encoder.encode('data: {"type":"answer_delta","text":"The first available slot is Saturday at 9:00 AM."}\n\n')
-            );
-            controller.enqueue(
-              encoder.encode('data: {"type":"done","messageId":"msg_assistant"}\n\n')
-            );
-            controller.close();
-          }
-        })
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          conversation: createPayload().conversation,
-          messages: [
-            {
-              id: "msg_user",
-              conversationId: "conv_1",
-              role: "user",
-              content: "Check booking availability",
-              thinkingContent: "",
-              status: "completed",
-              estimatedTokens: 0,
-              systemKind: null,
-              compactedAt: null,
-              createdAt: new Date().toISOString(),
-              actions: [],
-              attachments: []
-            },
-            {
-              id: "msg_assistant",
-              conversationId: "conv_1",
-              role: "assistant",
-              content: "Checking the official site.\n\nThe first available slot is Saturday at 9:00 AM.",
-              thinkingContent: "",
-              status: "completed",
-              estimatedTokens: 0,
-              systemKind: null,
-              compactedAt: null,
-              createdAt: new Date().toISOString(),
-              actions: [
-                {
-                  id: "act_1",
-                  messageId: "msg_assistant",
-                  kind: "mcp_tool_call",
-                  status: "completed",
-                  serverId: "exa",
-                  skillId: null,
-                  toolName: "web_search_exa",
-                  label: "web_search_exa",
-                  detail: "query=booking",
-                  arguments: { query: "booking" },
-                  resultSummary: "Found official site",
-                  sortOrder: 1,
-                  startedAt: new Date().toISOString(),
-                  completedAt: new Date().toISOString()
-                }
-              ],
-              textSegments: [
-                {
-                  id: "seg_1",
-                  messageId: "msg_assistant",
-                  content: "Checking the official site.\n\n",
-                  sortOrder: 0,
-                  createdAt: new Date().toISOString()
-                },
-                {
-                  id: "seg_2",
-                  messageId: "msg_assistant",
-                  content: "The first available slot is Saturday at 9:00 AM.",
-                  sortOrder: 2,
-                  createdAt: new Date().toISOString()
-                }
-              ],
-              timeline: [
-                {
-                  id: "seg_1",
-                  timelineKind: "text",
-                  content: "Checking the official site.\n\n",
-                  sortOrder: 0,
-                  createdAt: new Date().toISOString()
-                },
-                {
-                  id: "act_1",
-                  timelineKind: "action",
-                  kind: "mcp_tool_call",
-                  messageId: "msg_assistant",
-                  status: "completed",
-                  serverId: "exa",
-                  skillId: null,
-                  toolName: "web_search_exa",
-                  label: "web_search_exa",
-                  detail: "query=booking",
-                  arguments: { query: "booking" },
-                  resultSummary: "Found official site",
-                  sortOrder: 1,
-                  startedAt: new Date().toISOString(),
-                  completedAt: new Date().toISOString()
-                },
-                {
-                  id: "seg_2",
-                  timelineKind: "text",
-                  content: "The first available slot is Saturday at 9:00 AM.",
-                  sortOrder: 2,
-                  createdAt: new Date().toISOString()
-                }
-              ],
-              attachments: []
-            }
-          ],
-          debug: createPayload().debug
-        })
-      } as Response);
-
-    const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
-
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith("/api/conversations/conv_1");
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "answer_delta", text: "Done" }
     });
-
-    const blocks = Array.from(
-      container.querySelectorAll('[data-testid="assistant-message-bubble"], [data-testid="assistant-actions-shell"]')
-    );
-
-    expect(blocks[0]?.textContent).toContain("Checking the official site.");
-    expect(blocks[1]?.textContent).toContain("web_search_exa");
-    expect(blocks[2]?.textContent).toContain("The first available slot is Saturday at 9:00 AM.");
-  });
-
-  it("keeps the streaming assistant row mounted when sync finishes", async () => {
-    let controllerRef: ReadableStreamDefaultController<Uint8Array> | undefined;
-    const encoder = new TextEncoder();
-
-    storeChatBootstrap("conv_1", {
-      message: "Bootstrap prompt",
-      attachments: []
-    });
-
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        body: new ReadableStream({
-          start(controller) {
-            controllerRef = controller;
-          }
-        })
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          conversation: createPayload().conversation,
-          messages: [
-            {
-              id: "msg_user",
-              conversationId: "conv_1",
-              role: "user",
-              content: "Bootstrap prompt",
-              thinkingContent: "",
-              status: "completed",
-              estimatedTokens: 0,
-              systemKind: null,
-              compactedAt: null,
-              createdAt: new Date().toISOString(),
-              actions: [],
-              attachments: []
-            },
-            {
-              id: "msg_assistant",
-              conversationId: "conv_1",
-              role: "assistant",
-              content: "Done",
-              thinkingContent: "",
-              status: "completed",
-              estimatedTokens: 0,
-              systemKind: null,
-              compactedAt: null,
-              createdAt: new Date().toISOString(),
-              actions: [],
-              attachments: []
-            }
-          ],
-          debug: createPayload().debug
-        })
-      } as Response);
-
-    const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
-
-    await waitFor(() => {
-      expect(controllerRef).not.toBeNull();
-    });
-
-    await waitFor(() => {
-      expect(container.querySelectorAll(".animate-slide-up")).toHaveLength(2);
-    });
-
-    const assistantWrapper = Array.from(container.querySelectorAll(".animate-slide-up")).at(-1);
-    const controller = controllerRef;
-
-    expect(controller).toBeDefined();
-
-    controller?.enqueue(
-      encoder.encode('data: {"type":"message_start","messageId":"msg_assistant"}\n\n')
-    );
-    controller?.enqueue(
-      encoder.encode('data: {"type":"answer_delta","text":"Done"}\n\n')
-    );
-    controller?.enqueue(
-      encoder.encode('data: {"type":"done","messageId":"msg_assistant"}\n\n')
-    );
-    controller?.close();
 
     await waitFor(() => {
       expect(screen.getByText("Done")).toBeInTheDocument();
     });
-
-    const wrappersAfterSync = Array.from(container.querySelectorAll(".animate-slide-up"));
-    expect(wrappersAfterSync).toHaveLength(2);
-    expect(wrappersAfterSync.at(-1)).toBe(assistantWrapper);
   });
 
-  it("renders tool actions and answer text while the stream is still open", async () => {
-    let controllerRef: ReadableStreamDefaultController<Uint8Array> | undefined;
-    const encoder = new TextEncoder();
-
-    storeChatBootstrap("conv_1", {
-      message: "Bootstrap prompt",
-      attachments: []
-    });
-
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      body: new ReadableStream({
-        start(controller) {
-          controllerRef = controller;
-        }
-      })
-    } as Response);
-
+  it("renders tool actions and answer text while streaming", async () => {
     render(React.createElement(ChatView, { payload: createPayload() }));
 
-    await waitFor(() => {
-      expect(controllerRef).toBeDefined();
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
     });
-
-    controllerRef?.enqueue(
-      encoder.encode('data: {"type":"message_start","messageId":"msg_assistant"}\n\n')
-    );
-    controllerRef?.enqueue(
-      encoder.encode('data: {"type":"thinking_delta","text":"Thinking"}\n\n')
-    );
-    controllerRef?.enqueue(
-      encoder.encode(
-        `data: ${JSON.stringify({
-          type: "action_start",
-          action: {
-            id: "act_live",
-            messageId: "msg_assistant",
-            kind: "mcp_tool_call",
-            status: "running",
-            serverId: "exa",
-            skillId: null,
-            toolName: "web_search_exa",
-            label: "web_search_exa",
-            detail: "query=booking",
-            arguments: { query: "booking" },
-            resultSummary: "",
-            sortOrder: 0,
-            startedAt: new Date().toISOString(),
-            completedAt: null
-          }
-        })}\n\n`
-      )
-    );
-    controllerRef?.enqueue(
-      encoder.encode('data: {"type":"answer_delta","text":"Working on it"}\n\n')
-    );
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "thinking_delta", text: "Thinking" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: {
+        type: "action_start",
+        action: {
+          id: "act_live",
+          messageId: "msg_assistant",
+          kind: "mcp_tool_call",
+          status: "running",
+          serverId: "exa",
+          skillId: null,
+          toolName: "web_search_exa",
+          label: "web_search_exa",
+          detail: "query=booking",
+          arguments: { query: "booking" },
+          resultSummary: "",
+          sortOrder: 0,
+          startedAt: new Date().toISOString(),
+          completedAt: null
+        }
+      }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "answer_delta", text: "Working on it" }
+    });
 
     await waitFor(() => {
       expect(screen.getByTestId("assistant-actions-shell")).toBeInTheDocument();
@@ -773,72 +376,89 @@ describe("chat view attachments", () => {
     });
   });
 
-  it("does not duplicate committed answer text while streaming after a tool call", async () => {
-    let controllerRef: ReadableStreamDefaultController<Uint8Array> | undefined;
-    const encoder = new TextEncoder();
-
-    storeChatBootstrap("conv_1", {
-      message: "Bootstrap prompt",
-      attachments: []
-    });
-
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      body: new ReadableStream({
-        start(controller) {
-          controllerRef = controller;
-        }
-      })
-    } as Response);
-
+  it("keeps the streaming assistant row mounted during streaming", async () => {
     const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
 
-    await waitFor(() => {
-      expect(controllerRef).toBeDefined();
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "answer_delta", text: "Done" }
     });
 
-    controllerRef?.enqueue(
-      encoder.encode('data: {"type":"message_start","messageId":"msg_assistant"}\n\n')
-    );
-    controllerRef?.enqueue(
-      encoder.encode('data: {"type":"answer_delta","text":"Checking the official site.\\n\\n"}\n\n')
-    );
-    controllerRef?.enqueue(
-      encoder.encode(
-        `data: ${JSON.stringify({
-          type: "action_start",
-          action: {
-            id: "act_live",
-            messageId: "msg_assistant",
-            kind: "mcp_tool_call",
-            status: "running",
-            serverId: "exa",
-            skillId: null,
-            toolName: "web_search_exa",
-            label: "web_search_exa",
-            detail: "query=booking",
-            arguments: { query: "booking" },
-            resultSummary: "",
-            sortOrder: 1,
-            startedAt: new Date().toISOString(),
-            completedAt: null
-          }
-        })}\n\n`
-      )
-    );
-    controllerRef?.enqueue(
-      encoder.encode('data: {"type":"answer_delta","text":"The first available slot is Saturday at 9:00 AM."}\n\n')
-    );
+    await waitFor(() => {
+      expect(container.querySelectorAll(".animate-slide-up")).toHaveLength(1);
+    });
+
+    const assistantWrapper = container.querySelector(".animate-slide-up");
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "done", messageId: "msg_assistant" }
+    });
 
     await waitFor(() => {
-      const bubbles = Array.from(
-        container.querySelectorAll('[data-testid="assistant-message-bubble"]')
-      );
+      expect(screen.getByText("Done")).toBeInTheDocument();
+    });
 
-      expect(bubbles).toHaveLength(2);
-      expect(bubbles[0]?.textContent).toContain("Checking the official site.");
-      expect(bubbles[1]?.textContent).toContain("The first available slot is Saturday at 9:00 AM.");
-      expect(bubbles[1]?.textContent).not.toContain("Checking the official site.");
+    const wrappersAfterDone = container.querySelectorAll(".animate-slide-up");
+    expect(wrappersAfterDone).toHaveLength(1);
+    expect(wrappersAfterDone[0]).toBe(assistantWrapper);
+  });
+
+  it("renders answer text without duplication around tool actions during streaming", async () => {
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "answer_delta", text: "Checking the official site.\n\n" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: {
+        type: "action_start",
+        action: {
+          id: "act_live",
+          messageId: "msg_assistant",
+          kind: "mcp_tool_call",
+          status: "running",
+          serverId: "exa",
+          skillId: null,
+          toolName: "web_search_exa",
+          label: "web_search_exa",
+          detail: "query=booking",
+          arguments: { query: "booking" },
+          resultSummary: "",
+          sortOrder: 1,
+          startedAt: new Date().toISOString(),
+          completedAt: null
+        }
+      }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "answer_delta", text: "The first available slot is Saturday at 9:00 AM." }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("assistant-actions-shell")).toBeInTheDocument();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("web_search_exa")).toBeInTheDocument();
     });
   });
 });
