@@ -26,6 +26,7 @@ RUN npm install -g agent-browser && agent-browser install --with-deps
 RUN groupadd --system hermes && useradd --system --gid hermes hermes
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
 RUN mkdir -p /app/data && chown -R hermes:hermes /app
 USER hermes
 EXPOSE 3000
