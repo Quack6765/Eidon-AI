@@ -7,13 +7,13 @@ export function SettingsSplitPane({
   listPanel,
   detailPanel,
   isDetailVisible,
-  onBack,
+  onBackAction,
   listHeader,
 }: {
   listPanel: ReactNode;
   detailPanel: ReactNode;
   isDetailVisible: boolean;
-  onBack: () => void;
+  onBackAction: () => void;
   listHeader: ReactNode;
 }) {
   return (
@@ -41,7 +41,7 @@ export function SettingsSplitPane({
         {/* Mobile back button */}
         <div className="md:hidden p-3 border-b border-white/6">
           <button
-            onClick={onBack}
+            onClick={onBackAction}
             className="flex items-center gap-1.5 text-[0.78rem] text-[#71717a] hover:text-[#f4f4f5] transition-colors"
           >
             <ArrowLeft className="h-3.5 w-3.5" />
