@@ -6,11 +6,9 @@ import { ChevronDown } from "lucide-react";
 
 import { ChatComposer } from "@/components/chat-composer";
 import { MessageBubble } from "@/components/message-bubble";
-import { consumeChatBootstrap } from "@/lib/chat-bootstrap";
-import { dispatchConversationTitleUpdated, dispatchConversationActivityUpdated } from "@/lib/conversation-events";
+import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { supportsImageInput } from "@/lib/model-capabilities";
-import { createId } from "@/lib/ids";
 import { formatTimestamp, shouldAutofocusTextInput } from "@/lib/utils";
 import type {
   ChatStreamEvent,
@@ -35,26 +33,6 @@ type ConversationPayload = {
     latestCompactionAt: string | null;
   };
 };
-
-function parseSseChunk(buffer: string) {
-  const events: ChatStreamEvent[] = [];
-  const parts = buffer.split("\n\n");
-  const remainder = parts.pop() ?? "";
-
-  for (const part of parts) {
-    const line = part
-      .split("\n")
-      .find((entry) => entry.startsWith("data: "));
-
-    if (!line) {
-      continue;
-    }
-
-    events.push(JSON.parse(line.slice(6)) as ChatStreamEvent);
-  }
-
-  return { events, remainder };
-}
 
 function appendStreamingAction(
   timeline: MessageTimelineItem[],
@@ -107,7 +85,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const dragDepthRef = useRef(0);
   const messagesRef = useRef(payload.messages);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
-  const bootstrappedRef = useRef(false);
   const titlePollTimeoutRef = useRef<number | null>(null);
   const titlePollAttemptsRef = useRef(0);
   const submitRef = useRef<
@@ -164,6 +141,85 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     return () => window.cancelAnimationFrame(handle);
   }, [payload.conversation.id]);
 
+  function handleDelta(event: ChatStreamEvent) {
+    if (event.type === "message_start" || event.type === "usage") {
+      return;
+    }
+
+    if (event.type === "thinking_delta") {
+      setHasReceivedFirstToken(true);
+      setStreamThinkingTarget((prev) => prev + event.text);
+      if (!thinkingStartTimeRef.current) {
+        thinkingStartTimeRef.current = Date.now();
+      }
+    }
+
+    if (event.type === "answer_delta") {
+      setHasReceivedFirstToken(true);
+      setStreamAnswerTarget((prev) => prev + event.text);
+      if (thinkingStartTimeRef.current && !thinkingDuration) {
+        const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
+        setThinkingDuration(duration);
+      }
+    }
+
+    if (event.type === "system_notice") {
+      setMessages((current) => [
+        ...current,
+        {
+          id: `ws_notice_${Date.now()}`,
+          conversationId: payload.conversation.id,
+          role: "system",
+          content: event.text,
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 0,
+          systemKind: event.kind,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        }
+      ]);
+    }
+
+    if (event.type === "action_start") {
+      setStreamTimeline((prev) => appendStreamingAction(prev, event.action));
+    }
+
+    if (event.type === "action_complete" || event.type === "action_error") {
+      setStreamTimeline((prev) => updateStreamingAction(prev, event.action));
+    }
+
+    if (event.type === "done") {
+      setStreamMessageId(null);
+      setStreamTimeline([]);
+      setIsSending(false);
+    }
+
+    if (event.type === "error") {
+      setError(event.message);
+      setStreamMessageId(null);
+      setStreamTimeline([]);
+      setIsSending(false);
+    }
+  }
+
+  const { send: wsSend, subscribe: wsSubscribe, connected: wsConnected } = useWebSocket({
+    onMessage(msg) {
+      switch (msg.type) {
+        case "snapshot":
+          setMessages(msg.messages as Message[]);
+          break;
+        case "delta":
+          handleDelta(msg.event as ChatStreamEvent);
+          break;
+      }
+    }
+  });
+
+  useEffect(() => {
+    wsSubscribe(payload.conversation.id);
+  }, [payload.conversation.id, wsSubscribe]);
+
   function stopTitlePolling() {
     if (titlePollTimeoutRef.current !== null) {
       window.clearTimeout(titlePollTimeoutRef.current);
@@ -191,11 +247,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         result.conversation.titleGenerationStatus === "failed"
       ) {
         stopTitlePolling();
-        dispatchConversationTitleUpdated({
-          conversationId: result.conversation.id,
-          title: result.conversation.title
-        });
-
         return;
       }
     } catch {}
@@ -210,73 +261,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     titlePollTimeoutRef.current = window.setTimeout(() => {
       void pollConversationTitle();
     }, 1000);
-  }
-
-  function mergeMessages(local: Message[], server: Message[]): Message[] {
-    if (local.length === 0) {
-      return server;
-    }
-
-    const serverMap = new Map(server.map((m) => [m.id, m]));
-    const isOptimistic = (id: string) => typeof id === "string" && id.startsWith("local_");
-
-    const optimisticToServer = new Map<string, Message>();
-    for (const serverMsg of server) {
-      for (const localMsg of local) {
-        if (isOptimistic(localMsg.id) && localMsg.role === serverMsg.role && localMsg.content === serverMsg.content) {
-          optimisticToServer.set(localMsg.id, serverMsg);
-          break;
-        }
-      }
-    }
-
-    let changed = false;
-    const merged = local.map((localMsg) => {
-      const replacement = optimisticToServer.get(localMsg.id);
-      if (replacement) {
-        changed = true;
-        return { ...replacement, id: localMsg.id };
-      }
-      const serverMsg = serverMap.get(localMsg.id);
-      if (!serverMsg) {
-        return localMsg;
-      }
-      if (localMsg.content === serverMsg.content && localMsg.thinkingContent === serverMsg.thinkingContent && localMsg.status === serverMsg.status && localMsg.role === serverMsg.role) {
-        return localMsg;
-      }
-      changed = true;
-      return { ...localMsg, ...serverMsg };
-    });
-
-    const localIds = new Set(local.map((m) => m.id));
-    const newFromServer = server.filter((sMsg) => {
-      if (localIds.has(sMsg.id)) return false;
-      return ![...optimisticToServer.values()].some((r) => r.id === sMsg.id);
-    });
-    if (newFromServer.length > 0) {
-      return [...merged, ...newFromServer];
-    }
-
-    return changed ? merged : local;
-  }
-
-  async function syncConversationState() {
-    const response = await fetch(`/api/conversations/${payload.conversation.id}`);
-
-    if (!response.ok) {
-      return;
-    }
-
-    const result = (await response.json()) as {
-      conversation: Conversation;
-      messages: Message[];
-      debug: ConversationPayload["debug"];
-    };
-
-    setMessages((current) => mergeMessages(current, result.messages));
-    setConversationTitle(result.conversation.title);
-    setTitleGenerationStatus(result.conversation.titleGenerationStatus);
-    setDebug(result.debug);
   }
 
   function startTitlePolling() {
@@ -578,268 +562,34 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     nextPendingAttachments = pendingAttachments
   ) {
     const value = nextInput.trim();
-    const shouldPollConversationTitle =
-      titleGenerationStatus === "pending" &&
-      !messages.some((message) => message.role === "user");
 
     if ((!value && nextPendingAttachments.length === 0) || isSending || isUploadingAttachments) {
       return;
     }
 
     setError("");
-    const optimisticUserMessage: Message = {
-      id: createId("local"),
-      conversationId: payload.conversation.id,
-      role: "user",
-      content: value,
-      thinkingContent: "",
-      status: "completed",
-      estimatedTokens: 0,
-      systemKind: null,
-      compactedAt: null,
-      createdAt: new Date().toISOString(),
-      attachments: nextPendingAttachments
-    };
-    const optimisticAssistantMessage: Message = {
-      id: createId("local"),
-      conversationId: payload.conversation.id,
-      role: "assistant",
-      content: "",
-      thinkingContent: "",
-      status: "streaming",
-      estimatedTokens: 0,
-      systemKind: null,
-      compactedAt: null,
-      createdAt: new Date().toISOString(),
-      timeline: [],
-      actions: [],
-      attachments: []
-    };
-
-    setIsSending(true);
-    setMessages((current) => [...current, optimisticUserMessage, optimisticAssistantMessage]);
     setInput("");
     setPendingAttachments([]);
     setStreamThinkingTarget("");
     setStreamThinkingDisplay("");
     setStreamAnswerTarget("");
     setStreamAnswerDisplay("");
-    setStreamMessageId(optimisticAssistantMessage.id);
+    setStreamMessageId("streaming");
     setStreamTimeline([]);
     setHasReceivedFirstToken(false);
     thinkingStartTimeRef.current = null;
     setThinkingDuration(undefined);
-    let localThinking = "";
-    let localAnswer = "";
-    let localTimeline: MessageTimelineItem[] = [];
-    let committedAnswerLength = 0;
-    let nextTimelineSortOrder = 0;
+    setIsSending(true);
 
-    try {
-      const response = await fetch(`/api/conversations/${payload.conversation.id}/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          message: value,
-          attachmentIds: nextPendingAttachments.map((attachment) => attachment.id)
-        })
-      });
-
-      if (!response.ok || !response.body) {
-        if (response.status === 401) {
-          router.push("/login");
-          return;
-        }
-
-        let message = "Unable to send message";
-
-        try {
-          const failure = (await response.json()) as { error?: string };
-          message = failure.error ?? message;
-        } catch {}
-
-        throw new Error(message);
-      }
-
-      dispatchConversationActivityUpdated({
-        conversationId: payload.conversation.id,
-        isActive: true
-      });
-
-      if (shouldPollConversationTitle) {
-        startTitlePolling();
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      const setLocalTimeline = (nextTimeline: MessageTimelineItem[]) => {
-        localTimeline = nextTimeline;
-        setStreamTimeline(nextTimeline);
-      };
-      const finalizeOptimisticAssistant = (status: Message["status"]) => {
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === optimisticAssistantMessage.id
-              ? {
-                  ...message,
-                  content: localAnswer,
-                  thinkingContent: localThinking,
-                  status,
-                  timeline: localTimeline
-                }
-              : message
-          )
-        );
-      };
-
-      const commitPendingAnswerSegment = () => {
-        const content = localAnswer.slice(committedAnswerLength);
-
-        if (!content) {
-          return;
-        }
-
-        const textItem: Extract<MessageTimelineItem, { timelineKind: "text" }> = {
-          id: `stream_text_${optimisticAssistantMessage.id}_${nextTimelineSortOrder}`,
-          timelineKind: "text",
-          sortOrder: nextTimelineSortOrder,
-          createdAt: new Date().toISOString(),
-          content
-        };
-
-        committedAnswerLength = localAnswer.length;
-        nextTimelineSortOrder += 1;
-        setLocalTimeline([...localTimeline, textItem]);
-      };
-
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-
-        if (done) {
-          break;
-        }
-
-        buffer += decoder.decode(chunk, { stream: true });
-        const parsed = parseSseChunk(buffer);
-        buffer = parsed.remainder;
-
-        parsed.events.forEach((event) => {
-          if (event.type === "message_start" || event.type === "usage") {
-            return;
-          }
-
-          if (event.type === "thinking_delta") {
-            setHasReceivedFirstToken(true);
-            localThinking += event.text;
-            setStreamThinkingTarget(localThinking);
-            if (!thinkingStartTimeRef.current) {
-              thinkingStartTimeRef.current = Date.now();
-            }
-          }
-
-          if (event.type === "answer_delta") {
-            setHasReceivedFirstToken(true);
-            localAnswer += event.text;
-            setStreamAnswerTarget(localAnswer);
-            if (thinkingStartTimeRef.current && !thinkingDuration) {
-              const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
-              setThinkingDuration(duration);
-            }
-          }
-
-          if (event.type === "system_notice") {
-            setMessages((current) => [
-              ...current,
-              {
-                id: createId("notice"),
-                conversationId: payload.conversation.id,
-                role: "system",
-                content: event.text,
-                thinkingContent: "",
-                status: "completed",
-                estimatedTokens: 0,
-                systemKind: event.kind,
-                compactedAt: null,
-                createdAt: new Date().toISOString()
-              }
-            ]);
-          }
-
-          if (event.type === "action_start") {
-            commitPendingAnswerSegment();
-            nextTimelineSortOrder = Math.max(nextTimelineSortOrder, event.action.sortOrder + 1);
-            setLocalTimeline(appendStreamingAction(localTimeline, event.action));
-          }
-
-          if (event.type === "action_complete" || event.type === "action_error") {
-            setLocalTimeline(updateStreamingAction(localTimeline, event.action));
-          }
-
-          if (event.type === "done") {
-            commitPendingAnswerSegment();
-            finalizeOptimisticAssistant("completed");
-          }
-
-          if (event.type === "error") {
-            setError(event.message);
-          }
-        });
-      }
-
-      commitPendingAnswerSegment();
-      finalizeOptimisticAssistant("completed");
-      await syncConversationState();
-    } catch (caughtError) {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === optimisticAssistantMessage.id
-            ? {
-                ...message,
-                content: localAnswer,
-                thinkingContent: localThinking,
-                status: "error",
-                timeline: localTimeline
-              }
-            : message
-        )
-      );
-      setError(caughtError instanceof Error ? caughtError.message : "Chat failed");
-    } finally {
-      dispatchConversationActivityUpdated({
-        conversationId: payload.conversation.id,
-        isActive: false
-      });
-      setStreamMessageId(null);
-      setStreamTimeline([]);
-      setStreamThinkingTarget("");
-      setStreamThinkingDisplay("");
-      setStreamAnswerTarget("");
-      setStreamAnswerDisplay("");
-      setIsSending(false);
-      setHasReceivedFirstToken(false);
-    }
+    wsSend({
+      type: "message",
+      conversationId: payload.conversation.id,
+      content: value,
+      attachmentIds: nextPendingAttachments.map((attachment) => attachment.id)
+    });
   }
 
   submitRef.current = submit;
-
-  useEffect(() => {
-    if (bootstrappedRef.current || messages.length > 0) {
-      return;
-    }
-
-    const bootstrap = consumeChatBootstrap(payload.conversation.id);
-
-    if (!bootstrap) {
-      return;
-    }
-
-    bootstrappedRef.current = true;
-    void submitRef.current(bootstrap.message, bootstrap.attachments);
-  }, [messages.length, payload.conversation.id]);
 
   return (
     <div
