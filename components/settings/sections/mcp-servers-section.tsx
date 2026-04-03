@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { McpServer, McpTransport } from "@/lib/types";
-import { Badge } from "@/components/settings/badge";
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 
