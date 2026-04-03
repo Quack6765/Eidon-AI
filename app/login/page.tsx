@@ -4,6 +4,8 @@ import { LoginForm } from "@/components/login-form";
 import { getCurrentUser } from "@/lib/auth";
 import { isPasswordLoginEnabled } from "@/lib/env";
 
+export const dynamic = "force-dynamic";
+
 export default async function LoginPage() {
   if (!isPasswordLoginEnabled()) {
     redirect("/");

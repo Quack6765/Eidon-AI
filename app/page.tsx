@@ -5,6 +5,8 @@ import { listConversationsPage } from "@/lib/conversations";
 import { listFolders } from "@/lib/folders";
 import { getSanitizedSettings } from "@/lib/settings";
 
+export const dynamic = "force-dynamic";
+
 export default async function HomePage() {
   await requireUser();
   const conversationPage = listConversationsPage();
