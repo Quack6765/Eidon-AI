@@ -1,21 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Zap, Plus, Trash2, Pencil } from "lucide-react";
+import { Plus, FileText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { Skill } from "@/lib/types";
 
+import { SettingsSplitPane } from "../settings-split-pane";
+import { ProfileCard } from "../profile-card";
+
 export function SkillsSection() {
   const [skills, setSkills] = useState<Skill[]>([]);
-  const [showSkillForm, setShowSkillForm] = useState(false);
   const [skillName, setSkillName] = useState("");
   const [skillDescription, setSkillDescription] = useState("");
   const [skillContent, setSkillContent] = useState("");
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const [mobileDetailVisible, setMobileDetailVisible] = useState(true);
+  const [isAddingNew, setIsAddingNew] = useState(false);
 
   useEffect(() => {
     fetch("/api/skills")
@@ -60,6 +64,10 @@ export function SkillsSection() {
   async function deleteSkill(id: string) {
     await fetch(`/api/skills/${id}`, { method: "DELETE" });
     setSkills((prev) => prev.filter((s) => s.id !== id));
+    if (selectedSkillId === id) {
+      setSelectedSkillId(null);
+      setMobileDetailVisible(false);
+    }
   }
 
   async function toggleSkill(id: string, enabled: boolean) {
@@ -71,154 +79,176 @@ export function SkillsSection() {
     setSkills((prev) => prev.map((s) => (s.id === id ? { ...s, enabled } : s)));
   }
 
-  function editSkill(skill: Skill) {
+  function handleSelectSkill(skill: Skill) {
     setEditingSkillId(skill.id);
     setSkillName(skill.name);
     setSkillDescription(skill.description);
     setSkillContent(skill.content);
-    setShowSkillForm(true);
+    setSelectedSkillId(skill.id);
+    setIsAddingNew(false);
+    setMobileDetailVisible(true);
+  }
+
+  function handleAddNew() {
+    setEditingSkillId(null);
+    setSkillName("");
+    setSkillDescription("");
+    setSkillContent("");
+    setSelectedSkillId(null);
+    setIsAddingNew(true);
+    setMobileDetailVisible(true);
   }
 
   function resetSkillForm() {
-    setShowSkillForm(false);
     setSkillName("");
     setSkillDescription("");
     setSkillContent("");
     setEditingSkillId(null);
+    setSelectedSkillId(null);
+    setIsAddingNew(false);
+    setMobileDetailVisible(false);
   }
 
+  const selectedSkill = skills.find((s) => s.id === selectedSkillId);
+  const isBuiltin = selectedSkill?.id.startsWith("builtin-") ?? false;
+  const showDetail = selectedSkill || isAddingNew;
+
+  const labelClass = "text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#71717a]";
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-[var(--text)]" style={{ fontFamily: "var(--font-display)" }}>
-          Skills
-        </h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          Skills expose name and description first, then load full instructions when the agent requests them.
-        </p>
-      </div>
-
-      <div className="rounded-2xl border border-white/6 bg-white/[0.02] p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/10 text-amber-400">
-            <Zap className="h-4 w-4" />
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-400">
-              Prompts
-            </p>
-            <h2
-              className="mt-1 text-3xl leading-none text-[var(--text)]"
-              style={{ fontFamily: "var(--font-display)" }}
+    <div className="h-full p-6 md:p-8">
+      <SettingsSplitPane
+        listHeader={
+          <div className="flex items-center justify-between w-full">
+            <div>
+              <h2 className="text-[0.9rem] font-semibold text-[#f4f4f5]">Skills</h2>
+              <p className="text-[0.68rem] text-[#52525b]">
+                {skills.length} skill{skills.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleAddNew}
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] hover:text-[#f4f4f5] hover:bg-white/[0.06] transition-all duration-200"
             >
-              Skills
-            </h2>
+              <Plus className="h-4 w-4" />
+            </button>
           </div>
-        </div>
-        <p className="text-sm text-[var(--muted)]">
-          Skills expose `name` and `description` first, then load the full instructions only when
-          the agent explicitly requests them.
-        </p>
-
-        <div className="space-y-2">
-          {skills.map((skill) => {
-            const isBuiltin = skill.id.startsWith("builtin-");
-            return (
-              <div
+        }
+        listPanel={
+          <>
+            {skills.map((skill) => (
+              <ProfileCard
                 key={skill.id}
-                className="flex items-center justify-between rounded-xl border border-white/4 bg-white/[0.01] px-4 py-3"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-[var(--text)]">{skill.name}</span>
-                    {isBuiltin ? (
-                      <span className="inline-flex items-center rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
-                        Built-in
-                      </span>
-                    ) : null}
-                  </div>
-                  <p className="mt-0.5 truncate text-xs text-white/30">{skill.description}</p>
-                </div>
-                <div className="ml-2 flex items-center gap-2">
-                  <label className="flex items-center gap-1.5 text-xs text-white/40 cursor-pointer">
+                isActive={skill.id === selectedSkillId}
+                onClick={() => handleSelectSkill(skill)}
+                title={skill.name}
+                subtitle={skill.description}
+                badges={
+                  skill.id.startsWith("builtin-")
+                    ? [{ variant: "builtin" as const, label: "BUILT-IN" }]
+                    : undefined
+                }
+                rightSlot={
+                  <label className="flex items-center gap-1 text-[0.7rem] text-[#52525b] cursor-pointer">
                     <input
                       type="checkbox"
                       checked={skill.enabled}
                       onChange={(e) => toggleSkill(skill.id, e.target.checked)}
                       className="rounded"
                     />
-                    On
                   </label>
-                  {!isBuiltin ? (
-                    <button
-                      onClick={() => editSkill(skill)}
-                      className="p-1 text-white/30 transition-colors duration-200 hover:text-white"
+                }
+              />
+            ))}
+          </>
+        }
+        isDetailVisible={mobileDetailVisible}
+        onBackAction={() => setMobileDetailVisible(false)}
+        detailPanel={
+          <div className="max-w-[560px] space-y-6">
+            {showDetail ? (
+              <>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="text-[1.1rem] font-semibold text-[#f4f4f5]">
+                      {isAddingNew ? "New Skill" : selectedSkill?.name}
+                    </h3>
+                    {!isAddingNew && selectedSkill ? (
+                      <p className="mt-0.5 text-[0.75rem] text-[#52525b]">
+                        {selectedSkill.description}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {!isAddingNew && !isBuiltin && selectedSkill ? (
+                    <Button
+                      type="button"
+                      variant="danger"
+                      onClick={() => deleteSkill(selectedSkill.id)}
+                      className="gap-1.5 px-3 py-1.5 text-xs"
                     >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                  ) : null}
-                  {!isBuiltin ? (
-                    <button
-                      onClick={() => deleteSkill(skill.id)}
-                      className="p-1 text-red-400/40 transition-colors duration-200 hover:text-red-400"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
+                      Delete
+                    </Button>
                   ) : null}
                 </div>
-              </div>
-            );
-          })}
 
-          {showSkillForm ? (
-            <div className="space-y-3 rounded-xl border border-white/6 bg-white/[0.02] p-4 animate-fade-in">
-              <div>
-                <Label>Name</Label>
-                <Input
-                  value={skillName}
-                  onChange={(e) => setSkillName(e.target.value)}
-                  placeholder="Skill name"
-                />
+                <div className="space-y-5">
+                  <div>
+                    <label className={labelClass}>Name</label>
+                    <Input
+                      value={skillName}
+                      onChange={(e) => setSkillName(e.target.value)}
+                      placeholder="Skill name"
+                      disabled={isBuiltin}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>Description</label>
+                    <Input
+                      value={skillDescription}
+                      onChange={(e) => setSkillDescription(e.target.value)}
+                      placeholder="Explain when this skill should and should not trigger"
+                      disabled={isBuiltin}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>SKILL.md instructions</label>
+                    <Textarea
+                      value={skillContent}
+                      onChange={(e) => setSkillContent(e.target.value)}
+                      placeholder="Enter the full skill instructions..."
+                      rows={8}
+                      readOnly={isBuiltin}
+                      className={isBuiltin ? "opacity-60 cursor-default" : ""}
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  {!isBuiltin ? (
+                    <Button type="button" onClick={saveSkill}>
+                      {editingSkillId ? "Update" : "Add skill"}
+                    </Button>
+                  ) : null}
+                  <Button type="button" variant="secondary" onClick={resetSkillForm}>
+                    {isBuiltin ? "Close" : "Cancel"}
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-24 text-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.03] border border-white/6 mb-4">
+                  <FileText className="h-5 w-5 text-[#52525b]" />
+                </div>
+                <p className="text-[0.85rem] text-[#71717a]">
+                  Select a skill or add a new one
+                </p>
               </div>
-              <div>
-                <Label>Description</Label>
-                <Input
-                  value={skillDescription}
-                  onChange={(e) => setSkillDescription(e.target.value)}
-                  placeholder="Explain when this skill should and should not trigger"
-                />
-              </div>
-              <div>
-                <Label>SKILL.md instructions</Label>
-                <Textarea
-                  value={skillContent}
-                  onChange={(e) => setSkillContent(e.target.value)}
-                  placeholder="Enter the full skill instructions..."
-                  rows={6}
-                />
-              </div>
-              <div className="flex gap-2">
-                <Button type="button" onClick={saveSkill}>
-                  {editingSkillId ? "Update" : "Add skill"}
-                </Button>
-                <Button type="button" variant="secondary" onClick={resetSkillForm}>
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setShowSkillForm(true)}
-              className="gap-1.5"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add skill
-            </Button>
-          )}
-        </div>
-      </div>
+            )}
+          </div>
+        }
+      />
     </div>
   );
 }
