@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   }
 
   const session = await createSession(result.user.id);
-  await setSessionCookie(session.token, session.expiresAt);
+  await setSessionCookie(session.token, session.expiresAt, request);
 
   return ok({ user: result.user });
 }

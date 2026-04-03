@@ -1,4 +1,5 @@
 const cookieState = new Map<string, string>();
+let lastCookieOptions: Record<string, unknown> | null = null;
 
 vi.mock("next/headers", () => {
   return {
@@ -7,8 +8,9 @@ vi.mock("next/headers", () => {
         const value = cookieState.get(name);
         return value ? { value } : undefined;
       },
-      set: (name: string, value: string) => {
+      set: (name: string, value: string, options: Record<string, unknown>) => {
         cookieState.set(name, value);
+        lastCookieOptions = options;
       },
       delete: (name: string) => {
         cookieState.delete(name);
@@ -28,6 +30,7 @@ vi.mock("next/navigation", () => {
 describe("session lifecycle", () => {
   beforeEach(() => {
     cookieState.clear();
+    lastCookieOptions = null;
   });
 
   it("creates a session cookie and resolves the current user", async () => {
@@ -43,6 +46,50 @@ describe("session lifecycle", () => {
     const currentUser = await auth.getCurrentUser();
 
     expect(currentUser?.username).toBe("admin");
+  });
+
+  it("uses secure session cookies only for https requests in production", async () => {
+    const env = process.env as Record<string, string | undefined>;
+    const previous = env.NODE_ENV;
+    env.NODE_ENV = "production";
+    vi.resetModules();
+
+    try {
+      const auth = await import("@/lib/auth");
+
+      await auth.setSessionCookie(
+        "http-token",
+        new Date("2030-01-01T00:00:00.000Z"),
+        new Request("http://example.com/api/auth/login")
+      );
+      expect(lastCookieOptions?.secure).toBe(false);
+
+      await auth.setSessionCookie(
+        "https-token",
+        new Date("2030-01-01T00:00:00.000Z"),
+        new Request("https://example.com/api/auth/login")
+      );
+      expect(lastCookieOptions?.secure).toBe(true);
+
+      await auth.setSessionCookie(
+        "forwarded-token",
+        new Date("2030-01-01T00:00:00.000Z"),
+        new Request("http://internal/api/auth/login", {
+          headers: {
+            "x-forwarded-proto": "https"
+          }
+        })
+      );
+      expect(lastCookieOptions?.secure).toBe(true);
+    } finally {
+      if (previous === undefined) {
+        delete env.NODE_ENV;
+      } else {
+        env.NODE_ENV = previous;
+      }
+
+      vi.resetModules();
+    }
   });
 
   it("updates credentials and invalidates sessions", async () => {
