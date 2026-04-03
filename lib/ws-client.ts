@@ -20,57 +20,59 @@ type UseWebSocketReturn = {
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const reconnectAttemptsRef = useRef(0);
   const currentSubscriptionRef = useRef<string | null>(null);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
-  const MAX_RECONNECT_DELAY = 30000;
-
-  function connect() {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-    wsRef.current = ws;
-
-    ws.addEventListener("open", () => {
-      setConnected(true);
-      reconnectAttemptsRef.current = 0;
-      optionsRef.current.onOpen?.();
-      if (currentSubscriptionRef.current) {
-        ws.send(serializeClientMessage({ type: "subscribe", conversationId: currentSubscriptionRef.current }));
-      }
-    });
-
-    ws.addEventListener("message", (event) => {
-      try {
-        const msg = JSON.parse(event.data.toString()) as ServerMessage;
-        optionsRef.current.onMessage?.(msg);
-      } catch { /* ignore malformed messages */ }
-    });
-
-    ws.addEventListener("close", () => {
-      setConnected(false);
-      wsRef.current = null;
-      optionsRef.current.onClose?.();
-      scheduleReconnect();
-    });
-
-    ws.addEventListener("error", () => {
-      ws.close();
-    });
-  }
-
-  function scheduleReconnect() {
-    const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), MAX_RECONNECT_DELAY);
-    reconnectAttemptsRef.current++;
-    reconnectTimeoutRef.current = setTimeout(connect, delay);
-  }
-
   useEffect(() => {
+    let reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
+    let reconnectAttempts = 0;
+
+    const MAX_RECONNECT_DELAY = 30000;
+
+    function scheduleReconnect() {
+      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
+      reconnectAttempts++;
+      reconnectTimeout = setTimeout(connect, delay);
+    }
+
+    function connect() {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+      wsRef.current = ws;
+
+      ws.addEventListener("open", () => {
+        setConnected(true);
+        reconnectAttempts = 0;
+        optionsRef.current.onOpen?.();
+        if (currentSubscriptionRef.current) {
+          ws.send(serializeClientMessage({ type: "subscribe", conversationId: currentSubscriptionRef.current }));
+        }
+      });
+
+      ws.addEventListener("message", (event) => {
+        try {
+          const msg = JSON.parse(event.data.toString()) as ServerMessage;
+          optionsRef.current.onMessage?.(msg);
+        } catch { /* ignore malformed messages */ }
+      });
+
+      ws.addEventListener("close", () => {
+        setConnected(false);
+        wsRef.current = null;
+        optionsRef.current.onClose?.();
+        scheduleReconnect();
+      });
+
+      ws.addEventListener("error", () => {
+        ws.close();
+      });
+    }
+
     connect();
+
     return () => {
-      clearTimeout(reconnectTimeoutRef.current);
+      clearTimeout(reconnectTimeout);
       wsRef.current?.close();
     };
   }, []);
