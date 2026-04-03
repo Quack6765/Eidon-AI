@@ -89,8 +89,50 @@ export function parseEnv(input: NodeJS.ProcessEnv) {
   };
 }
 
-export const env = parseEnv(process.env);
-const isProduction = env.NODE_ENV === "production";
+type HermesEnv = ReturnType<typeof parseEnv>;
 
-export const isPasswordLoginEnabled = env.HERMES_PASSWORD_LOGIN_ENABLED;
-export { isProduction };
+function getEnvValue<Key extends keyof HermesEnv>(key: Key): HermesEnv[Key] {
+  const parsedEnv = nodeEnvSchema.parse(process.env);
+  const isProduction = parsedEnv.NODE_ENV === "production";
+
+  switch (key) {
+    case "HERMES_ADMIN_PASSWORD":
+      return resolveSensitiveEnvValue(
+        "HERMES_ADMIN_PASSWORD",
+        parsedEnv.HERMES_ADMIN_PASSWORD,
+        isProduction
+      ) as HermesEnv[Key];
+    case "HERMES_SESSION_SECRET":
+      return resolveSensitiveEnvValue(
+        "HERMES_SESSION_SECRET",
+        parsedEnv.HERMES_SESSION_SECRET,
+        isProduction
+      ) as HermesEnv[Key];
+    case "HERMES_ENCRYPTION_SECRET":
+      return resolveSensitiveEnvValue(
+        "HERMES_ENCRYPTION_SECRET",
+        parsedEnv.HERMES_ENCRYPTION_SECRET,
+        isProduction
+      ) as HermesEnv[Key];
+    default:
+      return parsedEnv[key] as HermesEnv[Key];
+  }
+}
+
+export const env = new Proxy({} as HermesEnv, {
+  get(_target, property) {
+    if (typeof property !== "string") {
+      return undefined;
+    }
+
+    return getEnvValue(property as keyof HermesEnv);
+  }
+});
+
+export function isPasswordLoginEnabled() {
+  return getEnvValue("HERMES_PASSWORD_LOGIN_ENABLED");
+}
+
+export function isProduction() {
+  return getEnvValue("NODE_ENV") === "production";
+}

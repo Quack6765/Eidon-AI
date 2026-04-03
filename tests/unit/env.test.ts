@@ -62,4 +62,45 @@ describe("env validation", () => {
     expect(env.HERMES_SESSION_SECRET).toBe("production-session-secret-with-32-chars");
     expect(env.HERMES_ENCRYPTION_SECRET).toBe("production-encryption-secret-32-chars");
   });
+
+  it("defers production secret validation until a sensitive value is accessed", async () => {
+    const previous = {
+      NODE_ENV: process.env.NODE_ENV,
+      HERMES_PASSWORD_LOGIN_ENABLED: process.env.HERMES_PASSWORD_LOGIN_ENABLED,
+      HERMES_ADMIN_USERNAME: process.env.HERMES_ADMIN_USERNAME,
+      HERMES_ADMIN_PASSWORD: process.env.HERMES_ADMIN_PASSWORD,
+      HERMES_SESSION_SECRET: process.env.HERMES_SESSION_SECRET,
+      HERMES_ENCRYPTION_SECRET: process.env.HERMES_ENCRYPTION_SECRET
+    };
+
+    Object.assign(process.env, {
+      NODE_ENV: "production",
+      HERMES_PASSWORD_LOGIN_ENABLED: "true",
+      HERMES_ADMIN_USERNAME: "admin"
+    });
+    delete process.env.HERMES_ADMIN_PASSWORD;
+    delete process.env.HERMES_SESSION_SECRET;
+    delete process.env.HERMES_ENCRYPTION_SECRET;
+    vi.resetModules();
+
+    try {
+      const envModule = await import("@/lib/env");
+
+      expect(envModule.isPasswordLoginEnabled()).toBe(true);
+      expect(envModule.env.HERMES_ADMIN_USERNAME).toBe("admin");
+      expect(() => envModule.env.HERMES_ADMIN_PASSWORD).toThrow(
+        "Environment variable HERMES_ADMIN_PASSWORD is required in production"
+      );
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+
+      vi.resetModules();
+    }
+  });
 });

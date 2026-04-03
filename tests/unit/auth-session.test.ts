@@ -147,4 +147,39 @@ describe("session lifecycle", () => {
       vi.resetModules();
     }
   });
+
+  it("allows importing auth in production before sensitive env is accessed", async () => {
+    const previous = {
+      NODE_ENV: process.env.NODE_ENV,
+      HERMES_PASSWORD_LOGIN_ENABLED: process.env.HERMES_PASSWORD_LOGIN_ENABLED,
+      HERMES_ADMIN_USERNAME: process.env.HERMES_ADMIN_USERNAME,
+      HERMES_ADMIN_PASSWORD: process.env.HERMES_ADMIN_PASSWORD,
+      HERMES_SESSION_SECRET: process.env.HERMES_SESSION_SECRET,
+      HERMES_ENCRYPTION_SECRET: process.env.HERMES_ENCRYPTION_SECRET
+    };
+
+    Object.assign(process.env, {
+      NODE_ENV: "production",
+      HERMES_PASSWORD_LOGIN_ENABLED: "true",
+      HERMES_ADMIN_USERNAME: "admin"
+    });
+    delete process.env.HERMES_ADMIN_PASSWORD;
+    delete process.env.HERMES_SESSION_SECRET;
+    delete process.env.HERMES_ENCRYPTION_SECRET;
+    vi.resetModules();
+
+    try {
+      await expect(import("@/lib/auth")).resolves.toBeDefined();
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+
+      vi.resetModules();
+    }
+  });
 });

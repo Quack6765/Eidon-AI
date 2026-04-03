@@ -11,8 +11,11 @@ import { createId } from "@/lib/ids";
 import type { AuthSession, AuthUser } from "@/lib/types";
 
 const encoder = new TextEncoder();
-const sessionSecret = encoder.encode(env.HERMES_SESSION_SECRET);
 const sessionDurationMs = 1000 * 60 * 60 * 24 * 30;
+
+function getSessionSecret() {
+  return encoder.encode(env.HERMES_SESSION_SECRET);
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -142,7 +145,7 @@ export async function createSession(userId: string) {
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(Math.floor(expiresAt.getTime() / 1000))
-    .sign(sessionSecret);
+    .sign(getSessionSecret());
 
   return { sessionId, token, expiresAt };
 }
@@ -153,7 +156,7 @@ export async function setSessionCookie(token: string, expiresAt: Date) {
   cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: isProduction,
+    secure: isProduction(),
     path: "/",
     expires: expiresAt
   });
@@ -173,7 +176,7 @@ export async function getSessionPayload() {
   }
 
   try {
-    const result = await jwtVerify(token, sessionSecret);
+    const result = await jwtVerify(token, getSessionSecret());
     return {
       sessionId: result.payload.sid as string,
       userId: result.payload.uid as string
@@ -184,7 +187,7 @@ export async function getSessionPayload() {
 }
 
 export async function getCurrentUser() {
-  if (!isPasswordLoginEnabled) {
+  if (!isPasswordLoginEnabled()) {
     return getBootstrapUser();
   }
 

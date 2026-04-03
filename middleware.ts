@@ -5,14 +5,16 @@ import { jwtVerify } from "jose";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import { env, isPasswordLoginEnabled } from "@/lib/env";
 
-const secret = new TextEncoder().encode(env.HERMES_SESSION_SECRET);
-
 const publicPaths = ["/login"];
+
+function getSecret() {
+  return new TextEncoder().encode(env.HERMES_SESSION_SECRET);
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (!isPasswordLoginEnabled) {
+  if (!isPasswordLoginEnabled()) {
     if (pathname === "/login" || pathname.startsWith("/login/")) {
       return NextResponse.redirect(new URL("/", request.url));
     }
@@ -40,7 +42,7 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    await jwtVerify(token, secret);
+    await jwtVerify(token, getSecret());
   } catch {
     if (isPublic) {
       return NextResponse.next();
