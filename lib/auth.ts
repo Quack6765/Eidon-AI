@@ -191,8 +191,6 @@ export async function getCurrentUser() {
     return getBootstrapUser();
   }
 
-  await ensureAdminBootstrap();
-
   const payload = await getSessionPayload();
 
   if (!payload) {
