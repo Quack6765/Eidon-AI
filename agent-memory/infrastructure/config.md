@@ -25,3 +25,4 @@
 - **Local:** `.env.local` (gitignored)
 - **Deployed:** Container environment
 - **Secrets:** Runtime env vars; provider API key is re-encrypted before database storage
+- **Docker build:** Production image builds can run without runtime auth secrets; validation happens when auth/session/encryption code accesses those values at runtime

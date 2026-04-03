@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { isPasswordLoginEnabled } from "@/lib/env";
 
 export default async function LoginPage() {
-  if (!isPasswordLoginEnabled) {
+  if (!isPasswordLoginEnabled()) {
     redirect("/");
   }
 

@@ -15,7 +15,7 @@ const schema = z.object({
 });
 
 export async function POST(request: Request) {
-  if (!isPasswordLoginEnabled) {
+  if (!isPasswordLoginEnabled()) {
     return badRequest("Username/password login is disabled", 403);
   }
 
