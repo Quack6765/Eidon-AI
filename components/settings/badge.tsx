@@ -1,4 +1,4 @@
-type BadgeVariant = "default" | "no-key" | "builtin" | "http" | "stdio";
+export type BadgeVariant = "default" | "no-key" | "builtin" | "http" | "stdio";
 
 const variantStyles: Record<BadgeVariant, string> = {
   default: "bg-emerald-500/10 text-emerald-400",
