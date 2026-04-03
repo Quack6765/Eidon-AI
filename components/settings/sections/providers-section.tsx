@@ -16,10 +16,8 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { createId } from "@/lib/ids";
-import { supportsVisibleReasoning } from "@/lib/model-capabilities";
 import {
   applyProviderPreset,
   getMatchingProviderPresetId,
@@ -86,9 +84,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       providerProfiles[0],
     [providerProfiles, selectedProviderProfileId]
   );
-  const visibleReasoningSupported = activeProviderProfile
-    ? supportsVisibleReasoning(activeProviderProfile.model, activeProviderProfile.apiMode)
-    : false;
   const activeProviderPresetId = activeProviderProfile
     ? getMatchingProviderPresetId(activeProviderProfile)
     : null;
