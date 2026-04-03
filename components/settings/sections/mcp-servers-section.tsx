@@ -1,17 +1,19 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Server, Plus, Trash2, Pencil } from "lucide-react";
+import { Plus, Server } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { McpServer, McpTransport } from "@/lib/types";
+import { Badge } from "@/components/settings/badge";
+import { ProfileCard } from "@/components/settings/profile-card";
+import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 
 export function McpServersSection() {
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
-  const [showMcpForm, setShowMcpForm] = useState(false);
   const [mcpTransport, setMcpTransport] = useState<McpTransport>("streamable_http");
   const [mcpName, setMcpName] = useState("");
   const [mcpUrl, setMcpUrl] = useState("");
@@ -24,6 +26,10 @@ export function McpServersSection() {
   const [mcpRowTestResults, setMcpRowTestResults] = useState<Record<string, string>>({});
   const [mcpTestingTarget, setMcpTestingTarget] = useState<string | null>(null);
   const [error, setError] = useState("");
+
+  const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
+  const [mobileDetailVisible, setMobileDetailVisible] = useState(true);
+  const [isAddingNew, setIsAddingNew] = useState(false);
 
   useEffect(() => {
     fetch("/api/mcp-servers")
@@ -181,6 +187,11 @@ export function McpServersSection() {
   async function deleteMcpServer(id: string) {
     await fetch(`/api/mcp-servers/${id}`, { method: "DELETE" });
     setMcpServers((prev) => prev.filter((s) => s.id !== id));
+    if (selectedServerId === id) {
+      setSelectedServerId(null);
+      setIsAddingNew(false);
+      setMobileDetailVisible(false);
+    }
   }
 
   async function toggleMcpServer(id: string, enabled: boolean) {
@@ -202,11 +213,9 @@ export function McpServersSection() {
     setMcpArgs(server.args ? JSON.stringify(server.args) : "");
     setMcpEnv(server.env ? JSON.stringify(server.env, null, 2) : "");
     setMcpDraftTestResult(mcpRowTestResults[server.id] ?? "");
-    setShowMcpForm(true);
   }
 
   function resetMcpForm() {
-    setShowMcpForm(false);
     setMcpTransport("streamable_http");
     setMcpName("");
     setMcpUrl("");
@@ -216,181 +225,178 @@ export function McpServersSection() {
     setMcpEnv("");
     setEditingMcpId(null);
     setMcpDraftTestResult("");
+    setSelectedServerId(null);
+    setIsAddingNew(false);
   }
 
+  function handleSelectServer(server: McpServer) {
+    editMcpServer(server);
+    setSelectedServerId(server.id);
+    setIsAddingNew(false);
+    setMobileDetailVisible(true);
+  }
+
+  function handleAddNew() {
+    resetMcpForm();
+    setIsAddingNew(true);
+    setSelectedServerId(null);
+    setMobileDetailVisible(true);
+  }
+
+  const selectedServer = mcpServers.find((s) => s.id === selectedServerId);
+  const showDetail = selectedServerId !== null || isAddingNew;
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-[var(--text)]" style={{ fontFamily: "var(--font-display)" }}>
-          MCP Servers
-        </h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          Add HTTP streamable or local stdio MCP servers to make external tools available in chat.
-        </p>
-      </div>
-
-      <div className="rounded-2xl border border-white/6 bg-white/[0.02] p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-400">
-            <Server className="h-4 w-4" />
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-400">
-              Integrations
-            </p>
-            <h2
-              className="mt-1 text-3xl leading-none text-[var(--text)]"
-              style={{ fontFamily: "var(--font-display)" }}
+    <div className="h-full p-6 md:p-8">
+      <SettingsSplitPane
+        isDetailVisible={mobileDetailVisible}
+        onBackAction={() => setMobileDetailVisible(false)}
+        listHeader={
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold text-[var(--text)]">MCP Servers</h2>
+              <span className="text-[0.7rem] text-[var(--muted)]">{mcpServers.length}</span>
+            </div>
+            <button
+              onClick={handleAddNew}
+              className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted)] transition-colors hover:bg-white/5 hover:text-[var(--text)]"
             >
-              MCP Servers
-            </h2>
+              <Plus className="h-4 w-4" />
+            </button>
           </div>
-        </div>
-        <p className="text-sm text-[var(--muted)]">
-          Add HTTP streamable or local stdio MCP servers to make external tools available in chat.
-        </p>
-
-        <div className="space-y-2">
-          {mcpServers.map((server) => (
-            <div
-              key={server.id}
-              className="rounded-xl border border-white/4 bg-white/[0.01] px-4 py-3"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-[var(--text)]">{server.name}</span>
-                    {server.transport === "stdio" ? (
-                      <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
-                        stdio
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-md bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-sky-400">
-                        http
-                      </span>
-                    )}
-                    <span className="truncate text-xs text-white/20">
-                      {server.transport === "stdio"
-                        ? `${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`
-                        : server.url}
-                    </span>
-                  </div>
-                </div>
-                <div className="ml-2 flex items-center gap-2">
-                  <button
-                    onClick={() => void testMcpServer(server.id)}
-                    className="rounded-md border border-white/6 px-2 py-1 text-[11px] uppercase tracking-[0.12em] text-white/45 transition-colors duration-200 hover:text-white"
-                    disabled={mcpTestingTarget === server.id}
-                  >
-                    {mcpTestingTarget === server.id ? "Testing" : "Retest"}
-                  </button>
+        }
+        listPanel={
+          <div className="space-y-1">
+            {mcpServers.map((server) => (
+              <ProfileCard
+                key={server.id}
+                isActive={server.id === selectedServerId}
+                onClick={() => handleSelectServer(server)}
+                title={server.name}
+                subtitle={
+                  server.transport === "stdio"
+                    ? `${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`
+                    : server.url
+                }
+                badges={[
+                  server.transport === "stdio"
+                    ? { variant: "stdio" as const, label: "STDIO" }
+                    : { variant: "http" as const, label: "HTTP" }
+                ]}
+                rightSlot={
                   <label className="flex cursor-pointer items-center gap-1.5 text-xs text-white/40">
                     <input
                       type="checkbox"
                       checked={server.enabled}
-                      onChange={(e) => toggleMcpServer(server.id, e.target.checked)}
+                      onChange={(e) => {
+                        e.stopPropagation();
+                        void toggleMcpServer(server.id, e.target.checked);
+                      }}
                       className="rounded"
                     />
                     On
                   </label>
-                  <button
-                    onClick={() => editMcpServer(server)}
-                    className="p-1 text-white/30 transition-colors duration-200 hover:text-white"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button
-                    onClick={() => deleteMcpServer(server.id)}
-                    className="p-1 text-red-400/40 transition-colors duration-200 hover:text-red-400"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                }
+              />
+            ))}
+            {mcpServers.length === 0 && (
+              <div className="px-3 py-6 text-center text-xs text-[var(--muted)]">
+                No servers configured
+              </div>
+            )}
+          </div>
+        }
+        detailPanel={
+          showDetail ? (
+            <div className="space-y-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-400">
+                  <Server className="h-4 w-4" />
                 </div>
+                <h3 className="text-lg font-medium text-[var(--text)]">
+                  {isAddingNew ? "Add MCP Server" : selectedServer?.name ?? "Server"}
+                </h3>
               </div>
-              {mcpRowTestResults[server.id] ? (
-                <p className="mt-2 truncate text-xs text-white/30">{mcpRowTestResults[server.id]}</p>
-              ) : null}
-            </div>
-          ))}
 
-          {showMcpForm ? (
-            <div className="space-y-3 rounded-xl border border-white/6 bg-white/[0.02] p-4 animate-fade-in">
-              <div>
-                <Label>Name</Label>
-                <Input
-                  value={mcpName}
-                  onChange={(e) => setMcpName(e.target.value)}
-                  placeholder="My MCP Server"
-                />
+              <div className="space-y-3">
+                <div>
+                  <Label>Name</Label>
+                  <Input
+                    value={mcpName}
+                    onChange={(e) => setMcpName(e.target.value)}
+                    placeholder="My MCP Server"
+                  />
+                </div>
+                <div>
+                  <Label>Transport</Label>
+                  <select
+                    value={mcpTransport}
+                    onChange={(e) => setMcpTransport(e.target.value as McpTransport)}
+                    className="w-full rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm outline-none focus:border-[var(--accent)]/30 transition-all duration-200"
+                  >
+                    <option value="streamable_http">Streamable HTTP</option>
+                    <option value="stdio">Local stdio</option>
+                  </select>
+                </div>
+                {mcpTransport === "streamable_http" ? (
+                  <>
+                    <div>
+                      <Label>URL</Label>
+                      <Input
+                        value={mcpUrl}
+                        onChange={(e) => setMcpUrl(e.target.value)}
+                        placeholder="https://..."
+                      />
+                    </div>
+                    <div>
+                      <Label>Headers (JSON)</Label>
+                      <Textarea
+                        value={mcpHeaders}
+                        onChange={(e) => setMcpHeaders(e.target.value)}
+                        placeholder='{"Authorization": "Bearer ..."}'
+                        rows={2}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <Label>Command</Label>
+                      <Input
+                        value={mcpCommand}
+                        onChange={(e) => setMcpCommand(e.target.value)}
+                        placeholder="uvx or npx"
+                      />
+                      <p className="mt-1 text-xs text-white/20">
+                        Use &quot;uvx&quot; for Python-based servers or &quot;npx&quot; for Node.js-based servers.
+                      </p>
+                    </div>
+                    <div>
+                      <Label>Args (JSON array or space-separated)</Label>
+                      <Input
+                        value={mcpArgs}
+                        onChange={(e) => setMcpArgs(e.target.value)}
+                        placeholder={
+                          mcpCommand === "npx"
+                            ? "-y @modelcontextprotocol/server-fetch"
+                            : "mcp-server-fetch"
+                        }
+                      />
+                    </div>
+                    <div>
+                      <Label>Environment variables (JSON, optional)</Label>
+                      <Textarea
+                        value={mcpEnv}
+                        onChange={(e) => setMcpEnv(e.target.value)}
+                        placeholder='{"API_KEY": "..."}'
+                        rows={2}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
-              <div>
-                <Label>Transport</Label>
-                <select
-                  value={mcpTransport}
-                  onChange={(e) => setMcpTransport(e.target.value as McpTransport)}
-                  className="w-full rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm outline-none focus:border-[var(--accent)]/30 transition-all duration-200"
-                >
-                  <option value="streamable_http">Streamable HTTP</option>
-                  <option value="stdio">Local stdio</option>
-                </select>
-              </div>
-              {mcpTransport === "streamable_http" ? (
-                <>
-                  <div>
-                    <Label>URL</Label>
-                    <Input
-                      value={mcpUrl}
-                      onChange={(e) => setMcpUrl(e.target.value)}
-                      placeholder="https://..."
-                    />
-                  </div>
-                  <div>
-                    <Label>Headers (JSON)</Label>
-                    <Textarea
-                      value={mcpHeaders}
-                      onChange={(e) => setMcpHeaders(e.target.value)}
-                      placeholder='{"Authorization": "Bearer ..."}'
-                      rows={2}
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <Label>Command</Label>
-                    <Input
-                      value={mcpCommand}
-                      onChange={(e) => setMcpCommand(e.target.value)}
-                      placeholder="uvx or npx"
-                    />
-                    <p className="mt-1 text-xs text-white/20">
-                      Use &quot;uvx&quot; for Python-based servers or &quot;npx&quot; for Node.js-based servers.
-                    </p>
-                  </div>
-                  <div>
-                    <Label>Args (JSON array or space-separated)</Label>
-                    <Input
-                      value={mcpArgs}
-                      onChange={(e) => setMcpArgs(e.target.value)}
-                      placeholder={
-                        mcpCommand === "npx"
-                          ? "-y @modelcontextprotocol/server-fetch"
-                          : "mcp-server-fetch"
-                      }
-                    />
-                  </div>
-                  <div>
-                    <Label>Environment variables (JSON, optional)</Label>
-                    <Textarea
-                      value={mcpEnv}
-                      onChange={(e) => setMcpEnv(e.target.value)}
-                      placeholder='{"API_KEY": "..."}'
-                      rows={2}
-                    />
-                  </div>
-                </>
-              )}
-              <div className="flex gap-2">
+
+              <div className="flex items-center gap-2">
                 <Button
                   type="button"
                   variant="secondary"
@@ -399,36 +405,37 @@ export function McpServersSection() {
                 >
                   {mcpTestingTarget === "draft" ? "Testing" : "Test"}
                 </Button>
-                <Button type="button" onClick={saveMcpServer}>
+                <Button type="button" onClick={() => void saveMcpServer()}>
                   {editingMcpId ? "Update" : "Add server"}
                 </Button>
-                <Button type="button" variant="secondary" onClick={resetMcpForm}>
-                  Cancel
-                </Button>
+                {editingMcpId && (
+                  <Button
+                    type="button"
+                    variant="danger"
+                    onClick={() => deleteMcpServer(editingMcpId)}
+                  >
+                    Delete
+                  </Button>
+                )}
               </div>
-              {mcpDraftTestResult ? (
+
+              {mcpDraftTestResult && (
                 <p className="text-xs text-white/35">{mcpDraftTestResult}</p>
-              ) : null}
+              )}
+
+              {error && (
+                <div className="rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300">
+                  {error}
+                </div>
+              )}
             </div>
           ) : (
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setShowMcpForm(true)}
-              className="gap-1.5"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              Add MCP server
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {error ? (
-        <div className="rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300">
-          {error}
-        </div>
-      ) : null}
+            <div className="flex h-full items-center justify-center">
+              <p className="text-sm text-[var(--muted)]">Select a server or add a new one</p>
+            </div>
+          )
+        }
+      />
     </div>
   );
 }
