@@ -150,13 +150,45 @@ export async function createSession(userId: string) {
   return { sessionId, token, expiresAt };
 }
 
-export async function setSessionCookie(token: string, expiresAt: Date) {
+function getRequestProtocol(request: Request) {
+  const forwarded = request.headers.get("forwarded");
+
+  if (forwarded) {
+    const protoMatch = forwarded.match(/proto=([^;,\s]+)/i);
+
+    if (protoMatch?.[1]) {
+      return protoMatch[1].toLowerCase();
+    }
+  }
+
+  const forwardedProto = request.headers.get("x-forwarded-proto");
+
+  if (forwardedProto) {
+    return forwardedProto.split(",")[0].trim().toLowerCase();
+  }
+
+  return new URL(request.url).protocol.replace(":", "").toLowerCase();
+}
+
+function shouldUseSecureSessionCookie(request?: Request) {
+  if (!isProduction()) {
+    return false;
+  }
+
+  if (!request) {
+    return true;
+  }
+
+  return getRequestProtocol(request) === "https";
+}
+
+export async function setSessionCookie(token: string, expiresAt: Date, request?: Request) {
   const cookieStore = await cookies();
 
   cookieStore.set(SESSION_COOKIE_NAME, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: isProduction(),
+    secure: shouldUseSecureSessionCookie(request),
     path: "/",
     expires: expiresAt
   });

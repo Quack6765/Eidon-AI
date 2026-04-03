@@ -8,6 +8,7 @@
 - **Type:** Signed cookie plus server-side SQLite session row
 - **Duration:** 30 days
 - **Refresh:** No rolling refresh in v1; login creates a new session
+- **Cookie security:** Production login cookies are marked `Secure` only when the incoming request is HTTPS (including `x-forwarded-proto` / `Forwarded` proxy headers), so Docker deployments behind HTTP do not silently drop the session cookie
 
 ## Flows
 - **Login:** Username/password POST to `/api/auth/login` when `HERMES_PASSWORD_LOGIN_ENABLED=true`
