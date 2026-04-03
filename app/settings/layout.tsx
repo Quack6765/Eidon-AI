@@ -3,6 +3,8 @@ import { listConversationsPage } from "@/lib/conversations";
 import { listFolders } from "@/lib/folders";
 import { requireUser } from "@/lib/auth";
 
+export const dynamic = "force-dynamic";
+
 export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
   await requireUser();
   const conversationPage = listConversationsPage();
