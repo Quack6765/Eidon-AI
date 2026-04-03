@@ -49,6 +49,7 @@ import {
   CONVERSATION_ACTIVITY_UPDATED_EVENT,
   CONVERSATION_REMOVED_EVENT,
   CONVERSATION_TITLE_UPDATED_EVENT,
+  dispatchConversationRemoved,
   type ConversationActivityUpdatedDetail,
   type ConversationRemovedDetail,
   type ConversationTitleUpdatedDetail
@@ -194,7 +195,10 @@ function ConversationItem({
       setConfirmDelete(true);
       return;
     }
-    await fetch(`/api/conversations/${conversation.id}`, { method: "DELETE" });
+    const response = await fetch(`/api/conversations/${conversation.id}`, { method: "DELETE" });
+    if (response.ok) {
+      dispatchConversationRemoved({ conversationId: conversation.id });
+    }
     if (active) {
       router.push("/");
     }

@@ -667,45 +667,48 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     <div
       data-testid="chat-view-root"
       className="relative flex min-h-0 flex-1 w-full flex-col bg-[var(--background)]"
-      onDragEnter={(event) => {
-        if (!event.dataTransfer.types.includes("Files")) {
-          return;
-        }
-
-        event.preventDefault();
-        dragDepthRef.current += 1;
-        setIsDraggingFiles(true);
-      }}
-      onDragOver={(event) => {
-        if (!event.dataTransfer.types.includes("Files")) {
-          return;
-        }
-
-        event.preventDefault();
-      }}
-      onDragLeave={(event) => {
-        if (!event.dataTransfer.types.includes("Files")) {
-          return;
-        }
-
-        event.preventDefault();
-        dragDepthRef.current = Math.max(dragDepthRef.current - 1, 0);
-
-        if (dragDepthRef.current === 0) {
-          setIsDraggingFiles(false);
-        }
-      }}
-      onDrop={(event) => {
-        if (!event.dataTransfer.files.length) {
-          return;
-        }
-
-        event.preventDefault();
-        dragDepthRef.current = 0;
-        setIsDraggingFiles(false);
-        void uploadFiles(Array.from(event.dataTransfer.files));
-      }}
     >
+      <div
+        className="contents"
+        onDragEnter={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) {
+            return;
+          }
+
+          event.preventDefault();
+          dragDepthRef.current += 1;
+          setIsDraggingFiles(true);
+        }}
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) {
+            return;
+          }
+
+          event.preventDefault();
+        }}
+        onDragLeave={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) {
+            return;
+          }
+
+          event.preventDefault();
+          dragDepthRef.current = Math.max(dragDepthRef.current - 1, 0);
+
+          if (dragDepthRef.current === 0) {
+            setIsDraggingFiles(false);
+          }
+        }}
+        onDrop={(event) => {
+          if (!event.dataTransfer.files.length) {
+            return;
+          }
+
+          event.preventDefault();
+          dragDepthRef.current = 0;
+          setIsDraggingFiles(false);
+          void uploadFiles(Array.from(event.dataTransfer.files));
+        }}
+      >
       {isDraggingFiles ? (
         <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-black/45 backdrop-blur-sm">
           <div className="rounded-2xl border border-[var(--accent)]/25 bg-[var(--panel)] px-6 py-5 text-center shadow-[var(--shadow)]">
@@ -731,6 +734,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-white/25 animate-fade-in">
                 <span>{debug.rawTurnCount} raw turns</span>
                 <span>Latest compaction: {latestCompactionLabel}</span>
+                <span>WS: {wsConnected ? "connected" : "disconnected"}</span>
               </div>
             )}
           </div>
@@ -793,6 +797,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             textareaRef={inputRef}
           />
         </div>
+      </div>
       </div>
     </div>
   );

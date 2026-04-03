@@ -4,6 +4,7 @@ import { verifySessionToken } from "@/lib/auth";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import { getConversationSnapshot, listActiveConversations } from "@/lib/conversations";
 import { createConversationManager, type ConversationManager } from "@/lib/conversation-manager";
+import { isPasswordLoginEnabled } from "@/lib/env";
 import { parseClientMessage, serializeServerMessage } from "@/lib/ws-protocol";
 import type { ClientMessage } from "@/lib/ws-protocol";
 
@@ -30,17 +31,19 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
 }
 
 export async function handleConnection(ws: WebSocket, token: string | null) {
-  if (!token) {
-    ws.send(serializeServerMessage({ type: "error", message: "Authentication required" }));
-    ws.close();
-    return;
-  }
+  if (isPasswordLoginEnabled()) {
+    if (!token) {
+      ws.send(serializeServerMessage({ type: "error", message: "Authentication required" }));
+      ws.close();
+      return;
+    }
 
-  const session = await verifySessionToken(token);
-  if (!session) {
-    ws.send(serializeServerMessage({ type: "error", message: "Invalid session" }));
-    ws.close();
-    return;
+    const session = await verifySessionToken(token);
+    if (!session) {
+      ws.send(serializeServerMessage({ type: "error", message: "Invalid session" }));
+      ws.close();
+      return;
+    }
   }
 
   const mgr = getManager();
