@@ -122,7 +122,7 @@ describe("session lifecycle", () => {
     await expect(auth.requireUser()).rejects.toThrow("redirect:/login");
   });
 
-  it("clears cookies when the session exists but the backing user is gone", async () => {
+  it("returns null when the session exists but the backing user is gone without mutating cookies", async () => {
     const auth = await import("@/lib/auth");
     const { getDb } = await import("@/lib/db");
     await auth.ensureAdminBootstrap();
@@ -133,6 +133,7 @@ describe("session lifecycle", () => {
     getDb().prepare("DELETE FROM admin_users WHERE id = ?").run(found!.user.id);
 
     expect(await auth.getCurrentUser()).toBeNull();
+    expect(cookieState.get("hermes_session")).toBe(session.token);
     await auth.invalidateSession(session.sessionId);
     await auth.clearSessionCookie();
     expect(cookieState.has("hermes_session")).toBe(false);

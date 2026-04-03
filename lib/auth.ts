@@ -246,7 +246,6 @@ export async function getCurrentUser() {
     | undefined;
 
   if (!sessionRow) {
-    await clearSessionCookie();
     return null;
   }
 
@@ -254,7 +253,6 @@ export async function getCurrentUser() {
 
   if (new Date(session.expiresAt).getTime() < Date.now()) {
     db.prepare("DELETE FROM auth_sessions WHERE id = ?").run(session.id);
-    await clearSessionCookie();
     return null;
   }
 
@@ -274,7 +272,6 @@ export async function getCurrentUser() {
     | undefined;
 
   if (!userRow) {
-    await clearSessionCookie();
     return null;
   }
 

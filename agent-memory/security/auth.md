@@ -13,5 +13,6 @@
 ## Flows
 - **Login:** Username/password POST to `/api/auth/login` when `HERMES_PASSWORD_LOGIN_ENABLED=true`
 - **Logout:** `/api/auth/logout` deletes the session row and clears the cookie
+- **Stale sessions:** `getCurrentUser()` is read-only during server rendering; when a signed cookie points at a missing or expired DB session, protected pages redirect to `/login` and the login page is allowed to render so the user can recover without a cookie mutation during SSR
 - **Password Reset:** Not implemented; password changes happen from `/settings`
 - **Disabled mode:** When `HERMES_PASSWORD_LOGIN_ENABLED=false`, requests bypass the login screen and the app uses the bootstrapped admin user directly
