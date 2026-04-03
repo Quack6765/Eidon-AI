@@ -20,7 +20,7 @@ const NAV_ITEMS = [
   { href: "/settings/account", label: "Account", icon: Shield },
 ] as const;
 
-export function SettingsNav({ onClose }: { onClose: () => void }) {
+export function SettingsNav({ onCloseAction }: { onCloseAction: () => void }) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -37,7 +37,7 @@ export function SettingsNav({ onClose }: { onClose: () => void }) {
               event.button === 0
             ) {
               event.preventDefault();
-              onClose();
+              onCloseAction();
               router.push("/");
             }
           }}

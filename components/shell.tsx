@@ -44,7 +44,7 @@ export function Shell({
         }`}
       >
         {isSettingsPage ? (
-          <SettingsNav onClose={() => setIsSidebarOpen(false)} />
+          <SettingsNav onCloseAction={() => setIsSidebarOpen(false)} />
         ) : (
           <Sidebar conversationPage={conversationPage} folders={folders} onClose={() => setIsSidebarOpen(false)} />
         )}
