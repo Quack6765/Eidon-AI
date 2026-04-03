@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { createId } from "@/lib/ids";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
 import {
   applyProviderPreset,
@@ -90,7 +91,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
   function addProviderProfile() {
     const template = activeProviderProfile ?? providerProfiles[0];
-    const nextProfileId = `profile_${crypto.randomUUID()}`;
+    const nextProfileId = createId("profile");
     const nextProfile: ProviderProfileDraft = {
       ...(template ?? {
         apiBaseUrl: "https://api.openai.com/v1",

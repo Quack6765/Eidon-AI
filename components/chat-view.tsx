@@ -10,6 +10,7 @@ import { consumeChatBootstrap } from "@/lib/chat-bootstrap";
 import { dispatchConversationTitleUpdated, dispatchConversationActivityUpdated } from "@/lib/conversation-events";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { supportsImageInput } from "@/lib/model-capabilities";
+import { createId } from "@/lib/ids";
 import { formatTimestamp } from "@/lib/utils";
 import type {
   ChatStreamEvent,
@@ -583,7 +584,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     setError("");
     const optimisticUserMessage: Message = {
-      id: `local_${crypto.randomUUID()}`,
+      id: createId("local"),
       conversationId: payload.conversation.id,
       role: "user",
       content: value,
@@ -596,7 +597,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       attachments: nextPendingAttachments
     };
     const optimisticAssistantMessage: Message = {
-      id: `local_${crypto.randomUUID()}`,
+      id: createId("local"),
       conversationId: payload.conversation.id,
       role: "assistant",
       content: "",
@@ -750,7 +751,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             setMessages((current) => [
               ...current,
               {
-                id: `notice_${crypto.randomUUID()}`,
+                id: createId("notice"),
                 conversationId: payload.conversation.id,
                 role: "system",
                 content: event.text,
