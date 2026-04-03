@@ -165,7 +165,7 @@ New components to create:
 
 | Component | Purpose |
 |---|---|
-| `SettingsSplitPane` | Reusable split-pane layout (left list + right detail) with responsive behavior |
+| `SettingsSplitPane` | Reusable split-pane layout (left list + right detail). Handles mobile responsive behavior internally — collapses to single column with overlay on < 768px |
 | `CollapsibleSection` | Clickable header + animated expand/collapse for advanced settings |
 | `ProfileCard` | Left-panel list item (dot + name + subtitle + badges) |
 | `Badge` | Small colored label (DEFAULT, NO KEY, BUILT-IN, HTTP, STDIO) |
