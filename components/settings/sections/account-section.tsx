@@ -43,16 +43,7 @@ export function AccountSection({ user }: { user: AuthUser }) {
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-[var(--text)]" style={{ fontFamily: "var(--font-display)" }}>
-          Account
-        </h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          Manage your local access credentials and session.
-        </p>
-      </div>
-
+    <div className="max-w-[55%] p-6 md:p-8 space-y-6">
       <form
         onSubmit={(event) => void handleAccount(event)}
         className="rounded-2xl border border-white/6 bg-white/[0.02] p-6 space-y-6"
