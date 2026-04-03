@@ -15,7 +15,7 @@
 |----------|-----|---------|------|
 | `HERMES_PASSWORD_LOGIN_ENABLED` | `false` | deployment env | `true` in Docker image |
 | `HERMES_DATA_DIR` | `./.data` | mounted volume | mounted volume |
-| bootstrap secrets | local `.env` values | deployment secret store | deployment secret store |
+| bootstrap secrets | local `.env` values or non-production defaults | deployment secret store | deployment secret store; startup fails if admin password/session secret/encryption secret are missing or left at published placeholder/default values |
 
 ## Runtime Defaults
 - Default OpenAI model: `gpt-5-mini`

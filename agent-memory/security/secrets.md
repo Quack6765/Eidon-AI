@@ -8,6 +8,7 @@
 - **Never:** Commit to version control
 - **Never:** Log in plain text
 - **Never:** Expose to client
+- **Production startup:** Reject missing bootstrap admin/session/encryption secrets and reject published placeholder/default values
 
 ## Rotation
 - **Policy:** Manual rotation
