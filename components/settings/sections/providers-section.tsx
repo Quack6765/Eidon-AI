@@ -76,7 +76,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       apiKey: ""
     }))
   );
-  const [mobileDetailVisible, setMobileDetailVisible] = useState(true);
+  const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const activeProviderProfile = useMemo(
     () =>
@@ -222,7 +222,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const labelClass = "text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#71717a]";
 
   return (
-    <div className="h-full p-6 md:p-8">
+    <div className="min-h-0 p-4 md:h-full md:p-8">
       <SettingsSplitPane
         listHeader={
           <div className="flex items-center justify-between w-full">
@@ -285,7 +285,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button
                       type="button"
                       variant="secondary"
@@ -348,6 +348,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   <div>
                     <label className={labelClass}>Profile name</label>
                     <Input
+                      name="provider-profile-name"
+                      autoComplete="off"
                       value={activeProviderProfile.name}
                       onChange={(event) =>
                         updateActiveProviderProfile({ name: event.target.value })
@@ -356,10 +358,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <label className={labelClass}>API base URL</label>
                       <Input
+                        name="provider-api-base-url"
+                        autoComplete="url"
                         value={activeProviderProfile.apiBaseUrl}
                         onChange={(event) =>
                           updateActiveProviderProfile({ apiBaseUrl: event.target.value })
@@ -370,6 +374,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     <div>
                       <label className={labelClass}>Model</label>
                       <Input
+                        name="provider-model"
+                        autoComplete="off"
                         value={activeProviderProfile.model}
                         onChange={(event) =>
                           updateActiveProviderProfile({ model: event.target.value })
@@ -383,6 +389,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     <label className={labelClass}>API key</label>
                     <div className="relative">
                       <Input
+                        name="provider-api-key"
+                        autoComplete="new-password"
+                        spellCheck={false}
                         type={showApiKey ? "text" : "password"}
                         value={activeProviderProfile.apiKey}
                         onChange={(event) =>
@@ -419,10 +428,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   icon={<FlaskConical className="h-4 w-4" />}
                   defaultOpen={false}
                 >
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <label className={labelClass}>Temperature</label>
                       <Input
+                        name="provider-temperature"
                         type="number"
                         step="0.1"
                         value={activeProviderProfile.temperature}
@@ -436,6 +446,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     <div>
                       <label className={labelClass}>Max output tokens</label>
                       <Input
+                        name="provider-max-output-tokens"
                         type="number"
                         value={activeProviderProfile.maxOutputTokens}
                         onChange={(event) =>
@@ -493,6 +504,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     <div>
                       <label className={labelClass}>Model context limit</label>
                       <Input
+                        name="provider-model-context-limit"
                         type="number"
                         value={activeProviderProfile.modelContextLimit}
                         onChange={(event) =>
@@ -505,6 +517,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     <div>
                       <label className={labelClass}>Compaction threshold</label>
                       <Input
+                        name="provider-compaction-threshold"
                         type="number"
                         step="0.01"
                         value={activeProviderProfile.compactionThreshold}
@@ -518,6 +531,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     <div>
                       <label className={labelClass}>Fresh tail count</label>
                       <Input
+                        name="provider-fresh-tail-count"
                         type="number"
                         value={activeProviderProfile.freshTailCount}
                         onChange={(event) =>
@@ -541,6 +555,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         System prompt (applied to new conversations only)
                       </label>
                       <Textarea
+                        name="provider-system-prompt"
+                        autoComplete="off"
+                        spellCheck={false}
                         value={activeProviderProfile.systemPrompt}
                         onChange={(event) =>
                           updateActiveProviderProfile({ systemPrompt: event.target.value })
