@@ -8,7 +8,7 @@ export function SettingsCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-white/6 bg-white/[0.02] p-6 space-y-5">
+    <div className="rounded-xl border border-white/6 bg-white/[0.02] p-6 space-y-5">
       <div>
         <h3 className="text-sm font-semibold text-[var(--text)]">{title}</h3>
         {description ? (
