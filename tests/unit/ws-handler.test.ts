@@ -24,8 +24,7 @@ describe("ws-handler", () => {
       readyState: 1,
       send: vi.fn((data: string) => sent.push(data)),
       close: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn()
+      on: vi.fn()
     } as unknown as WebSocket;
 
     await handleConnection(ws, "session=invalid");
@@ -54,10 +53,9 @@ describe("ws-handler", () => {
       readyState: 1,
       send: vi.fn((data: string) => sent.push(data)),
       close: vi.fn(),
-      addEventListener: vi.fn((_event: string, handler: (...args: unknown[]) => void) => {
-        if (_event === "message") messageHandlers.push((d: string) => handler({ data: d }));
-      }),
-      removeEventListener: vi.fn()
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((d: string) => handler(d));
+      })
     } as unknown as WebSocket;
 
     await handleConnection(ws, "session=valid-token");
@@ -82,8 +80,7 @@ describe("ws-handler", () => {
       readyState: 1,
       send: vi.fn((data: string) => sent.push(data)),
       close: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn()
+      on: vi.fn()
     } as unknown as WebSocket;
 
     await handleConnection(ws, null);

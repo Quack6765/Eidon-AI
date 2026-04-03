@@ -774,12 +774,12 @@ export function getConversationSnapshot(conversationId: string): ConversationSna
   return { conversation, messages };
 }
 
-export function listActiveConversations(): Array<{ id: string; title: string; is_active: boolean }> {
+export function listActiveConversations(): Array<{ id: string; title: string; isActive: boolean }> {
   const db = getDb();
   const rows = db
     .prepare("SELECT id, title, is_active FROM conversations WHERE is_active = 1 ORDER BY updated_at DESC")
     .all() as Array<{ id: string; title: string; is_active: number }>;
-  return rows.map(r => ({ id: r.id, title: r.title, is_active: Boolean(r.is_active) }));
+  return rows.map(r => ({ id: r.id, title: r.title, isActive: Boolean(r.is_active) }));
 }
 
 export function getMessage(messageId: string) {

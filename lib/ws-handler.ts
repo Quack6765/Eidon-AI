@@ -1,3 +1,4 @@
+import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 import { verifySessionToken } from "@/lib/auth";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
@@ -24,7 +25,7 @@ function extractToken(req: import("http").IncomingMessage): string | null {
 export function setupWebSocketHandler(wss: WebSocketServer) {
   wss.on("connection", async (ws, req) => {
     const token = extractToken(req);
-    await handleConnection(ws as unknown as WebSocket, token);
+    await handleConnection(ws, token);
   });
 }
 
@@ -51,18 +52,17 @@ export async function handleConnection(ws: WebSocket, token: string | null) {
     activeConversations: active.map(c => ({
       id: c.id,
       title: c.title,
-      status: c.is_active ? "streaming" : "idle"
+      status: c.isActive ? "streaming" : "idle"
     }))
   }));
 
-  ws.addEventListener("message", (event: { data: unknown }) => {
-    const raw = (event.data as { toString: () => string }).toString();
-    const msg = parseClientMessage(raw);
+  ws.on("message", (raw: WebSocket.RawData) => {
+    const msg = parseClientMessage(raw.toString());
     if (!msg) return;
     handleMessage(mgr, ws, msg, currentSubscription);
   });
 
-  ws.addEventListener("close", () => {
+  ws.on("close", () => {
     for (const conversationId of currentSubscription) {
       mgr.unsubscribe(conversationId, ws);
     }

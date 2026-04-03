@@ -1,3 +1,4 @@
+import WebSocket from "ws";
 import type { ServerMessage } from "@/lib/ws-protocol";
 import { serializeServerMessage } from "@/lib/ws-protocol";
 
