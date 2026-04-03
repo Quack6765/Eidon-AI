@@ -3,14 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Settings, Sparkles, Server, Zap, Shield } from "lucide-react";
+import {
+  ArrowLeft,
+  Settings,
+  Sparkles,
+  Server,
+  Zap,
+  Shield,
+} from "lucide-react";
 
 const NAV_ITEMS = [
-  { href: "/settings/general", label: "General", icon: Settings, color: "bg-[#8b5cf6]", activeBg: "bg-[#8b5cf6]/15", activeBorder: "border-[#8b5cf6]/30" },
-  { href: "/settings/providers", label: "Providers", icon: Sparkles, color: "bg-[#1e293b]", activeBg: "bg-[#1e293b]", activeBorder: "border-[#1e293b]" },
-  { href: "/settings/mcp-servers", label: "MCP Servers", icon: Server, color: "bg-[#0ea5e9]", activeBg: "bg-[#0ea5e9]/15", activeBorder: "border-[#0ea5e9]/30" },
-  { href: "/settings/skills", label: "Skills", icon: Zap, color: "bg-[#f59e0b]", activeBg: "bg-[#f59e0b]/15", activeBorder: "border-[#f59e0b]/30" },
-  { href: "/settings/account", label: "Account", icon: Shield, color: "bg-[#38bdf8]", activeBg: "bg-[#38bdf8]/15", activeBorder: "border-[#38bdf8]/30" },
+  { href: "/settings/general", label: "General", icon: Settings },
+  { href: "/settings/providers", label: "Providers", icon: Sparkles },
+  { href: "/settings/mcp-servers", label: "MCP Servers", icon: Server },
+  { href: "/settings/skills", label: "Skills", icon: Zap },
+  { href: "/settings/account", label: "Account", icon: Shield },
 ] as const;
 
 export function SettingsNav({ onClose }: { onClose: () => void }) {
@@ -23,7 +30,12 @@ export function SettingsNav({ onClose }: { onClose: () => void }) {
         <Link
           href="/"
           onClick={(event) => {
-            if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && event.button === 0) {
+            if (
+              !event.defaultPrevented &&
+              !event.metaKey &&
+              !event.ctrlKey &&
+              event.button === 0
+            ) {
               event.preventDefault();
               onClose();
               router.push("/");
@@ -34,10 +46,12 @@ export function SettingsNav({ onClose }: { onClose: () => void }) {
         >
           <ArrowLeft className="h-3.5 w-3.5 text-white/60" />
         </Link>
-        <span className="text-sm font-semibold text-[var(--text)]">Settings</span>
+        <span className="text-sm font-semibold text-[var(--text)]">
+          Settings
+        </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
+      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1">
         {NAV_ITEMS.map((item) => {
           const isActive = pathname === item.href;
           const Icon = item.icon;
@@ -47,21 +61,34 @@ export function SettingsNav({ onClose }: { onClose: () => void }) {
               key={item.href}
               href={item.href}
               onClick={(event) => {
-                if (!event.defaultPrevented && !event.metaKey && !event.ctrlKey && event.button === 0) {
+                if (
+                  !event.defaultPrevented &&
+                  !event.metaKey &&
+                  !event.ctrlKey &&
+                  event.button === 0
+                ) {
                   event.preventDefault();
-                  window.location.href = item.href;
+                  router.push(item.href);
                 }
               }}
-              className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 transition-all duration-200 ${
+              className={`flex items-center gap-2.5 rounded-[10px] px-3 py-2.5 transition-all duration-200 ${
                 isActive
-                  ? `${item.activeBg} border ${item.activeBorder}`
-                  : "text-[var(--muted)] hover:bg-white/[0.04] hover:text-[var(--text)]"
+                  ? "bg-[rgba(139,92,246,0.10)] border border-[rgba(139,92,246,0.25)]"
+                  : "border border-transparent text-[var(--muted)] hover:bg-white/[0.04] hover:text-[var(--text)]"
               }`}
             >
-              <div className={`flex h-8 w-8 items-center justify-center rounded-lg ${item.color}`}>
-                <Icon className="h-4 w-4 text-white" />
-              </div>
-              <span className={`text-[13px] ${isActive ? "text-[var(--text)] font-medium" : ""}`}>
+              <Icon
+                className={`h-4 w-4 ${
+                  isActive ? "text-[#8b5cf6]" : "text-[#71717a]"
+                }`}
+              />
+              <span
+                className={`text-[13px] ${
+                  isActive
+                    ? "text-[var(--text)] font-medium"
+                    : ""
+                }`}
+              >
                 {item.label}
               </span>
             </Link>
