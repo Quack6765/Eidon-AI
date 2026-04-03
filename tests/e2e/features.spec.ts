@@ -213,6 +213,27 @@ test.describe("Feature: MCP Servers in settings", () => {
   });
 });
 
+test.describe("Feature: Mobile settings navigation", () => {
+  test("shows the providers list first on mobile and opens detail on selection", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await signIn(page);
+
+    await page.goto("/settings/providers");
+    await page.waitForLoadState("networkidle");
+
+    await expect(page.getByRole("heading", { name: "Providers" })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("button", { name: "Back to list" })).toHaveCount(0);
+
+    await page.locator("span", { hasText: "Default profile" }).click();
+    await expect(page.getByRole("button", { name: "Back to list" })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("Provider preset", { exact: true })).toBeVisible({ timeout: 5000 });
+
+    await page.getByRole("button", { name: "Back to list" }).click();
+    await expect(page.getByRole("button", { name: "Back to list" })).toHaveCount(0);
+    await expect(page.locator("span", { hasText: "Default profile" })).toBeVisible({ timeout: 5000 });
+  });
+});
+
 test.describe("Feature: Skills in settings", () => {
   test("adds and removes a skill", async ({ page }) => {
     await signIn(page);

@@ -27,7 +27,7 @@ export function McpServersSection() {
   const [error, setError] = useState("");
 
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
-  const [mobileDetailVisible, setMobileDetailVisible] = useState(true);
+  const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
 
   useEffect(() => {
@@ -246,7 +246,7 @@ export function McpServersSection() {
   const showDetail = selectedServerId !== null || isAddingNew;
 
   return (
-    <div className="h-full p-6 md:p-8">
+    <div className="min-h-0 p-4 md:h-full md:p-8">
       <SettingsSplitPane
         isDetailVisible={mobileDetailVisible}
         onBackAction={() => setMobileDetailVisible(false)}

@@ -17,14 +17,13 @@ export function SettingsSplitPane({
   listHeader: ReactNode;
 }) {
   return (
-    <div className="flex rounded-2xl border border-white/6 overflow-hidden bg-white/[0.02] h-[calc(100dvh-6rem)]">
-      {/* Left: List panel */}
+    <div className="flex min-h-0 flex-col border border-white/6 bg-white/[0.02] md:h-[calc(100dvh-6rem)] md:flex-row md:overflow-hidden md:rounded-xl">
       <div
-        className={`w-full md:w-[280px] md:flex-shrink-0 md:border-r border-white/6 bg-[#0e0e0e] flex flex-col ${
+        className={`min-h-0 w-full border-b border-white/6 bg-[#0e0e0e] ${
           isDetailVisible ? "hidden md:flex" : "flex"
-        }`}
+        } flex-col md:w-[280px] md:flex-shrink-0 md:border-b-0 md:border-r`}
       >
-        <div className="p-4 pb-2 flex items-center justify-between">
+        <div className="flex items-center justify-between px-4 py-3 md:p-4 md:pb-2">
           {listHeader}
         </div>
         <div className="flex-1 overflow-y-auto px-2.5 pb-3 space-y-1">
@@ -32,13 +31,11 @@ export function SettingsSplitPane({
         </div>
       </div>
 
-      {/* Right: Detail panel */}
       <div
-        className={`flex-1 overflow-y-auto bg-[#0a0a0a] ${
+        className={`min-h-0 flex-1 bg-[#0a0a0a] ${
           isDetailVisible ? "flex flex-col" : "hidden md:flex md:flex-col"
         }`}
       >
-        {/* Mobile back button */}
         <div className="md:hidden p-3 border-b border-white/6">
           <button
             onClick={onBackAction}
@@ -48,7 +45,7 @@ export function SettingsSplitPane({
             Back to list
           </button>
         </div>
-        <div className="p-6 md:p-8">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-5 md:p-8">
           {detailPanel}
         </div>
       </div>

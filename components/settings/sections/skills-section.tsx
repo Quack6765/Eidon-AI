@@ -18,7 +18,7 @@ export function SkillsSection() {
   const [skillContent, setSkillContent] = useState("");
   const [editingSkillId, setEditingSkillId] = useState<string | null>(null);
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
-  const [mobileDetailVisible, setMobileDetailVisible] = useState(true);
+  const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
 
   useEffect(() => {
@@ -116,7 +116,7 @@ export function SkillsSection() {
   const labelClass = "text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#71717a]";
 
   return (
-    <div className="h-full p-6 md:p-8">
+    <div className="min-h-0 p-4 md:h-full md:p-8">
       <SettingsSplitPane
         listHeader={
           <div className="flex items-center justify-between w-full">

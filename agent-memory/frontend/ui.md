@@ -31,6 +31,7 @@
 - **Touch Focus:** Home and chat composers do not auto-focus on touch devices so mobile route transitions do not re-open the keyboard or destabilize the viewport
 - **Sidebar Actions:** The primary `New chat` action lives as a full-width CTA directly beneath the search control rather than as a small header icon.
 - **Settings:** Two-column card layout (`lg:grid-cols-[1.3fr,0.7fr]`), rounded-xl form elements, section headers with icon badges
+- **Settings Master-Detail:** Provider, skill, and MCP settings use a desktop split pane from `md` up, but switch to a list-first stacked master-detail flow on mobile with a dedicated back action instead of squeezing both panes into the narrow viewport
 - **Chat Rendering:** User messages: right-aligned rounded pill with accent background. Assistant: left-aligned with avatar and a compact `w-fit` reply bubble capped to the same width as user messages, using custom `.markdown-body` styling for headings, lists, tables, blockquotes, code, task lists, links, images, and horizontal rules. Thinking: collapsible accordion with indigo border.
 - **Chat Bubble Controls:** User and assistant bubbles expose compact action buttons beneath the bubble; desktop reveals them on hover/focus while mobile keeps them available without hover. User bubbles support inline editing with save/cancel controls, and all visible bubble bodies support clipboard copy.
 - **Conversation Controls:** Compact header with collapsible debug info, model selector dropdown
