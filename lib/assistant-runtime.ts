@@ -1,7 +1,7 @@
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, summarizeToolResult } from "@/lib/mcp-client";
-import { extractEnumHints } from "@/lib/tool-schema-helpers";
+import { extractEnumHints, coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { streamProviderResponse } from "@/lib/provider";
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
 import type {
@@ -329,7 +329,8 @@ async function executeMcpToolCall(
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
-  const result = await callMcpTool(resolvedServer, resolvedTool.name, args);
+  const correctedArgs = coerceEnumValues(resolvedTool.inputSchema ?? {}, args);
+  const result = await callMcpTool(resolvedServer, resolvedTool.name, correctedArgs);
   const resultSummary = summarizeToolResult(result);
 
   sortOrder += 1;
@@ -343,7 +344,7 @@ async function executeMcpToolCall(
   const resultText = buildMcpToolResultForPrompt({
     server: resolvedServer,
     tool: resolvedTool,
-    args,
+    args: correctedArgs,
     resultSummary,
     isError: Boolean(result.isError)
   });
@@ -359,7 +360,7 @@ async function executeMcpToolCall(
   const assistantMsg: PromptMessage = {
     role: "assistant",
     content: "",
-    toolCalls: [{ id: toolCallId, name: functionName, arguments: JSON.stringify(args) }]
+    toolCalls: [{ id: toolCallId, name: functionName, arguments: JSON.stringify(correctedArgs) }]
   };
 
   return {
