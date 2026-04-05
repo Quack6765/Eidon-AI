@@ -1,6 +1,7 @@
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, summarizeToolResult } from "@/lib/mcp-client";
+import { extractEnumHints } from "@/lib/tool-schema-helpers";
 import { streamProviderResponse } from "@/lib/provider";
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
 import type {
@@ -135,6 +136,7 @@ function buildToolDefinitions(input: {
 
   for (const { server, tools: mcpTools } of input.mcpToolSets) {
     for (const tool of mcpTools) {
+      const enumHints = extractEnumHints(tool.inputSchema ?? {});
       tools.push({
         type: "function",
         function: {
@@ -142,6 +144,7 @@ function buildToolDefinitions(input: {
           description: [
             tool.annotations?.title ?? tool.name,
             tool.description,
+            enumHints || undefined,
             tool.annotations?.readOnlyHint ? "(read-only)" : undefined
           ].filter(Boolean).join(" — "),
           parameters: (tool.inputSchema as ToolDefinition["function"]["parameters"]) ?? { type: "object", properties: {} }
