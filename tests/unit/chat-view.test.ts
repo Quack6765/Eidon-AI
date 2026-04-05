@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { ChatView } from "@/components/chat-view";
 import type { MessageAttachment } from "@/lib/types";
@@ -539,6 +539,116 @@ describe("chat view", () => {
 
     await waitFor(() => {
       expect(screen.getByText("Working on it")).toBeInTheDocument();
+    });
+  });
+
+  it("ignores stale inactive sync results once streamed thinking has started", async () => {
+    let resolveFetch:
+      | ((value: Response) => void)
+      | null = null;
+
+    vi.mocked(global.fetch).mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalled();
+    });
+
+    await act(async () => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "thinking_delta", text: "Thinking through the tool result" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "action_complete",
+          action: {
+            id: "act_live",
+            messageId: "msg_assistant",
+            kind: "mcp_tool_call",
+            status: "completed",
+            serverId: "exa",
+            skillId: null,
+            toolName: "web_search_exa",
+            label: "web_search_exa",
+            detail: "query=booking",
+            arguments: { query: "booking" },
+            resultSummary: "Found booking details",
+            sortOrder: 0,
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString()
+          }
+        }
+      });
+
+      resolveFetch?.({
+        ok: true,
+        json: async () => ({
+          conversation: {
+            ...createPayload().conversation,
+            isActive: false
+          },
+          messages: [
+            {
+              id: "msg_assistant",
+              conversationId: "conv_1",
+              role: "assistant",
+              content: "",
+              thinkingContent: "",
+              status: "streaming",
+              estimatedTokens: 0,
+              systemKind: null,
+              compactedAt: null,
+              createdAt: new Date().toISOString(),
+              timeline: [
+                {
+                  id: "act_live",
+                  messageId: "msg_assistant",
+                  timelineKind: "action",
+                  kind: "mcp_tool_call",
+                  status: "completed",
+                  serverId: "exa",
+                  skillId: null,
+                  toolName: "web_search_exa",
+                  label: "web_search_exa",
+                  detail: "query=booking",
+                  arguments: { query: "booking" },
+                  resultSummary: "Found booking details",
+                  sortOrder: 0,
+                  startedAt: new Date().toISOString(),
+                  completedAt: new Date().toISOString()
+                }
+              ]
+            }
+          ],
+          debug: createPayload().debug
+        })
+      } as Response);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("assistant-thinking-shell")).toBeInTheDocument();
     });
   });
 

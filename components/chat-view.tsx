@@ -120,18 +120,24 @@ function reconcileSnapshotMessages(
     return current;
   }
 
-  if (!activeStreamMessageId) {
-    return snapshot;
-  }
+  const merged = snapshot.map((snapshotMsg) => {
+    const currentMsg = current.find((m) => m.id === snapshotMsg.id);
 
-  const snapshotMessageIds = new Set(snapshot.map((message) => message.id));
-  const activeStreamingMessage = current.find((message) => message.id === activeStreamMessageId);
+    if (currentMsg && currentMsg.id === activeStreamMessageId) {
+      return currentMsg;
+    }
 
-  if (!activeStreamingMessage || snapshotMessageIds.has(activeStreamMessageId)) {
-    return snapshot;
-  }
+    if (currentMsg && currentMsg.status === "completed" && snapshotMsg.status === "streaming") {
+      return currentMsg;
+    }
 
-  return [...snapshot, activeStreamingMessage];
+    return snapshotMsg;
+  });
+
+  const snapshotMessageIds = new Set(snapshot.map((m) => m.id));
+  const pendingLocalMessages = current.filter((m) => !snapshotMessageIds.has(m.id));
+
+  return [...merged, ...pendingLocalMessages];
 }
 
 export function ChatView({ payload }: { payload: ConversationPayload }) {
@@ -180,6 +186,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const messagesRef = useRef(payload.messages);
   const streamAnswerTargetRef = useRef("");
   const streamThinkingTargetRef = useRef("");
+  const streamMessageIdRef = useRef<string | null>(null);
+  const streamTimelineRef = useRef<MessageTimelineItem[]>([]);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
   const titlePollTimeoutRef = useRef<number | null>(null);
   const titlePollAttemptsRef = useRef(0);
@@ -205,6 +213,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    streamMessageIdRef.current = streamMessageId;
+  }, [streamMessageId]);
+
+  useEffect(() => {
+    streamTimelineRef.current = streamTimeline;
+  }, [streamTimeline]);
 
   useEffect(() => {
     setConversationTitle(payload.conversation.title);
@@ -325,7 +341,31 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "action_start") {
-      setStreamTimeline((prev) => appendStreamingAction(prev, event.action));
+      setStreamTimeline((prev) => {
+        const isExisting = prev.some((item) => item.timelineKind === "action" && item.id === event.action.id);
+        if (isExisting) {
+          return appendStreamingAction(prev, event.action);
+        }
+
+        const previousTextLen = prev
+          .filter((item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> => item.timelineKind === "text")
+          .reduce((sum, item) => sum + item.content.length, 0);
+
+        const newText = streamAnswerTargetRef.current.slice(previousTextLen);
+        const nextTimeline = [...prev];
+
+        if (newText.length > 0) {
+          nextTimeline.push({
+            id: `stream_text_${Date.now()}_${prev.length}`,
+            timelineKind: "text",
+            sortOrder: prev.length,
+            createdAt: new Date().toISOString(),
+            content: newText
+          });
+        }
+
+        return appendStreamingAction(nextTimeline, event.action);
+      });
     }
 
     if (event.type === "action_complete" || event.type === "action_error") {
@@ -335,6 +375,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (event.type === "done") {
       const finalAnswer = streamAnswerTargetRef.current;
       const finalThinking = streamThinkingTargetRef.current;
+      const finalTimeline = streamTimelineRef.current;
       dispatchConversationActivityUpdated({
         conversationId: payload.conversation.id,
         isActive: false
@@ -347,7 +388,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 ...m,
                 content: finalAnswer,
                 thinkingContent: finalThinking,
-                status: "completed" as const
+                status: "completed" as const,
+                timeline: finalTimeline
               }
             : m
         )
@@ -364,13 +406,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "error") {
+      const activeStreamMessageId = streamMessageIdRef.current;
       dispatchConversationActivityUpdated({
         conversationId: payload.conversation.id,
         isActive: false
       });
       setMessages((current) =>
         current.map((m) =>
-          m.id === streamMessageId ? { ...m, status: "error" as const } : m
+          m.id === activeStreamMessageId ? { ...m, status: "error" as const } : m
         )
       );
       setError(event.message);
@@ -617,16 +660,35 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           return;
         }
 
+        const activeStreamMessageId = streamMessageIdRef.current;
+        const hasLocalStreamState =
+          Boolean(activeStreamMessageId) ||
+          Boolean(streamThinkingTargetRef.current) ||
+          Boolean(streamAnswerTargetRef.current) ||
+          streamTimelineRef.current.length > 0;
+
         setMessages((current) =>
-          reconcileSnapshotMessages(current, result.messages, streamMessageId)
+          reconcileSnapshotMessages(current, result.messages, activeStreamMessageId)
         );
         setDebug(result.debug);
         setConversationTitle(result.conversation.title);
         setTitleGenerationStatus(result.conversation.titleGenerationStatus);
 
-        const activeMessage = streamMessageId
-          ? result.messages.find((message) => message.id === streamMessageId)
+        const activeMessage = activeStreamMessageId
+          ? result.messages.find((message) => message.id === activeStreamMessageId)
           : null;
+
+        const shouldIgnoreInactiveResult =
+          !result.conversation.isActive &&
+          hasLocalStreamState &&
+          (!activeMessage || activeMessage.status === "streaming");
+
+        if (shouldIgnoreInactiveResult) {
+          messageSyncTimeoutRef.current = window.setTimeout(() => {
+            void syncConversation();
+          }, 1000);
+          return;
+        }
 
         if (!result.conversation.isActive || (activeMessage && activeMessage.status !== "streaming")) {
           setStreamMessageId(null);
