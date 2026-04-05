@@ -322,13 +322,21 @@ export function MessageBubble({
 
   appendBufferedText();
 
-  if (!assistantBlocks.some((item) => item.timelineKind === "text") && rawContent) {
+  const consumedText = assistantBlocks
+    .filter(
+      (item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> =>
+        item.timelineKind === "text"
+    )
+    .map((item) => item.content)
+    .join("");
+
+  if (rawContent && rawContent.length > consumedText.length) {
     assistantBlocks.push({
-      id: `content_${message.id}`,
+      id: `content_${message.id}_remaining`,
       timelineKind: "text",
       sortOrder: assistantBlocks.length,
       createdAt: message.createdAt,
-      content: rawContent
+      content: rawContent.slice(consumedText.length)
     });
   }
 

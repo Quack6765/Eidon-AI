@@ -120,18 +120,24 @@ function reconcileSnapshotMessages(
     return current;
   }
 
-  if (!activeStreamMessageId) {
-    return snapshot;
-  }
+  const merged = snapshot.map((snapshotMsg) => {
+    const currentMsg = current.find((m) => m.id === snapshotMsg.id);
 
-  const snapshotMessageIds = new Set(snapshot.map((message) => message.id));
-  const activeStreamingMessage = current.find((message) => message.id === activeStreamMessageId);
+    if (currentMsg && currentMsg.id === activeStreamMessageId) {
+      return currentMsg;
+    }
 
-  if (!activeStreamingMessage || snapshotMessageIds.has(activeStreamMessageId)) {
-    return snapshot;
-  }
+    if (currentMsg && currentMsg.status === "completed" && snapshotMsg.status === "streaming") {
+      return currentMsg;
+    }
 
-  return [...snapshot, activeStreamingMessage];
+    return snapshotMsg;
+  });
+
+  const snapshotMessageIds = new Set(snapshot.map((m) => m.id));
+  const pendingLocalMessages = current.filter((m) => !snapshotMessageIds.has(m.id));
+
+  return [...merged, ...pendingLocalMessages];
 }
 
 export function ChatView({ payload }: { payload: ConversationPayload }) {
@@ -325,7 +331,31 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "action_start") {
-      setStreamTimeline((prev) => appendStreamingAction(prev, event.action));
+      setStreamTimeline((prev) => {
+        const isExisting = prev.some((item) => item.timelineKind === "action" && item.id === event.action.id);
+        if (isExisting) {
+          return appendStreamingAction(prev, event.action);
+        }
+
+        const previousTextLen = prev
+          .filter((item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> => item.timelineKind === "text")
+          .reduce((sum, item) => sum + item.content.length, 0);
+
+        const newText = streamAnswerTargetRef.current.slice(previousTextLen);
+        const nextTimeline = [...prev];
+
+        if (newText.length > 0) {
+          nextTimeline.push({
+            id: `stream_text_${Date.now()}_${prev.length}`,
+            timelineKind: "text",
+            sortOrder: prev.length,
+            createdAt: new Date().toISOString(),
+            content: newText
+          });
+        }
+
+        return appendStreamingAction(nextTimeline, event.action);
+      });
     }
 
     if (event.type === "action_complete" || event.type === "action_error") {
@@ -347,7 +377,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 ...m,
                 content: finalAnswer,
                 thinkingContent: finalThinking,
-                status: "completed" as const
+                status: "completed" as const,
+                timeline: streamTimeline
               }
             : m
         )
