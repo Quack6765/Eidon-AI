@@ -135,12 +135,16 @@ function ConversationItem({
   conversation,
   active,
   onNavigate,
+  onDeleteConversation,
+  onMoveConversation,
   allFolders,
   dragEnabled
 }: {
   conversation: SidebarConversation;
   active: boolean;
   onNavigate?: (conversationId: string, href: string) => void | Promise<void>;
+  onDeleteConversation: (conversationId: string) => void;
+  onMoveConversation: (conversationId: string, folderId: string | null) => void;
   allFolders: Folder[];
   dragEnabled: boolean;
 }) {
@@ -197,6 +201,7 @@ function ConversationItem({
     }
     const response = await fetch(`/api/conversations/${conversation.id}`, { method: "DELETE" });
     if (response.ok) {
+      onDeleteConversation(conversation.id);
       dispatchConversationRemoved({ conversationId: conversation.id });
     }
     if (active) {
@@ -208,11 +213,14 @@ function ConversationItem({
   }
 
   async function handleMoveToFolder(folderId: string | null) {
-    await fetch(`/api/conversations/${conversation.id}`, {
+    const response = await fetch(`/api/conversations/${conversation.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ folderId })
     });
+    if (response.ok) {
+      onMoveConversation(conversation.id, folderId);
+    }
     router.refresh();
     setMenuOpen(false);
   }
@@ -337,6 +345,8 @@ function FolderItem({
   activeConversationId,
   allFolders,
   onNavigate,
+  onDeleteConversation,
+  onMoveConversation,
   onCreateInFolder,
   dragEnabled,
   showCount,
@@ -347,6 +357,8 @@ function FolderItem({
   activeConversationId: string | null;
   allFolders: Folder[];
   onNavigate?: (conversationId: string, href: string) => void | Promise<void>;
+  onDeleteConversation: (conversationId: string) => void;
+  onMoveConversation: (conversationId: string, folderId: string | null) => void;
   onCreateInFolder: (folderId: string) => void;
   dragEnabled: boolean;
   showCount: boolean;
@@ -538,6 +550,8 @@ function FolderItem({
               conversation={conversation}
               active={activeConversationId === conversation.id}
               onNavigate={onNavigate}
+              onDeleteConversation={onDeleteConversation}
+              onMoveConversation={onMoveConversation}
               allFolders={allFolders}
               dragEnabled={dragEnabled}
             />
@@ -643,6 +657,41 @@ export function Sidebar({
 
     return closestCenter(args);
   };
+
+  const removeConversationFromState = useCallback((conversationId: string) => {
+    setLocalConversations((current) =>
+      current.filter((conversation) => conversation.id !== conversationId)
+    );
+    setSearchResults((current) =>
+      current
+        ? current.filter((conversation) => conversation.id !== conversationId)
+        : current
+    );
+  }, []);
+
+  const moveConversationInState = useCallback(
+    (conversationId: string, folderId: string | null) => {
+      const updatedAt = new Date().toISOString();
+
+      setLocalConversations((current) =>
+        current.map((conversation) =>
+          conversation.id === conversationId
+            ? { ...conversation, folderId, updatedAt }
+            : conversation
+        )
+      );
+      setSearchResults((current) =>
+        current
+          ? current.map((conversation) =>
+              conversation.id === conversationId
+                ? { ...conversation, folderId, updatedAt }
+                : conversation
+            )
+          : current
+      );
+    },
+    []
+  );
 
   const handleSearch = useCallback((query: string) => {
     setSearchQuery(query);
@@ -901,6 +950,8 @@ export function Sidebar({
                 activeConversationId={activeConversationId}
                 allFolders={localFolders}
                 onNavigate={navigateToHref}
+                onDeleteConversation={removeConversationFromState}
+                onMoveConversation={moveConversationInState}
                 onCreateInFolder={(fId) => handleCreate(fId)}
                 dragEnabled={enableDrag}
                 showCount={showFolderCounts}
@@ -928,6 +979,8 @@ export function Sidebar({
                     conversation={conversation}
                     active={activeConversationId === conversation.id}
                     onNavigate={navigateToHref}
+                    onDeleteConversation={removeConversationFromState}
+                    onMoveConversation={moveConversationInState}
                     allFolders={localFolders}
                     dragEnabled={enableDrag}
                   />

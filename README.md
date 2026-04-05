@@ -112,6 +112,8 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+`npm run dev` starts Hermes through the custom websocket server, which is required for the `/ws` realtime chat transport. `npm run dev:next` is available if you explicitly want plain Next.js without the websocket chat runtime.
+
 ### 4. Configure your model provider
 
 After the app is running:
@@ -127,7 +129,8 @@ Hermes does not ship with a provider API key.
 
 | Command | Purpose |
 | --- | --- |
-| `npm run dev` | Start the Next.js dev server |
+| `npm run dev` | Start the Hermes dev server with websocket chat support |
+| `npm run dev:next` | Start plain Next.js without the websocket chat server |
 | `npm run lint` | Run ESLint |
 | `npm run typecheck` | Run TypeScript checks |
 | `npm run test` | Run unit tests with coverage |

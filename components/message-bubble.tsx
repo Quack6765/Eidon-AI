@@ -258,54 +258,67 @@ export function MessageBubble({
   const liveTimeline = streamingTimeline ?? message.timeline;
   const content = normalizeMarkdownLineBreaks(rawContent);
   const thinkingContent = normalizeMarkdownLineBreaks(rawThinking);
-  const committedStreamingText = liveTimeline
-    ?.filter(
-      (item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> =>
-        item.timelineKind === "text"
-    )
-    .map((item) => item.content)
-    .join("") ?? "";
-  const baseTimeline =
-    liveTimeline ??
-    (message.role === "assistant"
-      ? [
-          ...actions.map((action) => ({
-            ...action,
-            timelineKind: "action" as const
-          })),
-          ...(rawContent
-            ? [
-                {
-                  id: `content_${message.id}`,
-                  timelineKind: "text" as const,
-                  sortOrder: actions.length,
-                  createdAt: message.createdAt,
-                  content: rawContent
-                }
-              ]
-            : [])
-        ]
-      : []);
-  const pendingStreamingText =
-    liveTimeline && streamingAnswer !== undefined && rawContent
-      ? rawContent.startsWith(committedStreamingText)
-        ? rawContent.slice(committedStreamingText.length)
-        : rawContent
-      : "";
-  const streamingContentAppend =
-    message.role === "assistant" && pendingStreamingText
-      ? [
-          {
-            id: `stream_content_${message.id}`,
-            timelineKind: "text" as const,
-            sortOrder: baseTimeline.length,
-            createdAt: message.createdAt,
-            content: pendingStreamingText
-          }
-        ]
-      : [];
-  const timeline = [...baseTimeline, ...streamingContentAppend];
-  const assistantText = timeline
+  const timeline = liveTimeline ?? actions.map((action) => ({
+    ...action,
+    timelineKind: "action" as const
+  }));
+  const assistantBlocks: MessageTimelineItem[] = [];
+  let bufferedText = "";
+
+  function appendBufferedText() {
+    if (!bufferedText) {
+      return;
+    }
+
+    assistantBlocks.push({
+      id: `text_${message.id}_${assistantBlocks.length}`,
+      timelineKind: "text",
+      sortOrder: assistantBlocks.length,
+      createdAt: message.createdAt,
+      content: bufferedText
+    });
+    bufferedText = "";
+  }
+
+  function mergeText(current: string, next: string) {
+    if (!current) {
+      return next;
+    }
+
+    if (next.startsWith(current)) {
+      return next;
+    }
+
+    if (current.endsWith(next)) {
+      return current;
+    }
+
+    return `${current}${next}`;
+  }
+
+  timeline.forEach((item) => {
+    if (item.timelineKind === "action") {
+      appendBufferedText();
+      assistantBlocks.push(item);
+      return;
+    }
+
+    bufferedText = mergeText(bufferedText, item.content);
+  });
+
+  appendBufferedText();
+
+  if (!assistantBlocks.some((item) => item.timelineKind === "text") && rawContent) {
+    assistantBlocks.push({
+      id: `content_${message.id}`,
+      timelineKind: "text",
+      sortOrder: assistantBlocks.length,
+      createdAt: message.createdAt,
+      content: rawContent
+    });
+  }
+
+  const assistantText = assistantBlocks
     .filter(
       (item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> =>
         item.timelineKind === "text"
@@ -546,10 +559,10 @@ export function MessageBubble({
               <div className={`${ASSISTANT_MAX_WIDTH} ${ASSISTANT_BUBBLE}`} data-testid="assistant-message-bubble">
                 <TypingIndicator />
               </div>
-            ) : timeline.length || content ? (
+            ) : assistantBlocks.length || content ? (
               <div className="group flex flex-col items-start">
                 <div ref={contentRef} className={`flex w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
-                  {timeline.map((item) => {
+                  {assistantBlocks.map((item) => {
                     if (item.timelineKind === "action") {
                       return (
                         <div key={item.id} data-testid="assistant-actions-shell">
@@ -573,16 +586,6 @@ export function MessageBubble({
                       </div>
                     );
                   })}
-                  {!message.timeline && !streamingAnswer && actions.length > 0 && rawContent ? (
-                    <div
-                      className={ASSISTANT_BUBBLE}
-                      data-testid="assistant-message-bubble"
-                    >
-                      <div className="markdown-body">
-                        <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{content}</ReactMarkdown>
-                      </div>
-                    </div>
-                  ) : null}
                 </div>
 
                 {showAssistantBubbleActions ? (

@@ -15,13 +15,17 @@ type UseWebSocketReturn = {
   subscribe: (conversationId: string) => void;
   unsubscribe: (conversationId: string) => void;
   connected: boolean;
+  failed: boolean;
 };
 
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
   const [connected, setConnected] = useState(false);
+  const [failed, setFailed] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const currentSubscriptionRef = useRef<string | null>(null);
+  const pendingMessagesRef = useRef<ClientMessage[]>([]);
   const optionsRef = useRef(options);
+  const hasOpenedRef = useRef(false);
   optionsRef.current = options;
 
   useEffect(() => {
@@ -43,10 +47,19 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
       ws.addEventListener("open", () => {
         setConnected(true);
+        setFailed(false);
+        hasOpenedRef.current = true;
         reconnectAttempts = 0;
         optionsRef.current.onOpen?.();
         if (currentSubscriptionRef.current) {
           ws.send(serializeClientMessage({ type: "subscribe", conversationId: currentSubscriptionRef.current }));
+        }
+        while (pendingMessagesRef.current.length > 0) {
+          const message = pendingMessagesRef.current.shift();
+          if (!message) {
+            continue;
+          }
+          ws.send(serializeClientMessage(message));
         }
       });
 
@@ -59,6 +72,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
       ws.addEventListener("close", () => {
         setConnected(false);
+        if (!hasOpenedRef.current) {
+          setFailed(true);
+        }
         wsRef.current = null;
         optionsRef.current.onClose?.();
         scheduleReconnect();
@@ -80,7 +96,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   const send = useCallback((msg: ClientMessage) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(serializeClientMessage(msg));
+      return;
     }
+
+    pendingMessagesRef.current.push(msg);
   }, []);
 
   const subscribe = useCallback((conversationId: string) => {
@@ -95,5 +114,5 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     send({ type: "unsubscribe", conversationId });
   }, [send]);
 
-  return { send, subscribe, unsubscribe, connected };
+  return { send, subscribe, unsubscribe, connected, failed };
 }

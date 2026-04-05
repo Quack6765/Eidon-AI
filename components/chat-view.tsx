@@ -6,6 +6,11 @@ import { ChevronDown } from "lucide-react";
 
 import { ChatComposer } from "@/components/chat-composer";
 import { MessageBubble } from "@/components/message-bubble";
+import { clearChatBootstrap, readChatBootstrap } from "@/lib/chat-bootstrap";
+import {
+  dispatchConversationActivityUpdated,
+  dispatchConversationTitleUpdated
+} from "@/lib/conversation-events";
 import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { supportsImageInput } from "@/lib/model-capabilities";
@@ -52,6 +57,29 @@ function updateStreamingAction(
   );
 }
 
+function reconcileSnapshotMessages(
+  current: Message[],
+  snapshot: Message[],
+  activeStreamMessageId: string | null
+) {
+  if (snapshot.length === 0) {
+    return current;
+  }
+
+  if (!activeStreamMessageId) {
+    return snapshot;
+  }
+
+  const snapshotMessageIds = new Set(snapshot.map((message) => message.id));
+  const activeStreamingMessage = current.find((message) => message.id === activeStreamMessageId);
+
+  if (!activeStreamingMessage || snapshotMessageIds.has(activeStreamMessageId)) {
+    return snapshot;
+  }
+
+  return [...snapshot, activeStreamingMessage];
+}
+
 export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
   const [messages, setMessages] = useState(payload.messages);
@@ -80,6 +108,18 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const hasEmptyAssistantShell = messages.some(
+    (message) =>
+      message.role === "assistant" &&
+      !message.content &&
+      !(message.timeline?.length ?? 0) &&
+      (message.status === "streaming" || message.status === "completed")
+  );
+  const needsMessageSync =
+    isSending ||
+    streamMessageId !== null ||
+    messages.some((message) => message.role === "assistant" && message.status === "streaming") ||
+    hasEmptyAssistantShell;
   const queueRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
@@ -89,6 +129,17 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
   const titlePollTimeoutRef = useRef<number | null>(null);
   const titlePollAttemptsRef = useRef(0);
+  const messageSyncTimeoutRef = useRef<number | null>(null);
+  const pendingLocalMessageIdRef = useRef<string | null>(null);
+  const pendingLocalSubmissionRef = useRef<{
+    content: string;
+    attachments: MessageAttachment[];
+  } | null>(null);
+  const bootstrapPayloadRef = useRef<{
+    message: string;
+    attachments: MessageAttachment[];
+  } | null>(null);
+  const bootstrapSubmittedRef = useRef(false);
   const submitRef = useRef<
     (nextInput?: string, nextPendingAttachments?: MessageAttachment[]) => Promise<void>
   >(async () => {});
@@ -145,22 +196,34 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   function handleDelta(event: ChatStreamEvent) {
     if (event.type === "message_start") {
+      pendingLocalMessageIdRef.current = null;
+      pendingLocalSubmissionRef.current = null;
       setStreamMessageId(event.messageId);
-      setMessages((current) => [
-        ...current,
-        {
-          id: event.messageId,
-          conversationId: payload.conversation.id,
-          role: "assistant",
-          content: "",
-          thinkingContent: "",
-          status: "streaming",
-          estimatedTokens: 0,
-          systemKind: null,
-          compactedAt: null,
-          createdAt: new Date().toISOString()
+      dispatchConversationActivityUpdated({
+        conversationId: payload.conversation.id,
+        isActive: true
+      });
+      setMessages((current) => {
+        if (current.some((message) => message.id === event.messageId)) {
+          return current;
         }
-      ]);
+
+        return [
+          ...current,
+          {
+            id: event.messageId,
+            conversationId: payload.conversation.id,
+            role: "assistant",
+            content: "",
+            thinkingContent: "",
+            status: "streaming",
+            estimatedTokens: 0,
+            systemKind: null,
+            compactedAt: null,
+            createdAt: new Date().toISOString()
+          }
+        ];
+      });
       return;
     }
 
@@ -170,11 +233,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "thinking_delta") {
       setHasReceivedFirstToken(true);
-      setStreamThinkingTarget((prev) => {
-        const next = prev + event.text;
-        streamThinkingTargetRef.current = next;
-        return next;
-      });
+      const nextThinking = `${streamThinkingTargetRef.current}${event.text}`;
+      streamThinkingTargetRef.current = nextThinking;
+      setStreamThinkingTarget(nextThinking);
       if (!thinkingStartTimeRef.current) {
         thinkingStartTimeRef.current = Date.now();
       }
@@ -182,11 +243,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "answer_delta") {
       setHasReceivedFirstToken(true);
-      setStreamAnswerTarget((prev) => {
-        const next = prev + event.text;
-        streamAnswerTargetRef.current = next;
-        return next;
-      });
+      const nextAnswer = `${streamAnswerTargetRef.current}${event.text}`;
+      streamAnswerTargetRef.current = nextAnswer;
+      setStreamAnswerTarget(nextAnswer);
       if (thinkingStartTimeRef.current && !thinkingDuration) {
         const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
         setThinkingDuration(duration);
@@ -222,6 +281,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (event.type === "done") {
       const finalAnswer = streamAnswerTargetRef.current;
       const finalThinking = streamThinkingTargetRef.current;
+      dispatchConversationActivityUpdated({
+        conversationId: payload.conversation.id,
+        isActive: false
+      });
 
       setMessages((current) =>
         current.map((m) =>
@@ -247,6 +310,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "error") {
+      dispatchConversationActivityUpdated({
+        conversationId: payload.conversation.id,
+        isActive: false
+      });
       setMessages((current) =>
         current.map((m) =>
           m.id === streamMessageId ? { ...m, status: "error" as const } : m
@@ -259,11 +326,52 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
-  const { send: wsSend, subscribe: wsSubscribe, connected: wsConnected } = useWebSocket({
+  const {
+    send: wsSend,
+    subscribe: wsSubscribe,
+    unsubscribe: wsUnsubscribe,
+    connected: wsConnected,
+    failed: wsFailed
+  } = useWebSocket({
     onMessage(msg) {
       switch (msg.type) {
+        case "ready":
+          dispatchConversationActivityUpdated({
+            conversationId: payload.conversation.id,
+            isActive: msg.activeConversations.some(
+              (conversation) =>
+                conversation.id === payload.conversation.id &&
+                conversation.status === "streaming"
+            )
+          });
+          break;
         case "snapshot":
-          setMessages(msg.messages as Message[]);
+          if (streamMessageId) {
+            const activeSnapshotMessage = (msg.messages as Message[]).find(
+              (message) => message.id === streamMessageId
+            );
+
+            if (activeSnapshotMessage && activeSnapshotMessage.status !== "streaming") {
+              setStreamMessageId(null);
+              setStreamTimeline([]);
+              setStreamAnswerTarget("");
+              setStreamAnswerDisplay("");
+              setStreamThinkingTarget("");
+              setStreamThinkingDisplay("");
+              streamAnswerTargetRef.current = "";
+              streamThinkingTargetRef.current = "";
+              setHasReceivedFirstToken(false);
+              setIsSending(false);
+            }
+          }
+
+          setMessages((current) =>
+            reconcileSnapshotMessages(
+              current,
+              msg.messages as Message[],
+              streamMessageId
+            )
+          );
           break;
         case "delta":
           handleDelta(msg.event as ChatStreamEvent);
@@ -274,7 +382,55 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   useEffect(() => {
     wsSubscribe(payload.conversation.id);
-  }, [payload.conversation.id, wsSubscribe]);
+    return () => {
+      wsUnsubscribe(payload.conversation.id);
+    };
+  }, [payload.conversation.id, wsSubscribe, wsUnsubscribe]);
+
+  useEffect(() => {
+    bootstrapPayloadRef.current = readChatBootstrap(payload.conversation.id);
+    bootstrapSubmittedRef.current = false;
+  }, [payload.conversation.id]);
+
+  useEffect(() => {
+    if (!wsConnected || bootstrapSubmittedRef.current) {
+      return;
+    }
+
+    const bootstrapPayload = bootstrapPayloadRef.current;
+
+    if (!bootstrapPayload) {
+      return;
+    }
+
+    bootstrapSubmittedRef.current = true;
+    clearChatBootstrap(payload.conversation.id);
+    void submitRef.current(bootstrapPayload.message, bootstrapPayload.attachments);
+  }, [payload.conversation.id, wsConnected]);
+
+  useEffect(() => {
+    if (!wsFailed) {
+      return;
+    }
+
+    if (pendingLocalMessageIdRef.current) {
+      const failedMessageId = pendingLocalMessageIdRef.current;
+      const pendingSubmission = pendingLocalSubmissionRef.current;
+
+      setMessages((current) => current.filter((message) => message.id !== failedMessageId));
+      setInput((current) => current || pendingSubmission?.content || "");
+      setPendingAttachments((current) =>
+        current.length > 0 ? current : (pendingSubmission?.attachments ?? [])
+      );
+      pendingLocalMessageIdRef.current = null;
+      pendingLocalSubmissionRef.current = null;
+    }
+
+    setIsSending(false);
+    setError(
+      "Realtime chat connection is unavailable. Restart Hermes with the websocket server enabled."
+    );
+  }, [wsFailed]);
 
   function stopTitlePolling() {
     if (titlePollTimeoutRef.current !== null) {
@@ -283,9 +439,18 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  function stopMessageSyncPolling() {
+    if (messageSyncTimeoutRef.current !== null) {
+      window.clearTimeout(messageSyncTimeoutRef.current);
+      messageSyncTimeoutRef.current = null;
+    }
+  }
+
   async function pollConversationTitle() {
     try {
-      const response = await fetch(`/api/conversations/${payload.conversation.id}`);
+      const response = await fetch(`/api/conversations/${payload.conversation.id}`, {
+        cache: "no-store"
+      });
 
       if (!response.ok) {
         throw new Error("Unable to refresh conversation");
@@ -295,7 +460,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         conversation: Conversation;
       };
 
-      setConversationTitle(result.conversation.title);
+      setConversationTitle((current) => {
+        if (current !== result.conversation.title) {
+          dispatchConversationTitleUpdated({
+            conversationId: result.conversation.id,
+            title: result.conversation.title
+          });
+        }
+
+        return result.conversation.title;
+      });
       setTitleGenerationStatus(result.conversation.titleGenerationStatus);
 
       if (
@@ -335,6 +509,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   useEffect(() => stopTitlePolling, []);
 
+  useEffect(() => stopMessageSyncPolling, []);
+
   useEffect(() => {
     return () => {
       if (typeof window === "undefined") {
@@ -358,6 +534,78 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       stopTitlePolling();
     }
   }, [titleGenerationStatus]);
+
+  useEffect(() => {
+    if (!needsMessageSync) {
+      stopMessageSyncPolling();
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncConversation = async () => {
+      try {
+        const response = await fetch(`/api/conversations/${payload.conversation.id}`, {
+          cache: "no-store"
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to refresh conversation");
+        }
+
+        const result = (await response.json()) as {
+          conversation: Conversation;
+          messages: Message[];
+          debug: ConversationPayload["debug"];
+        };
+
+        if (cancelled) {
+          return;
+        }
+
+        setMessages((current) =>
+          reconcileSnapshotMessages(current, result.messages, streamMessageId)
+        );
+        setDebug(result.debug);
+        setConversationTitle(result.conversation.title);
+        setTitleGenerationStatus(result.conversation.titleGenerationStatus);
+
+        const activeMessage = streamMessageId
+          ? result.messages.find((message) => message.id === streamMessageId)
+          : null;
+
+        if (!result.conversation.isActive || (activeMessage && activeMessage.status !== "streaming")) {
+          setStreamMessageId(null);
+          setStreamTimeline([]);
+          setStreamAnswerTarget("");
+          setStreamAnswerDisplay("");
+          setStreamThinkingTarget("");
+          setStreamThinkingDisplay("");
+          streamAnswerTargetRef.current = "";
+          streamThinkingTargetRef.current = "";
+          setHasReceivedFirstToken(false);
+          setIsSending(false);
+          stopMessageSyncPolling();
+          return;
+        }
+      } catch {}
+
+      if (cancelled) {
+        return;
+      }
+
+      messageSyncTimeoutRef.current = window.setTimeout(() => {
+        void syncConversation();
+      }, 1000);
+    };
+
+    void syncConversation();
+
+    return () => {
+      cancelled = true;
+      stopMessageSyncPolling();
+    };
+  }, [needsMessageSync, payload.conversation.id, streamMessageId]);
 
   useEffect(() => {
     if (streamThinkingDisplay === streamThinkingTarget) {
@@ -623,6 +871,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       return;
     }
 
+    if (wsFailed) {
+      setError(
+        "Realtime chat connection is unavailable. Restart Hermes with the websocket server enabled."
+      );
+      return;
+    }
+
     setError("");
     setInput("");
     setPendingAttachments([]);
@@ -651,6 +906,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       compactedAt: null,
       createdAt: new Date().toISOString()
     };
+    pendingLocalMessageIdRef.current = optimisticUserMessage.id;
+    pendingLocalSubmissionRef.current = {
+      content: value,
+      attachments: nextPendingAttachments
+    };
     setMessages((current) => [...current, optimisticUserMessage]);
 
     wsSend({
@@ -659,6 +919,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       content: value,
       attachmentIds: nextPendingAttachments.map((attachment) => attachment.id)
     });
+
+    if (titleGenerationStatus === "pending") {
+      startTitlePolling();
+    }
   }
 
   submitRef.current = submit;
@@ -754,7 +1018,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 streamingTimeline={message.id === streamMessageId ? streamTimeline : undefined}
                 streamingThinking={message.id === streamMessageId ? streamThinkingDisplay : undefined}
                 streamingAnswer={message.id === streamMessageId ? streamAnswerDisplay : undefined}
-                awaitingFirstToken={message.id === streamMessageId ? !hasReceivedFirstToken : false}
+                awaitingFirstToken={
+                  message.id === streamMessageId
+                    ? !hasReceivedFirstToken &&
+                      !streamAnswerDisplay &&
+                      !message.content &&
+                      !(message.timeline?.length ?? 0)
+                    : false
+                }
                 thinkingInProgress={
                   message.id === streamMessageId
                     ? Boolean(streamThinkingTarget) && !streamAnswerTarget

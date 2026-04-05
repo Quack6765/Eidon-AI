@@ -199,6 +199,38 @@ describe("message bubble", () => {
     expect(blocks[2]?.textContent).toContain("Second segment");
   });
 
+  it("collapses adjacent assistant text segments into a single bubble", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Hello there",
+          timeline: [
+            {
+              id: "txt_1",
+              timelineKind: "text",
+              sortOrder: 0,
+              createdAt: new Date().toISOString(),
+              content: "Hello"
+            },
+            {
+              id: "txt_2",
+              timelineKind: "text",
+              sortOrder: 1,
+              createdAt: new Date().toISOString(),
+              content: " there"
+            }
+          ]
+        }
+      })
+    );
+
+    const bubbles = container.querySelectorAll('[data-testid="assistant-message-bubble"]');
+
+    expect(bubbles).toHaveLength(1);
+    expect(bubbles[0]?.textContent).toContain("Hello there");
+  });
+
   it("keeps the thinking shell visible while streamed reasoning is buffered", () => {
     render(
       React.createElement(StreamingPlaceholder, {

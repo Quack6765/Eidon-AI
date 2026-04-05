@@ -21,7 +21,19 @@ const wsMock = vi.hoisted(() => ({
   send: vi.fn(),
   subscribe: vi.fn(),
   unsubscribe: vi.fn(),
-  connected: true
+  connected: true,
+  failed: false
+}));
+
+const bootstrapMock = vi.hoisted(() => ({
+  readChatBootstrap: vi.fn(),
+  clearChatBootstrap: vi.fn()
+}));
+
+const conversationEventMock = vi.hoisted(() => ({
+  dispatchConversationActivityUpdated: vi.fn(),
+  dispatchConversationTitleUpdated: vi.fn(),
+  dispatchConversationRemoved: vi.fn()
 }));
 
 vi.mock("@/lib/ws-client", () => ({
@@ -35,8 +47,15 @@ vi.mock("@/lib/conversation-drafts", () => ({
   deleteConversationIfStillEmpty: vi.fn().mockResolvedValue(false)
 }));
 
+vi.mock("@/lib/chat-bootstrap", () => ({
+  readChatBootstrap: bootstrapMock.readChatBootstrap,
+  clearChatBootstrap: bootstrapMock.clearChatBootstrap
+}));
+
 vi.mock("@/lib/conversation-events", () => ({
-  dispatchConversationRemoved: vi.fn()
+  dispatchConversationRemoved: conversationEventMock.dispatchConversationRemoved,
+  dispatchConversationActivityUpdated: conversationEventMock.dispatchConversationActivityUpdated,
+  dispatchConversationTitleUpdated: conversationEventMock.dispatchConversationTitleUpdated
 }));
 
 function createAttachment(overrides: Partial<MessageAttachment> = {}): MessageAttachment {
@@ -108,6 +127,16 @@ describe("chat view", () => {
     push.mockReset();
     refresh.mockReset();
     wsMock.onMessage = null;
+    wsMock.connected = true;
+    wsMock.failed = false;
+    wsMock.send.mockReset();
+    wsMock.subscribe.mockReset();
+    wsMock.unsubscribe.mockReset();
+    bootstrapMock.readChatBootstrap.mockReset();
+    bootstrapMock.readChatBootstrap.mockReturnValue(null);
+    bootstrapMock.clearChatBootstrap.mockReset();
+    conversationEventMock.dispatchConversationActivityUpdated.mockReset();
+    conversationEventMock.dispatchConversationTitleUpdated.mockReset();
     vi.clearAllMocks();
     global.fetch = vi.fn();
     window.history.pushState({}, "", "/chat/conv_1");
@@ -198,7 +227,7 @@ describe("chat view", () => {
     } as Response);
 
     const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
-    const root = container.firstElementChild as HTMLElement;
+    const root = container.querySelector(".contents") as HTMLElement;
     const file = new File(["hello"], "notes.txt", { type: "text/plain" });
 
     fireEvent.dragEnter(root, {
@@ -206,8 +235,6 @@ describe("chat view", () => {
         types: ["Files"]
       }
     });
-
-    expect(screen.getByText("Drop files to attach")).toBeInTheDocument();
 
     fireEvent.drop(root, {
       dataTransfer: {
@@ -241,6 +268,81 @@ describe("chat view", () => {
         attachmentIds: []
       });
     });
+  });
+
+  it("shows an error instead of queuing a message when the websocket transport is unavailable", async () => {
+    wsMock.connected = false;
+    wsMock.failed = true;
+
+    const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(textarea, { target: { value: "Hello world" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Realtime chat connection is unavailable. Restart Hermes with the websocket server enabled.")
+      ).toBeInTheDocument();
+    });
+
+    expect(wsMock.send).not.toHaveBeenCalled();
+    expect(container.querySelectorAll(".animate-slide-up")).toHaveLength(1);
+    expect(textarea).toHaveValue("Hello world");
+  });
+
+  it("submits the bootstrapped home prompt once the WebSocket is connected", async () => {
+    bootstrapMock.readChatBootstrap.mockReturnValue({
+      message: "Bootstrapped prompt",
+      attachments: []
+    });
+
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "Bootstrapped prompt",
+        attachmentIds: []
+      });
+    });
+
+    expect(bootstrapMock.clearChatBootstrap).toHaveBeenCalledWith("conv_1");
+  });
+
+  it("submits the bootstrapped home prompt once under strict mode remounts", async () => {
+    let storedBootstrapPayload: { message: string; attachments: MessageAttachment[] } | null = {
+      message: "Strict prompt",
+      attachments: []
+    };
+    bootstrapMock.readChatBootstrap.mockImplementation(() => storedBootstrapPayload);
+    bootstrapMock.clearChatBootstrap.mockImplementation(() => {
+      storedBootstrapPayload = null;
+    });
+
+    render(
+      React.createElement(
+        React.StrictMode,
+        null,
+        React.createElement(ChatView, { payload: createPayload() })
+      )
+    );
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "Strict prompt",
+        attachmentIds: []
+      });
+    });
+
+    expect(wsMock.send).toHaveBeenCalledTimes(1);
+    expect(bootstrapMock.clearChatBootstrap).toHaveBeenCalledWith("conv_1");
   });
 
   it("deletes an empty conversation when navigating away before sending a message", async () => {
@@ -303,6 +405,70 @@ describe("chat view", () => {
     await waitFor(() => {
       expect(screen.getByText("Hello")).toBeInTheDocument();
       expect(screen.getByText("Hi there!")).toBeInTheDocument();
+    });
+  });
+
+  it("ignores stale empty snapshots after a local send has started", async () => {
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("hello")).toBeInTheDocument();
+    });
+
+    wsMock.onMessage!({
+      type: "snapshot",
+      conversationId: "conv_1",
+      messages: []
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("hello")).toBeInTheDocument();
+    });
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "answer_delta", text: "Hello!" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "done", messageId: "msg_assistant" }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello!")).toBeInTheDocument();
+    });
+  });
+
+  it("does not append duplicate assistant placeholders for the same stream message", async () => {
+    const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+
+    await waitFor(() => {
+      expect(container.querySelectorAll(".animate-slide-up")).toHaveLength(1);
     });
   });
 
@@ -409,6 +575,30 @@ describe("chat view", () => {
     const wrappersAfterDone = container.querySelectorAll(".animate-slide-up");
     expect(wrappersAfterDone).toHaveLength(1);
     expect(wrappersAfterDone[0]).toBe(assistantWrapper);
+  });
+
+  it("keeps the final answer when answer and done arrive back to back", async () => {
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "answer_delta", text: "Connected" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "done", messageId: "msg_assistant" }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Connected")).toBeInTheDocument();
+    });
   });
 
   it("renders answer text without duplication around tool actions during streaming", async () => {
