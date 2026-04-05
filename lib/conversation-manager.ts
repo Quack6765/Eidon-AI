@@ -65,11 +65,16 @@ export function createConversationManager() {
     }
   }
 
+  function hasSubscribers(conversationId: string): boolean {
+    const room = rooms.get(conversationId);
+    return Boolean(room && room.size > 0);
+  }
+
   function getActiveConversationIds(): string[] {
     return [...activeTurns.keys()];
   }
 
-  return { subscribe, unsubscribe, broadcast, disconnect, isActive, setActive, getActiveConversationIds };
+  return { subscribe, unsubscribe, broadcast, disconnect, isActive, setActive, getActiveConversationIds, hasSubscribers };
 }
 
 export type ConversationManager = ReturnType<typeof createConversationManager>;
