@@ -20,8 +20,13 @@ ENV HERMES_PASSWORD_LOGIN_ENABLED=true
 # Install uv for uvx (Python-based MCP servers)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-# Install agent-browser for headless browser automation
-RUN npm install -g agent-browser && agent-browser install --with-deps
+# Install chromium and agent-browser
+RUN apt-get update && apt-get install -y --no-install-recommends chromium \
+    && rm -rf /var/lib/apt/lists/*
+RUN npm install -g agent-browser \
+    && mv /usr/local/bin/agent-browser /usr/local/bin/agent-browser-core \
+    && printf '#!/bin/sh\nexec agent-browser-core --executable-path /usr/bin/chromium "$@"\n' > /usr/local/bin/agent-browser \
+    && chmod +x /usr/local/bin/agent-browser
 
 RUN groupadd --system hermes && useradd --system --gid hermes hermes
 COPY --from=builder /app/.next/standalone ./
