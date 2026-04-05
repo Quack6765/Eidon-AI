@@ -15,6 +15,8 @@ export HERMES_ENCRYPTION_SECRET=replace-with-32-plus-chars
 npm run dev
 ```
 
+`npm run dev` starts the custom websocket server so the `/ws` realtime chat transport is available locally. `npm run dev:next` starts plain Next.js without websocket chat support and should only be used for debugging non-chat surfaces.
+
 ## Services
 | Service | Port | URL |
 |---------|------|-----|
@@ -23,7 +25,8 @@ npm run dev
 ## Common Commands
 | Command | Purpose |
 |---------|---------|
-| `npm run dev` | Start the app locally |
+| `npm run dev` | Start the app locally with websocket chat support |
+| `npm run dev:next` | Start plain Next.js without the websocket chat server |
 | `npm run lint` | Run ESLint |
 | `npm run typecheck` | Run TypeScript checks |
 | `npm run test` | Run unit tests with coverage |

@@ -244,6 +244,86 @@ Run browser commands.`
     expect(result.answer).toBe("Observed the page.");
   });
 
+  it("does not expose shell-enabled skills for ordinary factual chat turns", async () => {
+    const seenToolNames: string[][] = [];
+
+    streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
+      seenToolNames.push((tools ?? []).map((tool) => tool.function.name));
+
+      return createProviderStream([{ type: "answer_delta", text: "It is rainy." }], {
+        answer: "It is rainy.",
+        thinking: "",
+        usage: { inputTokens: 4, outputTokens: 2 }
+      });
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "What's the weather in Montreal right now?" }],
+      skills: [
+        createSkill({
+          id: "builtin-agent-browser",
+          name: "Agent Browser",
+          description: "Use for browser automation and page inspection.",
+          content: `---
+name: Agent Browser
+description: Use for browser automation and page inspection.
+shell_command_prefixes:
+  - agent-browser
+---
+
+Run browser commands.`
+        })
+      ],
+      mcpToolSets: []
+    });
+
+    expect(seenToolNames[0] ?? []).not.toContain("load_skill");
+    expect(result.answer).toBe("It is rainy.");
+  });
+
+  it("exposes shell-enabled skills when the user explicitly asks for browser inspection", async () => {
+    const seenToolNames: string[][] = [];
+
+    streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
+      seenToolNames.push((tools ?? []).map((tool) => tool.function.name));
+
+      return createProviderStream([{ type: "answer_delta", text: "I can inspect that site." }], {
+        answer: "I can inspect that site.",
+        thinking: "",
+        usage: { inputTokens: 4, outputTokens: 2 }
+      });
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Inspect https://example.com in the browser and tell me what you find." }],
+      skills: [
+        createSkill({
+          id: "builtin-agent-browser",
+          name: "Agent Browser",
+          description: "Use for browser automation and page inspection.",
+          content: `---
+name: Agent Browser
+description: Use for browser automation and page inspection.
+shell_command_prefixes:
+  - agent-browser
+---
+
+Run browser commands.`
+        })
+      ],
+      mcpToolSets: []
+    });
+
+    expect(seenToolNames[0] ?? []).toContain("load_skill");
+    expect(result.answer).toBe("I can inspect that site.");
+  });
+
   it("reports MCP tool execution errors through the error callback", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
@@ -329,6 +409,58 @@ Run browser commands.`
     expect(result.answer).toBe("Final answer after retry");
   });
 
+  it("suppresses repeated successful calls to the same read-only MCP tool within one turn", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
+          usage: { inputTokens: 5 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_2", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP again" }) }],
+          usage: { inputTokens: 4 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Final answer" }], {
+          answer: "Final answer",
+          thinking: "",
+          usage: { inputTokens: 6, outputTokens: 2 }
+        })
+      );
+    callMcpTool.mockResolvedValue({
+      content: [{ type: "text", text: "Found MCP docs" }]
+    });
+
+    const started: Array<{ label: string }> = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Use MCP" }],
+      skills: [],
+      mcpToolSets: [{
+        server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
+      }],
+      onActionStart: (action) => {
+        started.push({ label: action.label });
+        return "act_tool";
+      }
+    });
+
+    expect(callMcpTool).toHaveBeenCalledTimes(1);
+    expect(started).toEqual([{ label: "search_docs" }]);
+    expect(streamProviderResponse).toHaveBeenCalledTimes(3);
+    expect(result.answer).toBe("Final answer");
+  });
+
   it("returns an error result for unknown MCP tool calls", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
@@ -361,6 +493,8 @@ Run browser commands.`
   });
 
   it("stops after the maximum number of control steps", async () => {
+    const { MAX_ASSISTANT_CONTROL_STEPS } = await import("@/lib/constants");
+
     streamProviderResponse.mockImplementation(() =>
       createProviderStream([], {
         answer: "",
@@ -387,7 +521,46 @@ Run browser commands.`
       })
     ).rejects.toThrow("Assistant exceeded the maximum number of tool steps");
 
-    expect(streamProviderResponse).toHaveBeenCalledTimes(16);
+    expect(streamProviderResponse).toHaveBeenCalledTimes(MAX_ASSISTANT_CONTROL_STEPS + 1);
+  });
+
+  it("forces a final direct answer when the tool loop would otherwise exhaust the step budget", async () => {
+    const { MAX_ASSISTANT_CONTROL_STEPS } = await import("@/lib/constants");
+
+    streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
+      if (!tools?.length) {
+        return createProviderStream([{ type: "answer_delta", text: "Final answer without more tools" }], {
+          answer: "Final answer without more tools",
+          thinking: "",
+          usage: { inputTokens: 2, outputTokens: 4 }
+        });
+      }
+
+      return createProviderStream([], {
+        answer: "",
+        thinking: "",
+        toolCalls: [{ id: `call_${Math.random()}`, name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "loop" }) }],
+        usage: { inputTokens: 1 }
+      });
+    });
+    callMcpTool.mockResolvedValue({
+      content: [{ type: "text", text: "Loop result" }]
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Loop forever" }],
+      skills: [],
+      mcpToolSets: [{
+        server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" } }]
+      }]
+    });
+
+    expect(streamProviderResponse).toHaveBeenCalledTimes(MAX_ASSISTANT_CONTROL_STEPS + 1);
+    expect(result.answer).toBe("Final answer without more tools");
   });
 
   it("streams thinking and answer deltas before the provider finishes", async () => {

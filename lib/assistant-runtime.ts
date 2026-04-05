@@ -36,6 +36,14 @@ type RuntimeAction = {
   arguments?: Record<string, unknown> | null;
 };
 
+type SuccessfulReadOnlyToolResult = {
+  promptResult: string;
+};
+
+const SHELL_SKILL_INTENT_PATTERN =
+  /\b(browser|website|web site|webpage|web page|url|link|click|navigate|navigation|screenshot|snapshot|inspect|form|login|dom)\b/i;
+const URLISH_PATTERN = /\b(?:https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,})(?:\/\S*)?/i;
+
 function sanitizeForFunctionName(value: string) {
   return value.replace(/[^a-zA-Z0-9_]/g, "_");
 }
@@ -54,6 +62,43 @@ function getSkillResolvedDescription(skill: Skill) {
 
 function getSkillAllowedCommandPrefixes(skill: Skill) {
   return parseSkillContentMetadata(skill.content).shellCommandPrefixes;
+}
+
+function getLatestUserPromptContent(promptMessages: PromptMessage[]) {
+  for (let index = promptMessages.length - 1; index >= 0; index -= 1) {
+    const message = promptMessages[index];
+
+    if (message.role === "user" && typeof message.content === "string") {
+      return message.content.trim();
+    }
+  }
+
+  return "";
+}
+
+function filterSkillsForTurn(skills: Skill[], promptMessages: PromptMessage[]) {
+  const latestUserContent = getLatestUserPromptContent(promptMessages).toLowerCase();
+
+  return skills.filter((skill) => {
+    const shellPrefixes = getSkillAllowedCommandPrefixes(skill);
+
+    if (!shellPrefixes.length) {
+      return true;
+    }
+
+    const resolvedName = getSkillResolvedName(skill).toLowerCase();
+    const resolvedDescription = getSkillResolvedDescription(skill).toLowerCase();
+
+    if (latestUserContent.includes(resolvedName)) {
+      return true;
+    }
+
+    if (URLISH_PATTERN.test(latestUserContent) || SHELL_SKILL_INTENT_PATTERN.test(latestUserContent)) {
+      return resolvedName.includes("browser") || resolvedDescription.includes("browser");
+    }
+
+    return false;
+  });
 }
 
 function getToolLabel(tool: McpTool) {
@@ -161,6 +206,8 @@ function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[]
   }
 
   lines.push("", "Use available tools proactively when they would improve your answer.");
+  lines.push("Do not call the same read-only tool repeatedly once you already have a successful result for it in the current turn.");
+  lines.push("If a tool call fails because of invalid arguments, correct the arguments and retry at most once.");
 
   return lines.join("\n");
 }
@@ -218,6 +265,7 @@ async function executeMcpToolCall(
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
     };
+    successfulReadOnlyToolResults: Map<string, SuccessfulReadOnlyToolResult>;
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
   }
@@ -243,6 +291,29 @@ async function executeMcpToolCall(
   if (!resolvedServer || !resolvedTool) {
     const resultMsg = buildToolResultMessage(toolCallId, "The requested MCP tool is unavailable in the current tool mode or does not exist.");
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const successfulReadOnlyToolKey = `${resolvedServer.id}:${resolvedTool.name}`;
+  const repeatedReadOnlyToolResult =
+    resolvedTool.annotations?.readOnlyHint === true
+      ? context.successfulReadOnlyToolResults.get(successfulReadOnlyToolKey)
+      : undefined;
+
+  if (repeatedReadOnlyToolResult) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      [
+        "Repeated read-only tool call suppressed.",
+        "Reuse the previous successful result already available for this tool.",
+        "",
+        repeatedReadOnlyToolResult.promptResult
+      ].join("\n")
+    );
+
+    return {
+      nextSortOrder: sortOrder,
+      promptMessages: [...context.promptMessages, resultMsg]
+    };
   }
 
   const handle = await context.input.onActionStart?.({
@@ -273,6 +344,12 @@ async function executeMcpToolCall(
     resultSummary,
     isError: Boolean(result.isError)
   });
+
+  if (!result.isError && resolvedTool.annotations?.readOnlyHint === true) {
+    context.successfulReadOnlyToolResults.set(successfulReadOnlyToolKey, {
+      promptResult: resultText
+    });
+  }
 
   const resultMsg = buildToolResultMessage(toolCallId, resultText);
 
@@ -434,6 +511,7 @@ async function executeToolCall(
     mcpServers: McpServer[];
     loadedSkillIds: Set<string>;
     allShellPrefixes: string[];
+    successfulReadOnlyToolResults: Map<string, SuccessfulReadOnlyToolResult>;
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
   }
@@ -463,6 +541,48 @@ async function executeToolCall(
   return { nextSortOrder: context.timelineSortOrder, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
+async function forceDirectAnswerAfterToolLoop(input: {
+  settings: ProviderProfileWithApiKey;
+  promptMessages: PromptMessage[];
+  onEvent?: (event: ChatStreamEvent) => void;
+  onAnswerSegment?: (segment: string) => Promise<void> | void;
+}) {
+  const providerStream = streamProviderResponse({
+    settings: input.settings,
+    promptMessages: mergeSystemMessage(
+      input.promptMessages,
+      "Stop using tools now. Answer the user directly from the information already gathered. Do not call any more tools."
+    )
+  });
+
+  let answer = "";
+  let thinking = "";
+  let usage: Usage = {};
+
+  while (true) {
+    const next = await providerStream.next();
+
+    if (next.done) {
+      answer = next.value.answer;
+      thinking = next.value.thinking;
+      usage = next.value.usage;
+      break;
+    }
+
+    input.onEvent?.(next.value);
+  }
+
+  if (!answer.trim()) {
+    throw new Error("Assistant exceeded the maximum number of tool steps");
+  }
+
+  if (input.onAnswerSegment) {
+    await input.onAnswerSegment(answer);
+  }
+
+  return { answer, thinking, usage };
+}
+
 export async function resolveAssistantTurn(input: {
   settings: ProviderProfileWithApiKey;
   promptMessages: PromptMessage[];
@@ -482,12 +602,18 @@ export async function resolveAssistantTurn(input: {
   ) => Promise<void> | void;
 }) {
   const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
+  const turnSkills = filterSkillsForTurn(input.skills, input.promptMessages);
+  const toolRuntimeInput = {
+    ...input,
+    skills: turnSkills
+  };
   const loadedSkillIds = new Set<string>();
   const allShellPrefixes: string[] = [];
+  const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
   let totalUsage: Usage = {};
 
-  let promptMessages = input.skills.length || mcpServers.length || input.mcpToolSets.length
-    ? mergeSystemMessage(input.promptMessages, buildCapabilitiesSystemMessage(input.skills, mcpServers))
+  let promptMessages = turnSkills.length || mcpServers.length || input.mcpToolSets.length
+    ? mergeSystemMessage(input.promptMessages, buildCapabilitiesSystemMessage(turnSkills, mcpServers))
     : input.promptMessages;
 
   let timelineSortOrder = 0;
@@ -502,7 +628,7 @@ export async function resolveAssistantTurn(input: {
   for (let step = 0; step < MAX_ASSISTANT_CONTROL_STEPS; step += 1) {
     const tools = buildToolDefinitions({
       mcpToolSets: input.mcpToolSets,
-      skills: input.skills,
+      skills: turnSkills,
       loadedSkillIds,
       shellCommandPrefixes: allShellPrefixes
     });
@@ -544,12 +670,25 @@ export async function resolveAssistantTurn(input: {
       await commitAnswerSegment(answer);
     }
 
+    if (step === MAX_ASSISTANT_CONTROL_STEPS - 1) {
+      const forcedResult = await forceDirectAnswerAfterToolLoop({
+        settings: input.settings,
+        promptMessages,
+        onEvent: input.onEvent,
+        onAnswerSegment: input.onAnswerSegment
+      });
+
+      totalUsage = addUsage(totalUsage, forcedResult.usage);
+      return { answer: forcedResult.answer, thinking: forcedResult.thinking, usage: totalUsage };
+    }
+
     for (const toolCall of toolCalls) {
       const result = await executeToolCall(toolCall, {
-        input,
+        input: toolRuntimeInput,
         mcpServers,
         loadedSkillIds,
         allShellPrefixes,
+        successfulReadOnlyToolResults,
         timelineSortOrder,
         promptMessages
       });

@@ -22,6 +22,7 @@ import {
   updateMessage,
   updateConversationProviderProfile,
   updateConversationToolExecutionMode,
+  getConversationSnapshot,
   updateMessageAction
 } from "@/lib/conversations";
 import { getSettings, listProviderProfiles, updateSettings } from "@/lib/settings";
@@ -434,5 +435,31 @@ describe("conversation helpers", () => {
 
     expect(() => deleteConversation(conversation.id)).not.toThrow();
     expect(getConversation(conversation.id)).toBeNull();
+  });
+
+  it("returns a snapshot with messages, actions, and segments for an in-progress conversation", async () => {
+    const {
+      getConversation,
+      createMessage,
+      createMessageTextSegment,
+      createMessageAction,
+      getConversationSnapshot
+    } = await import("@/lib/conversations");
+
+    const conv = createConversation(undefined, undefined, { providerProfileId: null });
+    const userMsg = createMessage({ conversationId: conv.id, role: "user", content: "Hello" });
+    const assistantMsg = createMessage({ conversationId: conv.id, role: "assistant", content: "", status: "streaming" });
+    createMessageTextSegment({ messageId: assistantMsg.id, content: "partial answer" });
+    createMessageAction({ messageId: assistantMsg.id, kind: "mcp_tool_call", label: "Search", status: "running" });
+
+    const snapshot = getConversationSnapshot(conv.id);
+
+    expect(snapshot.conversation.id).toBe(conv.id);
+    expect(snapshot.messages).toHaveLength(2);
+    expect(snapshot.messages[0].role).toBe("user");
+    expect(snapshot.messages[1].status).toBe("streaming");
+    expect(snapshot.messages[1].textSegments).toHaveLength(1);
+    expect(snapshot.messages[1].textSegments![0].content).toBe("partial answer");
+    expect(snapshot.messages[1].actions).toHaveLength(1);
   });
 });

@@ -6,11 +6,14 @@ import { ChevronDown } from "lucide-react";
 
 import { ChatComposer } from "@/components/chat-composer";
 import { MessageBubble } from "@/components/message-bubble";
-import { consumeChatBootstrap } from "@/lib/chat-bootstrap";
-import { dispatchConversationTitleUpdated, dispatchConversationActivityUpdated } from "@/lib/conversation-events";
+import { clearChatBootstrap, readChatBootstrap } from "@/lib/chat-bootstrap";
+import {
+  dispatchConversationActivityUpdated,
+  dispatchConversationTitleUpdated
+} from "@/lib/conversation-events";
+import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { supportsImageInput } from "@/lib/model-capabilities";
-import { createId } from "@/lib/ids";
 import { formatTimestamp, shouldAutofocusTextInput } from "@/lib/utils";
 import type {
   ChatStreamEvent,
@@ -36,30 +39,46 @@ type ConversationPayload = {
   };
 };
 
-function parseSseChunk(buffer: string) {
-  const events: ChatStreamEvent[] = [];
-  const parts = buffer.split("\n\n");
-  const remainder = parts.pop() ?? "";
+function getActionSignature(action: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">) {
+  return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
+}
 
-  for (const part of parts) {
-    const line = part
-      .split("\n")
-      .find((entry) => entry.startsWith("data: "));
+function findMatchingActionIndex(timeline: MessageTimelineItem[], action: MessageAction) {
+  const signature = getActionSignature(action);
 
-    if (!line) {
-      continue;
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    const item = timeline[index];
+
+    if (item.timelineKind === "action" && getActionSignature(item) === signature) {
+      return index;
     }
-
-    events.push(JSON.parse(line.slice(6)) as ChatStreamEvent);
   }
 
-  return { events, remainder };
+  return -1;
 }
 
 function appendStreamingAction(
   timeline: MessageTimelineItem[],
   action: MessageAction
 ): MessageTimelineItem[] {
+  const existingIndex = timeline.findIndex(
+    (item) => item.timelineKind === "action" && item.id === action.id
+  );
+
+  if (existingIndex !== -1) {
+    return timeline.map((item, index) =>
+      index === existingIndex ? { ...action, timelineKind: "action" } : item
+    );
+  }
+
+  const matchingIndex = findMatchingActionIndex(timeline, action);
+
+  if (matchingIndex !== -1) {
+    return timeline.map((item, index) =>
+      index === matchingIndex ? { ...action, timelineKind: "action" } : item
+    );
+  }
+
   return [...timeline, { ...action, timelineKind: "action" }];
 }
 
@@ -67,11 +86,52 @@ function updateStreamingAction(
   timeline: MessageTimelineItem[],
   action: MessageAction
 ): MessageTimelineItem[] {
-  return timeline.map((item) =>
-    item.timelineKind === "action" && item.id === action.id
-      ? { ...action, timelineKind: "action" }
-      : item
-  );
+  let found = false;
+  const nextTimeline = timeline.map((item) => {
+    if (item.timelineKind === "action" && item.id === action.id) {
+      found = true;
+      return { ...action, timelineKind: "action" };
+    }
+
+    return item;
+  });
+
+  if (found) {
+    return nextTimeline;
+  }
+
+  const matchingIndex = findMatchingActionIndex(timeline, action);
+
+  if (matchingIndex !== -1) {
+    return timeline.map((item, index) =>
+      index === matchingIndex ? { ...action, timelineKind: "action" } : item
+    );
+  }
+
+  return [...timeline, { ...action, timelineKind: "action" }];
+}
+
+function reconcileSnapshotMessages(
+  current: Message[],
+  snapshot: Message[],
+  activeStreamMessageId: string | null
+) {
+  if (snapshot.length === 0) {
+    return current;
+  }
+
+  if (!activeStreamMessageId) {
+    return snapshot;
+  }
+
+  const snapshotMessageIds = new Set(snapshot.map((message) => message.id));
+  const activeStreamingMessage = current.find((message) => message.id === activeStreamMessageId);
+
+  if (!activeStreamingMessage || snapshotMessageIds.has(activeStreamMessageId)) {
+    return snapshot;
+  }
+
+  return [...snapshot, activeStreamingMessage];
 }
 
 export function ChatView({ payload }: { payload: ConversationPayload }) {
@@ -102,14 +162,38 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const hasEmptyAssistantShell = messages.some(
+    (message) =>
+      message.role === "assistant" &&
+      !message.content &&
+      !(message.timeline?.length ?? 0) &&
+      (message.status === "streaming" || message.status === "completed")
+  );
+  const needsMessageSync =
+    isSending ||
+    streamMessageId !== null ||
+    messages.some((message) => message.role === "assistant" && message.status === "streaming") ||
+    hasEmptyAssistantShell;
   const queueRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
   const messagesRef = useRef(payload.messages);
+  const streamAnswerTargetRef = useRef("");
+  const streamThinkingTargetRef = useRef("");
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
-  const bootstrappedRef = useRef(false);
   const titlePollTimeoutRef = useRef<number | null>(null);
   const titlePollAttemptsRef = useRef(0);
+  const messageSyncTimeoutRef = useRef<number | null>(null);
+  const pendingLocalMessageIdRef = useRef<string | null>(null);
+  const pendingLocalSubmissionRef = useRef<{
+    content: string;
+    attachments: MessageAttachment[];
+  } | null>(null);
+  const bootstrapPayloadRef = useRef<{
+    message: string;
+    attachments: MessageAttachment[];
+  } | null>(null);
+  const bootstrapSubmittedRef = useRef(false);
   const submitRef = useRef<
     (nextInput?: string, nextPendingAttachments?: MessageAttachment[]) => Promise<void>
   >(async () => {});
@@ -164,6 +248,244 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     return () => window.cancelAnimationFrame(handle);
   }, [payload.conversation.id]);
 
+  function handleDelta(event: ChatStreamEvent) {
+    if (event.type === "message_start") {
+      pendingLocalMessageIdRef.current = null;
+      pendingLocalSubmissionRef.current = null;
+      setStreamMessageId(event.messageId);
+      dispatchConversationActivityUpdated({
+        conversationId: payload.conversation.id,
+        isActive: true
+      });
+      setMessages((current) => {
+        if (current.some((message) => message.id === event.messageId)) {
+          return current;
+        }
+
+        return [
+          ...current,
+          {
+            id: event.messageId,
+            conversationId: payload.conversation.id,
+            role: "assistant",
+            content: "",
+            thinkingContent: "",
+            status: "streaming",
+            estimatedTokens: 0,
+            systemKind: null,
+            compactedAt: null,
+            createdAt: new Date().toISOString()
+          }
+        ];
+      });
+      return;
+    }
+
+    if (event.type === "usage") {
+      return;
+    }
+
+    if (event.type === "thinking_delta") {
+      setHasReceivedFirstToken(true);
+      const nextThinking = `${streamThinkingTargetRef.current}${event.text}`;
+      streamThinkingTargetRef.current = nextThinking;
+      setStreamThinkingTarget(nextThinking);
+      if (!thinkingStartTimeRef.current) {
+        thinkingStartTimeRef.current = Date.now();
+      }
+    }
+
+    if (event.type === "answer_delta") {
+      setHasReceivedFirstToken(true);
+      const nextAnswer = `${streamAnswerTargetRef.current}${event.text}`;
+      streamAnswerTargetRef.current = nextAnswer;
+      setStreamAnswerTarget(nextAnswer);
+      if (thinkingStartTimeRef.current && !thinkingDuration) {
+        const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
+        setThinkingDuration(duration);
+      }
+    }
+
+    if (event.type === "system_notice") {
+      setMessages((current) => [
+        ...current,
+        {
+          id: `ws_notice_${Date.now()}`,
+          conversationId: payload.conversation.id,
+          role: "system",
+          content: event.text,
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 0,
+          systemKind: event.kind,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        }
+      ]);
+    }
+
+    if (event.type === "action_start") {
+      setStreamTimeline((prev) => appendStreamingAction(prev, event.action));
+    }
+
+    if (event.type === "action_complete" || event.type === "action_error") {
+      setStreamTimeline((prev) => updateStreamingAction(prev, event.action));
+    }
+
+    if (event.type === "done") {
+      const finalAnswer = streamAnswerTargetRef.current;
+      const finalThinking = streamThinkingTargetRef.current;
+      dispatchConversationActivityUpdated({
+        conversationId: payload.conversation.id,
+        isActive: false
+      });
+
+      setMessages((current) =>
+        current.map((m) =>
+          m.id === event.messageId
+            ? {
+                ...m,
+                content: finalAnswer,
+                thinkingContent: finalThinking,
+                status: "completed" as const
+              }
+            : m
+        )
+      );
+      setStreamMessageId(null);
+      setStreamTimeline([]);
+      setStreamAnswerTarget("");
+      setStreamAnswerDisplay("");
+      setStreamThinkingTarget("");
+      setStreamThinkingDisplay("");
+      streamAnswerTargetRef.current = "";
+      streamThinkingTargetRef.current = "";
+      setIsSending(false);
+    }
+
+    if (event.type === "error") {
+      dispatchConversationActivityUpdated({
+        conversationId: payload.conversation.id,
+        isActive: false
+      });
+      setMessages((current) =>
+        current.map((m) =>
+          m.id === streamMessageId ? { ...m, status: "error" as const } : m
+        )
+      );
+      setError(event.message);
+      setStreamMessageId(null);
+      setStreamTimeline([]);
+      setIsSending(false);
+    }
+  }
+
+  const {
+    send: wsSend,
+    subscribe: wsSubscribe,
+    unsubscribe: wsUnsubscribe,
+    connected: wsConnected,
+    failed: wsFailed
+  } = useWebSocket({
+    onMessage(msg) {
+      switch (msg.type) {
+        case "ready":
+          dispatchConversationActivityUpdated({
+            conversationId: payload.conversation.id,
+            isActive: msg.activeConversations.some(
+              (conversation) =>
+                conversation.id === payload.conversation.id &&
+                conversation.status === "streaming"
+            )
+          });
+          break;
+        case "snapshot":
+          if (streamMessageId) {
+            const activeSnapshotMessage = (msg.messages as Message[]).find(
+              (message) => message.id === streamMessageId
+            );
+
+            if (activeSnapshotMessage && activeSnapshotMessage.status !== "streaming") {
+              setStreamMessageId(null);
+              setStreamTimeline([]);
+              setStreamAnswerTarget("");
+              setStreamAnswerDisplay("");
+              setStreamThinkingTarget("");
+              setStreamThinkingDisplay("");
+              streamAnswerTargetRef.current = "";
+              streamThinkingTargetRef.current = "";
+              setHasReceivedFirstToken(false);
+              setIsSending(false);
+            }
+          }
+
+          setMessages((current) =>
+            reconcileSnapshotMessages(
+              current,
+              msg.messages as Message[],
+              streamMessageId
+            )
+          );
+          break;
+        case "delta":
+          handleDelta(msg.event as ChatStreamEvent);
+          break;
+      }
+    }
+  });
+
+  useEffect(() => {
+    wsSubscribe(payload.conversation.id);
+    return () => {
+      wsUnsubscribe(payload.conversation.id);
+    };
+  }, [payload.conversation.id, wsSubscribe, wsUnsubscribe]);
+
+  useEffect(() => {
+    bootstrapPayloadRef.current = readChatBootstrap(payload.conversation.id);
+    bootstrapSubmittedRef.current = false;
+  }, [payload.conversation.id]);
+
+  useEffect(() => {
+    if (!wsConnected || bootstrapSubmittedRef.current) {
+      return;
+    }
+
+    const bootstrapPayload = bootstrapPayloadRef.current;
+
+    if (!bootstrapPayload) {
+      return;
+    }
+
+    bootstrapSubmittedRef.current = true;
+    clearChatBootstrap(payload.conversation.id);
+    void submitRef.current(bootstrapPayload.message, bootstrapPayload.attachments);
+  }, [payload.conversation.id, wsConnected]);
+
+  useEffect(() => {
+    if (!wsFailed) {
+      return;
+    }
+
+    if (pendingLocalMessageIdRef.current) {
+      const failedMessageId = pendingLocalMessageIdRef.current;
+      const pendingSubmission = pendingLocalSubmissionRef.current;
+
+      setMessages((current) => current.filter((message) => message.id !== failedMessageId));
+      setInput((current) => current || pendingSubmission?.content || "");
+      setPendingAttachments((current) =>
+        current.length > 0 ? current : (pendingSubmission?.attachments ?? [])
+      );
+      pendingLocalMessageIdRef.current = null;
+      pendingLocalSubmissionRef.current = null;
+    }
+
+    setIsSending(false);
+    setError(
+      "Realtime chat connection is unavailable. Restart Hermes with the websocket server enabled."
+    );
+  }, [wsFailed]);
+
   function stopTitlePolling() {
     if (titlePollTimeoutRef.current !== null) {
       window.clearTimeout(titlePollTimeoutRef.current);
@@ -171,9 +493,18 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  function stopMessageSyncPolling() {
+    if (messageSyncTimeoutRef.current !== null) {
+      window.clearTimeout(messageSyncTimeoutRef.current);
+      messageSyncTimeoutRef.current = null;
+    }
+  }
+
   async function pollConversationTitle() {
     try {
-      const response = await fetch(`/api/conversations/${payload.conversation.id}`);
+      const response = await fetch(`/api/conversations/${payload.conversation.id}`, {
+        cache: "no-store"
+      });
 
       if (!response.ok) {
         throw new Error("Unable to refresh conversation");
@@ -183,7 +514,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         conversation: Conversation;
       };
 
-      setConversationTitle(result.conversation.title);
+      setConversationTitle((current) => {
+        if (current !== result.conversation.title) {
+          dispatchConversationTitleUpdated({
+            conversationId: result.conversation.id,
+            title: result.conversation.title
+          });
+        }
+
+        return result.conversation.title;
+      });
       setTitleGenerationStatus(result.conversation.titleGenerationStatus);
 
       if (
@@ -191,11 +531,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         result.conversation.titleGenerationStatus === "failed"
       ) {
         stopTitlePolling();
-        dispatchConversationTitleUpdated({
-          conversationId: result.conversation.id,
-          title: result.conversation.title
-        });
-
         return;
       }
     } catch {}
@@ -210,73 +545,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     titlePollTimeoutRef.current = window.setTimeout(() => {
       void pollConversationTitle();
     }, 1000);
-  }
-
-  function mergeMessages(local: Message[], server: Message[]): Message[] {
-    if (local.length === 0) {
-      return server;
-    }
-
-    const serverMap = new Map(server.map((m) => [m.id, m]));
-    const isOptimistic = (id: string) => typeof id === "string" && id.startsWith("local_");
-
-    const optimisticToServer = new Map<string, Message>();
-    for (const serverMsg of server) {
-      for (const localMsg of local) {
-        if (isOptimistic(localMsg.id) && localMsg.role === serverMsg.role && localMsg.content === serverMsg.content) {
-          optimisticToServer.set(localMsg.id, serverMsg);
-          break;
-        }
-      }
-    }
-
-    let changed = false;
-    const merged = local.map((localMsg) => {
-      const replacement = optimisticToServer.get(localMsg.id);
-      if (replacement) {
-        changed = true;
-        return { ...replacement, id: localMsg.id };
-      }
-      const serverMsg = serverMap.get(localMsg.id);
-      if (!serverMsg) {
-        return localMsg;
-      }
-      if (localMsg.content === serverMsg.content && localMsg.thinkingContent === serverMsg.thinkingContent && localMsg.status === serverMsg.status && localMsg.role === serverMsg.role) {
-        return localMsg;
-      }
-      changed = true;
-      return { ...localMsg, ...serverMsg };
-    });
-
-    const localIds = new Set(local.map((m) => m.id));
-    const newFromServer = server.filter((sMsg) => {
-      if (localIds.has(sMsg.id)) return false;
-      return ![...optimisticToServer.values()].some((r) => r.id === sMsg.id);
-    });
-    if (newFromServer.length > 0) {
-      return [...merged, ...newFromServer];
-    }
-
-    return changed ? merged : local;
-  }
-
-  async function syncConversationState() {
-    const response = await fetch(`/api/conversations/${payload.conversation.id}`);
-
-    if (!response.ok) {
-      return;
-    }
-
-    const result = (await response.json()) as {
-      conversation: Conversation;
-      messages: Message[];
-      debug: ConversationPayload["debug"];
-    };
-
-    setMessages((current) => mergeMessages(current, result.messages));
-    setConversationTitle(result.conversation.title);
-    setTitleGenerationStatus(result.conversation.titleGenerationStatus);
-    setDebug(result.debug);
   }
 
   function startTitlePolling() {
@@ -294,6 +562,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }
 
   useEffect(() => stopTitlePolling, []);
+
+  useEffect(() => stopMessageSyncPolling, []);
 
   useEffect(() => {
     return () => {
@@ -318,6 +588,78 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       stopTitlePolling();
     }
   }, [titleGenerationStatus]);
+
+  useEffect(() => {
+    if (!needsMessageSync) {
+      stopMessageSyncPolling();
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncConversation = async () => {
+      try {
+        const response = await fetch(`/api/conversations/${payload.conversation.id}`, {
+          cache: "no-store"
+        });
+
+        if (!response.ok) {
+          throw new Error("Unable to refresh conversation");
+        }
+
+        const result = (await response.json()) as {
+          conversation: Conversation;
+          messages: Message[];
+          debug: ConversationPayload["debug"];
+        };
+
+        if (cancelled) {
+          return;
+        }
+
+        setMessages((current) =>
+          reconcileSnapshotMessages(current, result.messages, streamMessageId)
+        );
+        setDebug(result.debug);
+        setConversationTitle(result.conversation.title);
+        setTitleGenerationStatus(result.conversation.titleGenerationStatus);
+
+        const activeMessage = streamMessageId
+          ? result.messages.find((message) => message.id === streamMessageId)
+          : null;
+
+        if (!result.conversation.isActive || (activeMessage && activeMessage.status !== "streaming")) {
+          setStreamMessageId(null);
+          setStreamTimeline([]);
+          setStreamAnswerTarget("");
+          setStreamAnswerDisplay("");
+          setStreamThinkingTarget("");
+          setStreamThinkingDisplay("");
+          streamAnswerTargetRef.current = "";
+          streamThinkingTargetRef.current = "";
+          setHasReceivedFirstToken(false);
+          setIsSending(false);
+          stopMessageSyncPolling();
+          return;
+        }
+      } catch {}
+
+      if (cancelled) {
+        return;
+      }
+
+      messageSyncTimeoutRef.current = window.setTimeout(() => {
+        void syncConversation();
+      }, 1000);
+    };
+
+    void syncConversation();
+
+    return () => {
+      cancelled = true;
+      stopMessageSyncPolling();
+    };
+  }, [needsMessageSync, payload.conversation.id, streamMessageId]);
 
   useEffect(() => {
     if (streamThinkingDisplay === streamThinkingTarget) {
@@ -578,312 +920,113 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     nextPendingAttachments = pendingAttachments
   ) {
     const value = nextInput.trim();
-    const shouldPollConversationTitle =
-      titleGenerationStatus === "pending" &&
-      !messages.some((message) => message.role === "user");
 
     if ((!value && nextPendingAttachments.length === 0) || isSending || isUploadingAttachments) {
       return;
     }
 
-    setError("");
-    const optimisticUserMessage: Message = {
-      id: createId("local"),
-      conversationId: payload.conversation.id,
-      role: "user",
-      content: value,
-      thinkingContent: "",
-      status: "completed",
-      estimatedTokens: 0,
-      systemKind: null,
-      compactedAt: null,
-      createdAt: new Date().toISOString(),
-      attachments: nextPendingAttachments
-    };
-    const optimisticAssistantMessage: Message = {
-      id: createId("local"),
-      conversationId: payload.conversation.id,
-      role: "assistant",
-      content: "",
-      thinkingContent: "",
-      status: "streaming",
-      estimatedTokens: 0,
-      systemKind: null,
-      compactedAt: null,
-      createdAt: new Date().toISOString(),
-      timeline: [],
-      actions: [],
-      attachments: []
-    };
+    if (wsFailed) {
+      setError(
+        "Realtime chat connection is unavailable. Restart Hermes with the websocket server enabled."
+      );
+      return;
+    }
 
-    setIsSending(true);
-    setMessages((current) => [...current, optimisticUserMessage, optimisticAssistantMessage]);
+    setError("");
     setInput("");
     setPendingAttachments([]);
     setStreamThinkingTarget("");
     setStreamThinkingDisplay("");
     setStreamAnswerTarget("");
     setStreamAnswerDisplay("");
-    setStreamMessageId(optimisticAssistantMessage.id);
+    streamAnswerTargetRef.current = "";
+    streamThinkingTargetRef.current = "";
+    setStreamMessageId(null);
     setStreamTimeline([]);
     setHasReceivedFirstToken(false);
     thinkingStartTimeRef.current = null;
     setThinkingDuration(undefined);
-    let localThinking = "";
-    let localAnswer = "";
-    let localTimeline: MessageTimelineItem[] = [];
-    let committedAnswerLength = 0;
-    let nextTimelineSortOrder = 0;
+    setIsSending(true);
 
-    try {
-      const response = await fetch(`/api/conversations/${payload.conversation.id}/chat`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          message: value,
-          attachmentIds: nextPendingAttachments.map((attachment) => attachment.id)
-        })
-      });
+    const optimisticUserMessage = {
+      id: `local_${Date.now()}`,
+      conversationId: payload.conversation.id,
+      role: "user" as const,
+      content: value,
+      thinkingContent: "",
+      status: "completed" as const,
+      estimatedTokens: 0,
+      systemKind: null,
+      compactedAt: null,
+      createdAt: new Date().toISOString()
+    };
+    pendingLocalMessageIdRef.current = optimisticUserMessage.id;
+    pendingLocalSubmissionRef.current = {
+      content: value,
+      attachments: nextPendingAttachments
+    };
+    setMessages((current) => [...current, optimisticUserMessage]);
 
-      if (!response.ok || !response.body) {
-        if (response.status === 401) {
-          router.push("/login");
-          return;
-        }
+    wsSend({
+      type: "message",
+      conversationId: payload.conversation.id,
+      content: value,
+      attachmentIds: nextPendingAttachments.map((attachment) => attachment.id)
+    });
 
-        let message = "Unable to send message";
-
-        try {
-          const failure = (await response.json()) as { error?: string };
-          message = failure.error ?? message;
-        } catch {}
-
-        throw new Error(message);
-      }
-
-      dispatchConversationActivityUpdated({
-        conversationId: payload.conversation.id,
-        isActive: true
-      });
-
-      if (shouldPollConversationTitle) {
-        startTitlePolling();
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      const setLocalTimeline = (nextTimeline: MessageTimelineItem[]) => {
-        localTimeline = nextTimeline;
-        setStreamTimeline(nextTimeline);
-      };
-      const finalizeOptimisticAssistant = (status: Message["status"]) => {
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === optimisticAssistantMessage.id
-              ? {
-                  ...message,
-                  content: localAnswer,
-                  thinkingContent: localThinking,
-                  status,
-                  timeline: localTimeline
-                }
-              : message
-          )
-        );
-      };
-
-      const commitPendingAnswerSegment = () => {
-        const content = localAnswer.slice(committedAnswerLength);
-
-        if (!content) {
-          return;
-        }
-
-        const textItem: Extract<MessageTimelineItem, { timelineKind: "text" }> = {
-          id: `stream_text_${optimisticAssistantMessage.id}_${nextTimelineSortOrder}`,
-          timelineKind: "text",
-          sortOrder: nextTimelineSortOrder,
-          createdAt: new Date().toISOString(),
-          content
-        };
-
-        committedAnswerLength = localAnswer.length;
-        nextTimelineSortOrder += 1;
-        setLocalTimeline([...localTimeline, textItem]);
-      };
-
-      while (true) {
-        const { done, value: chunk } = await reader.read();
-
-        if (done) {
-          break;
-        }
-
-        buffer += decoder.decode(chunk, { stream: true });
-        const parsed = parseSseChunk(buffer);
-        buffer = parsed.remainder;
-
-        parsed.events.forEach((event) => {
-          if (event.type === "message_start" || event.type === "usage") {
-            return;
-          }
-
-          if (event.type === "thinking_delta") {
-            setHasReceivedFirstToken(true);
-            localThinking += event.text;
-            setStreamThinkingTarget(localThinking);
-            if (!thinkingStartTimeRef.current) {
-              thinkingStartTimeRef.current = Date.now();
-            }
-          }
-
-          if (event.type === "answer_delta") {
-            setHasReceivedFirstToken(true);
-            localAnswer += event.text;
-            setStreamAnswerTarget(localAnswer);
-            if (thinkingStartTimeRef.current && !thinkingDuration) {
-              const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
-              setThinkingDuration(duration);
-            }
-          }
-
-          if (event.type === "system_notice") {
-            setMessages((current) => [
-              ...current,
-              {
-                id: createId("notice"),
-                conversationId: payload.conversation.id,
-                role: "system",
-                content: event.text,
-                thinkingContent: "",
-                status: "completed",
-                estimatedTokens: 0,
-                systemKind: event.kind,
-                compactedAt: null,
-                createdAt: new Date().toISOString()
-              }
-            ]);
-          }
-
-          if (event.type === "action_start") {
-            commitPendingAnswerSegment();
-            nextTimelineSortOrder = Math.max(nextTimelineSortOrder, event.action.sortOrder + 1);
-            setLocalTimeline(appendStreamingAction(localTimeline, event.action));
-          }
-
-          if (event.type === "action_complete" || event.type === "action_error") {
-            setLocalTimeline(updateStreamingAction(localTimeline, event.action));
-          }
-
-          if (event.type === "done") {
-            commitPendingAnswerSegment();
-            finalizeOptimisticAssistant("completed");
-          }
-
-          if (event.type === "error") {
-            setError(event.message);
-          }
-        });
-      }
-
-      commitPendingAnswerSegment();
-      finalizeOptimisticAssistant("completed");
-      await syncConversationState();
-    } catch (caughtError) {
-      setMessages((current) =>
-        current.map((message) =>
-          message.id === optimisticAssistantMessage.id
-            ? {
-                ...message,
-                content: localAnswer,
-                thinkingContent: localThinking,
-                status: "error",
-                timeline: localTimeline
-              }
-            : message
-        )
-      );
-      setError(caughtError instanceof Error ? caughtError.message : "Chat failed");
-    } finally {
-      dispatchConversationActivityUpdated({
-        conversationId: payload.conversation.id,
-        isActive: false
-      });
-      setStreamMessageId(null);
-      setStreamTimeline([]);
-      setStreamThinkingTarget("");
-      setStreamThinkingDisplay("");
-      setStreamAnswerTarget("");
-      setStreamAnswerDisplay("");
-      setIsSending(false);
-      setHasReceivedFirstToken(false);
+    if (titleGenerationStatus === "pending") {
+      startTitlePolling();
     }
   }
 
   submitRef.current = submit;
 
-  useEffect(() => {
-    if (bootstrappedRef.current || messages.length > 0) {
-      return;
-    }
-
-    const bootstrap = consumeChatBootstrap(payload.conversation.id);
-
-    if (!bootstrap) {
-      return;
-    }
-
-    bootstrappedRef.current = true;
-    void submitRef.current(bootstrap.message, bootstrap.attachments);
-  }, [messages.length, payload.conversation.id]);
-
   return (
     <div
       data-testid="chat-view-root"
       className="relative flex min-h-0 flex-1 w-full flex-col bg-[var(--background)]"
-      onDragEnter={(event) => {
-        if (!event.dataTransfer.types.includes("Files")) {
-          return;
-        }
-
-        event.preventDefault();
-        dragDepthRef.current += 1;
-        setIsDraggingFiles(true);
-      }}
-      onDragOver={(event) => {
-        if (!event.dataTransfer.types.includes("Files")) {
-          return;
-        }
-
-        event.preventDefault();
-      }}
-      onDragLeave={(event) => {
-        if (!event.dataTransfer.types.includes("Files")) {
-          return;
-        }
-
-        event.preventDefault();
-        dragDepthRef.current = Math.max(dragDepthRef.current - 1, 0);
-
-        if (dragDepthRef.current === 0) {
-          setIsDraggingFiles(false);
-        }
-      }}
-      onDrop={(event) => {
-        if (!event.dataTransfer.files.length) {
-          return;
-        }
-
-        event.preventDefault();
-        dragDepthRef.current = 0;
-        setIsDraggingFiles(false);
-        void uploadFiles(Array.from(event.dataTransfer.files));
-      }}
     >
+      <div
+        className="contents"
+        onDragEnter={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) {
+            return;
+          }
+
+          event.preventDefault();
+          dragDepthRef.current += 1;
+          setIsDraggingFiles(true);
+        }}
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) {
+            return;
+          }
+
+          event.preventDefault();
+        }}
+        onDragLeave={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) {
+            return;
+          }
+
+          event.preventDefault();
+          dragDepthRef.current = Math.max(dragDepthRef.current - 1, 0);
+
+          if (dragDepthRef.current === 0) {
+            setIsDraggingFiles(false);
+          }
+        }}
+        onDrop={(event) => {
+          if (!event.dataTransfer.files.length) {
+            return;
+          }
+
+          event.preventDefault();
+          dragDepthRef.current = 0;
+          setIsDraggingFiles(false);
+          void uploadFiles(Array.from(event.dataTransfer.files));
+        }}
+      >
       {isDraggingFiles ? (
         <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-black/45 backdrop-blur-sm">
           <div className="rounded-2xl border border-[var(--accent)]/25 bg-[var(--panel)] px-6 py-5 text-center shadow-[var(--shadow)]">
@@ -909,6 +1052,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-white/25 animate-fade-in">
                 <span>{debug.rawTurnCount} raw turns</span>
                 <span>Latest compaction: {latestCompactionLabel}</span>
+                <span>WS: {wsConnected ? "connected" : "disconnected"}</span>
               </div>
             )}
           </div>
@@ -928,7 +1072,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 streamingTimeline={message.id === streamMessageId ? streamTimeline : undefined}
                 streamingThinking={message.id === streamMessageId ? streamThinkingDisplay : undefined}
                 streamingAnswer={message.id === streamMessageId ? streamAnswerDisplay : undefined}
-                awaitingFirstToken={message.id === streamMessageId ? !hasReceivedFirstToken : false}
+                awaitingFirstToken={
+                  message.id === streamMessageId
+                    ? !hasReceivedFirstToken &&
+                      !streamAnswerDisplay &&
+                      !message.content &&
+                      !(message.timeline?.length ?? 0)
+                    : false
+                }
                 thinkingInProgress={
                   message.id === streamMessageId
                     ? Boolean(streamThinkingTarget) && !streamAnswerTarget
@@ -971,6 +1122,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             textareaRef={inputRef}
           />
         </div>
+      </div>
       </div>
     </div>
   );

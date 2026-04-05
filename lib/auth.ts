@@ -218,6 +218,16 @@ export async function getSessionPayload() {
   }
 }
 
+export async function verifySessionToken(token: string): Promise<{ sessionId: string; userId: string } | null> {
+  if (!token) return null;
+  try {
+    const result = await jwtVerify(token, getSessionSecret());
+    return { sessionId: result.payload.sid as string, userId: result.payload.uid as string };
+  } catch {
+    return null;
+  }
+}
+
 export async function getCurrentUser() {
   if (!isPasswordLoginEnabled()) {
     return getBootstrapUser();

@@ -3,6 +3,7 @@ node_modules
 coverage
 playwright-report
 test-results
+ws-handler-compiled.cjs
 .playwright-cli
 .data
 .test-data

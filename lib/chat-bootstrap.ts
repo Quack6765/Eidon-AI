@@ -19,19 +19,20 @@ export function storeChatBootstrap(
   );
 }
 
-export function consumeChatBootstrap(conversationId: string) {
-  const key = getChatBootstrapStorageKey(conversationId);
-  const raw = sessionStorage.getItem(key);
+export function readChatBootstrap(conversationId: string) {
+  const raw = sessionStorage.getItem(getChatBootstrapStorageKey(conversationId));
 
   if (!raw) {
     return null;
   }
-
-  sessionStorage.removeItem(key);
 
   try {
     return JSON.parse(raw) as ChatBootstrapPayload;
   } catch {
     return null;
   }
+}
+
+export function clearChatBootstrap(conversationId: string) {
+  sessionStorage.removeItem(getChatBootstrapStorageKey(conversationId));
 }
