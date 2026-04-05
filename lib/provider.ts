@@ -311,13 +311,129 @@ export async function* streamProviderResponse(input: {
     };
 
     if (input.tools?.length) {
-      responseCreateParams.tools = input.tools.map((tool) => ({
+      const toolsWithStrict = input.tools.map((tool) => ({
+        type: "function",
+        name: tool.function.name,
+        description: tool.function.description,
+        parameters: tool.function.parameters ?? {},
+        strict: true
+      }));
+
+      const toolsWithoutStrict = input.tools.map((tool) => ({
         type: "function",
         name: tool.function.name,
         description: tool.function.description,
         parameters: tool.function.parameters ?? {},
         strict: false
       }));
+
+      responseCreateParams.tools = toolsWithStrict;
+
+      let stream: AsyncIterable<any>;
+      try {
+        stream = await client.responses.create(
+          responseCreateParams as any,
+          { signal: abortController.signal }
+        ) as unknown as AsyncIterable<any>;
+      } catch (createError) {
+        const isSchemaError =
+          createError instanceof Error &&
+          (createError.message.includes("strict") ||
+            createError.message.includes("schema") ||
+            createError.message.includes("additionalProperties") ||
+            (createError as any).status === 400);
+
+        if (isSchemaError) {
+          responseCreateParams.tools = toolsWithoutStrict;
+          stream = await client.responses.create(
+            responseCreateParams as any,
+            { signal: abortController.signal }
+          ) as unknown as AsyncIterable<any>;
+        } else {
+          throw createError;
+        }
+      }
+
+      const pendingToolCalls = new Map<string, { name: string; arguments: string }>();
+
+      try {
+        for await (const event of stream) {
+          if (event.type === "response.function_call_arguments.delta") {
+            continue;
+          }
+
+          if (event.type === "response.output_text.delta") {
+            const text = normalizeLineBreaks(String(event.delta ?? ""));
+            answer += text;
+            yield { type: "answer_delta", text };
+          }
+
+          if (
+            event.type === "response.reasoning_summary_text.delta" ||
+            event.type === "response.reasoning_text.delta"
+          ) {
+            const text = "delta" in event ? normalizeLineBreaks(String(event.delta ?? "")) : "";
+            thinking += text;
+            yield { type: "thinking_delta", text };
+          }
+
+          if (event.type === "response.completed" && event.response?.usage) {
+            usage = {
+              inputTokens: event.response.usage.input_tokens,
+              outputTokens: event.response.usage.output_tokens,
+              reasoningTokens: event.response.usage.output_tokens_details?.reasoning_tokens
+            };
+          }
+
+          if (event.type === "response.output_item.done") {
+            const item = event.item as {
+              type?: string;
+              name?: string;
+              arguments?: string;
+              call_id?: string;
+              summary?: Array<{ text?: string }>;
+            };
+
+            if (item.type === "function_call" && item.call_id) {
+              pendingToolCalls.set(item.call_id, {
+                name: item.name ?? "",
+                arguments: item.arguments ?? ""
+              });
+            }
+
+            if (item.type === "reasoning" && Array.isArray(item.summary)) {
+              const combined = normalizeLineBreaks(item.summary.map((part) => part.text ?? "").join(""));
+
+              if (combined && combined !== thinking) {
+                const delta = combined.slice(thinking.length);
+                thinking = combined;
+
+                if (delta) {
+                  yield { type: "thinking_delta", text: delta };
+                }
+              }
+            }
+          }
+        }
+      } finally {
+        if (!abortController.signal.aborted) {
+          abortController.abort();
+        }
+      }
+
+      yield {
+        type: "usage",
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        reasoningTokens: usage.reasoningTokens
+      };
+
+      const toolCalls: ProviderToolCall[] = [];
+      for (const [id, call] of pendingToolCalls) {
+        toolCalls.push({ id, name: call.name, arguments: call.arguments });
+      }
+
+      return { answer, thinking, toolCalls: toolCalls.length ? toolCalls : undefined, usage };
     }
 
     const stream = await client.responses.create(

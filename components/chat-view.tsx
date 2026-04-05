@@ -87,7 +87,7 @@ function updateStreamingAction(
   action: MessageAction
 ): MessageTimelineItem[] {
   let found = false;
-  const nextTimeline = timeline.map((item) => {
+  const nextTimeline = timeline.map((item): MessageTimelineItem => {
     if (item.timelineKind === "action" && item.id === action.id) {
       found = true;
       return { ...action, timelineKind: "action" };

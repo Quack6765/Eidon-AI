@@ -131,6 +131,48 @@ describe("assistant runtime", () => {
     expect(result.answer).toBe("Done");
   });
 
+  it("injects enum values into MCP tool descriptions", async () => {
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "Done" }], {
+        answer: "Done",
+        thinking: "",
+        usage: { inputTokens: 10, outputTokens: 1 }
+      })
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Search" }],
+      skills: [],
+      mcpToolSets: [{
+        server: { id: "mcp_exa", name: "Exa", url: "https://exa.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        tools: [{
+          name: "web_search",
+          title: "Web Search",
+          description: "Search the web",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "Search query" },
+              freshness: { type: "string", enum: ["24h", "week", "month", "year", "any"], description: "Recency filter" }
+            },
+            required: ["query"]
+          },
+          annotations: { readOnlyHint: true }
+        }]
+      }],
+      onEvent: () => {},
+      onActionStart: () => {},
+      onActionComplete: () => {}
+    });
+
+    const toolDefs = streamProviderResponse.mock.calls[0][0].tools!;
+    const webSearchTool = toolDefs.find((t: any) => t.function.name === "mcp_mcp_exa_web_search")!;
+    expect(webSearchTool.function.description).toContain("Valid values for freshness: 24h, week, month, year, any.");
+  });
+
   it("executes MCP tool calls via native function calling", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
@@ -605,6 +647,60 @@ Run browser commands.`
 
     expect(result.answer).toBe("Hello");
     expect(result.thinking).toBe("Thinking ");
+  });
+
+  it("auto-corrects invalid enum arguments before calling MCP tool", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "mcp_mcp_exa_search", arguments: JSON.stringify({ query: "test", freshness: "today" }) }],
+          usage: { inputTokens: 10 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Results" }], {
+          answer: "Results",
+          thinking: "",
+          usage: { inputTokens: 20, outputTokens: 1 }
+        })
+      );
+    callMcpTool.mockResolvedValue({ content: [{ type: "text", text: "Found results" }] });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Search recent" }],
+      skills: [],
+      mcpToolSets: [{
+        server: { id: "mcp_exa", name: "Exa", url: "https://exa.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        tools: [{
+          name: "search",
+          title: "Search",
+          description: "Search",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: { type: "string", description: "Query" },
+              freshness: { type: "string", enum: ["24h", "week", "month", "year", "any"], description: "Recency" }
+            },
+            required: ["query"]
+          },
+          annotations: { readOnlyHint: true }
+        }]
+      }],
+      onEvent: () => {},
+      onActionStart: () => {},
+      onActionComplete: () => {}
+    });
+
+    expect(callMcpTool).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "mcp_exa" }),
+      "search",
+      { query: "test", freshness: "month" }
+    );
   });
 
   it("commits answer text that appears before tool calls", async () => {
