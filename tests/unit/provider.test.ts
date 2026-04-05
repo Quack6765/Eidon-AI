@@ -594,7 +594,7 @@ describe("provider integration", () => {
             name: "search_docs",
             description: "Search docs",
             parameters: { type: "object" },
-            strict: false
+            strict: true
           }
         ]
       }),
@@ -991,5 +991,40 @@ describe("provider integration", () => {
       type: "answer_delta",
       text: "Hello\n\nWorld"
     });
+  });
+
+  it("passes strict: true for tool definitions in responses API", async () => {
+    responsesCreate.mockResolvedValue(
+      createAsyncStream([{ type: "response.output_text.delta", delta: "result" }])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+
+    const stream = streamProviderResponse({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "test" }],
+      tools: [
+        {
+          type: "function" as const,
+          function: {
+            name: "test_tool",
+            description: "A test tool",
+            parameters: {
+              type: "object",
+              properties: {
+                choice: { type: "string", enum: ["a", "b"] }
+              },
+              required: ["choice"],
+              additionalProperties: false
+            }
+          }
+        }
+      ]
+    });
+
+    while (!(await stream.next()).done) {}
+
+    const toolCall = responsesCreate.mock.calls[0][0];
+    expect(toolCall.tools[0].strict).toBe(true);
   });
 });
