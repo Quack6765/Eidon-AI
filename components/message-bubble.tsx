@@ -95,6 +95,10 @@ const ASSISTANT_MAX_WIDTH = "max-w-[96%] md:max-w-[95%]";
 const ASSISTANT_BUBBLE =
   "w-fit rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-2 md:px-4 md:py-3 text-[var(--text)] shadow-[0_8px_24px_rgba(0,0,0,0.28)]";
 
+function getActionSignature(action: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">) {
+  return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
+}
+
 function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -299,6 +303,16 @@ export function MessageBubble({
   timeline.forEach((item) => {
     if (item.timelineKind === "action") {
       appendBufferedText();
+      const previousBlock = assistantBlocks[assistantBlocks.length - 1];
+
+      if (
+        previousBlock?.timelineKind === "action" &&
+        getActionSignature(previousBlock) === getActionSignature(item)
+      ) {
+        assistantBlocks[assistantBlocks.length - 1] = item;
+        return;
+      }
+
       assistantBlocks.push(item);
       return;
     }

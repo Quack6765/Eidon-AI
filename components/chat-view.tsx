@@ -39,10 +39,46 @@ type ConversationPayload = {
   };
 };
 
+function getActionSignature(action: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">) {
+  return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
+}
+
+function findMatchingActionIndex(timeline: MessageTimelineItem[], action: MessageAction) {
+  const signature = getActionSignature(action);
+
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    const item = timeline[index];
+
+    if (item.timelineKind === "action" && getActionSignature(item) === signature) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
 function appendStreamingAction(
   timeline: MessageTimelineItem[],
   action: MessageAction
 ): MessageTimelineItem[] {
+  const existingIndex = timeline.findIndex(
+    (item) => item.timelineKind === "action" && item.id === action.id
+  );
+
+  if (existingIndex !== -1) {
+    return timeline.map((item, index) =>
+      index === existingIndex ? { ...action, timelineKind: "action" } : item
+    );
+  }
+
+  const matchingIndex = findMatchingActionIndex(timeline, action);
+
+  if (matchingIndex !== -1) {
+    return timeline.map((item, index) =>
+      index === matchingIndex ? { ...action, timelineKind: "action" } : item
+    );
+  }
+
   return [...timeline, { ...action, timelineKind: "action" }];
 }
 
@@ -50,11 +86,29 @@ function updateStreamingAction(
   timeline: MessageTimelineItem[],
   action: MessageAction
 ): MessageTimelineItem[] {
-  return timeline.map((item) =>
-    item.timelineKind === "action" && item.id === action.id
-      ? { ...action, timelineKind: "action" }
-      : item
-  );
+  let found = false;
+  const nextTimeline = timeline.map((item) => {
+    if (item.timelineKind === "action" && item.id === action.id) {
+      found = true;
+      return { ...action, timelineKind: "action" };
+    }
+
+    return item;
+  });
+
+  if (found) {
+    return nextTimeline;
+  }
+
+  const matchingIndex = findMatchingActionIndex(timeline, action);
+
+  if (matchingIndex !== -1) {
+    return timeline.map((item, index) =>
+      index === matchingIndex ? { ...action, timelineKind: "action" } : item
+    );
+  }
+
+  return [...timeline, { ...action, timelineKind: "action" }];
 }
 
 function reconcileSnapshotMessages(

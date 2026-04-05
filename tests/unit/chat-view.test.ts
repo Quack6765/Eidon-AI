@@ -651,4 +651,123 @@ describe("chat view", () => {
       expect(screen.getByText("web_search_exa")).toBeInTheDocument();
     });
   });
+
+  it("dedupes repeated action_start events for the same action id", async () => {
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "thinking_delta", text: "Thinking" }
+    });
+
+    const action = {
+      id: "act_live",
+      messageId: "msg_assistant",
+      kind: "mcp_tool_call" as const,
+      status: "running" as const,
+      serverId: "exa",
+      skillId: null,
+      toolName: "web_search_exa",
+      label: "web_search_exa",
+      detail: "query=booking",
+      arguments: { query: "booking" },
+      resultSummary: "",
+      sortOrder: 0,
+      startedAt: new Date().toISOString(),
+      completedAt: null
+    };
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: {
+        type: "action_start",
+        action
+      }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: {
+        type: "action_start",
+        action
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByTestId("assistant-actions-shell")).toHaveLength(1);
+    });
+  });
+
+  it("collapses retried tool actions with the same tool and detail into one live row", async () => {
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "thinking_delta", text: "Thinking" }
+    });
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: {
+        type: "action_start",
+        action: {
+          id: "act_error",
+          messageId: "msg_assistant",
+          kind: "mcp_tool_call",
+          status: "error",
+          serverId: "exa",
+          skillId: null,
+          toolName: "web_search_exa",
+          label: "web_search_exa",
+          detail: "query=weather",
+          arguments: { query: "weather" },
+          resultSummary: "validation failed",
+          sortOrder: 0,
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString()
+        }
+      }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: {
+        type: "action_start",
+        action: {
+          id: "act_retry",
+          messageId: "msg_assistant",
+          kind: "mcp_tool_call",
+          status: "running",
+          serverId: "exa",
+          skillId: null,
+          toolName: "web_search_exa",
+          label: "web_search_exa",
+          detail: "query=weather",
+          arguments: { query: "weather" },
+          resultSummary: "",
+          sortOrder: 1,
+          startedAt: new Date().toISOString(),
+          completedAt: null
+        }
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("web_search_exa")).toHaveLength(1);
+    });
+  });
 });

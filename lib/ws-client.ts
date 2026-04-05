@@ -31,10 +31,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
   useEffect(() => {
     let reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
     let reconnectAttempts = 0;
+    let disposed = false;
 
     const MAX_RECONNECT_DELAY = 30000;
 
     function scheduleReconnect() {
+      if (disposed) {
+        return;
+      }
       const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
       reconnectAttempts++;
       reconnectTimeout = setTimeout(connect, delay);
@@ -71,11 +75,18 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       });
 
       ws.addEventListener("close", () => {
+        if (wsRef.current === ws) {
+          wsRef.current = null;
+        }
+
+        if (disposed) {
+          return;
+        }
+
         setConnected(false);
         if (!hasOpenedRef.current) {
           setFailed(true);
         }
-        wsRef.current = null;
         optionsRef.current.onClose?.();
         scheduleReconnect();
       });
@@ -88,8 +99,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
     connect();
 
     return () => {
+      disposed = true;
       clearTimeout(reconnectTimeout);
       wsRef.current?.close();
+      wsRef.current = null;
     };
   }, []);
 

@@ -215,6 +215,9 @@ describe("chat-turn", () => {
     const assistantMsg = snapshot!.messages.find((m) => m.role === "assistant");
 
     expect(assistantMsg!.textSegments!.length).toBeGreaterThan(0);
+    expect(
+      assistantMsg!.textSegments!.map((segment) => segment.content).join("")
+    ).toBe("Hello world");
 
     vi.useRealTimers();
   });

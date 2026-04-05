@@ -114,6 +114,7 @@ export async function startChatTurn(
 
     let timelineSortOrder = 0;
     let answerBuffer = "";
+    let sawStreamedAnswerSinceLastSegment = false;
     let lastFlush = Date.now();
     let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -151,6 +152,7 @@ export async function startChatTurn(
         globalEmitter.emit("delta", conversationId, event);
 
         if (event.type === "answer_delta") {
+          sawStreamedAnswerSinceLastSegment = true;
           answerBuffer += event.text;
           if (answerBuffer.length >= 500 || Date.now() - lastFlush >= 100) {
             flushAnswerBuffer();
@@ -161,11 +163,14 @@ export async function startChatTurn(
       },
       onAnswerSegment(segment) {
         flushAnswerBuffer();
-        createMessageTextSegment({
-          messageId: assistantMessage.id,
-          content: segment,
-          sortOrder: timelineSortOrder++
-        });
+        if (!sawStreamedAnswerSinceLastSegment && segment) {
+          createMessageTextSegment({
+            messageId: assistantMessage.id,
+            content: segment,
+            sortOrder: timelineSortOrder++
+          });
+        }
+        sawStreamedAnswerSinceLastSegment = false;
       },
       onActionStart(action) {
         const persisted = createMessageAction({

@@ -231,6 +231,57 @@ describe("message bubble", () => {
     expect(bubbles[0]?.textContent).toContain("Hello there");
   });
 
+  it("collapses consecutive retries of the same tool into a single visible action row", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Done",
+          timeline: [
+            {
+              id: "act_error",
+              messageId: "msg_assistant",
+              timelineKind: "action",
+              kind: "mcp_tool_call",
+              status: "error",
+              serverId: "mcp_exa",
+              skillId: null,
+              toolName: "web_search_exa",
+              label: "web_search_exa",
+              detail: "query=weather",
+              arguments: { query: "weather" },
+              resultSummary: "validation failed",
+              sortOrder: 0,
+              startedAt: new Date().toISOString(),
+              completedAt: new Date().toISOString()
+            },
+            {
+              id: "act_done",
+              messageId: "msg_assistant",
+              timelineKind: "action",
+              kind: "mcp_tool_call",
+              status: "completed",
+              serverId: "mcp_exa",
+              skillId: null,
+              toolName: "web_search_exa",
+              label: "web_search_exa",
+              detail: "query=weather",
+              arguments: { query: "weather" },
+              resultSummary: "Found weather",
+              sortOrder: 1,
+              startedAt: new Date().toISOString(),
+              completedAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    const toolButtons = screen.getAllByRole("button", { name: "web_search_exa" });
+
+    expect(toolButtons).toHaveLength(1);
+  });
+
   it("keeps the thinking shell visible while streamed reasoning is buffered", () => {
     render(
       React.createElement(StreamingPlaceholder, {
