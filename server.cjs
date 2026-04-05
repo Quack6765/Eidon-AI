@@ -20,4 +20,7 @@ app.prepare().then(() => {
   server.listen(port, () => {
     console.log(`> Ready on http://localhost:${port}`);
   });
+}).catch((err) => {
+  console.error("[server] Next.js prepare failed:", err);
+  process.exit(1);
 });

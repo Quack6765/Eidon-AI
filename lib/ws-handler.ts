@@ -1,6 +1,7 @@
 import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 import { verifySessionToken } from "@/lib/auth";
+import { startChatTurn } from "@/lib/chat-turn";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import { getConversationSnapshot, listActiveConversations } from "@/lib/conversations";
 import { createConversationManager, type ConversationManager } from "@/lib/conversation-manager";
@@ -101,7 +102,13 @@ function handleMessage(
       break;
     }
     case "message": {
-      handleUserMessage(mgr, msg);
+      handleUserMessage(mgr, ws, msg).catch((error) => {
+        console.error("[ws-handler] handleUserMessage failed:", error);
+        ws.send(serializeServerMessage({
+          type: "error",
+          message: error instanceof Error ? error.message : "Chat stream failed"
+        }));
+      });
       break;
     }
     case "edit": {
@@ -112,8 +119,11 @@ function handleMessage(
 
 async function handleUserMessage(
   mgr: ConversationManager,
+  ws: WebSocket,
   msg: { type: "message"; conversationId: string; content: string; attachmentIds?: string[] }
 ) {
-  const { startChatTurn } = await import("@/lib/chat-turn");
-  startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? []);
+  if (!mgr.hasSubscribers(msg.conversationId)) {
+    mgr.subscribe(msg.conversationId, ws);
+  }
+  await startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? []);
 }

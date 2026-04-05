@@ -182,7 +182,8 @@ function withApiKey(profile: ProviderProfile): ProviderProfileWithApiKey {
   if (profile.apiKeyEncrypted) {
     try {
       apiKey = decryptValue(profile.apiKeyEncrypted);
-    } catch {
+    } catch (e) {
+      console.error(`[settings] Failed to decrypt API key for profile ${profile.id}:`, e instanceof Error ? e.message : e);
       apiKey = "";
     }
   }
