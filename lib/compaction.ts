@@ -1,14 +1,4 @@
-import { z } from "zod";
-
-import {
-  LEAF_MIN_MESSAGE_COUNT,
-  LEAF_SOURCE_TOKEN_LIMIT,
-  LEAF_TARGET_TOKENS,
-  MAX_ATTACHMENT_TEXT_RATIO,
-  MERGED_MIN_NODE_COUNT,
-  MERGED_TARGET_TOKENS,
-  SAFETY_MARGIN_TOKENS
-} from "@/lib/constants";
+import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
 import {
   bumpConversation,
   createMessage,
@@ -20,7 +10,7 @@ import {
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { callProviderText } from "@/lib/provider";
-import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
+import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens, estimatePromptContentTokens } from "@/lib/tokenization";
 import type {
   ChatStreamEvent,
   MemoryNode,
@@ -28,22 +18,27 @@ import type {
   MessageAttachment,
   PromptContentPart,
   PromptMessage,
-  ProviderProfileWithApiKey,
-  SummaryPayload
+  ProviderProfileWithApiKey
 } from "@/lib/types";
 
-const summarySchema = z.object({
-  factualCommitments: z.array(z.string()),
-  userPreferences: z.array(z.string()),
-  unresolvedItems: z.array(z.string()),
-  importantReferences: z.array(z.string()),
-  chronology: z.array(z.string()),
-  sourceSpan: z.object({
-    startMessageId: z.string(),
-    endMessageId: z.string(),
-    messageCount: z.number().int().positive()
-  })
-});
+function dropOldestMemoryNode(conversationId: string): boolean {
+  const db = getDb();
+  const node = db.prepare(
+    `SELECT id FROM memory_nodes
+     WHERE conversation_id = ? AND superseded_by_node_id IS NULL
+     ORDER BY depth DESC, created_at ASC
+     LIMIT 1`
+  ).get(conversationId) as { id: string } | undefined;
+
+  if (!node) return false;
+
+  db.prepare(
+    `UPDATE memory_nodes SET superseded_by_node_id = '_dropped'
+     WHERE id = ?`
+  ).run(node.id);
+
+  return true;
+}
 
 function getActiveMemoryNodes(conversationId: string): MemoryNode[] {
   const rows = getDb()
@@ -173,34 +168,62 @@ function buildSummaryPrompt(label: string, blocks: string, sourceSpan: {
   startMessageId: string;
   endMessageId: string;
   messageCount: number;
-}) {
-  return [
-    `You are compacting ${label} for a chat memory engine.`,
-    "Return valid JSON only.",
-    "Preserve facts exactly. Do not invent details.",
-    "Fill every array, using empty arrays when needed.",
-    `sourceSpan.startMessageId must be "${sourceSpan.startMessageId}".`,
-    `sourceSpan.endMessageId must be "${sourceSpan.endMessageId}".`,
-    `sourceSpan.messageCount must be ${sourceSpan.messageCount}.`,
-    `Schema: {"factualCommitments": string[], "userPreferences": string[], "unresolvedItems": string[], "importantReferences": string[], "chronology": string[], "sourceSpan": {"startMessageId": string, "endMessageId": string, "messageCount": number}}`,
-    "",
-    blocks
-  ].join("\n");
+}, existingSummary?: string) {
+  const parts: string[] = [];
+
+  if (existingSummary) {
+    parts.push(
+      "You are updating this existing conversation summary.",
+      "",
+      "EXISTING SUMMARY (for context):",
+      existingSummary,
+      "",
+      "NEW MESSAGES:",
+      blocks,
+      "",
+      "Produce an updated summary that incorporates the new messages into the existing context.",
+      "Write your response as a bullet-point list grouped by these categories:",
+      "- Facts & commitments the assistant needs to remember",
+      "- User preferences and constraints",
+      "- Unresolved questions or open tasks",
+      "- Important technical references or files",
+      "- Chronology of key events",
+      "",
+      "Be specific and concise. Use short sentences. Do not invent details.",
+      `sourceSpan: startMessageId="${sourceSpan.startMessageId}", endMessageId="${sourceSpan.endMessageId}", messageCount=${sourceSpan.messageCount}`
+    );
+  } else {
+    parts.push(
+      `You are compacting ${label} for a chat memory engine.`,
+      "",
+      "Write your response as a bullet-point list grouped by these categories:",
+      "- Facts & commitments the assistant needs to remember",
+      "- User preferences and constraints",
+      "- Unresolved questions or open tasks",
+      "- Important technical references or files",
+      "- Chronology of key events",
+      "",
+      "Be specific and concise. Use short sentences. Do not invent details.",
+      blocks,
+      "",
+      `sourceSpan: startMessageId="${sourceSpan.startMessageId}", endMessageId="${sourceSpan.endMessageId}", messageCount=${sourceSpan.messageCount}`
+    );
+  }
+
+  return parts.join("\n");
 }
 
 async function summarizeBlocks(
   conversationId: string,
   prompt: string,
   settings: ProviderProfileWithApiKey
-): Promise<SummaryPayload> {
-  const summaryText = await callProviderText({
+): Promise<string> {
+  return await callProviderText({
     settings,
     prompt,
     purpose: "compaction",
     conversationId
   });
-
-  return summarySchema.parse(JSON.parse(summaryText));
 }
 
 function getCompactionEligibleMessages(messages: Message[], freshTailCount: number) {
@@ -342,7 +365,7 @@ async function compactLeafMessages(
   messages: Message[],
   settings: ProviderProfileWithApiKey
 ) {
-  if (messages.length < LEAF_MIN_MESSAGE_COUNT) {
+  if (messages.length < settings.leafMinMessageCount) {
     return null;
   }
 
@@ -353,8 +376,8 @@ async function compactLeafMessages(
     const messageTokenCount = Math.max(message.estimatedTokens, estimateMessageTokens(message));
 
     if (
-      selected.length >= LEAF_MIN_MESSAGE_COUNT &&
-      sourceTokenCount + messageTokenCount > LEAF_SOURCE_TOKEN_LIMIT
+      selected.length >= settings.leafMinMessageCount &&
+      sourceTokenCount + messageTokenCount > settings.leafSourceTokenLimit
     ) {
       break;
     }
@@ -363,7 +386,7 @@ async function compactLeafMessages(
     sourceTokenCount += messageTokenCount;
   }
 
-  if (selected.length < LEAF_MIN_MESSAGE_COUNT) {
+  if (selected.length < settings.leafMinMessageCount) {
     return null;
   }
 
@@ -389,17 +412,22 @@ async function compactLeafMessages(
     .flat()
     .join("\n\n");
 
+  const activeNodes = getActiveMemoryNodes(conversationId);
+  const existingSummary = activeNodes.length
+    ? activeNodes[activeNodes.length - 1].content
+    : undefined;
+
   const payload = await summarizeBlocks(
     conversationId,
     buildSummaryPrompt("raw chat messages", blocks, {
       startMessageId: selected[0].id,
       endMessageId: selected[selected.length - 1].id,
       messageCount: selected.length
-    }),
+    }, existingSummary),
     settings
   );
 
-  const content = JSON.stringify(payload);
+  const content = payload;
   const node = insertMemoryNode({
     conversationId,
     type: "leaf_summary",
@@ -467,27 +495,28 @@ async function condenseMemoryNodes(
       grouped.set(node.depth, list);
     });
 
-    const entry = [...grouped.entries()].find(([, nodes]) => nodes.length >= MERGED_MIN_NODE_COUNT);
+    const entry = [...grouped.entries()].find(([, nodes]) => nodes.length >= settings.mergedMinNodeCount);
 
     if (!entry) {
       return created;
     }
 
     const [depth, nodes] = entry;
-    const selected = nodes.slice(0, MERGED_MIN_NODE_COUNT);
+    const selected = nodes.slice(0, settings.mergedMinNodeCount);
     const blocks = selected
       .map((node) => `[memory_node] ${node.id}\n${node.content}`)
       .join("\n\n");
+    const existingContext = selected.map(n => `[node] ${n.id}\n${renderMemoryNode(n.content)}`).join("\n\n");
     const payload = await summarizeBlocks(
       conversationId,
       buildSummaryPrompt("compacted memory nodes", blocks, {
         startMessageId: selected[0].sourceStartMessageId,
         endMessageId: selected[selected.length - 1].sourceEndMessageId,
         messageCount: selected.length
-      }),
+      }, existingContext),
       settings
     );
-    const content = JSON.stringify(payload);
+    const content = payload;
     const merged = insertMemoryNode({
       conversationId,
       type: "merged_summary",
@@ -496,12 +525,65 @@ async function condenseMemoryNodes(
       sourceStartMessageId: selected[0].sourceStartMessageId,
       sourceEndMessageId: selected[selected.length - 1].sourceEndMessageId,
       sourceTokenCount: selected.reduce((total, node) => total + node.sourceTokenCount, 0),
-      summaryTokenCount: estimateTextTokens(content) || MERGED_TARGET_TOKENS,
+      summaryTokenCount: estimateTextTokens(content) || settings.mergedTargetTokens,
       childNodeIds: selected.map((node) => node.id)
     });
 
     supersedeNodes(selected.map((node) => node.id), merged.id);
     created = true;
+  }
+}
+
+function renderMemoryNode(content: string): string {
+  if (content.trimStart().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(content);
+      const parts: string[] = [];
+      if (parsed.factualCommitments?.length) parts.push("Facts: " + parsed.factualCommitments.join(", "));
+      if (parsed.userPreferences?.length) parts.push("Preferences: " + parsed.userPreferences.join(", "));
+      if (parsed.unresolvedItems?.length) parts.push("Unresolved: " + parsed.unresolvedItems.join(", "));
+      if (parsed.importantReferences?.length) parts.push("References: " + parsed.importantReferences.join(", "));
+      if (parsed.chronology?.length) parts.push("Chronology: " + parsed.chronology.join(", "));
+      return parts.join("\n");
+    } catch {
+      return content;
+    }
+  }
+  return content;
+}
+
+async function scoreMemoryNodes(input: {
+  userInput: string;
+  activeNodes: MemoryNode[];
+  settings: ProviderProfileWithApiKey;
+  conversationId: string;
+}): Promise<string[]> {
+  const { userInput, activeNodes, settings, conversationId } = input;
+
+  const nodeBlocks = activeNodes
+    .map((node) => `[node: ${node.id}] ${renderMemoryNode(node.content)}`)
+    .join("\n\n");
+
+  const prompt = [
+    "The user just asked:",
+    `"${userInput}"`,
+    "",
+    "Which of these context summaries are relevant?",
+    'Return only a valid JSON object: {"relevantNodes": ["nodeId1", "nodeId2"]}',
+    "",
+    "Context summaries:",
+    nodeBlocks
+  ].join("\n");
+
+  try {
+    const result = await callProviderText({ settings, prompt, purpose: "compaction", conversationId });
+    const parsed = JSON.parse(result);
+    if (Array.isArray(parsed.relevantNodes)) {
+      return parsed.relevantNodes.filter((id: string): id is string => typeof id === "string" && id.length > 0);
+    }
+    return [];
+  } catch {
+    return [];
   }
 }
 
@@ -515,34 +597,33 @@ export function buildPromptMessages(input: {
   const remainingAttachmentTextTokens = {
     value: input.maxAttachmentTextTokens ?? Number.POSITIVE_INFINITY
   };
-  const promptMessages: PromptMessage[] = [
-    {
-      role: "system",
-      content: input.systemPrompt
-    }
-  ];
+
+  // Build single merged system message
+  const systemParts: string[] = [input.systemPrompt];
 
   if (input.activeMemoryNodes.length) {
-    promptMessages.push({
-      role: "system",
-      content: `Compacted conversation memory:\n${input.activeMemoryNodes
-        .map((node) => node.content)
-        .join("\n\n")}`
-    });
+    systemParts.push(
+      "## Compacted Memory\n" + input.activeMemoryNodes
+        .map((node) => renderMemoryNode(node.content))
+        .join("\n\n")
+    );
   }
 
-  input.messages.forEach((message) => {
-    if (message.role === "system" && isVisibleMessage(message)) {
-      promptMessages.push({
-        role: "system",
-        content: message.content
-      });
-      return;
-    }
+  // Include visible non-hidden system messages
+  const visibleSystemMessages = input.messages.filter(
+    (m) => m.role === "system" && m.systemKind !== "compaction_notice" && isVisibleMessage(m)
+  );
+  for (const msg of visibleSystemMessages) {
+    systemParts.push(msg.content);
+  }
 
-    if (message.role === "system") {
-      return;
-    }
+  const promptMessages: PromptMessage[] = [
+    { role: "system", content: systemParts.join("\n\n") }
+  ];
+
+  // Non-system messages
+  input.messages.forEach((message) => {
+    if (message.role === "system") return;
 
     if (message.role === "assistant") {
       const parts = [
@@ -588,7 +669,7 @@ export async function ensureCompactedContext(
   }
 
   const allowedPromptTokens =
-    settings.modelContextLimit - settings.maxOutputTokens - SAFETY_MARGIN_TOKENS;
+    settings.modelContextLimit - settings.maxOutputTokens - settings.safetyMarginTokens;
   const compactionLimit = Math.floor(allowedPromptTokens * settings.compactionThreshold);
 
   let noticeEvent: ChatStreamEvent | null = null;
@@ -606,9 +687,58 @@ export async function ensureCompactedContext(
     const promptTokens = estimatePromptTokens(promptMessages);
 
     if (promptTokens <= compactionLimit) {
+      // Score and select relevant nodes
+      const lastUserMessage = visibleMessages.filter(m => m.role === "user").at(-1);
+      let selectedNodes = activeMemoryNodes;
+
+      if (activeMemoryNodes.length > 2) {
+        const scoredNodeIds = await scoreMemoryNodes({
+          userInput: lastUserMessage?.content ?? "",
+          activeNodes: activeMemoryNodes,
+          settings,
+          conversationId
+        });
+
+        if (scoredNodeIds.length > 0 && scoredNodeIds.length < activeMemoryNodes.length) {
+          const scored = activeMemoryNodes.filter(n => scoredNodeIds.includes(n.id));
+          const unscored = activeMemoryNodes.filter(n => !scoredNodeIds.includes(n.id));
+
+          const sortedUnscored = [...unscored].sort((a, b) => {
+            if (b.depth !== a.depth) return b.depth - a.depth;
+            return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          });
+
+          selectedNodes = [...scored];
+          const scoredTokens = buildPromptMessages({
+            systemPrompt: settings.systemPrompt,
+            messages: visibleMessages,
+            activeMemoryNodes: scored,
+            maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO)
+          }).reduce((t, m) => {
+            if (typeof m.content === "string") return t + estimateTextTokens(m.content) + 12;
+            return t + estimatePromptContentTokens(m.content) + 12;
+          }, 0);
+
+          const remaining = compactionLimit - scoredTokens;
+          for (const node of sortedUnscored) {
+            const nodeTokens = node.summaryTokenCount;
+            if (nodeTokens <= remaining) {
+              selectedNodes.push(node);
+            }
+          }
+        }
+      }
+
+      const finalPromptMessages = buildPromptMessages({
+        systemPrompt: settings.systemPrompt,
+        messages: visibleMessages,
+        activeMemoryNodes: selectedNodes,
+        maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO)
+      });
+
       return {
-        promptMessages,
-        promptTokens,
+        promptMessages: finalPromptMessages,
+        promptTokens: estimatePromptTokens(finalPromptMessages),
         compactionNoticeEvent: noticeEvent
       };
     }
@@ -617,9 +747,27 @@ export async function ensureCompactedContext(
     const compacted = await compactLeafMessages(conversationId, eligible, settings);
 
     if (!compacted) {
-      throw new Error(
-        "Conversation exceeds the configured context limit even after compaction. Increase the context limit or lower max output tokens."
-      );
+      const dropped = dropOldestMemoryNode(conversationId);
+
+      if (!dropped) {
+        const messages = listMessages(conversationId);
+        const lastUserMessage = [...messages].reverse().find(m => m.role === "user" && !m.compactedAt);
+
+        if (lastUserMessage) {
+          const promptMessages = buildPromptMessages({
+            systemPrompt: settings.systemPrompt,
+            messages: [lastUserMessage],
+            activeMemoryNodes: []
+          });
+          return { promptMessages, promptTokens: estimatePromptTokens(promptMessages), compactionNoticeEvent: null };
+        }
+
+        throw new Error(
+          "Conversation exceeds the configured context limit. No fallback available."
+        );
+      }
+
+      continue;
     }
 
     noticeEvent = {

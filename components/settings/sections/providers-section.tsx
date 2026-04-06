@@ -47,6 +47,12 @@ type SettingsPayload = {
     modelContextLimit: number;
     compactionThreshold: number;
     freshTailCount: number;
+    tokenizerModel: "gpt-tokenizer" | "off";
+    safetyMarginTokens: number;
+    leafSourceTokenLimit: number;
+    leafMinMessageCount: number;
+    mergedMinNodeCount: number;
+    mergedTargetTokens: number;
     createdAt: string;
     updatedAt: string;
     hasApiKey: boolean;
@@ -116,6 +122,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         modelContextLimit: 128000,
         compactionThreshold: 0.78,
         freshTailCount: 28,
+        tokenizerModel: "gpt-tokenizer" as const,
+        safetyMarginTokens: 1200,
+        leafSourceTokenLimit: 12000,
+        leafMinMessageCount: 6,
+        mergedMinNodeCount: 4,
+        mergedTargetTokens: 1600,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         hasApiKey: false,
@@ -187,7 +199,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         reasoningSummaryEnabled: profile.reasoningSummaryEnabled,
         modelContextLimit: profile.modelContextLimit,
         compactionThreshold: profile.compactionThreshold,
-        freshTailCount: profile.freshTailCount
+        freshTailCount: profile.freshTailCount,
+        tokenizerModel: profile.tokenizerModel,
+        safetyMarginTokens: profile.safetyMarginTokens,
+        leafSourceTokenLimit: profile.leafSourceTokenLimit,
+        leafMinMessageCount: profile.leafMinMessageCount,
+        mergedMinNodeCount: profile.mergedMinNodeCount,
+        mergedTargetTokens: profile.mergedTargetTokens
       }))
     };
 
@@ -538,6 +556,74 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           updateActiveProviderProfile({
                             freshTailCount: Number(event.target.value || 0)
                           })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Tokenizer model</label>
+                      <select
+                        value={activeProviderProfile.tokenizerModel}
+                        onChange={(event) =>
+                          updateActiveProviderProfile({ tokenizerModel: event.target.value as "gpt-tokenizer" | "off" })
+                        }
+                        className={selectClass}
+                      >
+                        <option value="gpt-tokenizer">gpt-tokenizer</option>
+                        <option value="off">Off (char / 4)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className={labelClass}>Safety margin tokens</label>
+                      <Input
+                        name="provider-safety-margin-tokens"
+                        type="number"
+                        value={activeProviderProfile.safetyMarginTokens}
+                        onChange={(event) =>
+                          updateActiveProviderProfile({ safetyMarginTokens: Number(event.target.value || 0) })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Leaf source token limit</label>
+                      <Input
+                        name="provider-leaf-source-token-limit"
+                        type="number"
+                        value={activeProviderProfile.leafSourceTokenLimit}
+                        onChange={(event) =>
+                          updateActiveProviderProfile({ leafSourceTokenLimit: Number(event.target.value || 0) })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Leaf min message count</label>
+                      <Input
+                        name="provider-leaf-min-message-count"
+                        type="number"
+                        value={activeProviderProfile.leafMinMessageCount}
+                        onChange={(event) =>
+                          updateActiveProviderProfile({ leafMinMessageCount: Number(event.target.value || 0) })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Merged min node count</label>
+                      <Input
+                        name="provider-merged-min-node-count"
+                        type="number"
+                        value={activeProviderProfile.mergedMinNodeCount}
+                        onChange={(event) =>
+                          updateActiveProviderProfile({ mergedMinNodeCount: Number(event.target.value || 0) })
+                        }
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Merged target tokens</label>
+                      <Input
+                        name="provider-merged-target-tokens"
+                        type="number"
+                        value={activeProviderProfile.mergedTargetTokens}
+                        onChange={(event) =>
+                          updateActiveProviderProfile({ mergedTargetTokens: Number(event.target.value || 0) })
                         }
                       />
                     </div>

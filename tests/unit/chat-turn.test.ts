@@ -24,12 +24,15 @@ vi.mock("@/lib/conversation-title-generator", () => ({
   MAX_CONVERSATION_TITLE_LENGTH: 48
 }));
 
-function setupProviderProfile() {
+import type { ProviderProfileWithApiKey } from "@/lib/types";
+
+function setupProviderProfile(): { profileId: string; profile: ProviderProfileWithApiKey } {
   const profileId = "profile_chat_test";
-  const profile = {
+  const profile: ProviderProfileWithApiKey = {
     id: profileId,
     name: "Test",
     apiBaseUrl: "https://api.example.com/v1",
+    apiKeyEncrypted: "",
     apiKey: "sk-test",
     model: "gpt-test",
     apiMode: "responses" as const,
@@ -40,7 +43,15 @@ function setupProviderProfile() {
     reasoningSummaryEnabled: true,
     modelContextLimit: 16384,
     compactionThreshold: 0.8,
-    freshTailCount: 12
+    freshTailCount: 12,
+    tokenizerModel: "gpt-tokenizer" as const,
+    safetyMarginTokens: 1200,
+    leafSourceTokenLimit: 12000,
+    leafMinMessageCount: 6,
+    mergedMinNodeCount: 4,
+    mergedTargetTokens: 1600,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   };
   return { profileId, profile };
 }

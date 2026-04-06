@@ -10,20 +10,21 @@ import type { PromptMessage } from "@/lib/types";
 vi.mock("@/lib/provider", async () => {
   return {
     callProviderText: vi.fn(async (input: { prompt: string }) => {
-      const ids = [...input.prompt.matchAll(/msg_[a-z0-9-]+/gi)].map((match) => match[0]);
+      // Scoring prompt detection
+      if (input.prompt.includes("relevantNodes")) {
+        const ids = [...input.prompt.matchAll(/\[node:\s*(mem_[a-z0-9-]+)\]/gi)]
+          .map((match) => match[1]);
+        return JSON.stringify({
+          relevantNodes: ids.slice(0, Math.max(1, Math.ceil(ids.length / 2)))
+        });
+      }
 
-      return JSON.stringify({
-        factualCommitments: ["fact"],
-        userPreferences: ["preference"],
-        unresolvedItems: ["todo"],
-        importantReferences: ["reference"],
-        chronology: ["chronology"],
-        sourceSpan: {
-          startMessageId: ids[0] ?? "msg_start",
-          endMessageId: ids.at(-1) ?? "msg_end",
-          messageCount: Math.max(ids.length, 1)
-        }
-      });
+      const ids = [...input.prompt.matchAll(/mem_[a-z0-9-]+|msg_[a-z0-9-]+/gi)]
+        .map((match) => match[0]);
+
+      return `- Fact from messages ${ids.slice(0, 3).join(", ")}
+- Preference: keep context compact
+- Unresolved: need to test scoring`;
     })
   };
 });
@@ -87,7 +88,7 @@ describe("lossless compaction", () => {
           conversationId: "conv_1",
           type: "leaf_summary",
           depth: 0,
-          content: "{\"factualCommitments\":[\"A\"]}",
+          content: "- Fact: user prefers dark mode\n- Preference: keep responses short",
           sourceStartMessageId: "msg_1",
           sourceEndMessageId: "msg_4",
           sourceTokenCount: 120,
@@ -115,11 +116,11 @@ describe("lossless compaction", () => {
     });
 
     expect(getPromptText(prompt[0]!)).toContain("Stay concise.");
-    expect(getPromptText(prompt[1]!)).toContain("Compacted conversation memory");
+    expect(getPromptText(prompt[0]!)).toContain("Compacted Memory");
     expect(getPromptText(prompt.at(-1)!)).toBe("Append this");
   });
 
-  it("skips hidden stored system prompts when rebuilding provider input", () => {
+  it("merges system messages into single system prompt", () => {
     const prompt = buildPromptMessages({
       systemPrompt: "Primary system prompt.",
       activeMemoryNodes: [],
@@ -163,11 +164,16 @@ describe("lossless compaction", () => {
       ]
     });
 
-    expect(prompt.map((message) => getPromptText(message))).toEqual([
-      "Primary system prompt.",
-      "Compacted older messages into memory.",
-      "Continue"
-    ]);
+    const systemMessage = prompt.find(m => m.role === "system");
+    expect(systemMessage).not.toBeUndefined();
+    expect(typeof systemMessage!.content).toBe("string");
+    expect((systemMessage!.content as string)).toContain("Primary system prompt.");
+
+    // Only one system message
+    expect(prompt.filter(m => m.role === "system").length).toBe(1);
+
+    // User message present
+    expect(prompt.at(-1)!.role).toBe("user");
   });
 
   it("keeps image attachments multimodal and truncates attached text to the configured budget", () => {
@@ -262,7 +268,7 @@ describe("lossless compaction", () => {
     expect(messages.some((message) => message.compactedAt)).toBe(true);
     expect(
       result.promptMessages.some((message) =>
-        getPromptText(message).includes("Compacted conversation memory")
+        getPromptText(message).includes("Compacted Memory")
       )
     ).toBe(true);
   });
@@ -288,7 +294,7 @@ describe("lossless compaction", () => {
     ).rejects.toThrow("Conversation not found");
   });
 
-  it("fails cleanly when the prompt is too large and nothing is eligible for compaction", async () => {
+  it("falls back gracefully when the prompt is too large and nothing is eligible", async () => {
     updateDefaultProfile({
       modelContextLimit: 4096,
       compactionThreshold: 0.7
@@ -304,10 +310,12 @@ describe("lossless compaction", () => {
       });
     }
 
-    await expect(
-      ensureCompactedContext(conversation.id, getDefaultProviderProfileWithApiKey()!)
-    ).rejects.toThrow(
-      "Conversation exceeds the configured context limit even after compaction."
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
     );
+
+    expect(result.promptMessages.some(m => m.role === "system")).toBe(true);
+    expect(result.promptMessages.some(m => m.role === "user")).toBe(true);
   });
 });

@@ -2,7 +2,7 @@ import OpenAI from "openai";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
-import { estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
+import { estimatePromptTokens, setActiveTokenizer } from "@/lib/tokenization";
 import { normalizeLineBreaks } from "@/lib/utils";
 import type {
   ChatStreamEvent,
@@ -286,6 +286,7 @@ export async function* streamProviderResponse(input: {
   void
 > {
   const { settings, promptMessages } = input;
+  setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
   const client = createClient(settings, settings.apiKey);
   const abortController = new AbortController();
   let answer = "";
@@ -379,8 +380,8 @@ export async function* streamProviderResponse(input: {
 
           if (event.type === "response.completed" && event.response?.usage) {
             usage = {
-              inputTokens: event.response.usage.input_tokens,
-              outputTokens: event.response.usage.output_tokens,
+              inputTokens: event.response.usage.input_tokens ?? 0,
+              outputTokens: event.response.usage.output_tokens ?? 0,
               reasoningTokens: event.response.usage.output_tokens_details?.reasoning_tokens
             };
           }
@@ -466,8 +467,8 @@ export async function* streamProviderResponse(input: {
 
         if (event.type === "response.completed" && event.response?.usage) {
           usage = {
-            inputTokens: event.response.usage.input_tokens,
-            outputTokens: event.response.usage.output_tokens,
+            inputTokens: event.response.usage.input_tokens ?? 0,
+            outputTokens: event.response.usage.output_tokens ?? 0,
             reasoningTokens: event.response.usage.output_tokens_details?.reasoning_tokens
           };
         }

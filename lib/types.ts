@@ -41,6 +41,12 @@ export type ProviderProfile = {
   modelContextLimit: number;
   compactionThreshold: number;
   freshTailCount: number;
+  tokenizerModel: "gpt-tokenizer" | "off";
+  safetyMarginTokens: number;
+  leafSourceTokenLimit: number;
+  leafMinMessageCount: number;
+  mergedMinNodeCount: number;
+  mergedTargetTokens: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -274,19 +280,6 @@ export type ChatStreamEvent =
     }
   | { type: "done"; messageId: string }
   | { type: "error"; message: string };
-
-export type SummaryPayload = {
-  factualCommitments: string[];
-  userPreferences: string[];
-  unresolvedItems: string[];
-  importantReferences: string[];
-  chronology: string[];
-  sourceSpan: {
-    startMessageId: string;
-    endMessageId: string;
-    messageCount: number;
-  };
-};
 
 export type PromptTextContentPart = {
   type: "text";

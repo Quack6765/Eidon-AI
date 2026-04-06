@@ -30,5 +30,11 @@ export const DEFAULT_PROVIDER_SETTINGS = {
   reasoningSummaryEnabled: true,
   modelContextLimit: 128000,
   compactionThreshold: 0.78,
-  freshTailCount: 28
+  freshTailCount: 28,
+  tokenizerModel: "gpt-tokenizer" as const,
+  safetyMarginTokens: 1200,
+  leafSourceTokenLimit: 12000,
+  leafMinMessageCount: 6,
+  mergedMinNodeCount: 4,
+  mergedTargetTokens: 1600
 } as const;
