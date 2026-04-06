@@ -553,4 +553,22 @@ describe("message bubble", () => {
     expect(screen.getByText("Web search")).toBeInTheDocument();
     expect(screen.getByText("Here are the results.")).toBeInTheDocument();
   });
+
+  it("renders a compaction separator instead of typing dots while compaction is active", () => {
+    const { container } = render(
+      React.createElement(StreamingPlaceholder, {
+        createdAt: new Date().toISOString(),
+        thinking: "",
+        answer: "",
+        awaitingFirstToken: true,
+        thinkingInProgress: false,
+        compactionInProgress: true,
+        timeline: []
+      })
+    );
+
+    expect(screen.getByText("Compacting")).toBeInTheDocument();
+    expect(container.querySelector(".compaction-indicator")).not.toBeNull();
+    expect(container.querySelector(".typing-dot")).toBeNull();
+  });
 });
