@@ -28,11 +28,7 @@ function getGaugeColor(percentage: number): string {
 export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGaugeProps) {
   const [showTooltip, setShowTooltip] = useState(false);
 
-  if (usedTokens === null) {
-    return null;
-  }
-
-  const percentage = Math.min(100, (usedTokens / usableLimit) * 100);
+  const percentage = usedTokens !== null ? Math.min(100, (usedTokens / usableLimit) * 100) : 0;
   const color = getGaugeColor(percentage);
 
   // SVG circle properties
@@ -53,6 +49,10 @@ export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGauge
   const handleClick = useCallback(() => {
     setShowTooltip((prev) => !prev);
   }, []);
+
+  if (usedTokens === null) {
+    return null;
+  }
 
   const usedFormatted = formatTokens(usedTokens);
   const usableFormatted = formatTokens(usableLimit);

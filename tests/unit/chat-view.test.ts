@@ -980,4 +980,62 @@ describe("chat view", () => {
     expect(screen.queryByText("Older context compacted to stay within model limits.")).toBeNull();
     expect(screen.getByText("Hello")).toBeInTheDocument();
   });
+
+  it("updates token usage gauge when usage event arrives", async () => {
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+    fireEvent.change(input, { target: { value: "Hello" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello")).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: [
+          {
+            id: "msg_user",
+            conversationId: "conv_1",
+            role: "user",
+            content: "Hello",
+            thinkingContent: "",
+            status: "completed",
+            estimatedTokens: 5,
+            systemKind: null,
+            compactedAt: null,
+            createdAt: new Date().toISOString()
+          }
+        ]
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "usage", inputTokens: 50000 }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("50K")).toBeInTheDocument();
+  });
 });
