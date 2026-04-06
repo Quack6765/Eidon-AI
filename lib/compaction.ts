@@ -10,7 +10,7 @@ import {
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { callProviderText } from "@/lib/provider";
-import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
+import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens, estimatePromptContentTokens } from "@/lib/tokenization";
 import type {
   ChatStreamEvent,
   MemoryNode,
@@ -552,6 +552,41 @@ function renderMemoryNode(content: string): string {
   return content;
 }
 
+async function scoreMemoryNodes(input: {
+  userInput: string;
+  activeNodes: MemoryNode[];
+  settings: ProviderProfileWithApiKey;
+  conversationId: string;
+}): Promise<string[]> {
+  const { userInput, activeNodes, settings, conversationId } = input;
+
+  const nodeBlocks = activeNodes
+    .map((node) => `[node: ${node.id}] ${renderMemoryNode(node.content)}`)
+    .join("\n\n");
+
+  const prompt = [
+    "The user just asked:",
+    `"${userInput}"`,
+    "",
+    "Which of these context summaries are relevant?",
+    'Return only a valid JSON object: {"relevantNodes": ["nodeId1", "nodeId2"]}',
+    "",
+    "Context summaries:",
+    nodeBlocks
+  ].join("\n");
+
+  try {
+    const result = await callProviderText({ settings, prompt, purpose: "compaction", conversationId });
+    const parsed = JSON.parse(result);
+    if (Array.isArray(parsed.relevantNodes)) {
+      return parsed.relevantNodes.filter((id: string): id is string => typeof id === "string" && id.length > 0);
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 export function buildPromptMessages(input: {
   systemPrompt: string;
   messages: Message[];
@@ -652,9 +687,58 @@ export async function ensureCompactedContext(
     const promptTokens = estimatePromptTokens(promptMessages);
 
     if (promptTokens <= compactionLimit) {
+      // Score and select relevant nodes
+      const lastUserMessage = visibleMessages.filter(m => m.role === "user").at(-1);
+      let selectedNodes = activeMemoryNodes;
+
+      if (activeMemoryNodes.length > 2) {
+        const scoredNodeIds = await scoreMemoryNodes({
+          userInput: lastUserMessage?.content ?? "",
+          activeNodes: activeMemoryNodes,
+          settings,
+          conversationId
+        });
+
+        if (scoredNodeIds.length > 0 && scoredNodeIds.length < activeMemoryNodes.length) {
+          const scored = activeMemoryNodes.filter(n => scoredNodeIds.includes(n.id));
+          const unscored = activeMemoryNodes.filter(n => !scoredNodeIds.includes(n.id));
+
+          const sortedUnscored = [...unscored].sort((a, b) => {
+            if (b.depth !== a.depth) return b.depth - a.depth;
+            return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+          });
+
+          selectedNodes = [...scored];
+          const scoredTokens = buildPromptMessages({
+            systemPrompt: settings.systemPrompt,
+            messages: visibleMessages,
+            activeMemoryNodes: scored,
+            maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO)
+          }).reduce((t, m) => {
+            if (typeof m.content === "string") return t + estimateTextTokens(m.content) + 12;
+            return t + estimatePromptContentTokens(m.content) + 12;
+          }, 0);
+
+          const remaining = compactionLimit - scoredTokens;
+          for (const node of sortedUnscored) {
+            const nodeTokens = node.summaryTokenCount;
+            if (nodeTokens <= remaining) {
+              selectedNodes.push(node);
+            }
+          }
+        }
+      }
+
+      const finalPromptMessages = buildPromptMessages({
+        systemPrompt: settings.systemPrompt,
+        messages: visibleMessages,
+        activeMemoryNodes: selectedNodes,
+        maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO)
+      });
+
       return {
-        promptMessages,
-        promptTokens,
+        promptMessages: finalPromptMessages,
+        promptTokens: estimatePromptTokens(finalPromptMessages),
         compactionNoticeEvent: noticeEvent
       };
     }

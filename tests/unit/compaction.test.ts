@@ -10,13 +10,21 @@ import type { PromptMessage } from "@/lib/types";
 vi.mock("@/lib/provider", async () => {
   return {
     callProviderText: vi.fn(async (input: { prompt: string }) => {
-      const ids = [...input.prompt.matchAll(/msg_[a-z0-9-]+/gi)].map((match) => match[0]);
+      // Scoring prompt detection
+      if (input.prompt.includes("relevantNodes")) {
+        const ids = [...input.prompt.matchAll(/\[node:\s*(mem_[a-z0-9-]+)\]/gi)]
+          .map((match) => match[1]);
+        return JSON.stringify({
+          relevantNodes: ids.slice(0, Math.max(1, Math.ceil(ids.length / 2)))
+        });
+      }
 
-      return `- Fact from messages: users discussed context compaction
-- Preference: keep last ${ids.length} messages fresh
-- Unresolved: need to test NL summaries
-- Reference: compaction system modules
-- Chronology: started at ${ids[0] ?? "msg_start"}, ended at ${ids.at(-1) ?? "msg_end"}`;
+      const ids = [...input.prompt.matchAll(/mem_[a-z0-9-]+|msg_[a-z0-9-]+/gi)]
+        .map((match) => match[0]);
+
+      return `- Fact from messages ${ids.slice(0, 3).join(", ")}
+- Preference: keep context compact
+- Unresolved: need to test scoring`;
     })
   };
 });
