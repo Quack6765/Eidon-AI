@@ -11,4 +11,5 @@ ws-handler-compiled.cjs
 .env*.local
 tsconfig.tsbuildinfo
 .superpowers/
+.worktrees/
 .env
