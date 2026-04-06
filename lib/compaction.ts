@@ -21,6 +21,25 @@ import type {
   ProviderProfileWithApiKey
 } from "@/lib/types";
 
+function dropOldestMemoryNode(conversationId: string): boolean {
+  const db = getDb();
+  const node = db.prepare(
+    `SELECT id FROM memory_nodes
+     WHERE conversation_id = ? AND superseded_by_node_id IS NULL
+     ORDER BY depth DESC, created_at ASC
+     LIMIT 1`
+  ).get(conversationId) as { id: string } | undefined;
+
+  if (!node) return false;
+
+  db.prepare(
+    `UPDATE memory_nodes SET superseded_by_node_id = '_dropped'
+     WHERE id = ?`
+  ).run(node.id);
+
+  return true;
+}
+
 function getActiveMemoryNodes(conversationId: string): MemoryNode[] {
   const rows = getDb()
     .prepare(
@@ -644,9 +663,27 @@ export async function ensureCompactedContext(
     const compacted = await compactLeafMessages(conversationId, eligible, settings);
 
     if (!compacted) {
-      throw new Error(
-        "Conversation exceeds the configured context limit even after compaction. Increase the context limit or lower max output tokens."
-      );
+      const dropped = dropOldestMemoryNode(conversationId);
+
+      if (!dropped) {
+        const messages = listMessages(conversationId);
+        const lastUserMessage = [...messages].reverse().find(m => m.role === "user" && !m.compactedAt);
+
+        if (lastUserMessage) {
+          const promptMessages = buildPromptMessages({
+            systemPrompt: settings.systemPrompt,
+            messages: [lastUserMessage],
+            activeMemoryNodes: []
+          });
+          return { promptMessages, promptTokens: estimatePromptTokens(promptMessages), compactionNoticeEvent: null };
+        }
+
+        throw new Error(
+          "Conversation exceeds the configured context limit. No fallback available."
+        );
+      }
+
+      continue;
     }
 
     noticeEvent = {

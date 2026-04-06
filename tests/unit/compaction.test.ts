@@ -286,7 +286,7 @@ describe("lossless compaction", () => {
     ).rejects.toThrow("Conversation not found");
   });
 
-  it("fails cleanly when the prompt is too large and nothing is eligible for compaction", async () => {
+  it("falls back gracefully when the prompt is too large and nothing is eligible", async () => {
     updateDefaultProfile({
       modelContextLimit: 4096,
       compactionThreshold: 0.7
@@ -302,10 +302,12 @@ describe("lossless compaction", () => {
       });
     }
 
-    await expect(
-      ensureCompactedContext(conversation.id, getDefaultProviderProfileWithApiKey()!)
-    ).rejects.toThrow(
-      "Conversation exceeds the configured context limit even after compaction."
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
     );
+
+    expect(result.promptMessages.some(m => m.role === "system")).toBe(true);
+    expect(result.promptMessages.some(m => m.role === "user")).toBe(true);
   });
 });
