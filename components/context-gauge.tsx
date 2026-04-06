@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
-import { cn } from "@/lib/utils";
 
 type ContextGaugeProps = {
   usedTokens: number | null;
@@ -110,11 +109,8 @@ export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGauge
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         >
-          <div className="text-[11px] text-white/70">
-            {usedFormatted} used
-          </div>
-          <div className="text-[11px] text-white/50">
-            {usableFormatted} usable ({thresholdPercent}% of {maxFormatted})
+          <div className="text-[11px] text-white/60 whitespace-nowrap">
+            {usedFormatted} used / {usableFormatted} usable ({thresholdPercent}% of {maxFormatted})
           </div>
         </div>
       )}
