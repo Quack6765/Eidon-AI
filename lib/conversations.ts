@@ -188,7 +188,11 @@ function buildMessageTimeline(message: Message): MessageTimelineItem[] {
 export function isVisibleMessage(
   message: Pick<Message, "role" | "systemKind">
 ) {
-  return message.role !== "system" || message.systemKind !== null;
+  if (message.role !== "system") {
+    return true;
+  }
+
+  return message.systemKind !== null && message.systemKind !== "compaction_notice";
 }
 
 function encodeConversationCursor(cursor: ConversationCursor) {

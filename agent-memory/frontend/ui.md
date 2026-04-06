@@ -44,3 +44,4 @@
 - **Home Composer:** The `/` empty state reuses the same composer UI and runtime controls as a fresh chat and hands the first prompt plus pending attachments into the newly created conversation after redirect.
 - **MCP Settings UX:** The MCP settings card supports draft testing before save and row-level retesting after save, with inline connection result text beneath each server row or form.
 - **Transcript Attachments:** User messages can render persisted attachments inline, with image previews served from authenticated attachment routes and text-like files linked for download/open.
+- **Compaction Indicator:** When long-context compaction runs before an assistant turn, the waiting assistant shell shows a transient whisper-style `Compacting` separator with a subtle sweep animation instead of a visible system notice. The separator disappears entirely once normal assistant streaming begins.

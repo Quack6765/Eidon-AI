@@ -15,6 +15,7 @@ import {
   X
 } from "lucide-react";
 
+import { ContextGauge } from "@/components/context-gauge";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type {
@@ -40,6 +41,10 @@ type ChatComposerProps = {
   onToolExecutionModeChange: (toolExecutionMode: ToolExecutionMode) => void | Promise<void>;
   textareaRef?: React.Ref<HTMLTextAreaElement>;
   className?: string;
+  usedTokens: number | null;
+  modelContextLimit: number;
+  compactionThreshold: number;
+  hasMessages: boolean;
 };
 
 export function ChatComposer({
@@ -58,7 +63,11 @@ export function ChatComposer({
   toolExecutionMode,
   onToolExecutionModeChange,
   textareaRef,
-  className
+  className,
+  usedTokens,
+  modelContextLimit,
+  compactionThreshold,
+  hasMessages
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const isSubmitDisabled =
@@ -221,6 +230,13 @@ export function ChatComposer({
         </div>
 
         <div className="flex items-center gap-2">
+          {hasMessages && (
+            <ContextGauge
+              usedTokens={usedTokens}
+              usableLimit={Math.floor(modelContextLimit * compactionThreshold)}
+              maxLimit={modelContextLimit}
+            />
+          )}
           <span className="text-[11px] text-white/40 select-none">Tool Selection</span>
           <div className="relative group">
             <button

@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
+import { CompactionIndicator } from "@/components/compaction-indicator";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   Message,
@@ -238,6 +239,7 @@ export function MessageBubble({
   streamingThinking,
   streamingAnswer,
   awaitingFirstToken = false,
+  compactionInProgress = false,
   thinkingInProgress = false,
   thinkingDuration,
   hasThinking = false,
@@ -249,6 +251,7 @@ export function MessageBubble({
   streamingThinking?: string;
   streamingAnswer?: string;
   awaitingFirstToken?: boolean;
+  compactionInProgress?: boolean;
   thinkingInProgress?: boolean;
   thinkingDuration?: number;
   hasThinking?: boolean;
@@ -577,9 +580,13 @@ export function MessageBubble({
             ) : null}
 
             {awaitingFirstToken ? (
-              <div className={`${ASSISTANT_MAX_WIDTH} ${ASSISTANT_BUBBLE}`} data-testid="assistant-message-bubble">
-                <TypingIndicator />
-              </div>
+              compactionInProgress ? (
+                <CompactionIndicator />
+              ) : (
+                <div className={`${ASSISTANT_MAX_WIDTH} ${ASSISTANT_BUBBLE}`} data-testid="assistant-message-bubble">
+                  <TypingIndicator />
+                </div>
+              )
             ) : assistantBlocks.length || content ? (
               <div className="group flex flex-col items-start">
                 <div ref={contentRef} className={`flex w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
@@ -640,6 +647,7 @@ export function StreamingPlaceholder({
   answer,
   timeline,
   awaitingFirstToken,
+  compactionInProgress = false,
   thinkingInProgress,
   thinkingDuration,
   hasThinking = false
@@ -649,6 +657,7 @@ export function StreamingPlaceholder({
   answer: string;
   timeline: MessageTimelineItem[];
   awaitingFirstToken: boolean;
+  compactionInProgress?: boolean;
   thinkingInProgress: boolean;
   thinkingDuration?: number;
   hasThinking?: boolean;
@@ -671,6 +680,7 @@ export function StreamingPlaceholder({
       streamingThinking={thinking}
       streamingAnswer={answer}
       awaitingFirstToken={awaitingFirstToken}
+      compactionInProgress={compactionInProgress}
       thinkingInProgress={thinkingInProgress}
       thinkingDuration={thinkingDuration}
       hasThinking={hasThinking}

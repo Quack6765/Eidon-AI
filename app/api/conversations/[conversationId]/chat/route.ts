@@ -111,8 +111,22 @@ export async function POST(
         }
       };
 
+      write({
+        type: "message_start",
+        messageId: assistantMessage.id
+      });
+
+      setConversationActive(conversation.id, true);
+
       try {
-        const compacted = await ensureCompactedContext(conversation.id, settings);
+        const compacted = await ensureCompactedContext(conversation.id, settings, {
+          onCompactionStart() {
+            write({ type: "compaction_start" });
+          },
+          onCompactionEnd() {
+            write({ type: "compaction_end" });
+          }
+        });
 
         let promptMessages = compacted.promptMessages;
         const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
@@ -126,17 +140,6 @@ export async function POST(
           const { gatherAllMcpTools } = await import("@/lib/mcp-client");
           mcpToolSets = await gatherAllMcpTools(mcpServers, conversation.toolExecutionMode);
         }
-
-        if (compacted.compactionNoticeEvent) {
-          write(compacted.compactionNoticeEvent);
-        }
-
-        write({
-          type: "message_start",
-          messageId: assistantMessage.id
-        });
-
-        setConversationActive(conversation.id, true);
 
         let timelineSortOrder = 0;
 

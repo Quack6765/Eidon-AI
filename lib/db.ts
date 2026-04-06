@@ -209,7 +209,7 @@ function migrate(db: Database.Database) {
       node_id TEXT NOT NULL,
       source_start_message_id TEXT NOT NULL,
       source_end_message_id TEXT NOT NULL,
-      notice_message_id TEXT NOT NULL,
+      notice_message_id TEXT,
       created_at TEXT NOT NULL,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
       FOREIGN KEY (node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,
@@ -352,6 +352,29 @@ function migrate(db: Database.Database) {
     if (!profileColNames.includes(colName)) {
       db.exec(`ALTER TABLE provider_profiles ADD COLUMN ${colName} ${colDef}`);
     }
+  }
+
+  try {
+    db.exec(`ALTER TABLE compaction_events RENAME TO compaction_events_old`);
+    db.exec(`
+      CREATE TABLE compaction_events (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL,
+        node_id TEXT NOT NULL,
+        source_start_message_id TEXT NOT NULL,
+        source_end_message_id TEXT NOT NULL,
+        notice_message_id TEXT,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+        FOREIGN KEY (node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,
+        FOREIGN KEY (source_start_message_id) REFERENCES messages(id) ON DELETE CASCADE,
+        FOREIGN KEY (source_end_message_id) REFERENCES messages(id) ON DELETE CASCADE
+      )
+    `);
+    db.exec(`INSERT INTO compaction_events SELECT * FROM compaction_events_old`);
+    db.exec(`DROP TABLE compaction_events_old`);
+  } catch {
+    // Already migrated or table doesn't exist yet
   }
 
   db.exec(`

@@ -111,16 +111,25 @@ function updateStreamingAction(
   return [...timeline, { ...action, timelineKind: "action" }];
 }
 
+function isLegacyCompactionNotice(message: Pick<Message, "role" | "systemKind">) {
+  return message.role === "system" && message.systemKind === "compaction_notice";
+}
+
+function sanitizeMessages(messages: Message[]) {
+  return messages.filter((message) => !isLegacyCompactionNotice(message));
+}
+
 function reconcileSnapshotMessages(
   current: Message[],
   snapshot: Message[],
   activeStreamMessageId: string | null
 ) {
-  if (snapshot.length === 0) {
-    return current;
+  const sanitizedSnapshot = sanitizeMessages(snapshot);
+  if (sanitizedSnapshot.length === 0) {
+    return current.filter((message) => !isLegacyCompactionNotice(message));
   }
 
-  const merged = snapshot.map((snapshotMsg) => {
+  const merged = sanitizedSnapshot.map((snapshotMsg) => {
     const currentMsg = current.find((m) => m.id === snapshotMsg.id);
 
     if (currentMsg && currentMsg.id === activeStreamMessageId) {
@@ -134,11 +143,11 @@ function reconcileSnapshotMessages(
     return snapshotMsg;
   });
 
-  const snapshotMessageIds = new Set(snapshot.map((m) => m.id));
+  const snapshotMessageIds = new Set(sanitizedSnapshot.map((m) => m.id));
   const currentNonLocalIds = new Set(
     current.filter((m) => !m.id.startsWith("local_")).map((m) => m.id)
   );
-  const newServerUserMessages = snapshot.filter(
+  const newServerUserMessages = sanitizedSnapshot.filter(
     (m) => m.role === "user" && !currentNonLocalIds.has(m.id)
   );
   const pendingLocalUserMessages = current.filter(
@@ -160,7 +169,7 @@ function reconcileSnapshotMessages(
       return false;
     }
 
-    return true;
+    return !isLegacyCompactionNotice(m);
   });
 
   return [...merged, ...pendingLocalMessages];
@@ -168,7 +177,7 @@ function reconcileSnapshotMessages(
 
 export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
-  const [messages, setMessages] = useState(payload.messages);
+  const [messages, setMessages] = useState(() => sanitizeMessages(payload.messages));
   const [conversationTitle, setConversationTitle] = useState(payload.conversation.title);
   const [titleGenerationStatus, setTitleGenerationStatus] = useState(
     payload.conversation.titleGenerationStatus
@@ -184,6 +193,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [streamMessageId, setStreamMessageId] = useState<string | null>(null);
   const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
+  const [compactionInProgress, setCompactionInProgress] = useState(false);
+  const [usedTokens, setUsedTokens] = useState<number | null>(null);
+  const compactionInProgressRef = useRef(false);
   const thinkingStartTimeRef = useRef<number | null>(null);
   const [thinkingDuration, setThinkingDuration] = useState<number | undefined>(undefined);
   const [toolExecutionMode, setToolExecutionMode] = useState(payload.toolExecutionMode);
@@ -233,7 +245,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   >(async () => {});
 
   useEffect(() => {
-    setMessages(payload.messages);
+    setMessages(sanitizeMessages(payload.messages));
   }, [payload.messages]);
 
   useEffect(() => {
@@ -247,6 +259,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     streamTimelineRef.current = streamTimeline;
   }, [streamTimeline]);
+
+  useEffect(() => {
+    compactionInProgressRef.current = compactionInProgress;
+  }, [compactionInProgress]);
+
+  function clearCompactionIndicator() {
+    if (compactionInProgressRef.current) {
+      setCompactionInProgress(false);
+    }
+  }
 
   useEffect(() => {
     setConversationTitle(payload.conversation.title);
@@ -291,6 +313,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [payload.conversation.id]);
 
   function handleDelta(event: ChatStreamEvent) {
+    if (event.type === "compaction_start") {
+      setCompactionInProgress(true);
+      return;
+    }
+
+    if (event.type === "compaction_end") {
+      setCompactionInProgress(false);
+      return;
+    }
+
     if (event.type === "message_start") {
       const confirmedLocalId = pendingLocalMessageIdsRef.current.shift() ?? null;
       pendingLocalSubmissionsRef.current.shift();
@@ -327,10 +359,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "usage") {
+      if (event.inputTokens !== undefined) {
+        setUsedTokens(event.inputTokens);
+      }
       return;
     }
 
     if (event.type === "thinking_delta") {
+      clearCompactionIndicator();
       setHasReceivedFirstToken(true);
       const nextThinking = `${streamThinkingTargetRef.current}${event.text}`;
       streamThinkingTargetRef.current = nextThinking;
@@ -341,6 +377,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "answer_delta") {
+      clearCompactionIndicator();
       setHasReceivedFirstToken(true);
       const nextAnswer = `${streamAnswerTargetRef.current}${event.text}`;
       streamAnswerTargetRef.current = nextAnswer;
@@ -370,6 +407,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "action_start") {
+      clearCompactionIndicator();
       setStreamTimeline((prev) => {
         const isExisting = prev.some((item) => item.timelineKind === "action" && item.id === event.action.id);
         if (isExisting) {
@@ -398,10 +436,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "action_complete" || event.type === "action_error") {
+      clearCompactionIndicator();
       setStreamTimeline((prev) => updateStreamingAction(prev, event.action));
     }
 
     if (event.type === "done") {
+      clearCompactionIndicator();
       const finalAnswer = streamAnswerTargetRef.current;
       const finalThinking = streamThinkingTargetRef.current;
       const finalTimeline = streamTimelineRef.current;
@@ -435,6 +475,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "error") {
+      clearCompactionIndicator();
       const activeStreamMessageId = streamMessageIdRef.current;
       dispatchConversationActivityUpdated({
         conversationId: payload.conversation.id,
@@ -1171,6 +1212,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                       !(message.timeline?.length ?? 0)
                     : false
                 }
+                compactionInProgress={message.id === streamMessageId ? compactionInProgress : false}
                 thinkingInProgress={
                   message.id === streamMessageId
                     ? Boolean(streamThinkingTarget) && !streamAnswerTarget
@@ -1211,6 +1253,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             toolExecutionMode={toolExecutionMode}
             onToolExecutionModeChange={updateToolExecutionMode}
             textareaRef={inputRef}
+            usedTokens={usedTokens}
+            modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
+            compactionThreshold={selectedProfile?.compactionThreshold ?? 0.78}
+            hasMessages={messages.length > 0}
           />
         </div>
       </div>

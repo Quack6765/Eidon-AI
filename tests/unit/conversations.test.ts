@@ -131,13 +131,39 @@ describe("conversation helpers", () => {
 
     expect(listMessages(conversation.id)).toHaveLength(3);
     expect(listVisibleMessages(conversation.id).map((message) => message.content)).toEqual([
-      "Compacted older messages into memory.",
       "Visible user message"
     ]);
     expect(
       isVisibleMessage({
         role: "system",
         systemKind: null
+      })
+    ).toBe(false);
+  });
+
+  it("hides compaction notices from visible message lists", () => {
+    const conversation = createConversation();
+
+    createMessage({
+      conversationId: conversation.id,
+      role: "system",
+      content: "Compacted older messages into memory.",
+      systemKind: "compaction_notice"
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Visible user message"
+    });
+
+    expect(listMessages(conversation.id)).toHaveLength(2);
+    expect(listVisibleMessages(conversation.id).map((message) => message.content)).toEqual([
+      "Visible user message"
+    ]);
+    expect(
+      isVisibleMessage({
+        role: "system",
+        systemKind: "compaction_notice"
       })
     ).toBe(false);
   });

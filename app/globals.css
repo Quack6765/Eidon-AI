@@ -28,6 +28,9 @@
   --accent-glow: rgba(139, 92, 246, 0.25);
   --thinking: #818cf8;
   --shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --gauge-green: #22c55e;
+  --gauge-yellow: #eab308;
+  --gauge-red: #ef4444;
 }
 
 * {
@@ -296,4 +299,60 @@ select {
   margin-right: 0.5rem;
   accent-color: #34d399;
   pointer-events: none;
+}
+
+@keyframes compaction-sweep {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(220%);
+  }
+}
+
+.compaction-indicator__line {
+  position: relative;
+  display: block;
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0),
+    rgba(255, 255, 255, 0.06),
+    rgba(255, 255, 255, 0)
+  );
+}
+
+.compaction-indicator__label {
+  position: relative;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 0.35rem 0.7rem;
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.compaction-indicator__label::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(139, 92, 246, 0),
+    rgba(139, 92, 246, 0.15),
+    rgba(139, 92, 246, 0)
+  );
+  animation: compaction-sweep 2.2s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compaction-indicator__label::after {
+    animation: none;
+  }
 }
