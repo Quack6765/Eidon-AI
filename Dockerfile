@@ -10,6 +10,7 @@ FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
+RUN npx esbuild lib/ws-handler.ts --bundle --platform=node --format=cjs --packages=external --outfile=ws-handler-compiled.cjs
 
 FROM base AS runner
 ENV NODE_ENV=production
@@ -32,8 +33,10 @@ RUN groupadd --system hermes && useradd --system --gid hermes hermes
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+COPY --from=builder /app/server.cjs ./server.cjs
+COPY --from=builder /app/ws-handler-compiled.cjs ./ws-handler-compiled.cjs
 RUN mkdir -p /app/data && chown -R hermes:hermes /app
 USER hermes
 EXPOSE 3000
 VOLUME ["/app/data"]
-CMD ["node", "server.js"]
+CMD ["node", "server.cjs"]
