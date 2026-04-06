@@ -41,6 +41,12 @@ export type ProviderProfile = {
   modelContextLimit: number;
   compactionThreshold: number;
   freshTailCount: number;
+  tokenizerModel: "gpt-tokenizer" | "off";
+  safetyMarginTokens: number;
+  leafSourceTokenLimit: number;
+  leafMinMessageCount: number;
+  mergedMinNodeCount: number;
+  mergedTargetTokens: number;
   createdAt: string;
   updatedAt: string;
 };

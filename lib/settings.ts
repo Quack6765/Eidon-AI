@@ -26,7 +26,13 @@ const runtimeSettingsSchema = z.object({
   reasoningSummaryEnabled: z.coerce.boolean(),
   modelContextLimit: z.coerce.number().int().min(4096).max(2_000_000),
   compactionThreshold: z.coerce.number().min(0.5).max(0.95),
-  freshTailCount: z.coerce.number().int().min(8).max(128)
+  freshTailCount: z.coerce.number().int().min(8).max(128),
+  tokenizerModel: z.enum(["gpt-tokenizer", "off"]).default("gpt-tokenizer"),
+  safetyMarginTokens: z.coerce.number().int().min(128).max(32768).default(1200),
+  leafSourceTokenLimit: z.coerce.number().int().min(1000).max(100000).default(12000),
+  leafMinMessageCount: z.coerce.number().int().min(2).max(50).default(6),
+  mergedMinNodeCount: z.coerce.number().int().min(2).max(20).default(4),
+  mergedTargetTokens: z.coerce.number().int().min(128).max(16000).default(1600)
 });
 
 const providerProfileInputSchema = runtimeSettingsSchema.extend({
@@ -89,6 +95,12 @@ type ProviderProfileRow = {
   model_context_limit: number;
   compaction_threshold: number;
   fresh_tail_count: number;
+  tokenizer_model: string;
+  safety_margin_tokens: number;
+  leaf_source_token_limit: number;
+  leaf_min_message_count: number;
+  merged_min_node_count: number;
+  merged_target_tokens: number;
   created_at: string;
   updated_at: string;
 };
@@ -119,6 +131,12 @@ function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
     modelContextLimit: row.model_context_limit,
     compactionThreshold: row.compaction_threshold,
     freshTailCount: row.fresh_tail_count,
+    tokenizerModel: row.tokenizer_model,
+    safetyMarginTokens: row.safety_margin_tokens,
+    leafSourceTokenLimit: row.leaf_source_token_limit,
+    leafMinMessageCount: row.leaf_min_message_count,
+    mergedMinNodeCount: row.merged_min_node_count,
+    mergedTargetTokens: row.merged_target_tokens,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -142,6 +160,12 @@ function listProviderProfileRows() {
         model_context_limit,
         compaction_threshold,
         fresh_tail_count,
+        tokenizer_model,
+        safety_margin_tokens,
+        leaf_source_token_limit,
+        leaf_min_message_count,
+        merged_min_node_count,
+        merged_target_tokens,
         created_at,
         updated_at
       FROM provider_profiles
@@ -168,6 +192,12 @@ function getProviderProfileRow(profileId: string) {
         model_context_limit,
         compaction_threshold,
         fresh_tail_count,
+        tokenizer_model,
+        safety_margin_tokens,
+        leaf_source_token_limit,
+        leaf_min_message_count,
+        merged_min_node_count,
+        merged_target_tokens,
         created_at,
         updated_at
       FROM provider_profiles
@@ -282,6 +312,12 @@ export function updateSettings(input: unknown) {
         model_context_limit,
         compaction_threshold,
         fresh_tail_count,
+        tokenizer_model,
+        safety_margin_tokens,
+        leaf_source_token_limit,
+        leaf_min_message_count,
+        merged_min_node_count,
+        merged_target_tokens,
         created_at,
         updated_at
       ) VALUES (
@@ -299,6 +335,12 @@ export function updateSettings(input: unknown) {
         @modelContextLimit,
         @compactionThreshold,
         @freshTailCount,
+        @tokenizerModel,
+        @safetyMarginTokens,
+        @leafSourceTokenLimit,
+        @leafMinMessageCount,
+        @mergedMinNodeCount,
+        @mergedTargetTokens,
         @createdAt,
         @updatedAt
       )
@@ -316,6 +358,12 @@ export function updateSettings(input: unknown) {
         model_context_limit = excluded.model_context_limit,
         compaction_threshold = excluded.compaction_threshold,
         fresh_tail_count = excluded.fresh_tail_count,
+        tokenizer_model = excluded.tokenizer_model,
+        safety_margin_tokens = excluded.safety_margin_tokens,
+        leaf_source_token_limit = excluded.leaf_source_token_limit,
+        leaf_min_message_count = excluded.leaf_min_message_count,
+        merged_min_node_count = excluded.merged_min_node_count,
+        merged_target_tokens = excluded.merged_target_tokens,
         updated_at = excluded.updated_at`
     );
 
@@ -338,6 +386,12 @@ export function updateSettings(input: unknown) {
         modelContextLimit: profile.modelContextLimit,
         compactionThreshold: profile.compactionThreshold,
         freshTailCount: profile.freshTailCount,
+        tokenizerModel: profile.tokenizerModel,
+        safetyMarginTokens: profile.safetyMarginTokens,
+        leafSourceTokenLimit: profile.leafSourceTokenLimit,
+        leafMinMessageCount: profile.leafMinMessageCount,
+        mergedMinNodeCount: profile.mergedMinNodeCount,
+        mergedTargetTokens: profile.mergedTargetTokens,
         createdAt: current?.createdAt ?? timestamp,
         updatedAt: timestamp
       });

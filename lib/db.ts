@@ -146,6 +146,12 @@ function migrate(db: Database.Database) {
       model_context_limit INTEGER NOT NULL,
       compaction_threshold REAL NOT NULL,
       fresh_tail_count INTEGER NOT NULL,
+      tokenizer_model TEXT DEFAULT 'gpt-tokenizer',
+      safety_margin_tokens INTEGER DEFAULT 1200,
+      leaf_source_token_limit INTEGER DEFAULT 12000,
+      leaf_min_message_count INTEGER DEFAULT 6,
+      merged_min_node_count INTEGER DEFAULT 4,
+      merged_target_tokens INTEGER DEFAULT 1600,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -332,6 +338,22 @@ function migrate(db: Database.Database) {
     db.exec("ALTER TABLE skills ADD COLUMN description TEXT NOT NULL DEFAULT ''");
   }
 
+  const profileCols = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
+  const profileColNames = profileCols.map((c) => c.name);
+  const newProfileCols = {
+    tokenizer_model: "TEXT DEFAULT 'gpt-tokenizer'",
+    safety_margin_tokens: "INTEGER DEFAULT 1200",
+    leaf_source_token_limit: "INTEGER DEFAULT 12000",
+    leaf_min_message_count: "INTEGER DEFAULT 6",
+    merged_min_node_count: "INTEGER DEFAULT 4",
+    merged_target_tokens: "INTEGER DEFAULT 1600"
+  };
+  for (const [colName, colDef] of Object.entries(newProfileCols)) {
+    if (!profileColNames.includes(colName)) {
+      db.exec(`ALTER TABLE provider_profiles ADD COLUMN ${colName} ${colDef}`);
+    }
+  }
+
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_conversations_folder ON conversations(folder_id, sort_order);
@@ -466,6 +488,12 @@ function migrate(db: Database.Database) {
         model_context_limit,
         compaction_threshold,
         fresh_tail_count,
+        tokenizer_model,
+        safety_margin_tokens,
+        leaf_source_token_limit,
+        leaf_min_message_count,
+        merged_min_node_count,
+        merged_target_tokens,
         created_at,
         updated_at
       ) VALUES (
@@ -483,6 +511,12 @@ function migrate(db: Database.Database) {
         @modelContextLimit,
         @compactionThreshold,
         @freshTailCount,
+        @tokenizerModel,
+        @safetyMarginTokens,
+        @leafSourceTokenLimit,
+        @leafMinMessageCount,
+        @mergedMinNodeCount,
+        @mergedTargetTokens,
         @createdAt,
         @updatedAt
       )`
@@ -501,6 +535,12 @@ function migrate(db: Database.Database) {
       modelContextLimit: appSettingsRow.model_context_limit,
       compactionThreshold: appSettingsRow.compaction_threshold,
       freshTailCount: appSettingsRow.fresh_tail_count,
+      tokenizerModel: "gpt-tokenizer",
+      safetyMarginTokens: 1200,
+      leafSourceTokenLimit: 12000,
+      leafMinMessageCount: 6,
+      mergedMinNodeCount: 4,
+      mergedTargetTokens: 1600,
       createdAt: appSettingsRow.updated_at,
       updatedAt: appSettingsRow.updated_at
     });
