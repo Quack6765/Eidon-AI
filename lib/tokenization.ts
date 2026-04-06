@@ -1,50 +1,35 @@
-import { encode } from "gpt-tokenizer";
-
 import type { Message, MessageAttachment, PromptMessage } from "@/lib/types";
+import { createTokenizer, Tokenizer } from "@/lib/token-estimator";
+
+let activeTokenizer: Tokenizer | null = null;
+
+function getActiveTokenEstimator() {
+  if (!activeTokenizer) {
+    activeTokenizer = createTokenizer("gpt-tokenizer");
+  }
+  return activeTokenizer;
+}
+
+export function setActiveTokenizer(engine: string) {
+  activeTokenizer = createTokenizer(engine);
+}
 
 export function estimateTextTokens(value: string) {
-  if (!value.trim()) {
-    return 0;
-  }
-
-  return encode(value).length;
+  return getActiveTokenEstimator().estimateTextTokens(value);
 }
 
 export function estimatePromptTokens(messages: PromptMessage[]) {
-  return messages.reduce((total, message) => {
-    return total + estimatePromptContentTokens(message.content) + 12;
-  }, 0);
+  return getActiveTokenEstimator().estimatePromptTokens(messages);
 }
 
 export function estimatePromptContentTokens(content: PromptMessage["content"]) {
-  if (typeof content === "string") {
-    return estimateTextTokens(content);
-  }
-
-  return content.reduce((total, part) => {
-    if (part.type === "text") {
-      return total + estimateTextTokens(part.text);
-    }
-
-    return total + estimateTextTokens(`[Image attachment: ${part.filename}]`);
-  }, 0);
+  return getActiveTokenEstimator().estimatePromptContentTokens(content);
 }
 
 export function estimateAttachmentTokens(attachments: MessageAttachment[]) {
-  return attachments.reduce((total, attachment) => {
-    if (attachment.kind === "image") {
-      return total + estimateTextTokens(`[Image attachment: ${attachment.filename}]`);
-    }
-
-    return total + estimateTextTokens(
-      `Attached file: ${attachment.filename}\n${attachment.extractedText}`
-    );
-  }, 0);
+  return getActiveTokenEstimator().estimateAttachmentTokens(attachments);
 }
 
 export function estimateMessageTokens(message: Pick<Message, "content" | "thinkingContent" | "attachments">) {
-  return (
-    estimateTextTokens(`${message.content}\n${message.thinkingContent}`) +
-    estimateAttachmentTokens(message.attachments ?? [])
-  );
+  return getActiveTokenEstimator().estimateMessageTokens(message);
 }
