@@ -233,7 +233,7 @@ export function ChatComposer({
           {hasMessages && (
             <ContextGauge
               usedTokens={usedTokens}
-              usableLimit={Math.round(modelContextLimit * compactionThreshold)}
+              usableLimit={Math.floor(modelContextLimit * compactionThreshold)}
               maxLimit={modelContextLimit}
             />
           )}
