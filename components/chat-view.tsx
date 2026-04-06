@@ -135,7 +135,33 @@ function reconcileSnapshotMessages(
   });
 
   const snapshotMessageIds = new Set(snapshot.map((m) => m.id));
-  const pendingLocalMessages = current.filter((m) => !snapshotMessageIds.has(m.id));
+  const currentNonLocalIds = new Set(
+    current.filter((m) => !m.id.startsWith("local_")).map((m) => m.id)
+  );
+  const newServerUserMessages = snapshot.filter(
+    (m) => m.role === "user" && !currentNonLocalIds.has(m.id)
+  );
+  const pendingLocalUserMessages = current.filter(
+    (m) => m.id.startsWith("local_") && m.role === "user" && !snapshotMessageIds.has(m.id)
+  );
+
+  const confirmCount = Math.min(pendingLocalUserMessages.length, newServerUserMessages.length);
+  const confirmedLocalIds = new Set<string>();
+  for (let i = 0; i < confirmCount; i++) {
+    confirmedLocalIds.add(pendingLocalUserMessages[i].id);
+  }
+
+  const pendingLocalMessages = current.filter((m) => {
+    if (snapshotMessageIds.has(m.id)) {
+      return false;
+    }
+
+    if (confirmedLocalIds.has(m.id)) {
+      return false;
+    }
+
+    return true;
+  });
 
   return [...merged, ...pendingLocalMessages];
 }
@@ -192,11 +218,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const titlePollTimeoutRef = useRef<number | null>(null);
   const titlePollAttemptsRef = useRef(0);
   const messageSyncTimeoutRef = useRef<number | null>(null);
-  const pendingLocalMessageIdRef = useRef<string | null>(null);
-  const pendingLocalSubmissionRef = useRef<{
+  const pendingLocalMessageIdsRef = useRef<string[]>([]);
+  const pendingLocalSubmissionsRef = useRef<Array<{
     content: string;
     attachments: MessageAttachment[];
-  } | null>(null);
+  }>>([]);
   const bootstrapPayloadRef = useRef<{
     message: string;
     attachments: MessageAttachment[];
@@ -266,20 +292,23 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   function handleDelta(event: ChatStreamEvent) {
     if (event.type === "message_start") {
-      pendingLocalMessageIdRef.current = null;
-      pendingLocalSubmissionRef.current = null;
+      const confirmedLocalId = pendingLocalMessageIdsRef.current.shift() ?? null;
+      pendingLocalSubmissionsRef.current.shift();
       setStreamMessageId(event.messageId);
       dispatchConversationActivityUpdated({
         conversationId: payload.conversation.id,
         isActive: true
       });
       setMessages((current) => {
-        if (current.some((message) => message.id === event.messageId)) {
-          return current;
+        const withoutLocal = confirmedLocalId
+          ? current.filter((m) => m.id !== confirmedLocalId)
+          : current;
+        if (withoutLocal.some((message) => message.id === event.messageId)) {
+          return withoutLocal;
         }
 
         return [
-          ...current,
+          ...withoutLocal,
           {
             id: event.messageId,
             conversationId: payload.conversation.id,
@@ -510,17 +539,17 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       return;
     }
 
-    if (pendingLocalMessageIdRef.current) {
-      const failedMessageId = pendingLocalMessageIdRef.current;
-      const pendingSubmission = pendingLocalSubmissionRef.current;
+    if (pendingLocalMessageIdsRef.current.length > 0) {
+      const failedIds = new Set(pendingLocalMessageIdsRef.current);
+      const latestSubmission = pendingLocalSubmissionsRef.current[pendingLocalSubmissionsRef.current.length - 1];
 
-      setMessages((current) => current.filter((message) => message.id !== failedMessageId));
-      setInput((current) => current || pendingSubmission?.content || "");
+      setMessages((current) => current.filter((message) => !failedIds.has(message.id)));
+      setInput((current) => current || latestSubmission?.content || "");
       setPendingAttachments((current) =>
-        current.length > 0 ? current : (pendingSubmission?.attachments ?? [])
+        current.length > 0 ? current : (latestSubmission?.attachments ?? [])
       );
-      pendingLocalMessageIdRef.current = null;
-      pendingLocalSubmissionRef.current = null;
+      pendingLocalMessageIdsRef.current = [];
+      pendingLocalSubmissionsRef.current = [];
     }
 
     setIsSending(false);
@@ -1022,11 +1051,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       compactedAt: null,
       createdAt: new Date().toISOString()
     };
-    pendingLocalMessageIdRef.current = optimisticUserMessage.id;
-    pendingLocalSubmissionRef.current = {
+    pendingLocalMessageIdsRef.current.push(optimisticUserMessage.id);
+    pendingLocalSubmissionsRef.current.push({
       content: value,
       attachments: nextPendingAttachments
-    };
+    });
     setMessages((current) => [...current, optimisticUserMessage]);
 
     wsSend({
