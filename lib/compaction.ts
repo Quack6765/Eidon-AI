@@ -442,14 +442,6 @@ async function compactLeafMessages(
 
   markMessagesCompacted(selected.map((message) => message.id));
 
-  const notice = createMessage({
-    conversationId,
-    role: "system",
-    content: "Older context compacted to stay within model limits.",
-    systemKind: "compaction_notice",
-    status: "completed"
-  });
-
   getDb()
     .prepare(
       `INSERT INTO compaction_events (
@@ -468,13 +460,12 @@ async function compactLeafMessages(
       node.id,
       node.sourceStartMessageId,
       node.sourceEndMessageId,
-      notice.id,
+      null,
       new Date().toISOString()
     );
 
   return {
     node,
-    notice,
     sourceMessages: selected
   };
 }
@@ -673,6 +664,9 @@ export async function ensureCompactedContext(
   const compactionLimit = Math.floor(allowedPromptTokens * settings.compactionThreshold);
 
   let noticeEvent: ChatStreamEvent | null = null;
+  let effectiveFreshTail = settings.freshTailCount;
+  const MIN_FRESH_TAIL = 2;
+  let didCompact = false;
 
   while (true) {
     const messages = listMessages(conversationId);
@@ -687,7 +681,6 @@ export async function ensureCompactedContext(
     const promptTokens = estimatePromptTokens(promptMessages);
 
     if (promptTokens <= compactionLimit) {
-      // Score and select relevant nodes
       const lastUserMessage = visibleMessages.filter(m => m.role === "user").at(-1);
       let selectedNodes = activeMemoryNodes;
 
@@ -736,6 +729,21 @@ export async function ensureCompactedContext(
         maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO)
       });
 
+      if (didCompact) {
+        const notice = createMessage({
+          conversationId,
+          role: "system",
+          content: "Older context compacted to stay within model limits.",
+          systemKind: "compaction_notice",
+          status: "completed"
+        });
+        noticeEvent = {
+          type: "system_notice",
+          text: notice.content,
+          kind: "compaction_notice"
+        };
+      }
+
       return {
         promptMessages: finalPromptMessages,
         promptTokens: estimatePromptTokens(finalPromptMessages),
@@ -743,41 +751,44 @@ export async function ensureCompactedContext(
       };
     }
 
-    const eligible = getCompactionEligibleMessages(messages, settings.freshTailCount);
+    const eligible = getCompactionEligibleMessages(messages, effectiveFreshTail);
     const compacted = await compactLeafMessages(conversationId, eligible, settings);
 
-    if (!compacted) {
-      const dropped = dropOldestMemoryNode(conversationId);
+    if (compacted) {
+      didCompact = true;
+      effectiveFreshTail = settings.freshTailCount;
 
-      if (!dropped) {
-        const messages = listMessages(conversationId);
-        const lastUserMessage = [...messages].reverse().find(m => m.role === "user" && !m.compactedAt);
-
-        if (lastUserMessage) {
-          const promptMessages = buildPromptMessages({
-            systemPrompt: settings.systemPrompt,
-            messages: [lastUserMessage],
-            activeMemoryNodes: []
-          });
-          return { promptMessages, promptTokens: estimatePromptTokens(promptMessages), compactionNoticeEvent: null };
-        }
-
-        throw new Error(
-          "Conversation exceeds the configured context limit. No fallback available."
-        );
-      }
-
+      await condenseMemoryNodes(conversationId, settings);
+      bumpConversation(conversationId);
       continue;
     }
 
-    noticeEvent = {
-      type: "system_notice",
-      text: compacted.notice.content,
-      kind: "compaction_notice"
-    };
+    if (effectiveFreshTail > MIN_FRESH_TAIL) {
+      effectiveFreshTail = Math.max(MIN_FRESH_TAIL, effectiveFreshTail - Math.ceil(effectiveFreshTail / 3));
+      continue;
+    }
 
-    await condenseMemoryNodes(conversationId, settings);
-    bumpConversation(conversationId);
+    const dropped = dropOldestMemoryNode(conversationId);
+
+    if (dropped) {
+      continue;
+    }
+
+    const lastUserMessage = [...messages].reverse().find(m => m.role === "user" && !m.compactedAt);
+    const remainingNodes = getActiveMemoryNodes(conversationId);
+
+    if (lastUserMessage) {
+      const promptMessages = buildPromptMessages({
+        systemPrompt: settings.systemPrompt,
+        messages: [lastUserMessage],
+        activeMemoryNodes: remainingNodes
+      });
+      return { promptMessages, promptTokens: estimatePromptTokens(promptMessages), compactionNoticeEvent: null };
+    }
+
+    throw new Error(
+      "Conversation exceeds the configured context limit. No fallback available."
+    );
   }
 }
 
