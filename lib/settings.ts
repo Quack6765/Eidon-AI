@@ -131,7 +131,7 @@ function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
     modelContextLimit: row.model_context_limit,
     compactionThreshold: row.compaction_threshold,
     freshTailCount: row.fresh_tail_count,
-    tokenizerModel: row.tokenizer_model,
+    tokenizerModel: row.tokenizer_model as "gpt-tokenizer" | "off",
     safetyMarginTokens: row.safety_margin_tokens,
     leafSourceTokenLimit: row.leaf_source_token_limit,
     leafMinMessageCount: row.leaf_min_message_count,

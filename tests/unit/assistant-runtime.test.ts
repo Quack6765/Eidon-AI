@@ -59,6 +59,12 @@ function createSettings(): ProviderProfileWithApiKey {
     modelContextLimit: 16000,
     compactionThreshold: 0.8,
     freshTailCount: 12,
+    tokenizerModel: "gpt-tokenizer",
+    safetyMarginTokens: 1200,
+    leafSourceTokenLimit: 12000,
+    leafMinMessageCount: 6,
+    mergedMinNodeCount: 4,
+    mergedTargetTokens: 1600,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
