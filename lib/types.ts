@@ -271,6 +271,8 @@ export type ChatStreamEvent =
   | { type: "action_start"; action: MessageAction }
   | { type: "action_complete"; action: MessageAction }
   | { type: "action_error"; action: MessageAction }
+  | { type: "compaction_start" }
+  | { type: "compaction_end" }
   | { type: "system_notice"; text: string; kind: SystemMessageKind }
   | {
       type: "usage";
@@ -280,6 +282,12 @@ export type ChatStreamEvent =
     }
   | { type: "done"; messageId: string }
   | { type: "error"; message: string };
+
+export type EnsureCompactedContextResult = {
+  promptMessages: PromptMessage[];
+  promptTokens: number;
+  didCompact: boolean;
+};
 
 export type PromptTextContentPart = {
   type: "text";

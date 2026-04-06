@@ -239,7 +239,7 @@ describe("lossless compaction", () => {
     );
   });
 
-  it("compacts older turns when the token threshold is exceeded", async () => {
+  it("compacts older turns without creating a visible compaction notice message", async () => {
     updateDefaultProfile({
       modelContextLimit: 6000,
       compactionThreshold: 0.7
@@ -256,16 +256,24 @@ describe("lossless compaction", () => {
       });
     }
 
+    const lifecycle: string[] = [];
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!
+      getDefaultProviderProfileWithApiKey()!,
+      {
+        onCompactionStart() {
+          lifecycle.push("start");
+        },
+        onCompactionEnd() {
+          lifecycle.push("end");
+        }
+      }
     );
-    const stats = getConversationDebugStats(conversation.id);
     const messages = listMessages(conversation.id);
 
-    expect(result.compactionNoticeEvent?.type).toBe("system_notice");
-    expect(stats.memoryNodeCount).toBeGreaterThan(0);
-    expect(messages.some((message) => message.compactedAt)).toBe(true);
+    expect(result.didCompact).toBe(true);
+    expect(lifecycle).toEqual(["start", "end"]);
+    expect(messages.some((message) => message.systemKind === "compaction_notice")).toBe(false);
     expect(
       result.promptMessages.some((message) =>
         getPromptText(message).includes("Compacted Memory")
@@ -288,7 +296,7 @@ describe("lossless compaction", () => {
       getDefaultProviderProfileWithApiKey()!
     );
 
-    expect(result.compactionNoticeEvent).toBeNull();
+    expect(result.didCompact).toBe(false);
     await expect(
       ensureCompactedContext("missing", getDefaultProviderProfileWithApiKey()!)
     ).rejects.toThrow("Conversation not found");
