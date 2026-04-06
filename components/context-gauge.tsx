@@ -20,9 +20,9 @@ function formatTokens(tokens: number): string {
 }
 
 function getGaugeColor(percentage: number): string {
-  if (percentage >= 70) return "var(--gauge-red)";
-  if (percentage >= 50) return "var(--gauge-yellow)";
-  return "var(--gauge-green)";
+  if (percentage >= 70) return "#ef4444"; // red-500
+  if (percentage >= 50) return "#eab308"; // yellow-500
+  return "#22c55e"; // green-500
 }
 
 export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGaugeProps) {
@@ -97,7 +97,7 @@ export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGauge
             strokeLinecap="round"
             strokeDasharray={circumference}
             strokeDashoffset={dashOffset}
-            style={{ transition: "stroke-dashoffset 0.3s ease-out" }}
+            style={{ transition: "stroke-dashoffset 0.3s ease-out", stroke: color }}
           />
         </svg>
       </button>
