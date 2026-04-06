@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
 import {
   bumpConversation,
@@ -20,22 +18,8 @@ import type {
   MessageAttachment,
   PromptContentPart,
   PromptMessage,
-  ProviderProfileWithApiKey,
-  SummaryPayload
+  ProviderProfileWithApiKey
 } from "@/lib/types";
-
-const summarySchema = z.object({
-  factualCommitments: z.array(z.string()),
-  userPreferences: z.array(z.string()),
-  unresolvedItems: z.array(z.string()),
-  importantReferences: z.array(z.string()),
-  chronology: z.array(z.string()),
-  sourceSpan: z.object({
-    startMessageId: z.string(),
-    endMessageId: z.string(),
-    messageCount: z.number().int().positive()
-  })
-});
 
 function getActiveMemoryNodes(conversationId: string): MemoryNode[] {
   const rows = getDb()
@@ -168,15 +152,18 @@ function buildSummaryPrompt(label: string, blocks: string, sourceSpan: {
 }) {
   return [
     `You are compacting ${label} for a chat memory engine.`,
-    "Return valid JSON only.",
-    "Preserve facts exactly. Do not invent details.",
-    "Fill every array, using empty arrays when needed.",
-    `sourceSpan.startMessageId must be "${sourceSpan.startMessageId}".`,
-    `sourceSpan.endMessageId must be "${sourceSpan.endMessageId}".`,
-    `sourceSpan.messageCount must be ${sourceSpan.messageCount}.`,
-    `Schema: {"factualCommitments": string[], "userPreferences": string[], "unresolvedItems": string[], "importantReferences": string[], "chronology": string[], "sourceSpan": {"startMessageId": string, "endMessageId": string, "messageCount": number}}`,
     "",
-    blocks
+    "Write your response as a bullet-point list grouped by these categories:",
+    "- Facts & commitments the assistant needs to remember",
+    "- User preferences and constraints",
+    "- Unresolved questions or open tasks",
+    "- Important technical references or files",
+    "- Chronology of key events",
+    "",
+    "Be specific and concise. Use short sentences. Do not invent details.",
+    blocks,
+    "",
+    `sourceSpan: startMessageId="${sourceSpan.startMessageId}", endMessageId="${sourceSpan.endMessageId}", messageCount=${sourceSpan.messageCount}`
   ].join("\n");
 }
 
@@ -184,15 +171,13 @@ async function summarizeBlocks(
   conversationId: string,
   prompt: string,
   settings: ProviderProfileWithApiKey
-): Promise<SummaryPayload> {
-  const summaryText = await callProviderText({
+): Promise<string> {
+  return await callProviderText({
     settings,
     prompt,
     purpose: "compaction",
     conversationId
   });
-
-  return summarySchema.parse(JSON.parse(summaryText));
 }
 
 function getCompactionEligibleMessages(messages: Message[], freshTailCount: number) {
@@ -391,7 +376,7 @@ async function compactLeafMessages(
     settings
   );
 
-  const content = JSON.stringify(payload);
+  const content = payload;
   const node = insertMemoryNode({
     conversationId,
     type: "leaf_summary",
@@ -479,7 +464,7 @@ async function condenseMemoryNodes(
       }),
       settings
     );
-    const content = JSON.stringify(payload);
+    const content = payload;
     const merged = insertMemoryNode({
       conversationId,
       type: "merged_summary",

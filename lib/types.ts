@@ -281,19 +281,6 @@ export type ChatStreamEvent =
   | { type: "done"; messageId: string }
   | { type: "error"; message: string };
 
-export type SummaryPayload = {
-  factualCommitments: string[];
-  userPreferences: string[];
-  unresolvedItems: string[];
-  importantReferences: string[];
-  chronology: string[];
-  sourceSpan: {
-    startMessageId: string;
-    endMessageId: string;
-    messageCount: number;
-  };
-};
-
 export type PromptTextContentPart = {
   type: "text";
   text: string;

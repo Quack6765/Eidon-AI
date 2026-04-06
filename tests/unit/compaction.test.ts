@@ -12,18 +12,11 @@ vi.mock("@/lib/provider", async () => {
     callProviderText: vi.fn(async (input: { prompt: string }) => {
       const ids = [...input.prompt.matchAll(/msg_[a-z0-9-]+/gi)].map((match) => match[0]);
 
-      return JSON.stringify({
-        factualCommitments: ["fact"],
-        userPreferences: ["preference"],
-        unresolvedItems: ["todo"],
-        importantReferences: ["reference"],
-        chronology: ["chronology"],
-        sourceSpan: {
-          startMessageId: ids[0] ?? "msg_start",
-          endMessageId: ids.at(-1) ?? "msg_end",
-          messageCount: Math.max(ids.length, 1)
-        }
-      });
+      return `- Fact from messages: users discussed context compaction
+- Preference: keep last ${ids.length} messages fresh
+- Unresolved: need to test NL summaries
+- Reference: compaction system modules
+- Chronology: started at ${ids[0] ?? "msg_start"}, ended at ${ids.at(-1) ?? "msg_end"}`;
     })
   };
 });
@@ -87,7 +80,7 @@ describe("lossless compaction", () => {
           conversationId: "conv_1",
           type: "leaf_summary",
           depth: 0,
-          content: "{\"factualCommitments\":[\"A\"]}",
+          content: "- Fact: user prefers dark mode\n- Preference: keep responses short",
           sourceStartMessageId: "msg_1",
           sourceEndMessageId: "msg_4",
           sourceTokenCount: 120,
