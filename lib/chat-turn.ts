@@ -90,7 +90,22 @@ export async function startChatTurn(
   setConversationActive(conversation.id, true);
 
   try {
-    const compacted = await ensureCompactedContext(conversation.id, settings);
+    const compacted = await ensureCompactedContext(conversation.id, settings, {
+      onCompactionStart() {
+        manager.broadcast(conversationId, {
+          type: "delta",
+          conversationId,
+          event: { type: "compaction_start" }
+        });
+      },
+      onCompactionEnd() {
+        manager.broadcast(conversationId, {
+          type: "delta",
+          conversationId,
+          event: { type: "compaction_end" }
+        });
+      }
+    });
     let promptMessages = compacted.promptMessages;
     const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
     const mcpServers = listEnabledMcpServers();
@@ -102,14 +117,6 @@ export async function startChatTurn(
     if (mcpServers.length) {
       const { gatherAllMcpTools } = await import("@/lib/mcp-client");
       mcpToolSets = await gatherAllMcpTools(mcpServers, conversation.toolExecutionMode);
-    }
-
-    if (compacted.compactionNoticeEvent) {
-      manager.broadcast(conversationId, {
-        type: "delta",
-        conversationId,
-        event: compacted.compactionNoticeEvent
-      });
     }
 
     let timelineSortOrder = 0;

@@ -887,4 +887,97 @@ describe("chat view", () => {
       expect(screen.getAllByText("web_search_exa")).toHaveLength(1);
     });
   });
+
+  it("shows the transient compaction indicator and clears it when compaction ends", async () => {
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "compaction_start" }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Compacting")).toBeInTheDocument();
+    });
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "compaction_end" }
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Compacting")).toBeNull();
+    });
+  });
+
+  it("clears the transient compaction indicator on the first downstream assistant activity", async () => {
+    render(React.createElement(ChatView, { payload: createPayload() }));
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "compaction_start" }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Compacting")).toBeInTheDocument();
+    });
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "thinking_delta", text: "Thinking through the answer" }
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Compacting")).toBeNull();
+    });
+  });
+
+  it("filters legacy persisted compaction notices from initial payload rendering", () => {
+    const payload = createPayload();
+    payload.messages = [
+      {
+        id: "msg_notice",
+        conversationId: "conv_1",
+        role: "system",
+        content: "Older context compacted to stay within model limits.",
+        thinkingContent: "",
+        status: "completed",
+        estimatedTokens: 0,
+        systemKind: "compaction_notice",
+        compactedAt: null,
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: "msg_user",
+        conversationId: "conv_1",
+        role: "user",
+        content: "Hello",
+        thinkingContent: "",
+        status: "completed",
+        estimatedTokens: 0,
+        systemKind: null,
+        compactedAt: null,
+        createdAt: new Date().toISOString()
+      }
+    ];
+
+    render(React.createElement(ChatView, { payload }));
+
+    expect(screen.queryByText("Older context compacted to stay within model limits.")).toBeNull();
+    expect(screen.getByText("Hello")).toBeInTheDocument();
+  });
 });
