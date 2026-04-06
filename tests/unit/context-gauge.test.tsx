@@ -27,7 +27,7 @@ describe("ContextGauge", () => {
     const gauge = screen.getByRole("progressbar");
     expect(gauge).toHaveAttribute("aria-valuenow", "38");
 
-    const progressCircle = gauge.querySelector('circle[stroke="#22c55e"]');
+    const progressCircle = gauge.querySelector('circle[stroke="var(--gauge-green)"]');
     expect(progressCircle).toBeInTheDocument();
   });
 
@@ -37,7 +37,7 @@ describe("ContextGauge", () => {
     const gauge = screen.getByRole("progressbar");
     expect(gauge).toHaveAttribute("aria-valuenow", "69");
 
-    const progressCircle = gauge.querySelector('circle[stroke="#eab308"]');
+    const progressCircle = gauge.querySelector('circle[stroke="var(--gauge-yellow)"]');
     expect(progressCircle).toBeInTheDocument();
   });
 
@@ -47,7 +47,7 @@ describe("ContextGauge", () => {
     const gauge = screen.getByRole("progressbar");
     expect(gauge).toHaveAttribute("aria-valuenow", "75");
 
-    const progressCircle = gauge.querySelector('circle[stroke="#ef4444"]');
+    const progressCircle = gauge.querySelector('circle[stroke="var(--gauge-red)"]');
     expect(progressCircle).toBeInTheDocument();
   });
 

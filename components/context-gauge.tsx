@@ -20,9 +20,9 @@ function formatTokens(tokens: number): string {
 }
 
 function getGaugeColor(percentage: number): string {
-  if (percentage >= 70) return "#ef4444"; // red-500
-  if (percentage >= 50) return "#eab308"; // yellow-500
-  return "#22c55e"; // green-500
+  if (percentage >= 70) return "var(--gauge-red)";
+  if (percentage >= 50) return "var(--gauge-yellow)";
+  return "var(--gauge-green)";
 }
 
 export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGaugeProps) {

@@ -28,6 +28,9 @@
   --accent-glow: rgba(139, 92, 246, 0.25);
   --thinking: #818cf8;
   --shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  --gauge-green: #22c55e;
+  --gauge-yellow: #eab308;
+  --gauge-red: #ef4444;
 }
 
 * {
