@@ -6,6 +6,10 @@ FROM base AS deps
 COPY package.json package-lock.json ./
 RUN npm ci
 
+FROM base AS prod-deps
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
 FROM base AS builder
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -35,6 +39,7 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/server.cjs ./server.cjs
 COPY --from=builder /app/ws-handler-compiled.cjs ./ws-handler-compiled.cjs
+COPY --from=prod-deps /app/node_modules ./node_modules
 RUN mkdir -p /app/data && chown -R hermes:hermes /app
 USER hermes
 EXPOSE 3000
