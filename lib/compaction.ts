@@ -482,6 +482,24 @@ async function condenseMemoryNodes(
   }
 }
 
+function renderMemoryNode(content: string): string {
+  if (content.trimStart().startsWith("{")) {
+    try {
+      const parsed = JSON.parse(content);
+      const parts: string[] = [];
+      if (parsed.factualCommitments?.length) parts.push("Facts: " + parsed.factualCommitments.join(", "));
+      if (parsed.userPreferences?.length) parts.push("Preferences: " + parsed.userPreferences.join(", "));
+      if (parsed.unresolvedItems?.length) parts.push("Unresolved: " + parsed.unresolvedItems.join(", "));
+      if (parsed.importantReferences?.length) parts.push("References: " + parsed.importantReferences.join(", "));
+      if (parsed.chronology?.length) parts.push("Chronology: " + parsed.chronology.join(", "));
+      return parts.join("\n");
+    } catch {
+      return content;
+    }
+  }
+  return content;
+}
+
 export function buildPromptMessages(input: {
   systemPrompt: string;
   messages: Message[];
@@ -492,34 +510,33 @@ export function buildPromptMessages(input: {
   const remainingAttachmentTextTokens = {
     value: input.maxAttachmentTextTokens ?? Number.POSITIVE_INFINITY
   };
-  const promptMessages: PromptMessage[] = [
-    {
-      role: "system",
-      content: input.systemPrompt
-    }
-  ];
+
+  // Build single merged system message
+  const systemParts: string[] = [input.systemPrompt];
 
   if (input.activeMemoryNodes.length) {
-    promptMessages.push({
-      role: "system",
-      content: `Compacted conversation memory:\n${input.activeMemoryNodes
-        .map((node) => node.content)
-        .join("\n\n")}`
-    });
+    systemParts.push(
+      "## Compacted Memory\n" + input.activeMemoryNodes
+        .map((node) => renderMemoryNode(node.content))
+        .join("\n\n")
+    );
   }
 
-  input.messages.forEach((message) => {
-    if (message.role === "system" && isVisibleMessage(message)) {
-      promptMessages.push({
-        role: "system",
-        content: message.content
-      });
-      return;
-    }
+  // Include visible non-hidden system messages
+  const visibleSystemMessages = input.messages.filter(
+    (m) => m.role === "system" && m.systemKind !== "compaction_notice" && isVisibleMessage(m)
+  );
+  for (const msg of visibleSystemMessages) {
+    systemParts.push(msg.content);
+  }
 
-    if (message.role === "system") {
-      return;
-    }
+  const promptMessages: PromptMessage[] = [
+    { role: "system", content: systemParts.join("\n\n") }
+  ];
+
+  // Non-system messages
+  input.messages.forEach((message) => {
+    if (message.role === "system") return;
 
     if (message.role === "assistant") {
       const parts = [

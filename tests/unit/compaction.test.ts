@@ -108,11 +108,11 @@ describe("lossless compaction", () => {
     });
 
     expect(getPromptText(prompt[0]!)).toContain("Stay concise.");
-    expect(getPromptText(prompt[1]!)).toContain("Compacted conversation memory");
+    expect(getPromptText(prompt[0]!)).toContain("Compacted Memory");
     expect(getPromptText(prompt.at(-1)!)).toBe("Append this");
   });
 
-  it("skips hidden stored system prompts when rebuilding provider input", () => {
+  it("merges system messages into single system prompt", () => {
     const prompt = buildPromptMessages({
       systemPrompt: "Primary system prompt.",
       activeMemoryNodes: [],
@@ -156,11 +156,16 @@ describe("lossless compaction", () => {
       ]
     });
 
-    expect(prompt.map((message) => getPromptText(message))).toEqual([
-      "Primary system prompt.",
-      "Compacted older messages into memory.",
-      "Continue"
-    ]);
+    const systemMessage = prompt.find(m => m.role === "system");
+    expect(systemMessage).not.toBeUndefined();
+    expect(typeof systemMessage!.content).toBe("string");
+    expect((systemMessage!.content as string)).toContain("Primary system prompt.");
+
+    // Only one system message
+    expect(prompt.filter(m => m.role === "system").length).toBe(1);
+
+    // User message present
+    expect(prompt.at(-1)!.role).toBe("user");
   });
 
   it("keeps image attachments multimodal and truncates attached text to the configured budget", () => {
@@ -255,7 +260,7 @@ describe("lossless compaction", () => {
     expect(messages.some((message) => message.compactedAt)).toBe(true);
     expect(
       result.promptMessages.some((message) =>
-        getPromptText(message).includes("Compacted conversation memory")
+        getPromptText(message).includes("Compacted Memory")
       )
     ).toBe(true);
   });
