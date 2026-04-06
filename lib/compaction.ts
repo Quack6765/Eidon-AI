@@ -1,14 +1,6 @@
 import { z } from "zod";
 
-import {
-  LEAF_MIN_MESSAGE_COUNT,
-  LEAF_SOURCE_TOKEN_LIMIT,
-  LEAF_TARGET_TOKENS,
-  MAX_ATTACHMENT_TEXT_RATIO,
-  MERGED_MIN_NODE_COUNT,
-  MERGED_TARGET_TOKENS,
-  SAFETY_MARGIN_TOKENS
-} from "@/lib/constants";
+import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
 import {
   bumpConversation,
   createMessage,
@@ -342,7 +334,7 @@ async function compactLeafMessages(
   messages: Message[],
   settings: ProviderProfileWithApiKey
 ) {
-  if (messages.length < LEAF_MIN_MESSAGE_COUNT) {
+  if (messages.length < settings.leafMinMessageCount) {
     return null;
   }
 
@@ -353,8 +345,8 @@ async function compactLeafMessages(
     const messageTokenCount = Math.max(message.estimatedTokens, estimateMessageTokens(message));
 
     if (
-      selected.length >= LEAF_MIN_MESSAGE_COUNT &&
-      sourceTokenCount + messageTokenCount > LEAF_SOURCE_TOKEN_LIMIT
+      selected.length >= settings.leafMinMessageCount &&
+      sourceTokenCount + messageTokenCount > settings.leafSourceTokenLimit
     ) {
       break;
     }
@@ -363,7 +355,7 @@ async function compactLeafMessages(
     sourceTokenCount += messageTokenCount;
   }
 
-  if (selected.length < LEAF_MIN_MESSAGE_COUNT) {
+  if (selected.length < settings.leafMinMessageCount) {
     return null;
   }
 
@@ -467,14 +459,14 @@ async function condenseMemoryNodes(
       grouped.set(node.depth, list);
     });
 
-    const entry = [...grouped.entries()].find(([, nodes]) => nodes.length >= MERGED_MIN_NODE_COUNT);
+    const entry = [...grouped.entries()].find(([, nodes]) => nodes.length >= settings.mergedMinNodeCount);
 
     if (!entry) {
       return created;
     }
 
     const [depth, nodes] = entry;
-    const selected = nodes.slice(0, MERGED_MIN_NODE_COUNT);
+    const selected = nodes.slice(0, settings.mergedMinNodeCount);
     const blocks = selected
       .map((node) => `[memory_node] ${node.id}\n${node.content}`)
       .join("\n\n");
@@ -496,7 +488,7 @@ async function condenseMemoryNodes(
       sourceStartMessageId: selected[0].sourceStartMessageId,
       sourceEndMessageId: selected[selected.length - 1].sourceEndMessageId,
       sourceTokenCount: selected.reduce((total, node) => total + node.sourceTokenCount, 0),
-      summaryTokenCount: estimateTextTokens(content) || MERGED_TARGET_TOKENS,
+      summaryTokenCount: estimateTextTokens(content) || settings.mergedTargetTokens,
       childNodeIds: selected.map((node) => node.id)
     });
 
@@ -588,7 +580,7 @@ export async function ensureCompactedContext(
   }
 
   const allowedPromptTokens =
-    settings.modelContextLimit - settings.maxOutputTokens - SAFETY_MARGIN_TOKENS;
+    settings.modelContextLimit - settings.maxOutputTokens - settings.safetyMarginTokens;
   const compactionLimit = Math.floor(allowedPromptTokens * settings.compactionThreshold);
 
   let noticeEvent: ChatStreamEvent | null = null;
