@@ -341,6 +341,10 @@ export function HomeView({
           toolExecutionMode={toolExecutionMode}
           onToolExecutionModeChange={handleToolExecutionModeChange}
           textareaRef={textareaRef}
+          usedTokens={null}
+          modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
+          compactionThreshold={selectedProfile?.compactionThreshold ?? 0.78}
+          hasMessages={false}
         />
 
         {error ? (

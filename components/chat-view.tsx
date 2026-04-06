@@ -194,6 +194,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
   const [compactionInProgress, setCompactionInProgress] = useState(false);
+  const [usedTokens, setUsedTokens] = useState<number | null>(null);
   const compactionInProgressRef = useRef(false);
   const thinkingStartTimeRef = useRef<number | null>(null);
   const [thinkingDuration, setThinkingDuration] = useState<number | undefined>(undefined);
@@ -358,6 +359,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "usage") {
+      if (event.inputTokens !== undefined) {
+        setUsedTokens(event.inputTokens);
+      }
       return;
     }
 
@@ -1249,6 +1253,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             toolExecutionMode={toolExecutionMode}
             onToolExecutionModeChange={updateToolExecutionMode}
             textareaRef={inputRef}
+            usedTokens={usedTokens}
+            modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
+            compactionThreshold={selectedProfile?.compactionThreshold ?? 0.78}
+            hasMessages={messages.length > 0}
           />
         </div>
       </div>
