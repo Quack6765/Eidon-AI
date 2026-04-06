@@ -312,27 +312,12 @@ select {
   display: block;
   flex: 1;
   height: 1px;
-  overflow: hidden;
   background: linear-gradient(
     90deg,
     rgba(255, 255, 255, 0),
     rgba(255, 255, 255, 0.06),
     rgba(255, 255, 255, 0)
   );
-}
-
-.compaction-indicator__line::after {
-  content: "";
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 32%;
-  background: linear-gradient(
-    90deg,
-    rgba(139, 92, 246, 0),
-    rgba(139, 92, 246, 0.2),
-    rgba(139, 92, 246, 0)
-  );
-  animation: compaction-sweep 2.2s ease-in-out infinite alternate;
 }
 
 .compaction-indicator__label {
@@ -349,8 +334,22 @@ select {
   white-space: nowrap;
 }
 
+.compaction-indicator__label::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(139, 92, 246, 0),
+    rgba(139, 92, 246, 0.15),
+    rgba(139, 92, 246, 0)
+  );
+  animation: compaction-sweep 2.2s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .compaction-indicator__line::after {
+  .compaction-indicator__label::after {
     animation: none;
   }
 }
