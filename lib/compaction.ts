@@ -149,22 +149,49 @@ function buildSummaryPrompt(label: string, blocks: string, sourceSpan: {
   startMessageId: string;
   endMessageId: string;
   messageCount: number;
-}) {
-  return [
-    `You are compacting ${label} for a chat memory engine.`,
-    "",
-    "Write your response as a bullet-point list grouped by these categories:",
-    "- Facts & commitments the assistant needs to remember",
-    "- User preferences and constraints",
-    "- Unresolved questions or open tasks",
-    "- Important technical references or files",
-    "- Chronology of key events",
-    "",
-    "Be specific and concise. Use short sentences. Do not invent details.",
-    blocks,
-    "",
-    `sourceSpan: startMessageId="${sourceSpan.startMessageId}", endMessageId="${sourceSpan.endMessageId}", messageCount=${sourceSpan.messageCount}`
-  ].join("\n");
+}, existingSummary?: string) {
+  const parts: string[] = [];
+
+  if (existingSummary) {
+    parts.push(
+      "You are updating this existing conversation summary.",
+      "",
+      "EXISTING SUMMARY (for context):",
+      existingSummary,
+      "",
+      "NEW MESSAGES:",
+      blocks,
+      "",
+      "Produce an updated summary that incorporates the new messages into the existing context.",
+      "Write your response as a bullet-point list grouped by these categories:",
+      "- Facts & commitments the assistant needs to remember",
+      "- User preferences and constraints",
+      "- Unresolved questions or open tasks",
+      "- Important technical references or files",
+      "- Chronology of key events",
+      "",
+      "Be specific and concise. Use short sentences. Do not invent details.",
+      `sourceSpan: startMessageId="${sourceSpan.startMessageId}", endMessageId="${sourceSpan.endMessageId}", messageCount=${sourceSpan.messageCount}`
+    );
+  } else {
+    parts.push(
+      `You are compacting ${label} for a chat memory engine.`,
+      "",
+      "Write your response as a bullet-point list grouped by these categories:",
+      "- Facts & commitments the assistant needs to remember",
+      "- User preferences and constraints",
+      "- Unresolved questions or open tasks",
+      "- Important technical references or files",
+      "- Chronology of key events",
+      "",
+      "Be specific and concise. Use short sentences. Do not invent details.",
+      blocks,
+      "",
+      `sourceSpan: startMessageId="${sourceSpan.startMessageId}", endMessageId="${sourceSpan.endMessageId}", messageCount=${sourceSpan.messageCount}`
+    );
+  }
+
+  return parts.join("\n");
 }
 
 async function summarizeBlocks(
@@ -366,13 +393,18 @@ async function compactLeafMessages(
     .flat()
     .join("\n\n");
 
+  const activeNodes = getActiveMemoryNodes(conversationId);
+  const existingSummary = activeNodes.length
+    ? activeNodes[activeNodes.length - 1].content
+    : undefined;
+
   const payload = await summarizeBlocks(
     conversationId,
     buildSummaryPrompt("raw chat messages", blocks, {
       startMessageId: selected[0].id,
       endMessageId: selected[selected.length - 1].id,
       messageCount: selected.length
-    }),
+    }, existingSummary),
     settings
   );
 
@@ -455,13 +487,14 @@ async function condenseMemoryNodes(
     const blocks = selected
       .map((node) => `[memory_node] ${node.id}\n${node.content}`)
       .join("\n\n");
+    const existingContext = selected.map(n => `[node] ${n.id}\n${renderMemoryNode(n.content)}`).join("\n\n");
     const payload = await summarizeBlocks(
       conversationId,
       buildSummaryPrompt("compacted memory nodes", blocks, {
         startMessageId: selected[0].sourceStartMessageId,
         endMessageId: selected[selected.length - 1].sourceEndMessageId,
         messageCount: selected.length
-      }),
+      }, existingContext),
       settings
     );
     const content = payload;
