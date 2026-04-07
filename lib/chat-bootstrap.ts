@@ -3,6 +3,7 @@ import type { MessageAttachment } from "@/lib/types";
 export type ChatBootstrapPayload = {
   message: string;
   attachments: MessageAttachment[];
+  personaId?: string;
 };
 
 function getChatBootstrapStorageKey(conversationId: string) {

@@ -12,6 +12,7 @@ import {
   LoaderCircle,
   Paperclip,
   Pen,
+  Users,
   X
 } from "lucide-react";
 
@@ -37,6 +38,9 @@ type ChatComposerProps = {
   providerProfiles: ProviderProfileSummary[];
   providerProfileId: string;
   onProviderProfileChange: (providerProfileId: string) => void | Promise<void>;
+  personas: Array<{ id: string; name: string }>;
+  personaId: string | null;
+  onPersonaChange: (personaId: string | null) => void | Promise<void>;
   toolExecutionMode: ToolExecutionMode;
   onToolExecutionModeChange: (toolExecutionMode: ToolExecutionMode) => void | Promise<void>;
   textareaRef?: React.Ref<HTMLTextAreaElement>;
@@ -60,6 +64,9 @@ export function ChatComposer({
   providerProfiles,
   providerProfileId,
   onProviderProfileChange,
+  personas,
+  personaId,
+  onPersonaChange,
   toolExecutionMode,
   onToolExecutionModeChange,
   textareaRef,
@@ -215,6 +222,34 @@ export function ChatComposer({
               {providerProfiles.map((profile) => (
                 <option key={profile.id} value={profile.id}>
                   {profile.name} · {profile.model}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="relative group">
+            <button
+              className={`p-2 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0 flex items-center gap-1 ${
+                personaId ? "text-violet-400/80 hover:text-violet-400" : "text-white/25 hover:text-white/50"
+              }`}
+              aria-label="Select persona"
+              type="button"
+            >
+              <Users className="h-5 w-5" />
+            </button>
+            <select
+              value={personaId ?? ""}
+              onChange={(event) => {
+                const value = event.target.value;
+                void onPersonaChange(value || null);
+              }}
+              className="absolute inset-0 opacity-0 cursor-pointer"
+              disabled={isSending || personas.length === 0}
+            >
+              <option value="">None</option>
+              {personas.map((persona) => (
+                <option key={persona.id} value={persona.id}>
+                  {persona.name}
                 </option>
               ))}
             </select>

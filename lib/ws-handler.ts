@@ -120,10 +120,10 @@ function handleMessage(
 async function handleUserMessage(
   mgr: ConversationManager,
   ws: WebSocket,
-  msg: { type: "message"; conversationId: string; content: string; attachmentIds?: string[] }
+  msg: { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string }
 ) {
   if (!mgr.hasSubscribers(msg.conversationId)) {
     mgr.subscribe(msg.conversationId, ws);
   }
-  await startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? []);
+  await startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? [], msg.personaId);
 }

@@ -206,6 +206,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
+  const [personaId, setPersonaId] = useState<string | null>(null);
   const hasEmptyAssistantShell = messages.some(
     (message) =>
       message.role === "assistant" &&
@@ -238,10 +240,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const bootstrapPayloadRef = useRef<{
     message: string;
     attachments: MessageAttachment[];
+    personaId?: string;
   } | null>(null);
   const bootstrapSubmittedRef = useRef(false);
   const submitRef = useRef<
-    (nextInput?: string, nextPendingAttachments?: MessageAttachment[]) => Promise<void>
+    (nextInput?: string, nextPendingAttachments?: MessageAttachment[], nextPersonaId?: string) => Promise<void>
   >(async () => {});
 
   useEffect(() => {
@@ -289,6 +292,15 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     setProviderProfileId(payload.conversation.providerProfileId ?? payload.defaultProviderProfileId);
   }, [payload.conversation.providerProfileId, payload.defaultProviderProfileId]);
+
+  useEffect(() => {
+    fetch("/api/personas")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.personas) setPersonas(d.personas);
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!queueRef.current) {
@@ -572,7 +584,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     bootstrapSubmittedRef.current = true;
     clearChatBootstrap(payload.conversation.id);
-    void submitRef.current(bootstrapPayload.message, bootstrapPayload.attachments);
+    void submitRef.current(bootstrapPayload.message, bootstrapPayload.attachments, bootstrapPayload.personaId);
   }, [payload.conversation.id, wsConnected]);
 
   useEffect(() => {
@@ -1049,9 +1061,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   async function submit(
     nextInput = input,
-    nextPendingAttachments = pendingAttachments
+    nextPendingAttachments = pendingAttachments,
+    nextPersonaId?: string
   ) {
     const value = nextInput.trim();
+    const effectivePersonaId = nextPersonaId ?? personaId;
 
     if ((!value && nextPendingAttachments.length === 0) || isSending || isUploadingAttachments) {
       return;
@@ -1103,7 +1117,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       type: "message",
       conversationId: payload.conversation.id,
       content: value,
-      attachmentIds: nextPendingAttachments.map((attachment) => attachment.id)
+      attachmentIds: nextPendingAttachments.map((attachment) => attachment.id),
+      personaId: effectivePersonaId ?? undefined
     });
 
     if (titleGenerationStatus === "pending") {
@@ -1250,6 +1265,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             providerProfiles={payload.providerProfiles}
             providerProfileId={providerProfileId}
             onProviderProfileChange={updateProviderProfile}
+            personas={personas}
+            personaId={personaId}
+            onPersonaChange={setPersonaId}
             toolExecutionMode={toolExecutionMode}
             onToolExecutionModeChange={updateToolExecutionMode}
             textareaRef={inputRef}
