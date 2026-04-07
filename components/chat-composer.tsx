@@ -7,8 +7,6 @@ import {
   ArrowUp,
   Bot,
   FileText,
-  Globe,
-  LayoutGrid,
   LoaderCircle,
   Paperclip,
   Pen,
@@ -197,14 +195,6 @@ export function ChatComposer({
             <Paperclip className="h-5 w-5" />
           </button>
 
-          <button
-            className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0"
-            aria-label="Web search"
-            type="button"
-          >
-            <Globe className="h-5 w-5" />
-          </button>
-
           <div className="relative group">
             <button
               className="p-2 text-cyan-400/80 hover:text-cyan-400 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0 flex items-center gap-1"
@@ -255,13 +245,6 @@ export function ChatComposer({
             </select>
           </div>
 
-          <button
-            className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0"
-            aria-label="Prompt templates"
-            type="button"
-          >
-            <LayoutGrid className="h-5 w-5" />
-          </button>
         </div>
 
         <div className="flex items-center gap-2">
