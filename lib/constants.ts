@@ -36,5 +36,7 @@ export const DEFAULT_PROVIDER_SETTINGS = {
   leafSourceTokenLimit: 12000,
   leafMinMessageCount: 6,
   mergedMinNodeCount: 4,
-  mergedTargetTokens: 1600
+  mergedTargetTokens: 1600,
+  visionMode: "native" as const,
+  visionMcpServerId: null
 } as const;
