@@ -215,6 +215,61 @@ function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[]
   return lines.join("\n");
 }
 
+function buildVisionMcpDirective(
+  mcpServer: McpServer,
+  attachments: Array<{ id: string; filename: string }>
+): string {
+  const attachmentList = attachments
+    .map((a) => `- ${a.filename} (attachment ID: ${a.id})`)
+    .join("\n");
+
+  return [
+    "This model cannot process images directly. When the user provides images, use the MCP server to analyze them.",
+    "",
+    `Vision MCP server: ${mcpServer.name} (id: ${mcpServer.id})`,
+    "",
+    "User attachments in this conversation:",
+    attachmentList
+  ].join("\n");
+}
+
+function extractImageAttachments(promptMessages: PromptMessage[]): Array<{ id: string; filename: string }> {
+  const attachments: Array<{ id: string; filename: string }> = [];
+
+  for (const message of promptMessages) {
+    if (typeof message.content === "string") continue;
+
+    for (const part of message.content) {
+      if (part.type === "image") {
+        attachments.push({
+          id: part.attachmentId,
+          filename: part.filename
+        });
+      }
+    }
+  }
+
+  return attachments;
+}
+
+function stripImagesFromMessages(promptMessages: PromptMessage[]): PromptMessage[] {
+  return promptMessages.map((message) => {
+    if (typeof message.content === "string") return message;
+
+    const textParts = message.content.filter((part) => part.type === "text");
+
+    if (textParts.length === 0) {
+      return { ...message, content: "" };
+    }
+
+    if (textParts.length === message.content.length) {
+      return message;
+    }
+
+    return { ...message, content: textParts };
+  });
+}
+
 function mergeSystemMessage(promptMessages: PromptMessage[], content: string): PromptMessage[] {
   const systemIndex = promptMessages.findIndex((m) => m.role === "system");
   if (systemIndex === -1) return [{ role: "system", content }, ...promptMessages];
@@ -593,6 +648,7 @@ export async function resolveAssistantTurn(input: {
   skills: Skill[];
   mcpServers?: McpServer[];
   mcpToolSets: ToolSet[];
+  visionMcpServer?: McpServer | null;
   onEvent?: (event: ChatStreamEvent) => void;
   onAnswerSegment?: (segment: string) => Promise<void> | void;
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
@@ -606,7 +662,19 @@ export async function resolveAssistantTurn(input: {
   ) => Promise<void> | void;
 }) {
   const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
-  const turnSkills = filterSkillsForTurn(input.skills, input.promptMessages);
+
+  // Handle vision MCP mode - strip images and inject directive
+  let promptMessages = input.promptMessages;
+  if (input.settings.visionMode === "mcp" && input.visionMcpServer) {
+    const imageAttachments = extractImageAttachments(input.promptMessages);
+    if (imageAttachments.length > 0) {
+      promptMessages = stripImagesFromMessages(input.promptMessages);
+      const visionDirective = buildVisionMcpDirective(input.visionMcpServer, imageAttachments);
+      promptMessages = mergeSystemMessage(promptMessages, visionDirective);
+    }
+  }
+
+  const turnSkills = filterSkillsForTurn(input.skills, promptMessages);
   const toolRuntimeInput = {
     ...input,
     skills: turnSkills
@@ -616,9 +684,9 @@ export async function resolveAssistantTurn(input: {
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
   let totalUsage: Usage = {};
 
-  let promptMessages = turnSkills.length || mcpServers.length || input.mcpToolSets.length
-    ? mergeSystemMessage(input.promptMessages, buildCapabilitiesSystemMessage(turnSkills, mcpServers))
-    : input.promptMessages;
+  promptMessages = turnSkills.length || mcpServers.length || input.mcpToolSets.length
+    ? mergeSystemMessage(promptMessages, buildCapabilitiesSystemMessage(turnSkills, mcpServers))
+    : promptMessages;
 
   let timelineSortOrder = 0;
 
