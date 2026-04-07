@@ -310,7 +310,7 @@ describe("chat view", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText("Realtime chat connection is unavailable. Restart Hermes with the websocket server enabled.")
+        screen.getByText("Realtime chat connection is unavailable. Restart Eidon with the websocket server enabled.")
       ).toBeInTheDocument();
     });
 

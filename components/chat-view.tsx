@@ -609,7 +609,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     setIsSending(false);
     setError(
-      "Realtime chat connection is unavailable. Restart Hermes with the websocket server enabled."
+      "Realtime chat connection is unavailable. Restart Eidon with the websocket server enabled."
     );
   }, [wsFailed]);
 
@@ -1033,7 +1033,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (wsFailed) {
       setError(
-        "Realtime chat connection is unavailable. Restart Hermes with the websocket server enabled."
+        "Realtime chat connection is unavailable. Restart Eidon with the websocket server enabled."
       );
       return;
     }

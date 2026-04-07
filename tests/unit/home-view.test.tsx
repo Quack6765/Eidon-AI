@@ -114,7 +114,7 @@ describe("home view", () => {
       expect(push).toHaveBeenCalledWith("/chat/conv_new");
     });
 
-    expect(sessionStorage.getItem("hermes:chat-bootstrap:conv_new")).toContain(
+    expect(sessionStorage.getItem("eidon:chat-bootstrap:conv_new")).toContain(
       "Start this thread"
     );
     expect(screen.queryByText("Help me brainstorm ideas")).toBeNull();
