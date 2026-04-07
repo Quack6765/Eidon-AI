@@ -209,11 +209,13 @@ describe("settings storage", () => {
       defaultProviderProfileId: alpha.id,
       skillsEnabled: false,
       autoCompaction: false,
+      memoriesEnabled: false,
       providerProfiles: [alpha]
     });
 
     expect(getSettings().skillsEnabled).toBe(false);
     expect(getSettings().autoCompaction).toBe(false);
+    expect(getSettings().memoriesEnabled).toBe(false);
     expect(listProviderProfiles()[0].reasoningSummaryEnabled).toBe(false);
   });
 

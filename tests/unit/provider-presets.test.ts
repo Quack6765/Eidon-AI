@@ -92,4 +92,8 @@ describe("provider presets", () => {
 
     expect(getMatchingProviderPresetId(profile)).toBeNull();
   });
+
+  it("throws for unknown preset id", () => {
+    expect(() => getProviderPreset("nonexistent_preset" as any)).toThrow("Unknown provider preset");
+  });
 });

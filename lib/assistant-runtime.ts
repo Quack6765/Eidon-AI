@@ -1,4 +1,6 @@
 import { resolveAttachmentPath } from "@/lib/attachments";
+import { getMemory as getMemoryRecord, createMemory, updateMemory as updateMemoryRecord, deleteMemory as deleteMemoryRecord, getMemoryCount } from "@/lib/memories";
+import { getSettings } from "@/lib/settings";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
@@ -132,6 +134,7 @@ function buildToolDefinitions(input: {
   skills: Skill[];
   loadedSkillIds: Set<string>;
   shellCommandPrefixes: string[];
+  memoriesEnabled: boolean;
 }): ToolDefinition[] {
   const tools: ToolDefinition[] = [];
 
@@ -187,6 +190,56 @@ function buildToolDefinitions(input: {
         }
       }
     });
+  }
+
+  if (input.memoriesEnabled) {
+    tools.push(
+      {
+        type: "function",
+        function: {
+          name: "create_memory",
+          description: "Save a durable fact about the user for future conversations. Use conservatively — only for facts likely to recur (name, location, preferences, work details). Do not save transient task details.",
+          parameters: {
+            type: "object",
+            properties: {
+              content: { type: "string", description: "The fact to remember" },
+              category: { type: "string", description: "One of: personal, preference, work, location, other" }
+            },
+            required: ["content", "category"]
+          }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "update_memory",
+          description: "Update an existing memory when a fact has changed.",
+          parameters: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "The memory ID to update" },
+              content: { type: "string", description: "The updated fact" },
+              category: { type: "string", description: "New category (optional)" }
+            },
+            required: ["id", "content"]
+          }
+        }
+      },
+      {
+        type: "function",
+        function: {
+          name: "delete_memory",
+          description: "Delete a stored memory that is no longer relevant or accurate.",
+          parameters: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "The memory ID to delete" }
+            },
+            required: ["id"]
+          }
+        }
+      }
+    );
   }
 
   return tools;
@@ -534,6 +587,162 @@ async function executeShellCommand(
   }
 }
 
+async function executeCreateMemory(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  const sortOrder = context.timelineSortOrder;
+  const content = String(args.content ?? "").trim();
+  const category = String(args.category ?? "other").trim();
+
+  if (!content) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: content is required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const validCategories = ["personal", "preference", "work", "location", "other"];
+  const normalizedCategory = validCategories.includes(category) ? category : "other";
+
+  const appSettings = getSettings();
+  const currentCount = getMemoryCount();
+
+  if (currentCount >= (appSettings.memoriesMaxCount ?? 100)) {
+    const errorMsg = `Memory limit reached (${currentCount}/${appSettings.memoriesMaxCount}). Update or delete an existing memory instead.`;
+    const resultMsg = buildToolResultMessage(toolCallId, errorMsg);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const handle = await context.input.onActionStart?.({
+    kind: "create_memory",
+    label: "Saved memory",
+    detail: content,
+    arguments: args
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    createMemory(content, normalizedCategory as "personal" | "preference" | "work" | "location" | "other");
+    await context.input.onActionComplete?.(actionHandle, { resultSummary: `Saved as ${normalizedCategory}` });
+  } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : "Failed to create memory";
+    await context.input.onActionError?.(actionHandle, { resultSummary: errorMsg });
+  }
+
+  const resultMsg = buildToolResultMessage(toolCallId, `Memory saved: ${content} [${normalizedCategory}]`);
+  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
+}
+
+async function executeUpdateMemory(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  const sortOrder = context.timelineSortOrder;
+  const id = String(args.id ?? "").trim();
+  const content = String(args.content ?? "").trim();
+  const category = args.category ? String(args.category).trim() : undefined;
+
+  if (!id || !content) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: id and content are required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const existing = getMemoryRecord(id);
+  if (!existing) {
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: Memory ${id} not found`);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const handle = await context.input.onActionStart?.({
+    kind: "update_memory",
+    label: "Updated memory",
+    detail: content,
+    arguments: args
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    updateMemoryRecord(id, {
+      content,
+      ...(category ? { category: category as "personal" | "preference" | "work" | "location" | "other" } : {})
+    });
+    await context.input.onActionComplete?.(actionHandle, {
+      detail: content,
+      resultSummary: `Was: ${existing.content}`
+    });
+  } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : "Failed to update memory";
+    await context.input.onActionError?.(actionHandle, { resultSummary: errorMsg });
+  }
+
+  const resultMsg = buildToolResultMessage(toolCallId, `Memory updated: ${content}`);
+  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
+}
+
+async function executeDeleteMemory(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  const sortOrder = context.timelineSortOrder;
+  const id = String(args.id ?? "").trim();
+
+  if (!id) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: id is required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const existing = getMemoryRecord(id);
+  if (!existing) {
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: Memory ${id} not found`);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const handle = await context.input.onActionStart?.({
+    kind: "delete_memory",
+    label: "Deleted memory",
+    detail: existing.content,
+    arguments: args
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    deleteMemoryRecord(id);
+    await context.input.onActionComplete?.(actionHandle, { resultSummary: "Deleted" });
+  } catch (e) {
+    const errorMsg = e instanceof Error ? e.message : "Failed to delete memory";
+    await context.input.onActionError?.(actionHandle, { resultSummary: errorMsg });
+  }
+
+  const resultMsg = buildToolResultMessage(toolCallId, `Memory deleted: ${existing.content}`);
+  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
+}
+
 async function executeToolCall(
   toolCall: ProviderToolCall,
   context: {
@@ -567,6 +776,18 @@ async function executeToolCall(
 
   if (name === "execute_shell_command") {
     return executeShellCommand(toolCallId, args, context);
+  }
+
+  if (name === "create_memory") {
+    return executeCreateMemory(toolCallId, args, context);
+  }
+
+  if (name === "update_memory") {
+    return executeUpdateMemory(toolCallId, args, context);
+  }
+
+  if (name === "delete_memory") {
+    return executeDeleteMemory(toolCallId, args, context);
   }
 
   if (name.startsWith("mcp_")) {
@@ -626,6 +847,7 @@ export async function resolveAssistantTurn(input: {
   mcpServers?: McpServer[];
   mcpToolSets: ToolSet[];
   visionMcpServer?: McpServer | null;
+  memoriesEnabled?: boolean;
   mcpTimeout?: number;
   onEvent?: (event: ChatStreamEvent) => void;
   onAnswerSegment?: (segment: string) => Promise<void> | void;
@@ -680,7 +902,8 @@ export async function resolveAssistantTurn(input: {
       mcpToolSets: input.mcpToolSets,
       skills: turnSkills,
       loadedSkillIds,
-      shellCommandPrefixes: allShellPrefixes
+      shellCommandPrefixes: allShellPrefixes,
+      memoriesEnabled: input.memoriesEnabled ?? false
     });
 
     const providerStream = streamProviderResponse({

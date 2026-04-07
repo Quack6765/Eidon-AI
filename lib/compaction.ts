@@ -1,4 +1,6 @@
 import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
+import { listMemories } from "@/lib/memories";
+import { getSettings } from "@/lib/settings";
 import {
   bumpConversation,
   getConversation,
@@ -572,6 +574,7 @@ export function buildPromptMessages(input: {
   activeMemoryNodes: MemoryNode[];
   userInput?: string;
   maxAttachmentTextTokens?: number;
+  memoriesEnabled?: boolean;
 }): PromptMessage[] {
   const remainingAttachmentTextTokens = {
     value: input.maxAttachmentTextTokens ?? Number.POSITIVE_INFINITY
@@ -583,6 +586,20 @@ export function buildPromptMessages(input: {
   // Append persona content if provided
   if (input.personaContent?.trim()) {
     systemParts.push(input.personaContent.trim());
+  }
+
+  if (input.memoriesEnabled) {
+    const memories = listMemories();
+    if (memories.length > 0) {
+      systemParts.push(
+        "<memory>\n" +
+        memories.map((m) => `${m.id}: [${m.category}] ${m.content}`).join("\n") +
+        "\n</memory>"
+      );
+      systemParts.push(
+        "You have access to memory tools (create_memory, update_memory, delete_memory) to persist facts about the user across conversations. Use these conservatively — only save durable, recurring facts (name, location, preferences, work details). Do not save transient details about the current task. Before creating a new memory, check if a similar one already exists and update it instead. The user can see and manage all memories in their settings."
+      );
+    }
   }
 
   if (input.activeMemoryNodes.length) {
@@ -642,7 +659,8 @@ export async function ensureCompactedContext(
   conversationId: string,
   settings: ProviderProfileWithApiKey,
   hooks: CompactionLifecycleHooks = {},
-  personaId?: string
+  personaId?: string,
+  memoriesEnabled: boolean = false
 ): Promise<EnsureCompactedContextResult> {
   const conversation = getConversation(conversationId);
 
@@ -684,7 +702,8 @@ export async function ensureCompactedContext(
         personaContent,
         messages: visibleMessages,
         activeMemoryNodes,
-        maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO)
+        maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
+        memoriesEnabled
       });
       const promptTokens = estimatePromptTokens(promptMessages);
 
@@ -715,7 +734,8 @@ export async function ensureCompactedContext(
               personaContent,
               messages: visibleMessages,
               activeMemoryNodes: scored,
-              maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO)
+              maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
+              memoriesEnabled
             }).reduce((t, m) => {
               if (typeof m.content === "string") return t + estimateTextTokens(m.content) + 12;
               return t + estimatePromptContentTokens(m.content) + 12;
@@ -736,7 +756,8 @@ export async function ensureCompactedContext(
           personaContent,
           messages: visibleMessages,
           activeMemoryNodes: selectedNodes,
-          maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO)
+          maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
+          memoriesEnabled
         });
 
         return {
@@ -779,7 +800,8 @@ export async function ensureCompactedContext(
           systemPrompt: settings.systemPrompt,
           personaContent,
           messages: [lastUserMessage],
-          activeMemoryNodes: remainingNodes
+          activeMemoryNodes: remainingNodes,
+          memoriesEnabled
         });
         return { promptMessages, promptTokens: estimatePromptTokens(promptMessages), didCompact };
       }

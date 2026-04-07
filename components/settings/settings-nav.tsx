@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  Brain,
   Settings,
   Sparkles,
   Server,
@@ -17,6 +18,7 @@ const NAV_ITEMS = [
   { href: "/settings/general", label: "General", icon: Settings },
   { href: "/settings/providers", label: "Providers", icon: Sparkles },
   { href: "/settings/personas", label: "Personas", icon: Users },
+  { href: "/settings/memories", label: "Memories", icon: Brain },
   { href: "/settings/mcp-servers", label: "MCP Servers", icon: Server },
   { href: "/settings/skills", label: "Skills", icon: Zap },
   { href: "/settings/account", label: "Account", icon: Shield },

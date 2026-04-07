@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown } from "lucide-react";
 
 import { ChatComposer } from "@/components/chat-composer";
 import { MessageBubble } from "@/components/message-bubble";
@@ -15,7 +14,7 @@ import {
 import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { supportsImageInput } from "@/lib/model-capabilities";
-import { formatTimestamp, shouldAutofocusTextInput } from "@/lib/utils";
+import { shouldAutofocusTextInput } from "@/lib/utils";
 import type {
   ChatStreamEvent,
   Conversation,
@@ -183,7 +182,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [titleGenerationStatus, setTitleGenerationStatus] = useState(
     payload.conversation.titleGenerationStatus
   );
-  const [debug, setDebug] = useState(payload.debug);
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -213,7 +211,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [providerProfileId, setProviderProfileId] = useState(
     payload.conversation.providerProfileId ?? payload.defaultProviderProfileId
   );
-  const [showDebug, setShowDebug] = useState(false);
   const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
@@ -291,10 +288,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     setTitleGenerationStatus(payload.conversation.titleGenerationStatus);
   }, [payload.conversation.titleGenerationStatus]);
-
-  useEffect(() => {
-    setDebug(payload.debug);
-  }, [payload.debug]);
 
   useEffect(() => {
     setProviderProfileId(payload.conversation.providerProfileId ?? payload.defaultProviderProfileId);
@@ -744,7 +737,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         const result = (await response.json()) as {
           conversation: Conversation;
           messages: Message[];
-          debug: ConversationPayload["debug"];
         };
 
         if (cancelled) {
@@ -761,7 +753,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         setMessages((current) =>
           reconcileSnapshotMessages(current, result.messages, activeStreamMessageId)
         );
-        setDebug(result.debug);
         setConversationTitle(result.conversation.title);
         setTitleGenerationStatus(result.conversation.titleGenerationStatus);
 
@@ -851,14 +842,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     return () => window.clearInterval(handle);
   }, [streamAnswerDisplay, streamAnswerTarget]);
-
-  const latestCompactionLabel = useMemo(() => {
-    if (!debug?.latestCompactionAt) {
-      return "No compaction yet";
-    }
-
-    return formatTimestamp(debug.latestCompactionAt);
-  }, [debug?.latestCompactionAt]);
 
   const selectedProfile = useMemo(
     () => payload.providerProfiles.find((profile) => profile.id === providerProfileId) ?? null,
@@ -1165,20 +1148,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
             <div className="font-medium text-[var(--text)] truncate text-sm">{conversationTitle}</div>
-            <button
-              onClick={() => setShowDebug(!showDebug)}
-              className="flex items-center gap-1 mt-0.5 text-[11px] text-white/25 hover:text-white/40 transition-colors duration-200"
-            >
-              <span>{payload.debug.memoryNodeCount} memory nodes</span>
-              <ChevronDown className={`h-3 w-3 transition-transform duration-200 ${showDebug ? "rotate-180" : ""}`} />
-            </button>
-            {showDebug && (
-              <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-white/25 animate-fade-in">
-                <span>{debug.rawTurnCount} raw turns</span>
-                <span>Latest compaction: {latestCompactionLabel}</span>
-                <span>WS: {wsConnected ? "connected" : "disconnected"}</span>
-              </div>
-            )}
           </div>
         </div>
       </div>

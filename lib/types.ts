@@ -16,7 +16,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command";
+export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory";
 
 export type MessageActionStatus = "running" | "completed" | "error";
 
@@ -66,6 +66,8 @@ export type AppSettings = {
   skillsEnabled: boolean;
   conversationRetention: ConversationRetention;
   autoCompaction: boolean;
+  memoriesEnabled: boolean;
+  memoriesMaxCount: number;
   mcpTimeout: number;
   updatedAt: string;
 };
@@ -163,6 +165,16 @@ export type Persona = {
   id: string;
   name: string;
   content: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type MemoryCategory = "personal" | "preference" | "work" | "location" | "other";
+
+export type UserMemory = {
+  id: string;
+  content: string;
+  category: MemoryCategory;
   createdAt: string;
   updatedAt: string;
 };

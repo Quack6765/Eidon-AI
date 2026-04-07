@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Copy, FileText, LoaderCircle, Pencil, X } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, LoaderCircle, Pencil, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -45,6 +45,8 @@ function CollapsibleActionRow({
   isOpen: boolean;
   onToggle: () => void;
 }) {
+  const isMemoryAction = action.kind === "create_memory" || action.kind === "update_memory" || action.kind === "delete_memory";
+
   const statusIcon = action.status === "running"
     ? <LoaderCircle className="h-2.5 w-2.5 animate-spin text-white/55" />
     : action.status === "completed"
@@ -55,7 +57,7 @@ function CollapsibleActionRow({
     return (
       <div className="inline-flex items-center gap-1.5 rounded-lg border border-white/6 bg-white/[0.02] px-2.5 py-1.5 text-xs">
         <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
-          {statusIcon}
+          {isMemoryAction ? <Brain className="h-2.5 w-2.5 text-violet-400" /> : statusIcon}
         </span>
         <span className="text-[12px] font-medium text-white/55">{action.label}</span>
       </div>
@@ -70,7 +72,7 @@ function CollapsibleActionRow({
         className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left transition hover:opacity-80"
       >
         <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
-          {statusIcon}
+          {isMemoryAction ? <Brain className="h-3 w-3 text-violet-400" /> : statusIcon}
         </span>
         <span className="text-[12px] font-medium text-white/85">{action.label}</span>
         <span className="ml-auto flex items-center">

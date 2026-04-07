@@ -13,6 +13,7 @@ describe("model capabilities", () => {
   it("treats GPT-4.1 and chat completions as non-reasoning for visible summaries", () => {
     expect(supportsVisibleReasoning("gpt-4.1-mini", "responses")).toBe(false);
     expect(supportsVisibleReasoning("gpt-5-mini", "chat_completions")).toBe(false);
+    expect(supportsVisibleReasoning("", "responses")).toBe(false);
   });
 
   it("detects likely image-capable models", () => {
