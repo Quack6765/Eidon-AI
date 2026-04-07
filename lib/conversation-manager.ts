@@ -6,6 +6,7 @@ export function createConversationManager() {
   const rooms = new Map<string, Set<WebSocket>>();
   const clientRooms = new Map<WebSocket, Set<string>>();
   const activeTurns = new Map<string, boolean>();
+  const connectedSockets = new Set<WebSocket>();
 
   function subscribe(conversationId: string, ws: WebSocket) {
     if (!rooms.has(conversationId)) {
@@ -74,7 +75,24 @@ export function createConversationManager() {
     return [...activeTurns.keys()];
   }
 
-  return { subscribe, unsubscribe, broadcast, disconnect, isActive, setActive, getActiveConversationIds, hasSubscribers };
+  function addConnection(ws: WebSocket) {
+    connectedSockets.add(ws);
+  }
+
+  function removeConnection(ws: WebSocket) {
+    connectedSockets.delete(ws);
+  }
+
+  function broadcastAll(event: ServerMessage) {
+    const raw = serializeServerMessage(event);
+    for (const ws of connectedSockets) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(raw);
+      }
+    }
+  }
+
+  return { subscribe, unsubscribe, broadcast, disconnect, isActive, setActive, getActiveConversationIds, hasSubscribers, addConnection, removeConnection, broadcastAll };
 }
 
 export type ConversationManager = ReturnType<typeof createConversationManager>;

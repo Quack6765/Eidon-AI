@@ -12,7 +12,7 @@ import { initializeMcpServers, shutdownAllProcesses } from "@/lib/mcp-client";
 
 let manager: ConversationManager | null = null;
 
-function getManager(): ConversationManager {
+export function getConversationManager(): ConversationManager {
   if (!manager) {
     manager = createConversationManager();
   }
@@ -48,7 +48,8 @@ export async function handleConnection(ws: WebSocket, token: string | null) {
     }
   }
 
-  const mgr = getManager();
+  const mgr = getConversationManager();
+  mgr.addConnection(ws);
   const currentSubscription = new Set<string>();
 
   const active = listActiveConversations();
@@ -68,6 +69,7 @@ export async function handleConnection(ws: WebSocket, token: string | null) {
   });
 
   ws.on("close", () => {
+    mgr.removeConnection(ws);
     for (const conversationId of currentSubscription) {
       mgr.unsubscribe(conversationId, ws);
     }
