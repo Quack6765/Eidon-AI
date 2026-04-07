@@ -14,7 +14,7 @@ const encoder = new TextEncoder();
 const sessionDurationMs = 1000 * 60 * 60 * 24 * 30;
 
 function getSessionSecret() {
-  return encoder.encode(env.HERMES_SESSION_SECRET);
+  return encoder.encode(env.EIDON_SESSION_SECRET);
 }
 
 function nowIso() {
@@ -73,8 +73,8 @@ export async function ensureAdminBootstrap() {
      VALUES (?, ?, ?, ?, ?)`
   ).run(
     createId("user"),
-    env.HERMES_ADMIN_USERNAME,
-    await hashPassword(env.HERMES_ADMIN_PASSWORD),
+    env.EIDON_ADMIN_USERNAME,
+    await hashPassword(env.EIDON_ADMIN_PASSWORD),
     timestamp,
     timestamp
   );

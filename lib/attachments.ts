@@ -72,7 +72,7 @@ function nowIso() {
 }
 
 function getAttachmentsRoot() {
-  const root = path.resolve(env.HERMES_DATA_DIR, "attachments");
+  const root = path.resolve(env.EIDON_DATA_DIR, "attachments");
   fs.mkdirSync(root, { recursive: true });
   return root;
 }

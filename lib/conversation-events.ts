@@ -1,6 +1,6 @@
-export const CONVERSATION_TITLE_UPDATED_EVENT = "hermes:conversation-title-updated";
-export const CONVERSATION_REMOVED_EVENT = "hermes:conversation-removed";
-export const CONVERSATION_ACTIVITY_UPDATED_EVENT = "hermes:conversation-activity-updated";
+export const CONVERSATION_TITLE_UPDATED_EVENT = "eidon:conversation-title-updated";
+export const CONVERSATION_REMOVED_EVENT = "eidon:conversation-removed";
+export const CONVERSATION_ACTIVITY_UPDATED_EVENT = "eidon:conversation-activity-updated";
 
 export type ConversationTitleUpdatedDetail = {
   conversationId: string;

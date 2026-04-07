@@ -66,7 +66,7 @@ function createTransport(server: TestableMcpServer) {
 function createClient() {
   return new Client(
     {
-      name: "hermes",
+      name: "eidon",
       version: "0.1.0"
     },
     {
