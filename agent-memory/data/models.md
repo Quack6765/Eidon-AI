@@ -52,7 +52,7 @@
 | `conversation_id` / `message_id` | `TEXT` / `TEXT \| NULL` | Conversation ownership plus deferred binding to the eventual user message |
 | `filename` / `mime_type` | `TEXT` | Sanitized original name and normalized content type |
 | `byte_size` / `sha256` | `INTEGER` / `TEXT` | Stored file size and integrity hash |
-| `relative_path` | `TEXT` | Path under `HERMES_DATA_DIR/attachments/<conversationId>/...` |
+| `relative_path` | `TEXT` | Path under `EIDON_DATA_DIR/attachments/<conversationId>/...` |
 | `kind` | `TEXT` | `image` or `text` |
 | `extracted_text` | `TEXT \| NULL` | Server-side extracted content for text-like files used during prompt assembly and compaction |
 

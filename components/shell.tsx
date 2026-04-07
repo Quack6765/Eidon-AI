@@ -62,7 +62,7 @@ export function Shell({
             <Menu className="h-5 w-5" />
           </button>
 
-          <div className="font-semibold text-[var(--text)] text-sm tracking-wide">Hermes</div>
+          <div className="font-semibold text-[var(--text)] text-sm tracking-wide">Eidon</div>
 
           <button
             type="button"

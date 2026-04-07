@@ -3,7 +3,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 import { env } from "@/lib/env";
 
 function getKey() {
-  return createHash("sha256").update(env.HERMES_ENCRYPTION_SECRET).digest();
+  return createHash("sha256").update(env.EIDON_ENCRYPTION_SECRET).digest();
 }
 
 export function encryptValue(value: string) {

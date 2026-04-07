@@ -2,42 +2,42 @@ import { z } from "zod";
 
 const nodeEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  HERMES_PASSWORD_LOGIN_ENABLED: z
+  EIDON_PASSWORD_LOGIN_ENABLED: z
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
-  HERMES_ADMIN_USERNAME: z.string().min(1).default("admin"),
-  HERMES_ADMIN_PASSWORD: z.string().min(8).optional(),
-  HERMES_SESSION_SECRET: z.string().min(32).optional(),
-  HERMES_ENCRYPTION_SECRET: z.string().min(32).optional(),
-  HERMES_DATA_DIR: z.string().default("./.data")
+  EIDON_ADMIN_USERNAME: z.string().min(1).default("admin"),
+  EIDON_ADMIN_PASSWORD: z.string().min(8).optional(),
+  EIDON_SESSION_SECRET: z.string().min(32).optional(),
+  EIDON_ENCRYPTION_SECRET: z.string().min(32).optional(),
+  EIDON_DATA_DIR: z.string().default("./.data")
 });
 
 const sensitiveEnvNames = [
-  "HERMES_ADMIN_PASSWORD",
-  "HERMES_SESSION_SECRET",
-  "HERMES_ENCRYPTION_SECRET"
+  "EIDON_ADMIN_PASSWORD",
+  "EIDON_SESSION_SECRET",
+  "EIDON_ENCRYPTION_SECRET"
 ] as const;
 
 type SensitiveEnvName = (typeof sensitiveEnvNames)[number];
 
 const nonProductionDefaults: Record<SensitiveEnvName, string> = {
-  HERMES_ADMIN_PASSWORD: "changeme123",
-  HERMES_SESSION_SECRET: "development-session-secret-please-change",
-  HERMES_ENCRYPTION_SECRET: "development-encryption-secret-please-change"
+  EIDON_ADMIN_PASSWORD: "changeme123",
+  EIDON_SESSION_SECRET: "development-session-secret-please-change",
+  EIDON_ENCRYPTION_SECRET: "development-encryption-secret-please-change"
 };
 
 const productionRejectedValues: Record<SensitiveEnvName, Set<string>> = {
-  HERMES_ADMIN_PASSWORD: new Set([
-    nonProductionDefaults.HERMES_ADMIN_PASSWORD
+  EIDON_ADMIN_PASSWORD: new Set([
+    nonProductionDefaults.EIDON_ADMIN_PASSWORD
   ]),
-  HERMES_SESSION_SECRET: new Set([
-    nonProductionDefaults.HERMES_SESSION_SECRET,
+  EIDON_SESSION_SECRET: new Set([
+    nonProductionDefaults.EIDON_SESSION_SECRET,
     "replace-with-32-plus-chars",
     "replace-with-a-random-32-char-string-here"
   ]),
-  HERMES_ENCRYPTION_SECRET: new Set([
-    nonProductionDefaults.HERMES_ENCRYPTION_SECRET,
+  EIDON_ENCRYPTION_SECRET: new Set([
+    nonProductionDefaults.EIDON_ENCRYPTION_SECRET,
     "replace-with-32-plus-chars",
     "replace-with-a-random-32-char-string-here"
   ])
@@ -71,66 +71,66 @@ export function parseEnv(input: NodeJS.ProcessEnv) {
 
   return {
     ...parsedEnv,
-    HERMES_ADMIN_PASSWORD: resolveSensitiveEnvValue(
-      "HERMES_ADMIN_PASSWORD",
-      parsedEnv.HERMES_ADMIN_PASSWORD,
+    EIDON_ADMIN_PASSWORD: resolveSensitiveEnvValue(
+      "EIDON_ADMIN_PASSWORD",
+      parsedEnv.EIDON_ADMIN_PASSWORD,
       isProduction
     ),
-    HERMES_SESSION_SECRET: resolveSensitiveEnvValue(
-      "HERMES_SESSION_SECRET",
-      parsedEnv.HERMES_SESSION_SECRET,
+    EIDON_SESSION_SECRET: resolveSensitiveEnvValue(
+      "EIDON_SESSION_SECRET",
+      parsedEnv.EIDON_SESSION_SECRET,
       isProduction
     ),
-    HERMES_ENCRYPTION_SECRET: resolveSensitiveEnvValue(
-      "HERMES_ENCRYPTION_SECRET",
-      parsedEnv.HERMES_ENCRYPTION_SECRET,
+    EIDON_ENCRYPTION_SECRET: resolveSensitiveEnvValue(
+      "EIDON_ENCRYPTION_SECRET",
+      parsedEnv.EIDON_ENCRYPTION_SECRET,
       isProduction
     )
   };
 }
 
-type HermesEnv = ReturnType<typeof parseEnv>;
+type EidonEnv = ReturnType<typeof parseEnv>;
 
-function getEnvValue<Key extends keyof HermesEnv>(key: Key): HermesEnv[Key] {
+function getEnvValue<Key extends keyof EidonEnv>(key: Key): EidonEnv[Key] {
   const parsedEnv = nodeEnvSchema.parse(process.env);
   const isProduction = parsedEnv.NODE_ENV === "production";
 
   switch (key) {
-    case "HERMES_ADMIN_PASSWORD":
+    case "EIDON_ADMIN_PASSWORD":
       return resolveSensitiveEnvValue(
-        "HERMES_ADMIN_PASSWORD",
-        parsedEnv.HERMES_ADMIN_PASSWORD,
+        "EIDON_ADMIN_PASSWORD",
+        parsedEnv.EIDON_ADMIN_PASSWORD,
         isProduction
-      ) as HermesEnv[Key];
-    case "HERMES_SESSION_SECRET":
+      ) as EidonEnv[Key];
+    case "EIDON_SESSION_SECRET":
       return resolveSensitiveEnvValue(
-        "HERMES_SESSION_SECRET",
-        parsedEnv.HERMES_SESSION_SECRET,
+        "EIDON_SESSION_SECRET",
+        parsedEnv.EIDON_SESSION_SECRET,
         isProduction
-      ) as HermesEnv[Key];
-    case "HERMES_ENCRYPTION_SECRET":
+      ) as EidonEnv[Key];
+    case "EIDON_ENCRYPTION_SECRET":
       return resolveSensitiveEnvValue(
-        "HERMES_ENCRYPTION_SECRET",
-        parsedEnv.HERMES_ENCRYPTION_SECRET,
+        "EIDON_ENCRYPTION_SECRET",
+        parsedEnv.EIDON_ENCRYPTION_SECRET,
         isProduction
-      ) as HermesEnv[Key];
+      ) as EidonEnv[Key];
     default:
-      return parsedEnv[key] as HermesEnv[Key];
+      return parsedEnv[key] as EidonEnv[Key];
   }
 }
 
-export const env = new Proxy({} as HermesEnv, {
+export const env = new Proxy({} as EidonEnv, {
   get(_target, property) {
     if (typeof property !== "string") {
       return undefined;
     }
 
-    return getEnvValue(property as keyof HermesEnv);
+    return getEnvValue(property as keyof EidonEnv);
   }
 });
 
 export function isPasswordLoginEnabled() {
-  return getEnvValue("HERMES_PASSWORD_LOGIN_ENABLED");
+  return getEnvValue("EIDON_PASSWORD_LOGIN_ENABLED");
 }
 
 export function isProduction() {

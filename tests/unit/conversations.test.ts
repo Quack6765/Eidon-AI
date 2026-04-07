@@ -423,12 +423,12 @@ describe("conversation helpers", () => {
         bytes: Buffer.from("hello", "utf8")
       }
     ]);
-    const attachmentDir = path.resolve(process.env.HERMES_DATA_DIR!, "attachments", conversation.id);
+    const attachmentDir = path.resolve(process.env.EIDON_DATA_DIR!, "attachments", conversation.id);
 
     deleteConversation(conversation.id);
 
     expect(getConversation(conversation.id)).toBeNull();
-    expect(fs.existsSync(path.resolve(process.env.HERMES_DATA_DIR!, "attachments", attachment.relativePath))).toBe(
+    expect(fs.existsSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath))).toBe(
       false
     );
     expect(fs.existsSync(attachmentDir)).toBe(false);
@@ -443,7 +443,7 @@ describe("conversation helpers", () => {
         bytes: Buffer.from("hello", "utf8")
       }
     ]);
-    const absolutePath = path.resolve(process.env.HERMES_DATA_DIR!, "attachments", attachment.relativePath);
+    const absolutePath = path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath);
 
     fs.unlinkSync(absolutePath);
 

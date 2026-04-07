@@ -173,7 +173,7 @@ export function ChatComposer({
         <div className="mt-2 flex items-center gap-2 rounded-xl border border-amber-400/10 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
           <AlertCircle className="h-4 w-4 shrink-0" />
           <span>
-            This model may not support image input. Hermes will still send the attachment and surface any provider error.
+            This model may not support image input. Eidon will still send the attachment and surface any provider error.
           </span>
         </div>
       ) : null}

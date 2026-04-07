@@ -116,7 +116,7 @@ describe("session lifecycle", () => {
 
     expect(await auth.getSessionPayload()).toBeNull();
 
-    cookieState.set("hermes_session", "invalid");
+    cookieState.set("eidon_session", "invalid");
     expect(await auth.getSessionPayload()).toBeNull();
     expect(await auth.getCurrentUser()).toBeNull();
     await expect(auth.requireUser()).rejects.toThrow("redirect:/login");
@@ -133,15 +133,15 @@ describe("session lifecycle", () => {
     getDb().prepare("DELETE FROM admin_users WHERE id = ?").run(found!.user.id);
 
     expect(await auth.getCurrentUser()).toBeNull();
-    expect(cookieState.get("hermes_session")).toBe(session.token);
+    expect(cookieState.get("eidon_session")).toBe(session.token);
     await auth.invalidateSession(session.sessionId);
     await auth.clearSessionCookie();
-    expect(cookieState.has("hermes_session")).toBe(false);
+    expect(cookieState.has("eidon_session")).toBe(false);
   });
 
   it("returns the bootstrap user when username/password login is disabled", async () => {
-    const previous = process.env.HERMES_PASSWORD_LOGIN_ENABLED;
-    process.env.HERMES_PASSWORD_LOGIN_ENABLED = "false";
+    const previous = process.env.EIDON_PASSWORD_LOGIN_ENABLED;
+    process.env.EIDON_PASSWORD_LOGIN_ENABLED = "false";
     vi.resetModules();
 
     try {
@@ -152,9 +152,9 @@ describe("session lifecycle", () => {
       await expect(auth.requireUser(false)).resolves.toEqual(currentUser);
     } finally {
       if (previous === undefined) {
-        delete process.env.HERMES_PASSWORD_LOGIN_ENABLED;
+        delete process.env.EIDON_PASSWORD_LOGIN_ENABLED;
       } else {
-        process.env.HERMES_PASSWORD_LOGIN_ENABLED = previous;
+        process.env.EIDON_PASSWORD_LOGIN_ENABLED = previous;
       }
 
       vi.resetModules();
@@ -162,8 +162,8 @@ describe("session lifecycle", () => {
   });
 
   it("rejects login requests when username/password login is disabled", async () => {
-    const previous = process.env.HERMES_PASSWORD_LOGIN_ENABLED;
-    process.env.HERMES_PASSWORD_LOGIN_ENABLED = "false";
+    const previous = process.env.EIDON_PASSWORD_LOGIN_ENABLED;
+    process.env.EIDON_PASSWORD_LOGIN_ENABLED = "false";
     vi.resetModules();
 
     try {
@@ -187,9 +187,9 @@ describe("session lifecycle", () => {
       });
     } finally {
       if (previous === undefined) {
-        delete process.env.HERMES_PASSWORD_LOGIN_ENABLED;
+        delete process.env.EIDON_PASSWORD_LOGIN_ENABLED;
       } else {
-        process.env.HERMES_PASSWORD_LOGIN_ENABLED = previous;
+        process.env.EIDON_PASSWORD_LOGIN_ENABLED = previous;
       }
 
       vi.resetModules();
@@ -199,21 +199,21 @@ describe("session lifecycle", () => {
   it("allows importing auth in production before sensitive env is accessed", async () => {
     const previous = {
       NODE_ENV: process.env.NODE_ENV,
-      HERMES_PASSWORD_LOGIN_ENABLED: process.env.HERMES_PASSWORD_LOGIN_ENABLED,
-      HERMES_ADMIN_USERNAME: process.env.HERMES_ADMIN_USERNAME,
-      HERMES_ADMIN_PASSWORD: process.env.HERMES_ADMIN_PASSWORD,
-      HERMES_SESSION_SECRET: process.env.HERMES_SESSION_SECRET,
-      HERMES_ENCRYPTION_SECRET: process.env.HERMES_ENCRYPTION_SECRET
+      EIDON_PASSWORD_LOGIN_ENABLED: process.env.EIDON_PASSWORD_LOGIN_ENABLED,
+      EIDON_ADMIN_USERNAME: process.env.EIDON_ADMIN_USERNAME,
+      EIDON_ADMIN_PASSWORD: process.env.EIDON_ADMIN_PASSWORD,
+      EIDON_SESSION_SECRET: process.env.EIDON_SESSION_SECRET,
+      EIDON_ENCRYPTION_SECRET: process.env.EIDON_ENCRYPTION_SECRET
     };
 
     Object.assign(process.env, {
       NODE_ENV: "production",
-      HERMES_PASSWORD_LOGIN_ENABLED: "true",
-      HERMES_ADMIN_USERNAME: "admin"
+      EIDON_PASSWORD_LOGIN_ENABLED: "true",
+      EIDON_ADMIN_USERNAME: "admin"
     });
-    delete process.env.HERMES_ADMIN_PASSWORD;
-    delete process.env.HERMES_SESSION_SECRET;
-    delete process.env.HERMES_ENCRYPTION_SECRET;
+    delete process.env.EIDON_ADMIN_PASSWORD;
+    delete process.env.EIDON_SESSION_SECRET;
+    delete process.env.EIDON_ENCRYPTION_SECRET;
     vi.resetModules();
 
     try {
@@ -234,21 +234,21 @@ describe("session lifecycle", () => {
   it("returns null in production without a session cookie before bootstrap secrets are accessed", async () => {
     const previous = {
       NODE_ENV: process.env.NODE_ENV,
-      HERMES_PASSWORD_LOGIN_ENABLED: process.env.HERMES_PASSWORD_LOGIN_ENABLED,
-      HERMES_ADMIN_USERNAME: process.env.HERMES_ADMIN_USERNAME,
-      HERMES_ADMIN_PASSWORD: process.env.HERMES_ADMIN_PASSWORD,
-      HERMES_SESSION_SECRET: process.env.HERMES_SESSION_SECRET,
-      HERMES_ENCRYPTION_SECRET: process.env.HERMES_ENCRYPTION_SECRET
+      EIDON_PASSWORD_LOGIN_ENABLED: process.env.EIDON_PASSWORD_LOGIN_ENABLED,
+      EIDON_ADMIN_USERNAME: process.env.EIDON_ADMIN_USERNAME,
+      EIDON_ADMIN_PASSWORD: process.env.EIDON_ADMIN_PASSWORD,
+      EIDON_SESSION_SECRET: process.env.EIDON_SESSION_SECRET,
+      EIDON_ENCRYPTION_SECRET: process.env.EIDON_ENCRYPTION_SECRET
     };
 
     Object.assign(process.env, {
       NODE_ENV: "production",
-      HERMES_PASSWORD_LOGIN_ENABLED: "true",
-      HERMES_ADMIN_USERNAME: "admin"
+      EIDON_PASSWORD_LOGIN_ENABLED: "true",
+      EIDON_ADMIN_USERNAME: "admin"
     });
-    delete process.env.HERMES_ADMIN_PASSWORD;
-    delete process.env.HERMES_SESSION_SECRET;
-    delete process.env.HERMES_ENCRYPTION_SECRET;
+    delete process.env.EIDON_ADMIN_PASSWORD;
+    delete process.env.EIDON_SESSION_SECRET;
+    delete process.env.EIDON_ENCRYPTION_SECRET;
     cookieState.clear();
     vi.resetModules();
 

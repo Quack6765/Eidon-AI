@@ -19,8 +19,8 @@ RUN npx esbuild lib/ws-handler.ts --bundle --platform=node --format=cjs --packag
 FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
-ENV HERMES_DATA_DIR=/app/data
-ENV HERMES_PASSWORD_LOGIN_ENABLED=true
+ENV EIDON_DATA_DIR=/app/data
+ENV EIDON_PASSWORD_LOGIN_ENABLED=true
 
 # Install uv for uvx (Python-based MCP servers)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
@@ -33,15 +33,15 @@ RUN npm install -g agent-browser \
     && printf '#!/bin/sh\nexec agent-browser-core --executable-path /usr/bin/chromium "$@"\n' > /usr/local/bin/agent-browser \
     && chmod +x /usr/local/bin/agent-browser
 
-RUN groupadd --system hermes && useradd --system --gid hermes hermes
+RUN groupadd --system eidon && useradd --system --gid eidon eidon
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/server.cjs ./server.cjs
 COPY --from=builder /app/ws-handler-compiled.cjs ./ws-handler-compiled.cjs
 COPY --from=prod-deps /app/node_modules ./node_modules
-RUN mkdir -p /app/data && chown -R hermes:hermes /app
-USER hermes
+RUN mkdir -p /app/data && chown -R eidon:eidon /app
+USER eidon
 EXPOSE 3000
 VOLUME ["/app/data"]
 CMD ["node", "server.cjs"]

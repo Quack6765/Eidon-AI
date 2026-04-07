@@ -176,5 +176,5 @@ Functions following the existing pattern (direct `better-sqlite3` prepared state
 
 - Recent conversations summary (ChatGPT's "past 15 chats" feature) — deferred
 - Vector search / semantic retrieval — deferred; table schema is forward-compatible if needed later
-- Per-user memories — Hermes is single-user
+- Per-user memories — Eidon is single-user
 - Memory export/import — deferred

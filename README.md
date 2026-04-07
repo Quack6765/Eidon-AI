@@ -1,13 +1,13 @@
 <div align="center">
 
-# Hermes
+# Eidon
 
 <p>
   <strong>A self-hosted conversational workspace with streaming, visible reasoning, reusable skills, MCP integrations, and long-memory compaction.</strong>
 </p>
 
 <p>
-  <a href="#what-is-hermes">What is Hermes?</a>
+  <a href="#what-is-eidon">What is Eidon?</a>
   ·
   <a href="#feature-snapshot">Feature Snapshot</a>
   ·
@@ -30,13 +30,13 @@
 
 </div>
 
-Hermes is a private, self-hosted chat application for people who want a clean ChatGPT-style interface on infrastructure they control. It is designed as a single-user workspace: you bring your own provider API key, configure tools and skills, and keep conversations, settings, and credentials on your own machine or server.
+Eidon is a private, self-hosted chat application for people who want a clean ChatGPT-style interface on infrastructure they control. It is designed as a single-user workspace: you bring your own provider API key, configure tools and skills, and keep conversations, settings, and credentials on your own machine or server.
 
 It combines a polished conversational UI with production-minded primitives: streaming responses, provider profiles, local auth, MCP servers, reusable skills, configurable retention, and context compaction that keeps long threads usable without throwing away important state.
 
-## What is Hermes?
+## What is Eidon?
 
-Hermes gives you a local-first assistant workspace with:
+Eidon gives you a local-first assistant workspace with:
 
 - Streaming chat with support for visible reasoning and tool call timelines
 - OpenAI-compatible provider profiles, including custom API base URLs
@@ -46,7 +46,7 @@ Hermes gives you a local-first assistant workspace with:
 - Single-user local authentication with a settings UI for account management
 - SQLite-backed persistence for chats, settings, sessions, skills, and memory nodes
 
-Hermes is not a multi-tenant SaaS control plane. It is closer to a private operator console for your own assistant workflow.
+Eidon is not a multi-tenant SaaS control plane. It is closer to a private operator console for your own assistant workflow.
 
 ## Feature Snapshot
 
@@ -64,12 +64,12 @@ Hermes is not a multi-tenant SaaS control plane. It is closer to a private opera
 
 ```mermaid
 flowchart LR
-  Browser["Browser UI"] --> Hermes["Hermes (Next.js + route handlers)"]
-  Hermes --> SQLite["SQLite database"]
-  Hermes --> Data["/app/data attachments + runtime data"]
-  Hermes --> Provider["OpenAI-compatible provider APIs"]
-  Hermes --> MCP["MCP servers"]
-  Hermes --> Skills["Local skills + browser automation"]
+  Browser["Browser UI"] --> Eidon["Eidon (Next.js + route handlers)"]
+  Eidon --> SQLite["SQLite database"]
+  Eidon --> Data["/app/data attachments + runtime data"]
+  Eidon --> Provider["OpenAI-compatible provider APIs"]
+  Eidon --> MCP["MCP servers"]
+  Eidon --> Skills["Local skills + browser automation"]
 ```
 
 ## Local Development
@@ -91,18 +91,18 @@ npm install
 Create `.env.local` in the repo root:
 
 ```bash
-HERMES_PASSWORD_LOGIN_ENABLED=false
-HERMES_ADMIN_USERNAME=admin
-HERMES_ADMIN_PASSWORD=dev-password-change-me
-HERMES_SESSION_SECRET=dev-session-secret-change-me-with-32-plus-chars
-HERMES_ENCRYPTION_SECRET=dev-encryption-secret-change-me-with-32-plus-chars
+EIDON_PASSWORD_LOGIN_ENABLED=false
+EIDON_ADMIN_USERNAME=admin
+EIDON_ADMIN_PASSWORD=dev-password-change-me
+EIDON_SESSION_SECRET=dev-session-secret-change-me-with-32-plus-chars
+EIDON_ENCRYPTION_SECRET=dev-encryption-secret-change-me-with-32-plus-chars
 ```
 
 Notes:
 
-- `HERMES_PASSWORD_LOGIN_ENABLED=false` is the simplest development mode. Hermes boots the admin user directly and bypasses the login screen.
-- If you want to test the password login flow locally, set `HERMES_PASSWORD_LOGIN_ENABLED=true`.
-- In non-production environments, Hermes can fall back to development defaults for the admin password and secrets, but explicitly setting them is cleaner and closer to real deployments.
+- `EIDON_PASSWORD_LOGIN_ENABLED=false` is the simplest development mode. Eidon boots the admin user directly and bypasses the login screen.
+- If you want to test the password login flow locally, set `EIDON_PASSWORD_LOGIN_ENABLED=true`.
+- In non-production environments, Eidon can fall back to development defaults for the admin password and secrets, but explicitly setting them is cleaner and closer to real deployments.
 
 ### 3. Start the app
 
@@ -112,7 +112,7 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-`npm run dev` starts Hermes through the custom websocket server, which is required for the `/ws` realtime chat transport. `npm run dev:next` is available if you explicitly want plain Next.js without the websocket chat runtime.
+`npm run dev` starts Eidon through the custom websocket server, which is required for the `/ws` realtime chat transport. `npm run dev:next` is available if you explicitly want plain Next.js without the websocket chat runtime.
 
 ### 4. Configure your model provider
 
@@ -123,13 +123,13 @@ After the app is running:
 3. Add your API key and model configuration
 4. Start a new chat
 
-Hermes does not ship with a provider API key.
+Eidon does not ship with a provider API key.
 
 ### Useful development commands
 
 | Command | Purpose |
 | --- | --- |
-| `npm run dev` | Start the Hermes dev server with websocket chat support |
+| `npm run dev` | Start the Eidon dev server with websocket chat support |
 | `npm run dev:next` | Start plain Next.js without the websocket chat server |
 | `npm run lint` | Run ESLint |
 | `npm run typecheck` | Run TypeScript checks |
@@ -138,22 +138,22 @@ Hermes does not ship with a provider API key.
 
 ## Production With Docker
 
-The repository includes a production Dockerfile. The image runs Hermes as a non-root user, stores runtime data under `/app/data`, and enables password login by default.
+The repository includes a production Dockerfile. The image runs Eidon as a non-root user, stores runtime data under `/app/data`, and enables password login by default.
 
 ### Production requirements
 
 You must provide all of the following at runtime:
 
-- `HERMES_ADMIN_USERNAME`
-- `HERMES_ADMIN_PASSWORD`
-- `HERMES_SESSION_SECRET`
-- `HERMES_ENCRYPTION_SECRET`
+- `EIDON_ADMIN_USERNAME`
+- `EIDON_ADMIN_PASSWORD`
+- `EIDON_SESSION_SECRET`
+- `EIDON_ENCRYPTION_SECRET`
 
 Production startup fails fast if:
 
-- `HERMES_ADMIN_PASSWORD` is missing
-- `HERMES_SESSION_SECRET` is missing
-- `HERMES_ENCRYPTION_SECRET` is missing
+- `EIDON_ADMIN_PASSWORD` is missing
+- `EIDON_SESSION_SECRET` is missing
+- `EIDON_ENCRYPTION_SECRET` is missing
 - Any of those values are still set to a published placeholder/default value
 
 Generate the two secrets on macOS or Linux with:
@@ -166,55 +166,55 @@ openssl rand -hex 32
 Or export them directly in your shell:
 
 ```bash
-export HERMES_SESSION_SECRET="$(openssl rand -hex 32)"
-export HERMES_ENCRYPTION_SECRET="$(openssl rand -hex 32)"
+export EIDON_SESSION_SECRET="$(openssl rand -hex 32)"
+export EIDON_ENCRYPTION_SECRET="$(openssl rand -hex 32)"
 ```
 
 ### Build the image
 
 ```bash
-docker build -t hermes:latest .
+docker build -t eidon:latest .
 ```
 
 ### Run with `docker run`
 
 ```bash
 docker run -d \
-  --name hermes \
+  --name eidon \
   --restart unless-stopped \
   -p 3000:3000 \
-  -v hermes-data:/app/data \
-  -e HERMES_PASSWORD_LOGIN_ENABLED=true \
-  -e HERMES_ADMIN_USERNAME=admin \
-  -e HERMES_ADMIN_PASSWORD='replace-this-with-a-long-random-password' \
-  -e HERMES_SESSION_SECRET='replace-this-with-a-long-random-session-secret' \
-  -e HERMES_ENCRYPTION_SECRET='replace-this-with-a-long-random-encryption-secret' \
-  hermes:latest
+  -v eidon-data:/app/data \
+  -e EIDON_PASSWORD_LOGIN_ENABLED=true \
+  -e EIDON_ADMIN_USERNAME=admin \
+  -e EIDON_ADMIN_PASSWORD='replace-this-with-a-long-random-password' \
+  -e EIDON_SESSION_SECRET='replace-this-with-a-long-random-session-secret' \
+  -e EIDON_ENCRYPTION_SECRET='replace-this-with-a-long-random-encryption-secret' \
+  eidon:latest
 ```
 
-Then put Hermes behind HTTPS with your reverse proxy of choice.
+Then put Eidon behind HTTPS with your reverse proxy of choice.
 
 ### Run with Docker Compose
 
 ```yaml
 services:
-  hermes:
+  eidon:
     build: .
-    image: hermes:latest
+    image: eidon:latest
     restart: unless-stopped
     ports:
       - "3000:3000"
     environment:
-      HERMES_PASSWORD_LOGIN_ENABLED: "true"
-      HERMES_ADMIN_USERNAME: "admin"
-      HERMES_ADMIN_PASSWORD: "replace-this-with-a-long-random-password"
-      HERMES_SESSION_SECRET: "replace-this-with-a-long-random-session-secret"
-      HERMES_ENCRYPTION_SECRET: "replace-this-with-a-long-random-encryption-secret"
+      EIDON_PASSWORD_LOGIN_ENABLED: "true"
+      EIDON_ADMIN_USERNAME: "admin"
+      EIDON_ADMIN_PASSWORD: "replace-this-with-a-long-random-password"
+      EIDON_SESSION_SECRET: "replace-this-with-a-long-random-session-secret"
+      EIDON_ENCRYPTION_SECRET: "replace-this-with-a-long-random-encryption-secret"
     volumes:
-      - hermes-data:/app/data
+      - eidon-data:/app/data
 
 volumes:
-  hermes-data:
+  eidon-data:
 ```
 
 Start it with:
@@ -225,8 +225,8 @@ docker compose up -d --build
 
 ### First production login
 
-1. Visit your Hermes URL
-2. Sign in with `HERMES_ADMIN_USERNAME` and `HERMES_ADMIN_PASSWORD`
+1. Visit your Eidon URL
+2. Sign in with `EIDON_ADMIN_USERNAME` and `EIDON_ADMIN_PASSWORD`
 3. Open **Settings → Account**
 4. Rotate the username/password if needed
 5. Open **Settings → Providers** and set your provider API key
@@ -235,12 +235,12 @@ docker compose up -d --build
 
 | Variable | Purpose | Required in production |
 | --- | --- | --- |
-| `HERMES_PASSWORD_LOGIN_ENABLED` | Enables password-based login | No, but `true` is the normal production mode |
-| `HERMES_ADMIN_USERNAME` | Initial admin username | Yes |
-| `HERMES_ADMIN_PASSWORD` | Initial admin password | Yes |
-| `HERMES_SESSION_SECRET` | Session signing secret | Yes |
-| `HERMES_ENCRYPTION_SECRET` | Encryption seed for stored provider credentials | Yes |
-| `HERMES_DATA_DIR` | Directory for SQLite and runtime data | No |
+| `EIDON_PASSWORD_LOGIN_ENABLED` | Enables password-based login | No, but `true` is the normal production mode |
+| `EIDON_ADMIN_USERNAME` | Initial admin username | Yes |
+| `EIDON_ADMIN_PASSWORD` | Initial admin password | Yes |
+| `EIDON_SESSION_SECRET` | Session signing secret | Yes |
+| `EIDON_ENCRYPTION_SECRET` | Encryption seed for stored provider credentials | Yes |
+| `EIDON_DATA_DIR` | Directory for SQLite and runtime data | No |
 
 Runtime defaults:
 
@@ -250,16 +250,16 @@ Runtime defaults:
 
 ## Security Notes
 
-Hermes is single-user, but that user is highly privileged inside the app.
+Eidon is single-user, but that user is highly privileged inside the app.
 
-- Always terminate TLS before exposing Hermes to the internet
+- Always terminate TLS before exposing Eidon to the internet
 - Rate-limit `POST /api/auth/login` at the reverse proxy
 - Use long, random values for the admin password and both secrets
 - Persist `/app/data` on a named volume or host mount
 - Treat configured MCP servers and shell-capable skills as trusted/admin-level features
 - Rotate provider API keys and bootstrap secrets during redeploys when needed
 
-If you are deploying Hermes on a public VPS, the minimum baseline should be:
+If you are deploying Eidon on a public VPS, the minimum baseline should be:
 
 - HTTPS
 - Strong secrets

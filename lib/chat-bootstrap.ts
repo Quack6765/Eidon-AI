@@ -7,7 +7,7 @@ export type ChatBootstrapPayload = {
 };
 
 function getChatBootstrapStorageKey(conversationId: string) {
-  return `hermes:chat-bootstrap:${conversationId}`;
+  return `eidon:chat-bootstrap:${conversationId}`;
 }
 
 export function storeChatBootstrap(

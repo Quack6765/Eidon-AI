@@ -8,7 +8,7 @@ import { env, isPasswordLoginEnabled } from "@/lib/env";
 const publicPaths = ["/login"];
 
 function getSecret() {
-  return new TextEncoder().encode(env.HERMES_SESSION_SECRET);
+  return new TextEncoder().encode(env.EIDON_SESSION_SECRET);
 }
 
 export async function middleware(request: NextRequest) {

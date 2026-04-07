@@ -44,13 +44,13 @@ export function LoginForm() {
       <div className="space-y-3">
         <div className="flex items-center gap-3">
           <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent)] text-white text-sm font-bold shadow-[0_0_16px_var(--accent-glow)]">
-            H
+            E
           </div>
           <span
             className="text-3xl text-[var(--text)]"
             style={{ fontFamily: "var(--font-display)" }}
           >
-            Hermes
+            Eidon
           </span>
         </div>
         <p className="text-sm leading-relaxed text-[var(--muted)]">

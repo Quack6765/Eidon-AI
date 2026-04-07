@@ -51,14 +51,14 @@ describe("local shell", () => {
     const resultPromise = executeLocalShellCommand({
       command: "git status && git diff",
       allowedPrefixes: ["git"],
-      cwd: "/tmp/hermes"
+      cwd: "/tmp/eidon"
     });
 
     expect(spawnMock).toHaveBeenCalledWith(
       "zsh",
       ["-lc", "git status && git diff"],
       expect.objectContaining({
-        cwd: "/tmp/hermes",
+        cwd: "/tmp/eidon",
         env: process.env
       })
     );

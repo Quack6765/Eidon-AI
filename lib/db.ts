@@ -90,9 +90,9 @@ function deriveSkillDescription(content: string) {
 }
 
 function getDatabasePath() {
-  const dir = path.resolve(env.HERMES_DATA_DIR);
+  const dir = path.resolve(env.EIDON_DATA_DIR);
   fs.mkdirSync(dir, { recursive: true });
-  return path.join(dir, "hermes.db");
+  return path.join(dir, "eidon.db");
 }
 
 function migrate(db: Database.Database) {
