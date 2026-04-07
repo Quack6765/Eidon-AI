@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Plus, FileText } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Plus, FileText, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import type { Skill } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -20,6 +21,7 @@ export function SkillsSection() {
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch("/api/skills")
@@ -99,6 +101,26 @@ export function SkillsSection() {
     setMobileDetailVisible(true);
   }
 
+  function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result as string;
+      const metadata = parseSkillContentMetadata(text);
+      const filenameStem = file.name.replace(/\.md$/i, "");
+
+      handleAddNew();
+      setSkillName(metadata.name || filenameStem);
+      setSkillDescription(metadata.description || "");
+      setSkillContent(text);
+    };
+    reader.readAsText(file);
+
+    e.target.value = "";
+  }
+
   function resetSkillForm() {
     setSkillName("");
     setSkillDescription("");
@@ -126,13 +148,30 @@ export function SkillsSection() {
                 {skills.length} skill{skills.length !== 1 ? "s" : ""}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleAddNew}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] hover:text-[#f4f4f5] hover:bg-white/[0.06] transition-all duration-200"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
+            <div className="flex gap-1">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".md"
+                className="hidden"
+                onChange={handleImportFile}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] hover:text-[#f4f4f5] hover:bg-white/[0.06] transition-all duration-200"
+                title="Import skill from .md file"
+              >
+                <Upload className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={handleAddNew}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] hover:text-[#f4f4f5] hover:bg-white/[0.06] transition-all duration-200"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         }
         listPanel={
