@@ -113,6 +113,8 @@ function createPayload() {
         leafMinMessageCount: 6,
         mergedMinNodeCount: 4,
         mergedTargetTokens: 1600,
+        visionMode: "native" as const,
+        visionMcpServerId: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         hasApiKey: true
