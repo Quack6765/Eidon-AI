@@ -13,5 +13,13 @@ To validate:
 ### Dev Server
 
 - You may start the dev server (`npm run dev`) when needed.
-- **Before starting**, check if something is already running on port 3000 (`lsof -i :3000`). If a process is found, kill it first, then start fresh.
-- After starting, wait for the server to be ready before proceeding with validation.
+- The dev server uses a random port in the 3000-4000 range to support multiple worktrees.
+- **Before starting**, check if a `.dev-server` file exists in the project root.
+  - If it exists, read the URL from it (first line) and use that for testing.
+  - If the file exists but the server is not running (cannot connect), delete it and start fresh.
+- After starting `npm run dev`, wait for the `.dev-server` file to appear, then read the URL from it.
+- The `.dev-server` file format is:
+  ```
+  http://localhost:3127
+  PID: 12345
+  ```
