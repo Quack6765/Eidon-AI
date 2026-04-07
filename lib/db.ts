@@ -280,6 +280,13 @@ function migrate(db: Database.Database) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS user_memories (
+      id TEXT PRIMARY KEY,
+      content TEXT NOT NULL,
+      category TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
   `);
 
   const convCols = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
@@ -322,6 +329,12 @@ function migrate(db: Database.Database) {
   }
   if (!settingsColNames.includes("auto_compaction")) {
     db.exec("ALTER TABLE app_settings ADD COLUMN auto_compaction INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!settingsColNames.includes("memories_enabled")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN memories_enabled INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!settingsColNames.includes("memories_max_count")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN memories_max_count INTEGER NOT NULL DEFAULT 100");
   }
 
   const mcpCols = db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;
@@ -406,6 +419,7 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_memory_nodes_conversation_depth ON memory_nodes(conversation_id, depth, created_at);
     CREATE INDEX IF NOT EXISTS idx_memory_nodes_superseded ON memory_nodes(conversation_id, superseded_by_node_id);
     CREATE INDEX IF NOT EXISTS idx_folders_sort_order ON folders(sort_order);
+    CREATE INDEX IF NOT EXISTS idx_user_memories_category ON user_memories(category);
   `);
 
   const existingSkills = db
