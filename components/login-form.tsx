@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import Image from "next/image";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ArrowRight, LoaderCircle } from "lucide-react";
@@ -42,17 +43,14 @@ export function LoginForm() {
       className="relative z-10 mx-auto flex w-full max-w-[420px] flex-col gap-7 rounded-2xl border border-white/6 bg-white/[0.03] backdrop-blur-xl px-8 py-10 shadow-[var(--shadow)] animate-slide-up"
     >
       <div className="space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent)] text-white text-sm font-bold shadow-[0_0_16px_var(--accent-glow)]">
-            E
-          </div>
-          <span
-            className="text-3xl text-[var(--text)]"
-            style={{ fontFamily: "var(--font-display)" }}
-          >
-            Eidon
-          </span>
-        </div>
+        <Image
+          src="/logo.png"
+          alt="Eidon"
+          height={80}
+          width={110}
+          priority
+          className="mx-auto"
+        />
         <p className="text-sm leading-relaxed text-[var(--muted)]">
           A private conversational workspace with streaming, visible thinking, and long-memory compaction.
         </p>

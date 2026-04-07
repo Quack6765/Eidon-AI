@@ -3,6 +3,7 @@
 import { useState, type PropsWithChildren } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, Plus } from "lucide-react";
+import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/sidebar";
 import { SettingsNav } from "@/components/settings/settings-nav";
@@ -62,7 +63,14 @@ export function Shell({
             <Menu className="h-5 w-5" />
           </button>
 
-          <div className="font-semibold text-[var(--text)] text-sm tracking-wide">Eidon</div>
+          <Image
+            src="/logo.png"
+            alt="Eidon"
+            height={24}
+            width={34}
+            priority
+            className="mx-auto"
+          />
 
           <button
             type="button"
