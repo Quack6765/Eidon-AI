@@ -9,6 +9,7 @@ import { SettingsNav } from "@/components/settings/settings-nav";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
 import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
+import { useGlobalWebSocket } from "@/lib/ws-client";
 
 export function Shell({
   conversationPage,
@@ -18,6 +19,7 @@ export function Shell({
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
+  useGlobalWebSocket();
   const activeConversationId = pathname.startsWith("/chat/")
     ? pathname.split("/chat/")[1]
     : null;

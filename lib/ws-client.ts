@@ -129,3 +129,24 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
 
   return { send, subscribe, unsubscribe, connected, failed };
 }
+
+const globalListeners = new Set<(msg: ServerMessage) => void>();
+
+export function addGlobalWsListener(listener: (msg: ServerMessage) => void) {
+  globalListeners.add(listener);
+  return () => { globalListeners.delete(listener); };
+}
+
+export function useGlobalWebSocket(): { connected: boolean } {
+  const { connected } = useWebSocket({
+    onMessage: (msg) => {
+      if (msg.type === "conversation_created" || msg.type === "conversation_deleted" || msg.type === "conversation_updated") {
+        for (const listener of globalListeners) {
+          listener(msg);
+        }
+      }
+    }
+  });
+
+  return { connected };
+}
