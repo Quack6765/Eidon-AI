@@ -361,6 +361,16 @@ function migrate(db: Database.Database) {
     }
   }
 
+  const visionProfileCols = {
+    vision_mode: "TEXT NOT NULL DEFAULT 'native'",
+    vision_mcp_server_id: "TEXT"
+  };
+  for (const [colName, colDef] of Object.entries(visionProfileCols)) {
+    if (!profileColNames.includes(colName)) {
+      db.exec(`ALTER TABLE provider_profiles ADD COLUMN ${colName} ${colDef}`);
+    }
+  }
+
   try {
     db.exec(`ALTER TABLE compaction_events RENAME TO compaction_events_old`);
     db.exec(`

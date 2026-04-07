@@ -7,6 +7,7 @@ import {
   getProviderProfileWithApiKey,
   getSanitizedSettings,
   getDefaultProviderProfileWithApiKey,
+  getSettingsDefaults,
   getSettings,
   listProviderProfiles,
   updateSettings
@@ -186,6 +187,34 @@ describe("settings storage", () => {
     expect(getProviderProfile("missing")).toBeNull();
     expect(getProviderProfileWithApiKey("missing")).toBeNull();
     expect(getDefaultProviderProfile()?.id).toBe(alpha.id);
+  });
+
+  it("returns default provider settings including vision fields", () => {
+    const defaults = getSettingsDefaults();
+
+    expect(defaults.name).toBe("Default profile");
+    expect(defaults.visionMode).toBe("native");
+    expect(defaults.visionMcpServerId).toBeNull();
+  });
+
+  it("stores profiles with reasoning disabled and auto-compaction off", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-alpha",
+      reasoningSummaryEnabled: false
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: false,
+      autoCompaction: false,
+      providerProfiles: [alpha]
+    });
+
+    expect(getSettings().skillsEnabled).toBe(false);
+    expect(getSettings().autoCompaction).toBe(false);
+    expect(listProviderProfiles()[0].reasoningSummaryEnabled).toBe(false);
   });
 
   it("rejects duplicate profile ids and invalid defaults", () => {

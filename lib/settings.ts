@@ -11,7 +11,8 @@ import type {
   AppSettings,
   ProviderProfile,
   ProviderProfileWithApiKey,
-  ReasoningEffort
+  ReasoningEffort,
+  VisionMode
 } from "@/lib/types";
 
 const runtimeSettingsSchema = z.object({
@@ -32,7 +33,9 @@ const runtimeSettingsSchema = z.object({
   leafSourceTokenLimit: z.coerce.number().int().min(1000).max(100000).default(12000),
   leafMinMessageCount: z.coerce.number().int().min(2).max(50).default(6),
   mergedMinNodeCount: z.coerce.number().int().min(2).max(20).default(4),
-  mergedTargetTokens: z.coerce.number().int().min(128).max(16000).default(1600)
+  mergedTargetTokens: z.coerce.number().int().min(128).max(16000).default(1600),
+  visionMode: z.enum(["none", "native", "mcp"]).default("native"),
+  visionMcpServerId: z.string().nullable().default(null)
 });
 
 const providerProfileInputSchema = runtimeSettingsSchema.extend({
@@ -101,6 +104,8 @@ type ProviderProfileRow = {
   leaf_min_message_count: number;
   merged_min_node_count: number;
   merged_target_tokens: number;
+  vision_mode: string;
+  vision_mcp_server_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -137,6 +142,8 @@ function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
     leafMinMessageCount: row.leaf_min_message_count,
     mergedMinNodeCount: row.merged_min_node_count,
     mergedTargetTokens: row.merged_target_tokens,
+    visionMode: row.vision_mode as VisionMode,
+    visionMcpServerId: row.vision_mcp_server_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -166,6 +173,8 @@ function listProviderProfileRows() {
         leaf_min_message_count,
         merged_min_node_count,
         merged_target_tokens,
+        vision_mode,
+        vision_mcp_server_id,
         created_at,
         updated_at
       FROM provider_profiles
@@ -198,6 +207,8 @@ function getProviderProfileRow(profileId: string) {
         leaf_min_message_count,
         merged_min_node_count,
         merged_target_tokens,
+        vision_mode,
+        vision_mcp_server_id,
         created_at,
         updated_at
       FROM provider_profiles
@@ -318,6 +329,8 @@ export function updateSettings(input: unknown) {
         leaf_min_message_count,
         merged_min_node_count,
         merged_target_tokens,
+        vision_mode,
+        vision_mcp_server_id,
         created_at,
         updated_at
       ) VALUES (
@@ -341,6 +354,8 @@ export function updateSettings(input: unknown) {
         @leafMinMessageCount,
         @mergedMinNodeCount,
         @mergedTargetTokens,
+        @visionMode,
+        @visionMcpServerId,
         @createdAt,
         @updatedAt
       )
@@ -364,6 +379,8 @@ export function updateSettings(input: unknown) {
         leaf_min_message_count = excluded.leaf_min_message_count,
         merged_min_node_count = excluded.merged_min_node_count,
         merged_target_tokens = excluded.merged_target_tokens,
+        vision_mode = excluded.vision_mode,
+        vision_mcp_server_id = excluded.vision_mcp_server_id,
         updated_at = excluded.updated_at`
     );
 
@@ -392,6 +409,8 @@ export function updateSettings(input: unknown) {
         leafMinMessageCount: profile.leafMinMessageCount,
         mergedMinNodeCount: profile.mergedMinNodeCount,
         mergedTargetTokens: profile.mergedTargetTokens,
+        visionMode: profile.visionMode ?? "native",
+        visionMcpServerId: profile.visionMcpServerId ?? null,
         createdAt: current?.createdAt ?? timestamp,
         updatedAt: timestamp
       });

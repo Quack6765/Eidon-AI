@@ -12,7 +12,7 @@ import {
 } from "@/lib/conversations";
 import { ensureCompactedContext } from "@/lib/compaction";
 import { estimateTextTokens } from "@/lib/tokenization";
-import { listEnabledMcpServers } from "@/lib/mcp-servers";
+import { listEnabledMcpServers, getMcpServer } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
 import {
   getSettings,
@@ -120,6 +120,15 @@ export async function startChatTurn(
       mcpToolSets = await gatherAllMcpTools(mcpServers, conversation.toolExecutionMode);
     }
 
+    // Resolve vision MCP server if configured
+    let visionMcpServer: (typeof mcpServers)[number] | null = null;
+    if (settings.visionMode === "mcp" && settings.visionMcpServerId) {
+      const server = getMcpServer(settings.visionMcpServerId);
+      if (server && server.enabled) {
+        visionMcpServer = server;
+      }
+    }
+
     let timelineSortOrder = 0;
     let answerBuffer = "";
     let sawStreamedAnswerSinceLastSegment = false;
@@ -151,6 +160,7 @@ export async function startChatTurn(
       skills,
       mcpServers,
       mcpToolSets,
+      visionMcpServer,
       onEvent(event: ChatStreamEvent) {
         manager.broadcast(conversationId, {
           type: "delta",
