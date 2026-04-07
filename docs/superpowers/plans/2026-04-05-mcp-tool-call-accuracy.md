@@ -6,7 +6,7 @@
 
 **Architecture:** Three complementary fixes — (A) inject enum values into tool description text so the LLM sees valid options in natural language, (B) try `strict: true` on the Responses API with fallback to `false` for providers that support it, (C) server-side pre-validation of tool arguments against `inputSchema` before forwarding to MCP servers, auto-correcting invalid enum values.
 
-**Tech Stack:** TypeScript, existing Hermes server-side tool pipeline (`lib/assistant-runtime.ts`, `lib/provider.ts`, `lib/mcp-client.ts`)
+**Tech Stack:** TypeScript, existing Eidon server-side tool pipeline (`lib/assistant-runtime.ts`, `lib/provider.ts`, `lib/mcp-client.ts`)
 
 ---
 

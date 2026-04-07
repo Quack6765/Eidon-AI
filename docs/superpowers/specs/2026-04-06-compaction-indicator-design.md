@@ -2,7 +2,7 @@
 
 ## Overview
 
-Hermes currently shows the compaction notice as visible transcript text: `Older context compacted to stay within model limits.` During live turns this can appear twice because the UI receives both a streamed notice and a persisted system message. The desired behavior is different from both the current text and the current persistence model.
+Eidon currently shows the compaction notice as visible transcript text: `Older context compacted to stay within model limits.` During live turns this can appear twice because the UI receives both a streamed notice and a persisted system message. The desired behavior is different from both the current text and the current persistence model.
 
 This design replaces the visible compaction notice with a transient in-progress separator. While compaction is running, the chat transcript shows a faint horizontal divider with the label `Compacting` and a low-contrast animated sweep. Once compaction finishes and normal assistant output continues, the separator disappears entirely and does not remain in the transcript.
 
@@ -98,7 +98,7 @@ Use a hybrid cleanup that changes both the server contract and the client reconc
 
 ### Styling
 
-- Use Hermes dark theme tokens from `app/globals.css`
+- Use Eidon dark theme tokens from `app/globals.css`
 - Reuse the existing accent and border language rather than introducing a new palette
 - Implement the sweep with CSS keyframes in the global stylesheet or another shared styling location
 - Keep the effect understated:

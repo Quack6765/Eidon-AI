@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Hermes chat compaction system manages LLM context windows by summarizing older messages and injecting them as structured memory alongside fresh conversation tail. This design improves compaction quality, prevents failures, adds configurability, and uses smarter memory retrieval.
+The Eidon chat compaction system manages LLM context windows by summarizing older messages and injecting them as structured memory alongside fresh conversation tail. This design improves compaction quality, prevents failures, adds configurability, and uses smarter memory retrieval.
 
 Implementation is structured in 3 independent stages, each shipable separately.
 
