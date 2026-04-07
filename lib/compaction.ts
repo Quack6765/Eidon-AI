@@ -566,6 +566,7 @@ async function scoreMemoryNodes(input: {
 
 export function buildPromptMessages(input: {
   systemPrompt: string;
+  personaContent?: string;
   messages: Message[];
   activeMemoryNodes: MemoryNode[];
   userInput?: string;
@@ -577,6 +578,11 @@ export function buildPromptMessages(input: {
 
   // Build single merged system message
   const systemParts: string[] = [input.systemPrompt];
+
+  // Append persona content if provided
+  if (input.personaContent?.trim()) {
+    systemParts.push(input.personaContent.trim());
+  }
 
   if (input.activeMemoryNodes.length) {
     systemParts.push(
