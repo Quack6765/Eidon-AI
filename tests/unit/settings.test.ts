@@ -7,6 +7,7 @@ import {
   getProviderProfileWithApiKey,
   getSanitizedSettings,
   getDefaultProviderProfileWithApiKey,
+  getSettingsDefaults,
   getSettings,
   listProviderProfiles,
   updateSettings
@@ -186,6 +187,14 @@ describe("settings storage", () => {
     expect(getProviderProfile("missing")).toBeNull();
     expect(getProviderProfileWithApiKey("missing")).toBeNull();
     expect(getDefaultProviderProfile()?.id).toBe(alpha.id);
+  });
+
+  it("returns default provider settings including vision fields", () => {
+    const defaults = getSettingsDefaults();
+
+    expect(defaults.name).toBe("Default profile");
+    expect(defaults.visionMode).toBe("native");
+    expect(defaults.visionMcpServerId).toBeNull();
   });
 
   it("rejects duplicate profile ids and invalid defaults", () => {
