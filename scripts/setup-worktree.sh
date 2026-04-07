@@ -49,4 +49,9 @@ echo "Setting up worktree from main: $MAIN_WT"
 copy_dir "$MAIN_WT/.env" "$WORKTREE_DIR/.env"
 copy_dir "$MAIN_WT/.data" "$WORKTREE_DIR/.data"
 
+if [ ! -e "$WORKTREE_DIR/node_modules" ]; then
+    echo "Installing npm dependencies..."
+    npm install --prefix "$WORKTREE_DIR"
+fi
+
 echo "Worktree setup complete."
