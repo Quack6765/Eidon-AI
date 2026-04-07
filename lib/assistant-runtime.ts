@@ -1,8 +1,9 @@
+import { resolveAttachmentPath } from "@/lib/attachments";
 import { getMemory as getMemoryRecord, createMemory, updateMemory as updateMemoryRecord, deleteMemory as deleteMemoryRecord, getMemoryCount } from "@/lib/memories";
 import { getSettings } from "@/lib/settings";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shell";
-import { callMcpTool, summarizeToolResult } from "@/lib/mcp-client";
+import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { extractEnumHints, coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { streamProviderResponse } from "@/lib/provider";
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
@@ -270,10 +271,10 @@ function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[]
 
 function buildVisionMcpDirective(
   mcpServer: McpServer,
-  attachments: Array<{ id: string; filename: string }>
+  attachments: Array<{ id: string; filename: string; absolutePath: string }>
 ): string {
   const attachmentList = attachments
-    .map((a) => `- ${a.filename} (attachment ID: ${a.id})`)
+    .map((a) => `- ${a.filename} (path: ${a.absolutePath})`)
     .join("\n");
 
   return [
@@ -281,13 +282,13 @@ function buildVisionMcpDirective(
     "",
     `Vision MCP server: ${mcpServer.name} (id: ${mcpServer.id})`,
     "",
-    "User attachments in this conversation:",
+    "User attachments in this conversation (use the file path when calling vision tools):",
     attachmentList
   ].join("\n");
 }
 
-function extractImageAttachments(promptMessages: PromptMessage[]): Array<{ id: string; filename: string }> {
-  const attachments: Array<{ id: string; filename: string }> = [];
+function extractImageAttachments(promptMessages: PromptMessage[]): Array<{ id: string; filename: string; absolutePath: string }> {
+  const attachments: Array<{ id: string; filename: string; absolutePath: string }> = [];
 
   for (const message of promptMessages) {
     if (typeof message.content === "string") continue;
@@ -296,7 +297,8 @@ function extractImageAttachments(promptMessages: PromptMessage[]): Array<{ id: s
       if (part.type === "image") {
         attachments.push({
           id: part.attachmentId,
-          filename: part.filename
+          filename: part.filename,
+          absolutePath: resolveAttachmentPath({ relativePath: part.relativePath })
         });
       }
     }
@@ -337,24 +339,6 @@ function buildToolResultMessage(toolCallId: string, content: string): PromptMess
   };
 }
 
-function buildMcpToolResultForPrompt(input: {
-  server: McpServer;
-  tool: McpTool;
-  args: Record<string, unknown>;
-  resultSummary: string;
-  isError: boolean;
-}) {
-  return [
-    "MCP tool result",
-    `Server: ${input.server.name} (${input.server.id})`,
-    `Tool: ${input.tool.name}`,
-    `Arguments: ${JSON.stringify(input.args)}`,
-    `Status: ${input.isError ? "error" : "success"}`,
-    "Result:",
-    input.resultSummary
-  ].join("\n");
-}
-
 function buildShellResultForPrompt(input: { command: string; resultSummary: string; isError: boolean }) {
   return [
     "Local shell command result",
@@ -372,6 +356,7 @@ async function executeMcpToolCall(
   context: {
     input: {
       mcpToolSets: ToolSet[];
+      mcpTimeout?: number;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -400,7 +385,7 @@ async function executeMcpToolCall(
   }
 
   if (!resolvedServer || !resolvedTool) {
-    const resultMsg = buildToolResultMessage(toolCallId, "The requested MCP tool is unavailable in the current tool mode or does not exist.");
+    const resultMsg = buildToolResultMessage(toolCallId, "The requested MCP tool does not exist.");
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
@@ -438,24 +423,16 @@ async function executeMcpToolCall(
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
   const correctedArgs = coerceEnumValues(resolvedTool.inputSchema ?? {}, args);
-  const result = await callMcpTool(resolvedServer, resolvedTool.name, correctedArgs);
-  const resultSummary = summarizeToolResult(result);
+  const result = await callMcpTool(resolvedServer, resolvedTool.name, correctedArgs, context.input.mcpTimeout);
+  const resultText = getToolResultText(result);
 
   sortOrder += 1;
 
   if (result.isError) {
-    await context.input.onActionError?.(actionHandle, { detail: buildArgumentsSummary(args), resultSummary });
+    await context.input.onActionError?.(actionHandle, { detail: buildArgumentsSummary(args), resultSummary: resultText });
   } else {
-    await context.input.onActionComplete?.(actionHandle, { detail: buildArgumentsSummary(args), resultSummary });
+    await context.input.onActionComplete?.(actionHandle, { detail: buildArgumentsSummary(args), resultSummary: resultText });
   }
-
-  const resultText = buildMcpToolResultForPrompt({
-    server: resolvedServer,
-    tool: resolvedTool,
-    args: correctedArgs,
-    resultSummary,
-    isError: Boolean(result.isError)
-  });
 
   if (!result.isError && resolvedTool.annotations?.readOnlyHint === true) {
     context.successfulReadOnlyToolResults.set(successfulReadOnlyToolKey, {
@@ -871,6 +848,7 @@ export async function resolveAssistantTurn(input: {
   mcpToolSets: ToolSet[];
   visionMcpServer?: McpServer | null;
   memoriesEnabled?: boolean;
+  mcpTimeout?: number;
   onEvent?: (event: ChatStreamEvent) => void;
   onAnswerSegment?: (segment: string) => Promise<void> | void;
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;

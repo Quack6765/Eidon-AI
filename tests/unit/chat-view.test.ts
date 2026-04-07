@@ -84,14 +84,12 @@ function createPayload() {
       titleGenerationStatus: "completed" as const,
       folderId: null,
       providerProfileId: "profile_default",
-      toolExecutionMode: "read_only" as const,
       sortOrder: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       isActive: false
     },
     messages: [],
-    toolExecutionMode: "read_only" as const,
     providerProfiles: [
       {
         id: "profile_default",

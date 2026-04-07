@@ -119,12 +119,14 @@ app.prepare().then(async () => {
     writeDevServerFile(port);
 
     process.on("exit", cleanupDevServerFile);
-    process.on("SIGINT", () => {
+    process.on("SIGINT", async () => {
       cleanupDevServerFile();
+      await require("./ws-handler-compiled.cjs").shutdownAllProcesses?.();
       process.exit(0);
     });
-    process.on("SIGTERM", () => {
+    process.on("SIGTERM", async () => {
       cleanupDevServerFile();
+      await require("./ws-handler-compiled.cjs").shutdownAllProcesses?.();
       process.exit(0);
     });
   } else {
@@ -134,6 +136,14 @@ app.prepare().then(async () => {
   }
 
   console.log(`> Ready on http://localhost:${port}`);
+
+  // Initialize MCP server connections in the background
+  const { initializeMcpServers } = require("./ws-handler-compiled.cjs");
+  if (initializeMcpServers) {
+    initializeMcpServers().catch((err) => {
+      console.error("[mcp] Failed to initialize MCP servers:", err.message);
+    });
+  }
 }).catch((err) => {
   console.error("[server] Next.js prepare failed:", err);
   process.exit(1);

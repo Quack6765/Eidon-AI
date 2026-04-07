@@ -10,8 +10,7 @@ import { shouldAutofocusTextInput } from "@/lib/utils";
 import type {
   Conversation,
   MessageAttachment,
-  ProviderProfileSummary,
-  ToolExecutionMode
+  ProviderProfileSummary
 } from "@/lib/types";
 
 type HomeViewProps = {
@@ -27,8 +26,6 @@ export function HomeView({
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [providerProfileId, setProviderProfileId] = useState(defaultProviderProfileId);
-  const [toolExecutionMode, setToolExecutionMode] =
-    useState<ToolExecutionMode>("read_only");
   const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -89,8 +86,7 @@ export function HomeView({
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        providerProfileId,
-        toolExecutionMode
+        providerProfileId
       })
     });
 
@@ -112,7 +108,6 @@ export function HomeView({
 
   async function syncDraftConversation(updates: {
     providerProfileId?: string;
-    toolExecutionMode?: ToolExecutionMode;
   }) {
     if (!draftConversationId) {
       return;
@@ -219,25 +214,6 @@ export function HomeView({
       await syncDraftConversation({ providerProfileId: nextProviderProfileId });
     } catch (caughtError) {
       setProviderProfileId(previousProviderProfileId);
-      setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Unable to update conversation settings"
-      );
-    }
-  }
-
-  async function handleToolExecutionModeChange(
-    nextToolExecutionMode: ToolExecutionMode
-  ) {
-    const previousToolExecutionMode = toolExecutionMode;
-    setError("");
-    setToolExecutionMode(nextToolExecutionMode);
-
-    try {
-      await syncDraftConversation({ toolExecutionMode: nextToolExecutionMode });
-    } catch (caughtError) {
-      setToolExecutionMode(previousToolExecutionMode);
       setError(
         caughtError instanceof Error
           ? caughtError.message
@@ -353,8 +329,6 @@ export function HomeView({
           personas={personas}
           personaId={personaId}
           onPersonaChange={setPersonaId}
-          toolExecutionMode={toolExecutionMode}
-          onToolExecutionModeChange={handleToolExecutionModeChange}
           textareaRef={textareaRef}
           usedTokens={null}
           modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}

@@ -34,8 +34,7 @@ export async function GET(request: Request) {
 const createSchema = z.object({
   title: z.string().optional(),
   folderId: z.string().nullable().optional(),
-  providerProfileId: z.string().min(1).optional(),
-  toolExecutionMode: z.enum(["read_only", "read_write"]).optional()
+  providerProfileId: z.string().min(1).optional()
 });
 
 export async function POST(request: Request) {
@@ -53,7 +52,6 @@ export async function POST(request: Request) {
   const title = body.success ? body.data.title : undefined;
   const folderId = body.success ? body.data.folderId : undefined;
   const providerProfileId = body.success ? body.data.providerProfileId : undefined;
-  const toolExecutionMode = body.success ? body.data.toolExecutionMode : undefined;
 
   if (providerProfileId !== undefined && !getProviderProfile(providerProfileId)) {
     return badRequest("Provider profile not found", 404);
@@ -62,8 +60,7 @@ export async function POST(request: Request) {
   return ok(
     {
       conversation: createConversation(title, folderId, {
-        providerProfileId,
-        toolExecutionMode
+        providerProfileId
       })
     },
     { status: 201 }

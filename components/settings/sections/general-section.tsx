@@ -15,6 +15,7 @@ export function GeneralSection({ settings }: { settings: AppSettings }) {
     settings.conversationRetention
   );
   const [autoCompaction, setAutoCompaction] = useState(settings.autoCompaction);
+  const [mcpTimeout, setMcpTimeout] = useState(settings.mcpTimeout);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
 
@@ -34,6 +35,7 @@ export function GeneralSection({ settings }: { settings: AppSettings }) {
         skillsEnabled: current.settings.skillsEnabled,
         conversationRetention,
         autoCompaction,
+        mcpTimeout,
         providerProfiles: current.settings.providerProfiles,
       }),
     });
@@ -80,6 +82,22 @@ export function GeneralSection({ settings }: { settings: AppSettings }) {
             />
             <div className="h-5 w-9 rounded-full bg-white/10 transition-colors peer-checked:bg-[var(--accent)] after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
           </label>
+        </SettingRow>
+      </SettingsCard>
+
+      <SettingsCard title="MCP Server Timeout">
+        <SettingRow
+          label="Max tool call timeout"
+          description="Maximum time (seconds) to wait for an MCP server to respond to a tool call"
+        >
+          <input
+            type="number"
+            min={10}
+            max={600}
+            value={Math.round(mcpTimeout / 1000)}
+            onChange={(e) => setMcpTimeout(Number(e.target.value) * 1000)}
+            className="w-20 rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]/30 transition-all duration-200"
+          />
         </SettingRow>
       </SettingsCard>
 

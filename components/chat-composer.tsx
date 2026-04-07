@@ -9,7 +9,6 @@ import {
   FileText,
   LoaderCircle,
   Paperclip,
-  Pen,
   Users,
   X
 } from "lucide-react";
@@ -19,8 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import type {
   MessageAttachment,
-  ProviderProfileSummary,
-  ToolExecutionMode
+  ProviderProfileSummary
 } from "@/lib/types";
 
 type ChatComposerProps = {
@@ -39,8 +37,6 @@ type ChatComposerProps = {
   personas: Array<{ id: string; name: string }>;
   personaId: string | null;
   onPersonaChange: (personaId: string | null) => void | Promise<void>;
-  toolExecutionMode: ToolExecutionMode;
-  onToolExecutionModeChange: (toolExecutionMode: ToolExecutionMode) => void | Promise<void>;
   textareaRef?: React.Ref<HTMLTextAreaElement>;
   className?: string;
   usedTokens: number | null;
@@ -65,8 +61,6 @@ export function ChatComposer({
   personas,
   personaId,
   onPersonaChange,
-  toolExecutionMode,
-  onToolExecutionModeChange,
   textareaRef,
   className,
   usedTokens,
@@ -255,30 +249,6 @@ export function ChatComposer({
               maxLimit={modelContextLimit}
             />
           )}
-          <span className="text-[11px] text-white/40 select-none">Tool Selection</span>
-          <div className="relative group">
-            <button
-              className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0 flex items-center gap-1"
-              aria-label="Tool mode"
-              type="button"
-            >
-              <Pen className="h-5 w-5" />
-              <span className="text-[11px] text-white/40">
-                {toolExecutionMode === "read_only" ? "Read" : "Write"}
-              </span>
-            </button>
-            <select
-              value={toolExecutionMode}
-              onChange={(event) =>
-                void onToolExecutionModeChange(event.target.value as ToolExecutionMode)
-              }
-              className="absolute inset-0 opacity-0 cursor-pointer"
-              disabled={isSending}
-            >
-              <option value="read_only">Read-Only</option>
-              <option value="read_write">Read/Write</option>
-            </select>
-          </div>
         </div>
       </div>
     </div>

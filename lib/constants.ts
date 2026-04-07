@@ -9,7 +9,6 @@ export const DEFAULT_CONVERSATION_RETENTION: ConversationRetention = "forever";
 export const DEFAULT_AUTO_COMPACTION = true;
 export const DEFAULT_MEMORIES_ENABLED = true;
 export const DEFAULT_MEMORIES_MAX_COUNT = 100;
-export const DEFAULT_TOOL_EXECUTION_MODE = "read_only";
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MAX_ASSISTANT_CONTROL_STEPS = 16;
 export const SAFETY_MARGIN_TOKENS = 1200;

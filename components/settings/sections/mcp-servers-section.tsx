@@ -152,20 +152,21 @@ export function McpServersSection() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-      const result = (await response.json()) as { text?: string; error?: string; toolCount?: number };
+      const result = (await response.json()) as { text?: string; error?: string; toolCount?: number; stderr?: string };
       const message = result.text ?? result.error ?? "No result";
+      const fullMessage = result.stderr ? `${message}\n${result.stderr}` : message;
 
       if (serverId) {
         setMcpRowTestResults((current) => ({
           ...current,
-          [serverId]: message
+          [serverId]: fullMessage
         }));
       } else {
-        setMcpDraftTestResult(message);
+        setMcpDraftTestResult(fullMessage);
       }
 
       if (!response.ok) {
-        setError(message);
+        setError(fullMessage);
       }
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "MCP connection test failed";

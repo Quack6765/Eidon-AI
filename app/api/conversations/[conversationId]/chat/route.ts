@@ -138,7 +138,7 @@ export async function POST(
         }> = [];
         if (mcpServers.length) {
           const { gatherAllMcpTools } = await import("@/lib/mcp-client");
-          mcpToolSets = await gatherAllMcpTools(mcpServers, conversation.toolExecutionMode);
+          mcpToolSets = await gatherAllMcpTools(mcpServers);
         }
 
         let timelineSortOrder = 0;
@@ -149,6 +149,7 @@ export async function POST(
           skills,
           mcpServers,
           mcpToolSets,
+          mcpTimeout: appSettings.mcpTimeout,
           onEvent: write,
           onAnswerSegment(segment) {
             createMessageTextSegment({

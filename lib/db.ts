@@ -6,7 +6,6 @@ import Database from "better-sqlite3";
 import {
   DEFAULT_PROVIDER_PROFILE_NAME,
   DEFAULT_PROVIDER_SETTINGS,
-  DEFAULT_TOOL_EXECUTION_MODE,
   DEFAULT_SKILLS_ENABLED,
   SETTINGS_ROW_ID
 } from "@/lib/constants";
@@ -129,6 +128,7 @@ function migrate(db: Database.Database) {
       model_context_limit INTEGER NOT NULL,
       compaction_threshold REAL NOT NULL,
       fresh_tail_count INTEGER NOT NULL,
+      mcp_timeout INTEGER NOT NULL DEFAULT 120000,
       updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS provider_profiles (
@@ -309,7 +309,7 @@ function migrate(db: Database.Database) {
   }
   if (!convColNames.includes("tool_execution_mode")) {
     db.exec(
-      `ALTER TABLE conversations ADD COLUMN tool_execution_mode TEXT NOT NULL DEFAULT '${DEFAULT_TOOL_EXECUTION_MODE}'`
+      `ALTER TABLE conversations ADD COLUMN tool_execution_mode TEXT NOT NULL DEFAULT 'read_write'`
     );
   }
   if (!convColNames.includes("is_active")) {
@@ -335,6 +335,9 @@ function migrate(db: Database.Database) {
   }
   if (!settingsColNames.includes("memories_max_count")) {
     db.exec("ALTER TABLE app_settings ADD COLUMN memories_max_count INTEGER NOT NULL DEFAULT 100");
+  }
+  if (!settingsColNames.includes("mcp_timeout")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN mcp_timeout INTEGER NOT NULL DEFAULT 120000");
   }
 
   const mcpCols = db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;

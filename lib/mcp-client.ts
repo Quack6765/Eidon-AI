@@ -3,7 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import { MCP_PROTOCOL_VERSION } from "@/lib/constants";
-import type { McpServer, McpTool, McpToolCallResult, ToolExecutionMode } from "@/lib/types";
+import type { McpServer, McpTool, McpToolCallResult } from "@/lib/types";
 
 type ConnectedMcpClient = {
   key: string;
@@ -97,7 +97,7 @@ async function createConnectedClient(server: TestableMcpServer) {
   return { key: getServerKey(server), client, transport };
 }
 
-async function getConnectedClient(server: McpServer) {
+export async function getConnectedClient(server: McpServer) {
   const key = getServerKey(server);
   const existing = connectedClients.get(key);
 
@@ -108,16 +108,6 @@ async function getConnectedClient(server: McpServer) {
   const connection = await createConnectedClient(server);
   connectedClients.set(key, connection);
   return connection;
-}
-
-async function withEphemeralClient<T>(server: TestableMcpServer, handler: (connection: ConnectedMcpClient) => Promise<T>) {
-  const connection = await createConnectedClient(server);
-
-  try {
-    return await handler(connection);
-  } finally {
-    await closeTransport(connection.transport);
-  }
 }
 
 async function closeTransport(transport: StdioClientTransport | StreamableHTTPClientTransport) {
@@ -138,15 +128,8 @@ function normalizeTool(tool: Awaited<ReturnType<Client["listTools"]>>["tools"][n
   };
 }
 
-function filterToolsForMode(tools: McpTool[], mode: ToolExecutionMode) {
-  if (mode === "read_write") {
-    return tools;
-  }
 
-  return tools.filter((tool) => tool.annotations?.readOnlyHint === true);
-}
-
-export function summarizeToolResult(result: McpToolCallResult) {
+export function getToolResultText(result: McpToolCallResult) {
   const textParts = result.content
     .map((item) => {
       if (item.type === "text" && item.text) {
@@ -168,14 +151,13 @@ export function summarizeToolResult(result: McpToolCallResult) {
     })
     .filter(Boolean);
 
-  const summary = textParts.join("\n").trim();
-  if (summary) {
-    return summary.length > 280 ? `${summary.slice(0, 277)}...` : summary;
+  const fullText = textParts.join("\n").trim();
+  if (fullText) {
+    return fullText;
   }
 
   if (result.structuredContent) {
-    const json = JSON.stringify(result.structuredContent);
-    return json.length > 280 ? `${json.slice(0, 277)}...` : json;
+    return JSON.stringify(result.structuredContent);
   }
 
   return result.isError ? "Tool call failed." : "Tool call completed.";
@@ -197,7 +179,8 @@ export async function discoverMcpTools(server: McpServer): Promise<McpTool[]> {
 export async function callMcpTool(
   server: McpServer,
   toolName: string,
-  args: Record<string, unknown>
+  args: Record<string, unknown>,
+  timeout: number = 120_000
 ): Promise<McpToolCallResult> {
   try {
     const connection = await getConnectedClient(server);
@@ -208,8 +191,8 @@ export async function callMcpTool(
       },
       undefined,
       {
-        timeout: 60_000,
-        maxTotalTimeout: 60_000
+        timeout,
+        maxTotalTimeout: timeout
       }
     );
 
@@ -246,8 +229,7 @@ export async function callMcpTool(
 }
 
 export async function gatherAllMcpTools(
-  servers: McpServer[],
-  mode: ToolExecutionMode = "read_write"
+  servers: McpServer[]
 ): Promise<
   Array<{
     server: McpServer;
@@ -257,7 +239,7 @@ export async function gatherAllMcpTools(
   const results = await Promise.all(
     servers.map(async (server) => ({
       server,
-      tools: filterToolsForMode(await discoverMcpTools(server), mode)
+      tools: await discoverMcpTools(server)
     }))
   );
 
@@ -280,24 +262,48 @@ export async function shutdownAllProcesses() {
   await Promise.all(activeConnections.map((connection) => closeTransport(connection.transport)));
 }
 
+export async function initializeMcpServers() {
+  const { listEnabledMcpServers } = await import("@/lib/mcp-servers");
+  const servers = listEnabledMcpServers();
+  await Promise.allSettled(servers.map((server) => getConnectedClient(server)));
+}
+
 export async function testMcpServerConnection(server: TestableMcpServer) {
-  return withEphemeralClient(server, async (connection) => {
-    const toolResult = await connection.client.listTools(undefined, {
+  const transport = createTransport(server);
+  let stderrOutput = "";
+
+  if (transport instanceof StdioClientTransport && transport.stderr) {
+    transport.stderr.on("data", (chunk: Buffer) => {
+      stderrOutput += chunk.toString();
+    });
+  }
+
+  const client = createClient();
+
+  try {
+    await client.connect(transport, {
+      timeout: 30_000,
+      maxTotalTimeout: 30_000
+    });
+    const toolResult = await client.listTools(undefined, {
       timeout: 30_000,
       maxTotalTimeout: 30_000
     });
     return {
       protocolVersion:
-        connection.transport instanceof StreamableHTTPClientTransport
-          ? connection.transport.protocolVersion ?? MCP_PROTOCOL_VERSION
+        transport instanceof StreamableHTTPClientTransport
+          ? transport.protocolVersion ?? MCP_PROTOCOL_VERSION
           : MCP_PROTOCOL_VERSION,
-      serverInfo: connection.client.getServerVersion() ?? null,
+      serverInfo: client.getServerVersion() ?? null,
       sessionId:
-        connection.transport instanceof StreamableHTTPClientTransport
-          ? connection.transport.sessionId ?? null
+        transport instanceof StreamableHTTPClientTransport
+          ? transport.sessionId ?? null
           : null,
       toolCount: toolResult.tools.length,
-      tools: toolResult.tools.map(normalizeTool)
+      tools: toolResult.tools.map(normalizeTool),
+      stderr: stderrOutput || undefined
     };
-  });
+  } finally {
+    await closeTransport(transport);
+  }
 }

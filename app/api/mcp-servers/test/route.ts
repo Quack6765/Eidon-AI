@@ -69,9 +69,11 @@ export async function POST(request: Request) {
       serverInfo: result.serverInfo,
       sessionId: result.sessionId,
       toolCount: result.toolCount,
-      text: `${result.toolCount} tool${result.toolCount === 1 ? "" : "s"} discovered`
+      text: `${result.toolCount} tool${result.toolCount === 1 ? "" : "s"} discovered`,
+      stderr: result.stderr
     });
   } catch (error) {
-    return badRequest(error instanceof Error ? error.message : "MCP connection test failed", 502);
+    const message = error instanceof Error ? error.message : "MCP connection test failed";
+    return badRequest(message, 502);
   }
 }

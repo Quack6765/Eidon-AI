@@ -51,6 +51,7 @@ const settingsSchema = z
     autoCompaction: z.coerce.boolean().default(true),
     memoriesEnabled: z.coerce.boolean().default(true),
     memoriesMaxCount: z.coerce.number().int().min(1).max(500).default(100),
+    mcpTimeout: z.coerce.number().int().min(10_000).max(600_000).default(120_000),
     providerProfiles: z.array(providerProfileInputSchema).min(1)
   })
   .superRefine((value, context) => {
@@ -84,6 +85,7 @@ type AppSettingsRow = {
   auto_compaction: number;
   memories_enabled: number;
   memories_max_count: number;
+  mcp_timeout: number;
   updated_at: string;
 };
 
@@ -122,6 +124,7 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     autoCompaction: Boolean(row.auto_compaction),
     memoriesEnabled: Boolean(row.memories_enabled),
     memoriesMaxCount: row.memories_max_count,
+    mcpTimeout: row.mcp_timeout,
     updatedAt: row.updated_at
   };
 }
@@ -449,6 +452,7 @@ export function updateSettings(input: unknown) {
              auto_compaction = ?,
              memories_enabled = ?,
              memories_max_count = ?,
+             mcp_timeout = ?,
              updated_at = ?
          WHERE id = ?`
       )
@@ -459,6 +463,7 @@ export function updateSettings(input: unknown) {
         parsed.autoCompaction ? 1 : 0,
         parsed.memoriesEnabled ? 1 : 0,
         parsed.memoriesMaxCount,
+        parsed.mcpTimeout,
         timestamp,
         SETTINGS_ROW_ID
       );
