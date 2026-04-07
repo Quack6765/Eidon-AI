@@ -89,8 +89,9 @@ async function findRandomPort(server: ReturnType<typeof createServer>): Promise<
   });
 }
 
+const isDev = process.env.NODE_ENV !== "production";
 const preferredPort = process.env.PORT ? parseInt(process.env.PORT, 10) : null;
-const app = next({ dev: process.env.NODE_ENV !== "production" });
+const app = next({ dev: isDev });
 const handle = app.getRequestHandler();
 
 app.prepare().then(async () => {
@@ -101,35 +102,38 @@ app.prepare().then(async () => {
   const wss = new WebSocketServer({ server, path: "/ws" });
   setupWebSocketHandler(wss);
 
-  // Handle stale .dev-server file
-  const existing = parseDevServerFile();
-  if (existing && !isProcessRunning(existing.pid)) {
-    cleanupDevServerFile();
-  }
-
   let port: number;
-  if (preferredPort !== null) {
-    // Use explicit PORT from environment
-    await findAvailablePort(server, preferredPort);
-    port = preferredPort;
+
+  if (isDev) {
+    // Development: use random port and write .dev-server file
+    const existing = parseDevServerFile();
+    if (existing && !isProcessRunning(existing.pid)) {
+      cleanupDevServerFile();
+    }
+
+    if (preferredPort !== null) {
+      await findAvailablePort(server, preferredPort);
+      port = preferredPort;
+    } else {
+      port = await findRandomPort(server);
+    }
+
+    writeDevServerFile(port);
+
+    process.on("exit", cleanupDevServerFile);
+    process.on("SIGINT", () => {
+      cleanupDevServerFile();
+      process.exit(0);
+    });
+    process.on("SIGTERM", () => {
+      cleanupDevServerFile();
+      process.exit(0);
+    });
   } else {
-    // Find random available port
-    port = await findRandomPort(server);
+    // Production: use PORT or default to 3000, no .dev-server file
+    port = preferredPort ?? 3000;
+    await findAvailablePort(server, port);
   }
-
-  // Write .dev-server file
-  writeDevServerFile(port);
-
-  // Cleanup on exit
-  process.on("exit", cleanupDevServerFile);
-  process.on("SIGINT", () => {
-    cleanupDevServerFile();
-    process.exit(0);
-  });
-  process.on("SIGTERM", () => {
-    cleanupDevServerFile();
-    process.exit(0);
-  });
 
   console.log(`> Ready on http://localhost:${port}`);
 });
