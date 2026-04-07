@@ -13,3 +13,4 @@ tsconfig.tsbuildinfo
 .superpowers/
 .worktrees/
 .env
+.dev-server
