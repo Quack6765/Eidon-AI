@@ -51,9 +51,11 @@ class MockStdioTransport {
     this.onclose?.();
   });
   options: Record<string, unknown>;
+  stderr: { on: ReturnType<typeof vi.fn> } | undefined;
 
   constructor(options: Record<string, unknown>) {
     this.options = options;
+    this.stderr = { on: vi.fn() };
     stdioTransportInstances.push(this);
   }
 }
@@ -92,6 +94,11 @@ vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
 
 vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
   StreamableHTTPClientTransport: MockStreamableHTTPTransport
+}));
+
+const listEnabledMcpServers = vi.fn();
+vi.mock("@/lib/mcp-servers", () => ({
+  listEnabledMcpServers
 }));
 
 function createHttpServer(): McpServer {
@@ -139,6 +146,7 @@ describe("MCP client", () => {
     nextServerVersion = { name: "Mock MCP Server", version: "1.0.0" };
     nextHttpSessionId = "session_test";
     nextHttpProtocolVersion = "2025-03-26";
+    listEnabledMcpServers.mockReset();
   });
 
   it("connects over stdio, lists tools, and reuses the initialized client for tool calls", async () => {
@@ -442,5 +450,33 @@ describe("MCP client", () => {
 
     expect(result.length).toBe(400);
     expect(result).toBe(longText);
+  });
+
+  it("initializes all enabled MCP servers on boot", async () => {
+    listEnabledMcpServers.mockReturnValue([createStdioServer(), createHttpServer()]);
+
+    const { initializeMcpServers } = await import("@/lib/mcp-client");
+    await initializeMcpServers();
+
+    expect(listEnabledMcpServers).toHaveBeenCalledTimes(1);
+    expect(clientInstances).toHaveLength(2);
+  });
+
+  it("captures stderr output during stdio connection tests", async () => {
+    nextListToolsResult = {
+      tools: [
+        {
+          name: "read_file",
+          description: "Read a file",
+          inputSchema: { type: "object" },
+          annotations: { readOnlyHint: true }
+        }
+      ]
+    };
+
+    const { testMcpServerConnection } = await import("@/lib/mcp-client");
+    await testMcpServerConnection(createStdioServer());
+
+    expect(stdioTransportInstances[0].stderr?.on).toHaveBeenCalledWith("data", expect.any(Function));
   });
 });
