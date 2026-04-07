@@ -157,6 +157,14 @@ export type Skill = {
   updatedAt: string;
 };
 
+export type Persona = {
+  id: string;
+  name: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Message = {
   id: string;
   conversationId: string;
