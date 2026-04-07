@@ -197,6 +197,26 @@ describe("settings storage", () => {
     expect(defaults.visionMcpServerId).toBeNull();
   });
 
+  it("stores profiles with reasoning disabled and auto-compaction off", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-alpha",
+      reasoningSummaryEnabled: false
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: false,
+      autoCompaction: false,
+      providerProfiles: [alpha]
+    });
+
+    expect(getSettings().skillsEnabled).toBe(false);
+    expect(getSettings().autoCompaction).toBe(false);
+    expect(listProviderProfiles()[0].reasoningSummaryEnabled).toBe(false);
+  });
+
   it("rejects duplicate profile ids and invalid defaults", () => {
     const alpha = buildProfile({
       id: "profile_alpha"
