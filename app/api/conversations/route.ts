@@ -9,7 +9,7 @@ import {
 } from "@/lib/conversations";
 import { badRequest, ok } from "@/lib/http";
 import { getProviderProfile } from "@/lib/settings";
-import { getConversationManager } from "@/lib/ws-handler";
+import { getConversationManager } from "@/lib/ws-singleton";
 
 const listSchema = z.object({
   cursor: z.string().min(1).optional(),

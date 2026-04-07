@@ -13,7 +13,7 @@ import {
 import { getConversationDebugStats } from "@/lib/compaction";
 import { badRequest, ok } from "@/lib/http";
 import { getProviderProfile } from "@/lib/settings";
-import { getConversationManager } from "@/lib/ws-handler";
+import { getConversationManager } from "@/lib/ws-singleton";
 
 const paramsSchema = z.object({
   conversationId: z.string().min(1)

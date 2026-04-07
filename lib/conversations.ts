@@ -15,7 +15,7 @@ import {
   getProviderProfileWithApiKey,
   getSettings
 } from "@/lib/settings";
-import { getConversationManager } from "@/lib/ws-handler";
+import { getConversationManager } from "@/lib/ws-singleton";
 import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
   Conversation,

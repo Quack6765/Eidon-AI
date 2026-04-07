@@ -4,20 +4,12 @@ import { verifySessionToken } from "@/lib/auth";
 import { startChatTurn } from "@/lib/chat-turn";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import { getConversationSnapshot, listActiveConversations } from "@/lib/conversations";
-import { createConversationManager, type ConversationManager } from "@/lib/conversation-manager";
+import { type ConversationManager } from "@/lib/conversation-manager";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { parseClientMessage, serializeServerMessage } from "@/lib/ws-protocol";
 import type { ClientMessage } from "@/lib/ws-protocol";
 import { initializeMcpServers, shutdownAllProcesses } from "@/lib/mcp-client";
-
-let manager: ConversationManager | null = null;
-
-export function getConversationManager(): ConversationManager {
-  if (!manager) {
-    manager = createConversationManager();
-  }
-  return manager;
-}
+import { getConversationManager } from "@/lib/ws-singleton";
 
 function extractToken(req: import("http").IncomingMessage): string | null {
   const cookieHeader = req.headers.cookie ?? "";
