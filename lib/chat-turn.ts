@@ -106,7 +106,7 @@ export async function startChatTurn(
           event: { type: "compaction_end" }
         });
       }
-    }, personaId);
+    }, personaId, appSettings.memoriesEnabled);
     let promptMessages = compacted.promptMessages;
     const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
     const mcpServers = listEnabledMcpServers();
@@ -161,6 +161,7 @@ export async function startChatTurn(
       mcpServers,
       mcpToolSets,
       visionMcpServer,
+      memoriesEnabled: appSettings.memoriesEnabled,
       onEvent(event: ChatStreamEvent) {
         manager.broadcast(conversationId, {
           type: "delta",
