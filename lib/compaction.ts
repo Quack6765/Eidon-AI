@@ -8,6 +8,7 @@ import {
 } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
+import { getPersona } from "@/lib/personas";
 import { callProviderText } from "@/lib/provider";
 import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens, estimatePromptContentTokens } from "@/lib/tokenization";
 import type {
@@ -566,6 +567,7 @@ async function scoreMemoryNodes(input: {
 
 export function buildPromptMessages(input: {
   systemPrompt: string;
+  personaContent?: string;
   messages: Message[];
   activeMemoryNodes: MemoryNode[];
   userInput?: string;
@@ -577,6 +579,11 @@ export function buildPromptMessages(input: {
 
   // Build single merged system message
   const systemParts: string[] = [input.systemPrompt];
+
+  // Append persona content if provided
+  if (input.personaContent?.trim()) {
+    systemParts.push(input.personaContent.trim());
+  }
 
   if (input.activeMemoryNodes.length) {
     systemParts.push(
@@ -634,13 +641,17 @@ export function buildPromptMessages(input: {
 export async function ensureCompactedContext(
   conversationId: string,
   settings: ProviderProfileWithApiKey,
-  hooks: CompactionLifecycleHooks = {}
+  hooks: CompactionLifecycleHooks = {},
+  personaId?: string
 ): Promise<EnsureCompactedContextResult> {
   const conversation = getConversation(conversationId);
 
   if (!conversation) {
     throw new Error("Conversation not found");
   }
+
+  const persona = personaId ? getPersona(personaId) : null;
+  const personaContent = persona?.content;
 
   const allowedPromptTokens =
     settings.modelContextLimit - settings.maxOutputTokens - settings.safetyMarginTokens;
@@ -670,6 +681,7 @@ export async function ensureCompactedContext(
       const visibleMessages = messages.filter((message) => !message.compactedAt);
       const promptMessages = buildPromptMessages({
         systemPrompt: settings.systemPrompt,
+        personaContent,
         messages: visibleMessages,
         activeMemoryNodes,
         maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO)
@@ -700,6 +712,7 @@ export async function ensureCompactedContext(
             selectedNodes = [...scored];
             const scoredTokens = buildPromptMessages({
               systemPrompt: settings.systemPrompt,
+              personaContent,
               messages: visibleMessages,
               activeMemoryNodes: scored,
               maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO)
@@ -720,6 +733,7 @@ export async function ensureCompactedContext(
 
         const finalPromptMessages = buildPromptMessages({
           systemPrompt: settings.systemPrompt,
+          personaContent,
           messages: visibleMessages,
           activeMemoryNodes: selectedNodes,
           maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO)
@@ -763,6 +777,7 @@ export async function ensureCompactedContext(
       if (lastUserMessage) {
         const promptMessages = buildPromptMessages({
           systemPrompt: settings.systemPrompt,
+          personaContent,
           messages: [lastUserMessage],
           activeMemoryNodes: remainingNodes
         });

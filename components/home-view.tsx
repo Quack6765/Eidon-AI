@@ -33,6 +33,8 @@ export function HomeView({
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
+  const [personaId, setPersonaId] = useState<string | null>(null);
   const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
@@ -49,6 +51,15 @@ export function HomeView({
     });
 
     return () => window.cancelAnimationFrame(handle);
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/personas")
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.personas) setPersonas(d.personas);
+      })
+      .catch(() => {});
   }, []);
 
   const selectedProfile = useMemo(
@@ -252,7 +263,8 @@ export function HomeView({
       }
       storeChatBootstrap(conversationId, {
         message: value,
-        attachments: pendingAttachments
+        attachments: pendingAttachments,
+        personaId: personaId ?? undefined
       });
       router.push(`/chat/${conversationId}`);
     } catch (caughtError) {
@@ -338,6 +350,9 @@ export function HomeView({
           providerProfiles={providerProfiles}
           providerProfileId={providerProfileId}
           onProviderProfileChange={handleProviderProfileChange}
+          personas={personas}
+          personaId={personaId}
+          onPersonaChange={setPersonaId}
           toolExecutionMode={toolExecutionMode}
           onToolExecutionModeChange={handleToolExecutionModeChange}
           textareaRef={textareaRef}

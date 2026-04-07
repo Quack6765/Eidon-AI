@@ -327,3 +327,59 @@ describe("lossless compaction", () => {
     expect(result.promptMessages.some(m => m.role === "user")).toBe(true);
   });
 });
+
+describe("buildPromptMessages with persona", () => {
+  it("appends persona content after system prompt", () => {
+    const messages: import("@/lib/types").Message[] = [
+      {
+        id: "1",
+        conversationId: "c1",
+        role: "user",
+        content: "Hello",
+        status: "completed",
+        estimatedTokens: 10,
+        thinkingContent: "",
+        systemKind: null,
+        compactedAt: null,
+        createdAt: new Date().toISOString()
+      }
+    ];
+    const result = buildPromptMessages({
+      systemPrompt: "You are a helpful assistant.",
+      personaContent: "You are a finance expert. Focus on tax implications.",
+      messages,
+      activeMemoryNodes: []
+    });
+
+    expect(result[0].role).toBe("system");
+    const systemContent = result[0].content as string;
+    expect(systemContent).toContain("You are a helpful assistant.");
+    expect(systemContent).toContain("You are a finance expert. Focus on tax implications.");
+  });
+
+  it("works without persona content", () => {
+    const messages: import("@/lib/types").Message[] = [
+      {
+        id: "1",
+        conversationId: "c1",
+        role: "user",
+        content: "Hello",
+        status: "completed",
+        estimatedTokens: 10,
+        thinkingContent: "",
+        systemKind: null,
+        compactedAt: null,
+        createdAt: new Date().toISOString()
+      }
+    ];
+    const result = buildPromptMessages({
+      systemPrompt: "You are a helpful assistant.",
+      messages,
+      activeMemoryNodes: []
+    });
+
+    expect(result[0].role).toBe("system");
+    const systemContent = result[0].content as string;
+    expect(systemContent).toBe("You are a helpful assistant.");
+  });
+});

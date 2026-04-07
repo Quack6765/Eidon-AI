@@ -3,7 +3,7 @@ import type { ChatStreamEvent } from "@/lib/types";
 export type ClientMessage =
   | { type: "subscribe"; conversationId: string }
   | { type: "unsubscribe"; conversationId: string }
-  | { type: "message"; conversationId: string; content: string; attachmentIds?: string[] }
+  | { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string }
   | { type: "edit"; messageId: string; content: string };
 
 export type ServerMessage =
