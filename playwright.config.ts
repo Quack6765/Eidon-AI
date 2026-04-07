@@ -12,12 +12,12 @@ export default defineConfig({
     reuseExistingServer: false,
     env: {
       NODE_ENV: "test",
-      HERMES_DATA_DIR: ".e2e-data",
-      HERMES_PASSWORD_LOGIN_ENABLED: "true",
-      HERMES_ADMIN_USERNAME: "admin",
-      HERMES_ADMIN_PASSWORD: "changeme123",
-      HERMES_SESSION_SECRET: "e2e-session-secret-which-is-long-enough",
-      HERMES_ENCRYPTION_SECRET: "e2e-encryption-secret-which-is-long-enough"
+      EIDON_DATA_DIR: ".e2e-data",
+      EIDON_PASSWORD_LOGIN_ENABLED: "true",
+      EIDON_ADMIN_USERNAME: "admin",
+      EIDON_ADMIN_PASSWORD: "changeme123",
+      EIDON_SESSION_SECRET: "e2e-session-secret-which-is-long-enough",
+      EIDON_ENCRYPTION_SECRET: "e2e-encryption-secret-which-is-long-enough"
     }
   },
   projects: [
