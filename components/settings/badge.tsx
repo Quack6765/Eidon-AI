@@ -1,4 +1,4 @@
-export type BadgeVariant = "default" | "no-key" | "builtin" | "http" | "stdio";
+export type BadgeVariant = "default" | "no-key" | "builtin" | "http" | "stdio" | "violet";
 
 const variantStyles: Record<BadgeVariant, string> = {
   default: "bg-emerald-500/10 text-emerald-400",
@@ -6,6 +6,7 @@ const variantStyles: Record<BadgeVariant, string> = {
   builtin: "bg-amber-500/10 text-amber-400",
   http: "bg-sky-500/10 text-sky-400",
   stdio: "bg-emerald-500/10 text-emerald-400",
+  violet: "bg-violet-500/10 text-violet-400",
 };
 
 export function Badge({
