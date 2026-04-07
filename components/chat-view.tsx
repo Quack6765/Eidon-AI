@@ -23,14 +23,12 @@ import type {
   MessageAction,
   MessageAttachment,
   MessageTimelineItem,
-  ProviderProfileSummary,
-  ToolExecutionMode
+  ProviderProfileSummary
 } from "@/lib/types";
 
 type ConversationPayload = {
   conversation: Conversation;
   messages: Message[];
-  toolExecutionMode: ToolExecutionMode;
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string;
   debug: {
@@ -212,7 +210,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const compactionInProgressRef = useRef(false);
   const thinkingStartTimeRef = useRef<number | null>(null);
   const [thinkingDuration, setThinkingDuration] = useState<number | undefined>(undefined);
-  const [toolExecutionMode, setToolExecutionMode] = useState(payload.toolExecutionMode);
   const [providerProfileId, setProviderProfileId] = useState(
     payload.conversation.providerProfileId ?? payload.defaultProviderProfileId
   );
@@ -298,10 +295,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     setDebug(payload.debug);
   }, [payload.debug]);
-
-  useEffect(() => {
-    setToolExecutionMode(payload.toolExecutionMode);
-  }, [payload.toolExecutionMode]);
 
   useEffect(() => {
     setProviderProfileId(payload.conversation.providerProfileId ?? payload.defaultProviderProfileId);
@@ -1043,38 +1036,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
-  async function updateToolExecutionMode(nextToolExecutionMode: ToolExecutionMode) {
-    const previousToolExecutionMode = toolExecutionMode;
-    setError("");
-    setToolExecutionMode(nextToolExecutionMode);
-
-    try {
-      const response = await fetch(`/api/conversations/${payload.conversation.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ toolExecutionMode: nextToolExecutionMode })
-      });
-
-      if (!response.ok) {
-        let message = "Unable to update tool mode";
-
-        try {
-          const failure = (await response.json()) as { error?: string };
-          message = failure.error ?? message;
-        } catch {}
-
-        throw new Error(message);
-      }
-
-      router.refresh();
-    } catch (caughtError) {
-      setToolExecutionMode(previousToolExecutionMode);
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to update tool mode");
-    }
-  }
-
   async function submit(
     nextInput = input,
     nextPendingAttachments = pendingAttachments,
@@ -1284,8 +1245,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             personas={personas}
             personaId={personaId}
             onPersonaChange={setPersonaId}
-            toolExecutionMode={toolExecutionMode}
-            onToolExecutionModeChange={updateToolExecutionMode}
             textareaRef={inputRef}
             usedTokens={usedTokens}
             modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}

@@ -117,7 +117,7 @@ export async function startChatTurn(
     }> = [];
     if (mcpServers.length) {
       const { gatherAllMcpTools } = await import("@/lib/mcp-client");
-      mcpToolSets = await gatherAllMcpTools(mcpServers, conversation.toolExecutionMode);
+      mcpToolSets = await gatherAllMcpTools(mcpServers);
     }
 
     // Resolve vision MCP server if configured
@@ -161,6 +161,7 @@ export async function startChatTurn(
       mcpServers,
       mcpToolSets,
       visionMcpServer,
+      mcpTimeout: appSettings.mcpTimeout,
       onEvent(event: ChatStreamEvent) {
         manager.broadcast(conversationId, {
           type: "delta",

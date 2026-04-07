@@ -10,8 +10,6 @@ export type MessageRole = "user" | "assistant" | "system";
 
 export type MessageStatus = "idle" | "streaming" | "completed" | "error";
 
-export type ToolExecutionMode = "read_only" | "read_write";
-
 export type ConversationTitleGenerationStatus =
   | "pending"
   | "running"
@@ -68,6 +66,7 @@ export type AppSettings = {
   skillsEnabled: boolean;
   conversationRetention: ConversationRetention;
   autoCompaction: boolean;
+  mcpTimeout: number;
   updatedAt: string;
 };
 
@@ -77,7 +76,6 @@ export type Conversation = {
   titleGenerationStatus: ConversationTitleGenerationStatus;
   folderId: string | null;
   providerProfileId: string | null;
-  toolExecutionMode: ToolExecutionMode;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;

@@ -217,12 +217,11 @@ describe("db", () => {
 
     const conversation = db
       .prepare(
-        "SELECT provider_profile_id, title_generation_status, tool_execution_mode FROM conversations WHERE id = ?"
+        "SELECT provider_profile_id, title_generation_status FROM conversations WHERE id = ?"
       )
       .get("conv_legacy") as {
       provider_profile_id: string | null;
       title_generation_status: string;
-      tool_execution_mode: string;
     };
     const appSettings = db
       .prepare("SELECT default_provider_profile_id, skills_enabled FROM app_settings WHERE id = 1")
@@ -244,7 +243,6 @@ describe("db", () => {
     expect(appSettings.skills_enabled).toBe(1);
     expect(conversation.provider_profile_id).toBe("profile_existing");
     expect(conversation.title_generation_status).toBe("completed");
-    expect(conversation.tool_execution_mode).toBe("read_only");
     expect(skillFrontmatter).toEqual({
       name: "Browser Agent",
       description: "Use for browser workflows."

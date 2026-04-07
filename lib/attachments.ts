@@ -446,6 +446,10 @@ export function deleteConversationAttachmentFiles(conversationId: string) {
   removeConversationAttachmentDirIfEmpty(conversationId);
 }
 
+export function resolveAttachmentPath(attachment: Pick<MessageAttachment, "relativePath">) {
+  return resolveAttachmentAbsolutePath(attachment.relativePath);
+}
+
 export function readAttachmentBuffer(attachment: Pick<MessageAttachment, "relativePath">) {
   return fs.readFileSync(resolveAttachmentAbsolutePath(attachment.relativePath));
 }

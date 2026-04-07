@@ -8,6 +8,7 @@ import { createConversationManager, type ConversationManager } from "@/lib/conve
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { parseClientMessage, serializeServerMessage } from "@/lib/ws-protocol";
 import type { ClientMessage } from "@/lib/ws-protocol";
+import { initializeMcpServers, shutdownAllProcesses } from "@/lib/mcp-client";
 
 let manager: ConversationManager | null = null;
 

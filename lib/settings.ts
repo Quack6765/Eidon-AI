@@ -49,6 +49,7 @@ const settingsSchema = z
     skillsEnabled: z.coerce.boolean(),
     conversationRetention: z.enum(["forever", "90d", "30d", "7d"]).default("forever"),
     autoCompaction: z.coerce.boolean().default(true),
+    mcpTimeout: z.coerce.number().int().min(10_000).max(600_000).default(120_000),
     providerProfiles: z.array(providerProfileInputSchema).min(1)
   })
   .superRefine((value, context) => {
@@ -80,6 +81,7 @@ type AppSettingsRow = {
   skills_enabled: number;
   conversation_retention: string;
   auto_compaction: number;
+  mcp_timeout: number;
   updated_at: string;
 };
 
@@ -116,6 +118,7 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     skillsEnabled: Boolean(row.skills_enabled),
     conversationRetention: row.conversation_retention as AppSettings["conversationRetention"],
     autoCompaction: Boolean(row.auto_compaction),
+    mcpTimeout: row.mcp_timeout,
     updatedAt: row.updated_at
   };
 }
@@ -439,6 +442,7 @@ export function updateSettings(input: unknown) {
              skills_enabled = ?,
              conversation_retention = ?,
              auto_compaction = ?,
+             mcp_timeout = ?,
              updated_at = ?
          WHERE id = ?`
       )
@@ -447,6 +451,7 @@ export function updateSettings(input: unknown) {
         parsed.skillsEnabled ? 1 : 0,
         parsed.conversationRetention,
         parsed.autoCompaction ? 1 : 0,
+        parsed.mcpTimeout,
         timestamp,
         SETTINGS_ROW_ID
       );

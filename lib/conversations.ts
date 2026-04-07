@@ -8,7 +8,6 @@ import {
   DEFAULT_CONVERSATION_TITLE,
   generateConversationTitle
 } from "@/lib/conversation-title-generator";
-import { DEFAULT_TOOL_EXECUTION_MODE } from "@/lib/constants";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import {
@@ -30,8 +29,7 @@ import type {
   MessageTimelineItem,
   MessageRole,
   MessageStatus,
-  SystemMessageKind,
-  ToolExecutionMode
+  SystemMessageKind
 } from "@/lib/types";
 
 export const DEFAULT_CONVERSATION_PAGE_SIZE = 10;
@@ -42,7 +40,6 @@ type ConversationRow = {
   title_generation_status: ConversationTitleGenerationStatus;
   folder_id: string | null;
   provider_profile_id: string | null;
-  tool_execution_mode: ToolExecutionMode;
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -74,7 +71,6 @@ function rowToConversation(row: ConversationRow): Conversation {
     titleGenerationStatus: row.title_generation_status,
     folderId: row.folder_id,
     providerProfileId: row.provider_profile_id,
-    toolExecutionMode: row.tool_execution_mode,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -220,7 +216,6 @@ export function listConversations() {
         c.title_generation_status,
         c.folder_id,
         c.provider_profile_id,
-        c.tool_execution_mode,
         c.sort_order,
         c.created_at,
         ${activityTimestamp} AS updated_at,
@@ -307,7 +302,6 @@ export function getConversation(conversationId: string) {
         c.title_generation_status,
         c.folder_id,
         c.provider_profile_id,
-        c.tool_execution_mode,
         c.sort_order,
         c.created_at,
         ${activityTimestamp} AS updated_at,
@@ -325,7 +319,6 @@ export function createConversation(
   folderId?: string | null,
   options?: {
     providerProfileId?: string | null;
-    toolExecutionMode?: ToolExecutionMode;
   }
 ) {
   const timestamp = nowIso();
@@ -342,9 +335,6 @@ export function createConversation(
     titleGenerationStatus: (trimmedTitle ? "completed" : "pending") as ConversationTitleGenerationStatus,
     folderId: folderId ?? null,
     providerProfileId: options?.providerProfileId ?? settings.defaultProviderProfileId,
-    toolExecutionMode:
-      options?.toolExecutionMode ??
-      (DEFAULT_TOOL_EXECUTION_MODE as ToolExecutionMode),
     sortOrder: maxOrder.max_order + 1,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -359,12 +349,11 @@ export function createConversation(
         title_generation_status,
         folder_id,
         provider_profile_id,
-        tool_execution_mode,
         sort_order,
         created_at,
         updated_at,
         is_active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       conversation.id,
@@ -372,7 +361,6 @@ export function createConversation(
       conversation.titleGenerationStatus,
       conversation.folderId,
       conversation.providerProfileId,
-      conversation.toolExecutionMode,
       conversation.sortOrder,
       conversation.createdAt,
       conversation.updatedAt,
@@ -1172,20 +1160,6 @@ export function updateConversationProviderProfile(
     .run(providerProfileId, timestamp, conversationId);
 }
 
-export function updateConversationToolExecutionMode(
-  conversationId: string,
-  toolExecutionMode: ToolExecutionMode
-) {
-  const timestamp = nowIso();
-  getDb()
-    .prepare(
-      `UPDATE conversations
-       SET tool_execution_mode = ?, updated_at = ?
-       WHERE id = ?`
-    )
-    .run(toolExecutionMode, timestamp, conversationId);
-}
-
 export function reorderConversations(items: Array<{ id: string; folderId: string | null }>) {
   const statement = getDb()
     .prepare("UPDATE conversations SET sort_order = ?, folder_id = ?, updated_at = ? WHERE id = ?");
@@ -1220,7 +1194,6 @@ export function searchConversations(query: string) {
         c.title_generation_status,
         c.folder_id,
         c.provider_profile_id,
-        c.tool_execution_mode,
         c.sort_order,
         c.created_at,
         ${activityTimestamp} AS updated_at,
