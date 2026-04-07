@@ -1,4 +1,4 @@
-import type { ApiMode } from "@/lib/types";
+import type { ApiMode, VisionMode } from "@/lib/types";
 
 function normalizeModel(model: string) {
   return model.trim().toLowerCase();
@@ -72,4 +72,8 @@ export function supportsImageInput(model: string, apiMode: ApiMode) {
   }
 
   return false;
+}
+
+export function getDefaultVisionMode(model: string, apiMode: ApiMode): VisionMode {
+  return supportsImageInput(model, apiMode) ? "native" : "none";
 }
