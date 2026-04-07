@@ -1067,11 +1067,10 @@ export function completeConversationTitleGeneration(conversationId: string, titl
       `UPDATE conversations
        SET title = ?,
            title_generation_status = 'completed',
-           is_active = 0,
-           updated_at = ?
+           is_active = 0
        WHERE id = ?`
     )
-    .run(title, nowIso(), conversationId);
+    .run(title, conversationId);
   return true;
 }
 
@@ -1081,11 +1080,10 @@ export function failConversationTitleGeneration(conversationId: string) {
       `UPDATE conversations
        SET title = ?,
            title_generation_status = 'failed',
-           is_active = 0,
-           updated_at = ?
+           is_active = 0
        WHERE id = ?`
     )
-    .run(DEFAULT_CONVERSATION_TITLE, nowIso(), conversationId);
+    .run(DEFAULT_CONVERSATION_TITLE, conversationId);
   return true;
 }
 
