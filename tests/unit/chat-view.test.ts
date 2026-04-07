@@ -145,7 +145,10 @@ describe("chat view", () => {
     conversationEventMock.dispatchConversationActivityUpdated.mockReset();
     conversationEventMock.dispatchConversationTitleUpdated.mockReset();
     vi.clearAllMocks();
-    global.fetch = vi.fn();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ personas: [] })
+    } as Response);
     window.history.pushState({}, "", "/chat/conv_1");
   });
 
@@ -163,14 +166,19 @@ describe("chat view", () => {
 
   it("uploads an attachment from the file input and removes it from the pending list", async () => {
     const attachment = createAttachment();
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ attachments: [attachment] })
-    } as Response);
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ success: true })
-    } as Response);
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ attachments: [attachment] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true })
+      } as Response);
 
     const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
@@ -228,10 +236,15 @@ describe("chat view", () => {
       kind: "text",
       extractedText: "hello"
     });
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ attachments: [attachment] })
-    } as Response);
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ attachments: [attachment] })
+      } as Response);
 
     const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
     const root = container.querySelector(".contents") as HTMLElement;

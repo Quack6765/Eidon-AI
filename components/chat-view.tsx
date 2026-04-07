@@ -115,13 +115,14 @@ function isLegacyCompactionNotice(message: Pick<Message, "role" | "systemKind">)
   return message.role === "system" && message.systemKind === "compaction_notice";
 }
 
-function sanitizeMessages(messages: Message[]) {
+function sanitizeMessages(messages: Message[] | undefined) {
+  if (!messages) return [];
   return messages.filter((message) => !isLegacyCompactionNotice(message));
 }
 
 function reconcileSnapshotMessages(
   current: Message[],
-  snapshot: Message[],
+  snapshot: Message[] | undefined,
   activeStreamMessageId: string | null
 ) {
   const sanitizedSnapshot = sanitizeMessages(snapshot);
@@ -844,12 +845,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [streamAnswerDisplay, streamAnswerTarget]);
 
   const latestCompactionLabel = useMemo(() => {
-    if (!debug.latestCompactionAt) {
+    if (!debug?.latestCompactionAt) {
       return "No compaction yet";
     }
 
     return formatTimestamp(debug.latestCompactionAt);
-  }, [debug.latestCompactionAt]);
+  }, [debug?.latestCompactionAt]);
 
   const selectedProfile = useMemo(
     () => payload.providerProfiles.find((profile) => profile.id === providerProfileId) ?? null,
