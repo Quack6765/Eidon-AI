@@ -4,7 +4,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 const dataDir = path.resolve(".test-data");
-const dbPath = path.join(dataDir, "hermes.db");
+const dbPath = path.join(dataDir, "eidon.db");
 
 function prepareLegacyDatabase() {
   fs.mkdirSync(dataDir, { recursive: true });

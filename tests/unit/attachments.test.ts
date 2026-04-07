@@ -24,7 +24,7 @@ describe("attachment helpers", () => {
     expect(attachment.extractedText).toContain("Hello world");
     expect(getAttachment(attachment.id)?.filename).toBe("notes.md");
     expect(
-      fs.existsSync(path.resolve(process.env.HERMES_DATA_DIR!, "attachments", attachment.relativePath))
+      fs.existsSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath))
     ).toBe(true);
   });
 
@@ -52,7 +52,7 @@ describe("attachment helpers", () => {
         bytes: Buffer.from("hello", "utf8")
       }
     ]);
-    const absolutePath = path.resolve(process.env.HERMES_DATA_DIR!, "attachments", attachment.relativePath);
+    const absolutePath = path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath);
 
     fs.unlinkSync(absolutePath);
 

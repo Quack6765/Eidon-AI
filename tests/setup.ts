@@ -8,12 +8,12 @@ const dataDir = path.resolve(".test-data");
 
 Object.assign(process.env, {
   NODE_ENV: "test",
-  HERMES_DATA_DIR: dataDir,
-  HERMES_PASSWORD_LOGIN_ENABLED: "true",
-  HERMES_ADMIN_USERNAME: "admin",
-  HERMES_ADMIN_PASSWORD: "changeme123",
-  HERMES_SESSION_SECRET: "test-session-secret-which-is-long-enough",
-  HERMES_ENCRYPTION_SECRET: "test-encryption-secret-which-is-long-enough"
+  EIDON_DATA_DIR: dataDir,
+  EIDON_PASSWORD_LOGIN_ENABLED: "true",
+  EIDON_ADMIN_USERNAME: "admin",
+  EIDON_ADMIN_PASSWORD: "changeme123",
+  EIDON_SESSION_SECRET: "test-session-secret-which-is-long-enough",
+  EIDON_ENCRYPTION_SECRET: "test-encryption-secret-which-is-long-enough"
 });
 
 beforeEach(async () => {
