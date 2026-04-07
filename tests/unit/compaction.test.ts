@@ -5,6 +5,7 @@ import {
 } from "@/lib/compaction";
 import { createConversation, createMessage, listMessages } from "@/lib/conversations";
 import { getDefaultProviderProfileWithApiKey, updateSettings } from "@/lib/settings";
+import { createMemory, deleteMemory } from "@/lib/memories";
 import type { PromptMessage } from "@/lib/types";
 
 vi.mock("@/lib/provider", async () => {
@@ -381,5 +382,117 @@ describe("buildPromptMessages with persona", () => {
     expect(result[0].role).toBe("system");
     const systemContent = result[0].content as string;
     expect(systemContent).toBe("You are a helpful assistant.");
+  });
+});
+
+describe("buildPromptMessages with memories", () => {
+  it("includes memory block and tool instructions when memoriesEnabled and memories exist", () => {
+    const mem = createMemory("User lives in Montreal", "location");
+    try {
+      const result = buildPromptMessages({
+        systemPrompt: "Be helpful.",
+        activeMemoryNodes: [],
+        messages: [
+          {
+            id: "1",
+            conversationId: "c1",
+            role: "user",
+            content: "Hi",
+            status: "completed",
+            estimatedTokens: 5,
+            thinkingContent: "",
+            systemKind: null,
+            compactedAt: null,
+            createdAt: new Date().toISOString()
+          }
+        ],
+        memoriesEnabled: true
+      });
+
+      const systemContent = result[0].content as string;
+      expect(systemContent).toContain("<memory>");
+      expect(systemContent).toContain("User lives in Montreal");
+      expect(systemContent).toContain("create_memory");
+    } finally {
+      deleteMemory(mem.id);
+    }
+  });
+
+  it("does not include memory block when memoriesEnabled is false", () => {
+    const mem = createMemory("User lives in Montreal", "location");
+    try {
+      const result = buildPromptMessages({
+        systemPrompt: "Be helpful.",
+        activeMemoryNodes: [],
+        messages: [
+          {
+            id: "1",
+            conversationId: "c1",
+            role: "user",
+            content: "Hi",
+            status: "completed",
+            estimatedTokens: 5,
+            thinkingContent: "",
+            systemKind: null,
+            compactedAt: null,
+            createdAt: new Date().toISOString()
+          }
+        ],
+        memoriesEnabled: false
+      });
+
+      const systemContent = result[0].content as string;
+      expect(systemContent).not.toContain("<memory>");
+      expect(systemContent).not.toContain("create_memory");
+    } finally {
+      deleteMemory(mem.id);
+    }
+  });
+
+  it("does not include tool instructions when no memories exist", () => {
+    const result = buildPromptMessages({
+      systemPrompt: "Be helpful.",
+      activeMemoryNodes: [],
+      messages: [
+        {
+          id: "1",
+          conversationId: "c1",
+          role: "user",
+          content: "Hi",
+          status: "completed",
+          estimatedTokens: 5,
+          thinkingContent: "",
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        }
+      ],
+      memoriesEnabled: true
+    });
+
+    const systemContent = result[0].content as string;
+    expect(systemContent).not.toContain("<memory>");
+    expect(systemContent).not.toContain("create_memory");
+  });
+});
+
+describe("getConversationDebugStats", () => {
+  it("returns stats for an existing conversation", () => {
+    const conversation = createConversation();
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Hello"
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Hi there"
+    });
+
+    const stats = getConversationDebugStats(conversation.id);
+    expect(stats.rawTurnCount).toBe(2);
+    expect(stats.memoryNodeCount).toBe(0);
+    expect(stats.latestCompactionAt).toBeNull();
   });
 });

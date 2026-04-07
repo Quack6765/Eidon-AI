@@ -5,6 +5,12 @@ const callMcpTool = vi.fn();
 const summarizeToolResult = vi.fn();
 const executeLocalShellCommand = vi.fn();
 const summarizeShellResult = vi.fn();
+const getMemoryRecord = vi.fn();
+const createMemoryFn = vi.fn();
+const updateMemoryRecord = vi.fn();
+const deleteMemoryRecord = vi.fn();
+const getMemoryCountFn = vi.fn();
+const getSettingsFn = vi.fn();
 
 vi.mock("@/lib/provider", () => ({
   streamProviderResponse
@@ -18,6 +24,18 @@ vi.mock("@/lib/mcp-client", () => ({
 vi.mock("@/lib/local-shell", () => ({
   executeLocalShellCommand,
   summarizeShellResult
+}));
+
+vi.mock("@/lib/memories", () => ({
+  getMemory: getMemoryRecord,
+  createMemory: createMemoryFn,
+  updateMemory: updateMemoryRecord,
+  deleteMemory: deleteMemoryRecord,
+  getMemoryCount: getMemoryCountFn
+}));
+
+vi.mock("@/lib/settings", () => ({
+  getSettings: getSettingsFn
 }));
 
 function createProviderStream(
@@ -93,6 +111,14 @@ describe("assistant runtime", () => {
     summarizeToolResult.mockReset();
     executeLocalShellCommand.mockReset();
     summarizeShellResult.mockReset();
+    getMemoryRecord.mockReset();
+    createMemoryFn.mockReset();
+    updateMemoryRecord.mockReset();
+    deleteMemoryRecord.mockReset();
+    getMemoryCountFn.mockReset();
+    getSettingsFn.mockReset();
+    getMemoryCountFn.mockReturnValue(0);
+    getSettingsFn.mockReturnValue({ memoriesMaxCount: 100 });
     summarizeToolResult.mockImplementation((result: { content?: Array<{ text?: string }> }) => {
       return result.content?.[0]?.text ?? "done";
     });
@@ -751,5 +777,204 @@ Run browser commands.`
       "Let me search.",
       "Here are the results."
     ]);
+  });
+
+  describe("memory tools", () => {
+    it("includes memory tools when memoriesEnabled is true", async () => {
+      const seenToolNames: string[][] = [];
+      streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
+        seenToolNames.push((tools ?? []).map((tool) => tool.function.name));
+        return createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done", thinking: "", usage: { inputTokens: 1, outputTokens: 1 }
+        });
+      });
+
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Hello" }],
+        skills: [],
+        mcpToolSets: [],
+        memoriesEnabled: true,
+        onEvent: () => {},
+        onActionStart: () => {},
+        onActionComplete: () => {}
+      });
+
+      expect(seenToolNames[0]).toContain("create_memory");
+      expect(seenToolNames[0]).toContain("update_memory");
+      expect(seenToolNames[0]).toContain("delete_memory");
+    });
+
+    it("does not include memory tools when memoriesEnabled is false", async () => {
+      const seenToolNames: string[][] = [];
+      streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
+        seenToolNames.push((tools ?? []).map((tool) => tool.function.name));
+        return createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done", thinking: "", usage: { inputTokens: 1, outputTokens: 1 }
+        });
+      });
+
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+      await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Hello" }],
+        skills: [],
+        mcpToolSets: [],
+        memoriesEnabled: false,
+        onEvent: () => {},
+        onActionStart: () => {},
+        onActionComplete: () => {}
+      });
+
+      expect(seenToolNames[0]).not.toContain("create_memory");
+    });
+
+    it("executes create_memory tool call", async () => {
+      createMemoryFn.mockReturnValue({ id: "mem_test", content: "User lives in Montreal", category: "location" as const, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      streamProviderResponse
+        .mockReturnValueOnce(
+          createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{ id: "call_1", name: "create_memory", arguments: JSON.stringify({ content: "User lives in Montreal", category: "location" }) }],
+            usage: { inputTokens: 10 }
+          })
+        )
+        .mockReturnValueOnce(
+          createProviderStream([{ type: "answer_delta", text: "Saved" }], {
+            answer: "Saved", thinking: "", usage: { inputTokens: 5, outputTokens: 1 }
+          })
+        );
+
+      const started: Array<{ kind: string; label: string; detail?: string }> = [];
+      const completed: Array<{ handle?: string; resultSummary?: string }> = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "I live in Montreal" }],
+        skills: [],
+        mcpToolSets: [],
+        memoriesEnabled: true,
+        onEvent: () => {},
+        onActionStart: (action) => { started.push(action); return "act_mem"; },
+        onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
+      });
+
+      expect(createMemoryFn).toHaveBeenCalledWith("User lives in Montreal", "location");
+      expect(started).toEqual([expect.objectContaining({ kind: "create_memory", label: "Saved memory", detail: "User lives in Montreal" })]);
+      expect(completed).toEqual([{ handle: "act_mem", resultSummary: "Saved as location" }]);
+      expect(result.answer).toBe("Saved");
+    });
+
+    it("executes update_memory tool call", async () => {
+      getMemoryRecord.mockReturnValue({ id: "mem_test", content: "Old fact", category: "personal" as const, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      updateMemoryRecord.mockReturnValue({ id: "mem_test", content: "Updated fact", category: "work" as const, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      streamProviderResponse
+        .mockReturnValueOnce(
+          createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{ id: "call_1", name: "update_memory", arguments: JSON.stringify({ id: "mem_test", content: "Updated fact" }) }],
+            usage: { inputTokens: 10 }
+          })
+        )
+        .mockReturnValueOnce(
+          createProviderStream([{ type: "answer_delta", text: "Updated" }], {
+            answer: "Updated", thinking: "", usage: { inputTokens: 5, outputTokens: 1 }
+          })
+        );
+
+      const started: Array<{ kind: string; detail?: string }> = [];
+      const completed: Array<{ handle?: string; resultSummary?: string }> = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "I moved to Toronto" }],
+        skills: [],
+        mcpToolSets: [],
+        memoriesEnabled: true,
+        onEvent: () => {},
+        onActionStart: (action) => { started.push(action); return "act_mem"; },
+        onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
+      });
+
+      expect(updateMemoryRecord).toHaveBeenCalledWith("mem_test", { content: "Updated fact" });
+      expect(started).toEqual([expect.objectContaining({ kind: "update_memory", detail: "Updated fact" })]);
+      expect(completed).toEqual([{ handle: "act_mem", resultSummary: "Was: Old fact" }]);
+      expect(result.answer).toBe("Updated");
+    });
+
+    it("executes delete_memory tool call", async () => {
+      getMemoryRecord.mockReturnValue({ id: "mem_test", content: "Outdated fact", category: "other" as const, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+      streamProviderResponse
+        .mockReturnValueOnce(
+          createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{ id: "call_1", name: "delete_memory", arguments: JSON.stringify({ id: "mem_test" }) }],
+            usage: { inputTokens: 10 }
+          })
+        )
+        .mockReturnValueOnce(
+          createProviderStream([{ type: "answer_delta", text: "Deleted" }], {
+            answer: "Deleted", thinking: "", usage: { inputTokens: 5, outputTokens: 1 }
+          })
+        );
+
+      const started: Array<{ kind: string; detail?: string }> = [];
+      const completed: Array<{ handle?: string; resultSummary?: string }> = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Forget that thing" }],
+        skills: [],
+        mcpToolSets: [],
+        memoriesEnabled: true,
+        onEvent: () => {},
+        onActionStart: (action) => { started.push(action); return "act_mem"; },
+        onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
+      });
+
+      expect(deleteMemoryRecord).toHaveBeenCalledWith("mem_test");
+      expect(started).toEqual([expect.objectContaining({ kind: "delete_memory", detail: "Outdated fact" })]);
+      expect(completed).toEqual([{ handle: "act_mem", resultSummary: "Deleted" }]);
+      expect(result.answer).toBe("Deleted");
+    });
+
+    it("rejects create_memory when memory limit is reached", async () => {
+      getMemoryCountFn.mockReturnValue(100);
+      streamProviderResponse
+        .mockReturnValueOnce(
+          createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{ id: "call_1", name: "create_memory", arguments: JSON.stringify({ content: "One more", category: "other" }) }],
+            usage: { inputTokens: 10 }
+          })
+        )
+        .mockReturnValueOnce(
+          createProviderStream([{ type: "answer_delta", text: "Try updating instead" }], {
+            answer: "Try updating instead", thinking: "", usage: { inputTokens: 5, outputTokens: 1 }
+          })
+        );
+
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Remember this" }],
+        skills: [],
+        mcpToolSets: [],
+        memoriesEnabled: true,
+        onEvent: () => {}
+      });
+
+      expect(createMemoryFn).not.toHaveBeenCalled();
+      expect(result.answer).toBe("Try updating instead");
+    });
   });
 });
