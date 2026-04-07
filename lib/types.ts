@@ -4,6 +4,8 @@ export type ConversationRetention = "forever" | "90d" | "30d" | "7d";
 
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
+export type VisionMode = "none" | "native" | "mcp";
+
 export type MessageRole = "user" | "assistant" | "system";
 
 export type MessageStatus = "idle" | "streaming" | "completed" | "error";
@@ -47,6 +49,8 @@ export type ProviderProfile = {
   leafMinMessageCount: number;
   mergedMinNodeCount: number;
   mergedTargetTokens: number;
+  visionMode: VisionMode;
+  visionMcpServerId: string | null;
   createdAt: string;
   updatedAt: string;
 };
