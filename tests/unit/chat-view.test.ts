@@ -4,6 +4,7 @@ import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { ChatView } from "@/components/chat-view";
+import { ContextTokensProvider } from "@/lib/context-tokens-context";
 import type { MessageAttachment } from "@/lib/types";
 
 const push = vi.fn();
@@ -161,6 +162,10 @@ describe("chat view", () => {
     });
   });
 
+  function renderWithProvider(ui: React.ReactElement) {
+    return render(React.createElement(ContextTokensProvider, null, ui));
+  }
+
   it("uploads an attachment from the file input and removes it from the pending list", async () => {
     const attachment = createAttachment();
     vi.mocked(global.fetch).mockResolvedValueOnce({
@@ -172,7 +177,7 @@ describe("chat view", () => {
       json: async () => ({ success: true })
     } as Response);
 
-    const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(["binary"], "photo.png", { type: "image/png" });
 
@@ -194,7 +199,7 @@ describe("chat view", () => {
   });
 
   it("focuses the composer textarea when the conversation loads", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
@@ -211,7 +216,7 @@ describe("chat view", () => {
       value: 1
     });
 
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     expect(
       screen.getByPlaceholderText(
@@ -233,7 +238,7 @@ describe("chat view", () => {
       json: async () => ({ attachments: [attachment] })
     } as Response);
 
-    const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const root = container.querySelector(".contents") as HTMLElement;
     const file = new File(["hello"], "notes.txt", { type: "text/plain" });
 
@@ -258,7 +263,7 @@ describe("chat view", () => {
   });
 
   it("sends a message via WebSocket when the user submits", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
@@ -281,7 +286,7 @@ describe("chat view", () => {
     wsMock.connected = false;
     wsMock.failed = true;
 
-    const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
@@ -307,7 +312,7 @@ describe("chat view", () => {
       attachments: []
     });
 
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     await waitFor(() => {
       expect(wsMock.send).toHaveBeenCalledWith({
@@ -333,9 +338,13 @@ describe("chat view", () => {
 
     render(
       React.createElement(
-        React.StrictMode,
+        ContextTokensProvider,
         null,
-        React.createElement(ChatView, { payload: createPayload() })
+        React.createElement(
+          React.StrictMode,
+          null,
+          React.createElement(ChatView, { payload: createPayload() })
+        )
       )
     );
 
@@ -355,7 +364,7 @@ describe("chat view", () => {
   it("deletes an empty conversation when navigating away before sending a message", async () => {
     const { deleteConversationIfStillEmpty } = await import("@/lib/conversation-drafts");
 
-    const view = render(React.createElement(ChatView, { payload: createPayload() }));
+    const view = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     window.history.pushState({}, "", "/");
     view.unmount();
@@ -368,7 +377,7 @@ describe("chat view", () => {
   it("keeps an empty conversation when the chat view remounts on the same route", async () => {
     const { deleteConversationIfStillEmpty } = await import("@/lib/conversation-drafts");
 
-    const view = render(React.createElement(ChatView, { payload: createPayload() }));
+    const view = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     view.unmount();
 
@@ -376,7 +385,7 @@ describe("chat view", () => {
   });
 
   it("processes a WebSocket snapshot to update messages", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
       type: "snapshot",
@@ -416,7 +425,7 @@ describe("chat view", () => {
   });
 
   it("ignores stale empty snapshots after a local send has started", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
@@ -461,7 +470,7 @@ describe("chat view", () => {
   });
 
   it("does not append duplicate assistant placeholders for the same stream message", async () => {
-    const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
       type: "delta",
@@ -480,7 +489,7 @@ describe("chat view", () => {
   });
 
   it("receives streamed answer via WebSocket deltas and renders it", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
       type: "delta",
@@ -499,7 +508,7 @@ describe("chat view", () => {
   });
 
   it("renders tool actions and answer text while streaming", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
       type: "delta",
@@ -561,7 +570,7 @@ describe("chat view", () => {
         })
     );
 
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
@@ -660,7 +669,7 @@ describe("chat view", () => {
   });
 
   it("keeps the streaming assistant row mounted during streaming", async () => {
-    const { container } = render(React.createElement(ChatView, { payload: createPayload() }));
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
       type: "delta",
@@ -695,7 +704,7 @@ describe("chat view", () => {
   });
 
   it("keeps the final answer when answer and done arrive back to back", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
       type: "delta",
@@ -719,7 +728,7 @@ describe("chat view", () => {
   });
 
   it("renders answer text without duplication around tool actions during streaming", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
       type: "delta",
@@ -770,7 +779,7 @@ describe("chat view", () => {
   });
 
   it("dedupes repeated action_start events for the same action id", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
       type: "delta",
@@ -823,7 +832,7 @@ describe("chat view", () => {
   });
 
   it("collapses retried tool actions with the same tool and detail into one live row", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
       type: "delta",
@@ -889,7 +898,7 @@ describe("chat view", () => {
   });
 
   it("shows the transient compaction indicator and clears it when compaction ends", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
       type: "delta",
@@ -918,7 +927,7 @@ describe("chat view", () => {
   });
 
   it("clears the transient compaction indicator on the first downstream assistant activity", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     wsMock.onMessage!({
       type: "delta",
@@ -975,14 +984,14 @@ describe("chat view", () => {
       }
     ];
 
-    render(React.createElement(ChatView, { payload }));
+    renderWithProvider(React.createElement(ChatView, { payload }));
 
     expect(screen.queryByText("Older context compacted to stay within model limits.")).toBeNull();
     expect(screen.getByText("Hello")).toBeInTheDocument();
   });
 
   it("updates token usage gauge when usage event arrives", async () => {
-    render(React.createElement(ChatView, { payload: createPayload() }));
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     await waitFor(() => {
       expect(screen.getByText("Test conversation")).toBeInTheDocument();

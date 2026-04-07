@@ -7,6 +7,7 @@ import { ChevronDown } from "lucide-react";
 import { ChatComposer } from "@/components/chat-composer";
 import { MessageBubble } from "@/components/message-bubble";
 import { clearChatBootstrap, readChatBootstrap } from "@/lib/chat-bootstrap";
+import { useContextTokens } from "@/lib/context-tokens-context";
 import {
   dispatchConversationActivityUpdated,
   dispatchConversationTitleUpdated
@@ -177,6 +178,7 @@ function reconcileSnapshotMessages(
 
 export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
+  const { getTokenUsage, setTokenUsage } = useContextTokens();
   const [messages, setMessages] = useState(() => sanitizeMessages(payload.messages));
   const [conversationTitle, setConversationTitle] = useState(payload.conversation.title);
   const [titleGenerationStatus, setTitleGenerationStatus] = useState(
@@ -195,6 +197,17 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
   const [compactionInProgress, setCompactionInProgress] = useState(false);
   const [usedTokens, setUsedTokens] = useState<number | null>(null);
+  const hasInitializedTokensRef = useRef(false);
+
+  useEffect(() => {
+    if (!hasInitializedTokensRef.current) {
+      hasInitializedTokensRef.current = true;
+      const tokens = getTokenUsage(payload.conversation.id);
+      if (tokens !== null) {
+        setUsedTokens(tokens);
+      }
+    }
+  }, [payload.conversation.id, getTokenUsage]);
   const compactionInProgressRef = useRef(false);
   const thinkingStartTimeRef = useRef<number | null>(null);
   const [thinkingDuration, setThinkingDuration] = useState<number | undefined>(undefined);
@@ -360,7 +373,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "usage") {
       if (event.inputTokens !== undefined) {
+        console.log(`[ChatView] Usage event received for ${payload.conversation.id}: ${event.inputTokens} tokens`);
         setUsedTokens(event.inputTokens);
+        setTokenUsage(payload.conversation.id, event.inputTokens);
       }
       return;
     }

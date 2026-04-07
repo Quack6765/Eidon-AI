@@ -6,6 +6,7 @@ import { Menu, Plus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/sidebar";
 import { SettingsNav } from "@/components/settings/settings-nav";
+import { ContextTokensProvider } from "@/lib/context-tokens-context";
 import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 
@@ -79,7 +80,7 @@ export function Shell({
           </button>
         </div>
 
-        {children}
+        <ContextTokensProvider>{children}</ContextTokensProvider>
       </div>
     </div>
   );
