@@ -30,6 +30,24 @@ describe("personas", () => {
       expect(updated?.name).toBe("Updated");
       expect(updated?.content).toBe("New content");
     });
+
+    it("returns null for non-existent persona", () => {
+      expect(updatePersona("nonexistent", { name: "Nope" })).toBeNull();
+    });
+
+    it("updates only name when content is not provided", () => {
+      const created = createPersona({ name: "Test", content: "Original" });
+      const updated = updatePersona(created.id, { name: "Renamed" });
+      expect(updated?.name).toBe("Renamed");
+      expect(updated?.content).toBe("Original");
+    });
+
+    it("updates only content when name is not provided", () => {
+      const created = createPersona({ name: "Test", content: "Original" });
+      const updated = updatePersona(created.id, { content: "New content" });
+      expect(updated?.name).toBe("Test");
+      expect(updated?.content).toBe("New content");
+    });
   });
 
   describe("deletePersona", () => {

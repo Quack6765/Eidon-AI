@@ -52,6 +52,15 @@ describe("conversation title generator", () => {
     ).toBe("A very long generated title that keeps going");
   });
 
+  it("truncates without word boundary when no space exists after position 16", async () => {
+    const { sanitizeGeneratedConversationTitle } = await import("@/lib/conversation-title-generator");
+
+    const result = sanitizeGeneratedConversationTitle(
+      "Superlongwordthatexceedsthemaxlengthbyfar"
+    );
+    expect(result).toBe("Superlongwordthatexceedsthemaxlengthbyfar".slice(0, 48));
+  });
+
   it("calls the provider with title purpose and returns a sanitized title", async () => {
     callProviderText.mockResolvedValue('  "Deployment Checklist."\n');
 

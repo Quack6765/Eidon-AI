@@ -20,4 +20,18 @@ describe("token estimator", () => {
     const result = tokenizer.estimateTextTokens("test");
     expect(result).toBeGreaterThan(0);
   });
+
+  it("returns 0 for empty or whitespace-only text with off tokenizer", () => {
+    const tokenizer = createTokenizer("off");
+    expect(tokenizer.estimateTextTokens("   ")).toBe(0);
+    expect(tokenizer.estimateTextTokens("")).toBe(0);
+  });
+
+  it("estimates tokens for image attachments using gpt-tokenizer", () => {
+    const tokenizer = createTokenizer("gpt-tokenizer");
+    const tokens = tokenizer.estimateAttachmentTokens([
+      { id: "a1", conversationId: "c1", messageId: null, kind: "image", filename: "photo.png", mimeType: "image/png", byteSize: 100, sha256: "hash", relativePath: "c1/a1.png", extractedText: "", createdAt: "" }
+    ]);
+    expect(tokens).toBeGreaterThan(0);
+  });
 });
