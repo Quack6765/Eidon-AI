@@ -1038,9 +1038,9 @@ export function Sidebar({
             className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 hover:bg-white/[0.04] transition-colors duration-200"
           >
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--accent)] text-white text-xs font-bold shadow-[0_0_12px_var(--accent-glow)]">
-              H
+              E
             </div>
-            <span className="font-semibold text-white/90 text-sm tracking-wide">Hermes</span>
+            <span className="font-semibold text-white/90 text-sm tracking-wide">Eidon</span>
           </Link>
         </div>
 
