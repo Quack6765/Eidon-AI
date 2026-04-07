@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Sparkles,
@@ -24,7 +24,7 @@ import {
   PROVIDER_PRESETS,
   type ProviderPresetId
 } from "@/lib/provider-presets";
-import type { ApiMode, ReasoningEffort } from "@/lib/types";
+import type { ApiMode, McpServer, ReasoningEffort, VisionMode } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
@@ -53,6 +53,8 @@ type SettingsPayload = {
     leafMinMessageCount: number;
     mergedMinNodeCount: number;
     mergedTargetTokens: number;
+    visionMode: VisionMode;
+    visionMcpServerId: string | null;
     createdAt: string;
     updatedAt: string;
     hasApiKey: boolean;
@@ -62,6 +64,8 @@ type SettingsPayload = {
 
 type ProviderProfileDraft = SettingsPayload["providerProfiles"][number] & {
   apiKey: string;
+  visionMode: VisionMode;
+  visionMcpServerId: string | null;
 };
 
 export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
@@ -84,6 +88,14 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   );
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+
+  useEffect(() => {
+    fetch("/api/mcp-servers")
+      .then((res) => res.json())
+      .then((data: { servers: McpServer[] }) => setMcpServers(data.servers))
+      .catch(() => setMcpServers([]));
+  }, []);
   const activeProviderProfile = useMemo(
     () =>
       providerProfiles.find((profile) => profile.id === selectedProviderProfileId) ??
@@ -128,6 +140,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         leafMinMessageCount: 6,
         mergedMinNodeCount: 4,
         mergedTargetTokens: 1600,
+        visionMode: "native" as VisionMode,
+        visionMcpServerId: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         hasApiKey: false,
@@ -139,6 +153,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       name: `Profile ${providerProfiles.length + 1}`,
       hasApiKey: false,
       apiKey: "",
+      visionMode: template?.visionMode ?? "native" as VisionMode,
+      visionMcpServerId: template?.visionMcpServerId ?? null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -205,7 +221,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         leafSourceTokenLimit: profile.leafSourceTokenLimit,
         leafMinMessageCount: profile.leafMinMessageCount,
         mergedMinNodeCount: profile.mergedMinNodeCount,
-        mergedTargetTokens: profile.mergedTargetTokens
+        mergedTargetTokens: profile.mergedTargetTokens,
+        visionMode: profile.visionMode ?? "native",
+        visionMcpServerId: profile.visionMcpServerId ?? null
       }))
     };
 
@@ -627,6 +645,46 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         }
                       />
                     </div>
+                    <div>
+                      <label className={labelClass}>Vision mode</label>
+                      <select
+                        value={activeProviderProfile.visionMode ?? "native"}
+                        onChange={(event) =>
+                          updateActiveProviderProfile({ visionMode: event.target.value as VisionMode })
+                        }
+                        className={selectClass}
+                      >
+                        <option value="native">native</option>
+                        <option value="none">none</option>
+                        <option value="mcp">mcp</option>
+                      </select>
+                    </div>
+                    {activeProviderProfile.visionMode === "mcp" && (
+                      <div>
+                        <label className={labelClass}>Vision MCP server</label>
+                        <select
+                          value={activeProviderProfile.visionMcpServerId ?? ""}
+                          onChange={(event) =>
+                            updateActiveProviderProfile({ visionMcpServerId: event.target.value || null })
+                          }
+                          className={selectClass}
+                        >
+                          <option value="">Select a server...</option>
+                          {mcpServers
+                            .filter((server) => server.enabled)
+                            .map((server) => (
+                              <option key={server.id} value={server.id}>
+                                {server.name}
+                              </option>
+                            ))}
+                        </select>
+                        {activeProviderProfile.visionMcpServerId === null && (
+                          <p className="mt-1 text-xs text-amber-400">
+                            Select an MCP server for image analysis
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </CollapsibleSection>
 
