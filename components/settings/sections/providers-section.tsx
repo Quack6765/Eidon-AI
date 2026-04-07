@@ -462,7 +462,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                 <CollapsibleSection
                   title="Advanced Settings"
                   icon={<FlaskConical className="h-4 w-4" />}
-                  defaultOpen={false}
                 >
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
