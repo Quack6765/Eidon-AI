@@ -40,7 +40,10 @@ describe("home view", () => {
   beforeEach(() => {
     push.mockReset();
     sessionStorage.clear();
-    global.fetch = vi.fn();
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ personas: [] })
+    } as Response);
   });
 
   afterEach(() => {
@@ -56,14 +59,19 @@ describe("home view", () => {
   });
 
   it("uses the shared composer and removes the old suggestion cards", async () => {
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        conversation: {
-          id: "conv_new"
-        }
-      })
-    } as Response);
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          conversation: {
+            id: "conv_new"
+          }
+        })
+      } as Response);
 
     render(
       React.createElement(HomeView, {
