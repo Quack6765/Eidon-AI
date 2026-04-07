@@ -160,7 +160,7 @@ describe("MCP client", () => {
     const server = createStdioServer();
 
     const tools = await discoverMcpTools(server);
-    const result = await callMcpTool(server, "read_file", { path: "/tmp/a.txt" });
+    const result = await callMcpTool(server, "read_file", { path: "/tmp/a.txt" }, 60_000);
 
     expect(tools).toHaveLength(1);
     expect(result.content[0]?.text).toBe("hello");
@@ -184,34 +184,6 @@ describe("MCP client", () => {
       env: { TOKEN: "test" },
       stderr: "pipe"
     });
-  });
-
-  it("filters tools by read-only mode and preserves all tools in read-write mode", async () => {
-    nextListToolsResult = {
-      tools: [
-        {
-          name: "safe_read",
-          description: "Safe read",
-          inputSchema: { type: "object" },
-          annotations: { readOnlyHint: true }
-        },
-        {
-          name: "write_file",
-          description: "Write file",
-          inputSchema: { type: "object" },
-          annotations: {}
-        }
-      ]
-    };
-
-    const { gatherAllMcpTools } = await import("@/lib/mcp-client");
-    const server = createHttpServer();
-
-    const readOnly = await gatherAllMcpTools([server], "read_only");
-    const readWrite = await gatherAllMcpTools([server], "read_write");
-
-    expect(readOnly[0]?.tools.map((tool) => tool.name)).toEqual(["safe_read"]);
-    expect(readWrite[0]?.tools.map((tool) => tool.name)).toEqual(["safe_read", "write_file"]);
   });
 
   it("tests streamable HTTP connections and reports negotiated session details", async () => {
@@ -281,7 +253,7 @@ describe("MCP client", () => {
 
     await expect(discoverMcpTools(server)).resolves.toEqual([]);
 
-    const result = await callMcpTool(server, "write_file", { path: "/tmp/a.txt" });
+    const result = await callMcpTool(server, "write_file", { path: "/tmp/a.txt" }, 60_000);
 
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("tool exploded");
@@ -307,12 +279,12 @@ describe("MCP client", () => {
       }
     };
 
-    const { callMcpTool, summarizeToolResult } = await import("@/lib/mcp-client");
-    const result = await callMcpTool(createHttpServer(), "search_docs", { query: "MCP" });
+    const { callMcpTool, getToolResultText } = await import("@/lib/mcp-client");
+    const result = await callMcpTool(createHttpServer(), "search_docs", { query: "MCP" }, 60_000);
 
     expect(result.content[0]?.text).toBe('{"ok":true}');
     expect(
-      summarizeToolResult({
+      getToolResultText({
         content: [
           { type: "image", mimeType: "image/png" },
           { type: "audio", mimeType: "audio/mpeg" },
@@ -322,19 +294,19 @@ describe("MCP client", () => {
       })
     ).toContain("[image image/png]");
     expect(
-      summarizeToolResult({
+      getToolResultText({
         content: [],
         structuredContent: { ok: true }
       })
     ).toBe('{"ok":true}');
     expect(
-      summarizeToolResult({
+      getToolResultText({
         content: [],
         isError: true
       })
     ).toBe("Tool call failed.");
     expect(
-      summarizeToolResult({
+      getToolResultText({
         content: [],
         isError: false
       })
@@ -441,15 +413,16 @@ describe("MCP client", () => {
       ]
     };
 
-    await expect(gatherAllMcpTools([server], "read_only")).resolves.toEqual([]);
+    const result = await gatherAllMcpTools([server]);
+    expect(result[0]?.tools.map((tool) => tool.name)).toEqual(["write_file"]);
     await expect(disconnectMcpServer(createStdioServer())).resolves.toBeUndefined();
   });
 
-  it("truncates long summaries and preserves resource text content", async () => {
-    const { summarizeToolResult } = await import("@/lib/mcp-client");
+  it("returns full text without truncation and preserves resource text content", async () => {
+    const { getToolResultText } = await import("@/lib/mcp-client");
 
     expect(
-      summarizeToolResult({
+      getToolResultText({
         content: [
           {
             type: "resource",
@@ -463,11 +436,11 @@ describe("MCP client", () => {
     ).toBe("resource text");
 
     const longText = "x".repeat(400);
-    const summary = summarizeToolResult({
+    const result = getToolResultText({
       content: [{ type: "text", text: longText }]
     });
 
-    expect(summary.length).toBe(280);
-    expect(summary.endsWith("...")).toBe(true);
+    expect(result.length).toBe(400);
+    expect(result).toBe(longText);
   });
 });

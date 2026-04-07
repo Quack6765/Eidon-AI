@@ -2,7 +2,7 @@ import type { ChatStreamEvent, ProviderProfileWithApiKey, Skill } from "@/lib/ty
 
 const streamProviderResponse = vi.fn();
 const callMcpTool = vi.fn();
-const summarizeToolResult = vi.fn();
+const getToolResultText = vi.fn();
 const executeLocalShellCommand = vi.fn();
 const summarizeShellResult = vi.fn();
 const getMemoryRecord = vi.fn();
@@ -18,7 +18,7 @@ vi.mock("@/lib/provider", () => ({
 
 vi.mock("@/lib/mcp-client", () => ({
   callMcpTool,
-  summarizeToolResult
+  getToolResultText
 }));
 
 vi.mock("@/lib/local-shell", () => ({
@@ -108,7 +108,7 @@ describe("assistant runtime", () => {
     vi.resetModules();
     streamProviderResponse.mockReset();
     callMcpTool.mockReset();
-    summarizeToolResult.mockReset();
+    getToolResultText.mockReset();
     executeLocalShellCommand.mockReset();
     summarizeShellResult.mockReset();
     getMemoryRecord.mockReset();
@@ -119,7 +119,7 @@ describe("assistant runtime", () => {
     getSettingsFn.mockReset();
     getMemoryCountFn.mockReturnValue(0);
     getSettingsFn.mockReturnValue({ memoriesMaxCount: 100 });
-    summarizeToolResult.mockImplementation((result: { content?: Array<{ text?: string }> }) => {
+    getToolResultText.mockImplementation((result: { content?: Array<{ text?: string }> }) => {
       return result.content?.[0]?.text ?? "done";
     });
     summarizeShellResult.mockImplementation((result: { stdout?: string; stderr?: string }) => {
@@ -243,7 +243,7 @@ describe("assistant runtime", () => {
       onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
     });
 
-    expect(callMcpTool).toHaveBeenCalledWith(expect.objectContaining({ id: "mcp_docs" }), "search_docs", { query: "MCP" });
+    expect(callMcpTool).toHaveBeenCalledWith(expect.objectContaining({ id: "mcp_docs" }), "search_docs", { query: "MCP" }, undefined);
     expect(started).toEqual([expect.objectContaining({ label: "Search docs", serverId: "mcp_docs" })]);
     expect(completed).toEqual([{ handle: "act_tool", resultSummary: "Found MCP docs" }]);
     expect(result.answer).toBe("Final answer");
@@ -733,7 +733,8 @@ Run browser commands.`
     expect(callMcpTool).toHaveBeenCalledWith(
       expect.objectContaining({ id: "mcp_exa" }),
       "search",
-      { query: "test", freshness: "month" }
+      { query: "test", freshness: "month" },
+      undefined
     );
   });
 
