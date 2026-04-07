@@ -41,7 +41,8 @@ export async function startChatTurn(
   manager: ConversationManager,
   conversationId: string,
   content: string,
-  attachmentIds: string[]
+  attachmentIds: string[],
+  personaId?: string
 ) {
   const conversation = getConversation(conversationId);
   if (!conversation) return;
@@ -105,7 +106,7 @@ export async function startChatTurn(
           event: { type: "compaction_end" }
         });
       }
-    });
+    }, personaId);
     let promptMessages = compacted.promptMessages;
     const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
     const mcpServers = listEnabledMcpServers();
