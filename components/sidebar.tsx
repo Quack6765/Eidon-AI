@@ -180,7 +180,7 @@ function ConversationItem({
     }
 
     event.preventDefault();
-    void onNavigate(conversation.id, `/chat/${conversation.id}`);
+    void onNavigate(`/chat/${conversation.id}`, conversation.id);
   }
 
   useEffect(() => {
