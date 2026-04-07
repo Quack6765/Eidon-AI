@@ -15,6 +15,7 @@ import {
   getProviderProfileWithApiKey,
   getSettings
 } from "@/lib/settings";
+import { getConversationManager } from "@/lib/ws-handler";
 import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
   Conversation,
@@ -1104,6 +1105,23 @@ export async function generateConversationTitleFromFirstUserMessage(
         conversationId,
         DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE
       );
+
+      const currentConversation = getConversation(conversationId);
+      if (currentConversation) {
+        try {
+          getConversationManager().broadcastAll({
+            type: "conversation_updated",
+            conversation: {
+              id: conversationId,
+              title: DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE,
+              folderId: currentConversation.folderId,
+              updatedAt: new Date().toISOString(),
+              isActive: currentConversation.isActive
+            }
+          });
+        } catch { /* WS server may not be running */ }
+      }
+
       return true;
     }
 
@@ -1130,6 +1148,20 @@ export async function generateConversationTitleFromFirstUserMessage(
     });
 
     completeConversationTitleGeneration(conversationId, title);
+
+    try {
+      getConversationManager().broadcastAll({
+        type: "conversation_updated",
+        conversation: {
+          id: conversationId,
+          title,
+          folderId: conversation.folderId,
+          updatedAt: new Date().toISOString(),
+          isActive: conversation.isActive
+        }
+      });
+    } catch { /* WS server may not be running */ }
+
     return true;
   } catch {
     failConversationTitleGeneration(conversationId);
