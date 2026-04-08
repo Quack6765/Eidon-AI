@@ -96,7 +96,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
-  const [copilotModels, setCopilotModels] = useState<Array<{ id: string; name: string }>>([]);
+  const [copilotModels, setCopilotModels] = useState<Array<{ id: string; name: string; maxContextWindowTokens: number | null }>>([]);
 
   useEffect(() => {
     fetch("/api/mcp-servers")
@@ -114,6 +114,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const activeProviderPresetId = activeProviderProfile
     ? getMatchingProviderPresetId(activeProviderProfile)
     : null;
+  const isCopilot = activeProviderProfile?.providerKind === "github_copilot";
 
   useEffect(() => {
     if (
@@ -221,12 +222,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     }
   }
 
-  async function handleSettings(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
-    setSuccess("");
-
-    const payload = {
+  async function buildSettingsPayload() {
+    return {
       defaultProviderProfileId,
       skillsEnabled,
       providerProfiles: providerProfiles.map((profile) => ({
@@ -259,20 +256,32 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         githubRefreshTokenExpiresAt: profile.githubRefreshTokenExpiresAt ?? null
       }))
     };
+  }
 
+  async function saveSettings() {
     const response = await fetch("/api/settings", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(await buildSettingsPayload())
     });
 
     const result = (await response.json()) as { error?: string };
     if (!response.ok) {
       setError(result.error ?? "Unable to save settings");
-      return;
+      return false;
     }
-    setSuccess("Settings saved.");
-    router.refresh();
+
+    return true;
+  }
+
+  async function handleSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+
+    if (await saveSettings()) {
+      setSuccess("Settings saved.");
+    }
   }
 
   async function runConnectionTest() {
@@ -321,7 +330,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   setMobileDetailVisible(true);
                 }}
                 title={profile.name}
-                subtitle={`${profile.model} \u00B7 ${profile.apiMode}`}
+                subtitle={
+                  profile.providerKind === "github_copilot"
+                    ? `Copilot${profile.model ? ` · ${profile.model}` : ""}`
+                    : `${profile.model} · ${profile.apiMode}`
+                }
                 badges={[
                   ...(profile.id === defaultProviderProfileId
                     ? [{ variant: "default" as const, label: "DEFAULT" }]
@@ -352,8 +365,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                       {activeProviderProfile.name}
                     </h3>
                     <p className="mt-0.5 text-[0.75rem] text-[#52525b]">
-                      {activeProviderProfile.apiBaseUrl} &middot; {activeProviderProfile.model}{" "}
-                      &middot; {activeProviderProfile.apiMode}
+                      {isCopilot
+                        ? `GitHub Copilot${activeProviderProfile.model ? ` · ${activeProviderProfile.model}` : ""}`
+                        : `${activeProviderProfile.apiBaseUrl} · ${activeProviderProfile.model} · ${activeProviderProfile.apiMode}`}
                     </p>
                   </div>
 
@@ -398,26 +412,35 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     <select
                       className={selectClass}
                       value={activeProviderProfile.providerKind ?? "openai_compatible"}
-                      onChange={(event) =>
-                        updateActiveProviderProfile({
-                          providerKind: event.target.value as "openai_compatible" | "github_copilot",
-                          apiBaseUrl:
-                            event.target.value === "github_copilot"
-                              ? ""
-                              : activeProviderProfile.apiBaseUrl,
-                          apiKey:
-                            event.target.value === "github_copilot"
-                              ? ""
-                              : activeProviderProfile.apiKey
-                        })
+                      onChange={(event) => {
+                        const value = event.target.value as "openai_compatible" | "github_copilot";
+
+                        if (value === "github_copilot") {
+                          updateActiveProviderProfile({
+                            providerKind: "github_copilot",
+                            apiBaseUrl: "",
+                            apiKey: "",
+                            model: "",
+                            apiMode: "responses",
+                            systemPrompt: "",
+                            tokenizerModel: "off"
+                          });
+                        } else {
+                          updateActiveProviderProfile({
+                            providerKind: "openai_compatible",
+                            apiBaseUrl: activeProviderProfile.apiBaseUrl || "https://api.openai.com/v1",
+                            apiKey: ""
+                          });
+                        }
                       }
+                    }
                     >
                       <option value="openai_compatible">OpenAI compatible</option>
                       <option value="github_copilot">GitHub Copilot</option>
                     </select>
                   </div>
 
-                  {activeProviderProfile.providerKind !== "github_copilot" && (
+                  {!isCopilot && (
                     <div>
                       <label className={labelClass}>Provider preset</label>
                       <select
@@ -456,7 +479,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     />
                   </div>
 
-                  {activeProviderProfile.providerKind === "github_copilot" ? (
+                  {isCopilot ? (
                     <div className="space-y-3">
                       <p className={labelClass}>GitHub connection</p>
                       <div className="rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm text-[#f4f4f5]">
@@ -467,8 +490,10 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                       <div className="flex gap-2">
                         <Button
                           type="button"
-                          onClick={() => {
-                            window.location.href = `/api/providers/github/connect?providerProfileId=${activeProviderProfile.id}`;
+                          onClick={async () => {
+                            if (await saveSettings()) {
+                              window.location.href = `/api/providers/github/connect?providerProfileId=${activeProviderProfile.id}`;
+                            }
                           }}
                         >
                           {activeProviderProfile.githubConnectionStatus === "connected"
@@ -564,18 +589,35 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     </>
                   )}
 
-                  {activeProviderProfile.providerKind === "github_copilot" && copilotModels.length > 0 && (
+                  {isCopilot && copilotModels.length > 0 && (
                     <div>
                       <label className={labelClass}>Model</label>
                       <select
                         value={activeProviderProfile.model}
-                        onChange={(event) => updateActiveProviderProfile({ model: event.target.value })}
+                        onChange={(event) => {
+                          const selected = copilotModels.find((m) => m.id === event.target.value);
+                          updateActiveProviderProfile({
+                            model: event.target.value,
+                            ...(selected?.maxContextWindowTokens
+                              ? { modelContextLimit: selected.maxContextWindowTokens }
+                              : {})
+                          });
+                        }}
                         className={selectClass}
                       >
                         {copilotModels.map((model) => (
                           <option key={model.id} value={model.id}>{model.name}</option>
                         ))}
                       </select>
+                    </div>
+                  )}
+
+                  {isCopilot && copilotModels.length === 0 && activeProviderProfile.githubConnectionStatus !== "connected" && (
+                    <div>
+                      <label className={labelClass}>Model</label>
+                      <div className="rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm text-[#52525b]">
+                        Connect GitHub to browse models
+                      </div>
                     </div>
                   )}
                 </div>
@@ -585,33 +627,37 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   icon={<FlaskConical className="h-4 w-4" />}
                 >
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className={labelClass}>Temperature</label>
-                      <Input
-                        name="provider-temperature"
-                        type="number"
-                        step="0.1"
-                        value={activeProviderProfile.temperature}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({
-                            temperature: Number(event.target.value || 0)
-                          })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Max output tokens</label>
-                      <Input
-                        name="provider-max-output-tokens"
-                        type="number"
-                        value={activeProviderProfile.maxOutputTokens}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({
-                            maxOutputTokens: Number(event.target.value || 0)
-                          })
-                        }
-                      />
-                    </div>
+                    {!isCopilot && (
+                      <>
+                        <div>
+                          <label className={labelClass}>Temperature</label>
+                          <Input
+                            name="provider-temperature"
+                            type="number"
+                            step="0.1"
+                            value={activeProviderProfile.temperature}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({
+                                temperature: Number(event.target.value || 0)
+                              })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className={labelClass}>Max output tokens</label>
+                          <Input
+                            name="provider-max-output-tokens"
+                            type="number"
+                            value={activeProviderProfile.maxOutputTokens}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({
+                                maxOutputTokens: Number(event.target.value || 0)
+                              })
+                            }
+                          />
+                        </div>
+                      </>
+                    )}
                     <div>
                       <label className={labelClass}>Reasoning effort</label>
                       <select
@@ -629,34 +675,38 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         <option value="xhigh">xhigh</option>
                       </select>
                     </div>
-                    <div>
-                      <label className={labelClass}>Reasoning summary</label>
-                      <label className="flex h-[46px] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-4 text-[0.82rem] text-[#a1a1aa] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={activeProviderProfile.reasoningSummaryEnabled}
-                          onChange={(event) =>
-                            updateActiveProviderProfile({
-                              reasoningSummaryEnabled: event.target.checked
-                            })
-                          }
-                        />
-                        Show reasoning when supported
-                      </label>
-                    </div>
-                    <div>
-                      <label className={labelClass}>API mode</label>
-                      <select
-                        value={activeProviderProfile.apiMode}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ apiMode: event.target.value as ApiMode })
-                        }
-                        className={selectClass}
-                      >
-                        <option value="responses">responses</option>
-                        <option value="chat_completions">chat_completions</option>
-                      </select>
-                    </div>
+                    {!isCopilot && (
+                      <>
+                        <div>
+                          <label className={labelClass}>Reasoning summary</label>
+                          <label className="flex h-[46px] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-4 text-[0.82rem] text-[#a1a1aa] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={activeProviderProfile.reasoningSummaryEnabled}
+                              onChange={(event) =>
+                                updateActiveProviderProfile({
+                                  reasoningSummaryEnabled: event.target.checked
+                                })
+                              }
+                            />
+                            Show reasoning when supported
+                          </label>
+                        </div>
+                        <div>
+                          <label className={labelClass}>API mode</label>
+                          <select
+                            value={activeProviderProfile.apiMode}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ apiMode: event.target.value as ApiMode })
+                            }
+                            className={selectClass}
+                          >
+                            <option value="responses">responses</option>
+                            <option value="chat_completions">chat_completions</option>
+                          </select>
+                        </div>
+                      </>
+                    )}
                     <div>
                       <label className={labelClass}>Model context limit</label>
                       <Input
@@ -697,74 +747,78 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         }
                       />
                     </div>
-                    <div>
-                      <label className={labelClass}>Tokenizer model</label>
-                      <select
-                        value={activeProviderProfile.tokenizerModel}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ tokenizerModel: event.target.value as "gpt-tokenizer" | "off" })
-                        }
-                        className={selectClass}
-                      >
-                        <option value="gpt-tokenizer">gpt-tokenizer</option>
-                        <option value="off">Off (char / 4)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className={labelClass}>Safety margin tokens</label>
-                      <Input
-                        name="provider-safety-margin-tokens"
-                        type="number"
-                        value={activeProviderProfile.safetyMarginTokens}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ safetyMarginTokens: Number(event.target.value || 0) })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Leaf source token limit</label>
-                      <Input
-                        name="provider-leaf-source-token-limit"
-                        type="number"
-                        value={activeProviderProfile.leafSourceTokenLimit}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ leafSourceTokenLimit: Number(event.target.value || 0) })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Leaf min message count</label>
-                      <Input
-                        name="provider-leaf-min-message-count"
-                        type="number"
-                        value={activeProviderProfile.leafMinMessageCount}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ leafMinMessageCount: Number(event.target.value || 0) })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Merged min node count</label>
-                      <Input
-                        name="provider-merged-min-node-count"
-                        type="number"
-                        value={activeProviderProfile.mergedMinNodeCount}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ mergedMinNodeCount: Number(event.target.value || 0) })
-                        }
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Merged target tokens</label>
-                      <Input
-                        name="provider-merged-target-tokens"
-                        type="number"
-                        value={activeProviderProfile.mergedTargetTokens}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ mergedTargetTokens: Number(event.target.value || 0) })
-                        }
-                      />
-                    </div>
+                    {!isCopilot && (
+                      <>
+                        <div>
+                          <label className={labelClass}>Tokenizer model</label>
+                          <select
+                            value={activeProviderProfile.tokenizerModel}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ tokenizerModel: event.target.value as "gpt-tokenizer" | "off" })
+                            }
+                            className={selectClass}
+                          >
+                            <option value="gpt-tokenizer">gpt-tokenizer</option>
+                            <option value="off">Off (char / 4)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className={labelClass}>Safety margin tokens</label>
+                          <Input
+                            name="provider-safety-margin-tokens"
+                            type="number"
+                            value={activeProviderProfile.safetyMarginTokens}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ safetyMarginTokens: Number(event.target.value || 0) })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className={labelClass}>Leaf source token limit</label>
+                          <Input
+                            name="provider-leaf-source-token-limit"
+                            type="number"
+                            value={activeProviderProfile.leafSourceTokenLimit}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ leafSourceTokenLimit: Number(event.target.value || 0) })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className={labelClass}>Leaf min message count</label>
+                          <Input
+                            name="provider-leaf-min-message-count"
+                            type="number"
+                            value={activeProviderProfile.leafMinMessageCount}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ leafMinMessageCount: Number(event.target.value || 0) })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className={labelClass}>Merged min node count</label>
+                          <Input
+                            name="provider-merged-min-node-count"
+                            type="number"
+                            value={activeProviderProfile.mergedMinNodeCount}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ mergedMinNodeCount: Number(event.target.value || 0) })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <label className={labelClass}>Merged target tokens</label>
+                          <Input
+                            name="provider-merged-target-tokens"
+                            type="number"
+                            value={activeProviderProfile.mergedTargetTokens}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ mergedTargetTokens: Number(event.target.value || 0) })
+                            }
+                          />
+                        </div>
+                      </>
+                    )}
                     <div>
                       <label className={labelClass}>Vision mode</label>
                       <select

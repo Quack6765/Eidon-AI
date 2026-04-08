@@ -1,3 +1,7 @@
+import { mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { SignJWT, jwtVerify } from "jose";
 import { CopilotClient } from "@github/copilot-sdk";
 
@@ -9,6 +13,13 @@ import type {
   ProviderProfileWithApiKey
 } from "@/lib/types";
 import { updateGithubCopilotCredentials } from "@/lib/settings";
+
+const COPILOT_WORK_DIR = join(tmpdir(), "eidon-copilot");
+
+function ensureCopilotWorkDir(): string {
+  mkdirSync(COPILOT_WORK_DIR, { recursive: true });
+  return COPILOT_WORK_DIR;
+}
 
 type GithubConnectionInput = Pick<
   ProviderProfile,
@@ -130,12 +141,14 @@ export async function exchangeGithubCodeForTokens(code: string) {
   );
 
   return response.json() as Promise<{
-    access_token: string;
-    token_type: string;
-    scope: string;
+    access_token?: string;
+    token_type?: string;
+    scope?: string;
     refresh_token?: string;
     expires_in?: number;
     refresh_token_expires_in?: number;
+    error?: string;
+    error_description?: string;
   }>;
 }
 
@@ -225,7 +238,13 @@ export async function listGithubCopilotModels(
     useLoggedInUser: false
   });
 
-  return client.listModels();
+  await client.start();
+
+  try {
+    return await client.listModels();
+  } finally {
+    await client.stop();
+  }
 }
 
 export async function buildGithubCopilotClient(
@@ -268,14 +287,44 @@ export async function streamGithubCopilotChat(
 ) {
   const client = await buildGithubCopilotClient(input);
 
-  const session = await client.createSession({
-    model: input.model,
-    streaming: true,
-    onPermissionRequest: () => ({ kind: "approved" as const }),
-    onEvent: input.onEvent
-  });
+  try {
+    let resolveTurn: () => void;
+    let rejectTurn: (error: Error) => void;
+    const turnComplete = new Promise<void>((resolve, reject) => {
+      resolveTurn = resolve;
+      rejectTurn = reject;
+    });
 
-  await session.send({
-    prompt: input.messages.map((m) => m.content).join("\n")
-  });
+    const sessionConfig = {
+      model: input.model,
+      streaming: true as const,
+      workingDirectory: ensureCopilotWorkDir(),
+      availableTools: [] as string[],
+      onPermissionRequest: () => ({ kind: "approved" as const }),
+      onEvent: (rawEvent: unknown) => {
+        const event = rawEvent as { type: string; data?: Record<string, unknown> };
+
+        input.onEvent(rawEvent);
+
+        if (event.type === "assistant.turn_end" || event.type === "session.idle") {
+          resolveTurn();
+        } else if (event.type === "session.error" && event.data?.message) {
+          rejectTurn(new Error(event.data.message as string));
+        }
+      },
+      ...(input.systemPrompt
+        ? { systemMessage: { mode: "replace" as const, content: input.systemPrompt } }
+        : {})
+    };
+
+    const session = await client.createSession(sessionConfig);
+
+    await session.send({
+      prompt: input.messages.map((m) => m.content).join("\n")
+    });
+
+    await turnComplete;
+  } finally {
+    await client.stop();
+  }
 }

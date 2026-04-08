@@ -53,10 +53,26 @@ export async function startChatTurn(
       : null) ?? getDefaultProviderProfileWithApiKey();
   const appSettings = getSettings();
 
-  if (!settings?.apiKey) {
+  if (!settings) {
+    manager.broadcast(conversationId, {
+      type: "error",
+      message: "No provider profile configured"
+    });
+    return;
+  }
+
+  if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
     manager.broadcast(conversationId, {
       type: "error",
       message: "Set an API key in settings before starting a chat"
+    });
+    return;
+  }
+
+  if (settings.providerKind === "github_copilot" && !settings.githubUserAccessTokenEncrypted) {
+    manager.broadcast(conversationId, {
+      type: "error",
+      message: "Connect a GitHub account in settings before starting a chat"
     });
     return;
   }

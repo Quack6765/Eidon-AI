@@ -29,8 +29,16 @@ export async function GET(request: Request) {
   try {
     const tokens = await exchangeGithubCodeForTokens(code);
 
+    if (tokens.error) {
+      return badRequest(`GitHub OAuth error: ${tokens.error_description ?? tokens.error}`);
+    }
+
+    if (!tokens.access_token) {
+      return badRequest("GitHub OAuth did not return an access token");
+    }
+
     updateGithubCopilotCredentials(claims.profileId, {
-      githubUserAccessToken: tokens.access_token,
+      githubUserAccessToken: tokens.access_token!,
       githubRefreshToken: tokens.refresh_token ?? "",
       githubTokenExpiresAt: tokens.expires_in
         ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
@@ -43,5 +51,5 @@ export async function GET(request: Request) {
     return badRequest(`Token exchange failed: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 
-  redirect("/settings?tab=providers");
+  redirect("/settings/providers");
 }

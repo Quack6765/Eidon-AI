@@ -20,9 +20,9 @@ const runtimeSettingsSchema = z.object({
   providerKind: z.enum(["openai_compatible", "github_copilot"]).default("openai_compatible"),
   apiBaseUrl: z.string().default(""),
   apiKey: z.string().optional().default(""),
-  model: z.string().min(1),
+  model: z.string().min(0),
   apiMode: z.enum(["responses", "chat_completions"]),
-  systemPrompt: z.string().min(1),
+  systemPrompt: z.string().min(0),
   temperature: z.coerce.number().min(0).max(2),
   maxOutputTokens: z.coerce.number().int().min(128).max(32768),
   reasoningEffort: z.enum(["low", "medium", "high", "xhigh"]),
@@ -50,12 +50,28 @@ const providerProfileInputSchema = runtimeSettingsSchema.extend({
   id: z.string().min(1),
   name: z.string().min(1)
 }).superRefine((value, context) => {
-  if (value.providerKind === "openai_compatible" && !value.apiBaseUrl) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "API base URL is required for OpenAI-compatible profiles",
-      path: ["apiBaseUrl"]
-    });
+  if (value.providerKind === "openai_compatible") {
+    if (!value.apiBaseUrl) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "API base URL is required for OpenAI-compatible profiles",
+        path: ["apiBaseUrl"]
+      });
+    }
+    if (!value.model) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Model is required for OpenAI-compatible profiles",
+        path: ["model"]
+      });
+    }
+    if (!value.systemPrompt) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "System prompt is required for OpenAI-compatible profiles",
+        path: ["systemPrompt"]
+      });
+    }
   }
 });
 

@@ -306,15 +306,68 @@ export async function* streamProviderResponse(input: {
       typeof m.content === "string" ? m.content : m.content.map((p) => "text" in p ? p.text : "").join("")
     );
 
-    await streamGithubCopilotChat({
+    type CopilotEvent = { type: string; data?: Record<string, unknown> };
+    type QueueItem = { done: true } | { event: ChatStreamEvent };
+
+    const eventQueue: QueueItem[] = [];
+    let resolveQueue: ((item: QueueItem) => void) | null = null;
+
+    function enqueue(item: QueueItem) {
+      if (resolveQueue) {
+        const r = resolveQueue;
+        resolveQueue = null;
+        r(item);
+      } else {
+        eventQueue.push(item);
+      }
+    }
+
+    function dequeue(): Promise<QueueItem> {
+      if (eventQueue.length > 0) {
+        return Promise.resolve(eventQueue.shift()!);
+      }
+      return new Promise<QueueItem>((resolve) => {
+        resolveQueue = resolve;
+      });
+    }
+
+    let answer = "";
+    let thinking = "";
+
+    const copilotPromise = streamGithubCopilotChat({
       ...freshSettings,
-      messages: messageTexts.map((content) => ({ role: "user", content })),
-      onEvent: (event: unknown) => {
-        void event;
+      messages: messageTexts.map((content) => ({ role: "user" as const, content })),
+      onEvent: (rawEvent: unknown) => {
+        const event = rawEvent as CopilotEvent;
+
+        if (event.type === "assistant.message_delta" && event.data?.deltaContent) {
+          answer += event.data.deltaContent as string;
+          enqueue({ event: { type: "answer_delta", text: event.data.deltaContent as string } });
+        } else if (event.type === "assistant.reasoning_delta" && event.data?.deltaContent) {
+          thinking += event.data.deltaContent as string;
+          enqueue({ event: { type: "thinking_delta", text: event.data.deltaContent as string } });
+        } else if (event.type === "session.error" && event.data?.message) {
+          enqueue({ event: { type: "error", message: event.data.message as string } });
+        }
       }
     });
 
-    return { answer: "", thinking: "", usage: { inputTokens: 0 } };
+    copilotPromise.catch((error: Error) => {
+      console.error("[copilot/stream] promise rejected:", error.message);
+      enqueue({ event: { type: "error", message: error.message } });
+    });
+
+    copilotPromise.finally(() => {
+      enqueue({ done: true });
+    });
+
+    let item = await dequeue();
+    while (!("done" in item)) {
+      yield item.event;
+      item = await dequeue();
+    }
+
+    return { answer, thinking, usage: { inputTokens: estimatePromptTokens(promptMessages) } };
   }
 
   const client = createClient(settings, settings.apiKey);

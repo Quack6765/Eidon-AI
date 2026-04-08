@@ -20,7 +20,18 @@ export async function GET(request: Request) {
     return badRequest("GitHub account not connected");
   }
 
-  const modelList = await listGithubCopilotModels(profile);
+  try {
+    const modelList = await listGithubCopilotModels(profile);
 
-  return ok({ models: modelList });
+    return ok({
+      models: modelList.map((model) => ({
+        id: model.id,
+        name: model.name,
+        maxContextWindowTokens: model.capabilities?.limits?.max_context_window_tokens ?? null
+      }))
+    });
+  } catch (error) {
+    console.error("[copilot/models] Failed to list models:", error instanceof Error ? error.message : error);
+    return ok({ models: [] });
+  }
 }

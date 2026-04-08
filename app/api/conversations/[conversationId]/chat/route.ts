@@ -73,8 +73,16 @@ export async function POST(
       : null) ?? getDefaultProviderProfileWithApiKey();
   const appSettings = getSettings();
 
-  if (!settings?.apiKey) {
+  if (!settings) {
+    return badRequest("No provider profile configured");
+  }
+
+  if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
     return badRequest("Set an API key in settings before starting a chat");
+  }
+
+  if (settings.providerKind === "github_copilot" && !settings.githubUserAccessTokenEncrypted) {
+    return badRequest("Connect a GitHub account in settings before starting a chat");
   }
 
   const userMessage = createMessage({
