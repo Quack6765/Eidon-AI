@@ -4,6 +4,7 @@ export type ClientMessage =
   | { type: "subscribe"; conversationId: string }
   | { type: "unsubscribe"; conversationId: string }
   | { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string }
+  | { type: "stop"; conversationId: string }
   | { type: "edit"; messageId: string; content: string };
 
 export type ServerMessage =
@@ -25,7 +26,7 @@ export function serializeServerMessage(msg: ServerMessage): string {
   return JSON.stringify(msg);
 }
 
-const CLIENT_MESSAGE_TYPES = new Set(["subscribe", "unsubscribe", "message", "edit"]);
+const CLIENT_MESSAGE_TYPES = new Set(["subscribe", "unsubscribe", "message", "stop", "edit"]);
 
 export function parseClientMessage(raw: string): ClientMessage | null {
   try {
