@@ -23,6 +23,13 @@ function createSettings(): ProviderProfileWithApiKey {
     modelContextLimit: 16000,
     compactionThreshold: 0.8,
     freshTailCount: 12,
+    providerKind: "openai_compatible",
+    githubUserAccessTokenEncrypted: "",
+    githubRefreshTokenEncrypted: "",
+    githubTokenExpiresAt: null,
+    githubRefreshTokenExpiresAt: null,
+    githubAccountLogin: null,
+    githubAccountName: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
