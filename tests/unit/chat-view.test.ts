@@ -1062,6 +1062,25 @@ describe("chat view", () => {
     expect(screen.getByText("Hello")).toBeInTheDocument();
   });
 
+  it("sends a websocket stop message when the active-turn button is clicked", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await act(async () => {
+      wsMock.onMessage?.({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant_1" }
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop response" }));
+
+    expect(wsMock.send).toHaveBeenCalledWith({
+      type: "stop",
+      conversationId: "conv_1"
+    });
+  });
+
   it("updates token usage gauge when usage event arrives", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 

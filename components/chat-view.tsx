@@ -237,6 +237,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [isStopPending, setIsStopPending] = useState(false);
   const [streamThinkingTarget, setStreamThinkingTarget] = useState("");
   const [streamThinkingDisplay, setStreamThinkingDisplay] = useState("");
   const [streamAnswerTarget, setStreamAnswerTarget] = useState("");
@@ -508,6 +509,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "done") {
       clearCompactionIndicator();
+      setIsStopPending(false);
       const finalAnswer = streamAnswerTargetRef.current;
       const finalThinking = streamThinkingTargetRef.current;
       const finalTimeline = streamTimelineRef.current;
@@ -542,6 +544,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "error") {
       clearCompactionIndicator();
+      setIsStopPending(false);
       const activeStreamMessageId = streamMessageIdRef.current;
       dispatchConversationActivityUpdated({
         conversationId: payload.conversation.id,
@@ -1176,6 +1179,18 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  function stopActiveTurn() {
+    if (!streamMessageIdRef.current || isStopPending) {
+      return;
+    }
+
+    setIsStopPending(true);
+    wsSend({
+      type: "stop",
+      conversationId: payload.conversation.id
+    });
+  }
+
   submitRef.current = submit;
 
   return (
@@ -1309,6 +1324,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
             compactionThreshold={selectedProfile?.compactionThreshold ?? 0.78}
             hasMessages={messages.length > 0}
+            canStop={!!streamMessageId && !isStopPending}
+            isStopPending={isStopPending}
+            onStop={stopActiveTurn}
           />
         </div>
       </div>

@@ -554,6 +554,21 @@ describe("message bubble", () => {
     expect(screen.getByText("Here are the results.")).toBeInTheDocument();
   });
 
+  it("renders a stopped badge for interrupted assistant messages", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          status: "stopped",
+          content: "Partial answer"
+        }
+      })
+    );
+
+    expect(screen.getByText("Stopped")).toBeInTheDocument();
+    expect(screen.getByText("Partial answer")).toBeInTheDocument();
+  });
+
   it("renders a compaction separator instead of typing dots while compaction is active", () => {
     const { container } = render(
       React.createElement(StreamingPlaceholder, {
