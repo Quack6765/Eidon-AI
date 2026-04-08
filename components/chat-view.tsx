@@ -174,6 +174,58 @@ function reconcileSnapshotMessages(
   return [...merged, ...pendingLocalMessages];
 }
 
+function adoptStreamingSnapshotState(timeline: MessageTimelineItem[] | undefined) {
+  const consolidated: MessageTimelineItem[] = [];
+  let textBuffer = "";
+  let textCreatedAt: string | null = null;
+
+  function flushBufferedText() {
+    if (!textBuffer || !textCreatedAt) {
+      return;
+    }
+
+    consolidated.push({
+      id: `adopted_text_${consolidated.length}`,
+      timelineKind: "text",
+      sortOrder: consolidated.length,
+      createdAt: textCreatedAt,
+      content: textBuffer
+    });
+    textBuffer = "";
+    textCreatedAt = null;
+  }
+
+  for (const item of timeline ?? []) {
+    if (item.timelineKind === "text") {
+      textBuffer += item.content;
+      textCreatedAt ??= item.createdAt;
+      continue;
+    }
+
+    flushBufferedText();
+    consolidated.push({
+      ...item,
+      timelineKind: "action",
+      sortOrder: consolidated.length
+    });
+  }
+
+  flushBufferedText();
+
+  const answer = consolidated
+    .filter((item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> => item.timelineKind === "text")
+    .map((item) => item.content)
+    .join("");
+
+  const lastItem = consolidated.at(-1);
+  const closedTimeline = lastItem?.timelineKind === "text" ? consolidated.slice(0, -1) : consolidated;
+
+  return {
+    answer,
+    timeline: closedTimeline
+  };
+}
+
 export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
   const { getTokenUsage, setTokenUsage } = useContextTokens();
@@ -544,6 +596,24 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               setHasReceivedFirstToken(false);
               setIsSending(false);
             }
+          } else {
+            const streamingMsg = (msg.messages as Message[]).find(
+              (message) => message.status === "streaming" && message.role === "assistant"
+            );
+            if (streamingMsg) {
+              const adoptedStream = adoptStreamingSnapshotState(streamingMsg.timeline);
+              const answerFromTimeline = adoptedStream.answer;
+              setStreamMessageId(streamingMsg.id);
+              streamAnswerTargetRef.current = answerFromTimeline;
+              streamThinkingTargetRef.current = streamingMsg.thinkingContent ?? "";
+              setStreamAnswerTarget(answerFromTimeline);
+              setStreamAnswerDisplay(answerFromTimeline);
+              setStreamThinkingTarget(streamingMsg.thinkingContent ?? "");
+              setStreamThinkingDisplay(streamingMsg.thinkingContent ?? "");
+              setStreamTimeline(adoptedStream.timeline);
+              setHasReceivedFirstToken(Boolean(answerFromTimeline || streamingMsg.thinkingContent));
+              setIsSending(true);
+            }
           }
 
           setMessages((current) =>
@@ -553,6 +623,26 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               streamMessageId
             )
           );
+          break;
+        case "error":
+          clearCompactionIndicator();
+          dispatchConversationActivityUpdated({
+            conversationId: payload.conversation.id,
+            isActive: false
+          });
+          setMessages((current) => {
+            const activeStreamMessageId = streamMessageIdRef.current;
+            if (activeStreamMessageId) {
+              return current.map((m) =>
+                m.id === activeStreamMessageId ? { ...m, status: "error" as const } : m
+              );
+            }
+            return current;
+          });
+          setError(msg.message);
+          setStreamMessageId(null);
+          setStreamTimeline([]);
+          setIsSending(false);
           break;
         case "delta":
           handleDelta(msg.event as ChatStreamEvent);

@@ -4,20 +4,12 @@ import { verifySessionToken } from "@/lib/auth";
 import { startChatTurn } from "@/lib/chat-turn";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import { getConversationSnapshot, listActiveConversations } from "@/lib/conversations";
-import { createConversationManager, type ConversationManager } from "@/lib/conversation-manager";
+import { type ConversationManager } from "@/lib/conversation-manager";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { parseClientMessage, serializeServerMessage } from "@/lib/ws-protocol";
 import type { ClientMessage } from "@/lib/ws-protocol";
 import { initializeMcpServers, shutdownAllProcesses } from "@/lib/mcp-client";
-
-let manager: ConversationManager | null = null;
-
-function getManager(): ConversationManager {
-  if (!manager) {
-    manager = createConversationManager();
-  }
-  return manager;
-}
+import { getConversationManager } from "@/lib/ws-singleton";
 
 function extractToken(req: import("http").IncomingMessage): string | null {
   const cookieHeader = req.headers.cookie ?? "";
@@ -48,7 +40,8 @@ export async function handleConnection(ws: WebSocket, token: string | null) {
     }
   }
 
-  const mgr = getManager();
+  const mgr = getConversationManager();
+  mgr.addConnection(ws);
   const currentSubscription = new Set<string>();
 
   const active = listActiveConversations();
@@ -68,6 +61,7 @@ export async function handleConnection(ws: WebSocket, token: string | null) {
   });
 
   ws.on("close", () => {
+    mgr.removeConnection(ws);
     for (const conversationId of currentSubscription) {
       mgr.unsubscribe(conversationId, ws);
     }

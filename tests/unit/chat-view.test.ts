@@ -740,6 +740,65 @@ describe("chat view", () => {
     });
   });
 
+  it("keeps a late-joined streaming answer in a single bubble until a new boundary appears", async () => {
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: [
+          {
+            id: "msg_assistant",
+            conversationId: "conv_1",
+            role: "assistant",
+            content: "",
+            thinkingContent: "",
+            status: "streaming",
+            estimatedTokens: 0,
+            systemKind: null,
+            compactedAt: null,
+            createdAt: new Date().toISOString(),
+            timeline: [
+              {
+                id: "txt_1",
+                timelineKind: "text",
+                sortOrder: 0,
+                createdAt: new Date().toISOString(),
+                content: "Already"
+              },
+              {
+                id: "txt_2",
+                timelineKind: "text",
+                sortOrder: 1,
+                createdAt: new Date().toISOString(),
+                content: " streamed"
+              }
+            ]
+          }
+        ]
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Already streamed")).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: " and still typing" }
+      });
+    });
+
+    await waitFor(() => {
+      const bubbles = container.querySelectorAll('[data-testid="assistant-message-bubble"]');
+      expect(bubbles).toHaveLength(1);
+      expect(bubbles[0]?.textContent).toContain("Already streamed and still typing");
+    });
+  });
+
   it("renders answer text without duplication around tool actions during streaming", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 

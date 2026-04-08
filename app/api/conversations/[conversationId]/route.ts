@@ -13,6 +13,7 @@ import {
 import { getConversationDebugStats } from "@/lib/compaction";
 import { badRequest, ok } from "@/lib/http";
 import { getProviderProfile } from "@/lib/settings";
+import { getConversationManager } from "@/lib/ws-singleton";
 
 const paramsSchema = z.object({
   conversationId: z.string().min(1)
@@ -58,6 +59,15 @@ export async function DELETE(
   const deleted = onlyIfEmpty
     ? deleteConversationIfEmpty(params.data.conversationId)
     : (deleteConversation(params.data.conversationId), true);
+
+  if (deleted) {
+    try {
+      getConversationManager().broadcastAll({
+        type: "conversation_deleted",
+        conversationId: params.data.conversationId
+      });
+    } catch { /* WS server may not be running */ }
+  }
 
   return ok({ success: true, deleted });
 }
@@ -117,5 +127,20 @@ export async function PATCH(
     setConversationActive(conversation.id, body.data.isActive);
   }
 
-  return ok({ conversation: getConversation(conversation.id) });
+  const updated = getConversation(conversation.id);
+
+  try {
+    getConversationManager().broadcastAll({
+      type: "conversation_updated",
+      conversation: {
+        id: updated!.id,
+        title: updated!.title,
+        folderId: updated!.folderId,
+        updatedAt: updated!.updatedAt,
+        isActive: updated!.isActive
+      }
+    });
+  } catch { /* WS server may not be running */ }
+
+  return ok({ conversation: updated });
 }

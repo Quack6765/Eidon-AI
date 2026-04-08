@@ -89,6 +89,7 @@ export async function startChatTurn(
   manager.setActive(conversationId, true);
   globalEmitter.emit("status", conversationId, "streaming");
   setConversationActive(conversation.id, true);
+  manager.broadcastAll({ type: "conversation_activity", conversationId, isActive: true });
 
   try {
     const compacted = await ensureCompactedContext(conversation.id, settings, {
@@ -283,6 +284,7 @@ export async function startChatTurn(
   } finally {
     setConversationActive(conversation.id, false);
     manager.setActive(conversationId, false);
+    manager.broadcastAll({ type: "conversation_activity", conversationId, isActive: false });
     globalEmitter.emit("status", conversationId, "completed");
   }
 }

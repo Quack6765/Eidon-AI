@@ -15,6 +15,7 @@ import {
   getProviderProfileWithApiKey,
   getSettings
 } from "@/lib/settings";
+import { getConversationManager } from "@/lib/ws-singleton";
 import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
   Conversation,
@@ -1104,6 +1105,18 @@ export async function generateConversationTitleFromFirstUserMessage(
         conversationId,
         DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE
       );
+
+      const currentConversation = getConversation(conversationId);
+      if (currentConversation) {
+        try {
+          getConversationManager().broadcastAll({
+            type: "conversation_title_updated",
+            conversationId,
+            title: DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE
+          });
+        } catch { /* WS server may not be running */ }
+      }
+
       return true;
     }
 
@@ -1130,6 +1143,15 @@ export async function generateConversationTitleFromFirstUserMessage(
     });
 
     completeConversationTitleGeneration(conversationId, title);
+
+    try {
+      getConversationManager().broadcastAll({
+        type: "conversation_title_updated",
+        conversationId,
+        title
+      });
+    } catch { /* WS server may not be running */ }
+
     return true;
   } catch {
     failConversationTitleGeneration(conversationId);

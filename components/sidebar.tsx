@@ -56,6 +56,8 @@ import {
   type ConversationTitleUpdatedDetail
 } from "@/lib/conversation-events";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
+import { addGlobalWsListener } from "@/lib/ws-client";
+import type { ServerMessage } from "@/lib/ws-protocol";
 import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
 
 type SidebarConversation = Conversation & { matchSnippet?: string };
@@ -828,6 +830,55 @@ export function Sidebar({
         handleConversationActivityUpdated as EventListener
       );
     };
+  }, []);
+
+  useEffect(() => {
+    return addGlobalWsListener((msg: ServerMessage) => {
+      switch (msg.type) {
+        case "conversation_created": {
+          setLocalConversations((current) =>
+            mergeConversations([msg.conversation as Conversation], current)
+          );
+          break;
+        }
+        case "conversation_deleted": {
+          const conversationId = msg.conversationId;
+          setLocalConversations((current) =>
+            current.filter((c) => c.id !== conversationId)
+          );
+          setSearchResults((current) =>
+            current ? current.filter((c) => c.id !== conversationId) : current
+          );
+          break;
+        }
+        case "conversation_updated": {
+          setLocalConversations((current) =>
+            mergeConversations([msg.conversation as Conversation], current)
+          );
+          break;
+        }
+        case "conversation_activity": {
+          setLocalConversations((current) =>
+            current.map((conversation) =>
+              conversation.id === msg.conversationId
+                ? { ...conversation, isActive: msg.isActive }
+                : conversation
+            )
+          );
+          break;
+        }
+        case "conversation_title_updated": {
+          setLocalConversations((current) =>
+            current.map((conversation) =>
+              conversation.id === msg.conversationId
+                ? { ...conversation, title: msg.title, titleGenerationStatus: "completed" }
+                : conversation
+            )
+          );
+          break;
+        }
+      }
+    });
   }, []);
 
   function highlightMatch(text: string, query: string): string {

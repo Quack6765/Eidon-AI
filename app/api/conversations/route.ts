@@ -9,6 +9,7 @@ import {
 } from "@/lib/conversations";
 import { badRequest, ok } from "@/lib/http";
 import { getProviderProfile } from "@/lib/settings";
+import { getConversationManager } from "@/lib/ws-singleton";
 
 const listSchema = z.object({
   cursor: z.string().min(1).optional(),
@@ -57,14 +58,25 @@ export async function POST(request: Request) {
     return badRequest("Provider profile not found", 404);
   }
 
-  return ok(
-    {
-      conversation: createConversation(title, folderId, {
-        providerProfileId
-      })
-    },
-    { status: 201 }
-  );
+  const conversation = createConversation(title, folderId, {
+    providerProfileId
+  });
+
+  try {
+    getConversationManager().broadcastAll({
+      type: "conversation_created",
+      conversation: {
+        id: conversation.id,
+        title: conversation.title,
+        folderId: conversation.folderId,
+        createdAt: conversation.createdAt,
+        updatedAt: conversation.updatedAt,
+        isActive: conversation.isActive
+      }
+    });
+  } catch { /* WS server may not be running */ }
+
+  return ok({ conversation }, { status: 201 });
 }
 
 export async function PUT(request: Request) {

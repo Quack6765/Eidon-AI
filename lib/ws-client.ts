@@ -18,114 +18,157 @@ type UseWebSocketReturn = {
   failed: boolean;
 };
 
+const globalListeners = new Set<(msg: ServerMessage) => void>();
+let singletonWs: WebSocket | null = null;
+let singletonRefCount = 0;
+let singletonReconnectTimeout: ReturnType<typeof setTimeout> | undefined;
+let singletonReconnectAttempts = 0;
+let singletonHasOpened = false;
+const pendingMessages: ClientMessage[] = [];
+let currentSubscription: string | null = null;
+let singletonOnOpenCbs = new Set<() => void>();
+let singletonOnCloseCbs = new Set<() => void>();
+
+function singletonConnect() {
+  if (typeof window === "undefined") return;
+
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
+  singletonWs = ws;
+
+  ws.addEventListener("open", () => {
+    singletonHasOpened = true;
+    singletonReconnectAttempts = 0;
+    for (const cb of singletonOnOpenCbs) cb();
+
+    if (currentSubscription) {
+      ws.send(serializeClientMessage({ type: "subscribe", conversationId: currentSubscription }));
+    }
+    while (pendingMessages.length > 0) {
+      const message = pendingMessages.shift();
+      if (!message) continue;
+      ws.send(serializeClientMessage(message));
+    }
+  });
+
+  ws.addEventListener("message", (event) => {
+    try {
+      const msg = JSON.parse(event.data.toString()) as ServerMessage;
+      for (const listener of globalListeners) {
+        listener(msg);
+      }
+    } catch { /* ignore malformed messages */ }
+  });
+
+  ws.addEventListener("close", () => {
+    if (singletonWs === ws) {
+      singletonWs = null;
+      for (const cb of singletonOnCloseCbs) cb();
+      if (singletonRefCount > 0) {
+        scheduleSingletonReconnect();
+      }
+    }
+  });
+
+  ws.addEventListener("error", () => {
+    ws.close();
+  });
+}
+
+function scheduleSingletonReconnect() {
+  if (singletonReconnectTimeout) clearTimeout(singletonReconnectTimeout);
+  const delay = Math.min(1000 * Math.pow(2, singletonReconnectAttempts), 30000);
+  singletonReconnectAttempts++;
+  singletonReconnectTimeout = setTimeout(singletonConnect, delay);
+}
+
 export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketReturn {
   const [connected, setConnected] = useState(false);
   const [failed, setFailed] = useState(false);
-  const wsRef = useRef<WebSocket | null>(null);
-  const currentSubscriptionRef = useRef<string | null>(null);
-  const pendingMessagesRef = useRef<ClientMessage[]>([]);
   const optionsRef = useRef(options);
-  const hasOpenedRef = useRef(false);
   optionsRef.current = options;
 
   useEffect(() => {
-    let reconnectTimeout: ReturnType<typeof setTimeout> | undefined;
-    let reconnectAttempts = 0;
-    let disposed = false;
+    singletonRefCount++;
 
-    const MAX_RECONNECT_DELAY = 30000;
-
-    function scheduleReconnect() {
-      if (disposed) {
-        return;
+    if (!singletonWs || singletonWs.readyState === WebSocket.CLOSED || singletonWs.readyState === WebSocket.CLOSING) {
+      if (!singletonWs || singletonWs.readyState === WebSocket.CLOSED) {
+        singletonConnect();
       }
-      const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), MAX_RECONNECT_DELAY);
-      reconnectAttempts++;
-      reconnectTimeout = setTimeout(connect, delay);
     }
 
-    function connect() {
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
-      wsRef.current = ws;
-
-      ws.addEventListener("open", () => {
-        setConnected(true);
-        setFailed(false);
-        hasOpenedRef.current = true;
-        reconnectAttempts = 0;
-        optionsRef.current.onOpen?.();
-        if (currentSubscriptionRef.current) {
-          ws.send(serializeClientMessage({ type: "subscribe", conversationId: currentSubscriptionRef.current }));
-        }
-        while (pendingMessagesRef.current.length > 0) {
-          const message = pendingMessagesRef.current.shift();
-          if (!message) {
-            continue;
-          }
-          ws.send(serializeClientMessage(message));
-        }
-      });
-
-      ws.addEventListener("message", (event) => {
-        try {
-          const msg = JSON.parse(event.data.toString()) as ServerMessage;
-          optionsRef.current.onMessage?.(msg);
-        } catch { /* ignore malformed messages */ }
-      });
-
-      ws.addEventListener("close", () => {
-        if (wsRef.current === ws) {
-          wsRef.current = null;
-        }
-
-        if (disposed) {
-          return;
-        }
-
-        setConnected(false);
-        if (!hasOpenedRef.current) {
-          setFailed(true);
-        }
-        optionsRef.current.onClose?.();
-        scheduleReconnect();
-      });
-
-      ws.addEventListener("error", () => {
-        ws.close();
-      });
+    function handleOpen() {
+      setConnected(true);
+      setFailed(false);
+    }
+    function handleClose() {
+      setConnected(false);
+      if (!singletonHasOpened) setFailed(true);
     }
 
-    connect();
+    singletonOnOpenCbs.add(handleOpen);
+    singletonOnCloseCbs.add(handleClose);
+
+    if (singletonWs?.readyState === WebSocket.OPEN) {
+      setConnected(true);
+      setFailed(false);
+    }
 
     return () => {
-      disposed = true;
-      clearTimeout(reconnectTimeout);
-      wsRef.current?.close();
-      wsRef.current = null;
+      singletonOnOpenCbs.delete(handleOpen);
+      singletonOnCloseCbs.delete(handleClose);
+      singletonRefCount--;
+      if (singletonRefCount <= 0) {
+        singletonRefCount = 0;
+        if (singletonReconnectTimeout) clearTimeout(singletonReconnectTimeout);
+        singletonReconnectTimeout = undefined;
+        singletonWs?.close();
+        singletonWs = null;
+        singletonHasOpened = false;
+        singletonReconnectAttempts = 0;
+        pendingMessages.length = 0;
+        currentSubscription = null;
+        singletonOnOpenCbs = new Set();
+        singletonOnCloseCbs = new Set();
+      }
     };
   }, []);
 
+  useEffect(() => {
+    function onMessage(msg: ServerMessage) {
+      optionsRef.current.onMessage?.(msg);
+    }
+    globalListeners.add(onMessage);
+    return () => { globalListeners.delete(onMessage); };
+  }, []);
+
   const send = useCallback((msg: ClientMessage) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(serializeClientMessage(msg));
+    if (singletonWs?.readyState === WebSocket.OPEN) {
+      singletonWs.send(serializeClientMessage(msg));
       return;
     }
-
-    pendingMessagesRef.current.push(msg);
+    pendingMessages.push(msg);
   }, []);
 
   const subscribe = useCallback((conversationId: string) => {
-    currentSubscriptionRef.current = conversationId;
+    currentSubscription = conversationId;
     send({ type: "subscribe", conversationId });
   }, [send]);
 
   const unsubscribe = useCallback((conversationId: string) => {
-    if (currentSubscriptionRef.current === conversationId) {
-      currentSubscriptionRef.current = null;
-    }
+    if (currentSubscription === conversationId) currentSubscription = null;
     send({ type: "unsubscribe", conversationId });
   }, [send]);
 
   return { send, subscribe, unsubscribe, connected, failed };
+}
+
+export function addGlobalWsListener(listener: (msg: ServerMessage) => void) {
+  globalListeners.add(listener);
+  return () => { globalListeners.delete(listener); };
+}
+
+export function useGlobalWebSocket(): { connected: boolean } {
+  const { connected } = useWebSocket();
+  return { connected };
 }
