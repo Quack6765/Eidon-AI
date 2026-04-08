@@ -119,6 +119,9 @@ export async function POST(
 
       setConversationActive(conversation.id, true);
       const control = registerChatTurn(conversation.id);
+      let latestAnswer = "";
+      let latestThinking = "";
+      const runningActionHandles = new Set<string>();
 
       try {
         const compacted = await ensureCompactedContext(conversation.id, settings, {
@@ -144,9 +147,6 @@ export async function POST(
         }
 
         let timelineSortOrder = 0;
-        let latestAnswer = "";
-        let latestThinking = "";
-        const runningActionHandles = new Set<string>();
 
         const providerResult = await resolveAssistantTurn({
           settings,

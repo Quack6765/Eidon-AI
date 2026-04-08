@@ -334,6 +334,9 @@ export function HomeView({
           modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
           compactionThreshold={selectedProfile?.compactionThreshold ?? 0.78}
           hasMessages={false}
+          canStop={false}
+          isStopPending={false}
+          onStop={() => {}}
         />
 
         {error ? (
