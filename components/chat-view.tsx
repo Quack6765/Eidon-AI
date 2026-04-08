@@ -509,6 +509,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "done") {
       clearCompactionIndicator();
+      const wasStopped = isStopPending;
       setIsStopPending(false);
       const finalAnswer = streamAnswerTargetRef.current;
       const finalThinking = streamThinkingTargetRef.current;
@@ -525,7 +526,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 ...m,
                 content: finalAnswer,
                 thinkingContent: finalThinking,
-                status: "completed" as const,
+                status: wasStopped ? ("stopped" as const) : ("completed" as const),
                 timeline: finalTimeline
               }
             : m

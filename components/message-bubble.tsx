@@ -52,7 +52,7 @@ function CollapsibleActionRow({
     : action.status === "completed"
       ? <Check className="h-2.5 w-2.5 text-emerald-400" />
       : action.status === "stopped"
-        ? <Square className="h-2.5 w-2.5 text-amber-300 fill-current" />
+        ? <Square className="h-2.5 w-2.5 text-red-400 fill-current" />
         : <X className="h-2.5 w-2.5 text-red-400" />;
 
   if (action.status === "running") {
@@ -619,7 +619,7 @@ export function MessageBubble({
                     );
                   })}
                   {message.status === "stopped" ? (
-                    <div className="inline-flex items-center gap-1.5 rounded-md border border-amber-300/12 bg-amber-300/8 px-2 py-1 text-[11px] text-amber-100/85">
+                    <div className="inline-flex items-center gap-1.5 rounded-md border border-red-400/12 bg-red-400/8 px-2 py-1 text-[11px] text-red-200/85">
                       <Square className="h-2.5 w-2.5 fill-current" />
                       <span>Stopped</span>
                     </div>
