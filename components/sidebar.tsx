@@ -25,7 +25,7 @@ import {
   DragOverlay,
   closestCenter,
   pointerWithin,
-  PointerSensor,
+  MouseSensor,
   useDroppable,
   useSensor,
   useSensors,
@@ -232,6 +232,7 @@ function ConversationItem({
     <div
       ref={setNodeRef}
       style={style}
+      className="relative"
       {...(dragEnabled ? attributes : {})}
       {...(dragEnabled ? listeners : {})}
     >
@@ -638,7 +639,7 @@ export function Sidebar({
   }, []);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseSensor, {
       activationConstraint: {
         distance: 8
       }
