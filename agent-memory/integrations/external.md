@@ -4,6 +4,7 @@
 | Service | Purpose | Config |
 |---------|---------|--------|
 | OpenAI-compatible API | Chat inference, streaming, and compaction summarization | Stored in `app_settings` from `/settings` |
+| GitHub Copilot | Chat inference via user's Copilot subscription | Per-profile OAuth tokens in `provider_profiles` |
 | Model Context Protocol (MCP) servers | External tool discovery and tool execution from chat | Stored in `mcp_servers` from `/settings` |
 
 ## OpenAI-compatible API
@@ -14,6 +15,16 @@
 - **Reasoning Visibility:** Eidon requests visible reasoning for supported models; OpenAI reasoning models use Responses API summaries, while Z.AI `glm-5`/`glm-4.7` style models can surface thinking through `chat.completions` reasoning deltas
 - **Text Normalization:** Provider deltas and final text normalize escaped newline sequences like `\\n` and `\\r\\n` into real line breaks before persistence and rendering
 - **Error Handling:** Bubble provider failures back to the UI with explicit error messages; no silent fallback provider
+
+## GitHub Copilot
+- **SDK:** `@github/copilot-sdk` (`CopilotClient`) for model listing and chat
+- **Auth Flow:** Per-profile GitHub OAuth via `lib/github-copilot.ts` — user authorizes a GitHub App, Eidon stores encrypted user access/refresh tokens in `provider_profiles`
+- **Token Lifecycle:** Tokens auto-refresh within a 2-minute window before expiry (`ensureFreshGithubAccessToken`); connection status is computed as `disconnected`/`connected`/`expired`
+- **OAuth State:** JWT signed with `EIDON_SESSION_SECRET` (10-minute expiry) via `jose` library
+- **Model Selection:** Connected Copilot profiles list available models dynamically from `CopilotClient.listModels()`, shown in settings as a dropdown
+- **Settings UI:** Provider type selector (`openai_compatible` / `github_copilot`), Connect/Reconnect/Disconnect GitHub buttons, model picker for connected accounts
+- **API Routes:** `/api/providers/github/connect`, `/api/providers/github/callback`, `/api/providers/github/disconnect`, `/api/providers/github/models`
+- **Usage:** `lib/provider.ts` branches on `providerKind === "github_copilot"` to route chat through the Copilot SDK instead of the OpenAI-compatible path
 
 ## Model Context Protocol (MCP)
 - **Client Implementation:** Eidon uses the official `@modelcontextprotocol/sdk` client for both `stdio` and `streamable_http` transports
