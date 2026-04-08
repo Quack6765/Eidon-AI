@@ -36,6 +36,7 @@ type SettingsPayload = {
   providerProfiles: Array<{
     id: string;
     name: string;
+    providerKind: "openai_compatible" | "github_copilot";
     apiBaseUrl: string;
     model: string;
     apiMode: ApiMode;
@@ -55,6 +56,11 @@ type SettingsPayload = {
     mergedTargetTokens: number;
     visionMode: VisionMode;
     visionMcpServerId: string | null;
+    githubAccountLogin: string | null;
+    githubAccountName: string | null;
+    githubTokenExpiresAt: string | null;
+    githubRefreshTokenExpiresAt: string | null;
+    githubConnectionStatus: "disconnected" | "connected" | "expired";
     createdAt: string;
     updatedAt: string;
     hasApiKey: boolean;
@@ -66,6 +72,7 @@ type ProviderProfileDraft = SettingsPayload["providerProfiles"][number] & {
   apiKey: string;
   visionMode: VisionMode;
   visionMcpServerId: string | null;
+  githubConnectionStatus: "disconnected" | "connected" | "expired";
 };
 
 export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
@@ -89,6 +96,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [copilotModels, setCopilotModels] = useState<Array<{ id: string; name: string }>>([]);
 
   useEffect(() => {
     fetch("/api/mcp-servers")
@@ -96,6 +104,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       .then((data: { servers: McpServer[] }) => setMcpServers(data.servers))
       .catch(() => setMcpServers([]));
   }, []);
+
   const activeProviderProfile = useMemo(
     () =>
       providerProfiles.find((profile) => profile.id === selectedProviderProfileId) ??
@@ -105,6 +114,20 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const activeProviderPresetId = activeProviderProfile
     ? getMatchingProviderPresetId(activeProviderProfile)
     : null;
+
+  useEffect(() => {
+    if (
+      activeProviderProfile?.providerKind === "github_copilot" &&
+      activeProviderProfile.githubConnectionStatus === "connected"
+    ) {
+      fetch(`/api/providers/github/models?providerProfileId=${activeProviderProfile.id}`)
+        .then((res) => (res.ok ? res.json() : { models: [] }))
+        .then((data) => setCopilotModels(data.models ?? []))
+        .catch(() => setCopilotModels([]));
+    } else {
+      setCopilotModels([]);
+    }
+  }, [activeProviderProfile?.id, activeProviderProfile?.providerKind, activeProviderProfile?.githubConnectionStatus]);
 
   function updateActiveProviderProfile(patch: Partial<ProviderProfileDraft>) {
     if (!activeProviderProfile) {
@@ -155,6 +178,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       apiKey: "",
       visionMode: template?.visionMode ?? "native" as VisionMode,
       visionMcpServerId: template?.visionMcpServerId ?? null,
+      githubAccountLogin: null,
+      githubAccountName: null,
+      githubTokenExpiresAt: null,
+      githubRefreshTokenExpiresAt: null,
+      githubConnectionStatus: "disconnected",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -204,6 +232,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       providerProfiles: providerProfiles.map((profile) => ({
         id: profile.id,
         name: profile.name,
+        providerKind: profile.providerKind ?? "openai_compatible",
         apiBaseUrl: profile.apiBaseUrl,
         apiKey: profile.apiKey,
         model: profile.model,
@@ -223,7 +252,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         mergedMinNodeCount: profile.mergedMinNodeCount,
         mergedTargetTokens: profile.mergedTargetTokens,
         visionMode: profile.visionMode ?? "native",
-        visionMcpServerId: profile.visionMcpServerId ?? null
+        visionMcpServerId: profile.visionMcpServerId ?? null,
+        githubAccountLogin: profile.githubAccountLogin ?? null,
+        githubAccountName: profile.githubAccountName ?? null,
+        githubTokenExpiresAt: profile.githubTokenExpiresAt ?? null,
+        githubRefreshTokenExpiresAt: profile.githubRefreshTokenExpiresAt ?? null
       }))
     };
 
@@ -293,8 +326,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   ...(profile.id === defaultProviderProfileId
                     ? [{ variant: "default" as const, label: "DEFAULT" }]
                     : []),
-                  ...(!profile.hasApiKey && !profile.apiKey
+                  ...(!profile.hasApiKey && !profile.apiKey && profile.providerKind !== "github_copilot"
                     ? [{ variant: "no-key" as const, label: "NO KEY" }]
+                    : []),
+                  ...(profile.providerKind === "github_copilot" && profile.githubConnectionStatus === "disconnected"
+                    ? [{ variant: "no-key" as const, label: "NOT CONNECTED" }]
                     : [])
                 ]}
               />
@@ -358,28 +394,54 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
                 <div className="space-y-5">
                   <div>
-                    <label className={labelClass}>Provider preset</label>
+                    <label className={labelClass}>Provider type</label>
                     <select
-                      value={activeProviderPresetId ?? ""}
-                      onChange={(event) => {
-                        const nextPresetId = event.target.value as ProviderPresetId;
-
-                        if (!nextPresetId) {
-                          return;
-                        }
-
-                        applyPresetToActiveProviderProfile(nextPresetId);
-                      }}
                       className={selectClass}
+                      value={activeProviderProfile.providerKind ?? "openai_compatible"}
+                      onChange={(event) =>
+                        updateActiveProviderProfile({
+                          providerKind: event.target.value as "openai_compatible" | "github_copilot",
+                          apiBaseUrl:
+                            event.target.value === "github_copilot"
+                              ? ""
+                              : activeProviderProfile.apiBaseUrl,
+                          apiKey:
+                            event.target.value === "github_copilot"
+                              ? ""
+                              : activeProviderProfile.apiKey
+                        })
+                      }
                     >
-                      <option value="">Manual configuration</option>
-                      {PROVIDER_PRESETS.map((preset) => (
-                        <option key={preset.id} value={preset.id}>
-                          {preset.label}
-                        </option>
-                      ))}
+                      <option value="openai_compatible">OpenAI compatible</option>
+                      <option value="github_copilot">GitHub Copilot</option>
                     </select>
                   </div>
+
+                  {activeProviderProfile.providerKind !== "github_copilot" && (
+                    <div>
+                      <label className={labelClass}>Provider preset</label>
+                      <select
+                        value={activeProviderPresetId ?? ""}
+                        onChange={(event) => {
+                          const nextPresetId = event.target.value as ProviderPresetId;
+
+                          if (!nextPresetId) {
+                            return;
+                          }
+
+                          applyPresetToActiveProviderProfile(nextPresetId);
+                        }}
+                        className={selectClass}
+                      >
+                        <option value="">Manual configuration</option>
+                        {PROVIDER_PRESETS.map((preset) => (
+                          <option key={preset.id} value={preset.id}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   <div>
                     <label className={labelClass}>Profile name</label>
@@ -394,69 +456,128 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className={labelClass}>API base URL</label>
-                      <Input
-                        name="provider-api-base-url"
-                        autoComplete="url"
-                        value={activeProviderProfile.apiBaseUrl}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ apiBaseUrl: event.target.value })
-                        }
-                        required
-                      />
+                  {activeProviderProfile.providerKind === "github_copilot" ? (
+                    <div className="space-y-3">
+                      <p className={labelClass}>GitHub connection</p>
+                      <div className="rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm text-[#f4f4f5]">
+                        {activeProviderProfile.githubConnectionStatus === "connected"
+                          ? `Connected as ${activeProviderProfile.githubAccountLogin ?? "GitHub user"}`
+                          : "No GitHub account connected"}
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          onClick={() => {
+                            window.location.href = `/api/providers/github/connect?providerProfileId=${activeProviderProfile.id}`;
+                          }}
+                        >
+                          {activeProviderProfile.githubConnectionStatus === "connected"
+                            ? "Reconnect GitHub"
+                            : "Connect GitHub"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          onClick={async () => {
+                            await fetch("/api/providers/github/disconnect", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ providerProfileId: activeProviderProfile.id })
+                            });
+                            updateActiveProviderProfile({
+                              githubConnectionStatus: "disconnected",
+                              githubAccountLogin: null,
+                              githubAccountName: null
+                            });
+                          }}
+                          disabled={activeProviderProfile.githubConnectionStatus === "disconnected"}
+                        >
+                          Disconnect
+                        </Button>
+                      </div>
                     </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div>
+                          <label className={labelClass}>API base URL</label>
+                          <Input
+                            name="provider-api-base-url"
+                            autoComplete="url"
+                            value={activeProviderProfile.apiBaseUrl}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ apiBaseUrl: event.target.value })
+                            }
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className={labelClass}>Model</label>
+                          <Input
+                            name="provider-model"
+                            autoComplete="off"
+                            value={activeProviderProfile.model}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ model: event.target.value })
+                            }
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className={labelClass}>API key</label>
+                        <div className="relative">
+                          <Input
+                            name="provider-api-key"
+                            autoComplete="new-password"
+                            spellCheck={false}
+                            type={showApiKey ? "text" : "password"}
+                            value={activeProviderProfile.apiKey}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({
+                                apiKey: event.target.value,
+                                hasApiKey:
+                                  activeProviderProfile.hasApiKey || Boolean(event.target.value)
+                              })
+                            }
+                            placeholder={
+                              activeProviderProfile.hasApiKey
+                                ? "Stored securely. Leave blank to keep."
+                                : "sk-..."
+                            }
+                            className="pr-10"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowApiKey((v) => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-[#52525b] hover:text-[#a1a1aa] transition-colors"
+                          >
+                            {showApiKey ? (
+                              <EyeOff className="h-4 w-4" />
+                            ) : (
+                              <Eye className="h-4 w-4" />
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {activeProviderProfile.providerKind === "github_copilot" && copilotModels.length > 0 && (
                     <div>
                       <label className={labelClass}>Model</label>
-                      <Input
-                        name="provider-model"
-                        autoComplete="off"
+                      <select
                         value={activeProviderProfile.model}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ model: event.target.value })
-                        }
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className={labelClass}>API key</label>
-                    <div className="relative">
-                      <Input
-                        name="provider-api-key"
-                        autoComplete="new-password"
-                        spellCheck={false}
-                        type={showApiKey ? "text" : "password"}
-                        value={activeProviderProfile.apiKey}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({
-                            apiKey: event.target.value,
-                            hasApiKey:
-                              activeProviderProfile.hasApiKey || Boolean(event.target.value)
-                          })
-                        }
-                        placeholder={
-                          activeProviderProfile.hasApiKey
-                            ? "Stored securely. Leave blank to keep."
-                            : "sk-..."
-                        }
-                        className="pr-10"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowApiKey((v) => !v)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-[#52525b] hover:text-[#a1a1aa] transition-colors"
+                        onChange={(event) => updateActiveProviderProfile({ model: event.target.value })}
+                        className={selectClass}
                       >
-                        {showApiKey ? (
-                          <EyeOff className="h-4 w-4" />
-                        ) : (
-                          <Eye className="h-4 w-4" />
-                        )}
-                      </button>
+                        {copilotModels.map((model) => (
+                          <option key={model.id} value={model.id}>{model.name}</option>
+                        ))}
+                      </select>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <CollapsibleSection
