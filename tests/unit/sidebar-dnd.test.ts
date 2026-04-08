@@ -66,6 +66,44 @@ describe("sidebar dnd helpers", () => {
     ]);
   });
 
+  it("returns null when the active conversation is not found", () => {
+    const conversations = [{ id: "conv-1", folderId: null }];
+
+    const reordered = moveConversationForSidebarDrop(
+      conversations,
+      "conv-missing",
+      "conv-1",
+      new Set()
+    );
+
+    expect(reordered).toBeNull();
+  });
+
+  it("returns null when dropping onto an invalid folder id that is not a known folder", () => {
+    const conversations = [{ id: "conv-1", folderId: null }];
+
+    const reordered = moveConversationForSidebarDrop(
+      conversations,
+      "conv-1",
+      "unknown-folder",
+      new Set(["folder-1"])
+    );
+
+    expect(reordered).toBeNull();
+  });
+
+  it("returns null when reordering folders with a missing active id", () => {
+    const folders = [{ id: "folder-1" }, { id: "folder-2" }];
+
+    expect(reorderSidebarFolders(folders, "folder-missing", "folder-1")).toBeNull();
+  });
+
+  it("returns null when reordering folders with a missing over id", () => {
+    const folders = [{ id: "folder-1" }, { id: "folder-2" }];
+
+    expect(reorderSidebarFolders(folders, "folder-1", "folder-missing")).toBeNull();
+  });
+
   it("reorders folders when a folder is dropped over another folder", () => {
     const folders = [{ id: "folder-1" }, { id: "folder-2" }, { id: "folder-3" }];
 
