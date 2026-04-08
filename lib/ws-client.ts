@@ -61,9 +61,13 @@ function singletonConnect() {
   });
 
   ws.addEventListener("close", () => {
-    if (singletonWs === ws) singletonWs = null;
-    for (const cb of singletonOnCloseCbs) cb();
-    scheduleSingletonReconnect();
+    if (singletonWs === ws) {
+      singletonWs = null;
+      for (const cb of singletonOnCloseCbs) cb();
+      if (singletonRefCount > 0) {
+        scheduleSingletonReconnect();
+      }
+    }
   });
 
   ws.addEventListener("error", () => {
@@ -117,10 +121,15 @@ export function useWebSocket(options: UseWebSocketOptions = {}): UseWebSocketRet
       if (singletonRefCount <= 0) {
         singletonRefCount = 0;
         if (singletonReconnectTimeout) clearTimeout(singletonReconnectTimeout);
+        singletonReconnectTimeout = undefined;
         singletonWs?.close();
         singletonWs = null;
         singletonHasOpened = false;
         singletonReconnectAttempts = 0;
+        pendingMessages.length = 0;
+        currentSubscription = null;
+        singletonOnOpenCbs = new Set();
+        singletonOnCloseCbs = new Set();
       }
     };
   }, []);

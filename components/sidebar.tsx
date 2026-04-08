@@ -856,6 +856,26 @@ export function Sidebar({
           );
           break;
         }
+        case "conversation_activity": {
+          setLocalConversations((current) =>
+            current.map((conversation) =>
+              conversation.id === msg.conversationId
+                ? { ...conversation, isActive: msg.isActive }
+                : conversation
+            )
+          );
+          break;
+        }
+        case "conversation_title_updated": {
+          setLocalConversations((current) =>
+            current.map((conversation) =>
+              conversation.id === msg.conversationId
+                ? { ...conversation, title: msg.title, titleGenerationStatus: "completed" }
+                : conversation
+            )
+          );
+          break;
+        }
       }
     });
   }, []);

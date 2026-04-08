@@ -13,7 +13,9 @@ export type ServerMessage =
   | { type: "error"; message: string }
   | { type: "conversation_created"; conversation: { id: string; title: string; folderId: string | null; createdAt: string; updatedAt: string; isActive: boolean } }
   | { type: "conversation_deleted"; conversationId: string }
-  | { type: "conversation_updated"; conversation: { id: string; title: string; folderId: string | null; updatedAt: string; isActive: boolean } };
+  | { type: "conversation_updated"; conversation: { id: string; title: string; folderId: string | null; updatedAt: string; isActive: boolean } }
+  | { type: "conversation_activity"; conversationId: string; isActive: boolean }
+  | { type: "conversation_title_updated"; conversationId: string; title: string };
 
 export function serializeClientMessage(msg: ClientMessage): string {
   return JSON.stringify(msg);

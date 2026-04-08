@@ -1110,14 +1110,9 @@ export async function generateConversationTitleFromFirstUserMessage(
       if (currentConversation) {
         try {
           getConversationManager().broadcastAll({
-            type: "conversation_updated",
-            conversation: {
-              id: conversationId,
-              title: DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE,
-              folderId: currentConversation.folderId,
-              updatedAt: new Date().toISOString(),
-              isActive: currentConversation.isActive
-            }
+            type: "conversation_title_updated",
+            conversationId,
+            title: DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE
           });
         } catch { /* WS server may not be running */ }
       }
@@ -1151,14 +1146,9 @@ export async function generateConversationTitleFromFirstUserMessage(
 
     try {
       getConversationManager().broadcastAll({
-        type: "conversation_updated",
-        conversation: {
-          id: conversationId,
-          title,
-          folderId: conversation.folderId,
-          updatedAt: new Date().toISOString(),
-          isActive: conversation.isActive
-        }
+        type: "conversation_title_updated",
+        conversationId,
+        title
       });
     } catch { /* WS server may not be running */ }
 
