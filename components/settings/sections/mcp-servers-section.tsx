@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Server } from "lucide-react";
+import { Check, Plus, Server } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +25,7 @@ export function McpServersSection() {
   const [mcpRowTestResults, setMcpRowTestResults] = useState<Record<string, string>>({});
   const [mcpTestingTarget, setMcpTestingTarget] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
@@ -43,6 +44,9 @@ export function McpServersSection() {
     if (!mcpName.trim()) return;
     if (mcpTransport === "streamable_http" && !mcpUrl.trim()) return;
     if (mcpTransport === "stdio" && !mcpCommand.trim()) return;
+
+    setSuccess("");
+    setError("");
 
     let headersObj: Record<string, string> = {};
     if (mcpTransport === "streamable_http" && mcpHeaders.trim()) {
@@ -86,28 +90,59 @@ export function McpServersSection() {
       if (envObj) payload.env = envObj;
     }
 
+    let savedId = editingMcpId;
+
     if (editingMcpId) {
-      await fetch(`/api/mcp-servers/${editingMcpId}`, {
+      const patchRes = await fetch(`/api/mcp-servers/${editingMcpId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
+      if (!patchRes.ok) {
+        setError("Failed to update server");
+        return;
+      }
     } else {
-      await fetch("/api/mcp-servers", {
+      const postRes = await fetch("/api/mcp-servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
+      if (!postRes.ok) {
+        setError("Failed to add server");
+        return;
+      }
+      const created = (await postRes.json()) as { server: McpServer };
+      savedId = created.server.id;
     }
 
     const res = await fetch("/api/mcp-servers");
     const data = (await res.json()) as { servers: McpServer[] };
     setMcpServers(data.servers);
-    resetMcpForm();
+
+    const savedServer = data.servers.find((s) => s.id === savedId);
+    if (savedServer) {
+      setSelectedServerId(savedServer.id);
+      setEditingMcpId(savedServer.id);
+      setMcpName(savedServer.name);
+      setMcpTransport(savedServer.transport ?? "streamable_http");
+      setMcpUrl(savedServer.url);
+      setMcpHeaders(JSON.stringify(savedServer.headers, null, 2));
+      setMcpCommand(savedServer.command ?? "");
+      setMcpArgs(savedServer.args ? JSON.stringify(savedServer.args) : "");
+      setMcpEnv(savedServer.env ? JSON.stringify(savedServer.env, null, 2) : "");
+      setMcpDraftTestResult("");
+      setIsAddingNew(false);
+      setMobileDetailVisible(true);
+    }
+
+    setError("");
+    setSuccess("Server saved.");
   }
 
   async function testMcpServer(serverId?: string) {
     setError("");
+    setSuccess("");
     const target = serverId ?? "draft";
     setMcpTestingTarget(target);
 
@@ -408,6 +443,12 @@ export function McpServersSection() {
                 <Button type="button" onClick={() => void saveMcpServer()}>
                   {editingMcpId ? "Update" : "Add server"}
                 </Button>
+                {success ? (
+                  <div className="flex items-center gap-1.5 text-sm text-emerald-400">
+                    <Check className="h-3.5 w-3.5" />
+                    {success}
+                  </div>
+                ) : null}
                 {editingMcpId && (
                   <Button
                     type="button"
