@@ -280,6 +280,7 @@ export async function* streamProviderResponse(input: {
   settings: ProviderProfileWithApiKey;
   promptMessages: PromptMessage[];
   tools?: ToolDefinition[];
+  abortSignal?: AbortSignal;
 }): AsyncGenerator<
   ChatStreamEvent,
   { answer: string; thinking: string; toolCalls?: ProviderToolCall[]; usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number } },
@@ -289,6 +290,7 @@ export async function* streamProviderResponse(input: {
   setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
   const client = createClient(settings, settings.apiKey);
   const abortController = new AbortController();
+  const signal = input.abortSignal ?? abortController.signal;
   let answer = "";
   let thinking = "";
   let usage: {
@@ -334,7 +336,7 @@ export async function* streamProviderResponse(input: {
       try {
         stream = await client.responses.create(
           responseCreateParams as any,
-          { signal: abortController.signal }
+          { signal }
         ) as unknown as AsyncIterable<any>;
       } catch (createError) {
         const isSchemaError =
@@ -348,7 +350,7 @@ export async function* streamProviderResponse(input: {
           responseCreateParams.tools = toolsWithoutStrict;
           stream = await client.responses.create(
             responseCreateParams as any,
-            { signal: abortController.signal }
+            { signal }
           ) as unknown as AsyncIterable<any>;
         } else {
           throw createError;
@@ -439,7 +441,7 @@ export async function* streamProviderResponse(input: {
 
     const stream = await client.responses.create(
       responseCreateParams as any,
-      { signal: abortController.signal }
+      { signal }
     ) as unknown as AsyncIterable<any>;
 
     const pendingToolCalls = new Map<string, { name: string; arguments: string }>();
@@ -539,7 +541,7 @@ export async function* streamProviderResponse(input: {
 
   const stream = await client.chat.completions.create(
     chatCreateParams as any,
-    { signal: abortController.signal }
+    { signal }
   ) as unknown as AsyncIterable<any>;
 
   const toolCallChunks = new Map<string, { name: string; arguments: string }>();

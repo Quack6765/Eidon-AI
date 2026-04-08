@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, LoaderCircle, Pencil, X } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, LoaderCircle, Pencil, Square, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -51,7 +51,9 @@ function CollapsibleActionRow({
     ? <LoaderCircle className="h-2.5 w-2.5 animate-spin text-white/55" />
     : action.status === "completed"
       ? <Check className="h-2.5 w-2.5 text-emerald-400" />
-      : <X className="h-2.5 w-2.5 text-red-400" />;
+      : action.status === "stopped"
+        ? <Square className="h-2.5 w-2.5 text-red-400 fill-current" />
+        : <X className="h-2.5 w-2.5 text-red-400" />;
 
   if (action.status === "running") {
     return (
@@ -616,6 +618,12 @@ export function MessageBubble({
                       </div>
                     );
                   })}
+                  {message.status === "stopped" ? (
+                    <div className="inline-flex items-center gap-1.5 rounded-md border border-red-400/12 bg-red-400/8 px-2 py-1 text-[11px] text-red-200/85">
+                      <Square className="h-2.5 w-2.5 fill-current" />
+                      <span>Stopped</span>
+                    </div>
+                  ) : null}
                 </div>
 
                 {showAssistantBubbleActions ? (

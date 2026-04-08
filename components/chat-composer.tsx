@@ -9,6 +9,7 @@ import {
   FileText,
   LoaderCircle,
   Paperclip,
+  Square,
   Users,
   X
 } from "lucide-react";
@@ -43,6 +44,9 @@ type ChatComposerProps = {
   modelContextLimit: number;
   compactionThreshold: number;
   hasMessages: boolean;
+  canStop: boolean;
+  isStopPending: boolean;
+  onStop: () => void | Promise<void>;
 };
 
 export function ChatComposer({
@@ -66,11 +70,15 @@ export function ChatComposer({
   usedTokens,
   modelContextLimit,
   compactionThreshold,
-  hasMessages
+  hasMessages,
+  canStop,
+  isStopPending,
+  onStop
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const isSubmitDisabled =
     isSending || isUploadingAttachments || (!input.trim() && pendingAttachments.length === 0);
+  const showStopButton = canStop && !isUploadingAttachments;
 
   return (
     <div
@@ -152,16 +160,20 @@ export function ChatComposer({
         </div>
 
         <button
-          onClick={() => void onSubmit()}
-          disabled={isSubmitDisabled}
+          onClick={() => void (showStopButton ? onStop() : onSubmit())}
+          disabled={showStopButton ? isStopPending : isSubmitDisabled}
           className={`mb-0.5 mr-0.5 flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-300 shrink-0 ${
-            !isSubmitDisabled
-              ? "bg-[var(--accent)] text-white shadow-[0_0_12px_var(--accent-glow)] hover:shadow-[0_0_20px_var(--accent-glow)] active:scale-95"
-              : "bg-white/6 text-white/25"
+            showStopButton
+              ? isStopPending
+                ? "bg-white/6 text-white/25"
+                : "bg-red-500 text-white shadow-[0_0_12px_rgba(239,68,68,0.3)] hover:shadow-[0_0_20px_rgba(239,68,68,0.4)] active:scale-95"
+              : !isSubmitDisabled
+                ? "bg-[var(--accent)] text-white shadow-[0_0_12px_var(--accent-glow)] hover:shadow-[0_0_20px_var(--accent-glow)] active:scale-95"
+                : "bg-white/6 text-white/25"
           }`}
-          aria-label="Send message"
+          aria-label={showStopButton ? "Stop response" : "Send message"}
         >
-          {isSending || isUploadingAttachments ? (
+          {showStopButton ? <Square className="h-3.5 w-3.5 fill-current" /> : isSending || isUploadingAttachments ? (
             <LoaderCircle className="h-4 w-4 animate-spin" />
           ) : (
             <ArrowUp className="h-4 w-4" />
@@ -170,7 +182,7 @@ export function ChatComposer({
       </div>
 
       {showVisionWarning ? (
-        <div className="mt-2 flex items-center gap-2 rounded-xl border border-amber-400/10 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+        <div className="mt-2 flex items-center gap-2 rounded-xl border border-red-400/10 bg-red-500/10 px-3 py-2 text-xs text-red-200">
           <AlertCircle className="h-4 w-4 shrink-0" />
           <span>
             This model may not support image input. Eidon will still send the attachment and surface any provider error.

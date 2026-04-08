@@ -8,7 +8,7 @@ export type VisionMode = "none" | "native" | "mcp";
 
 export type MessageRole = "user" | "assistant" | "system";
 
-export type MessageStatus = "idle" | "streaming" | "completed" | "error";
+export type MessageStatus = "idle" | "streaming" | "completed" | "error" | "stopped";
 
 export type ConversationTitleGenerationStatus =
   | "pending"
@@ -18,7 +18,7 @@ export type ConversationTitleGenerationStatus =
 
 export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory";
 
-export type MessageActionStatus = "running" | "completed" | "error";
+export type MessageActionStatus = "running" | "completed" | "error" | "stopped";
 
 export type AttachmentKind = "image" | "text";
 
