@@ -288,6 +288,61 @@ function withApiKey(profile: ProviderProfile): ProviderProfileWithApiKey {
   };
 }
 
+export function updateGithubCopilotCredentials(
+  profileId: string,
+  input: {
+    githubUserAccessToken: string;
+    githubRefreshToken: string;
+    githubTokenExpiresAt: string | null;
+    githubRefreshTokenExpiresAt: string | null;
+    githubAccountLogin: string | null;
+    githubAccountName: string | null;
+  }
+) {
+  const timestamp = new Date().toISOString();
+
+  getDb()
+    .prepare(
+      `UPDATE provider_profiles
+       SET github_user_access_token_encrypted = ?,
+           github_refresh_token_encrypted = ?,
+           github_token_expires_at = ?,
+           github_refresh_token_expires_at = ?,
+           github_account_login = ?,
+           github_account_name = ?,
+           updated_at = ?
+       WHERE id = ?`
+    )
+    .run(
+      input.githubUserAccessToken ? encryptValue(input.githubUserAccessToken) : "",
+      input.githubRefreshToken ? encryptValue(input.githubRefreshToken) : "",
+      input.githubTokenExpiresAt,
+      input.githubRefreshTokenExpiresAt,
+      input.githubAccountLogin,
+      input.githubAccountName,
+      timestamp,
+      profileId
+    );
+}
+
+export function clearGithubCopilotCredentials(profileId: string) {
+  const timestamp = new Date().toISOString();
+
+  getDb()
+    .prepare(
+      `UPDATE provider_profiles
+       SET github_user_access_token_encrypted = '',
+           github_refresh_token_encrypted = '',
+           github_token_expires_at = NULL,
+           github_refresh_token_expires_at = NULL,
+           github_account_login = NULL,
+           github_account_name = NULL,
+           updated_at = ?
+       WHERE id = ?`
+    )
+    .run(timestamp, profileId);
+}
+
 export function getSettings() {
   const row = getDb()
     .prepare(
