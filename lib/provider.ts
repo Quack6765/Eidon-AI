@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
+import { ensureFreshGithubAccessToken, runGithubCopilotChat, streamGithubCopilotChat } from "@/lib/github-copilot";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
 import { estimatePromptTokens, setActiveTokenizer } from "@/lib/tokenization";
 import { normalizeLineBreaks } from "@/lib/utils";
@@ -235,6 +236,17 @@ export async function callProviderText(input: {
   conversationId?: string;
 }) {
   const { settings } = input;
+
+  if (settings.providerKind === "github_copilot") {
+    const freshSettings = await ensureFreshGithubAccessToken(settings);
+    const result = await runGithubCopilotChat({
+      ...freshSettings,
+      messages: [{ role: "user", content: input.prompt }]
+    });
+
+    return typeof result === "string" ? result : JSON.stringify(result);
+  }
+
   const client = createClient(settings, settings.apiKey);
 
   if (settings.apiMode === "responses") {
@@ -287,6 +299,24 @@ export async function* streamProviderResponse(input: {
 > {
   const { settings, promptMessages } = input;
   setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
+
+  if (settings.providerKind === "github_copilot") {
+    const freshSettings = await ensureFreshGithubAccessToken(settings);
+    const messageTexts = promptMessages.map((m) =>
+      typeof m.content === "string" ? m.content : m.content.map((p) => "text" in p ? p.text : "").join("")
+    );
+
+    await streamGithubCopilotChat({
+      ...freshSettings,
+      messages: messageTexts.map((content) => ({ role: "user", content })),
+      onEvent: (event: unknown) => {
+        void event;
+      }
+    });
+
+    return { answer: "", thinking: "", usage: { inputTokens: 0 } };
+  }
+
   const client = createClient(settings, settings.apiKey);
   const abortController = new AbortController();
   let answer = "";

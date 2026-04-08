@@ -8,6 +8,7 @@ import type {
   ProviderProfile,
   ProviderProfileWithApiKey
 } from "@/lib/types";
+import { updateGithubCopilotCredentials } from "@/lib/settings";
 
 type GithubConnectionInput = Pick<
   ProviderProfile,
@@ -185,6 +186,30 @@ export async function refreshGithubUserToken(
     githubRefreshTokenExpiresAt: tokens.refresh_token_expires_in
       ? new Date(now + tokens.refresh_token_expires_in * 1000).toISOString()
       : null
+  };
+}
+
+export async function ensureFreshGithubAccessToken(
+  profile: ProviderProfileWithApiKey
+): Promise<ProviderProfileWithApiKey> {
+  if (!shouldRefreshGithubToken(profile)) {
+    return profile;
+  }
+
+  const refreshed = await refreshGithubUserToken(profile);
+
+  updateGithubCopilotCredentials(profile.id, {
+    githubUserAccessToken: decryptValue(refreshed.githubUserAccessTokenEncrypted),
+    githubRefreshToken: decryptValue(refreshed.githubRefreshTokenEncrypted),
+    githubTokenExpiresAt: refreshed.githubTokenExpiresAt,
+    githubRefreshTokenExpiresAt: refreshed.githubRefreshTokenExpiresAt,
+    githubAccountLogin: profile.githubAccountLogin,
+    githubAccountName: profile.githubAccountName
+  });
+
+  return {
+    ...profile,
+    ...refreshed
   };
 }
 
