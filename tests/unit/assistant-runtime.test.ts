@@ -978,4 +978,33 @@ Run browser commands.`
       expect(result.answer).toBe("Try updating instead");
     });
   });
+
+  it("stops before executing a tool call when cancellation is requested", async () => {
+    const abortController = new AbortController();
+
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([], {
+        answer: "",
+        thinking: "",
+        toolCalls: [{ id: "call_1", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
+        usage: { inputTokens: 9 }
+      })
+    );
+
+    const { ChatTurnStoppedError, createChatTurnControl } = await import("@/lib/chat-turn-control");
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    const control = createChatTurnControl("conv_1", abortController);
+    control.requestStop();
+
+    await expect(resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find MCP docs" }],
+      skills: [],
+      mcpToolSets: [],
+      abortSignal: abortController.signal,
+      throwIfStopped: control.throwIfStopped
+    })).rejects.toBeInstanceOf(ChatTurnStoppedError);
+
+    expect(callMcpTool).not.toHaveBeenCalled();
+  });
 });

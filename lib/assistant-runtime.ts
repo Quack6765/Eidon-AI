@@ -1,4 +1,5 @@
 import { resolveAttachmentPath } from "@/lib/attachments";
+import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
 import { getMemory as getMemoryRecord, createMemory, updateMemory as updateMemoryRecord, deleteMemory as deleteMemoryRecord, getMemoryCount } from "@/lib/memories";
 import { getSettings } from "@/lib/settings";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
@@ -849,6 +850,8 @@ export async function resolveAssistantTurn(input: {
   visionMcpServer?: McpServer | null;
   memoriesEnabled?: boolean;
   mcpTimeout?: number;
+  abortSignal?: AbortSignal;
+  throwIfStopped?: () => void;
   onEvent?: (event: ChatStreamEvent) => void;
   onAnswerSegment?: (segment: string) => Promise<void> | void;
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
@@ -862,6 +865,13 @@ export async function resolveAssistantTurn(input: {
   ) => Promise<void> | void;
 }) {
   const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
+
+  const assertRunning = () => {
+    input.throwIfStopped?.();
+    if (input.abortSignal?.aborted) {
+      throw new ChatTurnStoppedError();
+    }
+  };
 
   // Handle vision MCP mode - strip images and inject directive
   let promptMessages = input.promptMessages;
@@ -898,6 +908,8 @@ export async function resolveAssistantTurn(input: {
   };
 
   for (let step = 0; step < MAX_ASSISTANT_CONTROL_STEPS; step += 1) {
+    assertRunning();
+
     const tools = buildToolDefinitions({
       mcpToolSets: input.mcpToolSets,
       skills: turnSkills,
@@ -909,7 +921,8 @@ export async function resolveAssistantTurn(input: {
     const providerStream = streamProviderResponse({
       settings: input.settings,
       promptMessages,
-      tools: tools.length ? tools : undefined
+      tools: tools.length ? tools : undefined,
+      abortSignal: input.abortSignal
     });
 
     let answer = "";
@@ -929,6 +942,8 @@ export async function resolveAssistantTurn(input: {
       }
       input.onEvent?.(next.value);
     }
+
+    assertRunning();
 
     if (!toolCalls.length) {
       if (!answer.trim() && step > 0) {
@@ -956,6 +971,8 @@ export async function resolveAssistantTurn(input: {
     }
 
     for (const toolCall of toolCalls) {
+      assertRunning();
+
       const result = await executeToolCall(toolCall, {
         input: toolRuntimeInput,
         mcpServers,
