@@ -56,6 +56,9 @@ describe("conversations extended", () => {
     const results = searchConversations("JavaScript");
     expect(results).toHaveLength(1);
     expect(results[0].title).toBe("JavaScript Basics");
+    expect(results[0].automationId).toBeNull();
+    expect(results[0].automationRunId).toBeNull();
+    expect(results[0].conversationOrigin).toBe("manual");
   });
 
   it("searches conversations by message content", () => {

@@ -1,6 +1,12 @@
 import { z } from "zod";
 
+const fixedOffsetTimeZonePattern = /^[+-](?:[01]\d|2[0-3])(?::?[0-5]\d)?$/;
+
 function isValidIanaTimeZone(value: string) {
+  if (fixedOffsetTimeZonePattern.test(value)) {
+    return false;
+  }
+
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: value });
     return true;

@@ -118,6 +118,28 @@ describe("env validation", () => {
     ).toThrow();
   });
 
+  it("rejects fixed-offset timezone forms", () => {
+    expect(() =>
+      parseEnv({
+        NODE_ENV: "development",
+        EIDON_PASSWORD_LOGIN_ENABLED: "true",
+        EIDON_ADMIN_USERNAME: "admin",
+        EIDON_DATA_DIR: ".test-data",
+        TZ: "+01:00"
+      })
+    ).toThrow();
+
+    expect(() =>
+      parseEnv({
+        NODE_ENV: "development",
+        EIDON_PASSWORD_LOGIN_ENABLED: "true",
+        EIDON_ADMIN_USERNAME: "admin",
+        EIDON_DATA_DIR: ".test-data",
+        TZ: "-2359"
+      })
+    ).toThrow();
+  });
+
   it("defers production secret validation until a sensitive value is accessed", async () => {
     const previous = {
       NODE_ENV: process.env.NODE_ENV,
