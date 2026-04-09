@@ -153,6 +153,36 @@ describe("local shell", () => {
     });
   });
 
+  it("uses a relative SHELL command name as-is", async () => {
+    process.env.SHELL = "zsh";
+
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "git status",
+      allowedPrefixes: ["git"]
+    });
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      "zsh",
+      ["-lc", "git status"],
+      expect.objectContaining({
+        cwd: process.cwd(),
+        env: process.env
+      })
+    );
+
+    child.emit("close", 0);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      exitCode: 0,
+      timedOut: false,
+      isError: false
+    });
+  });
+
   it("returns a structured error when spawn fails before close", async () => {
     const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
     const child = new MockChild();
@@ -181,6 +211,28 @@ describe("local shell", () => {
         isError: true
       })
     ).toBe("spawn zsh ENOENT");
+  });
+
+  it("ignores duplicate completion events after the command has already settled", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "git status",
+      allowedPrefixes: ["git"]
+    });
+
+    child.emit("error", new Error("spawn zsh ENOENT"));
+    child.emit("close", 0);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      stdout: "",
+      stderr: "spawn zsh ENOENT",
+      exitCode: null,
+      timedOut: false,
+      isError: true
+    });
   });
 
   it("marks timed out commands as errors and summarizes empty output states", async () => {
