@@ -1,11 +1,12 @@
 "use client";
 
-import React from "react";
+import React, { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import {
   AlertCircle,
   ArrowUp,
   Bot,
+  ChevronDown,
   FileText,
   LoaderCircle,
   Paperclip,
@@ -13,6 +14,7 @@ import {
   Users,
   X
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 
 import { ContextGauge } from "@/components/context-gauge";
 import { Textarea } from "@/components/ui/textarea";
@@ -49,6 +51,130 @@ type ChatComposerProps = {
   onStop: () => void | Promise<void>;
 };
 
+function CustomDropdown<T extends { id: string; name: string }>({
+  items,
+  selectedId,
+  onSelect,
+  icon: Icon,
+  placeholder,
+  disabled,
+  accentColor = "cyan"
+}: {
+  items: T[];
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  icon: React.ElementType;
+  placeholder: string;
+  disabled?: boolean;
+  accentColor?: "cyan" | "violet";
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const selectedItem = items.find((item) => item.id === selectedId);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const accentClasses = {
+    cyan: isOpen ? "text-cyan-400 bg-cyan-400/10" : "text-cyan-400/70 hover:text-cyan-400",
+    violet: isOpen ? "text-violet-400 bg-violet-400/10" : "text-violet-400/70 hover:text-violet-400"
+  };
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-all duration-200 hover:bg-white/5",
+          accentClasses[accentColor as keyof typeof accentClasses],
+          disabled && "opacity-50 cursor-not-allowed"
+        )}
+      >
+        <Icon className="h-4 w-4 shrink-0" />
+        {selectedItem && (
+          <div className="flex flex-col items-start leading-tight">
+            <span className="max-w-[80px] truncate text-[11px] font-bold sm:max-w-[140px]">
+              {selectedItem.name}
+            </span>
+            {"model" in selectedItem && (
+              <span className="text-[9px] opacity-60 truncate max-w-[80px] sm:max-w-[140px] font-medium">
+                {(selectedItem as any).model}
+              </span>
+            )}
+          </div>
+        )}
+        <ChevronDown className={cn("h-3 w-3 opacity-40 transition-transform duration-200", isOpen && "rotate-180")} />
+      </button>
+
+      <AnimatePresence>
+        {isOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            className="absolute bottom-full left-0 z-50 mb-2 min-w-[220px] overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/95 p-1.5 shadow-2xl backdrop-blur-xl"
+          >
+            <div className="max-h-[300px] overflow-y-auto scrollbar-thin">
+              {placeholder && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelect(null);
+                    setIsOpen(false);
+                  }}
+                  className={cn(
+                    "w-full rounded-xl px-3 py-2 text-left text-xs transition-colors hover:bg-white/5",
+                    !selectedId ? "text-white font-medium" : "text-white/50"
+                  )}
+                >
+                  {placeholder}
+                </button>
+              )}
+              {items.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => {
+                    onSelect(item.id);
+                    setIsOpen(false);
+                  }}
+                  className={cn(
+                    "w-full rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-white/5",
+                    selectedId === item.id ? "bg-white/10" : ""
+                  )}
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <span className={cn(
+                      "text-[12.5px] font-semibold truncate",
+                      selectedId === item.id ? "text-white" : "text-white/80"
+                    )}>
+                      {item.name}
+                    </span>
+                    {"model" in item && (
+                      <span className="text-[10px] text-white/40 truncate font-medium">
+                        {(item as any).model}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export function ChatComposer({
   input,
   onInputChange,
@@ -80,10 +206,17 @@ export function ChatComposer({
     isSending || isUploadingAttachments || (!input.trim() && pendingAttachments.length === 0);
   const showStopButton = canStop && !isUploadingAttachments;
 
+  // For the model selector, we want to show the profile name prominently
+  const displayModels = providerProfiles.map(p => ({
+    id: p.id,
+    name: p.name, // Show profile name as primary
+    model: p.model
+  }));
+
   return (
     <div
       className={cn(
-        "relative rounded-2xl border border-white/6 bg-[var(--panel)] p-2 shadow-[var(--shadow)] transition-all duration-300 focus-within:border-[var(--accent)]/20 focus-within:shadow-[var(--shadow),0_0_0_3px_var(--accent-soft)]",
+        "relative rounded-[22px] sm:rounded-[26px] border border-white/10 bg-zinc-900/70 backdrop-blur-2xl p-1.5 sm:p-2 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all duration-500 focus-within:border-[var(--accent)]/30 focus-within:shadow-[0_0_50px_rgba(0,0,0,0.6),0_0_20px_var(--accent-soft)]",
         className
       )}
     >
@@ -105,50 +238,64 @@ export function ChatComposer({
           }
         }}
       />
-      {pendingAttachments.length ? (
-        <div className="mb-2 flex flex-wrap gap-2 px-1 pt-1">
-          {pendingAttachments.map((attachment) => (
-            <div
-              key={attachment.id}
-              className="flex items-center gap-2 rounded-xl border border-white/8 bg-[#1f1f23] px-2.5 py-2 text-sm text-white/80"
-            >
-              {attachment.kind === "image" ? (
-                <Image
-                  src={`/api/attachments/${attachment.id}`}
-                  alt={attachment.filename}
-                  width={40}
-                  height={40}
-                  className="h-10 w-10 rounded-lg object-cover"
-                />
-              ) : (
-                <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-white/8 text-white/60">
-                  <FileText className="h-4 w-4" />
-                </span>
-              )}
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-white">{attachment.filename}</div>
-                <div className="truncate text-[11px] text-white/40">{attachment.mimeType}</div>
-              </div>
-              <button
-                type="button"
-                className="rounded-lg p-1 text-white/35 transition-colors duration-200 hover:bg-white/5 hover:text-white/65"
-                onClick={() => void onRemovePendingAttachment(attachment.id)}
-                aria-label={`Remove ${attachment.filename}`}
+      
+      <AnimatePresence initial={false}>
+        {pendingAttachments.length ? (
+          <motion.div 
+            initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+            animate={{ opacity: 1, height: "auto", marginBottom: 8 }}
+            exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+            className="flex flex-wrap gap-2 px-1.5 pt-1 overflow-hidden"
+          >
+            {pendingAttachments.map((attachment) => (
+              <motion.div
+                key={attachment.id}
+                layout
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.9, opacity: 0 }}
+                className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 p-1.5 pr-2.5 text-sm text-white/80 backdrop-blur-md"
               >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
-      <div className="flex max-h-[200px] w-full items-end gap-1 pb-0.5 pr-1">
-        <div className="flex-1 rounded-lg border border-white/8 bg-[#1f1f23]">
+                {attachment.kind === "image" ? (
+                  <div className="relative h-9 w-9 overflow-hidden rounded-xl border border-white/10">
+                    <Image
+                      src={`/api/attachments/${attachment.id}`}
+                      alt={attachment.filename}
+                      fill
+                      className="object-cover"
+                    />
+                  </div>
+                ) : (
+                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-white/60">
+                    <FileText className="h-4 w-4" />
+                  </span>
+                )}
+                <div className="min-w-0 max-w-[120px]">
+                  <div className="truncate text-[13px] font-medium text-white/90">{attachment.filename}</div>
+                  <div className="truncate text-[10px] uppercase tracking-wider text-white/40">{attachment.mimeType.split('/')[1] || attachment.mimeType}</div>
+                </div>
+                <button
+                  type="button"
+                  className="ml-1 rounded-full p-1 text-white/30 transition-all duration-200 hover:bg-white/10 hover:text-white/80"
+                  onClick={() => void onRemovePendingAttachment(attachment.id)}
+                  aria-label={`Remove ${attachment.filename}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </motion.div>
+            ))}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      <div className="flex w-full items-center gap-2 pb-1 pr-1.5">
+        <div className="flex-1 min-w-0">
           <Textarea
             ref={textareaRef}
             value={input}
             onChange={(event) => onInputChange(event.target.value)}
             placeholder="Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-            className="max-h-[200px] min-h-[44px] w-full resize-none border-0 box-border bg-transparent px-3 py-2 text-base text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin rounded-lg placeholder:text-white/25 caret-[var(--accent)]"
+            className="max-h-[300px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 py-3.5 text-[15px] text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin placeholder:text-white/20 caret-[var(--accent)]"
             style={{ height: "auto" }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -159,107 +306,91 @@ export function ChatComposer({
           />
         </div>
 
-        <button
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={() => void (showStopButton ? onStop() : onSubmit())}
           disabled={showStopButton ? isStopPending : isSubmitDisabled}
-          className={`mb-0.5 mr-0.5 flex h-8 w-8 items-center justify-center rounded-xl transition-all duration-300 shrink-0 ${
+          className={cn(
+            "flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 shrink-0",
             showStopButton
               ? isStopPending
-                ? "bg-white/6 text-white/25"
-                : "bg-red-500 text-white shadow-[0_0_12px_rgba(239,68,68,0.3)] hover:shadow-[0_0_20px_rgba(239,68,68,0.4)] active:scale-95"
+                ? "bg-white/5 text-white/20"
+                : "bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]"
               : !isSubmitDisabled
-                ? "bg-[var(--accent)] text-white shadow-[0_0_12px_var(--accent-glow)] hover:shadow-[0_0_20px_var(--accent-glow)] active:scale-95"
-                : "bg-white/6 text-white/25"
-          }`}
+                ? "bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)]"
+                : "bg-white/5 text-white/20"
+          )}
           aria-label={showStopButton ? "Stop response" : "Send message"}
         >
-          {showStopButton ? <Square className="h-3.5 w-3.5 fill-current" /> : isSending || isUploadingAttachments ? (
-            <LoaderCircle className="h-4 w-4 animate-spin" />
+          {showStopButton ? (
+            <Square className="h-4 w-4 fill-current" />
+          ) : isSending || isUploadingAttachments ? (
+            <LoaderCircle className="h-5 w-5 animate-spin" />
           ) : (
-            <ArrowUp className="h-4 w-4" />
+            <ArrowUp className="h-5 w-5 stroke-[2.5px]" />
           )}
-        </button>
+        </motion.button>
       </div>
 
+
       {showVisionWarning ? (
-        <div className="mt-2 flex items-center gap-2 rounded-xl border border-red-400/10 bg-red-500/10 px-3 py-2 text-xs text-red-200">
-          <AlertCircle className="h-4 w-4 shrink-0" />
+        <motion.div 
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mx-2 mb-2 flex items-center gap-2 rounded-2xl border border-amber-500/10 bg-amber-500/5 px-3 py-2 text-[11px] text-amber-200/70"
+        >
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span>
-            This model may not support image input. Eidon will still send the attachment and surface any provider error.
+            Selected model might not support vision input.
           </span>
-        </div>
+        </motion.div>
       ) : null}
 
-      <div className="flex items-center justify-between px-2 pt-1.5">
-        <div className="flex items-center gap-1">
+      <div className="flex items-center justify-between px-1.5 pb-1 pt-1.5 border-t border-white/5">
+        <div className="flex items-center gap-0.5">
           <button
-            className="p-2 text-white/25 hover:text-white/50 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0"
+            className="p-2 text-white/30 hover:text-white/60 transition-all duration-200 rounded-xl hover:bg-white/5 shrink-0"
             aria-label="Attach files"
             type="button"
             onClick={() => fileInputRef.current?.click()}
           >
-            <Paperclip className="h-5 w-5" />
+            <Paperclip className="h-4.5 w-4.5" />
           </button>
 
-          <div className="relative group">
-            <button
-              className="p-2 text-cyan-400/80 hover:text-cyan-400 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0 flex items-center gap-1"
-              aria-label="Select model"
-              type="button"
-            >
-              <Bot className="h-5 w-5" />
-            </button>
-            <select
-              value={providerProfileId}
-              onChange={(event) => void onProviderProfileChange(event.target.value)}
-              className="absolute inset-0 opacity-0 cursor-pointer"
-              disabled={isSending || providerProfiles.length === 0}
-            >
-              {providerProfiles.map((profile) => (
-                <option key={profile.id} value={profile.id}>
-                  {profile.name} · {profile.model}
-                </option>
-              ))}
-            </select>
-          </div>
+          <div className="h-4 w-px bg-white/5 mx-1" />
 
-          <div className="relative group">
-            <button
-              className={`p-2 transition-colors duration-200 rounded-lg hover:bg-white/5 shrink-0 flex items-center gap-1 ${
-                personaId ? "text-violet-400/80 hover:text-violet-400" : "text-white/25 hover:text-white/50"
-              }`}
-              aria-label="Select persona"
-              type="button"
-            >
-              <Users className="h-5 w-5" />
-            </button>
-            <select
-              value={personaId ?? ""}
-              onChange={(event) => {
-                const value = event.target.value;
-                void onPersonaChange(value || null);
-              }}
-              className="absolute inset-0 opacity-0 cursor-pointer"
-              disabled={isSending || personas.length === 0}
-            >
-              <option value="">None</option>
-              {personas.map((persona) => (
-                <option key={persona.id} value={persona.id}>
-                  {persona.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <CustomDropdown
+            items={displayModels}
+            selectedId={providerProfileId}
+            onSelect={(id) => id && void onProviderProfileChange(id)}
+            icon={Bot}
+            placeholder=""
+            accentColor="cyan"
+            disabled={isSending}
+          />
 
+          <CustomDropdown
+            items={personas}
+            selectedId={personaId}
+            onSelect={(id) => void onPersonaChange(id)}
+            icon={Users}
+            placeholder="None"
+            accentColor="violet"
+            disabled={isSending}
+          />
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 sm:gap-3">
           {hasMessages && (
-            <ContextGauge
-              usedTokens={usedTokens}
-              usableLimit={Math.floor(modelContextLimit * compactionThreshold)}
-              maxLimit={modelContextLimit}
-            />
+            <div className="flex items-center gap-2 px-1">
+              <span className="text-[10px] text-white/20 font-medium tracking-wider uppercase hidden md:inline-block">Context</span>
+              <ContextGauge
+                usedTokens={usedTokens}
+                usableLimit={Math.floor(modelContextLimit * compactionThreshold)}
+                maxLimit={modelContextLimit}
+              />
+            </div>
           )}
         </div>
       </div>
