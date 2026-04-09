@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { accessSync, constants as fsConstants } from "node:fs";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_CHARS = 8_000;
@@ -59,6 +60,25 @@ function validateCommand(command: string, allowedPrefixes: string[]) {
   return trimmed;
 }
 
+function resolveShellPath() {
+  const shellPath = process.env.SHELL?.trim();
+
+  if (!shellPath) {
+    return "/bin/sh";
+  }
+
+  if (!shellPath.includes("/")) {
+    return shellPath;
+  }
+
+  try {
+    accessSync(shellPath, fsConstants.X_OK);
+    return shellPath;
+  } catch {
+    return "/bin/sh";
+  }
+}
+
 export async function executeLocalShellCommand(input: {
   command: string;
   allowedPrefixes: string[];
@@ -69,7 +89,7 @@ export async function executeLocalShellCommand(input: {
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return await new Promise<ShellExecutionResult>((resolve) => {
-    const child = spawn("zsh", ["-lc", command], {
+    const child = spawn(resolveShellPath(), ["-lc", command], {
       cwd: input.cwd ?? process.cwd(),
       env: process.env
     });
@@ -77,6 +97,17 @@ export async function executeLocalShellCommand(input: {
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let settled = false;
+
+    const finish = (result: ShellExecutionResult) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
 
     const timer = setTimeout(() => {
       timedOut = true;
@@ -91,10 +122,18 @@ export async function executeLocalShellCommand(input: {
       stderr += chunk.toString();
     });
 
-    child.on("close", (exitCode) => {
-      clearTimeout(timer);
+    child.on("error", (error) => {
+      finish({
+        stdout: truncateOutput(stdout.trim()),
+        stderr: truncateOutput((stderr ? `${stderr}\n` : "") + error.message),
+        exitCode: null,
+        timedOut,
+        isError: true
+      });
+    });
 
-      resolve({
+    child.on("close", (exitCode) => {
+      finish({
         stdout: truncateOutput(stdout.trim()),
         stderr: truncateOutput(stderr.trim()),
         exitCode,
