@@ -362,10 +362,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     requestAnimationFrame(() => {
       if (!queueRef.current) return;
-      queueRef.current.scrollTo({
-        top: queueRef.current.scrollHeight,
-        behavior: "instant",
-      });
+      if (queueRef.current.scrollTo) {
+        queueRef.current.scrollTo({ top: queueRef.current.scrollHeight, behavior: "instant" });
+      } else {
+        queueRef.current.scrollTop = queueRef.current.scrollHeight;
+      }
     });
   }, [messages, streamThinkingDisplay, streamAnswerDisplay, streamTimeline]);
 
