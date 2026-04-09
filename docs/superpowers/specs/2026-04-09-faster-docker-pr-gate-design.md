@@ -59,6 +59,7 @@ Full image builds should still run on PRs when any of the following change:
 - [`package.json`](../../../package.json)
 - [`package-lock.json`](../../../package-lock.json)
 - `next.config.*`
+- `public/**`
 - [`server.cjs`](../../../server.cjs)
 
 This list is intentionally conservative. It covers files that can affect Docker build semantics, CI behavior, runtime dependency installation, or the final image layout.
@@ -79,6 +80,7 @@ The Docker workflow should be restructured so the build target and step naming a
 
 - compute whether the PR touched deployment-sensitive files
 - use that result to choose either `target: builder` or the default full image build
+- grant the workflow `pull-requests: read` so PR file matching can access the changed-file list
 - keep existing Buildx cache usage
 
 The workflow should remain a single file unless complexity forces a split. The point is faster execution, not a more fragmented CI layout.
