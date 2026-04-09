@@ -282,6 +282,27 @@ describe("message bubble", () => {
     expect(toolButtons).toHaveLength(1);
   });
 
+  it("renders a compact loading shell while awaiting the first token", () => {
+    const { container } = render(
+      React.createElement(StreamingPlaceholder, {
+        createdAt: new Date().toISOString(),
+        thinking: "",
+        answer: "",
+        awaitingFirstToken: true,
+        thinkingInProgress: false,
+        timeline: []
+      })
+    );
+
+    const loadingShell = screen.getByTestId("assistant-loading-shell");
+
+    expect(loadingShell).toBeInTheDocument();
+    expect(loadingShell.className).toContain("rounded-lg");
+    expect(loadingShell.className).not.toContain("rounded-2xl");
+    expect(screen.queryByTestId("assistant-message-bubble")).toBeNull();
+    expect(container.querySelectorAll(".typing-dot")).toHaveLength(3);
+  });
+
   it("keeps the thinking shell visible while streamed reasoning is buffered", () => {
     render(
       React.createElement(StreamingPlaceholder, {

@@ -19,13 +19,13 @@ import { normalizeMarkdownLineBreaks } from "@/lib/utils";
 const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
 const COPY_RESET_DELAY_MS = 1600;
 
-function TypingIndicator() {
+function TypingIndicator({ compact = false }: { compact?: boolean }) {
   return (
-    <div className="flex items-center gap-1.5 py-2 px-1">
+    <div className={compact ? "flex items-center gap-1" : "flex items-center gap-1.5 px-1 py-2"}>
       {[0, 1, 2].map((i) => (
         <div
           key={i}
-          className="h-1.5 w-1.5 rounded-full bg-white/40"
+          className="typing-dot h-1.5 w-1.5 rounded-full bg-white/40"
           style={{
             animation: "typing-dot 1.4s ease-in-out infinite",
             animationDelay: `${i * 0.2}s`
@@ -98,6 +98,8 @@ function CollapsibleActionRow({
 const ASSISTANT_MAX_WIDTH = "max-w-[96%] md:max-w-[95%]";
 const ASSISTANT_BUBBLE =
   "w-fit rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-2 md:px-4 md:py-3 text-[var(--text)] shadow-[0_8px_24px_rgba(0,0,0,0.28)]";
+const ASSISTANT_LOADING_SHELL =
+  "inline-flex items-center rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1";
 
 function getActionSignature(action: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">) {
   return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
@@ -587,8 +589,11 @@ export function MessageBubble({
               compactionInProgress ? (
                 <CompactionIndicator />
               ) : (
-                <div className={`${ASSISTANT_MAX_WIDTH} ${ASSISTANT_BUBBLE}`} data-testid="assistant-message-bubble">
-                  <TypingIndicator />
+                <div
+                  className={ASSISTANT_LOADING_SHELL}
+                  data-testid="assistant-loading-shell"
+                >
+                  <TypingIndicator compact />
                 </div>
               )
             ) : assistantBlocks.length || content ? (
