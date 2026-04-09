@@ -1302,8 +1302,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       </div>
 
       <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none">
-        <div className="h-24 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/90 to-transparent" />
-        <div className="mx-auto w-full px-4 pb-4 md:px-8 md:pb-6 -mt-10 pointer-events-auto">
+        <div className="h-32 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/95 via-50% to-transparent" />
+        <div className="mx-auto w-full px-4 pb-6 md:px-8 md:pb-10 -mt-16 pointer-events-auto max-w-[980px]">
           <ChatComposer
             input={input}
             onInputChange={setInput}
