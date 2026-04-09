@@ -24,6 +24,7 @@ export function Shell({
     ? pathname.split("/chat/")[1]
     : null;
   const isSettingsPage = pathname.startsWith("/settings");
+  const mobileMenuLabel = isSettingsPage ? "Open settings menu" : "Open menu";
 
   return (
     <div className="flex h-[100dvh] w-full bg-[var(--background)] overflow-hidden">
@@ -59,39 +60,50 @@ export function Shell({
             type="button"
             className="p-2 -ml-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
             onClick={() => setIsSidebarOpen(true)}
-            aria-label="Open menu"
+            aria-label={mobileMenuLabel}
           >
             <Menu className="h-5 w-5" />
           </button>
 
-          <span
-            className="font-bold tracking-[0.12em] leading-none inline-block text-lg"
-            style={{
-              fontFamily: "var(--font-wordmark), 'Eurostile', 'Space Grotesk', sans-serif",
-              WebkitBackgroundClip: "text",
-              backgroundClip: "text",
-              WebkitTextFillColor: "transparent",
-              backgroundImage: "linear-gradient(to bottom, #FFFFFF 0%, #D4C8FF 40%, #8b5cf6 100%)",
-              filter: "drop-shadow(0 0 8px rgba(139,92,246,0.5)) drop-shadow(0 0 20px rgba(139,92,246,0.25)) drop-shadow(0 0 36px rgba(139,92,246,0.12))",
-            }}
-          >
-            Eidon
-          </span>
+          {isSettingsPage ? (
+            <>
+              <span className="text-sm font-semibold tracking-[0.01em] text-[var(--text)]">
+                Settings
+              </span>
+              <div className="w-9" aria-hidden="true" />
+            </>
+          ) : (
+            <>
+              <span
+                className="font-bold tracking-[0.12em] leading-none inline-block text-lg"
+                style={{
+                  fontFamily: "var(--font-wordmark), 'Eurostile', 'Space Grotesk', sans-serif",
+                  WebkitBackgroundClip: "text",
+                  backgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundImage: "linear-gradient(to bottom, #FFFFFF 0%, #D4C8FF 40%, #8b5cf6 100%)",
+                  filter: "drop-shadow(0 0 8px rgba(139,92,246,0.5)) drop-shadow(0 0 20px rgba(139,92,246,0.25)) drop-shadow(0 0 36px rgba(139,92,246,0.12))",
+                }}
+              >
+                Eidon
+              </span>
 
-          <button
-            type="button"
-            className="p-2 -mr-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
-            onClick={async () => {
-              try {
-                await deleteConversationIfStillEmpty(activeConversationId);
-                const res = await fetch("/api/conversations", { method: "POST" });
-                const data = (await res.json()) as { conversation: Conversation };
-                router.push(`/chat/${data.conversation.id}`);
-              } catch (e) {}
-            }}
-          >
-            <Plus className="h-5 w-5" />
-          </button>
+              <button
+                type="button"
+                className="p-2 -mr-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
+                onClick={async () => {
+                  try {
+                    await deleteConversationIfStillEmpty(activeConversationId);
+                    const res = await fetch("/api/conversations", { method: "POST" });
+                    const data = (await res.json()) as { conversation: Conversation };
+                    router.push(`/chat/${data.conversation.id}`);
+                  } catch (e) {}
+                }}
+              >
+                <Plus className="h-5 w-5" />
+              </button>
+            </>
+          )}
         </div>
 
         <ContextTokensProvider>{children}</ContextTokensProvider>

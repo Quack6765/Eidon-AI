@@ -49,7 +49,7 @@ export function GeneralSection({ settings }: { settings: AppSettings }) {
   }
 
   return (
-    <div className="max-w-[55%] p-6 md:p-8 space-y-6">
+    <div className="w-full max-w-none space-y-6 p-4 sm:p-6 md:max-w-[55%] md:p-8">
       <SettingsCard title="Conversation Retention">
         <SettingRow
           label="Keep conversations for"
@@ -58,7 +58,7 @@ export function GeneralSection({ settings }: { settings: AppSettings }) {
           <select
             value={conversationRetention}
             onChange={(e) => setConversationRetention(e.target.value as ConversationRetention)}
-            className="rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]/30 transition-all duration-200"
+            className="w-full rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-[var(--accent)]/30 sm:w-auto"
           >
             <option value="forever">Forever</option>
             <option value="90d">90 days</option>
@@ -96,13 +96,13 @@ export function GeneralSection({ settings }: { settings: AppSettings }) {
             max={600}
             value={Math.round(mcpTimeout / 1000)}
             onChange={(e) => setMcpTimeout(Number(e.target.value) * 1000)}
-            className="w-20 rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]/30 transition-all duration-200"
+            className="w-full rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-[var(--accent)]/30 sm:w-20"
           />
         </SettingRow>
       </SettingsCard>
 
       <div className="flex flex-wrap items-center gap-3">
-        <Button onClick={() => void save()} disabled={isPending}>
+        <Button className="w-full sm:w-auto" onClick={() => void save()} disabled={isPending}>
           Save settings
         </Button>
         {success ? <span className="text-sm text-emerald-400">{success}</span> : null}
