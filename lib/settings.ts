@@ -369,6 +369,7 @@ export function getSettings() {
         auto_compaction,
         memories_enabled,
         memories_max_count,
+        mcp_timeout,
         updated_at
       FROM app_settings
       WHERE id = ?`
