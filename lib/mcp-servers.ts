@@ -100,7 +100,7 @@ export function createMcpServer(input: CreateMcpServerInput) {
   const server: McpServer = {
     id: createId("mcp"),
     name: input.name,
-    slug: slugify(input.name),
+    slug: slugify(input.name) || "unnamed",
     url: input.url ?? "",
     headers: input.headers ?? {},
     transport,
@@ -155,7 +155,7 @@ export function updateMcpServer(
 
   const timestamp = nowIso();
   const name = input.name ?? current.name;
-  const slug = input.name ? slugify(input.name) : current.slug;
+  const slug = input.name ? (slugify(input.name) || "unnamed") : current.slug;
   const url = input.url ?? current.url;
   const headers = input.headers ?? current.headers;
   const transport = input.transport ?? current.transport;

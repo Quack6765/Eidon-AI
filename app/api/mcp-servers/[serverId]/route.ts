@@ -26,7 +26,10 @@ export async function PATCH(
     enabled?: boolean;
   };
 
-  if (body.name) {
+  if (body.name !== undefined) {
+    if (!body.name.trim()) {
+      return badRequest("Server name cannot be empty.");
+    }
     const slug = slugify(body.name);
     const conflicting = getMcpServerBySlug(slug);
     if (conflicting && conflicting.id !== params.data.serverId) {
