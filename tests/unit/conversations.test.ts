@@ -72,6 +72,9 @@ describe("conversation helpers", () => {
 
     expect(conversation.title).toBe("Conversation");
     expect(conversation.titleGenerationStatus).toBe("pending");
+    expect(conversation.automationId).toBeNull();
+    expect(conversation.automationRunId).toBeNull();
+    expect(conversation.conversationOrigin).toBe("manual");
 
     const message = createMessage({
       conversationId: conversation.id,
@@ -86,6 +89,9 @@ describe("conversation helpers", () => {
     expect(getConversation(conversation.id)?.title).toBe("Deployment Checklist");
     expect(getConversation(conversation.id)?.titleGenerationStatus).toBe("completed");
     expect(getConversation(conversation.id)?.providerProfileId).toBe(defaultProfileId);
+    expect(getConversation(conversation.id)?.automationId).toBeNull();
+    expect(getConversation(conversation.id)?.automationRunId).toBeNull();
+    expect(getConversation(conversation.id)?.conversationOrigin).toBe("manual");
   });
 
   it("stores messages in chronological order", () => {

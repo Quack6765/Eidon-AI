@@ -199,6 +199,10 @@ describe("db", () => {
       .map((column) => column.name);
     const skillColumns = (db.prepare("PRAGMA table_info(skills)").all() as Array<{ name: string }>)
       .map((column) => column.name);
+    const automationColumns = (db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const automationRunColumns = (db.prepare("PRAGMA table_info(automation_runs)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
 
     expect(conversationColumns).toEqual(
       expect.arrayContaining([
@@ -206,7 +210,10 @@ describe("db", () => {
         "sort_order",
         "provider_profile_id",
         "title_generation_status",
-        "tool_execution_mode"
+        "tool_execution_mode",
+        "automation_id",
+        "automation_run_id",
+        "conversation_origin"
       ])
     );
     expect(settingsColumns).toEqual(
@@ -214,14 +221,30 @@ describe("db", () => {
     );
     expect(mcpColumns).toEqual(expect.arrayContaining(["transport", "command", "args", "env"]));
     expect(skillColumns).toContain("description");
+    expect(automationColumns).toEqual(
+      expect.arrayContaining(["prompt", "schedule_kind", "next_run_at", "enabled"])
+    );
+    expect(automationRunColumns).toEqual(
+      expect.arrayContaining(["automation_id", "conversation_id", "scheduled_for", "status"])
+    );
 
     const conversation = db
       .prepare(
-        "SELECT provider_profile_id, title_generation_status FROM conversations WHERE id = ?"
+        `SELECT
+          provider_profile_id,
+          title_generation_status,
+          automation_id,
+          automation_run_id,
+          conversation_origin
+         FROM conversations
+         WHERE id = ?`
       )
       .get("conv_legacy") as {
       provider_profile_id: string | null;
       title_generation_status: string;
+      automation_id: string | null;
+      automation_run_id: string | null;
+      conversation_origin: string;
     };
     const appSettings = db
       .prepare("SELECT default_provider_profile_id, skills_enabled FROM app_settings WHERE id = 1")
@@ -243,6 +266,9 @@ describe("db", () => {
     expect(appSettings.skills_enabled).toBe(1);
     expect(conversation.provider_profile_id).toBe("profile_existing");
     expect(conversation.title_generation_status).toBe("completed");
+    expect(conversation.automation_id).toBeNull();
+    expect(conversation.automation_run_id).toBeNull();
+    expect(conversation.conversation_origin).toBe("manual");
     expect(skillFrontmatter).toEqual({
       name: "Browser Agent",
       description: "Use for browser workflows."

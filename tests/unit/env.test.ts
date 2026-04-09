@@ -95,6 +95,29 @@ describe("env validation", () => {
     expect(env.TZ).toBe("America/Toronto");
   });
 
+  it("defaults the timezone env to UTC", () => {
+    const env = parseEnv({
+      NODE_ENV: "development",
+      EIDON_PASSWORD_LOGIN_ENABLED: "true",
+      EIDON_ADMIN_USERNAME: "admin",
+      EIDON_DATA_DIR: ".test-data"
+    });
+
+    expect(env.TZ).toBe("UTC");
+  });
+
+  it("rejects invalid timezones", () => {
+    expect(() =>
+      parseEnv({
+        NODE_ENV: "development",
+        EIDON_PASSWORD_LOGIN_ENABLED: "true",
+        EIDON_ADMIN_USERNAME: "admin",
+        EIDON_DATA_DIR: ".test-data",
+        TZ: "Mars/Olympus"
+      })
+    ).toThrow();
+  });
+
   it("defers production secret validation until a sensitive value is accessed", async () => {
     const previous = {
       NODE_ENV: process.env.NODE_ENV,

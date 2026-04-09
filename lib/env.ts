@@ -1,8 +1,21 @@
 import { z } from "zod";
 
+function isValidIanaTimeZone(value: string) {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const nodeEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  TZ: z.string().min(1).default("UTC"),
+  TZ: z
+    .string()
+    .min(1)
+    .default("UTC")
+    .refine(isValidIanaTimeZone, "TZ must be a valid IANA timezone"),
   EIDON_PASSWORD_LOGIN_ENABLED: z
     .enum(["true", "false"])
     .default("false")

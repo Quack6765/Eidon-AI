@@ -109,6 +109,9 @@ export type Conversation = {
   titleGenerationStatus: ConversationTitleGenerationStatus;
   folderId: string | null;
   providerProfileId: string | null;
+  automationId: string | null;
+  automationRunId: string | null;
+  conversationOrigin: ConversationOrigin;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;

@@ -41,6 +41,9 @@ type ConversationRow = {
   title_generation_status: ConversationTitleGenerationStatus;
   folder_id: string | null;
   provider_profile_id: string | null;
+  automation_id: string | null;
+  automation_run_id: string | null;
+  conversation_origin: "manual" | "automation";
   sort_order: number;
   created_at: string;
   updated_at: string;
@@ -72,6 +75,9 @@ function rowToConversation(row: ConversationRow): Conversation {
     titleGenerationStatus: row.title_generation_status,
     folderId: row.folder_id,
     providerProfileId: row.provider_profile_id,
+    automationId: row.automation_id,
+    automationRunId: row.automation_run_id,
+    conversationOrigin: row.conversation_origin,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -217,6 +223,9 @@ export function listConversations() {
         c.title_generation_status,
         c.folder_id,
         c.provider_profile_id,
+        c.automation_id,
+        c.automation_run_id,
+        c.conversation_origin,
         c.sort_order,
         c.created_at,
         ${activityTimestamp} AS updated_at,
@@ -246,7 +255,9 @@ export function listConversationsPage(input: {
             c.title_generation_status,
             c.folder_id,
             c.provider_profile_id,
-            c.tool_execution_mode,
+            c.automation_id,
+            c.automation_run_id,
+            c.conversation_origin,
             c.sort_order,
             c.created_at,
             ${activityTimestamp} AS updated_at,
@@ -266,7 +277,9 @@ export function listConversationsPage(input: {
             c.title_generation_status,
             c.folder_id,
             c.provider_profile_id,
-            c.tool_execution_mode,
+            c.automation_id,
+            c.automation_run_id,
+            c.conversation_origin,
             c.sort_order,
             c.created_at,
             ${activityTimestamp} AS updated_at,
@@ -303,6 +316,9 @@ export function getConversation(conversationId: string) {
         c.title_generation_status,
         c.folder_id,
         c.provider_profile_id,
+        c.automation_id,
+        c.automation_run_id,
+        c.conversation_origin,
         c.sort_order,
         c.created_at,
         ${activityTimestamp} AS updated_at,
@@ -336,6 +352,9 @@ export function createConversation(
     titleGenerationStatus: (trimmedTitle ? "completed" : "pending") as ConversationTitleGenerationStatus,
     folderId: folderId ?? null,
     providerProfileId: options?.providerProfileId ?? settings.defaultProviderProfileId,
+    automationId: null,
+    automationRunId: null,
+    conversationOrigin: "manual" as const,
     sortOrder: maxOrder.max_order + 1,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -350,11 +369,14 @@ export function createConversation(
         title_generation_status,
         folder_id,
         provider_profile_id,
+        automation_id,
+        automation_run_id,
+        conversation_origin,
         sort_order,
         created_at,
         updated_at,
         is_active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       conversation.id,
@@ -362,6 +384,9 @@ export function createConversation(
       conversation.titleGenerationStatus,
       conversation.folderId,
       conversation.providerProfileId,
+      conversation.automationId,
+      conversation.automationRunId,
+      conversation.conversationOrigin,
       conversation.sortOrder,
       conversation.createdAt,
       conversation.updatedAt,
