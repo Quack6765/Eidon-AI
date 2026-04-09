@@ -27,6 +27,7 @@ function TypingIndicator({ compact = false }: { compact?: boolean }) {
           key={i}
           className="typing-dot h-1.5 w-1.5 rounded-full bg-white/40"
           style={{
+            ["--typing-dot-lift" as string]: compact ? "3px" : "6px",
             animation: "typing-dot 1.4s ease-in-out infinite",
             animationDelay: `${i * 0.2}s`
           }}
@@ -99,7 +100,7 @@ const ASSISTANT_MAX_WIDTH = "max-w-[96%] md:max-w-[95%]";
 const ASSISTANT_BUBBLE =
   "w-fit rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-2 md:px-4 md:py-3 text-[var(--text)] shadow-[0_8px_24px_rgba(0,0,0,0.28)]";
 const ASSISTANT_LOADING_SHELL =
-  "inline-flex items-center rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1";
+  "mt-1 inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1";
 
 function getActionSignature(action: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">) {
   return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
