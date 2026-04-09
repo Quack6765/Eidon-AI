@@ -232,4 +232,112 @@ describe("settings storage", () => {
       })
     ).toThrow();
   });
+
+  it("stores github copilot profiles without requiring an api key", () => {
+    const copilot = {
+      ...buildProfile({
+        id: "profile_copilot",
+        name: "Copilot"
+      }),
+      providerKind: "github_copilot" as const,
+      apiKey: "",
+      apiBaseUrl: "",
+      githubUserAccessTokenEncrypted: "",
+      githubRefreshTokenEncrypted: "",
+      githubTokenExpiresAt: null,
+      githubRefreshTokenExpiresAt: null,
+      githubAccountLogin: null,
+      githubAccountName: null
+    };
+
+    updateSettings({
+      defaultProviderProfileId: copilot.id,
+      skillsEnabled: true,
+      providerProfiles: [copilot]
+    });
+
+    const stored = getProviderProfile(copilot.id);
+
+    expect(stored?.providerKind).toBe("github_copilot");
+    expect(stored?.apiKeyEncrypted).toBe("");
+  });
+
+  it("keeps duplicated copilot profiles disconnected", () => {
+    const connected = {
+      ...buildProfile({
+        id: "profile_copilot",
+        name: "Copilot"
+      }),
+      providerKind: "github_copilot" as const,
+      apiKey: "",
+      apiBaseUrl: "",
+      githubUserAccessTokenEncrypted: "ciphertext-access",
+      githubRefreshTokenEncrypted: "ciphertext-refresh",
+      githubTokenExpiresAt: "2026-04-08T16:00:00.000Z",
+      githubRefreshTokenExpiresAt: "2026-10-08T16:00:00.000Z",
+      githubAccountLogin: "octocat",
+      githubAccountName: "The Octocat"
+    };
+
+    const duplicate = {
+      ...connected,
+      id: "profile_copilot_copy",
+      name: "Copilot Copy",
+      githubUserAccessTokenEncrypted: "",
+      githubRefreshTokenEncrypted: "",
+      githubTokenExpiresAt: null,
+      githubRefreshTokenExpiresAt: null,
+      githubAccountLogin: null,
+      githubAccountName: null
+    };
+
+    updateSettings({
+      defaultProviderProfileId: connected.id,
+      skillsEnabled: true,
+      providerProfiles: [connected, duplicate]
+    });
+
+    expect(getProviderProfile("profile_copilot_copy")).toMatchObject({
+      providerKind: "github_copilot",
+      githubUserAccessTokenEncrypted: "",
+      githubRefreshTokenEncrypted: "",
+      githubAccountLogin: null
+    });
+  });
+
+  it("does not expose github oauth credentials in sanitized settings", () => {
+    const copilot = {
+      ...buildProfile({
+        id: "profile_copilot",
+        name: "Copilot"
+      }),
+      providerKind: "github_copilot" as const,
+      apiKey: "",
+      apiBaseUrl: "",
+      githubUserAccessTokenEncrypted: "ciphertext-access",
+      githubRefreshTokenEncrypted: "ciphertext-refresh",
+      githubTokenExpiresAt: "2026-04-08T16:00:00.000Z",
+      githubRefreshTokenExpiresAt: "2026-10-08T16:00:00.000Z",
+      githubAccountLogin: "octocat",
+      githubAccountName: "The Octocat"
+    };
+
+    updateSettings({
+      defaultProviderProfileId: copilot.id,
+      skillsEnabled: true,
+      providerProfiles: [copilot]
+    });
+
+    const settings = getSanitizedSettings();
+    const profile = settings.providerProfiles.find((entry) => entry.id === copilot.id);
+
+    expect(profile).toMatchObject({
+      id: "profile_copilot",
+      providerKind: "github_copilot",
+      githubAccountLogin: "octocat",
+      githubConnectionStatus: "connected"
+    });
+    expect("githubUserAccessTokenEncrypted" in (profile ?? {})).toBe(false);
+    expect("githubRefreshTokenEncrypted" in (profile ?? {})).toBe(false);
+  });
 });

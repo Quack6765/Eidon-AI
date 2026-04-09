@@ -8,6 +8,9 @@
 | `EIDON_ADMIN_PASSWORD` | Initial admin password | Yes |
 | `EIDON_SESSION_SECRET` | Session signing secret | Yes |
 | `EIDON_ENCRYPTION_SECRET` | Encryption key seed for stored provider credentials | Yes |
+| `EIDON_GITHUB_APP_CLIENT_ID` | GitHub App OAuth client ID for Copilot provider | No |
+| `EIDON_GITHUB_APP_CLIENT_SECRET` | GitHub App OAuth client secret for Copilot provider | No |
+| `EIDON_GITHUB_APP_CALLBACK_URL` | GitHub App OAuth callback redirect URL | No |
 | `EIDON_DATA_DIR` | Directory containing the SQLite database | No |
 
 ## By Environment

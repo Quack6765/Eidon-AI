@@ -23,6 +23,7 @@ type ProviderPresetDefinition = {
 };
 
 type PresetCompatibleProfile = {
+  providerKind?: string;
   name: string;
   apiBaseUrl: string;
   model: string;
@@ -88,6 +89,10 @@ export function applyProviderPreset<T extends PresetCompatibleProfile>(
   profile: T,
   presetId: ProviderPresetId
 ) {
+  if (profile.providerKind && profile.providerKind !== "openai_compatible") {
+    return profile;
+  }
+
   return {
     ...profile,
     ...getProviderPreset(presetId).values
@@ -97,6 +102,10 @@ export function applyProviderPreset<T extends PresetCompatibleProfile>(
 export function getMatchingProviderPresetId(
   profile: PresetCompatibleProfile
 ): ProviderPresetId | null {
+  if (profile.providerKind && profile.providerKind !== "openai_compatible") {
+    return null;
+  }
+
   const preset = PROVIDER_PRESETS.find((entry) => {
     const { values } = entry;
 

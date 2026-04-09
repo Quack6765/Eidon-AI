@@ -17,8 +17,19 @@ export async function POST(request: Request) {
       (body.providerProfileId ? getProviderProfileWithApiKey(body.providerProfileId) : null) ??
       getDefaultProviderProfileWithApiKey();
 
-    if (!settings?.apiKey) {
+    if (!settings) {
+      return badRequest("Provider profile not found");
+    }
+
+    if (settings.providerKind === "openai_compatible" && !settings.apiKey) {
       return badRequest("Set an API key before running a connection test");
+    }
+
+    if (
+      settings.providerKind === "github_copilot" &&
+      !settings.githubUserAccessTokenEncrypted
+    ) {
+      return badRequest("Connect a GitHub account before running a Copilot connection test");
     }
 
     const text = await callProviderText({

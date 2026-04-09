@@ -40,6 +40,7 @@ Eidon gives you a local-first assistant workspace with:
 
 - Streaming chat with support for visible reasoning and tool call timelines
 - OpenAI-compatible provider profiles, including custom API base URLs
+- GitHub Copilot provider — chat through your own Copilot subscription via OAuth
 - Long-memory compaction to preserve context in lengthy conversations
 - MCP server support for external tools and services
 - Reusable skills, including a built-in browser automation skill in the Docker image
@@ -88,7 +89,7 @@ npm install
 
 ### 2. Create a local env file
 
-Create `.env.local` in the repo root:
+Create `.env` in the repo root:
 
 ```bash
 EIDON_PASSWORD_LOGIN_ENABLED=false
@@ -189,6 +190,9 @@ docker run -d \
   -e EIDON_ADMIN_PASSWORD='replace-this-with-a-long-random-password' \
   -e EIDON_SESSION_SECRET='replace-this-with-a-long-random-session-secret' \
   -e EIDON_ENCRYPTION_SECRET='replace-this-with-a-long-random-encryption-secret' \
+  -e EIDON_GITHUB_APP_CLIENT_ID='Iv1.xxxxxxxx' \
+  -e EIDON_GITHUB_APP_CLIENT_SECRET='xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' \
+  -e EIDON_GITHUB_APP_CALLBACK_URL='https://your-host/api/providers/github/callback' \
   eidon:latest
 ```
 
@@ -210,6 +214,9 @@ services:
       EIDON_ADMIN_PASSWORD: "replace-this-with-a-long-random-password"
       EIDON_SESSION_SECRET: "replace-this-with-a-long-random-session-secret"
       EIDON_ENCRYPTION_SECRET: "replace-this-with-a-long-random-encryption-secret"
+      EIDON_GITHUB_APP_CLIENT_ID: "Iv1.xxxxxxxx"
+      EIDON_GITHUB_APP_CLIENT_SECRET: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      EIDON_GITHUB_APP_CALLBACK_URL: "https://your-host/api/providers/github/callback"
     volumes:
       - eidon-data:/app/data
 
@@ -231,6 +238,44 @@ docker compose up -d --build
 4. Rotate the username/password if needed
 5. Open **Settings → Providers** and set your provider API key
 
+## GitHub Copilot Provider
+
+Eidon can route chat through your GitHub Copilot subscription instead of a direct API key. This requires registering a GitHub App so Eidon can perform the OAuth flow on your behalf.
+
+### Create the GitHub App
+
+1. Go to **[github.com/settings/developers](https://github.com/settings/developers)** and click **New GitHub App**
+2. Fill in the form:
+   - **GitHub App name** — anything you like (e.g. `Eidon Dev`)
+   - **Homepage URL** — your Eidon instance URL
+   - **Callback URL** — `http://localhost:3000/api/providers/github/callback` for local dev, or `https://<your-host>/api/providers/github/callback` in production
+   - Under **Identifying and authorizing users**, check **Request user authorization (OAuth) during installation**
+   - **Where can this GitHub App be installed?** — choose *Only on this account*
+3. Click **Create GitHub App**
+4. On the app's general settings page, copy the **Client ID** — this is `EIDON_GITHUB_APP_CLIENT_ID`
+5. Click **Generate a new client secret** and copy it — this is `EIDON_GITHUB_APP_CLIENT_SECRET`
+6. The callback URL you set in step 2 is `EIDON_GITHUB_APP_CALLBACK_URL`
+
+### Configure the environment
+
+Add the three variables to `.env` (dev) or your container environment (production):
+
+```bash
+EIDON_GITHUB_APP_CLIENT_ID=Iv1.xxxxxxxx
+EIDON_GITHUB_APP_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+EIDON_GITHUB_APP_CALLBACK_URL=http://localhost:3000/api/providers/github/callback
+```
+
+All three are optional — if they are not set, the GitHub Copilot provider type is still visible in settings but the connection flow is disabled.
+
+### Connect a profile
+
+1. Open **Settings → Providers**
+2. Create a new profile (or edit an existing one) and set **Provider type** to *GitHub Copilot*
+3. Click **Connect GitHub** — you will be redirected to GitHub to authorize
+4. After approving, you'll be returned to settings and the profile will show your GitHub username
+5. Pick a model from the dropdown and start chatting
+
 ## Configuration
 
 | Variable | Purpose | Required in production |
@@ -241,6 +286,9 @@ docker compose up -d --build
 | `EIDON_SESSION_SECRET` | Session signing secret | Yes |
 | `EIDON_ENCRYPTION_SECRET` | Encryption seed for stored provider credentials | Yes |
 | `EIDON_DATA_DIR` | Directory for SQLite and runtime data | No |
+| `EIDON_GITHUB_APP_CLIENT_ID` | GitHub App OAuth client ID for the Copilot provider | No |
+| `EIDON_GITHUB_APP_CLIENT_SECRET` | GitHub App OAuth client secret for the Copilot provider | No |
+| `EIDON_GITHUB_APP_CALLBACK_URL` | GitHub App OAuth callback URL (must match the app settings on GitHub) | No |
 
 Runtime defaults:
 

@@ -52,6 +52,13 @@ function setupProviderProfile(): { profileId: string; profile: ProviderProfileWi
     mergedTargetTokens: 1600,
     visionMode: "native" as const,
     visionMcpServerId: null,
+    providerKind: "openai_compatible",
+    githubUserAccessTokenEncrypted: "",
+    githubRefreshTokenEncrypted: "",
+    githubTokenExpiresAt: null,
+    githubRefreshTokenExpiresAt: null,
+    githubAccountLogin: null,
+    githubAccountName: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
