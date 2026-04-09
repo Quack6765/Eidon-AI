@@ -49,12 +49,8 @@ const SHELL_SKILL_INTENT_PATTERN =
   /\b(browser|website|web site|webpage|web page|url|link|click|navigate|navigation|screenshot|snapshot|inspect|form|login|dom)\b/i;
 const URLISH_PATTERN = /\b(?:https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,})(?:\/\S*)?/i;
 
-function sanitizeForFunctionName(value: string) {
-  return value.replace(/[^a-zA-Z0-9_]/g, "_");
-}
-
-function mcpToolFunctionName(serverId: string, toolName: string) {
-  return `mcp_${sanitizeForFunctionName(serverId)}_${toolName}`;
+function mcpToolFunctionName(serverSlug: string, toolName: string) {
+  return `mcp_${serverSlug}_${toolName}`;
 }
 
 function getSkillResolvedName(skill: Skill) {
@@ -144,7 +140,7 @@ function buildToolDefinitions(input: {
       tools.push({
         type: "function",
         function: {
-          name: mcpToolFunctionName(server.id, tool.name),
+          name: mcpToolFunctionName(server.slug, tool.name),
           description: [
             tool.annotations?.title ?? tool.name,
             tool.description,
@@ -256,7 +252,7 @@ function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[]
   if (mcpServers.length) {
     lines.push("", "Configured MCP servers:");
     for (const server of mcpServers) {
-      lines.push(`- ${server.name} (${server.id})`);
+      lines.push(`- ${server.name}`);
     }
   }
 
@@ -278,7 +274,7 @@ function buildVisionMcpDirective(
   return [
     "This model cannot process images directly. When the user provides images, use the MCP server to analyze them.",
     "",
-    `Vision MCP server: ${mcpServer.name} (id: ${mcpServer.id})`,
+    `Vision MCP server: ${mcpServer.name}`,
     "",
     "User attachments in this conversation (use the file path when calling vision tools):",
     attachmentList
@@ -371,8 +367,8 @@ async function executeMcpToolCall(
   let resolvedTool: McpTool | null = null;
 
   for (const { server, tools } of toolSets) {
-    if (withoutPrefix.startsWith(sanitizeForFunctionName(server.id) + "_")) {
-      const toolName = withoutPrefix.slice(sanitizeForFunctionName(server.id).length + 1);
+    if (withoutPrefix.startsWith(server.slug + "_")) {
+      const toolName = withoutPrefix.slice(server.slug.length + 1);
       const tool = tools.find((t) => t.name === toolName);
       if (tool) {
         resolvedServer = server;
