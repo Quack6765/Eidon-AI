@@ -299,11 +299,11 @@ describe("message bubble", () => {
     expect(loadingShell).toBeInTheDocument();
     expect(loadingShell.className).toContain("rounded-lg");
     expect(loadingShell.className).toContain("overflow-hidden");
-    expect(loadingShell.className).toContain("mt-1");
+    expect(loadingShell.className).toContain("mt-[6px]");
     expect(loadingShell.className).not.toContain("rounded-2xl");
     expect(screen.queryByTestId("assistant-message-bubble")).toBeNull();
     expect(container.querySelectorAll(".typing-dot")).toHaveLength(3);
-    expect(container.querySelector(".typing-dot")).toHaveStyle("--typing-dot-lift: 3px");
+    expect(container.querySelector(".typing-dot")).toHaveStyle("--typing-dot-lift: 2px");
   });
 
   it("keeps the thinking shell visible while streamed reasoning is buffered", () => {
