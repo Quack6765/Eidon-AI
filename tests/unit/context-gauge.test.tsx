@@ -14,11 +14,18 @@ describe("ContextGauge", () => {
   it("renders circular gauge with percentage fill", () => {
     render(<ContextGauge {...defaultProps} />);
 
-    // Should show used tokens label
-    expect(screen.getByText("50K")).toBeInTheDocument();
+    // Should show threshold-relative percentage label
+    expect(screen.getByText("63%")).toBeInTheDocument();
 
     // Should have progressbar role for accessibility
     expect(screen.getByRole("progressbar")).toBeInTheDocument();
+  });
+
+  it("shows at least 1% when usage is nonzero but below half a percent", () => {
+    render(<ContextGauge usedTokens={1} usableLimit={80000} maxLimit={100000} />);
+
+    expect(screen.getByText("1%")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
   });
 
   it("shows green color when usage is below 50%", () => {
@@ -73,14 +80,37 @@ describe("ContextGauge", () => {
     expect(screen.queryByText(/50K used/)).not.toBeInTheDocument();
   });
 
-  it("formats large token counts with K suffix", () => {
+  it("shows the visible label as percentage for large token counts", () => {
     render(<ContextGauge {...defaultProps} usedTokens={1500} />);
-    expect(screen.getByText("1.5K")).toBeInTheDocument();
+    expect(screen.getByText("2%")).toBeInTheDocument();
   });
 
-  it("formats millions with M suffix", () => {
+  it("shows the visible label as percentage for million-scale token counts", () => {
     render(<ContextGauge {...defaultProps} usedTokens={1500000} usableLimit={2000000} maxLimit={2000000} />);
-    expect(screen.getByText("1.5M")).toBeInTheDocument();
+    expect(screen.getByText("75%")).toBeInTheDocument();
+  });
+
+  it("formats large token counts with K suffix in the tooltip", () => {
+    render(<ContextGauge {...defaultProps} usedTokens={1500} />);
+
+    const gauge = screen.getByRole("progressbar");
+    fireEvent.mouseEnter(gauge);
+
+    expect(screen.getByText(/1.5K used/)).toBeInTheDocument();
+  });
+
+  it("formats millions with M suffix in the tooltip", () => {
+    render(<ContextGauge {...defaultProps} usedTokens={1500000} usableLimit={2000000} maxLimit={2000000} />);
+
+    const gauge = screen.getByRole("progressbar");
+    fireEvent.mouseEnter(gauge);
+
+    expect(screen.getByText(/1.5M used/)).toBeInTheDocument();
+  });
+
+  it("caps the label at 100% when usage exceeds the compaction threshold", () => {
+    render(<ContextGauge {...defaultProps} usedTokens={95000} />);
+    expect(screen.getByText("100%")).toBeInTheDocument();
   });
 
   it("toggles tooltip on mobile tap", () => {

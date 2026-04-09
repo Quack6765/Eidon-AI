@@ -1142,6 +1142,6 @@ describe("chat view", () => {
       expect(screen.getByRole("progressbar")).toBeInTheDocument();
     });
 
-    expect(screen.getByText("50K")).toBeInTheDocument();
+    expect(screen.getByText("100%")).toBeInTheDocument();
   });
 });
