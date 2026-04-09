@@ -21,7 +21,7 @@ Each capability becomes a function definition passed in the `tools` parameter:
 |------|---------------|---------|
 | `mcp_{serverId}_{toolName}` | Each MCP tool from each server | Direct pass-through of MCP tool schema |
 | `load_skill` | When skills are enabled | Takes `skill_name`, returns full skill content |
-| `execute_shell_command` | When a loaded skill enables shell prefixes | Takes `command`, `timeout_ms` |
+| `execute_shell_command` | When shell execution is enabled for the assistant turn | Takes `command`, `timeout_ms` |
 
 Skill metadata (name + description) remains in the system prompt as lightweight text. The model calls `load_skill` only when it decides a skill is relevant (metadata-first pattern preserved).
 
@@ -80,7 +80,7 @@ type ProviderToolCall = {
 
 ### Runtime Changes (`assistant-runtime.ts`)
 
-**New function:** `buildToolDefinitions` creates tool definitions from MCP tools, skills, and shell command prefixes.
+**New function:** `buildToolDefinitions` creates tool definitions from MCP tools, skills, and shell execution availability.
 
 **Revised `resolveAssistantTurn`:**
 
@@ -94,8 +94,8 @@ type ProviderToolCall = {
 
 **Tool execution handlers:**
 - `handleMcpToolCall` — parse `mcp_{sanitizedServerId}_{toolName}`, call MCP client (server IDs sanitized to alphanumeric + underscores for valid function names)
-- `handleLoadSkill` — resolve skill name, load content, enable shell prefixes
-- `handleShellCommand` — validate prefix, execute locally
+- `handleLoadSkill` — resolve skill name and load full instructions into the prompt loop
+- `handleShellCommand` — validate presence of a command and execute it locally
 
 **Removed functions:**
 - `extractToolCall`, `extractShellCall`, `extractSkillRequest`

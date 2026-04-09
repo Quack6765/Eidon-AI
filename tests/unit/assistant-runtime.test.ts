@@ -303,7 +303,7 @@ describe("assistant runtime", () => {
     expect(result.answer).toBe("Probed the endpoint.");
   });
 
-  it("does not expose shell-enabled skills for ordinary factual chat turns", async () => {
+  it("keeps load_skill hidden for ordinary factual chat turns while shell remains available", async () => {
     const seenToolNames: string[][] = [];
 
     streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
