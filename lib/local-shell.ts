@@ -25,36 +25,11 @@ function truncateOutput(value: string) {
   return `${value.slice(0, MAX_OUTPUT_CHARS - 12)}\n...[truncated]`;
 }
 
-function splitCommandSegments(command: string) {
-  return command
-    .split(/&&|\n/g)
-    .map((segment) => segment.trim())
-    .filter(Boolean);
-}
-
-function isAllowedSegment(segment: string, allowedPrefixes: string[]) {
-  return allowedPrefixes.some((prefix) => segment === prefix || segment.startsWith(`${prefix} `));
-}
-
-function validateCommand(command: string, allowedPrefixes: string[]) {
+function validateCommand(command: string) {
   const trimmed = command.trim();
 
   if (!trimmed) {
     throw new Error("Shell command is required");
-  }
-
-  if (/[|;<>`]/.test(trimmed) || trimmed.includes("||") || trimmed.includes("$(")) {
-    throw new Error("Shell command contains unsupported operators");
-  }
-
-  const segments = splitCommandSegments(trimmed);
-
-  if (!segments.length) {
-    throw new Error("Shell command is required");
-  }
-
-  if (!segments.every((segment) => isAllowedSegment(segment, allowedPrefixes))) {
-    throw new Error("Shell command is not permitted for the loaded skills");
   }
 
   return trimmed;
@@ -81,11 +56,10 @@ function resolveShellPath() {
 
 export async function executeLocalShellCommand(input: {
   command: string;
-  allowedPrefixes: string[];
   cwd?: string;
   timeoutMs?: number;
 }) {
-  const command = validateCommand(input.command, input.allowedPrefixes);
+  const command = validateCommand(input.command);
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   return await new Promise<ShellExecutionResult>((resolve) => {

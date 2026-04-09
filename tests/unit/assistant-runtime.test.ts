@@ -256,33 +256,25 @@ describe("assistant runtime", () => {
     expect(result.answer).toBe("Final answer");
   });
 
-  it("executes shell commands via native function calling after loading a skill", async () => {
+  it("executes unrestricted shell commands via native function calling", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([], {
           answer: "",
           thinking: "",
-          toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Agent Browser" }) }],
-          usage: { inputTokens: 6 }
-        })
-      )
-      .mockReturnValueOnce(
-        createProviderStream([], {
-          answer: "",
-          thinking: "",
-          toolCalls: [{ id: "call_2", name: "execute_shell_command", arguments: JSON.stringify({ command: "agent-browser open https://example.com && agent-browser snapshot -i" }) }],
+          toolCalls: [{ id: "call_1", name: "execute_shell_command", arguments: JSON.stringify({ command: "curl -I https://example.com" }) }],
           usage: { inputTokens: 7 }
         })
       )
       .mockReturnValueOnce(
-        createProviderStream([{ type: "answer_delta", text: "Observed the page." }], {
-          answer: "Observed the page.",
+        createProviderStream([{ type: "answer_delta", text: "Probed the endpoint." }], {
+          answer: "Probed the endpoint.",
           thinking: "",
           usage: { inputTokens: 8, outputTokens: 2 }
         })
       );
     executeLocalShellCommand.mockResolvedValue({
-      stdout: "Example Domain",
+      stdout: "HTTP/2 200",
       stderr: "",
       exitCode: 0,
       timedOut: false,
@@ -294,37 +286,21 @@ describe("assistant runtime", () => {
 
     const result = await resolveAssistantTurn({
       settings: createSettings(),
-      promptMessages: [{ role: "user", content: "Open a website and inspect it with the browser" }],
-      skills: [
-        createSkill({
-          id: "builtin-agent-browser",
-          name: "Agent Browser",
-          description: "Use for browser automation and page inspection.",
-          content: `---
-name: Agent Browser
-description: Use for browser automation and page inspection.
-shell_command_prefixes:
-  - agent-browser
----
-
-Run browser commands.`
-        })
-      ],
+      promptMessages: [{ role: "user", content: "Probe the remote API with curl" }],
+      skills: [],
       mcpToolSets: [],
       onActionStart: (action) => { started.push(action); return "act_shell"; },
       onActionComplete: () => undefined
     });
 
     expect(started).toEqual([
-      expect.objectContaining({ kind: "skill_load", label: "Load skill", detail: "Agent Browser" }),
-      expect.objectContaining({ kind: "shell_command", label: "Local command", detail: "agent-browser open https://example.com && agent-browser snapshot -i" })
+      expect.objectContaining({ kind: "shell_command", label: "Local command", detail: "curl -I https://example.com" })
     ]);
     expect(executeLocalShellCommand).toHaveBeenCalledWith({
-      command: "agent-browser open https://example.com && agent-browser snapshot -i",
-      allowedPrefixes: ["agent-browser"],
+      command: "curl -I https://example.com",
       timeoutMs: undefined
     });
-    expect(result.answer).toBe("Observed the page.");
+    expect(result.answer).toBe("Probed the endpoint.");
   });
 
   it("does not expose shell-enabled skills for ordinary factual chat turns", async () => {
@@ -364,6 +340,7 @@ Run browser commands.`
     });
 
     expect(seenToolNames[0] ?? []).not.toContain("load_skill");
+    expect(seenToolNames[0] ?? []).toContain("execute_shell_command");
     expect(result.answer).toBe("It is rainy.");
   });
 
@@ -573,6 +550,38 @@ Run browser commands.`
 
     expect(streamProviderResponse).toHaveBeenCalledTimes(2);
     expect(result.answer).toBe("Fallback answer");
+  });
+
+  it("returns a tool error when execute_shell_command is called without a command", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "execute_shell_command", arguments: JSON.stringify({}) }],
+          usage: { inputTokens: 4 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Need a command." }], {
+          answer: "Need a command.",
+          thinking: "",
+          usage: { inputTokens: 5, outputTokens: 2 }
+        })
+      );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Run a command" }],
+      skills: [],
+      mcpToolSets: [],
+      onActionStart: () => "act_shell"
+    });
+
+    expect(executeLocalShellCommand).not.toHaveBeenCalled();
+    expect(result.answer).toBe("Need a command.");
   });
 
   it("stops after the maximum number of control steps", async () => {
