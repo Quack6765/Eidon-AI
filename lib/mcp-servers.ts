@@ -88,6 +88,7 @@ export function createMcpServer(input: CreateMcpServerInput) {
   const server: McpServer = {
     id: createId("mcp"),
     name: input.name,
+    slug: slugify(input.name),
     url: input.url ?? "",
     headers: input.headers ?? {},
     transport,
@@ -101,12 +102,13 @@ export function createMcpServer(input: CreateMcpServerInput) {
 
   getDb()
     .prepare(
-      `INSERT INTO mcp_servers (id, name, url, headers, transport, command, args, env, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO mcp_servers (id, name, slug, url, headers, transport, command, args, env, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       server.id,
       server.name,
+      server.slug,
       server.url,
       JSON.stringify(server.headers),
       server.transport,
@@ -141,6 +143,7 @@ export function updateMcpServer(
 
   const timestamp = nowIso();
   const name = input.name ?? current.name;
+  const slug = input.name ? slugify(input.name) : current.slug;
   const url = input.url ?? current.url;
   const headers = input.headers ?? current.headers;
   const transport = input.transport ?? current.transport;
@@ -152,11 +155,12 @@ export function updateMcpServer(
   getDb()
     .prepare(
       `UPDATE mcp_servers
-       SET name = ?, url = ?, headers = ?, transport = ?, command = ?, args = ?, env = ?, enabled = ?, updated_at = ?
+       SET name = ?, slug = ?, url = ?, headers = ?, transport = ?, command = ?, args = ?, env = ?, enabled = ?, updated_at = ?
        WHERE id = ?`
     )
     .run(
       name,
+      slug,
       url,
       JSON.stringify(headers),
       transport,

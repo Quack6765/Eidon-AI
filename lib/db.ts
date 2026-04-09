@@ -227,6 +227,7 @@ function migrate(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS mcp_servers (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
       url TEXT NOT NULL,
       headers TEXT NOT NULL DEFAULT '{}',
       enabled INTEGER NOT NULL DEFAULT 1,
@@ -362,6 +363,42 @@ function migrate(db: Database.Database) {
   }
   if (!mcpColNames.includes("env")) {
     db.exec("ALTER TABLE mcp_servers ADD COLUMN env TEXT");
+  }
+  if (!mcpColNames.includes("slug")) {
+    db.exec("ALTER TABLE mcp_servers ADD COLUMN slug TEXT");
+    const existingServers = db.prepare("SELECT id, name FROM mcp_servers").all() as Array<{ id: string; name: string }>;
+    const updateSlug = db.prepare("UPDATE mcp_servers SET slug = ? WHERE id = ?");
+    for (const server of existingServers) {
+      const slug = server.name
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_|_$/g, "");
+      updateSlug.run(slug || "unnamed", server.id);
+    }
+    try {
+      db.exec(`
+        CREATE TABLE mcp_servers_new (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          slug TEXT NOT NULL UNIQUE,
+          url TEXT NOT NULL,
+          headers TEXT NOT NULL DEFAULT '{}',
+          transport TEXT NOT NULL DEFAULT 'streamable_http',
+          command TEXT,
+          args TEXT,
+          env TEXT,
+          enabled INTEGER NOT NULL DEFAULT 1,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        INSERT INTO mcp_servers_new SELECT id, name, slug, url, headers, transport, command, args, env, enabled, created_at, updated_at FROM mcp_servers;
+        DROP TABLE mcp_servers;
+        ALTER TABLE mcp_servers_new RENAME TO mcp_servers;
+      `);
+    } catch {
+      // Table may already have the new schema if freshly created
+    }
   }
 
   const skillCols = db.prepare("PRAGMA table_info(skills)").all() as Array<{ name: string }>;
