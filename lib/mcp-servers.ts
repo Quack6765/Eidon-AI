@@ -6,9 +6,18 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+export function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
 type McpServerRow = {
   id: string;
   name: string;
+  slug: string;
   url: string;
   headers: string;
   transport: string;
@@ -24,6 +33,7 @@ function rowToMcpServer(row: McpServerRow): McpServer {
   return {
     id: row.id,
     name: row.name,
+    slug: row.slug,
     url: row.url,
     headers: JSON.parse(row.headers) as Record<string, string>,
     transport: (row.transport ?? "streamable_http") as McpTransport,
@@ -36,7 +46,7 @@ function rowToMcpServer(row: McpServerRow): McpServer {
   };
 }
 
-const SELECT_COLUMNS = `id, name, url, headers, transport, command, args, env, enabled, created_at, updated_at`;
+const SELECT_COLUMNS = `id, name, slug, url, headers, transport, command, args, env, enabled, created_at, updated_at`;
 
 export function listMcpServers() {
   const rows = getDb()
