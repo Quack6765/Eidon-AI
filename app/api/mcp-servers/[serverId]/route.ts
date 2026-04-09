@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import { deleteMcpServer, getMcpServer, updateMcpServer } from "@/lib/mcp-servers";
+import { deleteMcpServer, getMcpServer, getMcpServerBySlug, updateMcpServer, slugify } from "@/lib/mcp-servers";
 import { disconnectMcpServer, getConnectedClient } from "@/lib/mcp-client";
 import { badRequest, ok } from "@/lib/http";
 
@@ -25,6 +25,14 @@ export async function PATCH(
     env?: Record<string, string> | null;
     enabled?: boolean;
   };
+
+  if (body.name) {
+    const slug = slugify(body.name);
+    const conflicting = getMcpServerBySlug(slug);
+    if (conflicting && conflicting.id !== params.data.serverId) {
+      return badRequest("An MCP server with a similar name already exists.");
+    }
+  }
 
   if (body.enabled === false) {
     const current = getMcpServer(params.data.serverId);

@@ -72,6 +72,18 @@ export function getMcpServer(serverId: string) {
   return row ? rowToMcpServer(row) : null;
 }
 
+export function getMcpServerBySlug(slug: string) {
+  const row = getDb()
+    .prepare(
+      `SELECT ${SELECT_COLUMNS}
+       FROM mcp_servers
+       WHERE slug = ?`
+    )
+    .get(slug) as McpServerRow | undefined;
+
+  return row ? rowToMcpServer(row) : null;
+}
+
 type CreateMcpServerInput = {
   name: string;
   url?: string;

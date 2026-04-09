@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import { createMcpServer, listMcpServers } from "@/lib/mcp-servers";
+import { createMcpServer, getMcpServerBySlug, listMcpServers, slugify } from "@/lib/mcp-servers";
 import { badRequest, ok } from "@/lib/http";
 
 export async function GET() {
@@ -31,6 +31,12 @@ export async function POST(request: Request) {
   await requireUser();
   const body = createSchema.safeParse(await request.json());
   if (!body.success) return badRequest("Invalid server config");
+
+  const slug = slugify(body.data.name);
+  const existing = getMcpServerBySlug(slug);
+  if (existing) {
+    return badRequest("An MCP server with a similar name already exists.");
+  }
 
   return ok({ server: createMcpServer(body.data) }, { status: 201 });
 }
