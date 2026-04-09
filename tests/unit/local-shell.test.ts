@@ -13,50 +13,50 @@ class MockChild extends EventEmitter {
 }
 
 describe("local shell", () => {
+  const originalShell = process.env.SHELL;
+  const expectedInitialShell = originalShell?.trim() || "/bin/sh";
+  const restoreShellEnv = () => {
+    if (originalShell === undefined) {
+      delete process.env.SHELL;
+      return;
+    }
+
+    process.env.SHELL = originalShell;
+  };
+
   beforeEach(() => {
     spawnMock.mockReset();
     vi.useRealTimers();
+    restoreShellEnv();
   });
 
-  it("rejects empty, unsafe, and disallowed commands", async () => {
+  afterAll(() => {
+    restoreShellEnv();
+  });
+
+  it("rejects empty commands", async () => {
     const { executeLocalShellCommand } = await import("@/lib/local-shell");
 
     await expect(
       executeLocalShellCommand({
-        command: "   ",
-        allowedPrefixes: ["git"]
+        command: "   "
       })
     ).rejects.toThrow("Shell command is required");
-
-    await expect(
-      executeLocalShellCommand({
-        command: "git status | cat",
-        allowedPrefixes: ["git"]
-      })
-    ).rejects.toThrow("Shell command contains unsupported operators");
-
-    await expect(
-      executeLocalShellCommand({
-        command: "git status && npm test",
-        allowedPrefixes: ["git"]
-      })
-    ).rejects.toThrow("Shell command is not permitted for the loaded skills");
   });
 
-  it("runs allowed commands and truncates long output", async () => {
+  it("runs unrestricted commands and truncates long output", async () => {
     const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
     const child = new MockChild();
     spawnMock.mockReturnValue(child);
 
     const resultPromise = executeLocalShellCommand({
-      command: "git status && git diff",
-      allowedPrefixes: ["git"],
+      command: "curl https://example.com && git diff",
       cwd: "/tmp/eidon"
     });
 
     expect(spawnMock).toHaveBeenCalledWith(
-      "zsh",
-      ["-lc", "git status && git diff"],
+      expectedInitialShell,
+      ["-lc", "curl https://example.com && git diff"],
       expect.objectContaining({
         cwd: "/tmp/eidon",
         env: process.env
@@ -77,6 +77,190 @@ describe("local shell", () => {
     expect(summarizeShellResult(result)).toContain("warning");
   });
 
+  it("allows shell redirection and compound commands", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: 'echo "hello" > /tmp/temp_hello.txt && echo "File created successfully"'
+    });
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      expectedInitialShell,
+      ["-lc", 'echo "hello" > /tmp/temp_hello.txt && echo "File created successfully"'],
+      expect.objectContaining({
+        cwd: process.cwd(),
+        env: process.env
+      })
+    );
+
+    child.emit("close", 0);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      exitCode: 0,
+      timedOut: false,
+      isError: false
+    });
+  });
+
+  it("falls back to /bin/sh when SHELL is unavailable", async () => {
+    delete process.env.SHELL;
+
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "git status"
+    });
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      "/bin/sh",
+      ["-lc", "git status"],
+      expect.objectContaining({
+        cwd: process.cwd(),
+        env: process.env
+      })
+    );
+
+    child.emit("close", 0);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      exitCode: 0,
+      timedOut: false,
+      isError: false
+    });
+  });
+
+  it("falls back to /bin/sh when SHELL points to a missing binary", async () => {
+    process.env.SHELL = "/missing/zsh";
+
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "git status"
+    });
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      "/bin/sh",
+      ["-lc", "git status"],
+      expect.objectContaining({
+        cwd: process.cwd(),
+        env: process.env
+      })
+    );
+
+    child.emit("close", 0);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      exitCode: 0,
+      timedOut: false,
+      isError: false
+    });
+  });
+
+  it("uses a relative SHELL command name as-is", async () => {
+    process.env.SHELL = "zsh";
+
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "git status"
+    });
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      "zsh",
+      ["-lc", "git status"],
+      expect.objectContaining({
+        cwd: process.cwd(),
+        env: process.env
+      })
+    );
+
+    child.emit("close", 0);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      exitCode: 0,
+      timedOut: false,
+      isError: false
+    });
+  });
+
+  it("returns a structured error when spawn fails before close", async () => {
+    const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "git status"
+    });
+
+    child.emit("error", new Error("spawn zsh ENOENT"));
+
+    await expect(resultPromise).resolves.toMatchObject({
+      stdout: "",
+      stderr: "spawn zsh ENOENT",
+      exitCode: null,
+      timedOut: false,
+      isError: true
+    });
+    expect(
+      summarizeShellResult({
+        stdout: "",
+        stderr: "spawn zsh ENOENT",
+        exitCode: null,
+        timedOut: false,
+        isError: true
+      })
+    ).toBe("spawn zsh ENOENT");
+  });
+
+  it("preserves prior stderr output when spawn fails", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "git status"
+    });
+
+    child.stderr.emit("data", "permission warning");
+    child.emit("error", new Error("spawn zsh ENOENT"));
+
+    await expect(resultPromise).resolves.toMatchObject({
+      stderr: "permission warning\nspawn zsh ENOENT",
+      exitCode: null,
+      timedOut: false,
+      isError: true
+    });
+  });
+
+  it("ignores duplicate completion events after the command has already settled", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "git status"
+    });
+
+    child.emit("error", new Error("spawn zsh ENOENT"));
+    child.emit("close", 0);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      stdout: "",
+      stderr: "spawn zsh ENOENT",
+      exitCode: null,
+      timedOut: false,
+      isError: true
+    });
+  });
+
   it("marks timed out commands as errors and summarizes empty output states", async () => {
     vi.useFakeTimers();
     const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
@@ -85,7 +269,6 @@ describe("local shell", () => {
 
     const timedOutPromise = executeLocalShellCommand({
       command: "git status",
-      allowedPrefixes: ["git"],
       timeoutMs: 5
     });
 

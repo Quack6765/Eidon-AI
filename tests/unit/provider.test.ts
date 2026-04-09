@@ -37,6 +37,7 @@ function createSettings(
   overrides: Partial<{
     id: string;
     name: string;
+    providerKind: "openai_compatible" | "github_copilot";
     apiBaseUrl: string;
     apiKeyEncrypted: string;
     apiKey: string;
@@ -50,6 +51,12 @@ function createSettings(
     modelContextLimit: number;
     compactionThreshold: number;
     freshTailCount: number;
+    githubUserAccessTokenEncrypted: string;
+    githubRefreshTokenEncrypted: string;
+    githubTokenExpiresAt: string | null;
+    githubRefreshTokenExpiresAt: string | null;
+    githubAccountLogin: string | null;
+    githubAccountName: string | null;
     createdAt: string;
     updatedAt: string;
   }> = {}
@@ -57,6 +64,7 @@ function createSettings(
   return {
     id: "profile_test",
     name: "Test profile",
+    providerKind: "openai_compatible",
     apiBaseUrl: "https://api.example.com/v1",
     apiKeyEncrypted: "",
     apiKey: "sk-test",
@@ -78,6 +86,12 @@ function createSettings(
     mergedTargetTokens: 1600,
     visionMode: "native" as const,
     visionMcpServerId: null,
+    githubUserAccessTokenEncrypted: "",
+    githubRefreshTokenEncrypted: "",
+    githubTokenExpiresAt: null,
+    githubRefreshTokenExpiresAt: null,
+    githubAccountLogin: null,
+    githubAccountName: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides
@@ -89,6 +103,46 @@ describe("provider integration", () => {
     responsesCreate.mockReset();
     chatCreate.mockReset();
     getAttachmentDataUrl.mockClear();
+  });
+
+  it("routes github copilot profiles through the copilot client", async () => {
+    const runGithubCopilotChat = vi.fn().mockResolvedValue("connected");
+
+    vi.doMock("@/lib/github-copilot", () => ({
+      runGithubCopilotChat,
+      ensureFreshGithubAccessToken: vi.fn(async (profile) => profile),
+      streamGithubCopilotChat: vi.fn(),
+      buildGithubCopilotClient: vi.fn(),
+      listGithubCopilotModels: vi.fn(),
+      getGithubConnectionStatus: vi.fn(),
+      shouldRefreshGithubToken: vi.fn(),
+      clearGithubCopilotConnection: vi.fn(),
+      createGithubOauthState: vi.fn(),
+      verifyGithubOauthState: vi.fn(),
+      getGithubAuthorizeUrl: vi.fn(),
+      exchangeGithubCodeForTokens: vi.fn(),
+      refreshGithubUserToken: vi.fn()
+    }));
+
+    const { callProviderText } = await import("@/lib/provider");
+
+    await expect(
+      callProviderText({
+        settings: createSettings({
+          providerKind: "github_copilot",
+          apiKey: "",
+          apiBaseUrl: ""
+        }),
+        prompt: "Reply with connected",
+        purpose: "test"
+      })
+    ).resolves.toBe("connected");
+
+    expect(runGithubCopilotChat).toHaveBeenCalledOnce();
+    expect(responsesCreate).not.toHaveBeenCalled();
+    expect(chatCreate).not.toHaveBeenCalled();
+
+    vi.doUnmock("@/lib/github-copilot");
   });
 
   it("calls responses text generation and returns output text", async () => {

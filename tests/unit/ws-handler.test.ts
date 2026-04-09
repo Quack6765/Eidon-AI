@@ -73,6 +73,29 @@ describe("ws-handler", () => {
     expect(getConversationSnapshot).toHaveBeenCalledWith("conv-1");
   });
 
+  it("routes client stop messages to the turn registry", async () => {
+    const requestStop = vi.fn();
+    vi.doMock("@/lib/chat-turn-control", () => ({ requestStop }));
+    const { verifySessionToken } = await import("@/lib/auth");
+    (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      send: vi.fn(),
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((d: string) => handler(d));
+      })
+    } as unknown as WebSocket;
+
+    await handleConnection(ws, "session=valid-token");
+    messageHandlers.forEach((handler) => handler(JSON.stringify({ type: "stop", conversationId: "conv-1" })));
+
+    expect(requestStop).toHaveBeenCalledWith("conv-1");
+  });
+
   it("sends error and closes when no token provided", async () => {
     const { handleConnection } = await import("@/lib/ws-handler");
     const sent: string[] = [];

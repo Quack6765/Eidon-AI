@@ -3,7 +3,6 @@
 import { useState, type PropsWithChildren } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, Plus } from "lucide-react";
-import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sidebar } from "@/components/sidebar";
 import { SettingsNav } from "@/components/settings/settings-nav";
@@ -65,14 +64,19 @@ export function Shell({
             <Menu className="h-5 w-5" />
           </button>
 
-          <Image
-            src="/logo.png"
-            alt="Eidon"
-            height={24}
-            width={34}
-            priority
-            className="mx-auto"
-          />
+          <span
+            className="font-bold tracking-[0.12em] leading-none inline-block text-lg"
+            style={{
+              fontFamily: "var(--font-wordmark), 'Eurostile', 'Space Grotesk', sans-serif",
+              WebkitBackgroundClip: "text",
+              backgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundImage: "linear-gradient(to bottom, #FFFFFF 0%, #D4C8FF 40%, #8b5cf6 100%)",
+              filter: "drop-shadow(0 0 8px rgba(139,92,246,0.5)) drop-shadow(0 0 20px rgba(139,92,246,0.25)) drop-shadow(0 0 36px rgba(139,92,246,0.12))",
+            }}
+          >
+            Eidon
+          </span>
 
           <button
             type="button"

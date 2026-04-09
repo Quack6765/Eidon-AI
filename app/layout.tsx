@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Instrument_Serif } from "next/font/google";
+import { Inter, Instrument_Serif, Orbitron } from "next/font/google";
 
 import { APP_NAME } from "@/lib/constants";
 
@@ -16,6 +16,12 @@ const displayFont = Instrument_Serif({
   weight: "400"
 });
 
+const wordmarkFont = Orbitron({
+  variable: "--font-wordmark",
+  subsets: ["latin"],
+  weight: "600",
+});
+
 export const metadata: Metadata = {
   title: APP_NAME,
   description: "Self-hosted chat UI with streaming and lossless context compaction."
@@ -27,7 +33,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${bodyFont.variable} ${displayFont.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${bodyFont.variable} ${displayFont.variable} ${wordmarkFont.variable}`} suppressHydrationWarning>
       <body>{children}</body>
     </html>
   );

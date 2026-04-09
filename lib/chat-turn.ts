@@ -1,4 +1,5 @@
 import { resolveAssistantTurn } from "@/lib/assistant-runtime";
+import { ChatTurnStoppedError, registerChatTurn, clearChatTurn } from "@/lib/chat-turn-control";
 import {
   bindAttachmentsToMessage,
   createMessage,
@@ -53,10 +54,26 @@ export async function startChatTurn(
       : null) ?? getDefaultProviderProfileWithApiKey();
   const appSettings = getSettings();
 
-  if (!settings?.apiKey) {
+  if (!settings) {
+    manager.broadcast(conversationId, {
+      type: "error",
+      message: "No provider profile configured"
+    });
+    return;
+  }
+
+  if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
     manager.broadcast(conversationId, {
       type: "error",
       message: "Set an API key in settings before starting a chat"
+    });
+    return;
+  }
+
+  if (settings.providerKind === "github_copilot" && !settings.githubUserAccessTokenEncrypted) {
+    manager.broadcast(conversationId, {
+      type: "error",
+      message: "Connect a GitHub account in settings before starting a chat"
     });
     return;
   }
@@ -90,6 +107,36 @@ export async function startChatTurn(
   globalEmitter.emit("status", conversationId, "streaming");
   setConversationActive(conversation.id, true);
   manager.broadcastAll({ type: "conversation_activity", conversationId, isActive: true });
+
+  const control = registerChatTurn(conversationId);
+
+  let timelineSortOrder = 0;
+  let answerBuffer = "";
+  let latestAnswer = "";
+  let latestThinking = "";
+  let sawStreamedAnswerSinceLastSegment = false;
+  let lastFlush = Date.now();
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  const runningActionHandles = new Set<string>();
+
+  function flushAnswerBuffer() {
+    if (!answerBuffer) return;
+    createMessageTextSegment({
+      messageId: assistantMessage.id,
+      content: answerBuffer,
+      sortOrder: timelineSortOrder++
+    });
+    answerBuffer = "";
+    lastFlush = Date.now();
+  }
+
+  function scheduleFlush() {
+    if (flushTimer) return;
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      flushAnswerBuffer();
+    }, 100);
+  }
 
   try {
     const compacted = await ensureCompactedContext(conversation.id, settings, {
@@ -130,31 +177,6 @@ export async function startChatTurn(
       }
     }
 
-    let timelineSortOrder = 0;
-    let answerBuffer = "";
-    let sawStreamedAnswerSinceLastSegment = false;
-    let lastFlush = Date.now();
-    let flushTimer: ReturnType<typeof setTimeout> | null = null;
-
-    function flushAnswerBuffer() {
-      if (!answerBuffer) return;
-      createMessageTextSegment({
-        messageId: assistantMessage.id,
-        content: answerBuffer,
-        sortOrder: timelineSortOrder++
-      });
-      answerBuffer = "";
-      lastFlush = Date.now();
-    }
-
-    function scheduleFlush() {
-      if (flushTimer) return;
-      flushTimer = setTimeout(() => {
-        flushTimer = null;
-        flushAnswerBuffer();
-      }, 100);
-    }
-
     const providerResult = await resolveAssistantTurn({
       settings,
       promptMessages,
@@ -164,6 +186,8 @@ export async function startChatTurn(
       visionMcpServer,
       memoriesEnabled: appSettings.memoriesEnabled,
       mcpTimeout: appSettings.mcpTimeout,
+      abortSignal: control.abortController.signal,
+      throwIfStopped: control.throwIfStopped,
       onEvent(event: ChatStreamEvent) {
         manager.broadcast(conversationId, {
           type: "delta",
@@ -175,6 +199,7 @@ export async function startChatTurn(
         if (event.type === "answer_delta") {
           sawStreamedAnswerSinceLastSegment = true;
           answerBuffer += event.text;
+          latestAnswer += event.text;
           if (answerBuffer.length >= 500 || Date.now() - lastFlush >= 100) {
             flushAnswerBuffer();
           } else {
@@ -205,6 +230,7 @@ export async function startChatTurn(
           arguments: action.arguments,
           sortOrder: timelineSortOrder++
         });
+        runningActionHandles.add(persisted.id);
         manager.broadcast(conversationId, {
           type: "delta",
           conversationId,
@@ -215,6 +241,7 @@ export async function startChatTurn(
       },
       onActionComplete(handle, patch) {
         if (!handle) return;
+        runningActionHandles.delete(handle);
         const updated = updateMessageAction(handle, {
           status: "completed",
           detail: patch.detail,
@@ -232,6 +259,7 @@ export async function startChatTurn(
       },
       onActionError(handle, patch) {
         if (!handle) return;
+        runningActionHandles.delete(handle);
         const updated = updateMessageAction(handle, {
           status: "error",
           detail: patch.detail,
@@ -268,20 +296,46 @@ export async function startChatTurn(
       event: { type: "done", messageId: assistantMessage.id }
     });
   } catch (error) {
-    updateMessage(assistantMessage.id, {
-      content: "",
-      thinkingContent: "",
-      status: "error"
-    });
-    manager.broadcast(conversationId, {
-      type: "delta",
-      conversationId,
-      event: {
-        type: "error",
-        message: error instanceof Error ? error.message : "Chat stream failed"
+    if (error instanceof ChatTurnStoppedError) {
+      if (flushTimer) clearTimeout(flushTimer);
+      flushAnswerBuffer();
+
+      updateMessage(assistantMessage.id, {
+        content: latestAnswer,
+        thinkingContent: latestThinking,
+        status: "stopped",
+        estimatedTokens: estimateTextTokens(latestAnswer)
+      });
+
+      for (const handle of runningActionHandles) {
+        updateMessageAction(handle, {
+          status: "stopped",
+          completedAt: new Date().toISOString()
+        });
       }
-    });
+
+      manager.broadcast(conversationId, {
+        type: "delta",
+        conversationId,
+        event: { type: "done", messageId: assistantMessage.id }
+      });
+    } else {
+      updateMessage(assistantMessage.id, {
+        content: "",
+        thinkingContent: "",
+        status: "error"
+      });
+      manager.broadcast(conversationId, {
+        type: "delta",
+        conversationId,
+        event: {
+          type: "error",
+          message: error instanceof Error ? error.message : "Chat stream failed"
+        }
+      });
+    }
   } finally {
+    clearChatTurn(conversationId);
     setConversationActive(conversation.id, false);
     manager.setActive(conversationId, false);
     manager.broadcastAll({ type: "conversation_activity", conversationId, isActive: false });

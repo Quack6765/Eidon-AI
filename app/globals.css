@@ -129,7 +129,7 @@ select {
 
 @keyframes typing-dot {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.3; }
-  30% { transform: translateY(-6px); opacity: 1; }
+  30% { transform: translateY(calc(var(--typing-dot-lift, 6px) * -1)); opacity: 1; }
 }
 
 .animate-fade-in {

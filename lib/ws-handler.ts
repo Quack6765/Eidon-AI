@@ -6,6 +6,7 @@ import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import { getConversationSnapshot, listActiveConversations } from "@/lib/conversations";
 import { type ConversationManager } from "@/lib/conversation-manager";
 import { isPasswordLoginEnabled } from "@/lib/env";
+import { requestStop } from "@/lib/chat-turn-control";
 import { parseClientMessage, serializeServerMessage } from "@/lib/ws-protocol";
 import type { ClientMessage } from "@/lib/ws-protocol";
 import { initializeMcpServers, shutdownAllProcesses } from "@/lib/mcp-client";
@@ -107,6 +108,10 @@ function handleMessage(
       break;
     }
     case "edit": {
+      break;
+    }
+    case "stop": {
+      requestStop(msg.conversationId);
       break;
     }
   }

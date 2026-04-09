@@ -152,6 +152,15 @@ function migrate(db: Database.Database) {
       leaf_min_message_count INTEGER DEFAULT 6,
       merged_min_node_count INTEGER DEFAULT 4,
       merged_target_tokens INTEGER DEFAULT 1600,
+      vision_mode TEXT NOT NULL DEFAULT 'native',
+      vision_mcp_server_id TEXT,
+      provider_kind TEXT NOT NULL DEFAULT 'openai_compatible',
+      github_user_access_token_encrypted TEXT NOT NULL DEFAULT '',
+      github_refresh_token_encrypted TEXT NOT NULL DEFAULT '',
+      github_token_expires_at TEXT,
+      github_refresh_token_expires_at TEXT,
+      github_account_login TEXT,
+      github_account_name TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -387,6 +396,23 @@ function migrate(db: Database.Database) {
     }
   }
 
+  const githubCols = {
+    provider_kind: "TEXT NOT NULL DEFAULT 'openai_compatible'",
+    github_user_access_token_encrypted: "TEXT NOT NULL DEFAULT ''",
+    github_refresh_token_encrypted: "TEXT NOT NULL DEFAULT ''",
+    github_token_expires_at: "TEXT",
+    github_refresh_token_expires_at: "TEXT",
+    github_account_login: "TEXT",
+    github_account_name: "TEXT"
+  };
+  const githubProfileCols = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
+  const githubProfileColNames = githubProfileCols.map((c) => c.name);
+  for (const [colName, colDef] of Object.entries(githubCols)) {
+    if (!githubProfileColNames.includes(colName)) {
+      db.exec(`ALTER TABLE provider_profiles ADD COLUMN ${colName} ${colDef}`);
+    }
+  }
+
   try {
     db.exec(`ALTER TABLE compaction_events RENAME TO compaction_events_old`);
     db.exec(`
@@ -551,6 +577,7 @@ function migrate(db: Database.Database) {
         leaf_min_message_count,
         merged_min_node_count,
         merged_target_tokens,
+        provider_kind,
         created_at,
         updated_at
       ) VALUES (
@@ -574,6 +601,7 @@ function migrate(db: Database.Database) {
         @leafMinMessageCount,
         @mergedMinNodeCount,
         @mergedTargetTokens,
+        'openai_compatible',
         @createdAt,
         @updatedAt
       )`

@@ -36,9 +36,15 @@ function createProviderProfile() {
     mergedTargetTokens: 1600,
     visionMode: "native" as const,
     visionMcpServerId: null,
+    providerKind: "openai_compatible" as "openai_compatible" | "github_copilot",
+    githubTokenExpiresAt: null,
+    githubRefreshTokenExpiresAt: null,
+    githubAccountLogin: null,
+    githubAccountName: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
-    hasApiKey: true
+    hasApiKey: true,
+    githubConnectionStatus: "disconnected" as "disconnected" | "connected" | "expired"
   };
 }
 

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { resolveAssistantTurn } from "@/lib/assistant-runtime";
+import { ChatTurnStoppedError, registerChatTurn, clearChatTurn } from "@/lib/chat-turn-control";
 import { requireUser } from "@/lib/auth";
 import {
   bindAttachmentsToMessage,
@@ -73,8 +74,16 @@ export async function POST(
       : null) ?? getDefaultProviderProfileWithApiKey();
   const appSettings = getSettings();
 
-  if (!settings?.apiKey) {
+  if (!settings) {
+    return badRequest("No provider profile configured");
+  }
+
+  if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
     return badRequest("Set an API key in settings before starting a chat");
+  }
+
+  if (settings.providerKind === "github_copilot" && !settings.githubUserAccessTokenEncrypted) {
+    return badRequest("Connect a GitHub account in settings before starting a chat");
   }
 
   const userMessage = createMessage({
@@ -117,6 +126,10 @@ export async function POST(
       });
 
       setConversationActive(conversation.id, true);
+      const control = registerChatTurn(conversation.id);
+      let latestAnswer = "";
+      let latestThinking = "";
+      const runningActionHandles = new Set<string>();
 
       try {
         const compacted = await ensureCompactedContext(conversation.id, settings, {
@@ -150,7 +163,16 @@ export async function POST(
           mcpServers,
           mcpToolSets,
           mcpTimeout: appSettings.mcpTimeout,
-          onEvent: write,
+          abortSignal: control.abortController.signal,
+          throwIfStopped: control.throwIfStopped,
+          onEvent(event: ChatStreamEvent) {
+            write(event);
+            if (event.type === "answer_delta") {
+              latestAnswer += event.text;
+            } else if (event.type === "thinking_delta") {
+              latestThinking += event.text;
+            }
+          },
           onAnswerSegment(segment) {
             createMessageTextSegment({
               messageId: assistantMessage.id,
@@ -171,6 +193,8 @@ export async function POST(
               sortOrder: timelineSortOrder++
             });
 
+            runningActionHandles.add(persisted.id);
+
             write({
               type: "action_start",
               action: persisted
@@ -182,6 +206,8 @@ export async function POST(
             if (!handle) {
               return;
             }
+
+            runningActionHandles.delete(handle);
 
             const updated = updateMessageAction(handle, {
               status: "completed",
@@ -202,6 +228,7 @@ export async function POST(
               return;
             }
 
+            runningActionHandles.delete(handle);
             const updated = updateMessageAction(handle, {
               status: "error",
               detail: patch.detail,
@@ -235,18 +262,41 @@ export async function POST(
         setConversationActive(conversation.id, false);
         controller.close();
       } catch (error) {
-        updateMessage(assistantMessage.id, {
-          content: "",
-          thinkingContent: "",
-          status: "error"
-        });
+        if (error instanceof ChatTurnStoppedError) {
+          updateMessage(assistantMessage.id, {
+            content: latestAnswer,
+            thinkingContent: latestThinking,
+            status: "stopped",
+            estimatedTokens: estimateTextTokens(latestAnswer)
+          });
 
-        write({
-          type: "error",
-          message: error instanceof Error ? error.message : "Chat stream failed"
-        });
+          for (const handle of runningActionHandles) {
+            updateMessageAction(handle, {
+              status: "stopped",
+              completedAt: new Date().toISOString()
+            });
+          }
+
+          write({
+            type: "done",
+            messageId: assistantMessage.id
+          });
+        } else {
+          updateMessage(assistantMessage.id, {
+            content: "",
+            thinkingContent: "",
+            status: "error"
+          });
+
+          write({
+            type: "error",
+            message: error instanceof Error ? error.message : "Chat stream failed"
+          });
+        }
         setConversationActive(conversation.id, false);
         controller.close();
+      } finally {
+        clearChatTurn(conversation.id);
       }
     }
   });

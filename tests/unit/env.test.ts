@@ -63,6 +63,24 @@ describe("env validation", () => {
     expect(env.EIDON_ENCRYPTION_SECRET).toBe("production-encryption-secret-32-chars");
   });
 
+  it("reads GitHub Copilot OAuth environment variables when provided", () => {
+    const env = parseEnv({
+      NODE_ENV: "production",
+      EIDON_ADMIN_PASSWORD: "production-admin-password-32-chars",
+      EIDON_SESSION_SECRET: "production-session-secret-with-32-chars",
+      EIDON_ENCRYPTION_SECRET: "production-encryption-secret-32-chars",
+      EIDON_GITHUB_APP_CLIENT_ID: "Iv23exampleclientid",
+      EIDON_GITHUB_APP_CLIENT_SECRET: "github-app-client-secret-value",
+      EIDON_GITHUB_APP_CALLBACK_URL: "https://eidon.example.com/api/providers/github/callback"
+    });
+
+    expect(env.EIDON_GITHUB_APP_CLIENT_ID).toBe("Iv23exampleclientid");
+    expect(env.EIDON_GITHUB_APP_CLIENT_SECRET).toBe("github-app-client-secret-value");
+    expect(env.EIDON_GITHUB_APP_CALLBACK_URL).toBe(
+      "https://eidon.example.com/api/providers/github/callback"
+    );
+  });
+
   it("defers production secret validation until a sensitive value is accessed", async () => {
     const previous = {
       NODE_ENV: process.env.NODE_ENV,

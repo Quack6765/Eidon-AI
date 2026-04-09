@@ -52,6 +52,13 @@ function setupProviderProfile(): { profileId: string; profile: ProviderProfileWi
     mergedTargetTokens: 1600,
     visionMode: "native" as const,
     visionMcpServerId: null,
+    providerKind: "openai_compatible",
+    githubUserAccessTokenEncrypted: "",
+    githubRefreshTokenEncrypted: "",
+    githubTokenExpiresAt: null,
+    githubRefreshTokenExpiresAt: null,
+    githubAccountLogin: null,
+    githubAccountName: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -181,6 +188,41 @@ describe("chat-turn", () => {
 
     const errorMsg = sent.find((s: unknown) => (s as { type: string }).type === "error");
     expect(errorMsg).toBeDefined();
+  });
+
+  it("persists a partial assistant message as stopped when the turn is cancelled", async () => {
+    vi.useFakeTimers();
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+    const { requestStop } = await import("@/lib/chat-turn-control");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    const conv = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
+
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    streamProviderResponse.mockReturnValueOnce((async function* () {
+      yield { type: "answer_delta", text: "Partial" };
+      await gate;
+      return { answer: "Partial answer", thinking: "", usage: { outputTokens: 2 } };
+    })());
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const run = startChatTurn(manager, conv.id, "Hi", []);
+
+    await vi.advanceTimersByTimeAsync(120);
+    requestStop(conv.id);
+    release();
+    await run;
+
+    const { listVisibleMessages } = await import("@/lib/conversations");
+    const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+    expect(assistant?.status).toBe("stopped");
+    expect(assistant?.content).toContain("Partial");
+    vi.useRealTimers();
   });
 
   it("flushes answer text to DB periodically during streaming", async () => {

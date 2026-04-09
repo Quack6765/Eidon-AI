@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import Image from "next/image";
 import {
   Plus,
   Search,
@@ -25,7 +24,7 @@ import {
   DragOverlay,
   closestCenter,
   pointerWithin,
-  PointerSensor,
+  MouseSensor,
   useDroppable,
   useSensor,
   useSensors,
@@ -232,6 +231,7 @@ function ConversationItem({
     <div
       ref={setNodeRef}
       style={style}
+      className="relative"
       {...(dragEnabled ? attributes : {})}
       {...(dragEnabled ? listeners : {})}
     >
@@ -638,7 +638,7 @@ export function Sidebar({
   }, []);
 
   const sensors = useSensors(
-    useSensor(PointerSensor, {
+    useSensor(MouseSensor, {
       activationConstraint: {
         distance: 8
       }
@@ -1089,13 +1089,24 @@ export function Sidebar({
             }}
             className="flex items-center rounded-lg px-2 py-1.5 hover:bg-white/[0.04] transition-colors duration-200"
           >
-            <Image
-              src="/logo.png"
-              alt="Eidon"
-              height={55}
-              width={75}
-              priority
-            />
+            <span
+              style={{
+                filter: "drop-shadow(0 0 8px rgba(139,92,246,0.5)) drop-shadow(0 0 20px rgba(139,92,246,0.25)) drop-shadow(0 0 36px rgba(139,92,246,0.12))",
+              }}
+            >
+              <span
+                className="font-bold tracking-[0.12em] leading-none inline-block text-[28px]"
+                style={{
+                  fontFamily: "var(--font-wordmark), 'Eurostile', 'Space Grotesk', sans-serif",
+                  WebkitBackgroundClip: "text",
+                  backgroundClip: "text",
+                  WebkitTextFillColor: "transparent",
+                  backgroundImage: "linear-gradient(to bottom, #FFFFFF 0%, #D4C8FF 40%, #8b5cf6 100%)",
+                }}
+              >
+                Eidon
+              </span>
+            </span>
           </Link>
         </div>
 

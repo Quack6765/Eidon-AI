@@ -6,9 +6,13 @@ export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export type VisionMode = "none" | "native" | "mcp";
 
+export type ProviderKind = "openai_compatible" | "github_copilot";
+
+export type GithubConnectionStatus = "disconnected" | "connected" | "expired";
+
 export type MessageRole = "user" | "assistant" | "system";
 
-export type MessageStatus = "idle" | "streaming" | "completed" | "error";
+export type MessageStatus = "idle" | "streaming" | "completed" | "error" | "stopped";
 
 export type ConversationTitleGenerationStatus =
   | "pending"
@@ -18,7 +22,7 @@ export type ConversationTitleGenerationStatus =
 
 export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory";
 
-export type MessageActionStatus = "running" | "completed" | "error";
+export type MessageActionStatus = "running" | "completed" | "error" | "stopped";
 
 export type AttachmentKind = "image" | "text";
 
@@ -28,6 +32,7 @@ export type SystemMessageKind = "compaction_notice";
 
 export type ProviderProfile = {
   id: string;
+  providerKind: ProviderKind;
   name: string;
   apiBaseUrl: string;
   apiKeyEncrypted: string;
@@ -49,6 +54,12 @@ export type ProviderProfile = {
   mergedTargetTokens: number;
   visionMode: VisionMode;
   visionMcpServerId: string | null;
+  githubUserAccessTokenEncrypted: string;
+  githubRefreshTokenEncrypted: string;
+  githubTokenExpiresAt: string | null;
+  githubRefreshTokenExpiresAt: string | null;
+  githubAccountLogin: string | null;
+  githubAccountName: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -57,8 +68,12 @@ export type ProviderProfileWithApiKey = ProviderProfile & {
   apiKey: string;
 };
 
-export type ProviderProfileSummary = Omit<ProviderProfile, "apiKeyEncrypted"> & {
+export type ProviderProfileSummary = Omit<
+  ProviderProfile,
+  "apiKeyEncrypted" | "githubUserAccessTokenEncrypted" | "githubRefreshTokenEncrypted"
+> & {
   hasApiKey: boolean;
+  githubConnectionStatus: GithubConnectionStatus;
 };
 
 export type AppSettings = {

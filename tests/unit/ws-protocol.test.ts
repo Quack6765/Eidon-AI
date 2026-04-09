@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 describe("ws-protocol", () => {
   it("serializes and parses a client subscribe message", async () => {
     const { serializeClientMessage, parseClientMessage } = await import("@/lib/ws-protocol");
-    const msg = { type: "subscribe", conversationId: "conv-1" };
+    const msg = { type: "subscribe" as const, conversationId: "conv-1" };
     const raw = serializeClientMessage(msg);
     const parsed = parseClientMessage(raw);
     expect(parsed).toEqual(msg);
@@ -11,7 +11,7 @@ describe("ws-protocol", () => {
 
   it("serializes and parses a client message message", async () => {
     const { serializeClientMessage, parseClientMessage } = await import("@/lib/ws-protocol");
-    const msg = { type: "message", conversationId: "conv-1", content: "hello", attachmentIds: ["att-1"] };
+    const msg = { type: "message" as const, conversationId: "conv-1", content: "hello", attachmentIds: ["att-1"] };
     const raw = serializeClientMessage(msg);
     const parsed = parseClientMessage(raw);
     expect(parsed).toEqual(msg);
@@ -19,7 +19,7 @@ describe("ws-protocol", () => {
 
   it("serializes a server ready message", async () => {
     const { serializeServerMessage } = await import("@/lib/ws-protocol");
-    const msg = { type: "ready", activeConversations: [{ id: "conv-1", title: "Test", status: "streaming" as const }] };
+    const msg = { type: "ready" as const, activeConversations: [{ id: "conv-1", title: "Test", status: "streaming" as const }] };
     const raw = serializeServerMessage(msg);
     const parsed = JSON.parse(raw);
     expect(parsed.type).toBe("ready");
@@ -28,7 +28,7 @@ describe("ws-protocol", () => {
 
   it("serializes a server delta message", async () => {
     const { serializeServerMessage } = await import("@/lib/ws-protocol");
-    const msg = { type: "delta", conversationId: "conv-1", event: { type: "answer_delta", text: "hello" } };
+    const msg = { type: "delta" as const, conversationId: "conv-1", event: { type: "answer_delta" as const, text: "hello" } };
     const raw = serializeServerMessage(msg);
     const parsed = JSON.parse(raw);
     expect(parsed.type).toBe("delta");
@@ -43,5 +43,13 @@ describe("ws-protocol", () => {
   it("returns null for unknown client message type", async () => {
     const { parseClientMessage } = await import("@/lib/ws-protocol");
     expect(parseClientMessage(JSON.stringify({ type: "unknown" }))).toBeNull();
+  });
+
+  it("serializes and parses a client stop message", async () => {
+    const { serializeClientMessage, parseClientMessage } = await import("@/lib/ws-protocol");
+    const msg = { type: "stop" as const, conversationId: "conv-1" };
+    const raw = serializeClientMessage(msg);
+    const parsed = parseClientMessage(raw);
+    expect(parsed).toEqual(msg);
   });
 });

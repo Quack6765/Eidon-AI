@@ -29,6 +29,7 @@ export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGauge
   const [showTooltip, setShowTooltip] = useState(false);
 
   const percentage = usedTokens !== null ? Math.min(100, (usedTokens / usableLimit) * 100) : 0;
+  const roundedPercentage = usedTokens !== null && usedTokens > 0 ? Math.max(1, Math.round(percentage)) : 0;
   const color = getGaugeColor(percentage);
 
   // SVG circle properties
@@ -55,6 +56,7 @@ export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGauge
   }
 
   const usedFormatted = formatTokens(usedTokens);
+  const percentageFormatted = `${roundedPercentage}%`;
   const usableFormatted = formatTokens(usableLimit);
   const maxFormatted = formatTokens(maxLimit);
   const thresholdPercent = Math.round((usableLimit / maxLimit) * 100);
@@ -64,10 +66,10 @@ export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGauge
       <button
         type="button"
         role="progressbar"
-        aria-valuenow={Math.round(percentage)}
+        aria-valuenow={roundedPercentage}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label={`${Math.round(percentage)}% context used`}
+        aria-label={`${roundedPercentage}% context used`}
         className="flex items-center justify-center p-1 rounded-lg hover:bg-white/5 transition-colors"
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
@@ -101,7 +103,7 @@ export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGauge
           />
         </svg>
       </button>
-      <span className="text-[10px] text-white/40">{usedFormatted}</span>
+      <span className="text-[10px] text-white/40">{percentageFormatted}</span>
 
       {showTooltip && (
         <div

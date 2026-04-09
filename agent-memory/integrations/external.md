@@ -4,6 +4,7 @@
 | Service | Purpose | Config |
 |---------|---------|--------|
 | OpenAI-compatible API | Chat inference, streaming, and compaction summarization | Stored in `app_settings` from `/settings` |
+| GitHub Copilot | Chat inference via user's Copilot subscription | Per-profile OAuth tokens in `provider_profiles` |
 | Model Context Protocol (MCP) servers | External tool discovery and tool execution from chat | Stored in `mcp_servers` from `/settings` |
 
 ## OpenAI-compatible API
@@ -15,6 +16,16 @@
 - **Text Normalization:** Provider deltas and final text normalize escaped newline sequences like `\\n` and `\\r\\n` into real line breaks before persistence and rendering
 - **Error Handling:** Bubble provider failures back to the UI with explicit error messages; no silent fallback provider
 
+## GitHub Copilot
+- **SDK:** `@github/copilot-sdk` (`CopilotClient`) for model listing and chat
+- **Auth Flow:** Per-profile GitHub OAuth via `lib/github-copilot.ts` — user authorizes a GitHub App, Eidon stores encrypted user access/refresh tokens in `provider_profiles`
+- **Token Lifecycle:** Tokens auto-refresh within a 2-minute window before expiry (`ensureFreshGithubAccessToken`); connection status is computed as `disconnected`/`connected`/`expired`
+- **OAuth State:** JWT signed with `EIDON_SESSION_SECRET` (10-minute expiry) via `jose` library
+- **Model Selection:** Connected Copilot profiles list available models dynamically from `CopilotClient.listModels()`, shown in settings as a dropdown
+- **Settings UI:** Provider type selector (`openai_compatible` / `github_copilot`), Connect/Reconnect/Disconnect GitHub buttons, model picker for connected accounts
+- **API Routes:** `/api/providers/github/connect`, `/api/providers/github/callback`, `/api/providers/github/disconnect`, `/api/providers/github/models`
+- **Usage:** `lib/provider.ts` branches on `providerKind === "github_copilot"` to route chat through the Copilot SDK instead of the OpenAI-compatible path
+
 ## Model Context Protocol (MCP)
 - **Client Implementation:** Eidon uses the official `@modelcontextprotocol/sdk` client for both `stdio` and `streamable_http` transports
 - **Protocol Baseline:** Eidon advertises and tests against MCP protocol version `2025-03-26`
@@ -24,9 +35,9 @@
 - **Runtime Flow:** The assistant can emit `TOOL_CALL: {...}` control messages, including trailing `TOOL_CALL` payloads after brief explanatory prose, Eidon executes the MCP tool itself, then injects the structured result back into the prompt loop before the final answer
 - **Skill Loading Flow:** The assistant can emit `SKILL_REQUEST: {...}` even after short leading prose, and Eidon loads only the requested full `SKILL.md` body into the prompt loop. Skill selection is model-driven from the exposed skill metadata rather than hardcoded task keywords in the app runtime
 - **Skill Metadata Source:** Eidon reads each skill's visible metadata from the skill file content itself when frontmatter is present, using header fields like `name` and `description` as the canonical inventory shown to the model
-- **Shell Skill Exposure:** Skills that enable local shell execution are only exposed for turns whose latest user message explicitly signals browser/site inspection or names the skill, so routine factual questions do not auto-escalate into browser automation
+- **Shell Tool Exposure:** `execute_shell_command` is exposed as a first-class runtime capability on assistant turns, so the model can invoke generic host commands such as `curl` without first loading a shell-specific skill
 - **Automatic Skill Preload:** Eidon can automatically preload the highest-scoring enabled skill when the current task context and accumulated tool results strongly match a skill's header metadata. The selection is metadata-driven rather than keyed off fixed task words or specific built-in skill names
-- **Restricted Local Shell Calls:** Loaded skills can opt into restricted host-side shell execution through skill-file metadata. Eidon reads allowed command prefixes from frontmatter fields such as `shell_command_prefixes`, and only commands that start with one of those prefixes can be executed via `SHELL_CALL: {...}`
+- **Skill Guidance for Shell Use:** Skill-file metadata such as `shell_command_prefixes` remains available as instructional guidance to the model when a skill is loaded, but it no longer acts as a runtime permission boundary for host-side shell execution
 - **Control Marker Streaming:** Live answer streaming suppresses `SKILL_REQUEST`, `TOOL_CALL`, and `SHELL_CALL` control markers from the visible chat transcript even when the provider starts emitting them after already-visible prose; only the human-readable leading text is streamed to the UI
 - **Early Control Detection:** When a complete `SKILL_REQUEST`, `TOOL_CALL`, or `SHELL_CALL` payload is already present in the streamed provider output, Eidon can stop the provider pass early and move straight into the next runtime step instead of waiting for the provider stream to idle or fully close
 - **Auto Tool Use:** Eidon can proactively trigger the best matching MCP tool on the first pass for obvious current-information and web-research requests before asking the model to answer; booking and availability lookups also auto-follow a proactive Exa web search with a crawl of the top result when a relevant page URL is returned

@@ -9,6 +9,7 @@ import { decryptValue, encryptValue } from "@/lib/crypto";
 import { getDb } from "@/lib/db";
 import type {
   AppSettings,
+  GithubConnectionStatus,
   ProviderProfile,
   ProviderProfileWithApiKey,
   ReasoningEffort,
@@ -16,11 +17,12 @@ import type {
 } from "@/lib/types";
 
 const runtimeSettingsSchema = z.object({
-  apiBaseUrl: z.string().url(),
+  providerKind: z.enum(["openai_compatible", "github_copilot"]).default("openai_compatible"),
+  apiBaseUrl: z.string().default(""),
   apiKey: z.string().optional().default(""),
-  model: z.string().min(1),
+  model: z.string().min(0),
   apiMode: z.enum(["responses", "chat_completions"]),
-  systemPrompt: z.string().min(1),
+  systemPrompt: z.string().min(0),
   temperature: z.coerce.number().min(0).max(2),
   maxOutputTokens: z.coerce.number().int().min(128).max(32768),
   reasoningEffort: z.enum(["low", "medium", "high", "xhigh"]),
@@ -35,12 +37,42 @@ const runtimeSettingsSchema = z.object({
   mergedMinNodeCount: z.coerce.number().int().min(2).max(20).default(4),
   mergedTargetTokens: z.coerce.number().int().min(128).max(16000).default(1600),
   visionMode: z.enum(["none", "native", "mcp"]).default("native"),
-  visionMcpServerId: z.string().nullable().default(null)
+  visionMcpServerId: z.string().nullable().default(null),
+  githubUserAccessTokenEncrypted: z.string().default(""),
+  githubRefreshTokenEncrypted: z.string().default(""),
+  githubAccountLogin: z.string().nullable().default(null),
+  githubAccountName: z.string().nullable().default(null),
+  githubTokenExpiresAt: z.string().nullable().default(null),
+  githubRefreshTokenExpiresAt: z.string().nullable().default(null)
 });
 
 const providerProfileInputSchema = runtimeSettingsSchema.extend({
   id: z.string().min(1),
   name: z.string().min(1)
+}).superRefine((value, context) => {
+  if (value.providerKind === "openai_compatible") {
+    if (!value.apiBaseUrl) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "API base URL is required for OpenAI-compatible profiles",
+        path: ["apiBaseUrl"]
+      });
+    }
+    if (!value.model) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Model is required for OpenAI-compatible profiles",
+        path: ["model"]
+      });
+    }
+    if (!value.systemPrompt) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "System prompt is required for OpenAI-compatible profiles",
+        path: ["systemPrompt"]
+      });
+    }
+  }
 });
 
 const settingsSchema = z
@@ -112,6 +144,13 @@ type ProviderProfileRow = {
   merged_target_tokens: number;
   vision_mode: string;
   vision_mcp_server_id: string | null;
+  provider_kind: string;
+  github_user_access_token_encrypted: string;
+  github_refresh_token_encrypted: string;
+  github_token_expires_at: string | null;
+  github_refresh_token_expires_at: string | null;
+  github_account_login: string | null;
+  github_account_name: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -132,6 +171,7 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
 function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
   return {
     id: row.id,
+    providerKind: row.provider_kind as ProviderProfile["providerKind"],
     name: row.name,
     apiBaseUrl: row.api_base_url,
     apiKeyEncrypted: row.api_key_encrypted,
@@ -153,6 +193,12 @@ function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
     mergedTargetTokens: row.merged_target_tokens,
     visionMode: row.vision_mode as VisionMode,
     visionMcpServerId: row.vision_mcp_server_id,
+    githubUserAccessTokenEncrypted: row.github_user_access_token_encrypted,
+    githubRefreshTokenEncrypted: row.github_refresh_token_encrypted,
+    githubTokenExpiresAt: row.github_token_expires_at,
+    githubRefreshTokenExpiresAt: row.github_refresh_token_expires_at,
+    githubAccountLogin: row.github_account_login,
+    githubAccountName: row.github_account_name,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -184,6 +230,13 @@ function listProviderProfileRows() {
         merged_target_tokens,
         vision_mode,
         vision_mcp_server_id,
+        provider_kind,
+        github_user_access_token_encrypted,
+        github_refresh_token_encrypted,
+        github_token_expires_at,
+        github_refresh_token_expires_at,
+        github_account_login,
+        github_account_name,
         created_at,
         updated_at
       FROM provider_profiles
@@ -218,6 +271,13 @@ function getProviderProfileRow(profileId: string) {
         merged_target_tokens,
         vision_mode,
         vision_mcp_server_id,
+        provider_kind,
+        github_user_access_token_encrypted,
+        github_refresh_token_encrypted,
+        github_token_expires_at,
+        github_refresh_token_expires_at,
+        github_account_login,
+        github_account_name,
         created_at,
         updated_at
       FROM provider_profiles
@@ -244,6 +304,61 @@ function withApiKey(profile: ProviderProfile): ProviderProfileWithApiKey {
   };
 }
 
+export function updateGithubCopilotCredentials(
+  profileId: string,
+  input: {
+    githubUserAccessToken: string;
+    githubRefreshToken: string;
+    githubTokenExpiresAt: string | null;
+    githubRefreshTokenExpiresAt: string | null;
+    githubAccountLogin: string | null;
+    githubAccountName: string | null;
+  }
+) {
+  const timestamp = new Date().toISOString();
+
+  getDb()
+    .prepare(
+      `UPDATE provider_profiles
+       SET github_user_access_token_encrypted = ?,
+           github_refresh_token_encrypted = ?,
+           github_token_expires_at = ?,
+           github_refresh_token_expires_at = ?,
+           github_account_login = ?,
+           github_account_name = ?,
+           updated_at = ?
+       WHERE id = ?`
+    )
+    .run(
+      input.githubUserAccessToken ? encryptValue(input.githubUserAccessToken) : "",
+      input.githubRefreshToken ? encryptValue(input.githubRefreshToken) : "",
+      input.githubTokenExpiresAt,
+      input.githubRefreshTokenExpiresAt,
+      input.githubAccountLogin,
+      input.githubAccountName,
+      timestamp,
+      profileId
+    );
+}
+
+export function clearGithubCopilotCredentials(profileId: string) {
+  const timestamp = new Date().toISOString();
+
+  getDb()
+    .prepare(
+      `UPDATE provider_profiles
+       SET github_user_access_token_encrypted = '',
+           github_refresh_token_encrypted = '',
+           github_token_expires_at = NULL,
+           github_refresh_token_expires_at = NULL,
+           github_account_login = NULL,
+           github_account_name = NULL,
+           updated_at = ?
+       WHERE id = ?`
+    )
+    .run(timestamp, profileId);
+}
+
 export function getSettings() {
   const row = getDb()
     .prepare(
@@ -254,6 +369,7 @@ export function getSettings() {
         auto_compaction,
         memories_enabled,
         memories_max_count,
+        mcp_timeout,
         updated_at
       FROM app_settings
       WHERE id = ?`
@@ -294,11 +410,22 @@ export function getDefaultProviderProfileWithApiKey() {
 export function getSanitizedSettings() {
   const settings = getSettings();
   const providerProfiles = listProviderProfiles().map((profile) => {
-    const { apiKeyEncrypted: _apiKeyEncrypted, ...sanitizedProfile } = profile;
+    const {
+      apiKeyEncrypted: _apiKeyEncrypted,
+      githubUserAccessTokenEncrypted: _githubUserAccessTokenEncrypted,
+      githubRefreshTokenEncrypted: _githubRefreshTokenEncrypted,
+      ...sanitizedProfile
+    } = profile;
+
+    const githubConnectionStatus: GithubConnectionStatus =
+      profile.providerKind !== "github_copilot" || !profile.githubUserAccessTokenEncrypted
+        ? "disconnected"
+        : "connected";
 
     return {
       ...sanitizedProfile,
-      hasApiKey: Boolean(profile.apiKeyEncrypted)
+      hasApiKey: Boolean(profile.apiKeyEncrypted),
+      githubConnectionStatus
     };
   });
 
@@ -342,6 +469,13 @@ export function updateSettings(input: unknown) {
         merged_target_tokens,
         vision_mode,
         vision_mcp_server_id,
+        provider_kind,
+        github_user_access_token_encrypted,
+        github_refresh_token_encrypted,
+        github_token_expires_at,
+        github_refresh_token_expires_at,
+        github_account_login,
+        github_account_name,
         created_at,
         updated_at
       ) VALUES (
@@ -367,6 +501,13 @@ export function updateSettings(input: unknown) {
         @mergedTargetTokens,
         @visionMode,
         @visionMcpServerId,
+        @providerKind,
+        @githubUserAccessTokenEncrypted,
+        @githubRefreshTokenEncrypted,
+        @githubTokenExpiresAt,
+        @githubRefreshTokenExpiresAt,
+        @githubAccountLogin,
+        @githubAccountName,
         @createdAt,
         @updatedAt
       )
@@ -392,6 +533,13 @@ export function updateSettings(input: unknown) {
         merged_target_tokens = excluded.merged_target_tokens,
         vision_mode = excluded.vision_mode,
         vision_mcp_server_id = excluded.vision_mcp_server_id,
+        provider_kind = excluded.provider_kind,
+        github_user_access_token_encrypted = excluded.github_user_access_token_encrypted,
+        github_refresh_token_encrypted = excluded.github_refresh_token_encrypted,
+        github_token_expires_at = excluded.github_token_expires_at,
+        github_refresh_token_expires_at = excluded.github_refresh_token_expires_at,
+        github_account_login = excluded.github_account_login,
+        github_account_name = excluded.github_account_name,
         updated_at = excluded.updated_at`
     );
 
@@ -422,6 +570,13 @@ export function updateSettings(input: unknown) {
         mergedTargetTokens: profile.mergedTargetTokens,
         visionMode: profile.visionMode ?? "native",
         visionMcpServerId: profile.visionMcpServerId ?? null,
+        providerKind: profile.providerKind,
+        githubUserAccessTokenEncrypted: profile.githubUserAccessTokenEncrypted ?? "",
+        githubRefreshTokenEncrypted: profile.githubRefreshTokenEncrypted ?? "",
+        githubTokenExpiresAt: profile.githubTokenExpiresAt ?? null,
+        githubRefreshTokenExpiresAt: profile.githubRefreshTokenExpiresAt ?? null,
+        githubAccountLogin: profile.githubAccountLogin ?? null,
+        githubAccountName: profile.githubAccountName ?? null,
         createdAt: current?.createdAt ?? timestamp,
         updatedAt: timestamp
       });
