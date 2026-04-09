@@ -42,7 +42,7 @@ export function Shell({
       </AnimatePresence>
 
       <div
-        className={`fixed inset-y-0 left-0 z-50 w-[280px] transform bg-[var(--sidebar)] transition-transform duration-300 ease-out md:relative md:z-0 md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-[280px] transform transition-transform duration-300 ease-out md:relative md:z-0 md:translate-x-0 border-r border-white/5 ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
