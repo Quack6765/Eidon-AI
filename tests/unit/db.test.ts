@@ -203,6 +203,11 @@ describe("db", () => {
       .map((column) => column.name);
     const automationRunColumns = (db.prepare("PRAGMA table_info(automation_runs)").all() as Array<{ name: string }>)
       .map((column) => column.name);
+    const automationIndexes = (db.prepare("PRAGMA index_list(automations)").all() as Array<{ name: string }>)
+      .map((index) => index.name);
+    const automationRunIndexes = (
+      db.prepare("PRAGMA index_list(automation_runs)").all() as Array<{ name: string }>
+    ).map((index) => index.name);
 
     expect(conversationColumns).toEqual(
       expect.arrayContaining([
@@ -226,6 +231,13 @@ describe("db", () => {
     );
     expect(automationRunColumns).toEqual(
       expect.arrayContaining(["automation_id", "conversation_id", "scheduled_for", "status"])
+    );
+    expect(automationIndexes).toContain("idx_automations_enabled_next_run_at");
+    expect(automationRunIndexes).toEqual(
+      expect.arrayContaining([
+        "idx_automation_runs_automation_scheduled_for",
+        "idx_automation_runs_status_scheduled_for"
+      ])
     );
 
     const conversation = db
