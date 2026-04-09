@@ -6,6 +6,22 @@ export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export type VisionMode = "none" | "native" | "mcp";
 
+export type AutomationScheduleKind = "interval" | "calendar";
+
+export type AutomationCalendarFrequency = "daily" | "weekly";
+
+export type AutomationRunStatus =
+  | "queued"
+  | "running"
+  | "completed"
+  | "failed"
+  | "missed"
+  | "stopped";
+
+export type AutomationTriggerSource = "schedule" | "manual_run" | "manual_retry";
+
+export type ConversationOrigin = "manual" | "automation";
+
 export type ProviderKind = "openai_compatible" | "github_copilot";
 
 export type GithubConnectionStatus = "disconnected" | "connected" | "expired";
@@ -97,6 +113,40 @@ export type Conversation = {
   createdAt: string;
   updatedAt: string;
   isActive: boolean;
+};
+
+export type Automation = {
+  id: string;
+  name: string;
+  prompt: string;
+  providerProfileId: string;
+  personaId: string | null;
+  scheduleKind: AutomationScheduleKind;
+  intervalMinutes: number | null;
+  calendarFrequency: AutomationCalendarFrequency | null;
+  timeOfDay: string | null;
+  daysOfWeek: number[];
+  enabled: boolean;
+  nextRunAt: string | null;
+  lastScheduledFor: string | null;
+  lastStartedAt: string | null;
+  lastFinishedAt: string | null;
+  lastStatus: AutomationRunStatus | "paused" | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AutomationRun = {
+  id: string;
+  automationId: string;
+  conversationId: string | null;
+  scheduledFor: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  status: AutomationRunStatus;
+  errorMessage: string | null;
+  triggerSource: AutomationTriggerSource;
+  createdAt: string;
 };
 
 export type ConversationListPage = {

@@ -81,6 +81,20 @@ describe("env validation", () => {
     );
   });
 
+  it("parses the timezone env and exposes it", async () => {
+    const { parseEnv } = await import("@/lib/env");
+
+    const env = parseEnv({
+      NODE_ENV: "development",
+      EIDON_PASSWORD_LOGIN_ENABLED: "true",
+      EIDON_ADMIN_USERNAME: "admin",
+      EIDON_DATA_DIR: ".test-data",
+      TZ: "America/Toronto"
+    });
+
+    expect(env.TZ).toBe("America/Toronto");
+  });
+
   it("defers production secret validation until a sensitive value is accessed", async () => {
     const previous = {
       NODE_ENV: process.env.NODE_ENV,

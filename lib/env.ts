@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const nodeEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  TZ: z.string().min(1).default("UTC"),
   EIDON_PASSWORD_LOGIN_ENABLED: z
     .enum(["true", "false"])
     .default("false")

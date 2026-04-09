@@ -296,6 +296,40 @@ function migrate(db: Database.Database) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS automations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      provider_profile_id TEXT NOT NULL,
+      persona_id TEXT,
+      schedule_kind TEXT NOT NULL,
+      interval_minutes INTEGER,
+      calendar_frequency TEXT,
+      time_of_day TEXT,
+      days_of_week TEXT NOT NULL DEFAULT '[]',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      next_run_at TEXT,
+      last_scheduled_for TEXT,
+      last_started_at TEXT,
+      last_finished_at TEXT,
+      last_status TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS automation_runs (
+      id TEXT PRIMARY KEY,
+      automation_id TEXT NOT NULL,
+      conversation_id TEXT,
+      scheduled_for TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      status TEXT NOT NULL,
+      error_message TEXT,
+      trigger_source TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+    );
   `);
 
   const convCols = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
@@ -323,6 +357,25 @@ function migrate(db: Database.Database) {
   }
   if (!convColNames.includes("is_active")) {
     db.exec("ALTER TABLE conversations ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0");
+  }
+
+  const automationConversationCols = db
+    .prepare("PRAGMA table_info(conversations)")
+    .all() as Array<{ name: string }>;
+  if (!automationConversationCols.some((col) => col.name === "automation_id")) {
+    db.exec(
+      "ALTER TABLE conversations ADD COLUMN automation_id TEXT REFERENCES automations(id) ON DELETE SET NULL"
+    );
+  }
+  if (!automationConversationCols.some((col) => col.name === "automation_run_id")) {
+    db.exec(
+      "ALTER TABLE conversations ADD COLUMN automation_run_id TEXT REFERENCES automation_runs(id) ON DELETE SET NULL"
+    );
+  }
+  if (!automationConversationCols.some((col) => col.name === "conversation_origin")) {
+    db.exec(
+      "ALTER TABLE conversations ADD COLUMN conversation_origin TEXT NOT NULL DEFAULT 'manual'"
+    );
   }
 
   const settingsCols = db.prepare("PRAGMA table_info(app_settings)").all() as Array<{ name: string }>;
