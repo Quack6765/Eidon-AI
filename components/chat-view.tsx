@@ -360,7 +360,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       return;
     }
 
-    queueRef.current.scrollTop = queueRef.current.scrollHeight;
+    requestAnimationFrame(() => {
+      if (!queueRef.current) return;
+      queueRef.current.scrollTo({
+        top: queueRef.current.scrollHeight,
+        behavior: "instant",
+      });
+    });
   }, [messages, streamThinkingDisplay, streamAnswerDisplay, streamTimeline]);
 
   useEffect(() => {
@@ -1258,8 +1264,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       </div>
 
-      <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 md:px-8 scroll-smooth">
-        <div className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4 pb-[140px] md:pb-[200px]">
+      <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 md:px-8">
+        <div className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4 pb-[180px] md:pb-[200px]">
           {messages.map((message) => (
             <div
               key={message.id}
@@ -1301,9 +1307,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 z-10 pointer-events-none">
-        <div className="h-32 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/95 via-50% to-transparent" />
-        <div className="mx-auto w-full px-4 pb-6 md:px-8 md:pb-10 -mt-16 pointer-events-auto max-w-[980px]">
+      <div className="fixed inset-x-0 bottom-0 z-10 pointer-events-none">
+        <div className="mx-auto w-full px-4 md:px-8 pointer-events-auto max-w-[980px]">
           <ChatComposer
             input={input}
             onInputChange={setInput}
