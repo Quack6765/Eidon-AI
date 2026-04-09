@@ -134,7 +134,6 @@ function buildToolDefinitions(input: {
   mcpToolSets: ToolSet[];
   skills: Skill[];
   loadedSkillIds: Set<string>;
-  shellCommandPrefixes: string[];
   memoriesEnabled: boolean;
 }): ToolDefinition[] {
   const tools: ToolDefinition[] = [];
@@ -175,23 +174,21 @@ function buildToolDefinitions(input: {
     });
   }
 
-  if (input.shellCommandPrefixes.length) {
-    tools.push({
-      type: "function",
-      function: {
-        name: "execute_shell_command",
-        description: `Execute a local shell command. Allowed prefixes: ${input.shellCommandPrefixes.join(", ")}`,
-        parameters: {
-          type: "object",
-          properties: {
-            command: { type: "string", description: "The command to execute" },
-            timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000)" }
-          },
-          required: ["command"]
-        }
+  tools.push({
+    type: "function",
+    function: {
+      name: "execute_shell_command",
+      description: "Execute a local shell command on the host environment.",
+      parameters: {
+        type: "object",
+        properties: {
+          command: { type: "string", description: "The command to execute" },
+          timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000)" }
+        },
+        required: ["command"]
       }
-    });
-  }
+    }
+  });
 
   if (input.memoriesEnabled) {
     tools.push(
@@ -465,7 +462,6 @@ async function executeLoadSkill(
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
     };
     loadedSkillIds: Set<string>;
-    allShellPrefixes: string[];
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
   }
@@ -486,11 +482,6 @@ async function executeLoadSkill(
   }
 
   context.loadedSkillIds.add(skill.id);
-
-  const shellPrefixes = getSkillAllowedCommandPrefixes(skill);
-  if (shellPrefixes.length) {
-    context.allShellPrefixes.push(...shellPrefixes);
-  }
 
   const handle = await context.input.onActionStart?.({
     kind: "skill_load",
@@ -514,10 +505,6 @@ async function executeLoadSkill(
     skill.content
   ].join("\n");
 
-  if (shellPrefixes.length) {
-    skillContent += `\n\nLocal host command execution enabled. Allowed prefixes: ${shellPrefixes.join(", ")}`;
-  }
-
   const resultMsg = buildToolResultMessage(toolCallId, skillContent);
   return {
     nextSortOrder: sortOrder,
@@ -534,7 +521,6 @@ async function executeShellCommand(
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
     };
-    allShellPrefixes: string[];
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
   }
@@ -545,11 +531,6 @@ async function executeShellCommand(
 
   if (!command) {
     const resultMsg = buildToolResultMessage(toolCallId, "Error: Shell command is required.");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
-  }
-
-  if (!context.allShellPrefixes.length) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: No loaded skill currently permits local shell commands.");
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
@@ -564,7 +545,6 @@ async function executeShellCommand(
   try {
     const result = await executeLocalShellCommand({
       command,
-      allowedPrefixes: context.allShellPrefixes,
       timeoutMs
     });
     const resultSummary = summarizeShellResult(result);
@@ -756,7 +736,6 @@ async function executeToolCall(
     };
     mcpServers: McpServer[];
     loadedSkillIds: Set<string>;
-    allShellPrefixes: string[];
     successfulReadOnlyToolResults: Map<string, SuccessfulReadOnlyToolResult>;
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
@@ -890,7 +869,6 @@ export async function resolveAssistantTurn(input: {
     skills: turnSkills
   };
   const loadedSkillIds = new Set<string>();
-  const allShellPrefixes: string[] = [];
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
   let totalUsage: Usage = {};
 
@@ -914,7 +892,6 @@ export async function resolveAssistantTurn(input: {
       mcpToolSets: input.mcpToolSets,
       skills: turnSkills,
       loadedSkillIds,
-      shellCommandPrefixes: allShellPrefixes,
       memoriesEnabled: input.memoriesEnabled ?? false
     });
 
@@ -977,7 +954,6 @@ export async function resolveAssistantTurn(input: {
         input: toolRuntimeInput,
         mcpServers,
         loadedSkillIds,
-        allShellPrefixes,
         successfulReadOnlyToolResults,
         timelineSortOrder,
         promptMessages
