@@ -56,9 +56,12 @@ Full image builds should still run on PRs when any of the following change:
 - [`.dockerignore`](../../../.dockerignore)
 - [`.github/workflows/docker.yml`](../../../.github/workflows/docker.yml)
 - [`.github/workflows/test.yml`](../../../.github/workflows/test.yml)
-- deployment documentation in [`README.md`](../../../README.md)
+- [`package.json`](../../../package.json)
+- [`package-lock.json`](../../../package-lock.json)
+- `next.config.*`
+- [`server.cjs`](../../../server.cjs)
 
-This list is intentionally conservative. It covers files that can affect Docker build semantics, CI behavior, or operational deployment instructions.
+This list is intentionally conservative. It covers files that can affect Docker build semantics, CI behavior, runtime dependency installation, or the final image layout.
 
 ### `main` behavior
 

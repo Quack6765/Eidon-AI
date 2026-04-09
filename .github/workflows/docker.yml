@@ -19,6 +19,22 @@ jobs:
       - name: Lowercase repository name
         run: echo "REPO_LOWERCASE=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
+      - name: Detect deployment-sensitive changes
+        id: changes
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            deployment:
+              - 'Dockerfile'
+              - '.dockerignore'
+              - '.github/workflows/docker.yml'
+              - '.github/workflows/test.yml'
+              - 'package.json'
+              - 'package-lock.json'
+              - 'next.config.*'
+              - 'server.cjs'
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -29,10 +45,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Docker image
+      - name: Build full production image
+        if: github.event_name == 'push' || steps.changes.outputs.deployment == 'true'
         uses: docker/build-push-action@v6
         with:
           context: .
+          push: false
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:main
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:main,mode=max
+
+      - name: Build lightweight builder image
+        if: github.event_name == 'pull_request' && steps.changes.outputs.deployment != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: builder
           push: false
           cache-from: |
             type=gha
