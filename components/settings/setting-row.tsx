@@ -8,14 +8,14 @@ export function SettingRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4">
+    <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <div className="min-w-0">
         <div className="text-[13px] text-[var(--text)]">{label}</div>
         {description ? (
           <div className="mt-0.5 text-xs text-[var(--muted)]">{description}</div>
         ) : null}
       </div>
-      <div className="flex-shrink-0">{children}</div>
+      <div className="w-full sm:w-auto sm:flex-shrink-0">{children}</div>
     </div>
   );
 }
