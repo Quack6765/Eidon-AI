@@ -219,6 +219,39 @@ describe("settings storage", () => {
     expect(listProviderProfiles()[0].reasoningSummaryEnabled).toBe(false);
   });
 
+  it("returns the default MCP timeout from persisted settings", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-alpha"
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: true,
+      providerProfiles: [alpha]
+    });
+
+    expect(getSettings().mcpTimeout).toBe(120_000);
+  });
+
+  it("returns a saved non-default MCP timeout", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-alpha"
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: true,
+      mcpTimeout: 45_000,
+      providerProfiles: [alpha]
+    });
+
+    expect(getSettings().mcpTimeout).toBe(45_000);
+  });
+
   it("rejects duplicate profile ids and invalid defaults", () => {
     const alpha = buildProfile({
       id: "profile_alpha"
