@@ -205,6 +205,7 @@ export function ChatComposer({
   const isSubmitDisabled =
     isSending || isUploadingAttachments || (!input.trim() && pendingAttachments.length === 0);
   const showStopButton = canStop && !isUploadingAttachments;
+  const showContextUsage = hasMessages && usedTokens !== null;
 
   // For the model selector, we want to show the profile name prominently
   const displayModels = providerProfiles.map(p => ({
@@ -382,7 +383,7 @@ export function ChatComposer({
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3">
-          {hasMessages && (
+          {showContextUsage && (
             <div className="flex items-center gap-2 px-1">
               <span className="text-[10px] text-white/20 font-medium tracking-wider uppercase hidden md:inline-block">Context</span>
               <ContextGauge
