@@ -294,7 +294,7 @@ export function ChatComposer({
             ref={textareaRef}
             value={input}
             onChange={(event) => onInputChange(event.target.value)}
-            placeholder="Ask anything..."
+            placeholder="Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
             className="max-h-[300px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 py-3.5 text-[15px] text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin placeholder:text-white/20 caret-[var(--accent)]"
             style={{ height: "auto" }}
             onKeyDown={(event) => {
