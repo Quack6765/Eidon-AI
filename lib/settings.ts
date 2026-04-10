@@ -166,6 +166,12 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
   };
 }
 
+function normalizeLegacyCompactionThreshold(threshold: number) {
+  return Math.abs(threshold - 0.78) < 1e-6
+    ? DEFAULT_PROVIDER_SETTINGS.compactionThreshold
+    : threshold;
+}
+
 function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
   return {
     id: row.id,
@@ -181,7 +187,7 @@ function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
     reasoningEffort: row.reasoning_effort,
     reasoningSummaryEnabled: Boolean(row.reasoning_summary_enabled),
     modelContextLimit: row.model_context_limit,
-    compactionThreshold: row.compaction_threshold,
+    compactionThreshold: normalizeLegacyCompactionThreshold(row.compaction_threshold),
     freshTailCount: row.fresh_tail_count,
     tokenizerModel: row.tokenizer_model as "gpt-tokenizer" | "off",
     safetyMarginTokens: row.safety_margin_tokens,

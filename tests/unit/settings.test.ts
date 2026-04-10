@@ -203,6 +203,31 @@ describe("settings storage", () => {
     expect(defaults.compactionThreshold).toBe(0.8);
   });
 
+  it("normalizes legacy default compaction thresholds without changing custom values", () => {
+    const legacy = buildProfile({
+      id: "profile_legacy",
+      name: "Legacy",
+      compactionThreshold: 0.78
+    });
+    const custom = buildProfile({
+      id: "profile_custom",
+      name: "Custom",
+      compactionThreshold: 0.5
+    });
+
+    updateSettings({
+      defaultProviderProfileId: legacy.id,
+      skillsEnabled: true,
+      providerProfiles: [legacy, custom]
+    });
+
+    const providerProfiles = listProviderProfiles();
+
+    expect(providerProfiles.find((profile) => profile.id === legacy.id)?.compactionThreshold).toBe(0.8);
+    expect(providerProfiles.find((profile) => profile.id === custom.id)?.compactionThreshold).toBe(0.5);
+    expect(getDefaultProviderProfile()?.compactionThreshold).toBe(0.8);
+  });
+
   it("stores profiles with reasoning disabled and memories off", () => {
     const alpha = buildProfile({
       id: "profile_alpha",
