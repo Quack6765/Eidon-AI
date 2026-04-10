@@ -8,6 +8,7 @@ import {
   reorderFolders
 } from "@/lib/folders";
 import { createConversation, moveConversationToFolder } from "@/lib/conversations";
+import { createLocalUser } from "@/lib/users";
 
 describe("folders", () => {
   it("creates, lists, renames, and deletes folders", () => {
@@ -50,5 +51,24 @@ describe("folders", () => {
 
     const conv = createConversation("Chat 1", folder.id);
     expect(getFolderConversationCount(folder.id)).toBe(1);
+  });
+
+  it("lists only folders owned by the requested user", async () => {
+    const userA = await createLocalUser({
+      username: "folder-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "folder-b",
+      password: "Password123!",
+      role: "user"
+    });
+
+    createFolder("Admin Folder", userA.id);
+    createFolder("Member Folder", userB.id);
+
+    expect(listFolders(userA.id).map((folder) => folder.name)).toEqual(["Admin Folder"]);
+    expect(listFolders(userB.id).map((folder) => folder.name)).toEqual(["Member Folder"]);
   });
 });

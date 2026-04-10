@@ -123,7 +123,7 @@ export async function POST(request: Request) {
     return badRequest("Invalid attachment upload");
   }
 
-  if (!getConversation(parsed.data.conversationId)) {
+  if (!getConversation(parsed.data.conversationId, user.id)) {
     return badRequest("Conversation not found", 404);
   }
 

@@ -27,6 +27,7 @@ export type CopilotToolContext = {
   skills: Skill[];
   loadedSkillIds: Set<string>;
   memoriesEnabled: boolean;
+  memoryUserId?: string;
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
   onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
   onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -226,7 +227,7 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
 
       if (!trimmedContent) return "Error: content is required";
 
-      const currentCount = getMemoryCount();
+      const currentCount = getMemoryCount(ctx.memoryUserId);
       const maxCount = getSettings().memoriesMaxCount ?? 100;
       if (currentCount >= maxCount) return `Memory limit reached (${currentCount}/${maxCount}). Update or delete an existing memory instead.`;
 
@@ -234,7 +235,11 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
       const actionHandle = typeof handle === "string" ? handle : undefined;
 
       try {
-        createMemory(trimmedContent, normalizedCategory as "personal" | "preference" | "work" | "location" | "other");
+        createMemory(
+          trimmedContent,
+          normalizedCategory as "personal" | "preference" | "work" | "location" | "other",
+          ctx.memoryUserId
+        );
         await ctx.onActionComplete?.(actionHandle, { resultSummary: `Saved as ${normalizedCategory}` });
       } catch (e) {
         const errorMsg = e instanceof Error ? e.message : "Failed to create memory";
@@ -266,7 +271,14 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
       const actionHandle = typeof handle === "string" ? handle : undefined;
 
       try {
-        updateMemoryRecord(id, { content, ...(category ? { category: category as "personal" | "preference" | "work" | "location" | "other" } : {}) });
+        updateMemoryRecord(
+          id,
+          {
+            content,
+            ...(category ? { category: category as "personal" | "preference" | "work" | "location" | "other" } : {})
+          },
+          ctx.memoryUserId
+        );
         await ctx.onActionComplete?.(actionHandle, { detail: content, resultSummary: "Updated" });
       } catch (e) {
         const errorMsg = e instanceof Error ? e.message : "Failed to update memory";
@@ -296,7 +308,7 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
       const actionHandle = typeof handle === "string" ? handle : undefined;
 
       try {
-        deleteMemoryRecord(id);
+        deleteMemoryRecord(id, ctx.memoryUserId);
         await ctx.onActionComplete?.(actionHandle, { resultSummary: "Deleted" });
       } catch (e) {
         const errorMsg = e instanceof Error ? e.message : "Failed to delete memory";

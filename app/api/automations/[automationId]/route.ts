@@ -30,14 +30,14 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ automationId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
 
   if (!params.success) {
     return badRequest("Invalid automation id");
   }
 
-  const automation = getAutomation(params.data.automationId);
+  const automation = getAutomation(params.data.automationId, user.id);
 
   if (!automation) {
     return badRequest("Automation not found", 404);
@@ -50,7 +50,7 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ automationId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
 
   if (!params.success) {
@@ -63,7 +63,7 @@ export async function PATCH(
     return badRequest("Invalid automation update");
   }
 
-  const automation = getAutomation(params.data.automationId);
+  const automation = getAutomation(params.data.automationId, user.id);
 
   if (!automation) {
     return badRequest("Automation not found", 404);
@@ -73,12 +73,12 @@ export async function PATCH(
     return badRequest("Provider profile not found", 404);
   }
 
-  if (body.data.personaId && !getPersona(body.data.personaId)) {
+  if (body.data.personaId && !getPersona(body.data.personaId, user.id)) {
     return badRequest("Persona not found", 404);
   }
 
   try {
-    const updated = updateAutomation(automation.id, body.data);
+    const updated = updateAutomation(automation.id, body.data, user.id);
     return ok({ automation: updated });
   } catch (error) {
     return badRequest(error instanceof Error ? error.message : "Invalid automation update");
@@ -89,14 +89,14 @@ export async function DELETE(
   _request: Request,
   context: { params: Promise<{ automationId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
 
   if (!params.success) {
     return badRequest("Invalid automation id");
   }
 
-  const deleted = deleteAutomation(params.data.automationId);
+  const deleted = deleteAutomation(params.data.automationId, user.id);
   if (!deleted) {
     return badRequest("Automation not found", 404);
   }

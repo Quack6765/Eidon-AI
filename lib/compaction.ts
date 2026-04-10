@@ -4,6 +4,7 @@ import { getSettings } from "@/lib/settings";
 import {
   bumpConversation,
   getConversation,
+  getConversationOwnerId,
   isVisibleMessage,
   listMessages,
   markMessagesCompacted
@@ -575,6 +576,7 @@ export function buildPromptMessages(input: {
   userInput?: string;
   maxAttachmentTextTokens?: number;
   memoriesEnabled?: boolean;
+  memoryUserId?: string;
 }): PromptMessage[] {
   const remainingAttachmentTextTokens = {
     value: input.maxAttachmentTextTokens ?? Number.POSITIVE_INFINITY
@@ -589,7 +591,7 @@ export function buildPromptMessages(input: {
   }
 
   if (input.memoriesEnabled) {
-    const memories = listMemories();
+    const memories = listMemories(input.memoryUserId);
     if (memories.length > 0) {
       systemParts.push(
         "<memory>\n" +
@@ -668,7 +670,8 @@ export async function ensureCompactedContext(
     throw new Error("Conversation not found");
   }
 
-  const persona = personaId ? getPersona(personaId) : null;
+  const conversationOwnerId = getConversationOwnerId(conversationId);
+  const persona = personaId ? getPersona(personaId, conversationOwnerId ?? undefined) : null;
   const personaContent = persona?.content;
 
   const allowedPromptTokens =
@@ -703,7 +706,8 @@ export async function ensureCompactedContext(
         messages: visibleMessages,
         activeMemoryNodes,
         maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
-        memoriesEnabled
+        memoriesEnabled,
+        memoryUserId: conversationOwnerId ?? undefined
       });
       const promptTokens = estimatePromptTokens(promptMessages);
 
@@ -735,7 +739,8 @@ export async function ensureCompactedContext(
               messages: visibleMessages,
               activeMemoryNodes: scored,
               maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
-              memoriesEnabled
+              memoriesEnabled,
+              memoryUserId: conversationOwnerId ?? undefined
             }).reduce((t, m) => {
               if (typeof m.content === "string") return t + estimateTextTokens(m.content) + 12;
               return t + estimatePromptContentTokens(m.content) + 12;
@@ -757,7 +762,8 @@ export async function ensureCompactedContext(
           messages: visibleMessages,
           activeMemoryNodes: selectedNodes,
           maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
-          memoriesEnabled
+          memoriesEnabled,
+          memoryUserId: conversationOwnerId ?? undefined
         });
 
         return {
@@ -801,7 +807,8 @@ export async function ensureCompactedContext(
           personaContent,
           messages: [lastUserMessage],
           activeMemoryNodes: remainingNodes,
-          memoriesEnabled
+          memoriesEnabled,
+          memoryUserId: conversationOwnerId ?? undefined
         });
         return { promptMessages, promptTokens: estimatePromptTokens(promptMessages), didCompact };
       }

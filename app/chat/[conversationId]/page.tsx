@@ -33,12 +33,12 @@ export default async function ConversationPage({
 }: {
   params: Promise<{ conversationId: string }>;
 }) {
-  await requireUser();
+  const user = await requireUser();
   const { conversationId } = await params;
-  const conversationPage = listConversationsPage();
-  const folders = listFolders();
-  const conversation = getConversation(conversationId);
-  const settings = getSanitizedSettings();
+  const conversationPage = listConversationsPage({ userId: user.id });
+  const folders = listFolders(user.id);
+  const conversation = getConversation(conversationId, user.id);
+  const settings = getSanitizedSettings(user.id);
 
   if (!conversation) {
     notFound();

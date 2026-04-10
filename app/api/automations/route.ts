@@ -20,12 +20,12 @@ const createSchema = z.object({
 });
 
 export async function GET() {
-  await requireUser();
-  return ok({ automations: listAutomations() });
+  const user = await requireUser();
+  return ok({ automations: listAutomations(user.id) });
 }
 
 export async function POST(request: Request) {
-  await requireUser();
+  const user = await requireUser();
   const body = createSchema.safeParse(await request.json());
 
   if (!body.success) {
@@ -36,12 +36,12 @@ export async function POST(request: Request) {
     return badRequest("Provider profile not found", 404);
   }
 
-  if (body.data.personaId && !getPersona(body.data.personaId)) {
+  if (body.data.personaId && !getPersona(body.data.personaId, user.id)) {
     return badRequest("Persona not found", 404);
   }
 
   try {
-    return ok({ automation: createAutomation(body.data) }, { status: 201 });
+    return ok({ automation: createAutomation(body.data, user.id) }, { status: 201 });
   } catch (error) {
     return badRequest(error instanceof Error ? error.message : "Invalid automation data");
   }

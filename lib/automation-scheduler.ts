@@ -4,6 +4,7 @@ import {
   attachConversationToRun,
   createAutomationRun,
   getAutomation,
+  getAutomationOwnerId,
   getAutomationRun,
   listAutomationRuns,
   listAutomations,
@@ -104,7 +105,9 @@ async function executeAutomationRun(
     return;
   }
 
-  if (automation.personaId && !getPersona(automation.personaId)) {
+  const automationOwnerId = getAutomationOwnerId(automation.id);
+
+  if (automation.personaId && !getPersona(automation.personaId, automationOwnerId ?? undefined)) {
     updateAutomationRunStatus(runId, {
       status: "failed",
       errorMessage: "Persona not found",
@@ -130,7 +133,7 @@ async function executeAutomationRun(
     origin: "automation",
     automationId: automation.id,
     automationRunId: run.id
-  });
+  }, automationOwnerId ?? undefined);
   attachConversationToRun(run.id, conversation.id);
   updateAutomationRunStatus(run.id, {
     status: "running",
@@ -255,11 +258,19 @@ async function processDueAutomation(
 
 export async function runAutomationNow(
   automationId: string,
-  dependencies: SchedulerDependencies & {
+  userIdOrDependencies:
+    | string
+    | (SchedulerDependencies & {
+        triggerSource?: "manual_run" | "manual_retry";
+      })
+    | undefined = undefined,
+  maybeDependencies: SchedulerDependencies & {
     triggerSource?: "manual_run" | "manual_retry";
   } = {}
 ) {
-  const automation = getAutomation(automationId);
+  const userId = typeof userIdOrDependencies === "string" ? userIdOrDependencies : undefined;
+  const dependencies = typeof userIdOrDependencies === "string" ? maybeDependencies : (userIdOrDependencies ?? {});
+  const automation = getAutomation(automationId, userId);
   if (!automation) {
     return null;
   }
@@ -284,17 +295,24 @@ export async function runAutomationNow(
 
 export async function retryAutomationRunNow(
   runId: string,
-  dependencies: SchedulerDependencies = {}
+  userIdOrDependencies: string | SchedulerDependencies | undefined = undefined,
+  maybeDependencies: SchedulerDependencies = {}
 ) {
-  const currentRun = getAutomationRun(runId);
+  const userId = typeof userIdOrDependencies === "string" ? userIdOrDependencies : undefined;
+  const dependencies = typeof userIdOrDependencies === "string" ? maybeDependencies : (userIdOrDependencies ?? {});
+  const currentRun = getAutomationRun(runId, userId);
   if (!currentRun) {
     return null;
   }
 
-  return runAutomationNow(currentRun.automationId, {
+  const retryDependencies = {
     ...dependencies,
-    triggerSource: "manual_retry"
-  });
+    triggerSource: "manual_retry" as const
+  };
+
+  return userId
+    ? runAutomationNow(currentRun.automationId, userId, retryDependencies)
+    : runAutomationNow(currentRun.automationId, retryDependencies);
 }
 
 export function createAutomationScheduler(dependencies: SchedulerDependencies = {}) {

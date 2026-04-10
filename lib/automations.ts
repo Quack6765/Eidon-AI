@@ -232,26 +232,53 @@ function rowToAutomationRun(row: AutomationRunRow): AutomationRun {
   };
 }
 
-export function getAutomationRun(runId: string) {
-  const row = getDb()
-    .prepare(
-      `SELECT
-        id,
-        automation_id,
-        conversation_id,
-        scheduled_for,
-        started_at,
-        finished_at,
-        status,
-        error_message,
-        trigger_source,
-        created_at
-       FROM automation_runs
-       WHERE id = ?`
-    )
-    .get(runId) as AutomationRunRow | undefined;
+export function getAutomationRun(runId: string, userId?: string) {
+  const row = (userId
+    ? getDb()
+        .prepare(
+          `SELECT
+            r.id,
+            r.automation_id,
+            r.conversation_id,
+            r.scheduled_for,
+            r.started_at,
+            r.finished_at,
+            r.status,
+            r.error_message,
+            r.trigger_source,
+            r.created_at
+           FROM automation_runs r
+           JOIN automations a ON a.id = r.automation_id
+           WHERE r.id = ? AND a.user_id = ?`
+        )
+        .get(runId, userId)
+    : getDb()
+        .prepare(
+          `SELECT
+            id,
+            automation_id,
+            conversation_id,
+            scheduled_for,
+            started_at,
+            finished_at,
+            status,
+            error_message,
+            trigger_source,
+            created_at
+           FROM automation_runs
+           WHERE id = ?`
+        )
+        .get(runId)) as AutomationRunRow | undefined;
 
   return row ? rowToAutomationRun(row) : null;
+}
+
+export function getAutomationOwnerId(automationId: string) {
+  const row = getDb()
+    .prepare("SELECT user_id FROM automations WHERE id = ?")
+    .get(automationId) as { user_id: string | null } | undefined;
+
+  return row?.user_id ?? null;
 }
 
 function getLatestAutomationRun(automationId: string) {
@@ -301,7 +328,7 @@ function refreshAutomationRunSummary(automationId: string, updatedAt: string) {
     );
 }
 
-export function createAutomation(input: CreateAutomationInput) {
+export function createAutomation(input: CreateAutomationInput, userId?: string) {
   const timestamp = nowIso();
   const automation = normalizeAutomationSchedule({
     id: createId("auto"),
@@ -340,6 +367,7 @@ export function createAutomation(input: CreateAutomationInput) {
     .prepare(
       `INSERT INTO automations (
         id,
+        user_id,
         name,
         prompt,
         provider_profile_id,
@@ -357,10 +385,11 @@ export function createAutomation(input: CreateAutomationInput) {
         last_status,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       automation.id,
+      userId ?? null,
       automation.name,
       automation.prompt,
       automation.providerProfileId,
@@ -446,9 +475,10 @@ export function createAutomationRun(input: {
 
 export function triggerAutomationNow(
   automationId: string,
-  triggerSource: Extract<AutomationTriggerSource, "manual_run" | "manual_retry"> = "manual_run"
+  triggerSource: Extract<AutomationTriggerSource, "manual_run" | "manual_retry"> = "manual_run",
+  userId?: string
 ) {
-  const automation = getAutomation(automationId);
+  const automation = getAutomation(automationId, userId);
   if (!automation) return null;
 
   const run = createAutomationRun({
@@ -464,76 +494,133 @@ export function triggerAutomationNow(
   return run;
 }
 
-export function listAutomations(): Automation[] {
-  const rows = getDb()
-    .prepare(
-      `SELECT
-        id,
-        name,
-        prompt,
-        provider_profile_id,
-        persona_id,
-        schedule_kind,
-        interval_minutes,
-        calendar_frequency,
-        time_of_day,
-        days_of_week,
-        enabled,
-        next_run_at,
-        last_scheduled_for,
-        last_started_at,
-        last_finished_at,
-        last_status,
-        created_at,
-        updated_at
-       FROM automations
-       ORDER BY updated_at DESC, id DESC`
-    )
-    .all() as AutomationRow[];
+export function listAutomations(userId?: string): Automation[] {
+  const rows = (userId
+    ? getDb()
+        .prepare(
+          `SELECT
+            id,
+            name,
+            prompt,
+            provider_profile_id,
+            persona_id,
+            schedule_kind,
+            interval_minutes,
+            calendar_frequency,
+            time_of_day,
+            days_of_week,
+            enabled,
+            next_run_at,
+            last_scheduled_for,
+            last_started_at,
+            last_finished_at,
+            last_status,
+            created_at,
+            updated_at
+           FROM automations
+           WHERE user_id = ?
+           ORDER BY updated_at DESC, id DESC`
+        )
+        .all(userId)
+    : getDb()
+        .prepare(
+          `SELECT
+            id,
+            name,
+            prompt,
+            provider_profile_id,
+            persona_id,
+            schedule_kind,
+            interval_minutes,
+            calendar_frequency,
+            time_of_day,
+            days_of_week,
+            enabled,
+            next_run_at,
+            last_scheduled_for,
+            last_started_at,
+            last_finished_at,
+            last_status,
+            created_at,
+            updated_at
+           FROM automations
+           ORDER BY updated_at DESC, id DESC`
+        )
+        .all()) as AutomationRow[];
 
   return rows.map(rowToAutomation);
 }
 
-export function getAutomation(id: string) {
-  const row = getDb()
-    .prepare(
-      `SELECT
-        id,
-        name,
-        prompt,
-        provider_profile_id,
-        persona_id,
-        schedule_kind,
-        interval_minutes,
-        calendar_frequency,
-        time_of_day,
-        days_of_week,
-        enabled,
-        next_run_at,
-        last_scheduled_for,
-        last_started_at,
-        last_finished_at,
-        last_status,
-        created_at,
-        updated_at
-       FROM automations
-       WHERE id = ?`
-    )
-    .get(id) as AutomationRow | undefined;
+export function getAutomation(id: string, userId?: string) {
+  const row = (userId
+    ? getDb()
+        .prepare(
+          `SELECT
+            id,
+            name,
+            prompt,
+            provider_profile_id,
+            persona_id,
+            schedule_kind,
+            interval_minutes,
+            calendar_frequency,
+            time_of_day,
+            days_of_week,
+            enabled,
+            next_run_at,
+            last_scheduled_for,
+            last_started_at,
+            last_finished_at,
+            last_status,
+            created_at,
+            updated_at
+           FROM automations
+           WHERE id = ? AND user_id = ?`
+        )
+        .get(id, userId)
+    : getDb()
+        .prepare(
+          `SELECT
+            id,
+            name,
+            prompt,
+            provider_profile_id,
+            persona_id,
+            schedule_kind,
+            interval_minutes,
+            calendar_frequency,
+            time_of_day,
+            days_of_week,
+            enabled,
+            next_run_at,
+            last_scheduled_for,
+            last_started_at,
+            last_finished_at,
+            last_status,
+            created_at,
+            updated_at
+           FROM automations
+           WHERE id = ?`
+        )
+        .get(id)) as AutomationRow | undefined;
 
   return row ? rowToAutomation(row) : null;
 }
 
-export function deleteAutomation(id: string) {
-  const result = getDb()
-    .prepare("DELETE FROM automations WHERE id = ?")
-    .run(id);
+export function deleteAutomation(id: string, userId?: string) {
+  const result = userId
+    ? getDb()
+        .prepare("DELETE FROM automations WHERE id = ? AND user_id = ?")
+        .run(id, userId)
+    : getDb()
+        .prepare("DELETE FROM automations WHERE id = ?")
+        .run(id);
 
   return result.changes > 0;
 }
 
-export function updateAutomation(id: string, patch: UpdateAutomationInput) {
-  const current = getAutomation(id);
+export function updateAutomation(id: string, patch: UpdateAutomationInput, userId?: string) {
+  const current = getAutomation(id, userId);
   if (!current) return null;
 
   const next = normalizeAutomationSchedule({
@@ -558,48 +645,92 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput) {
     next.nextRunAt = getNextAutomationRunAt(next, next.updatedAt, env.TZ);
   }
 
-  getDb()
-    .prepare(
-      `UPDATE automations
-       SET name = ?,
-           prompt = ?,
-           provider_profile_id = ?,
-           persona_id = ?,
-           schedule_kind = ?,
-           interval_minutes = ?,
-           calendar_frequency = ?,
-           time_of_day = ?,
-           days_of_week = ?,
-           enabled = ?,
-           next_run_at = ?,
-           last_scheduled_for = ?,
-           last_started_at = ?,
-           last_finished_at = ?,
-           last_status = ?,
-           updated_at = ?
-       WHERE id = ?`
-    )
-    .run(
-      next.name,
-      next.prompt,
-      next.providerProfileId,
-      next.personaId,
-      next.scheduleKind,
-      next.intervalMinutes,
-      next.calendarFrequency,
-      next.timeOfDay,
-      JSON.stringify(next.daysOfWeek),
-      next.enabled ? 1 : 0,
-      next.nextRunAt,
-      next.lastScheduledFor,
-      next.lastStartedAt,
-      next.lastFinishedAt,
-      next.lastStatus,
-      next.updatedAt,
-      id
-    );
+  if (userId) {
+    getDb()
+      .prepare(
+        `UPDATE automations
+         SET name = ?,
+             prompt = ?,
+             provider_profile_id = ?,
+             persona_id = ?,
+             schedule_kind = ?,
+             interval_minutes = ?,
+             calendar_frequency = ?,
+             time_of_day = ?,
+             days_of_week = ?,
+             enabled = ?,
+             next_run_at = ?,
+             last_scheduled_for = ?,
+             last_started_at = ?,
+             last_finished_at = ?,
+             last_status = ?,
+             updated_at = ?
+         WHERE id = ? AND user_id = ?`
+      )
+      .run(
+        next.name,
+        next.prompt,
+        next.providerProfileId,
+        next.personaId,
+        next.scheduleKind,
+        next.intervalMinutes,
+        next.calendarFrequency,
+        next.timeOfDay,
+        JSON.stringify(next.daysOfWeek),
+        next.enabled ? 1 : 0,
+        next.nextRunAt,
+        next.lastScheduledFor,
+        next.lastStartedAt,
+        next.lastFinishedAt,
+        next.lastStatus,
+        next.updatedAt,
+        id,
+        userId
+      );
+  } else {
+    getDb()
+      .prepare(
+        `UPDATE automations
+         SET name = ?,
+             prompt = ?,
+             provider_profile_id = ?,
+             persona_id = ?,
+             schedule_kind = ?,
+             interval_minutes = ?,
+             calendar_frequency = ?,
+             time_of_day = ?,
+             days_of_week = ?,
+             enabled = ?,
+             next_run_at = ?,
+             last_scheduled_for = ?,
+             last_started_at = ?,
+             last_finished_at = ?,
+             last_status = ?,
+             updated_at = ?
+         WHERE id = ?`
+      )
+      .run(
+        next.name,
+        next.prompt,
+        next.providerProfileId,
+        next.personaId,
+        next.scheduleKind,
+        next.intervalMinutes,
+        next.calendarFrequency,
+        next.timeOfDay,
+        JSON.stringify(next.daysOfWeek),
+        next.enabled ? 1 : 0,
+        next.nextRunAt,
+        next.lastScheduledFor,
+        next.lastStartedAt,
+        next.lastFinishedAt,
+        next.lastStatus,
+        next.updatedAt,
+        id
+      );
+  }
 
-  const updated = getAutomation(id);
+  const updated = getAutomation(id, userId);
 
   void import("@/lib/automation-scheduler")
     .then(({ wakeAutomationSchedulers }) => wakeAutomationSchedulers())
@@ -608,25 +739,45 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput) {
   return updated;
 }
 
-export function listAutomationRuns(automationId: string): AutomationRun[] {
-  const rows = getDb()
-    .prepare(
-      `SELECT
-        id,
-        automation_id,
-        conversation_id,
-        scheduled_for,
-        started_at,
-        finished_at,
-        status,
-        error_message,
-        trigger_source,
-        created_at
-       FROM automation_runs
-       WHERE automation_id = ?
-       ORDER BY scheduled_for DESC, created_at DESC, id DESC`
-    )
-    .all(automationId) as AutomationRunRow[];
+export function listAutomationRuns(automationId: string, userId?: string): AutomationRun[] {
+  const rows = (userId
+    ? getDb()
+        .prepare(
+          `SELECT
+            r.id,
+            r.automation_id,
+            r.conversation_id,
+            r.scheduled_for,
+            r.started_at,
+            r.finished_at,
+            r.status,
+            r.error_message,
+            r.trigger_source,
+            r.created_at
+           FROM automation_runs r
+           JOIN automations a ON a.id = r.automation_id
+           WHERE r.automation_id = ? AND a.user_id = ?
+           ORDER BY r.scheduled_for DESC, r.created_at DESC, r.id DESC`
+        )
+        .all(automationId, userId)
+    : getDb()
+        .prepare(
+          `SELECT
+            id,
+            automation_id,
+            conversation_id,
+            scheduled_for,
+            started_at,
+            finished_at,
+            status,
+            error_message,
+            trigger_source,
+            created_at
+           FROM automation_runs
+           WHERE automation_id = ?
+           ORDER BY scheduled_for DESC, created_at DESC, id DESC`
+        )
+        .all(automationId)) as AutomationRunRow[];
 
   return rows.map(rowToAutomationRun);
 }
@@ -672,11 +823,11 @@ export function updateAutomationRunStatus(runId: string, input: UpdateAutomation
   return getAutomationRun(runId);
 }
 
-export function retryAutomationRun(runId: string) {
-  const currentRun = getAutomationRun(runId);
+export function retryAutomationRun(runId: string, userId?: string) {
+  const currentRun = getAutomationRun(runId, userId);
   if (!currentRun) return null;
 
-  return triggerAutomationNow(currentRun.automationId, "manual_retry");
+  return triggerAutomationNow(currentRun.automationId, "manual_retry", userId);
 }
 
 export function listQueuedAutomationRuns() {

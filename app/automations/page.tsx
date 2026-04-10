@@ -8,13 +8,13 @@ import { listFolders } from "@/lib/folders";
 export const dynamic = "force-dynamic";
 
 export default async function AutomationsPage() {
-  await requireUser();
-  const automations = listAutomations();
+  const user = await requireUser();
+  const automations = listAutomations(user.id);
 
   return (
     <Shell
-      conversationPage={listConversationsPage()}
-      folders={listFolders()}
+      conversationPage={listConversationsPage({ userId: user.id })}
+      folders={listFolders(user.id)}
       automations={automations}
     >
       <AutomationsWorkspace automation={null} runs={[]} />

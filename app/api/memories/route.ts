@@ -8,7 +8,7 @@ import type { MemoryCategory } from "@/lib/types";
 const VALID_CATEGORIES: MemoryCategory[] = ["personal", "preference", "work", "location", "other"];
 
 export async function GET(request: Request) {
-  await requireUser();
+  const user = await requireUser();
   const url = new URL(request.url);
   const category = url.searchParams.get("category");
   const search = url.searchParams.get("search");
@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     filter.search = search;
   }
 
-  return ok({ memories: listMemories(Object.keys(filter).length ? filter : undefined) });
+  return ok({ memories: listMemories(user.id, Object.keys(filter).length ? filter : undefined) });
 }
 
 const createSchema = z.object({
@@ -30,9 +30,9 @@ const createSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  await requireUser();
+  const user = await requireUser();
   const body = createSchema.safeParse(await request.json());
   if (!body.success) return badRequest("Invalid memory data");
 
-  return ok({ memory: createMemory(body.data.content, body.data.category) }, { status: 201 });
+  return ok({ memory: createMemory(body.data.content, body.data.category, user.id) }, { status: 201 });
 }

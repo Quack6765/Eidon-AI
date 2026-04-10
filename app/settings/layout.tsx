@@ -6,9 +6,9 @@ import { requireUser } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsLayout({ children }: { children: React.ReactNode }) {
-  await requireUser();
-  const conversationPage = listConversationsPage();
-  const folders = listFolders();
+  const user = await requireUser();
+  const conversationPage = listConversationsPage({ userId: user.id });
+  const folders = listFolders(user.id);
 
   return (
     <Shell conversationPage={conversationPage} folders={folders}>

@@ -14,9 +14,9 @@ export default async function AutomationPage({
 }: {
   params: Promise<{ automationId: string }>;
 }) {
-  await requireUser();
+  const user = await requireUser();
   const { automationId } = await params;
-  const automation = getAutomation(automationId);
+  const automation = getAutomation(automationId, user.id);
 
   if (!automation) {
     notFound();
@@ -24,11 +24,11 @@ export default async function AutomationPage({
 
   return (
     <Shell
-      conversationPage={listConversationsPage()}
-      folders={listFolders()}
-      automations={listAutomations()}
+      conversationPage={listConversationsPage({ userId: user.id })}
+      folders={listFolders(user.id)}
+      automations={listAutomations(user.id)}
     >
-      <AutomationsWorkspace automation={automation} runs={listAutomationRuns(automation.id)} />
+      <AutomationsWorkspace automation={automation} runs={listAutomationRuns(automation.id, user.id)} />
     </Shell>
   );
 }

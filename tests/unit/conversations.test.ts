@@ -17,6 +17,7 @@ import {
   getConversation,
   getMessage,
   isVisibleMessage,
+  listConversations,
   listConversationsPage,
   listMessages,
   listVisibleMessages,
@@ -27,6 +28,7 @@ import {
   updateMessageAction
 } from "@/lib/conversations";
 import { getSettings, listProviderProfiles, updateSettings } from "@/lib/settings";
+import { createLocalUser } from "@/lib/users";
 
 const { generateConversationTitle } = vi.hoisted(() => ({
   generateConversationTitle: vi.fn()
@@ -195,6 +197,28 @@ describe("conversation helpers", () => {
     expect(getConversation(conversation.id)?.titleGenerationStatus).toBe("pending");
   });
 
+  it("retrieves messages only for the requested user", async () => {
+    const userA = await createLocalUser({
+      username: "message-owner-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "message-owner-b",
+      password: "Password123!",
+      role: "user"
+    });
+    const conversation = createConversation("Owned chat", null, undefined, userA.id);
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Private message"
+    });
+
+    expect(getMessage(message.id, userA.id)?.content).toBe("Private message");
+    expect(getMessage(message.id, userB.id)).toBeNull();
+  });
+
   it("claims title generation only once for the first user message", () => {
     const conversation = createConversation();
     const firstMessage = createMessage({
@@ -249,6 +273,26 @@ describe("conversation helpers", () => {
     expect(listConversationsPage().conversations.map((conversation) => conversation.title)).toEqual([
       "Manual thread"
     ]);
+  });
+
+  it("returns only the current owner's manual conversations", async () => {
+    const userA = await createLocalUser({
+      username: "conversation-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "conversation-b",
+      password: "Password123!",
+      role: "user"
+    });
+
+    createConversation("Admin thread", null, undefined, userA.id);
+    createConversation("Member thread", null, undefined, userB.id);
+
+    expect(listConversations(userA.id)).toHaveLength(1);
+    expect(listConversations(userB.id)).toHaveLength(1);
+    expect(listConversations(userA.id)[0]?.id).not.toBe(listConversations(userB.id)[0]?.id);
   });
 
   it("deletes empty conversations only when they have no messages", () => {

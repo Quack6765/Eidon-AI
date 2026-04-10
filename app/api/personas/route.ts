@@ -5,8 +5,8 @@ import { listPersonas, createPersona } from "@/lib/personas";
 import { badRequest, ok } from "@/lib/http";
 
 export async function GET() {
-  await requireUser();
-  return ok({ personas: listPersonas() });
+  const user = await requireUser();
+  return ok({ personas: listPersonas(user.id) });
 }
 
 const createSchema = z.object({
@@ -15,9 +15,9 @@ const createSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  await requireUser();
+  const user = await requireUser();
   const body = createSchema.safeParse(await request.json());
   if (!body.success) return badRequest("Invalid persona data");
 
-  return ok({ persona: createPersona(body.data) }, { status: 201 });
+  return ok({ persona: createPersona(body.data, user.id) }, { status: 201 });
 }

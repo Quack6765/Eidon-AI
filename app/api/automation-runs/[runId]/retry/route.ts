@@ -13,14 +13,14 @@ export async function POST(
   _request: Request,
   context: { params: Promise<{ runId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
 
   if (!params.success) {
     return badRequest("Invalid automation run id");
   }
 
-  const existingRun = getAutomationRun(params.data.runId);
+  const existingRun = getAutomationRun(params.data.runId, user.id);
   if (!existingRun) {
     return badRequest("Automation run not found", 404);
   }
@@ -29,7 +29,7 @@ export async function POST(
     return badRequest("Only failed automation runs can be retried");
   }
 
-  const run = await retryAutomationRunNow(params.data.runId);
+  const run = await retryAutomationRunNow(params.data.runId, user.id);
 
   if (!run) {
     return badRequest("Automation run not found", 404);

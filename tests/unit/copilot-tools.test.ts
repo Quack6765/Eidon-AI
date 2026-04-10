@@ -45,6 +45,7 @@ function makeMcpServer(overrides: Partial<McpServer> = {}): McpServer {
   return {
     id: "server_1",
     name: "Test Server",
+    slug: "test_server",
     url: "http://localhost:8080",
     headers: {},
     transport: "streamable_http",

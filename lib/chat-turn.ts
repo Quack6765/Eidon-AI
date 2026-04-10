@@ -7,6 +7,7 @@ import {
   createMessageAction,
   generateConversationTitleFromFirstUserMessage,
   getConversation,
+  getConversationOwnerId,
   setConversationActive,
   updateMessage,
   updateMessageAction
@@ -62,6 +63,7 @@ export async function startChatTurn(
   if (!conversation) {
     return { status: "skipped", errorMessage: "Conversation not found" };
   }
+  const conversationOwnerId = getConversationOwnerId(conversationId);
 
   const settings =
     (conversation.providerProfileId
@@ -121,7 +123,10 @@ export async function startChatTurn(
   manager.setActive(conversationId, true);
   globalEmitter.emit("status", conversationId, "streaming");
   setConversationActive(conversation.id, true);
-  manager.broadcastAll({ type: "conversation_activity", conversationId, isActive: true });
+  manager.broadcastAll(
+    { type: "conversation_activity", conversationId, isActive: true },
+    conversationOwnerId ?? undefined
+  );
 
   const control = registerChatTurn(conversationId);
 
@@ -200,6 +205,7 @@ export async function startChatTurn(
       mcpToolSets,
       visionMcpServer,
       memoriesEnabled: appSettings.memoriesEnabled,
+      memoryUserId: conversationOwnerId ?? undefined,
       mcpTimeout: appSettings.mcpTimeout,
       abortSignal: control.abortController.signal,
       throwIfStopped: control.throwIfStopped,
@@ -359,7 +365,10 @@ export async function startChatTurn(
     clearChatTurn(conversationId);
     setConversationActive(conversation.id, false);
     manager.setActive(conversationId, false);
-    manager.broadcastAll({ type: "conversation_activity", conversationId, isActive: false });
+    manager.broadcastAll(
+      { type: "conversation_activity", conversationId, isActive: false },
+      conversationOwnerId ?? undefined
+    );
     globalEmitter.emit("status", conversationId, "completed");
   }
 }

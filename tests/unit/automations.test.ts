@@ -15,6 +15,7 @@ import {
 } from "@/lib/automations";
 import { createPersona } from "@/lib/personas";
 import { getSettings } from "@/lib/settings";
+import { createLocalUser } from "@/lib/users";
 import { GET as listAutomationsRoute, POST as createAutomationRoute } from "@/app/api/automations/route";
 import {
   DELETE as deleteAutomationRoute,
@@ -33,6 +34,23 @@ vi.mock("@/lib/auth", () => ({
     updatedAt: "2026-01-01T00:00:00.000Z"
   })
 }));
+
+let routeUserId = "user_test";
+
+beforeEach(async () => {
+  const routeUser = await createLocalUser({
+    username: "route-user",
+    password: "Password123!",
+    role: "admin"
+  });
+  routeUserId = routeUser.id;
+
+  const auth = await import("@/lib/auth");
+  vi.mocked(auth.requireUser).mockResolvedValue({
+    ...routeUser,
+    passwordManagedBy: "local"
+  });
+});
 
 async function json<T>(response: Response) {
   return response.json() as Promise<T>;
@@ -65,6 +83,55 @@ describe("automations schema", () => {
 });
 
 describe("automations storage", () => {
+  it("lists only automations owned by the requested user", async () => {
+    const userA = await createLocalUser({
+      username: "automation-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "automation-b",
+      password: "Password123!",
+      role: "user"
+    });
+
+    createAutomation(
+      {
+        name: "Admin automation",
+        prompt: "A",
+        providerProfileId: "profile_default",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 5,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: []
+      },
+      userA.id
+    );
+    createAutomation(
+      {
+        name: "Member automation",
+        prompt: "B",
+        providerProfileId: "profile_default",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 5,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: []
+      },
+      userB.id
+    );
+
+    expect(listAutomations(userA.id).map((automation) => automation.name)).toEqual([
+      "Admin automation"
+    ]);
+    expect(listAutomations(userB.id).map((automation) => automation.name)).toEqual([
+      "Member automation"
+    ]);
+  });
+
   it("computes the first next run at creation time for enabled schedules", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
@@ -592,7 +659,7 @@ describe("automation routes", () => {
   });
 
   it("gets, updates, and deletes individual automations", async () => {
-    const persona = createPersona({ name: "Ops", content: "Be precise." });
+    const persona = createPersona({ name: "Ops", content: "Be precise." }, routeUserId);
     const automation = createAutomation({
       name: "Weekly brief",
       prompt: "Prepare brief",
@@ -603,7 +670,7 @@ describe("automation routes", () => {
       calendarFrequency: "weekly",
       timeOfDay: "09:00",
       daysOfWeek: [1, 3]
-    });
+    }, routeUserId);
 
     const getResponse = await getAutomationRoute(new Request(`http://localhost/api/automations/${automation.id}`), {
       params: Promise.resolve({ automationId: automation.id })
@@ -678,7 +745,7 @@ describe("automation routes", () => {
       calendarFrequency: null,
       timeOfDay: null,
       daysOfWeek: []
-    });
+    }, routeUserId);
 
     const patchResponse = await updateAutomationRoute(
       new Request(`http://localhost/api/automations/${automation.id}`, {
@@ -720,7 +787,7 @@ describe("automation routes", () => {
       calendarFrequency: null,
       timeOfDay: null,
       daysOfWeek: []
-    });
+    }, routeUserId);
 
     createAutomationRun({
       automationId: automation.id,
@@ -763,7 +830,7 @@ describe("automation routes", () => {
       calendarFrequency: null,
       timeOfDay: null,
       daysOfWeek: []
-    });
+    }, routeUserId);
 
     const failedRun = createAutomationRun({
       automationId: automation.id,
@@ -801,7 +868,7 @@ describe("automation routes", () => {
       calendarFrequency: null,
       timeOfDay: null,
       daysOfWeek: []
-    });
+    }, routeUserId);
 
     const completedRun = createAutomationRun({
       automationId: automation.id,

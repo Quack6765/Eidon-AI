@@ -8,10 +8,10 @@ import { getSanitizedSettings } from "@/lib/settings";
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  await requireUser();
-  const conversationPage = listConversationsPage();
-  const folders = listFolders();
-  const settings = getSanitizedSettings();
+  const user = await requireUser();
+  const conversationPage = listConversationsPage({ userId: user.id });
+  const folders = listFolders(user.id);
+  const settings = getSanitizedSettings(user.id);
 
   return (
     <Shell conversationPage={conversationPage} folders={folders}>

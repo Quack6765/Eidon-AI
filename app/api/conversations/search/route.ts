@@ -3,7 +3,7 @@ import { searchConversations } from "@/lib/conversations";
 import { badRequest, ok } from "@/lib/http";
 
 export async function GET(request: Request) {
-  await requireUser();
+  const user = await requireUser();
   const url = new URL(request.url);
   const query = url.searchParams.get("q") ?? "";
 
@@ -11,5 +11,5 @@ export async function GET(request: Request) {
     return badRequest("Missing search query");
   }
 
-  return ok({ conversations: searchConversations(query) });
+  return ok({ conversations: searchConversations(query, user.id) });
 }

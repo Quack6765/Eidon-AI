@@ -34,6 +34,8 @@ export function createAutomationScheduler() {
 }
 
 export async function handleConnection(ws: WebSocket, token: string | null) {
+  let sessionUserId: string | null = null;
+
   if (isPasswordLoginEnabled()) {
     if (!token) {
       ws.send(serializeServerMessage({ type: "error", message: "Authentication required" }));
@@ -47,13 +49,15 @@ export async function handleConnection(ws: WebSocket, token: string | null) {
       ws.close();
       return;
     }
+
+    sessionUserId = session.userId;
   }
 
   const mgr = getConversationManager();
-  mgr.addConnection(ws);
+  mgr.addConnection(ws, sessionUserId);
   const currentSubscription = new Set<string>();
 
-  const active = listActiveConversations();
+  const active = listActiveConversations(sessionUserId ?? undefined);
   ws.send(serializeServerMessage({
     type: "ready",
     activeConversations: active.map(c => ({
@@ -66,7 +70,7 @@ export async function handleConnection(ws: WebSocket, token: string | null) {
   ws.on("message", (raw: WebSocket.RawData) => {
     const msg = parseClientMessage(raw.toString());
     if (!msg) return;
-    handleMessage(mgr, ws, msg, currentSubscription);
+    handleMessage(mgr, ws, msg, currentSubscription, sessionUserId);
   });
 
   ws.on("close", () => {
@@ -82,22 +86,26 @@ function handleMessage(
   mgr: ConversationManager,
   ws: WebSocket,
   msg: ClientMessage,
-  currentSubscription: Set<string>
+  currentSubscription: Set<string>,
+  currentUserId: string | null
 ) {
   switch (msg.type) {
     case "subscribe": {
+      const snapshot = getConversationSnapshot(msg.conversationId, currentUserId ?? undefined);
+      if (!snapshot) {
+        ws.send(serializeServerMessage({ type: "error", message: "Conversation not found" }));
+        break;
+      }
+
       currentSubscription.add(msg.conversationId);
       mgr.subscribe(msg.conversationId, ws);
-      const snapshot = getConversationSnapshot(msg.conversationId);
-      if (snapshot) {
-        ws.send(serializeServerMessage({
-          type: "snapshot",
-          conversationId: msg.conversationId,
-          messages: snapshot.messages,
-          actions: snapshot.messages.flatMap(m => m.actions ?? []),
-          segments: snapshot.messages.flatMap(m => m.textSegments ?? [])
-        }));
-      }
+      ws.send(serializeServerMessage({
+        type: "snapshot",
+        conversationId: msg.conversationId,
+        messages: snapshot.messages,
+        actions: snapshot.messages.flatMap(m => m.actions ?? []),
+        segments: snapshot.messages.flatMap(m => m.textSegments ?? [])
+      }));
       break;
     }
     case "unsubscribe": {
@@ -106,7 +114,7 @@ function handleMessage(
       break;
     }
     case "message": {
-      handleUserMessage(mgr, ws, msg).catch((error) => {
+      handleUserMessage(mgr, ws, msg, currentUserId).catch((error) => {
         console.error("[ws-handler] handleUserMessage failed:", error);
         ws.send(serializeServerMessage({
           type: "error",
@@ -119,6 +127,10 @@ function handleMessage(
       break;
     }
     case "stop": {
+      if (currentUserId && !getConversationSnapshot(msg.conversationId, currentUserId)) {
+        ws.send(serializeServerMessage({ type: "error", message: "Conversation not found" }));
+        break;
+      }
       requestStop(msg.conversationId);
       break;
     }
@@ -128,8 +140,14 @@ function handleMessage(
 async function handleUserMessage(
   mgr: ConversationManager,
   ws: WebSocket,
-  msg: { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string }
+  msg: { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string },
+  currentUserId: string | null
 ) {
+  if (currentUserId && !getConversationSnapshot(msg.conversationId, currentUserId)) {
+    ws.send(serializeServerMessage({ type: "error", message: "Conversation not found" }));
+    return;
+  }
+
   if (!mgr.hasSubscribers(msg.conversationId)) {
     mgr.subscribe(msg.conversationId, ws);
   }
