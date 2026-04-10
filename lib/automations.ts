@@ -347,6 +347,10 @@ export function createAutomation(input: CreateAutomationInput) {
       automation.updatedAt
     );
 
+  void import("@/lib/automation-scheduler")
+    .then(({ wakeAutomationSchedulers }) => wakeAutomationSchedulers())
+    .catch(() => {});
+
   return automation;
 }
 
@@ -411,11 +415,17 @@ export function triggerAutomationNow(
   const automation = getAutomation(automationId);
   if (!automation) return null;
 
-  return createAutomationRun({
+  const run = createAutomationRun({
     automationId,
     scheduledFor: nowIso(),
     triggerSource
   });
+
+  void import("@/lib/automation-scheduler")
+    .then(({ wakeAutomationSchedulers }) => wakeAutomationSchedulers())
+    .catch(() => {});
+
+  return run;
 }
 
 export function listAutomations(): Automation[] {
@@ -547,7 +557,13 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput) {
       id
     );
 
-  return getAutomation(id);
+  const updated = getAutomation(id);
+
+  void import("@/lib/automation-scheduler")
+    .then(({ wakeAutomationSchedulers }) => wakeAutomationSchedulers())
+    .catch(() => {});
+
+  return updated;
 }
 
 export function listAutomationRuns(automationId: string): AutomationRun[] {
@@ -619,6 +635,29 @@ export function retryAutomationRun(runId: string) {
   if (!currentRun) return null;
 
   return triggerAutomationNow(currentRun.automationId, "manual_retry");
+}
+
+export function listQueuedAutomationRuns() {
+  const rows = getDb()
+    .prepare(
+      `SELECT
+        id,
+        automation_id,
+        conversation_id,
+        scheduled_for,
+        started_at,
+        finished_at,
+        status,
+        error_message,
+        trigger_source,
+        created_at
+       FROM automation_runs
+       WHERE status = 'queued'
+       ORDER BY scheduled_for ASC, created_at ASC, id ASC`
+    )
+    .all() as AutomationRunRow[];
+
+  return rows.map(rowToAutomationRun);
 }
 
 export function listDueAutomations(nowIsoString: string): Automation[] {

@@ -382,6 +382,9 @@ describe("automations storage", () => {
     });
 
     const manualRun = triggerAutomationNow(automation.id);
+    if (!manualRun) {
+      throw new Error("Expected a manual run to be queued");
+    }
     const retryRun = retryAutomationRun(manualRun.id);
 
     expect(manualRun.triggerSource).toBe("manual_run");
@@ -419,7 +422,7 @@ describe("automation routes", () => {
     expect(createResponse.status).toBe(201);
     expect((await json<{ automation: { name: string } }>(createResponse)).automation.name).toBe("API automation");
 
-    const listResponse = await listAutomationsRoute(new Request("http://localhost/api/automations"));
+    const listResponse = await listAutomationsRoute();
 
     expect(listResponse.status).toBe(200);
     expect((await json<{ automations: Array<{ name: string }> }>(listResponse)).automations).toEqual([
