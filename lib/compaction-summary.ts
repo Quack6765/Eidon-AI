@@ -113,6 +113,34 @@ function parseSummaryLines(content: string): CompactionSummarySections {
   const sections = createEmptySections();
   let activeHeading: CompactionSummaryHeading | null = null;
 
+  const trimmedContent = content.trim();
+  if (trimmedContent.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(trimmedContent) as Record<string, unknown>;
+      const unresolvedItems = Array.isArray(parsed.unresolvedItems)
+        ? parsed.unresolvedItems.filter((item): item is string => typeof item === "string")
+        : [];
+      const importantReferences = Array.isArray(parsed.importantReferences)
+        ? parsed.importantReferences.filter((item): item is string => typeof item === "string")
+        : [];
+
+      if (unresolvedItems.length) {
+        sections["Open Tasks"].push(...unresolvedItems.map(normalizeSummaryItem).filter(Boolean));
+      }
+      if (importantReferences.length) {
+        sections["Artifact References"].push(
+          ...importantReferences.map(normalizeSummaryItem).filter(Boolean)
+        );
+      }
+
+      if (sections["Open Tasks"].length || sections["Artifact References"].length) {
+        return sections;
+      }
+    } catch {
+      // Fall back to the line-based parser for malformed legacy JSON.
+    }
+  }
+
   for (const rawLine of content.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line) {

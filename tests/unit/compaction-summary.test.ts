@@ -110,6 +110,20 @@ describe("compaction summary helpers", () => {
     expect(parsed.sections["Artifact References"]).toEqual(["lib/compaction.ts"]);
   });
 
+  it("treats legacy JSON unresolved items and references as open tasks and artifact refs", () => {
+    const legacySummary = JSON.stringify({
+      factualCommitments: ["Use deterministic selection"],
+      unresolvedItems: ["Wire the fallback path"],
+      importantReferences: ["lib/compaction.ts"]
+    });
+
+    const parsed = parseCompactionSummary(legacySummary);
+
+    expect(parsed.sections["Open Tasks"]).toEqual(["Wire the fallback path"]);
+    expect(parsed.sections["Artifact References"]).toEqual(["lib/compaction.ts"]);
+    expect(extractOpenTasks(legacySummary)).toEqual(["Wire the fallback path"]);
+  });
+
   it("selects open-task nodes first, then artifact matches, then recency backfill within budget", () => {
     const nodes: MemoryNode[] = [
       makeNode({
@@ -210,6 +224,48 @@ describe("compaction summary helpers", () => {
       "mem_artifact",
       "mem_backfill"
     ]);
+  });
+
+  it("prioritizes legacy JSON summaries with unresolved items during selection", () => {
+    const nodes: MemoryNode[] = [
+      makeNode({
+        id: "mem_legacy",
+        content: JSON.stringify({
+          unresolvedItems: ["Follow up on live fallback"],
+          importantReferences: ["lib/compaction.ts"]
+        }),
+        summaryTokenCount: 20
+      }),
+      makeNode({
+        id: "mem_recent",
+        content: [
+          "Goal:",
+          "- Recent generic memory",
+          "Constraints:",
+          "- No unresolved work",
+          "Actions Taken:",
+          "- Reviewed the prompt path",
+          "Outcomes:",
+          "- Ready for fallback",
+          "Open Tasks:",
+          "- None",
+          "Artifact References:",
+          "- tests/unit/compaction-summary.test.ts",
+          "Time Span:",
+          "- 2026-04-10T11:10:00.000Z -> 2026-04-10T11:15:00.000Z"
+        ].join("\n"),
+        summaryTokenCount: 20,
+        createdAt: "2026-04-10T11:10:00.000Z"
+      })
+    ];
+
+    const selected = selectCompactionMemoryNodes({
+      activeNodes: nodes,
+      latestUserMessage: "Please inspect lib/compaction.ts",
+      summaryTokenBudget: 20
+    });
+
+    expect(selected.map((node) => node.id)).toEqual(["mem_legacy"]);
   });
 
   it("matches artifact references with boundary-safe exactness", () => {

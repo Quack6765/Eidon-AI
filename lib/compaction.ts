@@ -56,7 +56,7 @@ function getActiveMemoryNodes(conversationId: string): MemoryNode[] {
         created_at
        FROM memory_nodes
        WHERE conversation_id = ? AND superseded_by_node_id IS NULL
-       ORDER BY created_at ASC`
+       ORDER BY created_at ASC, rowid ASC`
     )
     .all(conversationId) as Array<{
     id: string;
@@ -93,6 +93,10 @@ function getVisibleConversationMessages(messages: Message[]) {
   return messages.filter((message) => !message.compactedAt);
 }
 
+function getCompletedTurns(messages: Message[]) {
+  return groupCompletedTurns(getVisibleConversationMessages(messages));
+}
+
 function getLatestVisibleUserMessage(messages: Message[]) {
   return [...messages]
     .reverse()
@@ -101,7 +105,7 @@ function getLatestVisibleUserMessage(messages: Message[]) {
 
 function getFreshConversationMessages(messages: Message[], freshCompletedTurnCount: number) {
   const visibleMessages = getVisibleConversationMessages(messages);
-  const completedTurns = groupCompletedTurns(visibleMessages);
+  const completedTurns = getCompletedTurns(messages);
   const selectedTurns = completedTurns.slice(
     Math.max(0, completedTurns.length - freshCompletedTurnCount)
   );
@@ -256,15 +260,15 @@ async function summarizeBlocks(
 }
 
 function getCompactionEligibleMessages(messages: Message[], freshTailCount: number) {
-  const rawMessages = messages.filter(
-    (message) => message.role !== "system" && !message.compactedAt
-  );
+  const completedTurns = getCompletedTurns(messages);
 
-  if (rawMessages.length <= freshTailCount) {
+  if (completedTurns.length <= freshTailCount) {
     return [];
   }
 
-  return rawMessages.slice(0, rawMessages.length - freshTailCount);
+  return completedTurns
+    .slice(0, completedTurns.length - freshTailCount)
+    .flatMap((turn) => [turn.user, turn.assistant]);
 }
 
 function truncateTextToTokenLimit(text: string, maxTokens: number) {
@@ -684,25 +688,6 @@ export async function ensureCompactedContext(
         };
       }
 
-      const eligible = getCompactionEligibleMessages(messages, effectiveFreshTail);
-      const compacted = await compactLeafMessages(conversationId, eligible, settings, {
-        onCompactionStart: beginCompaction
-      });
-
-      if (compacted) {
-        didCompact = true;
-        effectiveFreshTail = settings.freshTailCount;
-
-        await condenseMemoryNodes(conversationId, settings);
-        bumpConversation(conversationId);
-        continue;
-      }
-
-      if (effectiveFreshTail > MIN_FRESH_TAIL) {
-        effectiveFreshTail = Math.max(MIN_FRESH_TAIL, effectiveFreshTail - Math.ceil(effectiveFreshTail / 3));
-        continue;
-      }
-
       const latestUserMessage = getLatestVisibleUserMessage(visibleMessages);
       const renderedMemoryNodes = getRenderableMemoryNodes(activeMemoryNodes);
       const basePromptMessages = buildPrompt(promptHistoryMessages, []);
@@ -724,6 +709,28 @@ export async function ensureCompactedContext(
             didCompact
           };
         }
+      }
+
+      const eligible = getCompactionEligibleMessages(messages, effectiveFreshTail);
+      const compacted = await compactLeafMessages(conversationId, eligible, settings, {
+        onCompactionStart: beginCompaction
+      });
+
+      if (compacted) {
+        didCompact = true;
+        effectiveFreshTail = settings.freshTailCount;
+
+        await condenseMemoryNodes(conversationId, settings);
+        bumpConversation(conversationId);
+        continue;
+      }
+
+      if (effectiveFreshTail > MIN_FRESH_TAIL) {
+        effectiveFreshTail = Math.max(
+          MIN_FRESH_TAIL,
+          effectiveFreshTail - Math.ceil(effectiveFreshTail / 3)
+        );
+        continue;
       }
 
       const openTaskNodes = renderedMemoryNodes.filter((node) => extractOpenTasks(node.content).length > 0);
