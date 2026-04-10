@@ -197,7 +197,7 @@ describe("settings storage", () => {
     expect(defaults.visionMcpServerId).toBeNull();
   });
 
-  it("stores profiles with reasoning disabled and auto-compaction off", () => {
+  it("stores profiles with reasoning disabled and memories off", () => {
     const alpha = buildProfile({
       id: "profile_alpha",
       name: "Alpha",
@@ -208,15 +208,19 @@ describe("settings storage", () => {
     updateSettings({
       defaultProviderProfileId: alpha.id,
       skillsEnabled: false,
-      autoCompaction: false,
       memoriesEnabled: false,
       providerProfiles: [alpha]
     });
 
     expect(getSettings().skillsEnabled).toBe(false);
-    expect(getSettings().autoCompaction).toBe(false);
     expect(getSettings().memoriesEnabled).toBe(false);
     expect(listProviderProfiles()[0].reasoningSummaryEnabled).toBe(false);
+  });
+
+  it("does not expose auto-compaction in sanitized settings", () => {
+    const sanitized = getSanitizedSettings();
+
+    expect("autoCompaction" in sanitized).toBe(false);
   });
 
   it("returns the default MCP timeout from persisted settings", () => {
