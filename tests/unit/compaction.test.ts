@@ -322,6 +322,158 @@ describe("lossless compaction", () => {
     expect(precedingAssistant?.compactedAt).not.toBeNull();
   });
 
+  it("replays only the freshest completed turns instead of the whole visible raw history", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 20000,
+      compactionThreshold: 0.9
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
+      .run(2, "profile_default");
+
+    const conversation = createConversation();
+
+    for (let index = 0; index < 5; index += 1) {
+      createMessage({
+        conversationId: conversation.id,
+        role: "user",
+        content: `Turn ${index} user ${"context ".repeat(12)}`
+      });
+      createMessage({
+        conversationId: conversation.id,
+        role: "assistant",
+        content: `Turn ${index} assistant ${"context ".repeat(12)}`,
+        thinkingContent: `Internal reasoning for turn ${index}`
+      });
+    }
+
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Current user question"
+    });
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const promptText = result.promptMessages.map((message) => getPromptText(message)).join("\n");
+
+    expect(result.didCompact).toBe(false);
+    expect(promptText).toContain("Turn 4 user");
+    expect(promptText).toContain("Turn 4 assistant");
+    expect(promptText).toContain("Turn 3 user");
+    expect(promptText).toContain("Turn 3 assistant");
+    expect(promptText).toContain("Current user question");
+    expect(promptText).not.toContain("Turn 0 user");
+    expect(promptText).not.toContain("Turn 1 assistant");
+  });
+
+  it("records a compaction event when a leaf summary is created", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4096,
+      compactionThreshold: 0.7
+    });
+
+    const conversation = createConversation();
+
+    for (let index = 0; index < 18; index += 1) {
+      createMessage({
+        conversationId: conversation.id,
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `Message ${index} ${"dense context ".repeat(90)}`,
+        thinkingContent: index % 2 === 1 ? "Reasoning " + "step ".repeat(24) : ""
+      });
+    }
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const stats = getConversationDebugStats(conversation.id);
+
+    expect(result.didCompact).toBe(true);
+    expect(stats.latestCompactionAt).not.toBeNull();
+  });
+
+  it("keeps memory nodes active when prompt pressure forces a fallback", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4096,
+      compactionThreshold: 0.7
+    });
+
+    const conversation = createConversation();
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Need the latest summary"
+    });
+
+    const timestamp = new Date().toISOString();
+    getDb()
+      .prepare(
+        `INSERT INTO memory_nodes (
+          id,
+          conversation_id,
+          type,
+          depth,
+          content,
+          source_start_message_id,
+          source_end_message_id,
+          source_token_count,
+          summary_token_count,
+          child_node_ids,
+          superseded_by_node_id,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+      )
+      .run(
+        "mem_fallback",
+        conversation.id,
+        "leaf_summary",
+        0,
+        [
+          "Goal:",
+          "- Keep this node available",
+          "Constraints:",
+          "- Do not delete memory nodes as pressure relief",
+          "Actions Taken:",
+          "- Added deterministic fallback handling",
+          "Outcomes:",
+          "- The prompt should fall back to the current user message instead",
+          "Open Tasks:",
+          "- Review the fallback path",
+          "Artifact References:",
+          "- lib/compaction.ts",
+          "Time Span:",
+          "- 2026-04-10T10:00:00.000Z -> 2026-04-10T10:30:00.000Z",
+          "Additional context:",
+          "x ".repeat(1200)
+        ].join("\n"),
+        "msg_mem_start",
+        "msg_mem_end",
+        80,
+        80,
+        JSON.stringify([]),
+        timestamp
+      );
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const memoryNode = getDb()
+      .prepare(
+        `SELECT superseded_by_node_id
+         FROM memory_nodes
+         WHERE id = ?`
+      )
+      .get("mem_fallback") as { superseded_by_node_id: string | null } | undefined;
+
+    expect(result.promptMessages.some((message) => getPromptText(message).includes("Need the latest summary"))).toBe(true);
+    expect(memoryNode?.superseded_by_node_id).toBeNull();
+  });
+
   it("keeps rendered memory nodes when the prompt already fits even if stored summary counts are inflated", async () => {
     updateDefaultProfile({
       modelContextLimit: 12000,
@@ -481,7 +633,7 @@ describe("lossless compaction", () => {
 
   it("compacts older turns without creating a visible compaction notice message", async () => {
     updateDefaultProfile({
-      modelContextLimit: 6000,
+      modelContextLimit: 4096,
       compactionThreshold: 0.7
     });
 

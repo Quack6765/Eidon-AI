@@ -12,7 +12,11 @@ import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { getPersona } from "@/lib/personas";
 import { callProviderText } from "@/lib/provider";
-import { buildCompactionSummaryPromptBody } from "@/lib/compaction-summary";
+import {
+  buildCompactionSummaryPromptBody,
+  extractOpenTasks,
+  selectCompactionMemoryNodes
+} from "@/lib/compaction-summary";
 import {
   groupCompletedTurns,
   isEmptyStreamingAssistantPlaceholder,
@@ -33,25 +37,6 @@ type CompactionLifecycleHooks = {
   onCompactionStart?: () => void;
   onCompactionEnd?: () => void;
 };
-
-function dropOldestMemoryNode(conversationId: string): boolean {
-  const db = getDb();
-  const node = db.prepare(
-    `SELECT id FROM memory_nodes
-     WHERE conversation_id = ? AND superseded_by_node_id IS NULL
-     ORDER BY depth DESC, created_at ASC
-     LIMIT 1`
-  ).get(conversationId) as { id: string } | undefined;
-
-  if (!node) return false;
-
-  db.prepare(
-    `UPDATE memory_nodes SET superseded_by_node_id = '_dropped'
-     WHERE id = ?`
-  ).run(node.id);
-
-  return true;
-}
 
 function getActiveMemoryNodes(conversationId: string): MemoryNode[] {
   const rows = getDb()
@@ -102,6 +87,73 @@ function getActiveMemoryNodes(conversationId: string): MemoryNode[] {
     supersededByNodeId: row.superseded_by_node_id,
     createdAt: row.created_at
   }));
+}
+
+function getVisibleConversationMessages(messages: Message[]) {
+  return messages.filter((message) => !message.compactedAt);
+}
+
+function getLatestVisibleUserMessage(messages: Message[]) {
+  return [...messages]
+    .reverse()
+    .find((message) => message.role === "user" && !message.compactedAt) ?? null;
+}
+
+function getFreshConversationMessages(messages: Message[], freshCompletedTurnCount: number) {
+  const visibleMessages = getVisibleConversationMessages(messages);
+  const completedTurns = groupCompletedTurns(visibleMessages);
+  const selectedTurns = completedTurns.slice(
+    Math.max(0, completedTurns.length - freshCompletedTurnCount)
+  );
+  const freshMessages = selectedTurns.flatMap((turn) => [turn.user, turn.assistant]);
+  const latestUserMessage = getLatestVisibleUserMessage(visibleMessages);
+
+  if (latestUserMessage && !freshMessages.some((message) => message.id === latestUserMessage.id)) {
+    freshMessages.push(latestUserMessage);
+  }
+
+  return freshMessages;
+}
+
+function estimateRenderedMemoryNodeTokens(node: MemoryNode): number {
+  return Math.max(0, estimateTextTokens(renderMemoryNode(node.content)));
+}
+
+function getRenderableMemoryNodes(activeNodes: MemoryNode[]): MemoryNode[] {
+  return activeNodes.map((node) => ({
+    ...node,
+    summaryTokenCount: estimateRenderedMemoryNodeTokens(node)
+  }));
+}
+
+function insertCompactionEvent(input: {
+  conversationId: string;
+  nodeId: string;
+  sourceStartMessageId: string;
+  sourceEndMessageId: string;
+  noticeMessageId?: string | null;
+}) {
+  getDb()
+    .prepare(
+      `INSERT INTO compaction_events (
+        id,
+        conversation_id,
+        node_id,
+        source_start_message_id,
+        source_end_message_id,
+        notice_message_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      createId("cmp"),
+      input.conversationId,
+      input.nodeId,
+      input.sourceStartMessageId,
+      input.sourceEndMessageId,
+      input.noticeMessageId ?? null,
+      new Date().toISOString()
+    );
 }
 
 function insertMemoryNode(input: {
@@ -391,6 +443,12 @@ async function compactLeafMessages(
     childNodeIds: []
   });
 
+  insertCompactionEvent({
+    conversationId,
+    nodeId: node.id,
+    sourceStartMessageId: completedTurns[0].user.id,
+    sourceEndMessageId: completedTurns[completedTurns.length - 1].assistant.id
+  });
   markMessagesCompacted(completedTurnMessages.map((message) => message.id));
   bumpConversation(conversationId);
 
@@ -598,33 +656,30 @@ export async function ensureCompactedContext(
   };
 
   try {
-    while (true) {
-      const messages = listMessages(conversationId);
-      const activeMemoryNodes = getActiveMemoryNodes(conversationId);
-      const visibleMessages = messages.filter((message) => !message.compactedAt);
-      const promptMessages = buildPromptMessages({
+    const buildPrompt = (messages: Message[], activeMemoryNodes: MemoryNode[]) =>
+      buildPromptMessages({
         systemPrompt: settings.systemPrompt,
         personaContent,
-        messages: visibleMessages,
+        messages,
         activeMemoryNodes,
         maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
         memoriesEnabled
       });
+
+    while (true) {
+      const messages = listMessages(conversationId);
+      const activeMemoryNodes = getActiveMemoryNodes(conversationId);
+      const visibleMessages = getVisibleConversationMessages(messages);
+      const visibleSystemMessages = visibleMessages.filter((message) => message.role === "system");
+      const freshMessages = getFreshConversationMessages(messages, effectiveFreshTail);
+      const promptHistoryMessages = [...visibleSystemMessages, ...freshMessages];
+      const promptMessages = buildPrompt(promptHistoryMessages, activeMemoryNodes);
       const promptTokens = estimatePromptTokens(promptMessages);
 
       if (promptTokens <= compactionLimit) {
-        const finalPromptMessages = buildPromptMessages({
-          systemPrompt: settings.systemPrompt,
-          personaContent,
-          messages: visibleMessages,
-          activeMemoryNodes,
-          maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
-          memoriesEnabled
-        });
-
         return {
-          promptMessages: finalPromptMessages,
-          promptTokens: estimatePromptTokens(finalPromptMessages),
+          promptMessages,
+          promptTokens,
           didCompact
         };
       }
@@ -648,24 +703,60 @@ export async function ensureCompactedContext(
         continue;
       }
 
-      const dropped = dropOldestMemoryNode(conversationId);
+      const latestUserMessage = getLatestVisibleUserMessage(visibleMessages);
+      const renderedMemoryNodes = getRenderableMemoryNodes(activeMemoryNodes);
+      const basePromptMessages = buildPrompt(promptHistoryMessages, []);
+      const remainingBudget = Math.max(compactionLimit - estimatePromptTokens(basePromptMessages), 0);
+      const selectedMemoryNodes = selectCompactionMemoryNodes({
+        activeNodes: renderedMemoryNodes,
+        latestUserMessage: latestUserMessage?.content ?? "",
+        summaryTokenBudget: remainingBudget
+      });
 
-      if (dropped) {
-        continue;
+      if (selectedMemoryNodes.length) {
+        const selectedPromptMessages = buildPrompt(promptHistoryMessages, selectedMemoryNodes);
+        const selectedPromptTokens = estimatePromptTokens(selectedPromptMessages);
+
+        if (selectedPromptTokens <= compactionLimit) {
+          return {
+            promptMessages: selectedPromptMessages,
+            promptTokens: selectedPromptTokens,
+            didCompact
+          };
+        }
       }
 
-      const lastUserMessage = [...messages].reverse().find(m => m.role === "user" && !m.compactedAt);
-      const remainingNodes = getActiveMemoryNodes(conversationId);
+      const openTaskNodes = renderedMemoryNodes.filter((node) => extractOpenTasks(node.content).length > 0);
+      const latestUserOnlyMessages = latestUserMessage ? [latestUserMessage] : [];
+      const latestUserOnlyHistoryMessages = [...visibleSystemMessages, ...latestUserOnlyMessages];
+      const latestUserOnlyPrompt = buildPrompt(latestUserOnlyHistoryMessages, []);
+      const fallbackBudget = Math.max(compactionLimit - estimatePromptTokens(latestUserOnlyPrompt), 0);
+      const fallbackMemoryNodes = selectCompactionMemoryNodes({
+        activeNodes: openTaskNodes,
+        latestUserMessage: latestUserMessage?.content ?? "",
+        summaryTokenBudget: fallbackBudget
+      });
 
-      if (lastUserMessage) {
-        const promptMessages = buildPromptMessages({
-          systemPrompt: settings.systemPrompt,
-          personaContent,
-          messages: [lastUserMessage],
-          activeMemoryNodes: remainingNodes,
-          memoriesEnabled
-        });
-        return { promptMessages, promptTokens: estimatePromptTokens(promptMessages), didCompact };
+      if (latestUserMessage) {
+        const fallbackPromptMessages = buildPrompt(latestUserOnlyHistoryMessages, fallbackMemoryNodes);
+        const fallbackPromptTokens = estimatePromptTokens(fallbackPromptMessages);
+
+        if (fallbackPromptTokens <= compactionLimit) {
+          return {
+            promptMessages: fallbackPromptMessages,
+            promptTokens: fallbackPromptTokens,
+            didCompact
+          };
+        }
+
+        const latestUserOnlyTokens = estimatePromptTokens(latestUserOnlyPrompt);
+        if (latestUserOnlyTokens <= compactionLimit) {
+          return {
+            promptMessages: latestUserOnlyPrompt,
+            promptTokens: latestUserOnlyTokens,
+            didCompact
+          };
+        }
       }
 
       throw new Error(
