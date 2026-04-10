@@ -394,7 +394,8 @@ describe("db", () => {
     expect(personaColumns).toContain("user_id");
     expect(memoryColumns).toContain("user_id");
     expect(legacyAutomationColumns).toContain("user_id");
-    expect(authSessionForeignKeys).toContain("admin_users");
+    expect(authSessionForeignKeys).toContain("users");
+    expect(authSessionForeignKeys).not.toContain("admin_users");
     expect(settingsColumns).toEqual(
       expect.arrayContaining(["default_provider_profile_id", "skills_enabled"])
     );
