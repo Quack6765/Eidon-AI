@@ -65,6 +65,36 @@ describe("automations schema", () => {
 });
 
 describe("automations storage", () => {
+  it("computes the first next run at creation time for enabled schedules", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
+    const previousTz = process.env.TZ;
+    process.env.TZ = "America/Toronto";
+
+    try {
+      const automation = createAutomation({
+        name: "Morning summary",
+        prompt: "Summarize priorities",
+        providerProfileId: "profile_default",
+        personaId: null,
+        scheduleKind: "calendar",
+        intervalMinutes: null,
+        calendarFrequency: "daily",
+        timeOfDay: "09:05",
+        daysOfWeek: []
+      });
+
+      expect(automation.nextRunAt).toBe("2026-04-10T13:05:00.000Z");
+    } finally {
+      if (previousTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTz;
+      }
+      vi.useRealTimers();
+    }
+  });
+
   it("creates interval automations with a minimum of 5 minutes", () => {
     expect(() =>
       createAutomation({
@@ -79,6 +109,24 @@ describe("automations storage", () => {
         daysOfWeek: []
       })
     ).toThrow("Interval automations must be at least 5 minutes");
+  });
+
+  it("preserves a disabled automation without scheduling its next run", () => {
+    const automation = createAutomation({
+      name: "Paused summary",
+      prompt: "Summarize priorities",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 15,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: [],
+      enabled: false
+    });
+
+    expect(automation.enabled).toBe(false);
+    expect(automation.nextRunAt).toBeNull();
   });
 
   it("creates an automation and a linked run record", () => {
@@ -105,32 +153,84 @@ describe("automations storage", () => {
   });
 
   it("updates automation schedule fields and persists them", () => {
-    const automation = createAutomation({
-      name: "Weekly sync",
-      prompt: "Prepare agenda",
-      providerProfileId: "profile_default",
-      personaId: null,
-      scheduleKind: "calendar",
-      intervalMinutes: null,
-      calendarFrequency: "weekly",
-      timeOfDay: "09:30",
-      daysOfWeek: [1, 3]
-    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
+    const previousTz = process.env.TZ;
+    process.env.TZ = "America/Toronto";
 
-    const updated = updateAutomation(automation.id, {
-      name: "Weekly leadership sync",
-      timeOfDay: "10:15",
-      daysOfWeek: [2, 4],
-      nextRunAt: "2026-04-10T14:15:00.000Z",
-      enabled: false
-    });
+    try {
+      const automation = createAutomation({
+        name: "Weekly sync",
+        prompt: "Prepare agenda",
+        providerProfileId: "profile_default",
+        personaId: null,
+        scheduleKind: "calendar",
+        intervalMinutes: null,
+        calendarFrequency: "weekly",
+        timeOfDay: "09:30",
+        daysOfWeek: [1, 3]
+      });
 
-    expect(updated).not.toBeNull();
-    expect(updated?.name).toBe("Weekly leadership sync");
-    expect(updated?.timeOfDay).toBe("10:15");
-    expect(updated?.daysOfWeek).toEqual([2, 4]);
-    expect(updated?.nextRunAt).toBe("2026-04-10T14:15:00.000Z");
-    expect(updated?.enabled).toBe(false);
+      const updated = updateAutomation(automation.id, {
+        name: "Weekly leadership sync",
+        timeOfDay: "10:15",
+        daysOfWeek: [2, 4],
+        nextRunAt: "2026-04-10T14:15:00.000Z",
+        enabled: false
+      });
+
+      expect(updated).not.toBeNull();
+      expect(updated?.name).toBe("Weekly leadership sync");
+      expect(updated?.timeOfDay).toBe("10:15");
+      expect(updated?.daysOfWeek).toEqual([2, 4]);
+      expect(updated?.nextRunAt).toBeNull();
+      expect(updated?.enabled).toBe(false);
+    } finally {
+      if (previousTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTz;
+      }
+      vi.useRealTimers();
+    }
+  });
+
+  it("recomputes the next run when the schedule changes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
+    const previousTz = process.env.TZ;
+    process.env.TZ = "America/Toronto";
+
+    try {
+      const automation = createAutomation({
+        name: "Morning summary",
+        prompt: "Summarize priorities",
+        providerProfileId: "profile_default",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 5,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: []
+      });
+
+      const updated = updateAutomation(automation.id, {
+        scheduleKind: "calendar",
+        intervalMinutes: null,
+        calendarFrequency: "daily",
+        timeOfDay: "09:05"
+      });
+
+      expect(updated?.timeOfDay).toBe("09:05");
+      expect(updated?.nextRunAt).toBe("2026-04-10T13:05:00.000Z");
+    } finally {
+      if (previousTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTz;
+      }
+      vi.useRealTimers();
+    }
   });
 
   it("requires weekly calendar automations to define weekdays and a time", () => {
@@ -161,6 +261,36 @@ describe("automations storage", () => {
         daysOfWeek: []
       })
     ).toThrow("Weekly automations require at least one weekday");
+  });
+
+  it("rejects invalid weekly weekdays and missing calendar frequencies", () => {
+    expect(() =>
+      createAutomation({
+        name: "Weekly with invalid day",
+        prompt: "Prompt",
+        providerProfileId: "profile_default",
+        personaId: null,
+        scheduleKind: "calendar",
+        intervalMinutes: null,
+        calendarFrequency: "weekly",
+        timeOfDay: "09:00",
+        daysOfWeek: [7]
+      })
+    ).toThrow("Weekly automations require weekdays between 0 and 6");
+
+    expect(() =>
+      createAutomation({
+        name: "Calendar without frequency",
+        prompt: "Prompt",
+        providerProfileId: "profile_default",
+        personaId: null,
+        scheduleKind: "calendar",
+        intervalMinutes: null,
+        calendarFrequency: null,
+        timeOfDay: "09:00",
+        daysOfWeek: []
+      })
+    ).toThrow("Calendar automations require a calendar frequency");
   });
 
   it("lists due automations and updates run lifecycle records", () => {
@@ -428,6 +558,37 @@ describe("automation routes", () => {
     expect((await json<{ automations: Array<{ name: string }> }>(listResponse)).automations).toEqual([
       expect.objectContaining({ name: "API automation" })
     ]);
+  });
+
+  it("respects the enabled flag when creating automations through the collection route", async () => {
+    const providerProfileId = getSettings().defaultProviderProfileId;
+
+    const createResponse = await createAutomationRoute(
+      new Request("http://localhost/api/automations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Paused API automation",
+          prompt: "Summarize",
+          providerProfileId,
+          personaId: null,
+          scheduleKind: "interval",
+          intervalMinutes: 15,
+          calendarFrequency: null,
+          timeOfDay: null,
+          daysOfWeek: [],
+          enabled: false
+        })
+      })
+    );
+
+    expect(createResponse.status).toBe(201);
+    expect(
+      (await json<{ automation: { enabled: boolean; nextRunAt: string | null } }>(createResponse)).automation
+    ).toMatchObject({
+      enabled: false,
+      nextRunAt: null
+    });
   });
 
   it("gets, updates, and deletes individual automations", async () => {

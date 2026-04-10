@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CalendarDays, Check, Clock3, Plus, Trash2 } from "lucide-react";
 
@@ -297,14 +298,23 @@ export function AutomationsSection() {
                 {automations.length} automation{automations.length === 1 ? "" : "s"}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={openNewAutomation}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] transition-all duration-200 hover:bg-white/[0.06] hover:text-[#f4f4f5]"
-              aria-label="Add automation"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/automations"
+                aria-label="Open automations workspace"
+                className="rounded-lg border border-white/6 px-3 py-1.5 text-[0.72rem] font-medium text-[#a1a1aa] transition-colors hover:border-white/12 hover:text-[#f4f4f5]"
+              >
+                Open workspace
+              </Link>
+              <button
+                type="button"
+                onClick={openNewAutomation}
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] transition-all duration-200 hover:bg-white/[0.06] hover:text-[#f4f4f5]"
+                aria-label="Add automation"
+              >
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         }
         listPanel={
@@ -542,19 +552,21 @@ export function AutomationsSection() {
                   ) : null}
                 </div>
 
-                <div className="flex gap-2 pt-2">
-                  <Button type="button" onClick={() => void saveAutomation()}>
-                    Save automation
-                  </Button>
+                <div className="flex flex-wrap items-center gap-2 pt-2">
+                  <div className="flex items-center gap-2">
+                    <Button type="button" onClick={() => void saveAutomation()}>
+                      Save automation
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={resetSelection}>
+                      Cancel
+                    </Button>
+                  </div>
                   {success ? (
                     <div className="flex items-center gap-1.5 text-sm text-emerald-400">
                       <Check className="h-3.5 w-3.5" />
                       {success}
                     </div>
                   ) : null}
-                  <Button type="button" variant="secondary" onClick={resetSelection}>
-                    Cancel
-                  </Button>
                 </div>
               </>
             ) : (

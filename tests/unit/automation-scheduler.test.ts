@@ -150,6 +150,42 @@ describe("automation scheduler", () => {
     ).toThrow("Calendar automations require a time of day");
   });
 
+  it("skips the current weekday when a weekly run time has already passed", async () => {
+    const { getNextAutomationRunAt } = await import("@/lib/automation-scheduler");
+
+    expect(
+      getNextAutomationRunAt(
+        {
+          scheduleKind: "calendar",
+          intervalMinutes: null,
+          calendarFrequency: "weekly",
+          timeOfDay: "09:30",
+          daysOfWeek: [1, 3]
+        },
+        "2026-04-13T14:00:00.000Z",
+        "America/Toronto"
+      )
+    ).toBe("2026-04-15T13:30:00.000Z");
+  });
+
+  it("throws when a weekly schedule has no eligible weekdays", async () => {
+    const { getNextAutomationRunAt } = await import("@/lib/automation-scheduler");
+
+    expect(() =>
+      getNextAutomationRunAt(
+        {
+          scheduleKind: "calendar",
+          intervalMinutes: null,
+          calendarFrequency: "weekly",
+          timeOfDay: "09:30",
+          daysOfWeek: []
+        },
+        "2026-04-10T10:00:00.000Z",
+        "UTC"
+      )
+    ).toThrow("Unable to compute next weekly automation run");
+  });
+
   it("marks older overdue slots as missed and executes only the latest due run", async () => {
     const { updateSettings } = await import("@/lib/settings");
     updateSettings({
@@ -270,6 +306,194 @@ describe("automation scheduler", () => {
       conversationOrigin: "automation",
       providerProfileId: "profile_scheduler"
     });
+  });
+
+  it("reuses the same in-flight run cycle for concurrent runOnce calls", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+
+    const control: { releaseRun: (() => void) | null } = { releaseRun: null };
+    const startChatTurn = vi
+      .fn<(
+        manager: ReturnType<typeof createConversationManager>,
+        conversationId: string,
+        content: string,
+        attachmentIds: string[],
+        personaId?: string
+        ) => Promise<ChatTurnResult>>()
+      .mockImplementation(
+        () =>
+          new Promise<ChatTurnResult>((resolve) => {
+            control.releaseRun = () => resolve({ status: "completed" });
+          })
+      );
+    const manager = createConversationManager();
+    const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+    const scheduler = createAutomationScheduler({
+      now: () => new Date("2026-04-10T12:00:00.000Z"),
+      timeZone: "UTC",
+      manager,
+      startChatTurn
+    });
+
+    const automation = createAutomation({
+      name: "Concurrent cycle",
+      prompt: "Run once",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 30,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    updateAutomation(automation.id, { nextRunAt: "2026-04-10T12:00:00.000Z" });
+
+    const firstRun = scheduler.runOnce();
+    const secondRun = scheduler.runOnce();
+
+    expect(startChatTurn).toHaveBeenCalledTimes(1);
+    if (!control.releaseRun) {
+      throw new Error("Expected the run to block before completion");
+    }
+    control.releaseRun();
+
+    await Promise.all([firstRun, secondRun]);
+    expect(listAutomationRuns(automation.id)[0]?.status).toBe("completed");
+  });
+
+  it("wakes at the exact next due time instead of waiting for the full poll interval", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
+    let scheduler: { start: () => void; stop: () => void } | null = null;
+
+    try {
+      const { updateSettings } = await import("@/lib/settings");
+      updateSettings({
+        defaultProviderProfileId: "profile_scheduler",
+        skillsEnabled: false,
+        providerProfiles: [createProviderProfile()]
+      });
+
+      const startChatTurn = vi
+        .fn<(
+          manager: ReturnType<typeof createConversationManager>,
+          conversationId: string,
+          content: string,
+          attachmentIds: string[],
+          personaId?: string
+        ) => Promise<ChatTurnResult>>()
+        .mockResolvedValue({ status: "completed" });
+      const manager = createConversationManager();
+      const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+      scheduler = createAutomationScheduler({
+        now: () => new Date(),
+        timeZone: "America/Toronto",
+        manager,
+        startChatTurn,
+        pollIntervalMs: 5 * 60_000
+      });
+
+      scheduler.start();
+
+      createAutomation({
+        name: "Morning summary",
+        prompt: "Summarize priorities",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "calendar",
+        intervalMinutes: null,
+        calendarFrequency: "daily",
+        timeOfDay: "09:05",
+        daysOfWeek: []
+      });
+
+      await vi.runAllTicks();
+      expect(startChatTurn).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(startChatTurn).toHaveBeenCalledTimes(1);
+    } finally {
+      scheduler?.stop();
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not schedule another timer after being stopped mid-cycle", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
+
+    const control: { releaseRun: (() => void) | null } = { releaseRun: null };
+    let scheduler: { start: () => void; stop: () => void } | null = null;
+
+    try {
+      const { updateSettings } = await import("@/lib/settings");
+      updateSettings({
+        defaultProviderProfileId: "profile_scheduler",
+        skillsEnabled: false,
+        providerProfiles: [createProviderProfile()]
+      });
+
+      const startChatTurn = vi
+        .fn<(
+          manager: ReturnType<typeof createConversationManager>,
+          conversationId: string,
+          content: string,
+          attachmentIds: string[],
+          personaId?: string
+        ) => Promise<ChatTurnResult>>()
+        .mockImplementation(
+          () =>
+            new Promise<ChatTurnResult>((resolve) => {
+              control.releaseRun = () => resolve({ status: "completed" });
+            })
+        );
+      const manager = createConversationManager();
+      const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+      scheduler = createAutomationScheduler({
+        now: () => new Date(),
+        timeZone: "America/Toronto",
+        manager,
+        startChatTurn,
+        pollIntervalMs: 5 * 60_000
+      });
+
+      scheduler.start();
+
+      createAutomation({
+        name: "Stop mid-cycle",
+        prompt: "Summarize priorities",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "calendar",
+        intervalMinutes: null,
+        calendarFrequency: "daily",
+        timeOfDay: "09:05",
+        daysOfWeek: []
+      });
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(startChatTurn).toHaveBeenCalledTimes(1);
+
+      scheduler.stop();
+      if (!control.releaseRun) {
+        throw new Error("Expected the in-flight run to wait for release");
+      }
+      control.releaseRun();
+      await vi.runAllTicks();
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+
+      expect(startChatTurn).toHaveBeenCalledTimes(1);
+    } finally {
+      scheduler?.stop();
+      vi.useRealTimers();
+    }
   });
 
   it("returns null when manually running a missing automation or retrying a missing run", async () => {

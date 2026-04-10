@@ -15,12 +15,18 @@ function isValidIanaTimeZone(value: string) {
   }
 }
 
+function getSystemTimeZone() {
+  const systemTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return isValidIanaTimeZone(systemTimeZone) ? systemTimeZone : "UTC";
+}
+
 const nodeEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   TZ: z
     .string()
     .min(1)
-    .default("UTC")
+    .optional()
+    .transform((value) => value ?? getSystemTimeZone())
     .refine(isValidIanaTimeZone, "TZ must be a valid IANA timezone"),
   EIDON_PASSWORD_LOGIN_ENABLED: z
     .enum(["true", "false"])

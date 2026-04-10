@@ -144,5 +144,24 @@ describe("automations section", () => {
     await waitFor(() => {
       expect(screen.getByText("Automation saved.")).toBeInTheDocument();
     });
+
+    const cancelButton = screen.getByRole("button", { name: "Cancel" });
+    const successMessage = screen.getByText("Automation saved.");
+    expect(
+      cancelButton.compareDocumentPosition(successMessage) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("links directly to the automations workspace from settings", async () => {
+    render(React.createElement(AutomationsSection));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add automation" })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("link", { name: "Open automations workspace" })).toHaveAttribute(
+      "href",
+      "/automations"
+    );
   });
 });

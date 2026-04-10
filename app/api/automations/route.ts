@@ -15,7 +15,8 @@ const createSchema = z.object({
   intervalMinutes: z.number().int().nullable(),
   calendarFrequency: z.enum(["daily", "weekly"]).nullable(),
   timeOfDay: z.string().nullable(),
-  daysOfWeek: z.array(z.number().int().min(0).max(6)).default([])
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).default([]),
+  enabled: z.boolean().default(true)
 });
 
 export async function GET() {

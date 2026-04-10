@@ -1,5 +1,7 @@
 import { getDb } from "@/lib/db";
+import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
+import { getNextAutomationRunAt } from "@/lib/automation-schedule";
 import type {
   Automation,
   AutomationCalendarFrequency,
@@ -51,18 +53,18 @@ type ScheduleInput = {
   daysOfWeek: number[];
 };
 
-type CreateAutomationInput = Omit<
-  Automation,
-  | "id"
-  | "enabled"
-  | "nextRunAt"
-  | "lastScheduledFor"
-  | "lastStartedAt"
-  | "lastFinishedAt"
-  | "lastStatus"
-  | "createdAt"
-  | "updatedAt"
->;
+type CreateAutomationInput = {
+  name: string;
+  prompt: string;
+  providerProfileId: string;
+  personaId: string | null;
+  scheduleKind: AutomationScheduleKind;
+  intervalMinutes: number | null;
+  calendarFrequency: AutomationCalendarFrequency | null;
+  timeOfDay: string | null;
+  daysOfWeek: number[];
+  enabled?: boolean;
+};
 
 type UpdateAutomationInput = Partial<
   Omit<Automation, "id" | "createdAt" | "updatedAt">
@@ -121,6 +123,33 @@ function normalizeAutomationSchedule(input: Automation): Automation {
     intervalMinutes: null,
     daysOfWeek
   };
+}
+
+function shouldRecomputeNextRunAt(
+  current: Automation,
+  next: Automation,
+  patch: UpdateAutomationInput
+) {
+  if ("nextRunAt" in patch) {
+    return false;
+  }
+
+  if (!next.enabled) {
+    return false;
+  }
+
+  if (current.nextRunAt === null) {
+    return true;
+  }
+
+  return (
+    patch.enabled !== undefined ||
+    patch.scheduleKind !== undefined ||
+    patch.intervalMinutes !== undefined ||
+    patch.calendarFrequency !== undefined ||
+    patch.timeOfDay !== undefined ||
+    patch.daysOfWeek !== undefined
+  );
 }
 
 function assertValidTimeOfDay(timeOfDay: string | null) {
@@ -285,7 +314,7 @@ export function createAutomation(input: CreateAutomationInput) {
     calendarFrequency: input.calendarFrequency,
     timeOfDay: input.timeOfDay,
     daysOfWeek: input.daysOfWeek,
-    enabled: true,
+    enabled: input.enabled ?? true,
     nextRunAt: null,
     lastScheduledFor: null,
     lastStartedAt: null,
@@ -302,6 +331,10 @@ export function createAutomation(input: CreateAutomationInput) {
     timeOfDay: automation.timeOfDay,
     daysOfWeek: automation.daysOfWeek
   });
+
+  const nextRunAt = automation.enabled
+    ? getNextAutomationRunAt(automation, timestamp, env.TZ)
+    : null;
 
   getDb()
     .prepare(
@@ -338,7 +371,7 @@ export function createAutomation(input: CreateAutomationInput) {
       automation.timeOfDay,
       JSON.stringify(automation.daysOfWeek),
       automation.enabled ? 1 : 0,
-      automation.nextRunAt,
+      nextRunAt,
       automation.lastScheduledFor,
       automation.lastStartedAt,
       automation.lastFinishedAt,
@@ -351,7 +384,10 @@ export function createAutomation(input: CreateAutomationInput) {
     .then(({ wakeAutomationSchedulers }) => wakeAutomationSchedulers())
     .catch(() => {});
 
-  return automation;
+  return {
+    ...automation,
+    nextRunAt
+  };
 }
 
 export function createAutomationRun(input: {
@@ -515,6 +551,12 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput) {
     timeOfDay: next.timeOfDay,
     daysOfWeek: next.daysOfWeek
   });
+
+  if (!next.enabled) {
+    next.nextRunAt = null;
+  } else if (shouldRecomputeNextRunAt(current, next, patch)) {
+    next.nextRunAt = getNextAutomationRunAt(next, next.updatedAt, env.TZ);
+  }
 
   getDb()
     .prepare(

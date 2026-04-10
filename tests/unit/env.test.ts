@@ -1,4 +1,4 @@
-import { parseEnv } from "@/lib/env";
+import { env, parseEnv } from "@/lib/env";
 
 describe("env validation", () => {
   it("falls back to local defaults outside production", async () => {
@@ -95,7 +95,7 @@ describe("env validation", () => {
     expect(env.TZ).toBe("America/Toronto");
   });
 
-  it("defaults the timezone env to UTC", () => {
+  it("defaults the timezone env to the current system timezone", () => {
     const env = parseEnv({
       NODE_ENV: "development",
       EIDON_PASSWORD_LOGIN_ENABLED: "true",
@@ -103,7 +103,11 @@ describe("env validation", () => {
       EIDON_DATA_DIR: ".test-data"
     });
 
-    expect(env.TZ).toBe("UTC");
+    expect(env.TZ).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+
+  it("returns undefined for non-string env proxy keys", () => {
+    expect(Reflect.get(env, Symbol.toStringTag)).toBeUndefined();
   });
 
   it("rejects invalid timezones", () => {

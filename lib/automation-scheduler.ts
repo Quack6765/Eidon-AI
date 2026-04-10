@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import { getNextAutomationRunAt } from "@/lib/automation-schedule";
 import {
   attachConversationToRun,
   createAutomationRun,
@@ -32,223 +33,47 @@ type SchedulerHandle = {
   wake: () => void;
 };
 
-type ScheduleShape = Pick<
-  Automation,
-  "scheduleKind" | "intervalMinutes" | "calendarFrequency" | "timeOfDay" | "daysOfWeek"
->;
-
-type ZonedParts = {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-};
-
 const DEFAULT_POLL_INTERVAL_MS = 5 * 60_000;
-const dateTimeFormatterCache = new Map<string, Intl.DateTimeFormat>();
-const activeSchedulers = new Set<SchedulerHandle>();
+const SCHEDULER_REGISTRY_KEY = Symbol.for("eidon.automation.schedulers");
 
-function getDateTimeFormatter(timeZone: string) {
-  let formatter = dateTimeFormatterCache.get(timeZone);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat("en-CA", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hourCycle: "h23"
-    });
-    dateTimeFormatterCache.set(timeZone, formatter);
-  }
-
-  return formatter;
-}
-
-function getZonedParts(date: Date, timeZone: string): ZonedParts {
-  const parts = getDateTimeFormatter(timeZone).formatToParts(date);
-  const values = Object.fromEntries(
-    parts
-      .filter((part) => part.type !== "literal")
-      .map((part) => [part.type, Number.parseInt(part.value, 10)])
-  ) as Record<string, number>;
-
-  return {
-    year: values.year,
-    month: values.month,
-    day: values.day,
-    hour: values.hour,
-    minute: values.minute,
-    second: values.second
+function getActiveSchedulers() {
+  const scope = globalThis as typeof globalThis & {
+    [SCHEDULER_REGISTRY_KEY]?: Set<SchedulerHandle>;
   };
-}
 
-function getTimeZoneOffsetMs(date: Date, timeZone: string) {
-  const parts = getZonedParts(date, timeZone);
-  const localAsUtc = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second
-  );
-  return localAsUtc - date.getTime();
-}
-
-function zonedDateTimeToUtcIso(parts: ZonedParts, timeZone: string) {
-  let guess = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second
-  );
-
-  for (let iteration = 0; iteration < 3; iteration += 1) {
-    const offset = getTimeZoneOffsetMs(new Date(guess), timeZone);
-    const refined = Date.UTC(
-      parts.year,
-      parts.month - 1,
-      parts.day,
-      parts.hour,
-      parts.minute,
-      parts.second
-    ) - offset;
-
-    if (refined === guess) {
-      break;
-    }
-
-    guess = refined;
+  if (!scope[SCHEDULER_REGISTRY_KEY]) {
+    scope[SCHEDULER_REGISTRY_KEY] = new Set<SchedulerHandle>();
   }
 
-  return new Date(guess).toISOString();
-}
-
-function addDays(parts: Pick<ZonedParts, "year" | "month" | "day">, days: number) {
-  const next = new Date(Date.UTC(parts.year, parts.month - 1, parts.day + days));
-  return {
-    year: next.getUTCFullYear(),
-    month: next.getUTCMonth() + 1,
-    day: next.getUTCDate()
-  };
-}
-
-function getWeekday(parts: Pick<ZonedParts, "year" | "month" | "day">) {
-  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay();
-}
-
-function scheduleToParts(
-  schedule: ScheduleShape,
-  now: Date,
-  timeZone: string
-) {
-  const nowParts = getZonedParts(now, timeZone);
-
-  if (schedule.scheduleKind === "interval") {
-    if (!schedule.intervalMinutes) {
-      throw new Error("Interval automations require interval minutes");
-    }
-
-    const currentMinuteOfDay = nowParts.hour * 60 + nowParts.minute;
-    const nextMinuteOfDay = Math.floor(currentMinuteOfDay / schedule.intervalMinutes) * schedule.intervalMinutes
-      + schedule.intervalMinutes;
-    const dayOffset = Math.floor(nextMinuteOfDay / (24 * 60));
-    const minuteWithinDay = nextMinuteOfDay % (24 * 60);
-    const nextDate = addDays(nowParts, dayOffset);
-
-    return {
-      ...nextDate,
-      hour: Math.floor(minuteWithinDay / 60),
-      minute: minuteWithinDay % 60,
-      second: 0
-    };
-  }
-
-  if (!schedule.timeOfDay) {
-    throw new Error("Calendar automations require a time of day");
-  }
-
-  const [hour, minute] = schedule.timeOfDay.split(":").map((value) => Number.parseInt(value, 10));
-  return {
-    ...nowParts,
-    hour,
-    minute,
-    second: 0
-  };
-}
-
-export function getNextAutomationRunAt(
-  schedule: ScheduleShape,
-  nowIsoString: string,
-  timeZone = env.TZ
-) {
-  const now = new Date(nowIsoString);
-  const baseParts = scheduleToParts(schedule, now, timeZone);
-
-  if (schedule.scheduleKind === "interval") {
-    return zonedDateTimeToUtcIso(baseParts, timeZone);
-  }
-
-  if (schedule.calendarFrequency === "daily") {
-    let candidate = zonedDateTimeToUtcIso(baseParts, timeZone);
-    if (candidate <= nowIsoString) {
-      candidate = zonedDateTimeToUtcIso(
-        {
-          ...addDays(baseParts, 1),
-          hour: baseParts.hour,
-          minute: baseParts.minute,
-          second: 0
-        },
-        timeZone
-      );
-    }
-    return candidate;
-  }
-
-  const weekdays = schedule.daysOfWeek;
-  for (let offset = 0; offset < 14; offset += 1) {
-    const date = addDays(baseParts, offset);
-    if (!weekdays.includes(getWeekday(date))) {
-      continue;
-    }
-
-    const candidate = zonedDateTimeToUtcIso(
-      {
-        ...date,
-        hour: baseParts.hour,
-        minute: baseParts.minute,
-        second: 0
-      },
-      timeZone
-    );
-
-    if (candidate > nowIsoString) {
-      return candidate;
-    }
-  }
-
-  throw new Error("Unable to compute next weekly automation run");
+  return scope[SCHEDULER_REGISTRY_KEY];
 }
 
 function registerScheduler(handle: SchedulerHandle) {
-  activeSchedulers.add(handle);
+  getActiveSchedulers().add(handle);
 }
 
 function unregisterScheduler(handle: SchedulerHandle) {
-  activeSchedulers.delete(handle);
+  getActiveSchedulers().delete(handle);
 }
 
 export function wakeAutomationSchedulers() {
-  for (const scheduler of activeSchedulers) {
+  for (const scheduler of getActiveSchedulers()) {
     scheduler.wake();
   }
+}
+
+function getNextWakeAt() {
+  const queuedRun = listQueuedAutomationRuns()[0];
+  const automationWakeAt = listAutomations()
+    .filter((automation) => automation.enabled && automation.nextRunAt)
+    .map((automation) => automation.nextRunAt as string)
+    .sort((left, right) => left.localeCompare(right))[0] ?? null;
+
+  if (queuedRun && automationWakeAt) {
+    return queuedRun.scheduledFor < automationWakeAt ? queuedRun.scheduledFor : automationWakeAt;
+  }
+
+  return queuedRun?.scheduledFor ?? automationWakeAt ?? null;
 }
 
 async function executeAutomationRun(
@@ -473,6 +298,17 @@ export function createAutomationScheduler(dependencies: SchedulerDependencies = 
   let running: Promise<void> | null = null;
   let started = false;
 
+  function scheduleNextCycle() {
+    const nextWakeAt = getNextWakeAt();
+    const delayMs = nextWakeAt
+      ? Math.max(0, new Date(nextWakeAt).getTime() - now().getTime())
+      : pollIntervalMs;
+
+    timer = setTimeout(() => {
+      void runCycle();
+    }, delayMs);
+  }
+
   const schedulerHandle: SchedulerHandle = {
     wake() {
       if (!started) {
@@ -517,9 +353,7 @@ export function createAutomationScheduler(dependencies: SchedulerDependencies = 
     })().finally(() => {
       running = null;
       if (started) {
-        timer = setTimeout(() => {
-          void runCycle();
-        }, pollIntervalMs);
+        scheduleNextCycle();
       }
     });
 
@@ -554,3 +388,4 @@ export function createAutomationScheduler(dependencies: SchedulerDependencies = 
 }
 
 export type AutomationScheduler = ReturnType<typeof createAutomationScheduler>;
+export { getNextAutomationRunAt };
