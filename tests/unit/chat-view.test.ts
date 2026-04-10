@@ -76,7 +76,7 @@ function createAttachment(overrides: Partial<MessageAttachment> = {}): MessageAt
   };
 }
 
-function createPayload() {
+function createPayload(): React.ComponentProps<typeof ChatView>["payload"] {
   return {
     conversation: {
       id: "conv_1",
@@ -95,7 +95,6 @@ function createPayload() {
         id: "profile_default",
         name: "Default",
         apiBaseUrl: "https://api.example.com/v1",
-        apiKeyEncrypted: "",
         model: "gpt-5-mini",
         apiMode: "responses" as const,
         systemPrompt: "Be exact",

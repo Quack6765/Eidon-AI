@@ -6,9 +6,18 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+export function slugify(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9_]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
 type McpServerRow = {
   id: string;
   name: string;
+  slug: string;
   url: string;
   headers: string;
   transport: string;
@@ -24,6 +33,7 @@ function rowToMcpServer(row: McpServerRow): McpServer {
   return {
     id: row.id,
     name: row.name,
+    slug: row.slug,
     url: row.url,
     headers: JSON.parse(row.headers) as Record<string, string>,
     transport: (row.transport ?? "streamable_http") as McpTransport,
@@ -36,7 +46,7 @@ function rowToMcpServer(row: McpServerRow): McpServer {
   };
 }
 
-const SELECT_COLUMNS = `id, name, url, headers, transport, command, args, env, enabled, created_at, updated_at`;
+const SELECT_COLUMNS = `id, name, slug, url, headers, transport, command, args, env, enabled, created_at, updated_at`;
 
 export function listMcpServers() {
   const rows = getDb()
@@ -62,6 +72,18 @@ export function getMcpServer(serverId: string) {
   return row ? rowToMcpServer(row) : null;
 }
 
+export function getMcpServerBySlug(slug: string) {
+  const row = getDb()
+    .prepare(
+      `SELECT ${SELECT_COLUMNS}
+       FROM mcp_servers
+       WHERE slug = ?`
+    )
+    .get(slug) as McpServerRow | undefined;
+
+  return row ? rowToMcpServer(row) : null;
+}
+
 type CreateMcpServerInput = {
   name: string;
   url?: string;
@@ -75,9 +97,11 @@ type CreateMcpServerInput = {
 export function createMcpServer(input: CreateMcpServerInput) {
   const timestamp = nowIso();
   const transport = input.transport ?? "streamable_http";
+  const name = input.name.trim();
   const server: McpServer = {
     id: createId("mcp"),
-    name: input.name,
+    name,
+    slug: slugify(name) || "unnamed",
     url: input.url ?? "",
     headers: input.headers ?? {},
     transport,
@@ -91,12 +115,13 @@ export function createMcpServer(input: CreateMcpServerInput) {
 
   getDb()
     .prepare(
-      `INSERT INTO mcp_servers (id, name, url, headers, transport, command, args, env, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO mcp_servers (id, name, slug, url, headers, transport, command, args, env, enabled, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       server.id,
       server.name,
+      server.slug,
       server.url,
       JSON.stringify(server.headers),
       server.transport,
@@ -130,7 +155,8 @@ export function updateMcpServer(
   if (!current) return null;
 
   const timestamp = nowIso();
-  const name = input.name ?? current.name;
+  const name = input.name !== undefined ? input.name.trim() : current.name;
+  const slug = input.name !== undefined ? (slugify(name) || "unnamed") : current.slug;
   const url = input.url ?? current.url;
   const headers = input.headers ?? current.headers;
   const transport = input.transport ?? current.transport;
@@ -142,11 +168,12 @@ export function updateMcpServer(
   getDb()
     .prepare(
       `UPDATE mcp_servers
-       SET name = ?, url = ?, headers = ?, transport = ?, command = ?, args = ?, env = ?, enabled = ?, updated_at = ?
+       SET name = ?, slug = ?, url = ?, headers = ?, transport = ?, command = ?, args = ?, env = ?, enabled = ?, updated_at = ?
        WHERE id = ?`
     )
     .run(
       name,
+      slug,
       url,
       JSON.stringify(headers),
       transport,

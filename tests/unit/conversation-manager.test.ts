@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type WebSocket from "ws";
 
 function createMockWs(): { ws: WebSocket; sent: unknown[] } {
   const sent: unknown[] = [];
-  const ws = { readyState: WebSocket.OPEN, send: vi.fn((data: string) => sent.push(JSON.parse(data))) } as unknown as WebSocket;
+  const ws = { readyState: 1, send: vi.fn((data: string) => sent.push(JSON.parse(data))) } as unknown as WebSocket;
   return { ws, sent };
 }
 
