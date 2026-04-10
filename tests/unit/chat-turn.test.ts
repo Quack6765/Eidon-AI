@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type WebSocket from "ws";
 
 vi.mock("@/lib/provider", () => ({
   streamProviderResponse: vi.fn()
@@ -80,6 +81,7 @@ describe("chat-turn", () => {
 
   it("creates user and assistant messages, broadcasts deltas via manager", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { updateSettings } = await import("@/lib/settings");
 
@@ -101,7 +103,7 @@ describe("chat-turn", () => {
       { providerProfileId: null }
     );
 
-    vi.mocked(streamProviderResponse).mockReturnValueOnce(
+    mockedStreamProviderResponse.mockReturnValueOnce(
       (async function* () {
         yield { type: "answer_delta", text: "Hello" };
         return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
@@ -129,6 +131,7 @@ describe("chat-turn", () => {
 
   it("marks the assistant message as error on provider failure", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { updateSettings } = await import("@/lib/settings");
 
@@ -147,7 +150,7 @@ describe("chat-turn", () => {
       { providerProfileId: null }
     );
 
-    vi.mocked(streamProviderResponse).mockImplementation(() => {
+    mockedStreamProviderResponse.mockImplementation(() => {
       throw new Error("API key invalid");
     });
 
@@ -196,6 +199,7 @@ describe("chat-turn", () => {
   it("persists a partial assistant message as stopped when the turn is cancelled", async () => {
     vi.useFakeTimers();
     const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { updateSettings } = await import("@/lib/settings");
     const { requestStop } = await import("@/lib/chat-turn-control");
@@ -207,7 +211,7 @@ describe("chat-turn", () => {
 
     let release = () => {};
     const gate = new Promise<void>((resolve) => { release = resolve; });
-    vi.mocked(streamProviderResponse).mockReturnValueOnce((async function* () {
+    mockedStreamProviderResponse.mockReturnValueOnce((async function* () {
       yield { type: "answer_delta", text: "Partial" };
       await gate;
       return { answer: "Partial answer", thinking: "", usage: { outputTokens: 2 } };
@@ -231,6 +235,7 @@ describe("chat-turn", () => {
   it("flushes answer text to DB periodically during streaming", async () => {
     vi.useFakeTimers();
     const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { updateSettings } = await import("@/lib/settings");
 
@@ -252,7 +257,7 @@ describe("chat-turn", () => {
     let resolveStream: () => void;
     const gate = new Promise<void>((resolve) => { resolveStream = resolve; });
 
-    vi.mocked(streamProviderResponse).mockReturnValueOnce(
+    mockedStreamProviderResponse.mockReturnValueOnce(
       (async function* () {
         yield { type: "answer_delta", text: "Hello" };
         yield { type: "answer_delta", text: " world" };

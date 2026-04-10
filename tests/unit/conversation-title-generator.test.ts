@@ -29,7 +29,7 @@ function createSettings(): ProviderProfileWithApiKey {
     leafMinMessageCount: 6,
     mergedMinNodeCount: 4,
     mergedTargetTokens: 1600,
-    visionMode: "none",
+    visionMode: "native",
     visionMcpServerId: null,
     providerKind: "openai_compatible",
     githubUserAccessTokenEncrypted: "",

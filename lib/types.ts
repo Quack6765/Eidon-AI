@@ -171,6 +171,7 @@ export type McpTransport = "streamable_http" | "stdio";
 export type McpServer = {
   id: string;
   name: string;
+  slug: string;
   url: string;
   headers: Record<string, string>;
   transport: McpTransport;

@@ -506,16 +506,14 @@ describe("conversation helpers", () => {
     createMessageAction({ messageId: assistantMsg.id, kind: "mcp_tool_call", label: "Search", status: "running" });
 
     const snapshot = getConversationSnapshot(conv.id);
-    if (!snapshot) {
-      throw new Error("Expected a conversation snapshot");
-    }
+    expect(snapshot).not.toBeNull();
 
-    expect(snapshot.conversation.id).toBe(conv.id);
-    expect(snapshot.messages).toHaveLength(2);
-    expect(snapshot.messages[0].role).toBe("user");
-    expect(snapshot.messages[1].status).toBe("streaming");
-    expect(snapshot.messages[1].textSegments).toHaveLength(1);
-    expect(snapshot.messages[1].textSegments![0].content).toBe("partial answer");
-    expect(snapshot.messages[1].actions).toHaveLength(1);
+    expect(snapshot!.conversation.id).toBe(conv.id);
+    expect(snapshot!.messages).toHaveLength(2);
+    expect(snapshot!.messages[0].role).toBe("user");
+    expect(snapshot!.messages[1].status).toBe("streaming");
+    expect(snapshot!.messages[1].textSegments).toHaveLength(1);
+    expect(snapshot!.messages[1].textSegments![0].content).toBe("partial answer");
+    expect(snapshot!.messages[1].actions).toHaveLength(1);
   });
 });

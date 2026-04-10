@@ -1148,4 +1148,48 @@ describe("chat view", () => {
 
     expect(screen.getByText("100%")).toBeInTheDocument();
   });
+
+  it("keeps the context label hidden until usage data arrives", async () => {
+    const payload = createPayload();
+    payload.conversation.id = "conv_no_usage";
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+
+    const input = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+    fireEvent.change(input, { target: { value: "Hello" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello")).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_no_usage",
+        messages: [
+          {
+            id: "msg_user",
+            conversationId: "conv_no_usage",
+            role: "user",
+            content: "Hello",
+            thinkingContent: "",
+            status: "completed",
+            estimatedTokens: 5,
+            systemKind: null,
+            compactedAt: null,
+            createdAt: new Date().toISOString()
+          }
+        ]
+      });
+    });
+
+    expect(screen.queryByText("Context")).toBeNull();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
 });

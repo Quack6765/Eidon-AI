@@ -16,6 +16,7 @@ describe("mcp servers", () => {
     });
 
     expect(server.name).toBe("Test Server");
+    expect(server.slug).toBe("test_server");
     expect(server.url).toBe("https://mcp.example.com/api");
     expect(server.headers).toEqual({ Authorization: "Bearer test123" });
     expect(server.enabled).toBe(true);
@@ -25,10 +26,12 @@ describe("mcp servers", () => {
 
     const fetched = getMcpServer(server.id);
     expect(fetched?.name).toBe("Test Server");
+    expect(fetched?.slug).toBe("test_server");
 
     updateMcpServer(server.id, { name: "Updated Server", enabled: false });
     const updated = getMcpServer(server.id);
     expect(updated?.name).toBe("Updated Server");
+    expect(updated?.slug).toBe("updated_server");
     expect(updated?.enabled).toBe(false);
 
     deleteMcpServer(server.id);
@@ -81,5 +84,30 @@ describe("mcp servers", () => {
   it("returns null for missing server update", () => {
     const result = updateMcpServer("nonexistent", { name: "X" });
     expect(result).toBeNull();
+  });
+
+  it("generates correct slugs from names", () => {
+    const cases = [
+      { name: "My Exa Server", expectedSlug: "my_exa_server" },
+      { name: "exa", expectedSlug: "exa" },
+      { name: "  spaces  ", expectedSlug: "spaces" },
+      { name: "special!@#chars", expectedSlug: "special_chars" },
+      { name: "multiple---dashes", expectedSlug: "multiple_dashes" },
+      { name: "UPPERCASE", expectedSlug: "uppercase" },
+      { name: "under_score", expectedSlug: "under_score" }
+    ];
+
+    for (const { name, expectedSlug } of cases) {
+      const server = createMcpServer({ name, url: "https://test.com" });
+      expect(server.slug).toBe(expectedSlug);
+      deleteMcpServer(server.id);
+    }
+  });
+
+  it("rejects duplicate slug on create via DB constraint", () => {
+    createMcpServer({ name: "Exa", url: "https://a.com" });
+    expect(() => {
+      createMcpServer({ name: "exa", url: "https://b.com" });
+    }).toThrow();
   });
 });

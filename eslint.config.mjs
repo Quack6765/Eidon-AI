@@ -11,9 +11,9 @@ const config = [
   {
     ignores: [
       ".next/**",
+      ".test-data/**",
       "coverage/**",
       "node_modules/**",
-      ".test-data/**",
       ".e2e-data/**",
       "test-results/**"
     ]

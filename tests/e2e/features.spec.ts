@@ -4,7 +4,7 @@ async function signIn(page: import("@playwright/test").Page) {
   await page.goto("/");
   await page.getByPlaceholder("Username").fill("admin");
   await page.getByPlaceholder("Password").fill("changeme123");
-  await page.getByRole("button", { name: "Enter workspace" }).click();
+  await page.getByRole("button", { name: "Proceed" }).click();
   await page.waitForURL(/localhost:3117\/$/, { timeout: 15000 });
 }
 

@@ -75,6 +75,7 @@ export function SettingsNav({ onCloseAction }: { onCloseAction: () => void }) {
                     event.button === 0
                   ) {
                     event.preventDefault();
+                    onCloseAction();
                     router.push(item.href);
                   }
                 }}

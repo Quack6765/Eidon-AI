@@ -67,8 +67,8 @@ export function LoginForm() {
       >
         Eidon
       </span>
-      <p className="text-sm leading-relaxed text-[var(--muted)] px-8">
-        A private conversational workspace with streaming, visible thinking, and long-memory compaction.
+      <p className="px-8 text-sm leading-relaxed text-[var(--muted)] italic text-center text-balance">
+        The seeker enters in uncertainty and departs in knowing.
       </p>
 
       <div className="space-y-3 px-8">
@@ -94,7 +94,7 @@ export function LoginForm() {
             <LoaderCircle className="h-4 w-4 animate-spin" />
           ) : (
             <>
-              Enter workspace
+              Proceed
               <ArrowRight className="h-4 w-4" />
             </>
           )}
