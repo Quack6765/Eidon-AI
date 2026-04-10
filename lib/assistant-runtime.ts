@@ -899,7 +899,17 @@ export async function resolveAssistantTurn(input: {
       settings: input.settings,
       promptMessages,
       tools: tools.length ? tools : undefined,
-      abortSignal: input.abortSignal
+      abortSignal: input.abortSignal,
+      copilotToolContext: input.settings.providerKind === "github_copilot" ? {
+        mcpToolSets: input.mcpToolSets,
+        skills: turnSkills,
+        loadedSkillIds,
+        memoriesEnabled: input.memoriesEnabled ?? false,
+        onActionStart: input.onActionStart,
+        onActionComplete: input.onActionComplete,
+        onActionError: input.onActionError,
+        mcpTimeout: input.mcpTimeout
+      } : undefined
     });
 
     let answer = "";

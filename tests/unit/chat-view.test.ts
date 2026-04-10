@@ -5,7 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { ChatView } from "@/components/chat-view";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
-import type { MessageAttachment } from "@/lib/types";
+import type { Message, MessageAttachment } from "@/lib/types";
 
 const push = vi.fn();
 const refresh = vi.fn();
@@ -89,7 +89,7 @@ function createPayload() {
       updatedAt: new Date().toISOString(),
       isActive: false
     },
-    messages: [],
+    messages: [] as Message[],
     providerProfiles: [
       {
         id: "profile_default",

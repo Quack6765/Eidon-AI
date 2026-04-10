@@ -46,6 +46,7 @@ function createProfile(overrides: Record<string, unknown> = {}) {
     name: "Copilot",
     apiBaseUrl: "",
     apiKeyEncrypted: "",
+    apiKey: "",
     model: "openai/gpt-4.1",
     apiMode: "responses" as const,
     systemPrompt: "Be exact.",
@@ -397,7 +398,14 @@ describe("github copilot helpers", () => {
       expect.objectContaining({
         model: "openai/gpt-4.1",
         streaming: true,
-        availableTools: [],
+        excludedTools: [
+          "browser_start_debugger",
+          "browser_tool",
+          "query_system_config",
+          "read_task_specification",
+          "write_task_specification",
+          "agent_github_mcp"
+        ],
         systemMessage: { mode: "replace", content: "Be exact." },
         onPermissionRequest: expect.any(Function),
         onEvent: expect.any(Function),
@@ -438,6 +446,43 @@ describe("github copilot helpers", () => {
     ).rejects.toThrow("stream failed");
 
     expect(client.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes custom tools to the copilot session when provided", async () => {
+    const events: unknown[] = [];
+    const session: MockSession = {
+      send: vi.fn().mockResolvedValue(undefined)
+    };
+    const client = createMockClient({
+      createSession: vi.fn().mockImplementation(async (config: Record<string, unknown>) => {
+        const onEvent = config.onEvent as (event: unknown) => void;
+        queueMicrotask(() => onEvent({ type: "assistant.turn_end" }));
+        return session;
+      })
+    });
+    copilotClientCtor.mockImplementation(() => client);
+
+    const customTool = {
+      name: "my_custom_tool",
+      description: "A custom tool",
+      handler: vi.fn().mockResolvedValue("result"),
+      skipPermission: true
+    };
+
+    await expect(
+      streamGithubCopilotChat({
+        ...createProfile(),
+        messages: [{ role: "user", content: "Use my tool" }],
+        tools: [customTool],
+        onEvent: (event: unknown) => events.push(event)
+      })
+    ).resolves.toBeUndefined();
+
+    expect(client.createSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tools: [customTool]
+      })
+    );
   });
 
   it("streams without a system prompt and resolves when the session goes idle", async () => {
