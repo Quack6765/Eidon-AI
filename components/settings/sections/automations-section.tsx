@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CalendarDays, Check, Clock3, Plus, Trash2 } from "lucide-react";
 
@@ -299,13 +298,6 @@ export function AutomationsSection() {
               </p>
             </div>
             <div className="flex items-center gap-2">
-              <Link
-                href="/automations"
-                aria-label="Open automations workspace"
-                className="rounded-lg border border-white/6 px-3 py-1.5 text-[0.72rem] font-medium text-[#a1a1aa] transition-colors hover:border-white/12 hover:text-[#f4f4f5]"
-              >
-                Open workspace
-              </Link>
               <button
                 type="button"
                 onClick={openNewAutomation}

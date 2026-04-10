@@ -152,16 +152,13 @@ describe("automations section", () => {
     ).toBeTruthy();
   });
 
-  it("links directly to the automations workspace from settings", async () => {
+  it("does not show a redundant workspace shortcut in settings", async () => {
     render(React.createElement(AutomationsSection));
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Add automation" })).toBeInTheDocument();
     });
 
-    expect(screen.getByRole("link", { name: "Open automations workspace" })).toHaveAttribute(
-      "href",
-      "/automations"
-    );
+    expect(screen.queryByRole("link", { name: "Open automations workspace" })).toBeNull();
   });
 });
