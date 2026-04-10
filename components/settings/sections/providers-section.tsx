@@ -246,7 +246,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         reasoningEffort: profile.reasoningEffort,
         reasoningSummaryEnabled: profile.reasoningSummaryEnabled,
         modelContextLimit: profile.modelContextLimit,
-        compactionThreshold: profile.compactionThreshold,
+        compactionThreshold: Math.round(profile.compactionThreshold * 100) / 100,
         freshTailCount: profile.freshTailCount,
         tokenizerModel: profile.tokenizerModel,
         safetyMarginTokens: profile.safetyMarginTokens,
@@ -742,7 +742,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         value={Math.round(activeProviderProfile.compactionThreshold * 100)}
                         onChange={(event) =>
                           updateActiveProviderProfile({
-                            compactionThreshold: Number(event.target.value || 0) / 100
+                            compactionThreshold:
+                              Math.round(Number(event.target.value || 0)) / 100
                           })
                         }
                       />

@@ -11,7 +11,51 @@ vi.mock("next/navigation", () => ({
   })
 }));
 
-function makeSettings(overrides = {}) {
+type ProviderProfileFixture = {
+  id: string;
+  providerKind: "openai_compatible" | "github_copilot";
+  name: string;
+  apiBaseUrl: string;
+  model: string;
+  apiMode: "responses" | "chat_completions";
+  systemPrompt: string;
+  temperature: number;
+  maxOutputTokens: number;
+  reasoningEffort: "low" | "medium" | "high" | "xhigh";
+  reasoningSummaryEnabled: boolean;
+  modelContextLimit: number;
+  compactionThreshold: number;
+  freshTailCount: number;
+  tokenizerModel: "gpt-tokenizer" | "off";
+  safetyMarginTokens: number;
+  leafSourceTokenLimit: number;
+  leafMinMessageCount: number;
+  mergedMinNodeCount: number;
+  mergedTargetTokens: number;
+  visionMode: "none" | "native" | "mcp";
+  visionMcpServerId: string | null;
+  githubAccountLogin: string | null;
+  githubAccountName: string | null;
+  githubTokenExpiresAt: string | null;
+  githubRefreshTokenExpiresAt: string | null;
+  githubConnectionStatus: "disconnected" | "connected" | "expired";
+  createdAt: string;
+  updatedAt: string;
+  hasApiKey: boolean;
+};
+
+type SettingsFixture = {
+  defaultProviderProfileId: string;
+  skillsEnabled: boolean;
+  conversationRetention: "forever" | "90d" | "30d" | "7d";
+  memoriesEnabled: boolean;
+  memoriesMaxCount: number;
+  mcpTimeout: number;
+  providerProfiles: ProviderProfileFixture[];
+  updatedAt: string;
+};
+
+function makeSettings(overrides: Partial<SettingsFixture> = {}): SettingsFixture {
   return {
     defaultProviderProfileId: "profile_default",
     skillsEnabled: true,
@@ -94,9 +138,8 @@ describe("providers section", () => {
   it("shows github connection controls for copilot profiles", async () => {
     render(
       React.createElement(ProvidersSection, {
-        settings: {
+        settings: makeSettings({
           defaultProviderProfileId: "profile_copilot",
-          skillsEnabled: true,
           providerProfiles: [
             {
               id: "profile_copilot",
@@ -130,9 +173,8 @@ describe("providers section", () => {
               updatedAt: new Date().toISOString(),
               hasApiKey: false
             }
-          ],
-          updatedAt: new Date().toISOString()
-        }
+          ]
+        })
       })
     );
 
@@ -172,9 +214,8 @@ describe("providers section", () => {
 
     render(
       React.createElement(ProvidersSection, {
-        settings: {
+        settings: makeSettings({
           defaultProviderProfileId: "profile_copilot",
-          skillsEnabled: true,
           providerProfiles: [
             {
               id: "profile_copilot",
@@ -208,9 +249,8 @@ describe("providers section", () => {
               updatedAt: new Date().toISOString(),
               hasApiKey: false
             }
-          ],
-          updatedAt: new Date().toISOString()
-        }
+          ]
+        })
       })
     );
 
@@ -302,5 +342,102 @@ describe("providers section", () => {
       compactionThreshold: 0.75,
       freshTailCount: 12
     });
+  });
+
+  it("rounds fractional percent input before saving", async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    const settings = makeSettings();
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+
+      if (url === "/api/mcp-servers") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ servers: [], models: [] })
+        } as Response);
+      }
+
+      if (url === "/api/settings" && !init) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ settings })
+        } as Response);
+      }
+
+      if (url === "/api/settings" && init?.method === "PUT") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ settings })
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({})
+      } as Response);
+    });
+
+    const { container } = render(React.createElement(ProvidersSection, { settings }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    fireEvent.click(container.querySelectorAll("summary")[0]);
+    fireEvent.change(screen.getByDisplayValue("80"), { target: { value: "75.5" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/settings", expect.objectContaining({ method: "PUT" }));
+    });
+
+    const putCall = fetchMock.mock.calls.find(([url, init]) => url === "/api/settings" && init?.method === "PUT");
+    const body = JSON.parse(String(putCall?.[1]?.body));
+
+    expect(body.providerProfiles[0].compactionThreshold).toBe(0.76);
+  });
+
+  it("shows an error and skips save when loading current settings fails", async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    const settings = makeSettings();
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+
+      if (url === "/api/mcp-servers") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ servers: [], models: [] })
+        } as Response);
+      }
+
+      if (url === "/api/settings" && !init) {
+        return Promise.resolve({
+          ok: false,
+          json: async () => ({ error: "Current settings unavailable" })
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({})
+      } as Response);
+    });
+
+    const { container } = render(React.createElement(ProvidersSection, { settings }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    fireEvent.click(container.querySelectorAll("summary")[0]);
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Unable to load current settings")).toBeInTheDocument();
+    });
+
+    expect(fetchMock.mock.calls.some(([url, init]) => url === "/api/settings" && init?.method === "PUT")).toBe(false);
   });
 });
