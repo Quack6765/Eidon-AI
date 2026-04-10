@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Brain,
+  Clock3,
   Settings,
   Sparkles,
   Server,
@@ -18,6 +19,7 @@ const NAV_ITEMS = [
   { href: "/settings/general", label: "General", icon: Settings },
   { href: "/settings/providers", label: "Providers", icon: Sparkles },
   { href: "/settings/personas", label: "Personas", icon: Users },
+  { href: "/settings/automations", label: "Scheduled automations", icon: Clock3 },
   { href: "/settings/memories", label: "Memories", icon: Brain },
   { href: "/settings/mcp-servers", label: "MCP Servers", icon: Server },
   { href: "/settings/skills", label: "Skills", icon: Zap },
