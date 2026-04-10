@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, Clock3, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, Check, Clock3, Plus, Trash2 } from "lucide-react";
 
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
@@ -98,6 +98,7 @@ export function AutomationsSection() {
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
   async function loadData() {
@@ -153,6 +154,7 @@ export function AutomationsSection() {
     setIsAddingNew(false);
     setForm(automationToForm(automation));
     setError("");
+    setSuccess("");
     setMobileDetailVisible(true);
   }
 
@@ -161,6 +163,7 @@ export function AutomationsSection() {
     setIsAddingNew(true);
     setForm(createDefaultForm(defaultProviderProfileId || providerProfiles[0]?.id || ""));
     setError("");
+    setSuccess("");
     setMobileDetailVisible(true);
   }
 
@@ -168,6 +171,7 @@ export function AutomationsSection() {
     setSelectedAutomationId(null);
     setIsAddingNew(false);
     setError("");
+    setSuccess("");
     setMobileDetailVisible(false);
     setForm(createDefaultForm(defaultProviderProfileId || providerProfiles[0]?.id || ""));
   }
@@ -191,25 +195,30 @@ export function AutomationsSection() {
 
     if (!form.name.trim() || !form.prompt.trim()) {
       setError("Name and prompt are required");
+      setSuccess("");
       return;
     }
 
     if (!resolvedProviderProfileId) {
       setError("Choose a provider profile");
+      setSuccess("");
       return;
     }
 
     if (form.scheduleKind === "interval" && form.intervalMinutes < 5) {
       setError("Interval must be at least 5 minutes");
+      setSuccess("");
       return;
     }
 
     if (form.scheduleKind === "calendar" && form.calendarFrequency === "weekly" && form.daysOfWeek.length === 0) {
       setError("Choose at least one day for weekly automations");
+      setSuccess("");
       return;
     }
 
     setError("");
+    setSuccess("");
 
     const payload = {
       name: form.name.trim(),
@@ -240,6 +249,7 @@ export function AutomationsSection() {
         error?: string;
       };
       setError(failure.error ?? "Unable to save automation");
+      setSuccess("");
       return;
     }
 
@@ -249,6 +259,7 @@ export function AutomationsSection() {
     setIsAddingNew(false);
     setForm(automationToForm(data.automation));
     setMobileDetailVisible(true);
+    setSuccess("Automation saved.");
   }
 
   async function deleteSelectedAutomation() {
@@ -265,6 +276,7 @@ export function AutomationsSection() {
         error?: string;
       };
       setError(failure.error ?? "Unable to delete automation");
+      setSuccess("");
       return;
     }
 
@@ -534,6 +546,12 @@ export function AutomationsSection() {
                   <Button type="button" onClick={() => void saveAutomation()}>
                     Save automation
                   </Button>
+                  {success ? (
+                    <div className="flex items-center gap-1.5 text-sm text-emerald-400">
+                      <Check className="h-3.5 w-3.5" />
+                      {success}
+                    </div>
+                  ) : null}
                   <Button type="button" variant="secondary" onClick={resetSelection}>
                     Cancel
                   </Button>

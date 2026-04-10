@@ -20,7 +20,33 @@ describe("automations section", () => {
       if (url === "/api/automations" && method === "GET") {
         return {
           ok: true,
-          json: async () => ({ automations: [] })
+          json: async () => ({
+            automations:
+              (global.fetch as unknown as { postSaved?: boolean }).postSaved
+                ? [
+                    {
+                      id: "auto_1",
+                      name: "Morning summary",
+                      prompt: "Summarize priorities",
+                      providerProfileId: "profile_default",
+                      personaId: null,
+                      scheduleKind: "interval",
+                      intervalMinutes: 5,
+                      calendarFrequency: null,
+                      timeOfDay: null,
+                      daysOfWeek: [],
+                      enabled: true,
+                      nextRunAt: null,
+                      lastScheduledFor: null,
+                      lastStartedAt: null,
+                      lastFinishedAt: null,
+                      lastStatus: null,
+                      createdAt: "2026-04-10T12:00:00.000Z",
+                      updatedAt: "2026-04-10T12:00:00.000Z"
+                    }
+                  ]
+                : []
+          })
         } as Response;
       }
 
@@ -49,9 +75,31 @@ describe("automations section", () => {
       }
 
       if (url === "/api/automations" && method === "POST") {
+        (global.fetch as unknown as { postSaved?: boolean }).postSaved = true;
         return {
           ok: true,
-          json: async () => ({ automation: { id: "auto_1" } })
+          json: async () => ({
+            automation: {
+              id: "auto_1",
+              name: "Morning summary",
+              prompt: "Summarize priorities",
+              providerProfileId: "profile_default",
+              personaId: null,
+              scheduleKind: "interval",
+              intervalMinutes: 5,
+              calendarFrequency: null,
+              timeOfDay: null,
+              daysOfWeek: [],
+              enabled: true,
+              nextRunAt: null,
+              lastScheduledFor: null,
+              lastStartedAt: null,
+              lastFinishedAt: null,
+              lastStatus: null,
+              createdAt: "2026-04-10T12:00:00.000Z",
+              updatedAt: "2026-04-10T12:00:00.000Z"
+            }
+          })
         } as Response;
       }
 
@@ -79,5 +127,22 @@ describe("automations section", () => {
         method: "POST"
       })
     );
+  });
+
+  it("shows a success message after saving an automation", async () => {
+    render(React.createElement(AutomationsSection));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add automation" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Morning summary" } });
+    fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Summarize priorities" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Automation saved.")).toBeInTheDocument();
+    });
   });
 });
