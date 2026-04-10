@@ -223,6 +223,50 @@ describe("settings storage", () => {
     expect("autoCompaction" in sanitized).toBe(false);
   });
 
+  it("leaves the auto_compaction column unchanged when saving settings", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-alpha"
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: true,
+      providerProfiles: [alpha]
+    });
+
+    const initialAutoCompaction = getDb()
+      .prepare("SELECT auto_compaction FROM app_settings WHERE id = ?")
+      .get(1) as { auto_compaction: number };
+
+    getDb()
+      .prepare("UPDATE app_settings SET auto_compaction = ? WHERE id = ?")
+      .run(0, 1);
+
+    const beforeUpdate = getDb()
+      .prepare("SELECT auto_compaction FROM app_settings WHERE id = ?")
+      .get(1) as { auto_compaction: number };
+
+    expect(beforeUpdate.auto_compaction).toBe(0);
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: false,
+      memoriesEnabled: false,
+      mcpTimeout: 45_000,
+      providerProfiles: [alpha]
+    });
+
+    const afterUpdate = getDb()
+      .prepare("SELECT auto_compaction FROM app_settings WHERE id = ?")
+      .get(1) as { auto_compaction: number };
+
+    expect(afterUpdate.auto_compaction).toBe(beforeUpdate.auto_compaction);
+    expect(afterUpdate.auto_compaction).toBe(0);
+    expect(initialAutoCompaction.auto_compaction).toBeGreaterThanOrEqual(0);
+  });
+
   it("returns the default MCP timeout from persisted settings", () => {
     const alpha = buildProfile({
       id: "profile_alpha",

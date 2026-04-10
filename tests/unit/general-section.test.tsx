@@ -43,7 +43,6 @@ describe("general section", () => {
           providerKind: "openai_compatible",
           name: "Default",
           apiBaseUrl: "https://api.example.com/v1",
-          apiKeyEncrypted: "",
           model: "gpt-test",
           apiMode: "responses",
           systemPrompt: "Be exact.",
@@ -62,14 +61,14 @@ describe("general section", () => {
           mergedTargetTokens: 1600,
           visionMode: "native",
           visionMcpServerId: null,
-          githubUserAccessTokenEncrypted: "",
-          githubRefreshTokenEncrypted: "",
           githubTokenExpiresAt: null,
           githubRefreshTokenExpiresAt: null,
           githubAccountLogin: null,
           githubAccountName: null,
           createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
+          updatedAt: new Date().toISOString(),
+          hasApiKey: false,
+          githubConnectionStatus: "disconnected"
         }
       ]
     };
