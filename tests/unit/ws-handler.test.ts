@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type WebSocket from "ws";
 
 vi.mock("@/lib/auth", () => ({
   verifySessionToken: vi.fn()

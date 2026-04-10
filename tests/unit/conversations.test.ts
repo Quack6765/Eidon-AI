@@ -506,6 +506,9 @@ describe("conversation helpers", () => {
     createMessageAction({ messageId: assistantMsg.id, kind: "mcp_tool_call", label: "Search", status: "running" });
 
     const snapshot = getConversationSnapshot(conv.id);
+    if (!snapshot) {
+      throw new Error("Expected a conversation snapshot");
+    }
 
     expect(snapshot.conversation.id).toBe(conv.id);
     expect(snapshot.messages).toHaveLength(2);

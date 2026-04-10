@@ -2,14 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createAutomation,
+  createAutomationRun,
   getAutomation,
   getAutomationRun,
   listAutomationRuns,
   triggerAutomationNow,
-  updateAutomation
+  updateAutomation,
+  updateAutomationRunStatus
 } from "@/lib/automations";
 import { createConversationManager } from "@/lib/conversation-manager";
 import { getConversation } from "@/lib/conversations";
+import { createPersona } from "@/lib/personas";
 import type { ChatTurnResult } from "@/lib/chat-turn";
 import type { ProviderProfileWithApiKey } from "@/lib/types";
 
@@ -99,6 +102,52 @@ describe("automation scheduler", () => {
     expect(
       getNextAutomationRunAt(weeklyAutomation, "2026-04-10T14:00:00.000Z", "America/Toronto")
     ).toBe("2026-04-13T13:30:00.000Z");
+  });
+
+  it("calculates the next daily run and rejects invalid schedules", async () => {
+    const { getNextAutomationRunAt } = await import("@/lib/automation-scheduler");
+
+    expect(
+      getNextAutomationRunAt(
+        {
+          scheduleKind: "calendar",
+          intervalMinutes: null,
+          calendarFrequency: "daily",
+          timeOfDay: "09:30",
+          daysOfWeek: []
+        },
+        "2026-04-10T10:00:00.000Z",
+        "UTC"
+      )
+    ).toBe("2026-04-11T09:30:00.000Z");
+
+    expect(() =>
+      getNextAutomationRunAt(
+        {
+          scheduleKind: "interval",
+          intervalMinutes: null,
+          calendarFrequency: null,
+          timeOfDay: null,
+          daysOfWeek: []
+        },
+        "2026-04-10T10:00:00.000Z",
+        "UTC"
+      )
+    ).toThrow("Interval automations require interval minutes");
+
+    expect(() =>
+      getNextAutomationRunAt(
+        {
+          scheduleKind: "calendar",
+          intervalMinutes: null,
+          calendarFrequency: "daily",
+          timeOfDay: null,
+          daysOfWeek: []
+        },
+        "2026-04-10T10:00:00.000Z",
+        "UTC"
+      )
+    ).toThrow("Calendar automations require a time of day");
   });
 
   it("marks older overdue slots as missed and executes only the latest due run", async () => {
@@ -220,6 +269,208 @@ describe("automation scheduler", () => {
       automationRunId: run.id,
       conversationOrigin: "automation",
       providerProfileId: "profile_scheduler"
+    });
+  });
+
+  it("returns null when manually running a missing automation or retrying a missing run", async () => {
+    const { retryAutomationRunNow, runAutomationNow } = await import("@/lib/automation-scheduler");
+
+    await expect(runAutomationNow("auto_missing")).resolves.toBeNull();
+    await expect(retryAutomationRunNow("run_missing")).resolves.toBeNull();
+  });
+
+  it("fails manual runs when the provider profile is missing", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+
+    const startChatTurn = vi.fn();
+    const manager = createConversationManager();
+    const { runAutomationNow } = await import("@/lib/automation-scheduler");
+    const automation = createAutomation({
+      name: "Missing provider",
+      prompt: "Use the missing provider",
+      providerProfileId: "profile_missing",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 30,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    const run = await runAutomationNow(automation.id, {
+      now: () => new Date("2026-04-10T12:00:00.000Z"),
+      manager,
+      startChatTurn
+    });
+
+    expect(run).toMatchObject({
+      status: "failed",
+      errorMessage: "Provider profile not found"
+    });
+    expect(startChatTurn).not.toHaveBeenCalled();
+  });
+
+  it("fails manual runs when the configured persona is missing", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+
+    const startChatTurn = vi.fn();
+    const manager = createConversationManager();
+    const { runAutomationNow } = await import("@/lib/automation-scheduler");
+    const persona = createPersona({ name: "Ops", content: "Be exact." });
+    const automation = createAutomation({
+      name: "Missing persona",
+      prompt: "Use the missing persona",
+      providerProfileId: "profile_scheduler",
+      personaId: persona.id,
+      scheduleKind: "interval",
+      intervalMinutes: 30,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    updateAutomation(automation.id, { personaId: "persona_missing" });
+
+    const run = await runAutomationNow(automation.id, {
+      now: () => new Date("2026-04-10T12:00:00.000Z"),
+      manager,
+      startChatTurn
+    });
+
+    expect(run).toMatchObject({
+      status: "failed",
+      errorMessage: "Persona not found"
+    });
+    expect(startChatTurn).not.toHaveBeenCalled();
+  });
+
+  it("fails queued work when another run is already active and marks due slots missed", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+
+    const startChatTurn = vi.fn();
+    const manager = createConversationManager();
+    const { createAutomationScheduler, runAutomationNow } = await import("@/lib/automation-scheduler");
+    const scheduler = createAutomationScheduler({
+      now: () => new Date("2026-04-10T10:40:00.000Z"),
+      timeZone: "UTC",
+      manager,
+      startChatTurn
+    });
+
+    const automation = createAutomation({
+      name: "Overlap automation",
+      prompt: "Process the queue",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 15,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    const runningRun = createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-10T09:55:00.000Z",
+      triggerSource: "manual_run"
+    });
+    updateAutomationRunStatus(runningRun.id, {
+      status: "running",
+      startedAt: "2026-04-10T09:55:30.000Z"
+    });
+
+    const manualRun = await runAutomationNow(automation.id, {
+      now: () => new Date("2026-04-10T10:40:00.000Z"),
+      manager,
+      startChatTurn
+    });
+
+    expect(manualRun).toMatchObject({
+      status: "failed",
+      errorMessage: "Automation already has a running job"
+    });
+
+    updateAutomation(automation.id, { nextRunAt: "2026-04-10T10:00:00.000Z" });
+
+    await scheduler.runOnce();
+
+    expect(startChatTurn).not.toHaveBeenCalled();
+    expect(getAutomation(automation.id)?.nextRunAt).toBe("2026-04-10T10:45:00.000Z");
+    expect(listAutomationRuns(automation.id).map((run) => ({
+      scheduledFor: run.scheduledFor,
+      status: run.status
+    }))).toEqual([
+      { scheduledFor: "2026-04-10T10:40:00.000Z", status: "failed" },
+      { scheduledFor: "2026-04-10T10:30:00.000Z", status: "missed" },
+      { scheduledFor: "2026-04-10T10:15:00.000Z", status: "missed" },
+      { scheduledFor: "2026-04-10T10:00:00.000Z", status: "missed" },
+      { scheduledFor: "2026-04-10T09:55:00.000Z", status: "running" }
+    ]);
+  });
+
+  it("records stopped, thrown, and manual retry runs", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+
+    const manager = createConversationManager();
+    const { retryAutomationRunNow, runAutomationNow } = await import("@/lib/automation-scheduler");
+    const automation = createAutomation({
+      name: "Retry automation",
+      prompt: "Run the pipeline",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 30,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    const stoppedRun = await runAutomationNow(automation.id, {
+      now: () => new Date("2026-04-10T12:00:00.000Z"),
+      manager,
+      startChatTurn: vi.fn().mockResolvedValue({ status: "stopped" })
+    });
+
+    const failedRun = await runAutomationNow(automation.id, {
+      now: () => new Date("2026-04-10T12:05:00.000Z"),
+      manager,
+      startChatTurn: vi.fn().mockRejectedValue(new Error("scheduler exploded"))
+    });
+
+    const retriedRun = await retryAutomationRunNow(failedRun!.id, {
+      now: () => new Date("2026-04-10T12:10:00.000Z"),
+      manager,
+      startChatTurn: vi.fn().mockResolvedValue({ status: "completed" })
+    });
+
+    expect(stoppedRun).toMatchObject({ status: "stopped" });
+    expect(failedRun).toMatchObject({
+      status: "failed",
+      errorMessage: "scheduler exploded"
+    });
+    expect(retriedRun).toMatchObject({
+      status: "completed",
+      triggerSource: "manual_retry"
     });
   });
 });

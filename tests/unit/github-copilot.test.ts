@@ -46,6 +46,7 @@ function createProfile(overrides: Record<string, unknown> = {}) {
     name: "Copilot",
     apiBaseUrl: "",
     apiKeyEncrypted: "",
+    apiKey: "",
     model: "openai/gpt-4.1",
     apiMode: "responses" as const,
     systemPrompt: "Be exact.",
