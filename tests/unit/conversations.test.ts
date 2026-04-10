@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { createAttachments } from "@/lib/attachments";
+import { createAutomation, createAutomationRun } from "@/lib/automations";
 import {
   claimConversationTitleGeneration,
   completeConversationTitleGeneration,
@@ -16,6 +17,7 @@ import {
   getConversation,
   getMessage,
   isVisibleMessage,
+  listConversationsPage,
   listMessages,
   listVisibleMessages,
   markMessagesCompacted,
@@ -216,6 +218,37 @@ describe("conversation helpers", () => {
 
     expect(conversation.title).toBe("Pinned runtime");
     expect(conversation.titleGenerationStatus).toBe("completed");
+  });
+
+  it("excludes automation conversations from the manual chat page", () => {
+    const automation = createAutomation({
+      name: "Automation",
+      prompt: "Run automatically",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 5,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+    const automationRun = createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-09T00:00:00.000Z",
+      triggerSource: "schedule"
+    });
+
+    createConversation("Manual thread");
+    createConversation("Automation thread", null, {
+      providerProfileId: "profile_default",
+      origin: "automation",
+      automationId: automation.id,
+      automationRunId: automationRun.id
+    });
+
+    expect(listConversationsPage().conversations.map((conversation) => conversation.title)).toEqual([
+      "Manual thread"
+    ]);
   });
 
   it("deletes empty conversations only when they have no messages", () => {

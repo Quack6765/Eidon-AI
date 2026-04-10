@@ -20,6 +20,7 @@ import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
   Conversation,
   ConversationListPage,
+  ConversationOrigin,
   ConversationTitleGenerationStatus,
   Message,
   MessageAttachment,
@@ -34,6 +35,8 @@ import type {
 } from "@/lib/types";
 
 export const DEFAULT_CONVERSATION_PAGE_SIZE = 10;
+
+const MANUAL_CONVERSATION_ORIGIN: ConversationOrigin = "manual";
 
 type ConversationRow = {
   id: string;
@@ -231,9 +234,10 @@ export function listConversations() {
         ${activityTimestamp} AS updated_at,
         c.is_active
        FROM conversations c
+       WHERE c.conversation_origin = ?
        ORDER BY ${activityTimestamp} DESC, c.id DESC`
     )
-    .all() as ConversationRow[];
+    .all(MANUAL_CONVERSATION_ORIGIN) as ConversationRow[];
 
   return rows.map(rowToConversation);
 }
@@ -258,17 +262,26 @@ export function listConversationsPage(input: {
             c.automation_id,
             c.automation_run_id,
             c.conversation_origin,
-            c.sort_order,
-            c.created_at,
-            ${activityTimestamp} AS updated_at,
-            c.is_active
+           c.sort_order,
+           c.created_at,
+           ${activityTimestamp} AS updated_at,
+           c.is_active
            FROM conversations c
-           WHERE ${activityTimestamp} < ?
-             OR (${activityTimestamp} = ? AND c.id < ?)
+           WHERE c.conversation_origin = ?
+             AND (
+               ${activityTimestamp} < ?
+               OR (${activityTimestamp} = ? AND c.id < ?)
+             )
            ORDER BY ${activityTimestamp} DESC, c.id DESC
            LIMIT ?`
         )
-        .all(cursor.updatedAt, cursor.updatedAt, cursor.id, limit + 1) as ConversationRow[])
+        .all(
+          MANUAL_CONVERSATION_ORIGIN,
+          cursor.updatedAt,
+          cursor.updatedAt,
+          cursor.id,
+          limit + 1
+        ) as ConversationRow[])
     : (getDb()
         .prepare(
           `SELECT
@@ -285,10 +298,11 @@ export function listConversationsPage(input: {
             ${activityTimestamp} AS updated_at,
             c.is_active
            FROM conversations c
+           WHERE c.conversation_origin = ?
            ORDER BY ${activityTimestamp} DESC, c.id DESC
            LIMIT ?`
         )
-        .all(limit + 1) as ConversationRow[]);
+        .all(MANUAL_CONVERSATION_ORIGIN, limit + 1) as ConversationRow[]);
 
   const hasMore = rows.length > limit;
   const conversations = rows.slice(0, limit).map(rowToConversation);
@@ -336,6 +350,9 @@ export function createConversation(
   folderId?: string | null,
   options?: {
     providerProfileId?: string | null;
+    origin?: ConversationOrigin;
+    automationId?: string | null;
+    automationRunId?: string | null;
   }
 ) {
   const timestamp = nowIso();
@@ -352,9 +369,9 @@ export function createConversation(
     titleGenerationStatus: (trimmedTitle ? "completed" : "pending") as ConversationTitleGenerationStatus,
     folderId: folderId ?? null,
     providerProfileId: options?.providerProfileId ?? settings.defaultProviderProfileId,
-    automationId: null,
-    automationRunId: null,
-    conversationOrigin: "manual" as const,
+    automationId: options?.automationId ?? null,
+    automationRunId: options?.automationRunId ?? null,
+    conversationOrigin: options?.origin ?? MANUAL_CONVERSATION_ORIGIN,
     sortOrder: maxOrder.max_order + 1,
     createdAt: timestamp,
     updatedAt: timestamp,
@@ -1250,14 +1267,17 @@ export function searchConversations(query: string) {
         c.is_active
        FROM conversations c
        LEFT JOIN messages m ON c.id = m.conversation_id
-       WHERE c.title LIKE ?
-          OR (
-            m.content LIKE ?
-            AND (m.role != 'system' OR m.system_kind IS NOT NULL)
-          )
+       WHERE c.conversation_origin = ?
+         AND (
+           c.title LIKE ?
+           OR (
+             m.content LIKE ?
+             AND (m.role != 'system' OR m.system_kind IS NOT NULL)
+           )
+         )
        ORDER BY ${activityTimestamp} DESC, c.id DESC`
     )
-    .all(likeQuery, likeQuery) as ConversationRow[];
+    .all(MANUAL_CONVERSATION_ORIGIN, likeQuery, likeQuery) as ConversationRow[];
 
   return rows.map(rowToConversation);
 }
