@@ -324,7 +324,7 @@ describe("lossless compaction", () => {
 
   it("rejects a raw-eligible slice when the completed-turn count falls below the leaf minimum", async () => {
     updateDefaultProfile({
-      modelContextLimit: 6000,
+      modelContextLimit: 4096,
       compactionThreshold: 0.7
     });
     getDb()
