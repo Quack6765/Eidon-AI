@@ -52,6 +52,47 @@ function prepareLegacyDatabase() {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE folders (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE personas (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE user_memories (
+      id TEXT PRIMARY KEY,
+      content TEXT NOT NULL,
+      category TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE automations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      provider_profile_id TEXT NOT NULL,
+      persona_id TEXT,
+      schedule_kind TEXT NOT NULL,
+      interval_minutes INTEGER,
+      calendar_frequency TEXT,
+      time_of_day TEXT,
+      days_of_week TEXT NOT NULL DEFAULT '[]',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      next_run_at TEXT,
+      last_scheduled_for TEXT,
+      last_started_at TEXT,
+      last_finished_at TEXT,
+      last_status TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE mcp_servers (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -145,6 +186,55 @@ function prepareLegacyDatabase() {
 
   db.prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
     .run("conv_legacy", "Legacy chat", now, now);
+
+  db.prepare("INSERT INTO folders (id, name, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+    .run("folder_legacy", "Legacy folder", 0, now, now);
+  db.prepare("INSERT INTO personas (id, name, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+    .run("persona_legacy", "Legacy persona", "Persona content", now, now);
+  db.prepare(
+    "INSERT INTO user_memories (id, content, category, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"
+  ).run("memory_legacy", "Memory content", "general", now, now);
+  db.prepare(
+    `INSERT INTO automations (
+      id,
+      name,
+      prompt,
+      provider_profile_id,
+      persona_id,
+      schedule_kind,
+      interval_minutes,
+      calendar_frequency,
+      time_of_day,
+      days_of_week,
+      enabled,
+      next_run_at,
+      last_scheduled_for,
+      last_started_at,
+      last_finished_at,
+      last_status,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    "automation_legacy",
+    "Legacy automation",
+    "Do the thing",
+    "profile_existing",
+    null,
+    "interval",
+    60,
+    null,
+    null,
+    "[]",
+    1,
+    null,
+    null,
+    null,
+    null,
+    null,
+    now,
+    now
+  );
 
   db.prepare(
     "INSERT INTO mcp_servers (id, name, url, headers, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
@@ -267,6 +357,9 @@ describe("db", () => {
     const automationRunIndexes = (
       db.prepare("PRAGMA index_list(automation_runs)").all() as Array<{ name: string }>
     ).map((index) => index.name);
+    const authSessionForeignKeys = (
+      db.prepare("PRAGMA foreign_key_list(auth_sessions)").all() as Array<{ table: string }>
+    ).map((row) => row.table);
 
     expect(conversationColumns).toEqual(
       expect.arrayContaining([
@@ -301,6 +394,7 @@ describe("db", () => {
     expect(personaColumns).toContain("user_id");
     expect(memoryColumns).toContain("user_id");
     expect(legacyAutomationColumns).toContain("user_id");
+    expect(authSessionForeignKeys).toContain("admin_users");
     expect(settingsColumns).toEqual(
       expect.arrayContaining(["default_provider_profile_id", "skills_enabled"])
     );

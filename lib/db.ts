@@ -99,7 +99,7 @@ function migrate(db: Database.Database) {
   db.exec(`
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS users (
-      id TEXT PRIMARY KEY,
+      id TEXT NOT NULL PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
       role TEXT NOT NULL,
       auth_source TEXT NOT NULL,
@@ -337,7 +337,7 @@ function migrate(db: Database.Database) {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS user_settings (
-      user_id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL PRIMARY KEY,
       default_provider_profile_id TEXT,
       skills_enabled INTEGER NOT NULL DEFAULT 1,
       conversation_retention TEXT NOT NULL DEFAULT 'forever',
