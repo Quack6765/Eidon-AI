@@ -341,6 +341,20 @@ select {
   color: rgba(255, 255, 255, 0.65);
 }
 
+.markdown-body.thinking-markdown-body :not(pre) > code {
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.markdown-body.thinking-markdown-body blockquote {
+  border-left-color: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.markdown-body.thinking-markdown-body th {
+  color: rgba(255, 255, 255, 0.66);
+}
+
 .thinking-markdown-body code {
   color: rgba(255, 255, 255, 0.58);
 }
