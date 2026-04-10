@@ -3,6 +3,7 @@ import {
   ensureCompactedContext,
   getConversationDebugStats
 } from "@/lib/compaction";
+import { getDb } from "@/lib/db";
 import { createConversation, createMessage, listMessages } from "@/lib/conversations";
 import { getDefaultProviderProfileWithApiKey, updateSettings } from "@/lib/settings";
 import { createMemory, deleteMemory } from "@/lib/memories";
@@ -326,18 +327,17 @@ describe("lossless compaction", () => {
       modelContextLimit: 6000,
       compactionThreshold: 0.7
     });
+    getDb()
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
+      .run(2, "profile_default");
 
     const conversation = createConversation();
 
-    createMessage({
-      conversationId: conversation.id,
-      role: "user",
-      content: `Message 0 ${"dense context ".repeat(90)}`
-    });
+    createMessage({ conversationId: conversation.id, role: "user", content: `Message 0 ${"dense context ".repeat(160)}` });
     createMessage({
       conversationId: conversation.id,
       role: "assistant",
-      content: `Message 1 ${"dense context ".repeat(90)}`,
+      content: `Message 1 ${"dense context ".repeat(160)}`,
       thinkingContent: "Reasoning " + "step ".repeat(24)
     });
     createMessage({
@@ -347,22 +347,21 @@ describe("lossless compaction", () => {
       thinkingContent: "",
       status: "streaming"
     });
-    createMessage({
-      conversationId: conversation.id,
-      role: "user",
-      content: `Message 3 ${"dense context ".repeat(90)}`
-    });
+    createMessage({ conversationId: conversation.id, role: "user", content: `Message 3 ${"dense context ".repeat(160)}` });
     createMessage({
       conversationId: conversation.id,
       role: "assistant",
-      content: `Message 4 ${"dense context ".repeat(90)}`,
+      content: `Message 4 ${"dense context ".repeat(160)}`,
       thinkingContent: "Reasoning " + "step ".repeat(24)
     });
+    createMessage({ conversationId: conversation.id, role: "user", content: `Message 5 ${"dense context ".repeat(160)}` });
     createMessage({
       conversationId: conversation.id,
-      role: "user",
-      content: `Message 5 ${"dense context ".repeat(90)}`
+      role: "assistant",
+      content: `Message 6 ${"dense context ".repeat(160)}`,
+      thinkingContent: "Reasoning " + "step ".repeat(24)
     });
+    createMessage({ conversationId: conversation.id, role: "user", content: `Message 7 ${"dense context ".repeat(160)}` });
 
     const result = await ensureCompactedContext(
       conversation.id,
