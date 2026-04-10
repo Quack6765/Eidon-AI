@@ -192,13 +192,22 @@ function createMissedRun(automationId: string, scheduledFor: string, nowIsoStrin
 
 function ensureNextRunAt(timeZone: string, nowIsoString: string) {
   for (const automation of listAutomations()) {
-    if (!automation.enabled || automation.nextRunAt) {
+    if (!automation.enabled) {
       continue;
     }
 
-    updateAutomation(automation.id, {
-      nextRunAt: getNextAutomationRunAt(automation, nowIsoString, timeZone)
-    });
+    if (automation.nextRunAt && automation.nextRunAt <= nowIsoString) {
+      continue;
+    }
+
+    const anchorIsoString = automation.lastScheduledFor ?? automation.updatedAt ?? nowIsoString;
+    const expectedNextRunAt = getNextAutomationRunAt(automation, anchorIsoString, timeZone);
+
+    if (automation.nextRunAt === expectedNextRunAt) {
+      continue;
+    }
+
+    updateAutomation(automation.id, { nextRunAt: expectedNextRunAt });
   }
 }
 

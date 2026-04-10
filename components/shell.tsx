@@ -90,7 +90,7 @@ export function Shell({
             </span>
           )}
 
-          {isSettingsPage || isAutomationsPage ? (
+          {isAutomationsPage ? (
             <div className="h-9 w-9" />
           ) : (
             <button

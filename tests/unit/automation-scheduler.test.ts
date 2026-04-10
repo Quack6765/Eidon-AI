@@ -425,6 +425,103 @@ describe("automation scheduler", () => {
     }
   });
 
+  it("resyncs future next-run timestamps to the scheduler timezone without touching overdue or disabled work", async () => {
+    const previousTz = process.env.TZ;
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
+
+    try {
+      const { updateSettings } = await import("@/lib/settings");
+      updateSettings({
+        defaultProviderProfileId: "profile_scheduler",
+        skillsEnabled: false,
+        providerProfiles: [createProviderProfile()]
+      });
+
+      process.env.TZ = "UTC";
+      const futureMismatch = createAutomation({
+        name: "Future mismatch",
+        prompt: "Summarize priorities",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "calendar",
+        intervalMinutes: null,
+        calendarFrequency: "daily",
+        timeOfDay: "09:05",
+        daysOfWeek: []
+      });
+
+      process.env.TZ = "America/Toronto";
+      const futureAligned = createAutomation({
+        name: "Future aligned",
+        prompt: "Summarize priorities",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "calendar",
+        intervalMinutes: null,
+        calendarFrequency: "daily",
+        timeOfDay: "09:05",
+        daysOfWeek: []
+      });
+
+      const overdue = createAutomation({
+        name: "Overdue run",
+        prompt: "Summarize priorities",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 5,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: []
+      });
+
+      const disabled = createAutomation({
+        name: "Disabled run",
+        prompt: "Summarize priorities",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "calendar",
+        intervalMinutes: null,
+        calendarFrequency: "daily",
+        timeOfDay: "09:05",
+        daysOfWeek: [],
+        enabled: false
+      });
+
+      updateAutomation(overdue.id, { nextRunAt: "2026-04-10T13:00:00.000Z" });
+
+      const expectedTorontoRun = "2026-04-10T13:05:00.000Z";
+      expect(getAutomation(futureMismatch.id)?.nextRunAt).not.toBe(expectedTorontoRun);
+      expect(getAutomation(futureAligned.id)?.nextRunAt).toBe(expectedTorontoRun);
+      expect(getAutomation(disabled.id)?.nextRunAt).toBeNull();
+
+      const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+      const scheduler = createAutomationScheduler({
+        now: () => new Date("2026-04-10T13:04:00.000Z"),
+        timeZone: "America/Toronto",
+        manager: createConversationManager(),
+        startChatTurn: vi.fn().mockResolvedValue({ status: "completed" })
+      });
+
+      await scheduler.runOnce();
+
+      expect(getAutomation(futureMismatch.id)?.nextRunAt).toBe(expectedTorontoRun);
+      expect(getAutomation(futureAligned.id)?.nextRunAt).toBe(expectedTorontoRun);
+      expect(
+        listAutomationRuns(overdue.id).some((run) => run.scheduledFor === "2026-04-10T13:00:00.000Z")
+      ).toBe(true);
+      expect(getAutomation(disabled.id)?.nextRunAt).toBeNull();
+    } finally {
+      vi.useRealTimers();
+      if (previousTz === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTz;
+      }
+    }
+  });
+
   it("does not schedule another timer after being stopped mid-cycle", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
