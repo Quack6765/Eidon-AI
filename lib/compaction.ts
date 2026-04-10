@@ -12,12 +12,12 @@ import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { getPersona } from "@/lib/personas";
 import { callProviderText } from "@/lib/provider";
+import { isEmptyStreamingAssistantPlaceholder, renderCompletedTurns } from "@/lib/compaction-turns";
 import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens, estimatePromptContentTokens } from "@/lib/tokenization";
 import type {
   EnsureCompactedContextResult,
   MemoryNode,
   Message,
-  MessageAttachment,
   PromptContentPart,
   PromptMessage,
   ProviderProfileWithApiKey
@@ -245,28 +245,6 @@ function getCompactionEligibleMessages(messages: Message[], freshTailCount: numb
   return rawMessages.slice(0, rawMessages.length - freshTailCount);
 }
 
-function renderAttachmentSummary(attachments: MessageAttachment[]) {
-  if (!attachments.length) {
-    return "";
-  }
-
-  return attachments
-    .map((attachment) => {
-      if (attachment.kind === "image") {
-        return `attachment image: ${attachment.filename} (${attachment.mimeType})`;
-      }
-
-      const parts = [`attachment file: ${attachment.filename}`];
-
-      if (attachment.extractedText) {
-        parts.push(attachment.extractedText);
-      }
-
-      return parts.join("\n");
-    })
-    .join("\n\n");
-}
-
 function truncateTextToTokenLimit(text: string, maxTokens: number) {
   if (!text.trim() || maxTokens <= 0) {
     return "";
@@ -400,27 +378,7 @@ async function compactLeafMessages(
     return null;
   }
 
-  const blocks = selected
-    .map((message) => {
-      const attachmentSummary = renderAttachmentSummary(message.attachments ?? []);
-
-      if (message.role === "assistant" && message.thinkingContent) {
-        return [
-          `[${message.role}] ${message.id}`,
-          `thinking: ${message.thinkingContent}`,
-          `answer: ${message.content}`,
-          attachmentSummary
-        ]
-          .filter(Boolean)
-          .join("\n");
-      }
-
-      return [[`[${message.role}] ${message.id}`, message.content, attachmentSummary]
-        .filter(Boolean)
-        .join("\n")];
-    })
-    .flat()
-    .join("\n\n");
+  const blocks = renderCompletedTurns(selected);
 
   const activeNodes = getActiveMemoryNodes(conversationId);
   const existingSummary = activeNodes.length
@@ -429,7 +387,7 @@ async function compactLeafMessages(
 
   const payload = await summarizeBlocks(
     conversationId,
-    buildSummaryPrompt("raw chat messages", blocks, {
+    buildSummaryPrompt("completed chat turns", blocks, {
       startMessageId: selected[0].id,
       endMessageId: selected[selected.length - 1].id,
       messageCount: selected.length
@@ -627,14 +585,13 @@ export function buildPromptMessages(input: {
     if (message.role === "system") return;
 
     if (message.role === "assistant") {
-      const parts = [
-        message.thinkingContent ? `Thinking:\n${message.thinkingContent}` : "",
-        message.content ? `Answer:\n${message.content}` : ""
-      ].filter(Boolean);
+      if (isEmptyStreamingAssistantPlaceholder(message) || !message.content.trim()) {
+        return;
+      }
 
       promptMessages.push({
         role: "assistant",
-        content: parts.join("\n\n")
+        content: message.content
       });
       return;
     }

@@ -240,6 +240,57 @@ describe("lossless compaction", () => {
     );
   });
 
+  it("omits assistant reasoning and empty streaming placeholders from prompt messages", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Stay concise.",
+      activeMemoryNodes: [],
+      messages: [
+        {
+          id: "msg_user",
+          conversationId: "conv_1",
+          role: "user",
+          content: "What should I do next?",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 1,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "msg_assistant",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "Proceed with the rollout.",
+          thinkingContent: "Internal reasoning that should stay out of prompt context.",
+          status: "completed",
+          estimatedTokens: 8,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "msg_streaming",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "",
+          thinkingContent: "",
+          status: "streaming",
+          estimatedTokens: 0,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        }
+      ]
+    });
+
+    const assistantMessages = prompt.filter((message) => message.role === "assistant");
+
+    expect(assistantMessages).toHaveLength(1);
+    expect(getPromptText(assistantMessages[0]!)).toBe("Proceed with the rollout.");
+    expect(getPromptText(assistantMessages[0]!)).not.toContain("Internal reasoning");
+  });
+
   it("compacts older turns without creating a visible compaction notice message", async () => {
     updateDefaultProfile({
       modelContextLimit: 6000,
