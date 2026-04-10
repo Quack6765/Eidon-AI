@@ -1,4 +1,8 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Clock3, MessageSquareText } from "lucide-react";
 
 import type { Automation, AutomationRun } from "@/lib/types";
@@ -50,6 +54,19 @@ export function AutomationsWorkspace({
   automation: Automation | null;
   runs: AutomationRun[];
 }) {
+  const router = useRouter();
+  const [isRunningNow, setIsRunningNow] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [runNotice, setRunNotice] = useState<string | null>(null);
+  const [optimisticRuns, setOptimisticRuns] = useState<AutomationRun[]>([]);
+  const visibleRuns = useMemo(() => [...optimisticRuns, ...runs], [optimisticRuns, runs]);
+
+  useEffect(() => {
+    setOptimisticRuns((currentRuns) =>
+      currentRuns.filter((run) => !runs.some((persistedRun) => persistedRun.id === run.id))
+    );
+  }, [runs]);
+
   if (!automation) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center p-8">
@@ -66,6 +83,45 @@ export function AutomationsWorkspace({
     );
   }
 
+  const currentAutomation = automation;
+
+  async function handleRunNow() {
+    setIsRunningNow(true);
+    setRunError(null);
+
+    try {
+      const response = await fetch(`/api/automations/${currentAutomation.id}/run-now`, {
+        method: "POST"
+      });
+      const payload = await response.json().catch(() => null) as {
+        run?: AutomationRun;
+        error?: string;
+      } | null;
+
+      if (!response.ok || !payload?.run) {
+        throw new Error(payload?.error ?? "Could not start automation");
+      }
+
+      const nextRun = payload.run;
+      setOptimisticRuns((currentRuns) => [
+        {
+          ...nextRun,
+          status: nextRun.status === "queued" ? "running" : nextRun.status
+        },
+        ...currentRuns.filter((run) => run.id !== nextRun.id)
+      ]);
+      setRunNotice("Running");
+      window.setTimeout(() => setRunNotice(null), 1500);
+
+      router.refresh();
+      window.setTimeout(() => router.refresh(), 250);
+      window.setTimeout(() => router.refresh(), 1000);
+    } catch (error) {
+      setRunError(error instanceof Error ? error.message : "Could not start automation");
+    } finally {
+      setIsRunningNow(false);
+    }
+  }
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-4 md:p-8">
       <div className="mx-auto flex w-full max-w-[960px] flex-col gap-8">
@@ -75,27 +131,42 @@ export function AutomationsWorkspace({
               <h1 className="text-[1.35rem] font-semibold text-[#f4f4f5]">{automation.name}</h1>
               <p className="mt-2 text-sm text-[#71717a]">{scheduleSummary(automation)}</p>
             </div>
-            <div className="rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm text-[#d4d4d8]">
-              Next run: {formatTimestamp(automation.nextRunAt)}
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm text-[#d4d4d8]">
+                Next run: {formatTimestamp(automation.nextRunAt)}
+              </div>
+              <button
+                type="button"
+                onClick={handleRunNow}
+                disabled={isRunningNow}
+                className="rounded-lg border border-white/10 bg-[#18181b] px-3 py-2 text-sm font-medium text-[#f4f4f5] transition-colors hover:bg-[#202024] disabled:cursor-not-allowed disabled:text-[#71717a]"
+              >
+                {isRunningNow ? "Starting…" : "Run now"}
+              </button>
             </div>
           </div>
+          {runError ? (
+            <p className="mt-3 text-sm text-red-200">{runError}</p>
+          ) : runNotice ? (
+            <p className="mt-3 text-sm text-[#d4d4d8]">{runNotice}</p>
+          ) : null}
         </div>
 
         <section className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-[0.95rem] font-semibold text-[#f4f4f5]">Run history</h2>
             <span className="text-xs text-[#71717a]">
-              {runs.length} run{runs.length === 1 ? "" : "s"}
+              {visibleRuns.length} run{visibleRuns.length === 1 ? "" : "s"}
             </span>
           </div>
 
-          {runs.length === 0 ? (
+          {visibleRuns.length === 0 ? (
             <div className="rounded-xl border border-dashed border-white/8 bg-white/[0.02] px-5 py-10 text-center text-sm text-[#71717a]">
               No runs yet. Once this automation executes, its transcript will appear here.
             </div>
           ) : (
             <div className="space-y-3">
-              {runs.map((run) => {
+              {visibleRuns.map((run) => {
                 const content = (
                   <div className="flex items-start justify-between gap-4 rounded-xl border border-white/6 bg-white/[0.02] px-4 py-4 transition-colors hover:bg-white/[0.03]">
                     <div className="min-w-0">

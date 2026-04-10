@@ -586,7 +586,7 @@ describe("automation routes", () => {
     expect((await json<{ run: { automationId: string; triggerSource: string; status: string; conversationId: string | null } }>(runNowResponse)).run).toMatchObject({
       automationId: automation.id,
       triggerSource: "manual_run",
-      status: "queued",
+      status: "failed",
       conversationId: null
     });
   });
@@ -624,7 +624,7 @@ describe("automation routes", () => {
     expect((await json<{ run: { automationId: string; triggerSource: string; status: string; conversationId: string | null } }>(response)).run).toMatchObject({
       automationId: automation.id,
       triggerSource: "manual_retry",
-      status: "queued",
+      status: "failed",
       conversationId: null
     });
   });

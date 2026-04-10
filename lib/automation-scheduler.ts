@@ -12,6 +12,8 @@ import {
   updateAutomationRunStatus
 } from "@/lib/automations";
 import { createConversation } from "@/lib/conversations";
+import { getPersona } from "@/lib/personas";
+import { getProviderProfile } from "@/lib/settings";
 import type { StartChatTurn } from "@/lib/chat-turn";
 import { startChatTurn } from "@/lib/chat-turn";
 import type { ConversationManager } from "@/lib/conversation-manager";
@@ -268,6 +270,24 @@ async function executeAutomationRun(
     return;
   }
 
+  if (!getProviderProfile(automation.providerProfileId)) {
+    updateAutomationRunStatus(runId, {
+      status: "failed",
+      errorMessage: "Provider profile not found",
+      finishedAt: dependencies.now().toISOString()
+    });
+    return;
+  }
+
+  if (automation.personaId && !getPersona(automation.personaId)) {
+    updateAutomationRunStatus(runId, {
+      status: "failed",
+      errorMessage: "Persona not found",
+      finishedAt: dependencies.now().toISOString()
+    });
+    return;
+  }
+
   const otherRunningRun = listAutomationRuns(automation.id).find(
     (candidate) => candidate.id !== run.id && candidate.status === "running"
   );
@@ -397,6 +417,50 @@ async function processDueAutomation(
     triggerSource: "schedule"
   });
   await executeAutomationRun(run.id, dependencies);
+}
+
+export async function runAutomationNow(
+  automationId: string,
+  dependencies: SchedulerDependencies & {
+    triggerSource?: "manual_run" | "manual_retry";
+  } = {}
+) {
+  const automation = getAutomation(automationId);
+  if (!automation) {
+    return null;
+  }
+
+  const now = dependencies.now ?? (() => new Date());
+  const manager = dependencies.manager ?? getConversationManager();
+  const runChatTurn = dependencies.startChatTurn ?? startChatTurn;
+  const run = createAutomationRun({
+    automationId: automation.id,
+    scheduledFor: now().toISOString(),
+    triggerSource: dependencies.triggerSource ?? "manual_run"
+  });
+
+  await executeAutomationRun(run.id, {
+    now,
+    manager,
+    startChatTurn: runChatTurn
+  });
+
+  return getAutomationRun(run.id);
+}
+
+export async function retryAutomationRunNow(
+  runId: string,
+  dependencies: SchedulerDependencies = {}
+) {
+  const currentRun = getAutomationRun(runId);
+  if (!currentRun) {
+    return null;
+  }
+
+  return runAutomationNow(currentRun.automationId, {
+    ...dependencies,
+    triggerSource: "manual_retry"
+  });
 }
 
 export function createAutomationScheduler(dependencies: SchedulerDependencies = {}) {

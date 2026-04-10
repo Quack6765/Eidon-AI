@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import { triggerAutomationNow } from "@/lib/automations";
+import { runAutomationNow } from "@/lib/automation-scheduler";
 import { badRequest, ok } from "@/lib/http";
 
 const paramsSchema = z.object({
@@ -19,7 +19,7 @@ export async function POST(
     return badRequest("Invalid automation id");
   }
 
-  const run = triggerAutomationNow(params.data.automationId);
+  const run = await runAutomationNow(params.data.automationId);
 
   if (!run) {
     return badRequest("Automation not found", 404);
