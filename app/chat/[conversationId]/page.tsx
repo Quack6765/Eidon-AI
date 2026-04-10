@@ -1,4 +1,4 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 
 import { ChatView } from "@/components/chat-view";
 import { Shell } from "@/components/shell";
@@ -42,6 +42,14 @@ export default async function ConversationPage({
 
   if (!conversation) {
     notFound();
+  }
+
+  if (
+    conversation.conversationOrigin === "automation" &&
+    conversation.automationId &&
+    conversation.automationRunId
+  ) {
+    redirect(`/automations/${conversation.automationId}/runs/${conversation.automationRunId}`);
   }
 
   return (

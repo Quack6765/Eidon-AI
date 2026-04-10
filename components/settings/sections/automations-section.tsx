@@ -123,15 +123,6 @@ export function AutomationsSection() {
       setProviderProfiles(nextProfiles);
       setDefaultProviderProfileId(nextDefaultProviderProfileId);
       setPersonas(personasPayload.personas ?? []);
-
-      if (isAddingNew) {
-        setForm((current) => ({
-          ...current,
-          providerProfileId: current.providerProfileId || nextDefaultProviderProfileId
-        }));
-      } else if (!selectedAutomationId) {
-        setForm(createDefaultForm(nextDefaultProviderProfileId));
-      }
     } finally {
       setIsLoading(false);
     }
@@ -140,6 +131,22 @@ export function AutomationsSection() {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    if (!isAddingNew || form.providerProfileId) {
+      return;
+    }
+
+    const resolvedProviderProfileId = defaultProviderProfileId || providerProfiles[0]?.id || "";
+    if (!resolvedProviderProfileId) {
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      providerProfileId: resolvedProviderProfileId
+    }));
+  }, [defaultProviderProfileId, form.providerProfileId, isAddingNew, providerProfiles]);
 
   function openAutomation(automation: Automation) {
     setSelectedAutomationId(automation.id);
@@ -180,12 +187,14 @@ export function AutomationsSection() {
   }
 
   async function saveAutomation() {
+    const resolvedProviderProfileId = form.providerProfileId || defaultProviderProfileId || providerProfiles[0]?.id || "";
+
     if (!form.name.trim() || !form.prompt.trim()) {
       setError("Name and prompt are required");
       return;
     }
 
-    if (!form.providerProfileId) {
+    if (!resolvedProviderProfileId) {
       setError("Choose a provider profile");
       return;
     }
@@ -205,7 +214,7 @@ export function AutomationsSection() {
     const payload = {
       name: form.name.trim(),
       prompt: form.prompt.trim(),
-      providerProfileId: form.providerProfileId,
+      providerProfileId: resolvedProviderProfileId,
       personaId: form.personaId,
       scheduleKind: form.scheduleKind,
       intervalMinutes: form.scheduleKind === "interval" ? form.intervalMinutes : null,

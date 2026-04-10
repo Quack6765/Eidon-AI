@@ -261,6 +261,32 @@ test.describe("Feature: Skills in settings", () => {
   });
 });
 
+test.describe("Feature: Automations workspace", () => {
+  test("opens the dedicated workspace without polluting the main chat sidebar", async ({ page }) => {
+    await signIn(page);
+
+    await page.goto("/settings/automations");
+    await expect(page.getByRole("heading", { name: "Scheduled automations" })).toBeVisible({
+      timeout: 10000
+    });
+
+    await page.getByRole("button", { name: "Add automation" }).click();
+    await page.getByLabel("Name").fill("Morning summary");
+    await page.getByLabel("Prompt").fill("Summarize priorities");
+    await expect(page.getByLabel("Provider profile")).toHaveValue(/profile_/);
+    await page.getByRole("button", { name: "Save automation" }).click();
+    await expect(page.getByRole("heading", { name: "Morning summary" })).toBeVisible({
+      timeout: 5000
+    });
+
+    await page.goto("/automations");
+    await expect(page.locator("aside").getByText("Morning summary")).toBeVisible({
+      timeout: 5000
+    });
+    await expect(page.locator('aside a[href*="/chat/"]')).toHaveCount(0);
+  });
+});
+
 test.describe("Feature: Chat attachments", () => {
   test("attaches an image from the paperclip flow and sends it", async ({ page }) => {
     await signIn(page);
