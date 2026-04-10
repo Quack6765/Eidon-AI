@@ -1,7 +1,17 @@
+import { notFound } from "next/navigation";
+
 import { SkillsSection } from "@/components/settings/sections/skills-section";
-import { requireUser } from "@/lib/auth";
+import { requireAdminUser } from "@/lib/auth";
 
 export default async function SkillsPage() {
-  await requireUser();
+  try {
+    await requireAdminUser();
+  } catch (error) {
+    if (error instanceof Error && error.message === "forbidden") {
+      notFound();
+    }
+    throw error;
+  }
+
   return <SkillsSection />;
 }

@@ -1,12 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { requireAdminUserMock } = vi.hoisted(() => ({
+  requireAdminUserMock: vi.fn()
+}));
+
 vi.mock("@/lib/auth", () => ({
-  requireUser: vi.fn(async () => ({ id: "user_test" }))
+  requireAdminUser: requireAdminUserMock
 }));
 
 describe("mcp server routes", () => {
   beforeEach(() => {
     vi.resetModules();
+    requireAdminUserMock.mockReset();
+    requireAdminUserMock.mockResolvedValue({
+      id: "user_admin",
+      username: "admin",
+      role: "admin",
+      authSource: "env_super_admin",
+      passwordManagedBy: "env",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z"
+    });
   });
 
   it("rejects whitespace-only names on create", async () => {
@@ -62,5 +76,25 @@ describe("mcp server routes", () => {
     await expect(second.json()).resolves.toEqual({
       error: "An MCP server with a similar name already exists."
     });
+  });
+
+  it("returns forbidden for non-admin users", async () => {
+    requireAdminUserMock.mockRejectedValueOnce(new Error("forbidden"));
+
+    const { POST } = await import("@/app/api/mcp-servers/route");
+    const response = await POST(
+      new Request("http://localhost/api/mcp-servers", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          transport: "streamable_http",
+          name: "Docs",
+          url: "https://mcp.example.com"
+        })
+      })
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "Forbidden" });
   });
 });

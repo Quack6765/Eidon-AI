@@ -233,3 +233,18 @@ export async function updateManagedUser(
 
   return getUserById(userId);
 }
+
+export function deleteManagedUser(userId: string) {
+  const existing = getUserRecordById(userId);
+
+  if (!existing) {
+    return false;
+  }
+
+  if (existing.user.authSource !== "local") {
+    throw new Error("Env-managed users cannot be deleted by the manager");
+  }
+
+  const result = getDb().prepare("DELETE FROM users WHERE id = ?").run(userId);
+  return result.changes > 0;
+}

@@ -1,12 +1,22 @@
 import { redirect } from "next/navigation";
 
-import { requireUser } from "@/lib/auth";
-import { badRequest } from "@/lib/http";
+import { requireAdminUser } from "@/lib/auth";
+import { badRequest, forbidden } from "@/lib/http";
+import type { AuthUser } from "@/lib/types";
 import { exchangeGithubCodeForTokens, verifyGithubOauthState } from "@/lib/github-copilot";
 import { updateGithubCopilotCredentials } from "@/lib/settings";
 
 export async function GET(request: Request) {
-  const user = await requireUser();
+  let user: AuthUser;
+  try {
+    user = await requireAdminUser();
+  } catch (error) {
+    if (error instanceof Error && error.message === "forbidden") {
+      return forbidden();
+    }
+    throw error;
+  }
+
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");

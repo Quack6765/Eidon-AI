@@ -1,8 +1,8 @@
 import { z } from "zod";
 
-import { requireUser } from "@/lib/auth";
+import { requireAdminUser } from "@/lib/auth";
 import { deleteSkill, getSkill, updateSkill } from "@/lib/skills";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, forbidden, ok } from "@/lib/http";
 
 const paramsSchema = z.object({ skillId: z.string().min(1) });
 
@@ -10,7 +10,15 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ skillId: string }> }
 ) {
-  await requireUser();
+  try {
+    await requireAdminUser();
+  } catch (error) {
+    if (error instanceof Error && error.message === "forbidden") {
+      return forbidden();
+    }
+    throw error;
+  }
+
   const params = paramsSchema.safeParse(await context.params);
   if (!params.success) return badRequest("Invalid skill id");
 
@@ -37,7 +45,15 @@ export async function DELETE(
   _request: Request,
   context: { params: Promise<{ skillId: string }> }
 ) {
-  await requireUser();
+  try {
+    await requireAdminUser();
+  } catch (error) {
+    if (error instanceof Error && error.message === "forbidden") {
+      return forbidden();
+    }
+    throw error;
+  }
+
   const params = paramsSchema.safeParse(await context.params);
   if (!params.success) return badRequest("Invalid skill id");
 

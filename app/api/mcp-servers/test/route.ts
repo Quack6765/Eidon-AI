@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { requireUser } from "@/lib/auth";
-import { badRequest, ok } from "@/lib/http";
+import { requireAdminUser } from "@/lib/auth";
+import { badRequest, forbidden, ok } from "@/lib/http";
 import { testMcpServerConnection } from "@/lib/mcp-client";
 import { getMcpServer } from "@/lib/mcp-servers";
 
@@ -31,7 +31,14 @@ const bodySchema = z.union([
 ]);
 
 export async function POST(request: Request) {
-  await requireUser();
+  try {
+    await requireAdminUser();
+  } catch (error) {
+    if (error instanceof Error && error.message === "forbidden") {
+      return forbidden();
+    }
+    throw error;
+  }
 
   const body = bodySchema.safeParse(await request.json());
 
