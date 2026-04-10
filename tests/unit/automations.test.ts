@@ -3,13 +3,40 @@ import {
   attachConversationToRun,
   createAutomation,
   createAutomationRun,
+  deleteAutomation,
   getAutomation,
   listDueAutomations,
   listAutomationRuns,
   listAutomations,
+  retryAutomationRun,
+  triggerAutomationNow,
   updateAutomationRunStatus,
   updateAutomation
 } from "@/lib/automations";
+import { createPersona } from "@/lib/personas";
+import { getSettings } from "@/lib/settings";
+import { GET as listAutomationsRoute, POST as createAutomationRoute } from "@/app/api/automations/route";
+import {
+  DELETE as deleteAutomationRoute,
+  GET as getAutomationRoute,
+  PATCH as updateAutomationRoute
+} from "@/app/api/automations/[automationId]/route";
+import { GET as listAutomationRunsRoute } from "@/app/api/automations/[automationId]/runs/route";
+import { POST as runAutomationNowRoute } from "@/app/api/automations/[automationId]/run-now/route";
+import { POST as retryAutomationRunRoute } from "@/app/api/automation-runs/[runId]/retry/route";
+
+vi.mock("@/lib/auth", () => ({
+  requireUser: vi.fn().mockResolvedValue({
+    id: "user_test",
+    username: "admin",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    updatedAt: "2026-01-01T00:00:00.000Z"
+  })
+}));
+
+async function json<T>(response: Response) {
+  return response.json() as Promise<T>;
+}
 
 describe("automations schema", () => {
   it("creates automations tables and automation conversation columns", () => {
@@ -314,5 +341,223 @@ describe("automations storage", () => {
     expect(dailyAutomation?.timeOfDay).toBe("10:45");
     expect(dailyAutomation?.intervalMinutes).toBeNull();
     expect(dailyAutomation?.daysOfWeek).toEqual([]);
+  });
+
+  it("deletes an automation and cascades its runs", () => {
+    const automation = createAutomation({
+      name: "Delete me",
+      prompt: "Prompt",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 15,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-09T13:00:00.000Z",
+      triggerSource: "schedule"
+    });
+
+    deleteAutomation(automation.id);
+
+    expect(getAutomation(automation.id)).toBeNull();
+    expect(listAutomationRuns(automation.id)).toEqual([]);
+  });
+
+  it("creates manual run and retry records without mutating the manual chat surface", () => {
+    const automation = createAutomation({
+      name: "Manual controls",
+      prompt: "Prompt",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 15,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    const manualRun = triggerAutomationNow(automation.id);
+    const retryRun = retryAutomationRun(manualRun.id);
+
+    expect(manualRun.triggerSource).toBe("manual_run");
+    expect(manualRun.status).toBe("queued");
+    expect(manualRun.conversationId).toBeNull();
+    expect(retryRun?.automationId).toBe(automation.id);
+    expect(retryRun?.triggerSource).toBe("manual_retry");
+    expect(retryRun?.status).toBe("queued");
+    expect(retryRun?.conversationId).toBeNull();
+  });
+});
+
+describe("automation routes", () => {
+  it("lists and creates automations through the collection route", async () => {
+    const providerProfileId = getSettings().defaultProviderProfileId;
+
+    const createResponse = await createAutomationRoute(
+      new Request("http://localhost/api/automations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "API automation",
+          prompt: "Summarize",
+          providerProfileId,
+          personaId: null,
+          scheduleKind: "interval",
+          intervalMinutes: 15,
+          calendarFrequency: null,
+          timeOfDay: null,
+          daysOfWeek: []
+        })
+      })
+    );
+
+    expect(createResponse.status).toBe(201);
+    expect((await json<{ automation: { name: string } }>(createResponse)).automation.name).toBe("API automation");
+
+    const listResponse = await listAutomationsRoute(new Request("http://localhost/api/automations"));
+
+    expect(listResponse.status).toBe(200);
+    expect((await json<{ automations: Array<{ name: string }> }>(listResponse)).automations).toEqual([
+      expect.objectContaining({ name: "API automation" })
+    ]);
+  });
+
+  it("gets, updates, and deletes individual automations", async () => {
+    const persona = createPersona({ name: "Ops", content: "Be precise." });
+    const automation = createAutomation({
+      name: "Weekly brief",
+      prompt: "Prepare brief",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "calendar",
+      intervalMinutes: null,
+      calendarFrequency: "weekly",
+      timeOfDay: "09:00",
+      daysOfWeek: [1, 3]
+    });
+
+    const getResponse = await getAutomationRoute(new Request(`http://localhost/api/automations/${automation.id}`), {
+      params: Promise.resolve({ automationId: automation.id })
+    });
+
+    expect(getResponse.status).toBe(200);
+    expect((await json<{ automation: { id: string } }>(getResponse)).automation.id).toBe(automation.id);
+
+    const patchResponse = await updateAutomationRoute(
+      new Request(`http://localhost/api/automations/${automation.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Weekly leadership brief",
+          personaId: persona.id,
+          timeOfDay: "10:00",
+          daysOfWeek: [2, 4]
+        })
+      }),
+      { params: Promise.resolve({ automationId: automation.id }) }
+    );
+
+    expect(patchResponse.status).toBe(200);
+    expect((await json<{ automation: { name: string; personaId: string | null; timeOfDay: string; daysOfWeek: number[] } }>(patchResponse)).automation).toMatchObject({
+      name: "Weekly leadership brief",
+      personaId: persona.id,
+      timeOfDay: "10:00",
+      daysOfWeek: [2, 4]
+    });
+
+    const deleteResponse = await deleteAutomationRoute(
+      new Request(`http://localhost/api/automations/${automation.id}`, { method: "DELETE" }),
+      { params: Promise.resolve({ automationId: automation.id }) }
+    );
+
+    expect(deleteResponse.status).toBe(200);
+    expect((await json<{ success: boolean }>(deleteResponse)).success).toBe(true);
+    expect(getAutomation(automation.id)).toBeNull();
+  });
+
+  it("lists automation runs and creates manual run records from the route layer", async () => {
+    const automation = createAutomation({
+      name: "Runs route",
+      prompt: "Prompt",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 20,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-09T13:00:00.000Z",
+      triggerSource: "schedule"
+    });
+
+    const listResponse = await listAutomationRunsRoute(
+      new Request(`http://localhost/api/automations/${automation.id}/runs`),
+      { params: Promise.resolve({ automationId: automation.id }) }
+    );
+
+    expect(listResponse.status).toBe(200);
+    expect((await json<{ runs: Array<{ automationId: string; triggerSource: string }> }>(listResponse)).runs).toEqual([
+      expect.objectContaining({ automationId: automation.id, triggerSource: "schedule" })
+    ]);
+
+    const runNowResponse = await runAutomationNowRoute(
+      new Request(`http://localhost/api/automations/${automation.id}/run-now`, { method: "POST" }),
+      { params: Promise.resolve({ automationId: automation.id }) }
+    );
+
+    expect(runNowResponse.status).toBe(201);
+    expect((await json<{ run: { automationId: string; triggerSource: string; status: string; conversationId: string | null } }>(runNowResponse)).run).toMatchObject({
+      automationId: automation.id,
+      triggerSource: "manual_run",
+      status: "queued",
+      conversationId: null
+    });
+  });
+
+  it("retries a prior automation run through the route layer", async () => {
+    const automation = createAutomation({
+      name: "Retry route",
+      prompt: "Prompt",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 20,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    const failedRun = createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-09T13:00:00.000Z",
+      triggerSource: "schedule"
+    });
+
+    updateAutomationRunStatus(failedRun.id, {
+      status: "failed",
+      errorMessage: "boom"
+    });
+
+    const response = await retryAutomationRunRoute(
+      new Request(`http://localhost/api/automation-runs/${failedRun.id}/retry`, { method: "POST" }),
+      { params: Promise.resolve({ runId: failedRun.id }) }
+    );
+
+    expect(response.status).toBe(201);
+    expect((await json<{ run: { automationId: string; triggerSource: string; status: string; conversationId: string | null } }>(response)).run).toMatchObject({
+      automationId: automation.id,
+      triggerSource: "manual_retry",
+      status: "queued",
+      conversationId: null
+    });
   });
 });

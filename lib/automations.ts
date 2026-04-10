@@ -203,7 +203,7 @@ function rowToAutomationRun(row: AutomationRunRow): AutomationRun {
   };
 }
 
-function getAutomationRun(runId: string) {
+export function getAutomationRun(runId: string) {
   const row = getDb()
     .prepare(
       `SELECT
@@ -404,6 +404,20 @@ export function createAutomationRun(input: {
   return run;
 }
 
+export function triggerAutomationNow(
+  automationId: string,
+  triggerSource: Extract<AutomationTriggerSource, "manual_run" | "manual_retry"> = "manual_run"
+) {
+  const automation = getAutomation(automationId);
+  if (!automation) return null;
+
+  return createAutomationRun({
+    automationId,
+    scheduledFor: nowIso(),
+    triggerSource
+  });
+}
+
 export function listAutomations(): Automation[] {
   const rows = getDb()
     .prepare(
@@ -462,6 +476,14 @@ export function getAutomation(id: string) {
     .get(id) as AutomationRow | undefined;
 
   return row ? rowToAutomation(row) : null;
+}
+
+export function deleteAutomation(id: string) {
+  const result = getDb()
+    .prepare("DELETE FROM automations WHERE id = ?")
+    .run(id);
+
+  return result.changes > 0;
 }
 
 export function updateAutomation(id: string, patch: UpdateAutomationInput) {
@@ -590,6 +612,13 @@ export function updateAutomationRunStatus(runId: string, input: UpdateAutomation
   })();
 
   return getAutomationRun(runId);
+}
+
+export function retryAutomationRun(runId: string) {
+  const currentRun = getAutomationRun(runId);
+  if (!currentRun) return null;
+
+  return triggerAutomationNow(currentRun.automationId, "manual_retry");
 }
 
 export function listDueAutomations(nowIsoString: string): Automation[] {
