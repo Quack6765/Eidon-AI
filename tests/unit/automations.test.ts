@@ -195,4 +195,124 @@ describe("automations storage", () => {
     expect(updatedAutomation?.lastStartedAt).toBe("2026-04-09T12:00:10.000Z");
     expect(updatedAutomation?.lastFinishedAt).toBe("2026-04-09T12:01:00.000Z");
   });
+
+  it("does not let older run updates regress the parent automation summary", () => {
+    const automation = createAutomation({
+      name: "Out of order runs",
+      prompt: "Prompt",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 15,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    const olderRun = createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-09T12:00:00.000Z",
+      triggerSource: "schedule"
+    });
+    const newerRun = createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-09T13:00:00.000Z",
+      triggerSource: "schedule"
+    });
+
+    updateAutomationRunStatus(newerRun.id, {
+      status: "completed",
+      startedAt: "2026-04-09T13:00:05.000Z",
+      finishedAt: "2026-04-09T13:01:00.000Z"
+    });
+    updateAutomationRunStatus(olderRun.id, {
+      status: "failed",
+      startedAt: "2026-04-09T12:00:05.000Z",
+      finishedAt: "2026-04-09T12:01:00.000Z",
+      errorMessage: "older run failed"
+    });
+
+    const updatedAutomation = getAutomation(automation.id);
+
+    expect(updatedAutomation?.lastScheduledFor).toBe("2026-04-09T13:00:00.000Z");
+    expect(updatedAutomation?.lastStatus).toBe("completed");
+    expect(updatedAutomation?.lastStartedAt).toBe("2026-04-09T13:00:05.000Z");
+    expect(updatedAutomation?.lastFinishedAt).toBe("2026-04-09T13:01:00.000Z");
+  });
+
+  it("preserves an existing run error message unless null is passed explicitly", () => {
+    const automation = createAutomation({
+      name: "Preserve error",
+      prompt: "Prompt",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 15,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    const run = createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-09T13:00:00.000Z",
+      triggerSource: "schedule"
+    });
+
+    updateAutomationRunStatus(run.id, {
+      status: "failed",
+      errorMessage: "network timeout"
+    });
+    updateAutomationRunStatus(run.id, {
+      status: "running",
+      startedAt: "2026-04-09T13:00:05.000Z"
+    });
+
+    expect(listAutomationRuns(automation.id)[0]?.errorMessage).toBe("network timeout");
+
+    updateAutomationRunStatus(run.id, {
+      status: "completed",
+      finishedAt: "2026-04-09T13:01:00.000Z",
+      errorMessage: null
+    });
+
+    expect(listAutomationRuns(automation.id)[0]?.errorMessage).toBeNull();
+  });
+
+  it("clears incompatible schedule fields when changing schedule kinds", () => {
+    const automation = createAutomation({
+      name: "Schedule transitions",
+      prompt: "Prompt",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "calendar",
+      intervalMinutes: null,
+      calendarFrequency: "weekly",
+      timeOfDay: "08:30",
+      daysOfWeek: [1, 4]
+    });
+
+    const intervalAutomation = updateAutomation(automation.id, {
+      scheduleKind: "interval",
+      intervalMinutes: 20
+    });
+
+    expect(intervalAutomation?.scheduleKind).toBe("interval");
+    expect(intervalAutomation?.intervalMinutes).toBe(20);
+    expect(intervalAutomation?.calendarFrequency).toBeNull();
+    expect(intervalAutomation?.timeOfDay).toBeNull();
+    expect(intervalAutomation?.daysOfWeek).toEqual([]);
+
+    const dailyAutomation = updateAutomation(automation.id, {
+      scheduleKind: "calendar",
+      calendarFrequency: "daily",
+      timeOfDay: "10:45"
+    });
+
+    expect(dailyAutomation?.scheduleKind).toBe("calendar");
+    expect(dailyAutomation?.calendarFrequency).toBe("daily");
+    expect(dailyAutomation?.timeOfDay).toBe("10:45");
+    expect(dailyAutomation?.intervalMinutes).toBeNull();
+    expect(dailyAutomation?.daysOfWeek).toEqual([]);
+  });
 });

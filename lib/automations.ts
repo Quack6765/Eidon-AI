@@ -96,6 +96,33 @@ function normalizeDaysOfWeek(daysOfWeek: number[]) {
   return [...new Set(daysOfWeek)].sort((left, right) => left - right);
 }
 
+function normalizeAutomationSchedule(input: Automation): Automation {
+  const daysOfWeek = normalizeDaysOfWeek(input.daysOfWeek);
+
+  if (input.scheduleKind === "interval") {
+    return {
+      ...input,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    };
+  }
+
+  if (input.calendarFrequency === "daily") {
+    return {
+      ...input,
+      intervalMinutes: null,
+      daysOfWeek: []
+    };
+  }
+
+  return {
+    ...input,
+    intervalMinutes: null,
+    daysOfWeek
+  };
+}
+
 function assertValidTimeOfDay(timeOfDay: string | null) {
   if (!timeOfDay) {
     throw new Error("Calendar automations require a time of day");
@@ -198,19 +225,56 @@ function getAutomationRun(runId: string) {
   return row ? rowToAutomationRun(row) : null;
 }
 
+function getLatestAutomationRun(automationId: string) {
+  const row = getDb()
+    .prepare(
+      `SELECT
+        id,
+        automation_id,
+        conversation_id,
+        scheduled_for,
+        started_at,
+        finished_at,
+        status,
+        error_message,
+        trigger_source,
+        created_at
+       FROM automation_runs
+       WHERE automation_id = ?
+       ORDER BY scheduled_for DESC, created_at DESC, id DESC
+       LIMIT 1`
+    )
+    .get(automationId) as AutomationRunRow | undefined;
+
+  return row ? rowToAutomationRun(row) : null;
+}
+
+function refreshAutomationRunSummary(automationId: string, updatedAt: string) {
+  const latestRun = getLatestAutomationRun(automationId);
+
+  getDb()
+    .prepare(
+      `UPDATE automations
+       SET last_scheduled_for = ?,
+           last_started_at = ?,
+           last_finished_at = ?,
+           last_status = ?,
+           updated_at = ?
+       WHERE id = ?`
+    )
+    .run(
+      latestRun?.scheduledFor ?? null,
+      latestRun?.startedAt ?? null,
+      latestRun?.finishedAt ?? null,
+      latestRun?.status ?? null,
+      updatedAt,
+      automationId
+    );
+}
+
 export function createAutomation(input: CreateAutomationInput) {
-  const daysOfWeek = normalizeDaysOfWeek(input.daysOfWeek);
-
-  assertValidSchedule({
-    scheduleKind: input.scheduleKind,
-    intervalMinutes: input.intervalMinutes,
-    calendarFrequency: input.calendarFrequency,
-    timeOfDay: input.timeOfDay,
-    daysOfWeek
-  });
-
   const timestamp = nowIso();
-  const automation: Automation = {
+  const automation = normalizeAutomationSchedule({
     id: createId("auto"),
     name: input.name.trim(),
     prompt: input.prompt,
@@ -220,7 +284,7 @@ export function createAutomation(input: CreateAutomationInput) {
     intervalMinutes: input.intervalMinutes,
     calendarFrequency: input.calendarFrequency,
     timeOfDay: input.timeOfDay,
-    daysOfWeek,
+    daysOfWeek: input.daysOfWeek,
     enabled: true,
     nextRunAt: null,
     lastScheduledFor: null,
@@ -229,7 +293,15 @@ export function createAutomation(input: CreateAutomationInput) {
     lastStatus: null,
     createdAt: timestamp,
     updatedAt: timestamp
-  };
+  });
+
+  assertValidSchedule({
+    scheduleKind: automation.scheduleKind,
+    intervalMinutes: automation.intervalMinutes,
+    calendarFrequency: automation.calendarFrequency,
+    timeOfDay: automation.timeOfDay,
+    daysOfWeek: automation.daysOfWeek
+  });
 
   getDb()
     .prepare(
@@ -325,12 +397,9 @@ export function createAutomationRun(input: {
     );
 
   getDb()
-    .prepare(
-      `UPDATE automations
-       SET last_scheduled_for = ?, updated_at = ?
-       WHERE id = ?`
-    )
-    .run(run.scheduledFor, run.createdAt, run.automationId);
+    .transaction(() => {
+      refreshAutomationRunSummary(run.automationId, run.createdAt);
+    })();
 
   return run;
 }
@@ -399,13 +468,13 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput) {
   const current = getAutomation(id);
   if (!current) return null;
 
-  const next: Automation = {
+  const next = normalizeAutomationSchedule({
     ...current,
     ...patch,
     name: patch.name?.trim() ?? current.name,
     daysOfWeek: patch.daysOfWeek ? normalizeDaysOfWeek(patch.daysOfWeek) : current.daysOfWeek,
     updatedAt: nowIso()
-  };
+  });
 
   assertValidSchedule({
     scheduleKind: next.scheduleKind,
@@ -498,7 +567,7 @@ export function updateAutomationRunStatus(runId: string, input: UpdateAutomation
 
   const nextStartedAt = input.startedAt ?? currentRun.startedAt;
   const nextFinishedAt = input.finishedAt ?? currentRun.finishedAt;
-  const nextErrorMessage = input.errorMessage ?? null;
+  const nextErrorMessage = "errorMessage" in input ? input.errorMessage ?? null : currentRun.errorMessage;
   const updatedAt = nowIso();
 
   const updateRun = getDb().prepare(
@@ -509,15 +578,6 @@ export function updateAutomationRunStatus(runId: string, input: UpdateAutomation
          finished_at = ?
      WHERE id = ?`
   );
-  const updateAutomationStmt = getDb().prepare(
-    `UPDATE automations
-     SET last_started_at = ?,
-         last_finished_at = ?,
-         last_status = ?,
-         updated_at = ?
-     WHERE id = ?`
-  );
-
   getDb().transaction(() => {
     updateRun.run(
       input.status,
@@ -526,13 +586,7 @@ export function updateAutomationRunStatus(runId: string, input: UpdateAutomation
       nextFinishedAt,
       runId
     );
-    updateAutomationStmt.run(
-      nextStartedAt,
-      nextFinishedAt,
-      input.status,
-      updatedAt,
-      currentRun.automationId
-    );
+    refreshAutomationRunSummary(currentRun.automationId, updatedAt);
   })();
 
   return getAutomationRun(runId);
