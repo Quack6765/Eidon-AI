@@ -321,6 +321,59 @@ describe("lossless compaction", () => {
     expect(precedingAssistant?.compactedAt).not.toBeNull();
   });
 
+  it("rejects a raw-eligible slice when the completed-turn count falls below the leaf minimum", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 6000,
+      compactionThreshold: 0.7
+    });
+
+    const conversation = createConversation();
+
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: `Message 0 ${"dense context ".repeat(90)}`
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: `Message 1 ${"dense context ".repeat(90)}`,
+      thinkingContent: "Reasoning " + "step ".repeat(24)
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "",
+      thinkingContent: "",
+      status: "streaming"
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: `Message 3 ${"dense context ".repeat(90)}`
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: `Message 4 ${"dense context ".repeat(90)}`,
+      thinkingContent: "Reasoning " + "step ".repeat(24)
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: `Message 5 ${"dense context ".repeat(90)}`
+    });
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const messages = listMessages(conversation.id);
+
+    expect(result.didCompact).toBe(false);
+    expect(messages.every((message) => message.compactedAt === null)).toBe(true);
+  });
+
   it("compacts older turns without creating a visible compaction notice message", async () => {
     updateDefaultProfile({
       modelContextLimit: 6000,

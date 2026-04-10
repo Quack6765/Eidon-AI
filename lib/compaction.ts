@@ -388,8 +388,12 @@ async function compactLeafMessages(
     return null;
   }
 
-  const blocks = renderCompletedTurns(selected);
   const completedTurnMessages = completedTurns.flatMap((turn) => [turn.user, turn.assistant]);
+  if (completedTurnMessages.length < settings.leafMinMessageCount) {
+    return null;
+  }
+
+  const blocks = renderCompletedTurns(selected);
 
   const activeNodes = getActiveMemoryNodes(conversationId);
   const existingSummary = activeNodes.length
