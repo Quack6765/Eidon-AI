@@ -1352,7 +1352,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             textareaRef={inputRef}
             usedTokens={usedTokens}
             modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
-            compactionThreshold={selectedProfile?.compactionThreshold ?? 0.78}
+            compactionThreshold={selectedProfile?.compactionThreshold ?? 0.8}
             hasMessages={messages.length > 0}
             canStop={!!streamMessageId && !isStopPending}
             isStopPending={isStopPending}

@@ -49,7 +49,6 @@ const settings: AppSettings = {
   defaultProviderProfileId: "profile_default",
   skillsEnabled: true,
   conversationRetention: "forever",
-  autoCompaction: true,
   memoriesEnabled: true,
   memoriesMaxCount: 100,
   mcpTimeout: 120_000,

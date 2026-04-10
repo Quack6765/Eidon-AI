@@ -197,7 +197,38 @@ describe("settings storage", () => {
     expect(defaults.visionMcpServerId).toBeNull();
   });
 
-  it("stores profiles with reasoning disabled and auto-compaction off", () => {
+  it("returns the default compaction threshold as eighty percent", () => {
+    const defaults = getSettingsDefaults();
+
+    expect(defaults.compactionThreshold).toBe(0.8);
+  });
+
+  it("normalizes legacy default compaction thresholds without changing custom values", () => {
+    const legacy = buildProfile({
+      id: "profile_legacy",
+      name: "Legacy",
+      compactionThreshold: 0.78
+    });
+    const custom = buildProfile({
+      id: "profile_custom",
+      name: "Custom",
+      compactionThreshold: 0.5
+    });
+
+    updateSettings({
+      defaultProviderProfileId: legacy.id,
+      skillsEnabled: true,
+      providerProfiles: [legacy, custom]
+    });
+
+    const providerProfiles = listProviderProfiles();
+
+    expect(providerProfiles.find((profile) => profile.id === legacy.id)?.compactionThreshold).toBe(0.8);
+    expect(providerProfiles.find((profile) => profile.id === custom.id)?.compactionThreshold).toBe(0.5);
+    expect(getDefaultProviderProfile()?.compactionThreshold).toBe(0.8);
+  });
+
+  it("stores profiles with reasoning disabled and memories off", () => {
     const alpha = buildProfile({
       id: "profile_alpha",
       name: "Alpha",
@@ -208,15 +239,63 @@ describe("settings storage", () => {
     updateSettings({
       defaultProviderProfileId: alpha.id,
       skillsEnabled: false,
-      autoCompaction: false,
       memoriesEnabled: false,
       providerProfiles: [alpha]
     });
 
     expect(getSettings().skillsEnabled).toBe(false);
-    expect(getSettings().autoCompaction).toBe(false);
     expect(getSettings().memoriesEnabled).toBe(false);
     expect(listProviderProfiles()[0].reasoningSummaryEnabled).toBe(false);
+  });
+
+  it("does not expose auto-compaction in sanitized settings", () => {
+    const sanitized = getSanitizedSettings();
+
+    expect("autoCompaction" in sanitized).toBe(false);
+  });
+
+  it("leaves the auto_compaction column unchanged when saving settings", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-alpha"
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: true,
+      providerProfiles: [alpha]
+    });
+
+    const initialAutoCompaction = getDb()
+      .prepare("SELECT auto_compaction FROM app_settings WHERE id = ?")
+      .get(1) as { auto_compaction: number };
+
+    getDb()
+      .prepare("UPDATE app_settings SET auto_compaction = ? WHERE id = ?")
+      .run(0, 1);
+
+    const beforeUpdate = getDb()
+      .prepare("SELECT auto_compaction FROM app_settings WHERE id = ?")
+      .get(1) as { auto_compaction: number };
+
+    expect(beforeUpdate.auto_compaction).toBe(0);
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: false,
+      memoriesEnabled: false,
+      mcpTimeout: 45_000,
+      providerProfiles: [alpha]
+    });
+
+    const afterUpdate = getDb()
+      .prepare("SELECT auto_compaction FROM app_settings WHERE id = ?")
+      .get(1) as { auto_compaction: number };
+
+    expect(afterUpdate.auto_compaction).toBe(beforeUpdate.auto_compaction);
+    expect(afterUpdate.auto_compaction).toBe(0);
+    expect(initialAutoCompaction.auto_compaction).toBeGreaterThanOrEqual(0);
   });
 
   it("returns the default MCP timeout from persisted settings", () => {

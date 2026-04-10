@@ -103,7 +103,6 @@ function makeAppSettings(overrides: Partial<import("@/lib/types").AppSettings> =
     defaultProviderProfileId: "profile_default",
     skillsEnabled: true,
     conversationRetention: "forever" as const,
-    autoCompaction: true,
     memoriesEnabled: true,
     memoriesMaxCount: 100,
     mcpTimeout: 30000,

@@ -80,7 +80,6 @@ const settingsSchema = z
     defaultProviderProfileId: z.string().min(1),
     skillsEnabled: z.coerce.boolean(),
     conversationRetention: z.enum(["forever", "90d", "30d", "7d"]).default("forever"),
-    autoCompaction: z.coerce.boolean().default(true),
     memoriesEnabled: z.coerce.boolean().default(true),
     memoriesMaxCount: z.coerce.number().int().min(1).max(500).default(100),
     mcpTimeout: z.coerce.number().int().min(10_000).max(600_000).default(120_000),
@@ -160,12 +159,17 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     defaultProviderProfileId: row.default_provider_profile_id,
     skillsEnabled: Boolean(row.skills_enabled),
     conversationRetention: row.conversation_retention as AppSettings["conversationRetention"],
-    autoCompaction: Boolean(row.auto_compaction),
     memoriesEnabled: Boolean(row.memories_enabled),
     memoriesMaxCount: row.memories_max_count,
     mcpTimeout: row.mcp_timeout,
     updatedAt: row.updated_at
   };
+}
+
+function normalizeLegacyCompactionThreshold(threshold: number) {
+  return Math.abs(threshold - 0.78) < 1e-6
+    ? DEFAULT_PROVIDER_SETTINGS.compactionThreshold
+    : threshold;
 }
 
 function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
@@ -183,7 +187,7 @@ function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
     reasoningEffort: row.reasoning_effort,
     reasoningSummaryEnabled: Boolean(row.reasoning_summary_enabled),
     modelContextLimit: row.model_context_limit,
-    compactionThreshold: row.compaction_threshold,
+    compactionThreshold: normalizeLegacyCompactionThreshold(row.compaction_threshold),
     freshTailCount: row.fresh_tail_count,
     tokenizerModel: row.tokenizer_model as "gpt-tokenizer" | "off",
     safetyMarginTokens: row.safety_margin_tokens,
@@ -610,7 +614,6 @@ export function updateSettings(input: unknown) {
          SET default_provider_profile_id = ?,
              skills_enabled = ?,
              conversation_retention = ?,
-             auto_compaction = ?,
              memories_enabled = ?,
              memories_max_count = ?,
              mcp_timeout = ?,
@@ -621,7 +624,6 @@ export function updateSettings(input: unknown) {
         parsed.defaultProviderProfileId,
         parsed.skillsEnabled ? 1 : 0,
         parsed.conversationRetention,
-        parsed.autoCompaction ? 1 : 0,
         parsed.memoriesEnabled ? 1 : 0,
         parsed.memoriesMaxCount,
         parsed.mcpTimeout,
