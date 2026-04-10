@@ -97,7 +97,7 @@ export type ProviderProfileSummary = Omit<
 };
 
 export type AppSettings = {
-  defaultProviderProfileId: string | null;
+  defaultProviderProfileId: string;
   skillsEnabled: boolean;
   conversationRetention: ConversationRetention;
   autoCompaction: boolean;
@@ -349,9 +349,6 @@ export type CompactionEvent = {
 export type AuthUser = {
   id: string;
   username: string;
-  role: UserRole;
-  authSource: AuthSource;
-  passwordManagedBy: "env" | "local";
   createdAt: string;
   updatedAt: string;
 };
