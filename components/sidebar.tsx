@@ -6,7 +6,6 @@ import Link from "next/link";
 import {
   Plus,
   Search,
-  Settings,
   MoreHorizontal,
   FolderIcon,
   FolderOpen,
@@ -58,6 +57,7 @@ import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { addGlobalWsListener } from "@/lib/ws-client";
 import type { ServerMessage } from "@/lib/ws-protocol";
 import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
+import { SidebarFooterNav } from "@/components/sidebar-footer-nav";
 
 type SidebarConversation = Conversation & { matchSnippet?: string };
 
@@ -1225,31 +1225,7 @@ export function Sidebar({
           )}
         </div>
 
-        <div className="mt-6 flex items-center pt-6 border-t border-white/5">
-          <Link
-            href="/settings"
-            onClick={(event) => {
-              if (
-                event.defaultPrevented ||
-                event.button !== 0 ||
-                event.metaKey ||
-                event.ctrlKey ||
-                event.shiftKey ||
-                event.altKey
-              ) {
-                return;
-              }
-
-              event.preventDefault();
-              void navigateToHref("/settings");
-            }}
-            aria-label="Open settings"
-            className="flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm text-white/30 hover:bg-white/[0.03] hover:text-white/60 transition-all duration-300"
-          >
-            <Settings className="h-4.5 w-4.5 opacity-60" />
-            <span className="font-medium">Settings</span>
-          </Link>
-        </div>
+        <SidebarFooterNav onNavigateAction={navigateToHref} />
       </div>
     </aside>
   );
