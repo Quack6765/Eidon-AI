@@ -2,11 +2,14 @@ import OpenAI from "openai";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { ensureFreshGithubAccessToken, runGithubCopilotChat, streamGithubCopilotChat } from "@/lib/github-copilot";
+import { buildCopilotTools, type CopilotToolContext } from "@/lib/copilot-tools";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
 import { estimatePromptTokens, setActiveTokenizer } from "@/lib/tokenization";
 import { normalizeLineBreaks } from "@/lib/utils";
 import type {
   ChatStreamEvent,
+  MessageActionKind,
+  MessageAction,
   PromptMessage,
   ProviderProfile,
   ProviderProfileWithApiKey,
@@ -293,6 +296,7 @@ export async function* streamProviderResponse(input: {
   promptMessages: PromptMessage[];
   tools?: ToolDefinition[];
   abortSignal?: AbortSignal;
+  copilotToolContext?: CopilotToolContext;
 }): AsyncGenerator<
   ChatStreamEvent,
   { answer: string; thinking: string; toolCalls?: ProviderToolCall[]; usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number } },
@@ -307,7 +311,11 @@ export async function* streamProviderResponse(input: {
       typeof m.content === "string" ? m.content : m.content.map((p) => "text" in p ? p.text : "").join("")
     );
 
-    type CopilotEvent = { type: string; data?: Record<string, unknown> };
+    type CopilotEvent = {
+      type: string;
+      timestamp?: string;
+      data?: Record<string, unknown>;
+    };
     type QueueItem = { done: true } | { event: ChatStreamEvent };
 
     const eventQueue: QueueItem[] = [];
@@ -335,9 +343,37 @@ export async function* streamProviderResponse(input: {
     let answer = "";
     let thinking = "";
 
+    const copilotTools = input.copilotToolContext
+      ? buildCopilotTools(input.copilotToolContext)
+      : undefined;
+    const customCopilotToolNames = new Set((copilotTools ?? []).map((tool) => tool.name));
+    const liveCopilotActions = new Map<string, MessageAction>();
+
+    function summarizeCopilotArguments(args: Record<string, unknown> | undefined) {
+      if (!args || !Object.keys(args).length) return "";
+      const firstScalar = Object.entries(args).find(([, value]) =>
+        typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+      );
+      if (firstScalar) {
+        return `${firstScalar[0]}=${String(firstScalar[1])}`;
+      }
+      const json = JSON.stringify(args);
+      return json.length > 120 ? `${json.slice(0, 117)}...` : json;
+    }
+
+    function inferCopilotActionKind(toolName: string): MessageActionKind {
+      if (toolName === "execute_shell_command") return "shell_command";
+      if (toolName === "load_skill") return "skill_load";
+      if (toolName === "create_memory" || toolName === "update_memory" || toolName === "delete_memory") {
+        return toolName;
+      }
+      return "mcp_tool_call";
+    }
+
     const copilotPromise = streamGithubCopilotChat({
       ...freshSettings,
       messages: messageTexts.map((content) => ({ role: "user" as const, content })),
+      ...(copilotTools?.length ? { tools: copilotTools } : {}),
       onEvent: (rawEvent: unknown) => {
         const event = rawEvent as CopilotEvent;
 
@@ -347,6 +383,71 @@ export async function* streamProviderResponse(input: {
         } else if (event.type === "assistant.reasoning_delta" && event.data?.deltaContent) {
           thinking += event.data.deltaContent as string;
           enqueue({ event: { type: "thinking_delta", text: event.data.deltaContent as string } });
+        } else if (event.type === "assistant.reasoning" && event.data?.content) {
+          thinking += event.data.content as string;
+          enqueue({ event: { type: "thinking_delta", text: event.data.content as string } });
+        } else if (event.type === "tool.execution_start" && event.data) {
+          const toolData = event.data as {
+            toolCallId: string;
+            toolName: string;
+            arguments?: Record<string, unknown>;
+          };
+          if (customCopilotToolNames.has(toolData.toolName)) {
+            return;
+          }
+          const action: MessageAction = {
+            id: toolData.toolCallId,
+            messageId: "",
+            kind: inferCopilotActionKind(toolData.toolName),
+            status: "running",
+            serverId: null,
+            skillId: null,
+            toolName: toolData.toolName,
+            label: toolData.toolName,
+            detail: summarizeCopilotArguments(toolData.arguments),
+            arguments: toolData.arguments ?? null,
+            resultSummary: "",
+            sortOrder: 0,
+            startedAt: event.timestamp ?? new Date().toISOString(),
+            completedAt: null
+          };
+          liveCopilotActions.set(toolData.toolCallId, action);
+          enqueue({ event: { type: "action_start", action } });
+        } else if (event.type === "tool.execution_complete" && event.data) {
+          const toolData = event.data as {
+            toolCallId: string;
+            toolName: string;
+            success: boolean;
+            result?: { content?: string; detailedContent?: string };
+            error?: { message?: string };
+          };
+          if (customCopilotToolNames.has(toolData.toolName)) {
+            return;
+          }
+          const existing = liveCopilotActions.get(toolData.toolCallId);
+          const resultSummary =
+            toolData.result?.detailedContent ??
+            toolData.result?.content ??
+            toolData.error?.message ??
+            "";
+          const action: MessageAction = {
+            id: toolData.toolCallId,
+            messageId: "",
+            kind: existing?.kind ?? inferCopilotActionKind(toolData.toolName),
+            status: toolData.success ? "completed" : "error",
+            serverId: existing?.serverId ?? null,
+            skillId: existing?.skillId ?? null,
+            toolName: existing?.toolName ?? toolData.toolName,
+            label: existing?.label ?? toolData.toolName,
+            detail: existing?.detail ?? "",
+            arguments: existing?.arguments ?? null,
+            resultSummary,
+            sortOrder: existing?.sortOrder ?? 0,
+            startedAt: existing?.startedAt ?? event.timestamp ?? new Date().toISOString(),
+            completedAt: event.timestamp ?? new Date().toISOString()
+          };
+          liveCopilotActions.delete(toolData.toolCallId);
+          enqueue({ event: { type: toolData.success ? "action_complete" : "action_error", action } });
         } else if (event.type === "session.error" && event.data?.message) {
           enqueue({ event: { type: "error", message: event.data.message as string } });
         }

@@ -4,6 +4,7 @@ import { join } from "node:path";
 
 import { SignJWT, jwtVerify } from "jose";
 import { CopilotClient } from "@github/copilot-sdk";
+import type { Tool } from "@github/copilot-sdk";
 
 import { decryptValue, encryptValue } from "@/lib/crypto";
 import { env } from "@/lib/env";
@@ -15,6 +16,15 @@ import type {
 import { updateGithubCopilotCredentials } from "@/lib/settings";
 
 const COPILOT_WORK_DIR = join(tmpdir(), "eidon-copilot");
+
+const COPILOT_EXCLUDED_TOOLS: string[] = [
+  "browser_start_debugger",
+  "browser_tool",
+  "query_system_config",
+  "read_task_specification",
+  "write_task_specification",
+  "agent_github_mcp"
+];
 
 function ensureCopilotWorkDir(): string {
   mkdirSync(COPILOT_WORK_DIR, { recursive: true });
@@ -283,6 +293,7 @@ export async function streamGithubCopilotChat(
   input: ProviderProfileWithApiKey & {
     messages: Array<{ role: string; content: string }>;
     onEvent: (event: unknown) => void;
+    tools?: Tool[];
   }
 ) {
   const client = await buildGithubCopilotClient(input);
@@ -299,7 +310,7 @@ export async function streamGithubCopilotChat(
       model: input.model,
       streaming: true as const,
       workingDirectory: ensureCopilotWorkDir(),
-      availableTools: [] as string[],
+      excludedTools: COPILOT_EXCLUDED_TOOLS,
       onPermissionRequest: () => ({ kind: "approved" as const }),
       onEvent: (rawEvent: unknown) => {
         const event = rawEvent as { type: string; data?: Record<string, unknown> };
@@ -314,7 +325,8 @@ export async function streamGithubCopilotChat(
       },
       ...(input.systemPrompt
         ? { systemMessage: { mode: "replace" as const, content: input.systemPrompt } }
-        : {})
+        : {}),
+      ...(input.tools?.length ? { tools: input.tools } : {})
     };
 
     const session = await client.createSession(sessionConfig);

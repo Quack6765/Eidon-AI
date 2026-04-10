@@ -1,3 +1,4 @@
+import type WebSocket from "ws";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type WebSocket from "ws";
 

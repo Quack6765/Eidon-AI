@@ -1078,7 +1078,7 @@ describe("provider integration", () => {
               },
               required: ["choice"],
               additionalProperties: false
-            }
+            } as unknown as { type: string; properties?: Record<string, unknown>; required?: string[] }
           }
         }
       ]
@@ -1088,5 +1088,457 @@ describe("provider integration", () => {
 
     const toolCall = responsesCreate.mock.calls[0][0];
     expect(toolCall.tools[0].strict).toBe(true);
+  });
+
+  it("does not emit duplicate action events for custom copilot tools", async () => {
+    vi.resetModules();
+
+    vi.doMock("@/lib/github-copilot", () => ({
+      runGithubCopilotChat: vi.fn(),
+      ensureFreshGithubAccessToken: vi.fn(async (profile) => profile),
+      streamGithubCopilotChat: vi.fn(async (input: { onEvent: (event: unknown) => void }) => {
+        input.onEvent({ type: "assistant.reasoning_delta", data: { deltaContent: "Thinking " } });
+        input.onEvent({
+          type: "tool.execution_start",
+          data: {
+            toolCallId: "tool_custom_1",
+            toolName: "execute_shell_command",
+            arguments: { command: "pwd" }
+          }
+        });
+        input.onEvent({
+          type: "tool.execution_complete",
+          data: {
+            toolCallId: "tool_custom_1",
+            toolName: "execute_shell_command",
+            success: true,
+            result: { content: "ok" }
+          }
+        });
+        input.onEvent({ type: "assistant.message_delta", data: { deltaContent: "Done" } });
+      }),
+      buildGithubCopilotClient: vi.fn(),
+      listGithubCopilotModels: vi.fn(),
+      getGithubConnectionStatus: vi.fn(),
+      shouldRefreshGithubToken: vi.fn(),
+      clearGithubCopilotConnection: vi.fn(),
+      createGithubOauthState: vi.fn(),
+      verifyGithubOauthState: vi.fn(),
+      getGithubAuthorizeUrl: vi.fn(),
+      exchangeGithubCodeForTokens: vi.fn(),
+      refreshGithubUserToken: vi.fn()
+    }));
+
+    vi.doMock("@/lib/copilot-tools", () => ({
+      buildCopilotTools: vi.fn(() => [
+        {
+          name: "execute_shell_command",
+          description: "Run a command",
+          handler: vi.fn(),
+          skipPermission: true,
+          overridesBuiltInTool: true
+        }
+      ])
+    }));
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        providerKind: "github_copilot",
+        apiKey: "",
+        apiBaseUrl: "",
+        model: "openai/gpt-4.1"
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }],
+      copilotToolContext: {
+        mcpToolSets: [],
+        skills: [],
+        loadedSkillIds: new Set(),
+        memoriesEnabled: false
+      }
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+
+      if (next.done) {
+        expect(next.value.thinking).toBe("Thinking ");
+        expect(next.value.answer).toBe("Done");
+        break;
+      }
+
+      events.push(next.value);
+    }
+
+    expect(events).toEqual([
+      { type: "thinking_delta", text: "Thinking " },
+      { type: "answer_delta", text: "Done" }
+    ]);
+
+    vi.doUnmock("@/lib/copilot-tools");
+    vi.doUnmock("@/lib/github-copilot");
+    vi.resetModules();
+  });
+
+  it("maps built-in copilot tool results from the sdk result payload", async () => {
+    vi.resetModules();
+
+    vi.doMock("@/lib/github-copilot", () => ({
+      runGithubCopilotChat: vi.fn(),
+      ensureFreshGithubAccessToken: vi.fn(async (profile) => profile),
+      streamGithubCopilotChat: vi.fn(async (input: { onEvent: (event: unknown) => void }) => {
+        input.onEvent({
+          type: "tool.execution_start",
+          data: {
+            toolCallId: "tool_builtin_1",
+            toolName: "edit_file",
+            arguments: { path: "plan.md" }
+          }
+        });
+        input.onEvent({
+          type: "tool.execution_complete",
+          data: {
+            toolCallId: "tool_builtin_1",
+            toolName: "edit_file",
+            success: true,
+            result: {
+              content: "patched",
+              detailedContent: "Applied patch to plan.md"
+            }
+          }
+        });
+        input.onEvent({ type: "assistant.message_delta", data: { deltaContent: "Done" } });
+      }),
+      buildGithubCopilotClient: vi.fn(),
+      listGithubCopilotModels: vi.fn(),
+      getGithubConnectionStatus: vi.fn(),
+      shouldRefreshGithubToken: vi.fn(),
+      clearGithubCopilotConnection: vi.fn(),
+      createGithubOauthState: vi.fn(),
+      verifyGithubOauthState: vi.fn(),
+      getGithubAuthorizeUrl: vi.fn(),
+      exchangeGithubCodeForTokens: vi.fn(),
+      refreshGithubUserToken: vi.fn()
+    }));
+
+    vi.doMock("@/lib/copilot-tools", () => ({
+      buildCopilotTools: vi.fn(() => [
+        {
+          name: "execute_shell_command",
+          description: "Run a command",
+          handler: vi.fn(),
+          skipPermission: true,
+          overridesBuiltInTool: true
+        }
+      ])
+    }));
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        providerKind: "github_copilot",
+        apiKey: "",
+        apiBaseUrl: "",
+        model: "openai/gpt-4.1"
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }],
+      copilotToolContext: {
+        mcpToolSets: [],
+        skills: [],
+        loadedSkillIds: new Set(),
+        memoriesEnabled: false
+      }
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+      if (next.done) {
+        break;
+      }
+      events.push(next.value);
+    }
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "action_start",
+        action: expect.objectContaining({
+          id: "tool_builtin_1",
+          toolName: "edit_file",
+          label: "edit_file",
+          arguments: { path: "plan.md" }
+        })
+      })
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "action_complete",
+        action: expect.objectContaining({
+          id: "tool_builtin_1",
+          toolName: "edit_file",
+          label: "edit_file",
+          resultSummary: "Applied patch to plan.md"
+        })
+      })
+    );
+
+    vi.doUnmock("@/lib/copilot-tools");
+    vi.doUnmock("@/lib/github-copilot");
+    vi.resetModules();
+  });
+
+  it("maps built-in copilot tool errors without a prior start event", async () => {
+    vi.resetModules();
+
+    vi.doMock("@/lib/github-copilot", () => ({
+      runGithubCopilotChat: vi.fn(),
+      ensureFreshGithubAccessToken: vi.fn(async (profile) => profile),
+      streamGithubCopilotChat: vi.fn(async (input: { onEvent: (event: unknown) => void }) => {
+        input.onEvent({
+          type: "tool.execution_complete",
+          timestamp: "2026-04-10T13:00:00.000Z",
+          data: {
+            toolCallId: "tool_builtin_2",
+            toolName: "load_skill",
+            success: false,
+            error: { message: "skill not found" }
+          }
+        });
+      }),
+      buildGithubCopilotClient: vi.fn(),
+      listGithubCopilotModels: vi.fn(),
+      getGithubConnectionStatus: vi.fn(),
+      shouldRefreshGithubToken: vi.fn(),
+      clearGithubCopilotConnection: vi.fn(),
+      createGithubOauthState: vi.fn(),
+      verifyGithubOauthState: vi.fn(),
+      getGithubAuthorizeUrl: vi.fn(),
+      exchangeGithubCodeForTokens: vi.fn(),
+      refreshGithubUserToken: vi.fn()
+    }));
+
+    vi.doMock("@/lib/copilot-tools", () => ({
+      buildCopilotTools: vi.fn(() => [
+        {
+          name: "execute_shell_command",
+          description: "Run a command",
+          handler: vi.fn(),
+          skipPermission: true,
+          overridesBuiltInTool: true
+        }
+      ])
+    }));
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        providerKind: "github_copilot",
+        apiKey: "",
+        apiBaseUrl: "",
+        model: "openai/gpt-4.1"
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }],
+      copilotToolContext: {
+        mcpToolSets: [],
+        skills: [],
+        loadedSkillIds: new Set(),
+        memoriesEnabled: false
+      }
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+      if (next.done) break;
+      events.push(next.value);
+    }
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "action_error",
+        action: expect.objectContaining({
+          id: "tool_builtin_2",
+          kind: "skill_load",
+          toolName: "load_skill",
+          label: "load_skill",
+          resultSummary: "skill not found",
+          startedAt: "2026-04-10T13:00:00.000Z",
+          completedAt: "2026-04-10T13:00:00.000Z"
+        })
+      })
+    );
+
+    vi.doUnmock("@/lib/copilot-tools");
+    vi.doUnmock("@/lib/github-copilot");
+    vi.resetModules();
+  });
+
+  it("summarizes structured built-in copilot arguments and falls back to result.content", async () => {
+    vi.resetModules();
+
+    vi.doMock("@/lib/github-copilot", () => ({
+      runGithubCopilotChat: vi.fn(),
+      ensureFreshGithubAccessToken: vi.fn(async (profile) => profile),
+      streamGithubCopilotChat: vi.fn(async (input: { onEvent: (event: unknown) => void }) => {
+        input.onEvent({
+          type: "tool.execution_start",
+          data: {
+            toolCallId: "tool_builtin_3",
+            toolName: "edit_file",
+            arguments: {
+              payload: {
+                lines: Array.from({ length: 40 }, (_, index) => `line-${index}`)
+              }
+            }
+          }
+        });
+        input.onEvent({
+          type: "tool.execution_complete",
+          data: {
+            toolCallId: "tool_builtin_3",
+            toolName: "edit_file",
+            success: true,
+            result: { content: "updated file" }
+          }
+        });
+      }),
+      buildGithubCopilotClient: vi.fn(),
+      listGithubCopilotModels: vi.fn(),
+      getGithubConnectionStatus: vi.fn(),
+      shouldRefreshGithubToken: vi.fn(),
+      clearGithubCopilotConnection: vi.fn(),
+      createGithubOauthState: vi.fn(),
+      verifyGithubOauthState: vi.fn(),
+      getGithubAuthorizeUrl: vi.fn(),
+      exchangeGithubCodeForTokens: vi.fn(),
+      refreshGithubUserToken: vi.fn()
+    }));
+
+    vi.doMock("@/lib/copilot-tools", () => ({
+      buildCopilotTools: vi.fn(() => [
+        {
+          name: "execute_shell_command",
+          description: "Run a command",
+          handler: vi.fn(),
+          skipPermission: true,
+          overridesBuiltInTool: true
+        }
+      ])
+    }));
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        providerKind: "github_copilot",
+        apiKey: "",
+        apiBaseUrl: "",
+        model: "openai/gpt-4.1"
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }],
+      copilotToolContext: {
+        mcpToolSets: [],
+        skills: [],
+        loadedSkillIds: new Set(),
+        memoriesEnabled: false
+      }
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+      if (next.done) break;
+      events.push(next.value);
+    }
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "action_start",
+        action: expect.objectContaining({
+          id: "tool_builtin_3",
+          detail: expect.stringContaining("..."),
+          arguments: {
+            payload: {
+              lines: Array.from({ length: 40 }, (_, index) => `line-${index}`)
+            }
+          }
+        })
+      })
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "action_complete",
+        action: expect.objectContaining({
+          id: "tool_builtin_3",
+          resultSummary: "updated file"
+        })
+      })
+    );
+
+    vi.doUnmock("@/lib/copilot-tools");
+    vi.doUnmock("@/lib/github-copilot");
+    vi.resetModules();
+  });
+
+  it("returns queued function calls from responses output items", async () => {
+    responsesCreate.mockResolvedValueOnce(
+      createAsyncStream([
+        {
+          type: "response.output_item.done",
+          item: {
+            type: "function_call",
+            call_id: "call_1",
+            name: "search_docs",
+            arguments: "{\"query\":\"MCP\"}"
+          }
+        },
+        {
+          type: "response.completed",
+          response: {
+            usage: {
+              input_tokens: 5,
+              output_tokens: 2,
+              output_tokens_details: { reasoning_tokens: 1 }
+            }
+          }
+        }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find MCP docs" }]
+    });
+
+    let result: Awaited<ReturnType<typeof stream.next>>["value"] | undefined;
+    while (true) {
+      const next = await stream.next();
+      if (next.done) {
+        result = next.value;
+        break;
+      }
+    }
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        toolCalls: [
+          {
+            id: "call_1",
+            name: "search_docs",
+            arguments: "{\"query\":\"MCP\"}"
+          }
+        ],
+        usage: {
+          inputTokens: 5,
+          outputTokens: 2,
+          reasoningTokens: 1
+        }
+      })
+    );
   });
 });

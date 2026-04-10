@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import type WebSocket from "ws";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/provider", () => ({
   streamProviderResponse: vi.fn()
@@ -107,8 +107,10 @@ describe("chat-turn", () => {
     );
 
     const { startChatTurn, getChatEmitter } = await import("@/lib/chat-turn");
-    const events: unknown[] = [];
-    getChatEmitter().on("delta", (conversationId, event) => events.push({ conversationId, event }));
+    const events: Array<{ conversationId: string; event: { type: string } }> = [];
+    getChatEmitter().on("delta", (conversationId, event) =>
+      events.push({ conversationId, event: event as { type: string } })
+    );
 
     await startChatTurn(manager, conv.id, "Hi", []);
 

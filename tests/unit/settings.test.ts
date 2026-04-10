@@ -373,4 +373,54 @@ describe("settings storage", () => {
     expect("githubUserAccessTokenEncrypted" in (profile ?? {})).toBe(false);
     expect("githubRefreshTokenEncrypted" in (profile ?? {})).toBe(false);
   });
+
+  it("preserves github oauth credentials when saving without sending them back", () => {
+    const copilot = {
+      ...buildProfile({
+        id: "profile_copilot",
+        name: "Copilot"
+      }),
+      providerKind: "github_copilot" as const,
+      apiKey: "",
+      apiBaseUrl: "",
+      githubUserAccessTokenEncrypted: "ciphertext-access",
+      githubRefreshTokenEncrypted: "ciphertext-refresh",
+      githubTokenExpiresAt: "2026-04-08T16:00:00.000Z",
+      githubRefreshTokenExpiresAt: "2026-10-08T16:00:00.000Z",
+      githubAccountLogin: "octocat",
+      githubAccountName: "The Octocat"
+    };
+
+    updateSettings({
+      defaultProviderProfileId: copilot.id,
+      skillsEnabled: true,
+      providerProfiles: [copilot]
+    });
+
+    updateSettings({
+      defaultProviderProfileId: copilot.id,
+      skillsEnabled: true,
+      providerProfiles: [{
+        ...buildProfile({ id: copilot.id, name: "Copilot" }),
+        providerKind: "github_copilot" as const,
+        apiBaseUrl: "",
+        apiKey: "",
+        githubUserAccessTokenEncrypted: "",
+        githubRefreshTokenEncrypted: "",
+        githubTokenExpiresAt: null,
+        githubRefreshTokenExpiresAt: null,
+        githubAccountLogin: null,
+        githubAccountName: null
+      }]
+    });
+
+    const stored = getProviderProfile(copilot.id);
+
+    expect(stored?.githubUserAccessTokenEncrypted).toBe("ciphertext-access");
+    expect(stored?.githubRefreshTokenEncrypted).toBe("ciphertext-refresh");
+    expect(stored?.githubTokenExpiresAt).toBe("2026-04-08T16:00:00.000Z");
+    expect(stored?.githubRefreshTokenExpiresAt).toBe("2026-10-08T16:00:00.000Z");
+    expect(stored?.githubAccountLogin).toBe("octocat");
+    expect(stored?.githubAccountName).toBe("The Octocat");
+  });
 });

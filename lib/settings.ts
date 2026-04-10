@@ -546,6 +546,12 @@ export function updateSettings(input: unknown) {
     parsed.providerProfiles.forEach((profile) => {
       const current = currentProfiles.get(profile.id);
       const apiKey = profile.apiKey || current?.apiKey || "";
+      const githubUserAccessTokenEncrypted = profile.githubUserAccessTokenEncrypted || current?.githubUserAccessTokenEncrypted || "";
+      const githubRefreshTokenEncrypted = profile.githubRefreshTokenEncrypted || current?.githubRefreshTokenEncrypted || "";
+      const githubTokenExpiresAt = profile.githubTokenExpiresAt ?? current?.githubTokenExpiresAt ?? null;
+      const githubRefreshTokenExpiresAt = profile.githubRefreshTokenExpiresAt ?? current?.githubRefreshTokenExpiresAt ?? null;
+      const githubAccountLogin = profile.githubAccountLogin ?? current?.githubAccountLogin ?? null;
+      const githubAccountName = profile.githubAccountName ?? current?.githubAccountName ?? null;
 
       upsertProfile.run({
         id: profile.id,
@@ -571,12 +577,12 @@ export function updateSettings(input: unknown) {
         visionMode: profile.visionMode ?? "native",
         visionMcpServerId: profile.visionMcpServerId ?? null,
         providerKind: profile.providerKind,
-        githubUserAccessTokenEncrypted: profile.githubUserAccessTokenEncrypted ?? "",
-        githubRefreshTokenEncrypted: profile.githubRefreshTokenEncrypted ?? "",
-        githubTokenExpiresAt: profile.githubTokenExpiresAt ?? null,
-        githubRefreshTokenExpiresAt: profile.githubRefreshTokenExpiresAt ?? null,
-        githubAccountLogin: profile.githubAccountLogin ?? null,
-        githubAccountName: profile.githubAccountName ?? null,
+        githubUserAccessTokenEncrypted,
+        githubRefreshTokenEncrypted,
+        githubTokenExpiresAt,
+        githubRefreshTokenExpiresAt,
+        githubAccountLogin,
+        githubAccountName,
         createdAt: current?.createdAt ?? timestamp,
         updatedAt: timestamp
       });
