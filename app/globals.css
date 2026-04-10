@@ -301,6 +301,77 @@ select {
   pointer-events: none;
 }
 
+.thinking-markdown-body {
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 12.5px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.thinking-markdown-body > :first-child {
+  margin-top: 0;
+}
+
+.thinking-markdown-body > :last-child {
+  margin-bottom: 0;
+}
+
+.thinking-markdown-body h1,
+.thinking-markdown-body h2,
+.thinking-markdown-body h3,
+.thinking-markdown-body h4 {
+  margin: 0.75rem 0 0.35rem;
+  color: rgba(255, 255, 255, 0.62);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+
+.thinking-markdown-body h1 {
+  font-size: 1rem;
+}
+
+.thinking-markdown-body h2 {
+  font-size: 0.95rem;
+}
+
+.thinking-markdown-body h3 {
+  font-size: 0.9rem;
+}
+
+.thinking-markdown-body h4 {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.thinking-markdown-body p {
+  margin: 0.4rem 0;
+}
+
+.thinking-markdown-body ul,
+.thinking-markdown-body ol {
+  margin: 0.55rem 0;
+  padding-left: 1.2rem;
+}
+
+.thinking-markdown-body li {
+  margin: 0.2rem 0;
+}
+
+.thinking-markdown-body strong {
+  color: rgba(255, 255, 255, 0.65);
+}
+
+.thinking-markdown-body code {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.thinking-markdown-body a {
+  color: rgba(255, 255, 255, 0.64);
+}
+
 @keyframes compaction-sweep {
   from {
     transform: translateX(-120%);

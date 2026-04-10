@@ -376,7 +376,7 @@ describe("message bubble", () => {
     expect(thinkingMarkdown?.textContent).toContain("First check");
     expect(thinkingMarkdown?.textContent).toContain("Second check");
     expect(thinkingMarkdown?.textContent).toContain("Final detail");
-    expect(assistantMarkdown).toBeNull();
+    expect(assistantMarkdown).not.toBeNull();
   });
 
   it("keeps persisted thinking content collapsed by default", () => {
