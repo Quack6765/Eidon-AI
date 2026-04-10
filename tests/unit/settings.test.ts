@@ -197,6 +197,12 @@ describe("settings storage", () => {
     expect(defaults.visionMcpServerId).toBeNull();
   });
 
+  it("returns the default compaction threshold as eighty percent", () => {
+    const defaults = getSettingsDefaults();
+
+    expect(defaults.compactionThreshold).toBe(0.8);
+  });
+
   it("stores profiles with reasoning disabled and memories off", () => {
     const alpha = buildProfile({
       id: "profile_alpha",

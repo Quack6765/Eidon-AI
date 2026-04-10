@@ -24,15 +24,13 @@ import {
   PROVIDER_PRESETS,
   type ProviderPresetId
 } from "@/lib/provider-presets";
-import type { ApiMode, McpServer, ReasoningEffort, VisionMode } from "@/lib/types";
+import type { AppSettings, ApiMode, McpServer, ReasoningEffort, VisionMode } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
 import { CollapsibleSection } from "../collapsible-section";
 
-type SettingsPayload = {
-  defaultProviderProfileId: string;
-  skillsEnabled: boolean;
+type SettingsPayload = AppSettings & {
   providerProfiles: Array<{
     id: string;
     name: string;
@@ -156,7 +154,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         reasoningEffort: "medium" as ReasoningEffort,
         reasoningSummaryEnabled: true,
         modelContextLimit: 128000,
-        compactionThreshold: 0.78,
+        compactionThreshold: 0.8,
         freshTailCount: 28,
         tokenizerModel: "gpt-tokenizer" as const,
         safetyMarginTokens: 1200,
@@ -223,7 +221,15 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   }
 
   async function buildSettingsPayload() {
+    const currentResponse = await fetch("/api/settings");
+    if (!currentResponse.ok) {
+      throw new Error("Unable to load current settings");
+    }
+
+    const currentPayload = (await currentResponse.json()) as { settings: SettingsPayload };
+
     return {
+      ...currentPayload.settings,
       defaultProviderProfileId,
       skillsEnabled,
       providerProfiles: providerProfiles.map((profile) => ({
@@ -259,19 +265,24 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   }
 
   async function saveSettings() {
-    const response = await fetch("/api/settings", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(await buildSettingsPayload())
-    });
+    try {
+      const response = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(await buildSettingsPayload())
+      });
 
-    const result = (await response.json()) as { error?: string };
-    if (!response.ok) {
-      setError(result.error ?? "Unable to save settings");
+      const result = (await response.json()) as { error?: string };
+      if (!response.ok) {
+        setError(result.error ?? "Unable to save settings");
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Unable to save settings");
       return false;
     }
-
-    return true;
   }
 
   async function handleSettings(event: FormEvent<HTMLFormElement>) {
@@ -721,21 +732,23 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                       />
                     </div>
                     <div>
-                      <label className={labelClass}>Compaction threshold</label>
+                      <label className={labelClass}>Compaction threshold %</label>
                       <Input
                         name="provider-compaction-threshold"
                         type="number"
-                        step="0.01"
-                        value={activeProviderProfile.compactionThreshold}
+                        step="1"
+                        min="50"
+                        max="95"
+                        value={Math.round(activeProviderProfile.compactionThreshold * 100)}
                         onChange={(event) =>
                           updateActiveProviderProfile({
-                            compactionThreshold: Number(event.target.value || 0)
+                            compactionThreshold: Number(event.target.value || 0) / 100
                           })
                         }
                       />
                     </div>
                     <div>
-                      <label className={labelClass}>Fresh tail count</label>
+                      <label className={labelClass}>Fresh tail turns</label>
                       <Input
                         name="provider-fresh-tail-count"
                         type="number"
