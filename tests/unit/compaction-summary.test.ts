@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCompactionSummaryPromptBody,
+  artifactReferenceMatchesUserMessage,
   extractArtifactReferences,
   extractOpenTasks,
+  parseCompactionSummary,
   selectCompactionMemoryNodes
 } from "@/lib/compaction-summary";
 import type { MemoryNode } from "@/lib/types";
@@ -78,6 +80,34 @@ describe("compaction summary helpers", () => {
       "lib/compaction.ts",
       "tests/unit/compaction-summary.test.ts"
     ]);
+  });
+
+  it("parses common heading variants and stops unknown headings from leaking into prior sections", () => {
+    const summary = [
+      "## Open Tasks",
+      "- Finish the rollout",
+      "**Open Tasks:**",
+      "1. Verify the fix",
+      "Open Tasks: follow up",
+      "Artifact References:",
+      "- lib/compaction.ts",
+      "## Notes",
+      "- this should not attach to Artifact References",
+      "Open Tasks:",
+      "- Final pass",
+      "Time Span:",
+      "- 2026-04-10T10:00:00.000Z -> 2026-04-10T10:10:00.000Z"
+    ].join("\n");
+
+    const parsed = parseCompactionSummary(summary);
+
+    expect(parsed.sections["Open Tasks"]).toEqual([
+      "Finish the rollout",
+      "Verify the fix",
+      "follow up",
+      "Final pass"
+    ]);
+    expect(parsed.sections["Artifact References"]).toEqual(["lib/compaction.ts"]);
   });
 
   it("selects open-task nodes first, then artifact matches, then recency backfill within budget", () => {
@@ -180,5 +210,24 @@ describe("compaction summary helpers", () => {
       "mem_artifact",
       "mem_backfill"
     ]);
+  });
+
+  it("matches artifact references with boundary-safe exactness", () => {
+    expect(artifactReferenceMatchesUserMessage("Please review app.ts", "app.ts")).toBe(true);
+    expect(artifactReferenceMatchesUserMessage("Please review app.tsx", "app.ts")).toBe(false);
+    expect(artifactReferenceMatchesUserMessage("Please inspect config", "config")).toBe(true);
+    expect(artifactReferenceMatchesUserMessage("Please inspect reconfigure", "config")).toBe(false);
+    expect(
+      artifactReferenceMatchesUserMessage(
+        "Check https://example.com/items/123 and the 123 record",
+        "https://example.com/items/123"
+      )
+    ).toBe(true);
+    expect(
+      artifactReferenceMatchesUserMessage(
+        "Check https://example.com/items/1234",
+        "https://example.com/items/123"
+      )
+    ).toBe(false);
   });
 });

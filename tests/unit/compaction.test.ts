@@ -322,6 +322,112 @@ describe("lossless compaction", () => {
     expect(precedingAssistant?.compactedAt).not.toBeNull();
   });
 
+  it("keeps rendered memory nodes when the prompt already fits even if stored summary counts are inflated", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 12000,
+      compactionThreshold: 0.9
+    });
+
+    const conversation = createConversation();
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Short follow-up"
+    });
+
+    const db = getDb();
+    const timestamp = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id,
+        conversation_id,
+        type,
+        depth,
+        content,
+        source_start_message_id,
+        source_end_message_id,
+        source_token_count,
+        summary_token_count,
+        child_node_ids,
+        superseded_by_node_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+    ).run(
+      "mem_legacy",
+      conversation.id,
+      "leaf_summary",
+      0,
+      JSON.stringify({
+        factualCommitments: ["Use deterministic compaction"],
+        userPreferences: ["Keep artifact references"],
+        unresolvedItems: ["Review the live selector path"],
+        importantReferences: ["lib/compaction-summary.ts"],
+        chronology: ["2026-04-10"]
+      }),
+      "msg_legacy_start",
+      "msg_legacy_end",
+      40,
+      999,
+      JSON.stringify([]),
+      timestamp
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id,
+        conversation_id,
+        type,
+        depth,
+        content,
+        source_start_message_id,
+        source_end_message_id,
+        source_token_count,
+        summary_token_count,
+        child_node_ids,
+        superseded_by_node_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+    ).run(
+      "mem_summary",
+      conversation.id,
+      "leaf_summary",
+      0,
+      [
+        "Goal:",
+        "- Keep all rendered memory nodes",
+        "Constraints:",
+        "- Do not drop nodes when the prompt fits",
+        "Actions Taken:",
+        "- Added deterministic summary helpers",
+        "Outcomes:",
+        "- Selection should preserve rendered context",
+        "Open Tasks:",
+        "- None",
+        "Artifact References:",
+        "- tests/unit/compaction-summary.test.ts",
+        "Time Span:",
+        "- 2026-04-10T10:00:00.000Z -> 2026-04-10T10:05:00.000Z"
+      ].join("\n"),
+      "msg_summary_start",
+      "msg_summary_end",
+      50,
+      999,
+      JSON.stringify([]),
+      timestamp
+    );
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const systemMessage = result.promptMessages.find((message) => message.role === "system");
+
+    expect(result.didCompact).toBe(false);
+    expect(typeof systemMessage?.content).toBe("string");
+    expect(systemMessage?.content).toContain("Facts: Use deterministic compaction");
+    expect(systemMessage?.content).toContain("Keep all rendered memory nodes");
+    expect(systemMessage?.content).toContain("Review the live selector path");
+  });
+
   it("rejects a raw-eligible slice when the completed-turn count falls below the leaf minimum", async () => {
     updateDefaultProfile({
       modelContextLimit: 4096,

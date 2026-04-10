@@ -12,16 +12,13 @@ import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { getPersona } from "@/lib/personas";
 import { callProviderText } from "@/lib/provider";
-import {
-  buildCompactionSummaryPromptBody,
-  selectCompactionMemoryNodes
-} from "@/lib/compaction-summary";
+import { buildCompactionSummaryPromptBody } from "@/lib/compaction-summary";
 import {
   groupCompletedTurns,
   isEmptyStreamingAssistantPlaceholder,
   renderCompletedTurns
 } from "@/lib/compaction-turns";
-import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens, estimatePromptContentTokens } from "@/lib/tokenization";
+import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
   EnsureCompactedContextResult,
   MemoryNode,
@@ -476,20 +473,6 @@ function renderMemoryNode(content: string): string {
   return content;
 }
 
-function scoreMemoryNodes(input: {
-  userInput: string;
-  activeNodes: MemoryNode[];
-  summaryTokenBudget: number;
-}): string[] {
-  const selectedNodes = selectCompactionMemoryNodes({
-    activeNodes: input.activeNodes,
-    latestUserMessage: input.userInput,
-    summaryTokenBudget: input.summaryTokenBudget
-  });
-
-  return selectedNodes.map((node) => node.id);
-}
-
 export function buildPromptMessages(input: {
   systemPrompt: string;
   personaContent?: string;
@@ -630,38 +613,11 @@ export async function ensureCompactedContext(
       const promptTokens = estimatePromptTokens(promptMessages);
 
       if (promptTokens <= compactionLimit) {
-        const lastUserMessage = visibleMessages.filter(m => m.role === "user").at(-1);
-        let selectedNodes = activeMemoryNodes;
-
-        if (activeMemoryNodes.length > 2) {
-          const promptWithoutMemoryNodes = buildPromptMessages({
-            systemPrompt: settings.systemPrompt,
-            personaContent,
-            messages: visibleMessages,
-            activeMemoryNodes: [],
-            maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
-            memoriesEnabled
-          });
-          const summaryTokenBudget = Math.max(
-            compactionLimit - estimatePromptTokens(promptWithoutMemoryNodes),
-            0
-          );
-          const scoredNodeIds = scoreMemoryNodes({
-            userInput: lastUserMessage?.content ?? "",
-            activeNodes: activeMemoryNodes,
-            summaryTokenBudget
-          });
-          const nodeById = new Map(activeMemoryNodes.map((node) => [node.id, node] as const));
-          selectedNodes = scoredNodeIds
-            .map((id) => nodeById.get(id))
-            .filter((node): node is MemoryNode => Boolean(node));
-        }
-
         const finalPromptMessages = buildPromptMessages({
           systemPrompt: settings.systemPrompt,
           personaContent,
           messages: visibleMessages,
-          activeMemoryNodes: selectedNodes,
+          activeMemoryNodes,
           maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
           memoriesEnabled
         });

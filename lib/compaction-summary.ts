@@ -49,6 +49,10 @@ function createEmptySections(): CompactionSummarySections {
   };
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function normalizeSummaryItem(value: string): string {
   return value
     .replace(/^[>*•\-]+\s*/, "")
@@ -61,6 +65,50 @@ function isPlaceholderSummaryItem(value: string): boolean {
   return /^(none|n\/a|na|not applicable|no items?|no tasks?|nothing)$/i.test(value.trim());
 }
 
+function stripHeadingDecorators(line: string): string {
+  return line
+    .trim()
+    .replace(/^(?:#{1,6}\s*|>\s*)+/, "")
+    .replace(/^(?:\*\*|__)/, "")
+    .replace(/(?:\*\*|__)$/, "")
+    .trim();
+}
+
+function parseKnownHeadingLine(line: string): { heading: CompactionSummaryHeading; inlineContent: string } | null {
+  const stripped = stripHeadingDecorators(line);
+
+  for (const heading of COMPACTION_SUMMARY_HEADINGS) {
+    const matcher = new RegExp(
+      `^${escapeRegExp(heading)}(?:\\s*:\\s*(.*)|\\s+(.+))?$`,
+      "i"
+    );
+    const match = stripped.match(matcher);
+    if (!match) {
+      continue;
+    }
+
+    return {
+      heading,
+      inlineContent: (match[1] ?? match[2] ?? "").trim()
+    };
+  }
+
+  return null;
+}
+
+function looksLikeHeadingLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  if (/^(?:#{1,6}\s*|>\s*|\*\*|__)/.test(trimmed)) {
+    return true;
+  }
+
+  return /^[A-Z][A-Za-z0-9 &/_-]{0,60}:\s*(.*)?$/.test(trimmed);
+}
+
 function parseSummaryLines(content: string): CompactionSummarySections {
   const sections = createEmptySections();
   let activeHeading: CompactionSummaryHeading | null = null;
@@ -71,9 +119,18 @@ function parseSummaryLines(content: string): CompactionSummarySections {
       continue;
     }
 
-    const heading = COMPACTION_SUMMARY_HEADINGS.find((candidate) => line === `${candidate}:`);
-    if (heading) {
-      activeHeading = heading;
+    const headingMatch = parseKnownHeadingLine(line);
+    if (headingMatch) {
+      activeHeading = headingMatch.heading;
+      const inlineContent = normalizeSummaryItem(headingMatch.inlineContent);
+      if (inlineContent && !isPlaceholderSummaryItem(inlineContent)) {
+        sections[activeHeading].push(inlineContent);
+      }
+      continue;
+    }
+
+    if (looksLikeHeadingLine(line)) {
+      activeHeading = null;
       continue;
     }
 
@@ -116,42 +173,66 @@ function normalizeArtifactReference(value: string): string {
     .toLowerCase();
 }
 
-function artifactReferenceMatchesUserMessage(userMessage: string, reference: string): boolean {
-  const normalizedUser = normalizeArtifactReference(userMessage).replace(/\s+/g, " ");
-  const normalizedReference = normalizeArtifactReference(reference).replace(/\s+/g, " ");
-
-  if (!normalizedReference) {
+function containsBoundarySafe(haystack: string, needle: string): boolean {
+  if (!needle.trim()) {
     return false;
   }
 
-  if (normalizedUser.includes(normalizedReference)) {
-    return true;
+  const escaped = escapeRegExp(needle.trim());
+  const pattern = new RegExp(`(^|[^A-Za-z0-9])${escaped}(?=$|[^A-Za-z0-9])`, "i");
+  return pattern.test(haystack);
+}
+
+function artifactCandidates(reference: string): string[] {
+  const normalizedReference = normalizeArtifactReference(reference).replace(/\s+/g, " ");
+  const candidates = new Set<string>();
+
+  if (normalizedReference) {
+    candidates.add(normalizedReference);
   }
 
   const pathSegments = normalizedReference.split(/[\\/]/).filter(Boolean);
   const basename = pathSegments.at(-1);
-  if (basename && basename !== normalizedReference && normalizedUser.includes(basename)) {
-    return true;
+  if (basename) {
+    candidates.add(basename);
   }
 
   const tail = pathSegments.slice(-2).join("/");
-  if (tail && tail !== normalizedReference && normalizedUser.includes(tail)) {
-    return true;
+  if (tail) {
+    candidates.add(tail);
   }
 
   if (/^https?:\/\//i.test(reference)) {
     try {
       const url = new URL(reference);
-      const normalizedUrl = normalizeArtifactReference(`${url.host}${url.pathname}`).replace(/\s+/g, " ");
-      if (normalizedUser.includes(normalizedUrl)) {
-        return true;
+      const hostAndPath = normalizeArtifactReference(`${url.host}${url.pathname}`).replace(/\s+/g, " ");
+      if (hostAndPath) {
+        candidates.add(hostAndPath);
       }
-      const urlTail = url.pathname.split("/").filter(Boolean).at(-1);
-      if (urlTail && normalizedUser.includes(urlTail.toLowerCase())) {
-        return true;
+
+      const pathTail = url.pathname.split("/").filter(Boolean).at(-1);
+      if (pathTail) {
+        candidates.add(pathTail.toLowerCase());
       }
     } catch {
-      return false;
+      // Ignore malformed URLs and fall back to the normalized path candidates.
+    }
+  }
+
+  return [...candidates];
+}
+
+export function artifactReferenceMatchesUserMessage(userMessage: string, reference: string): boolean {
+  const normalizedUser = normalizeArtifactReference(userMessage).replace(/\s+/g, " ");
+  const candidates = artifactCandidates(reference);
+
+  if (!candidates.length) {
+    return false;
+  }
+
+  for (const candidate of candidates) {
+    if (containsBoundarySafe(normalizedUser, candidate)) {
+      return true;
     }
   }
 
