@@ -207,7 +207,7 @@ describe("db", () => {
     const memoryColumns = (
       db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>
     ).map((column) => column.name);
-    const automationColumns = (
+    const legacyAutomationColumns = (
       db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>
     ).map((column) => column.name);
 
@@ -226,7 +226,7 @@ describe("db", () => {
     expect(folderColumns).toContain("user_id");
     expect(personaColumns).toContain("user_id");
     expect(memoryColumns).toContain("user_id");
-    expect(automationColumns).toContain("user_id");
+    expect(legacyAutomationColumns).toContain("user_id");
   });
 
   it("migrates legacy schemas and backfills defaults", async () => {
@@ -235,8 +235,23 @@ describe("db", () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();
 
+    const userColumns = (db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const userSettingsColumns = (
+      db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
     const conversationColumns = (db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>)
       .map((column) => column.name);
+    const folderColumns = (db.prepare("PRAGMA table_info(folders)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const personaColumns = (db.prepare("PRAGMA table_info(personas)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const memoryColumns = (
+      db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const legacyAutomationColumns = (
+      db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
     const settingsColumns = (db.prepare("PRAGMA table_info(app_settings)").all() as Array<{ name: string }>)
       .map((column) => column.name);
     const mcpColumns = (db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>)
@@ -255,6 +270,7 @@ describe("db", () => {
 
     expect(conversationColumns).toEqual(
       expect.arrayContaining([
+        "user_id",
         "folder_id",
         "sort_order",
         "provider_profile_id",
@@ -265,6 +281,26 @@ describe("db", () => {
         "conversation_origin"
       ])
     );
+    expect(userColumns).toEqual(
+      expect.arrayContaining(["id", "username", "role", "auth_source", "password_hash"])
+    );
+    expect(userSettingsColumns).toEqual(
+      expect.arrayContaining([
+        "user_id",
+        "default_provider_profile_id",
+        "skills_enabled",
+        "conversation_retention",
+        "auto_compaction",
+        "memories_enabled",
+        "memories_max_count",
+        "mcp_timeout",
+        "updated_at"
+      ])
+    );
+    expect(folderColumns).toContain("user_id");
+    expect(personaColumns).toContain("user_id");
+    expect(memoryColumns).toContain("user_id");
+    expect(legacyAutomationColumns).toContain("user_id");
     expect(settingsColumns).toEqual(
       expect.arrayContaining(["default_provider_profile_id", "skills_enabled"])
     );
