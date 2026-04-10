@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { deleteAutomation, getAutomation, updateAutomation } from "@/lib/automations";
 import { badRequest, ok } from "@/lib/http";
+import { getPersona } from "@/lib/personas";
+import { getProviderProfile } from "@/lib/settings";
 
 const paramsSchema = z.object({
   automationId: z.string().min(1)
@@ -19,11 +21,7 @@ const updateSchema = z.object({
   timeOfDay: z.string().nullable().optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
   enabled: z.boolean().optional(),
-  nextRunAt: z.string().nullable().optional(),
-  lastScheduledFor: z.string().nullable().optional(),
-  lastStartedAt: z.string().nullable().optional(),
-  lastFinishedAt: z.string().nullable().optional(),
-  lastStatus: z.enum(["queued", "running", "completed", "failed", "missed", "stopped", "paused"]).nullable().optional()
+  nextRunAt: z.string().nullable().optional()
 }).refine(
   (value) => Object.keys(value).length > 0,
   "Invalid automation update"
@@ -72,6 +70,14 @@ export async function PATCH(
     return badRequest("Automation not found", 404);
   }
 
+  if (body.data.providerProfileId && !getProviderProfile(body.data.providerProfileId)) {
+    return badRequest("Provider profile not found", 404);
+  }
+
+  if (body.data.personaId && !getPersona(body.data.personaId)) {
+    return badRequest("Persona not found", 404);
+  }
+
   try {
     const updated = updateAutomation(automation.id, body.data);
     return ok({ automation: updated });
@@ -91,6 +97,10 @@ export async function DELETE(
     return badRequest("Invalid automation id");
   }
 
-  deleteAutomation(params.data.automationId);
+  const deleted = deleteAutomation(params.data.automationId);
+  if (!deleted) {
+    return badRequest("Automation not found", 404);
+  }
+
   return ok({ success: true });
 }

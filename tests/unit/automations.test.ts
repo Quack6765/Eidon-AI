@@ -480,6 +480,71 @@ describe("automation routes", () => {
     expect(getAutomation(automation.id)).toBeNull();
   });
 
+  it("rejects missing provider and persona references in route payloads", async () => {
+    const createResponse = await createAutomationRoute(
+      new Request("http://localhost/api/automations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "Broken automation",
+          prompt: "Prompt",
+          providerProfileId: "missing_profile",
+          personaId: null,
+          scheduleKind: "interval",
+          intervalMinutes: 15,
+          calendarFrequency: null,
+          timeOfDay: null,
+          daysOfWeek: []
+        })
+      })
+    );
+
+    expect(createResponse.status).toBe(404);
+    await expect(json<{ error: string }>(createResponse)).resolves.toEqual({
+      error: "Provider profile not found"
+    });
+
+    const automation = createAutomation({
+      name: "Persona validation",
+      prompt: "Prompt",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 15,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    const patchResponse = await updateAutomationRoute(
+      new Request(`http://localhost/api/automations/${automation.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          personaId: "missing_persona"
+        })
+      }),
+      { params: Promise.resolve({ automationId: automation.id }) }
+    );
+
+    expect(patchResponse.status).toBe(404);
+    await expect(json<{ error: string }>(patchResponse)).resolves.toEqual({
+      error: "Persona not found"
+    });
+  });
+
+  it("returns not found when deleting a missing automation", async () => {
+    const response = await deleteAutomationRoute(
+      new Request("http://localhost/api/automations/missing", { method: "DELETE" }),
+      { params: Promise.resolve({ automationId: "missing" }) }
+    );
+
+    expect(response.status).toBe(404);
+    await expect(json<{ error: string }>(response)).resolves.toEqual({
+      error: "Automation not found"
+    });
+  });
+
   it("lists automation runs and creates manual run records from the route layer", async () => {
     const automation = createAutomation({
       name: "Runs route",
