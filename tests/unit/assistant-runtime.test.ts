@@ -552,6 +552,78 @@ Run browser commands.`
     expect(result.answer).toBe("Fallback answer");
   });
 
+  it("resolves MCP tool calls against the most specific matching slug", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "mcp_exa_docs_search", arguments: JSON.stringify({ query: "MCP" }) }],
+          usage: { inputTokens: 5 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "Resolved the specific server",
+          thinking: "",
+          usage: { inputTokens: 3, outputTokens: 2 }
+        })
+      );
+    callMcpTool.mockResolvedValue({ content: [{ type: "text", text: "Found MCP docs" }] });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Use MCP" }],
+      skills: [],
+      mcpToolSets: [
+        {
+          server: {
+            id: "mcp_exa",
+            slug: "exa",
+            name: "Exa",
+            url: "https://exa.example.com",
+            headers: {},
+            transport: "streamable_http",
+            command: null,
+            args: null,
+            env: null,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          tools: [{ name: "docs_search", description: "Search docs", inputSchema: { type: "object" } }]
+        },
+        {
+          server: {
+            id: "mcp_exa_docs",
+            slug: "exa_docs",
+            name: "Exa Docs",
+            url: "https://exa-docs.example.com",
+            headers: {},
+            transport: "streamable_http",
+            command: null,
+            args: null,
+            env: null,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          tools: [{ name: "search", description: "Search docs", inputSchema: { type: "object" } }]
+        }
+      ]
+    });
+
+    expect(callMcpTool).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "mcp_exa_docs" }),
+      "search",
+      { query: "MCP" },
+      undefined
+    );
+    expect(result.answer).toBe("Resolved the specific server");
+  });
+
   it("returns a tool error when execute_shell_command is called without a command", async () => {
     streamProviderResponse
       .mockReturnValueOnce(

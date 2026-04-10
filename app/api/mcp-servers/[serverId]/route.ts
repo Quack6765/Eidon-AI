@@ -27,10 +27,12 @@ export async function PATCH(
   };
 
   if (body.name !== undefined) {
-    if (!body.name.trim()) {
+    const trimmedName = body.name.trim();
+    if (!trimmedName) {
       return badRequest("Server name cannot be empty.");
     }
-    const slug = slugify(body.name);
+    body.name = trimmedName;
+    const slug = slugify(trimmedName);
     const conflicting = getMcpServerBySlug(slug);
     if (conflicting && conflicting.id !== params.data.serverId) {
       return badRequest("An MCP server with a similar name already exists.");

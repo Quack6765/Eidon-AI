@@ -12,13 +12,13 @@ export async function GET() {
 const createSchema = z.discriminatedUnion("transport", [
   z.object({
     transport: z.literal("streamable_http"),
-    name: z.string().min(1).max(100),
+    name: z.string().trim().min(1).max(100),
     url: z.string().url(),
     headers: z.record(z.string()).optional()
   }),
   z.object({
     transport: z.literal("stdio"),
-    name: z.string().min(1).max(100),
+    name: z.string().trim().min(1).max(100),
     command: z.string().min(1),
     args: z.array(z.string()).optional(),
     env: z.record(z.string()).optional(),

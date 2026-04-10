@@ -366,7 +366,11 @@ async function executeMcpToolCall(
   let resolvedServer: McpServer | null = null;
   let resolvedTool: McpTool | null = null;
 
-  for (const { server, tools } of toolSets) {
+  const toolSetsBySpecificity = [...toolSets].sort(
+    (left, right) => right.server.slug.length - left.server.slug.length
+  );
+
+  for (const { server, tools } of toolSetsBySpecificity) {
     if (withoutPrefix.startsWith(server.slug + "_")) {
       const toolName = withoutPrefix.slice(server.slug.length + 1);
       const tool = tools.find((t) => t.name === toolName);

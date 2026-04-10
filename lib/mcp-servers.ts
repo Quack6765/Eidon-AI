@@ -97,10 +97,11 @@ type CreateMcpServerInput = {
 export function createMcpServer(input: CreateMcpServerInput) {
   const timestamp = nowIso();
   const transport = input.transport ?? "streamable_http";
+  const name = input.name.trim();
   const server: McpServer = {
     id: createId("mcp"),
-    name: input.name,
-    slug: slugify(input.name) || "unnamed",
+    name,
+    slug: slugify(name) || "unnamed",
     url: input.url ?? "",
     headers: input.headers ?? {},
     transport,
@@ -154,8 +155,8 @@ export function updateMcpServer(
   if (!current) return null;
 
   const timestamp = nowIso();
-  const name = input.name ?? current.name;
-  const slug = input.name ? (slugify(input.name) || "unnamed") : current.slug;
+  const name = input.name !== undefined ? input.name.trim() : current.name;
+  const slug = input.name !== undefined ? (slugify(name) || "unnamed") : current.slug;
   const url = input.url ?? current.url;
   const headers = input.headers ?? current.headers;
   const transport = input.transport ?? current.transport;

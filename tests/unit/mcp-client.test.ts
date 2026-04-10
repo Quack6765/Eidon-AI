@@ -105,6 +105,7 @@ function createHttpServer(): McpServer {
   return {
     id: "mcp_http",
     name: "HTTP Server",
+    slug: "http_server",
     url: "https://mcp.example.com",
     headers: { Authorization: "Bearer test" },
     transport: "streamable_http",
@@ -121,6 +122,7 @@ function createStdioServer(): McpServer {
   return {
     id: "mcp_stdio",
     name: "stdio Server",
+    slug: "stdio_server",
     url: "",
     headers: {},
     transport: "stdio",
