@@ -579,7 +579,7 @@ export function MessageBubble({
                 </button>
 
                 {thinkingOpen && thinkingContent ? (
-                  <div className="thinking-markdown-body mt-1.5">
+                  <div className="markdown-body thinking-markdown-body mt-1.5">
                     <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{thinkingContent}</ReactMarkdown>
                   </div>
                 ) : null}

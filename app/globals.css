@@ -305,15 +305,6 @@ select {
   color: rgba(255, 255, 255, 0.48);
   font-size: 12.5px;
   line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.thinking-markdown-body > :first-child {
-  margin-top: 0;
-}
-
-.thinking-markdown-body > :last-child {
-  margin-bottom: 0;
 }
 
 .thinking-markdown-body h1,
@@ -344,20 +335,6 @@ select {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: rgba(255, 255, 255, 0.5);
-}
-
-.thinking-markdown-body p {
-  margin: 0.4rem 0;
-}
-
-.thinking-markdown-body ul,
-.thinking-markdown-body ol {
-  margin: 0.55rem 0;
-  padding-left: 1.2rem;
-}
-
-.thinking-markdown-body li {
-  margin: 0.2rem 0;
 }
 
 .thinking-markdown-body strong {
