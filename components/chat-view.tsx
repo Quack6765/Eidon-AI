@@ -37,8 +37,16 @@ type ConversationPayload = {
   };
 };
 
+const AUTO_SCROLL_THRESHOLD_PX = 32;
+
 function getActionSignature(action: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">) {
   return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
+}
+
+function isNearQueueBottom(element: HTMLDivElement) {
+  const distanceFromBottom =
+    element.scrollHeight - element.clientHeight - element.scrollTop;
+  return distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX;
 }
 
 function findMatchingActionIndex(timeline: MessageTimelineItem[], action: MessageAction) {
@@ -298,6 +306,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     content: string;
     attachments: MessageAttachment[];
   }>>([]);
+  const shouldAutoScrollRef = useRef(true);
   const bootstrapPayloadRef = useRef<{
     message: string;
     attachments: MessageAttachment[];
@@ -356,12 +365,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, []);
 
   useEffect(() => {
-    if (!queueRef.current) {
+    shouldAutoScrollRef.current = true;
+  }, [payload.conversation.id]);
+
+  useEffect(() => {
+    if (!queueRef.current || !shouldAutoScrollRef.current) {
       return;
     }
 
     requestAnimationFrame(() => {
-      if (!queueRef.current) return;
+      if (!queueRef.current || !shouldAutoScrollRef.current) return;
       if (queueRef.current.scrollTo) {
         queueRef.current.scrollTo({ top: queueRef.current.scrollHeight, behavior: "instant" });
       } else {
@@ -1265,7 +1278,17 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       </div>
 
-      <div ref={queueRef} className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 md:px-8">
+      <div
+        ref={queueRef}
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 md:px-8"
+        onScroll={() => {
+          if (!queueRef.current) {
+            return;
+          }
+
+          shouldAutoScrollRef.current = isNearQueueBottom(queueRef.current);
+        }}
+      >
         <div className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4 pb-[180px] md:pb-[200px]">
           {messages.map((message) => (
             <div
