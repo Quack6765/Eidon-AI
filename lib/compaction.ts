@@ -12,12 +12,17 @@ import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { getPersona } from "@/lib/personas";
 import { callProviderText } from "@/lib/provider";
-import { isEmptyStreamingAssistantPlaceholder, renderCompletedTurns } from "@/lib/compaction-turns";
+import {
+  groupCompletedTurns,
+  isEmptyStreamingAssistantPlaceholder,
+  renderCompletedTurns
+} from "@/lib/compaction-turns";
 import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens, estimatePromptContentTokens } from "@/lib/tokenization";
 import type {
   EnsureCompactedContextResult,
   MemoryNode,
   Message,
+  MessageAttachment,
   PromptContentPart,
   PromptMessage,
   ProviderProfileWithApiKey
@@ -378,7 +383,13 @@ async function compactLeafMessages(
     return null;
   }
 
+  const completedTurns = groupCompletedTurns(selected);
+  if (!completedTurns.length) {
+    return null;
+  }
+
   const blocks = renderCompletedTurns(selected);
+  const completedTurnMessages = completedTurns.flatMap((turn) => [turn.user, turn.assistant]);
 
   const activeNodes = getActiveMemoryNodes(conversationId);
   const existingSummary = activeNodes.length
@@ -388,9 +399,9 @@ async function compactLeafMessages(
   const payload = await summarizeBlocks(
     conversationId,
     buildSummaryPrompt("completed chat turns", blocks, {
-      startMessageId: selected[0].id,
-      endMessageId: selected[selected.length - 1].id,
-      messageCount: selected.length
+      startMessageId: completedTurns[0].user.id,
+      endMessageId: completedTurns[completedTurns.length - 1].assistant.id,
+      messageCount: completedTurnMessages.length
     }, existingSummary),
     settings
   );
@@ -401,14 +412,17 @@ async function compactLeafMessages(
     type: "leaf_summary",
     depth: 0,
     content,
-    sourceStartMessageId: selected[0].id,
-    sourceEndMessageId: selected[selected.length - 1].id,
-    sourceTokenCount,
+    sourceStartMessageId: completedTurns[0].user.id,
+    sourceEndMessageId: completedTurns[completedTurns.length - 1].assistant.id,
+    sourceTokenCount: completedTurnMessages.reduce(
+      (total, message) => total + Math.max(message.estimatedTokens, estimateMessageTokens(message)),
+      0
+    ),
     summaryTokenCount: estimateTextTokens(content),
     childNodeIds: []
   });
 
-  markMessagesCompacted(selected.map((message) => message.id));
+  markMessagesCompacted(completedTurnMessages.map((message) => message.id));
   bumpConversation(conversationId);
 
   return {

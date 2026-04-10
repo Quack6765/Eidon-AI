@@ -26,7 +26,7 @@ export function groupCompletedTurns(messages: Message[]): CompletedTurn[] {
     }
 
     if (isEmptyStreamingAssistantPlaceholder(message)) {
-      break;
+      continue;
     }
 
     if (message.role === "user") {
@@ -48,9 +48,27 @@ export function groupCompletedTurns(messages: Message[]): CompletedTurn[] {
   return turns;
 }
 
+function sanitizeResultSummary(summary: string) {
+  const firstLine = summary
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+
+  if (!firstLine) {
+    return "";
+  }
+
+  const cleaned = firstLine
+    .replace(/^[>*\-•\d.]+\s*/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return cleaned.length > 240 ? `${cleaned.slice(0, 237).trimEnd()}...` : cleaned;
+}
+
 function renderActionOutcome(action: MessageAction) {
   const parts = [`[action] ${action.label}`];
-  const summary = action.resultSummary.trim();
+  const summary = sanitizeResultSummary(action.resultSummary);
 
   if (summary) {
     parts.push(`result: ${summary}`);

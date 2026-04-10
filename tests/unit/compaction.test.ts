@@ -291,6 +291,36 @@ describe("lossless compaction", () => {
     expect(getPromptText(assistantMessages[0]!)).not.toContain("Internal reasoning");
   });
 
+  it("does not compact an unmatched trailing user message out of visible history", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 6000,
+      compactionThreshold: 0.7
+    });
+
+    const conversation = createConversation();
+
+    for (let index = 0; index < 19; index += 1) {
+      createMessage({
+        conversationId: conversation.id,
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `Message ${index} ${"dense context ".repeat(90)}`,
+        thinkingContent: index % 2 === 1 ? "Reasoning " + "step ".repeat(24) : ""
+      });
+    }
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const messages = listMessages(conversation.id);
+    const trailingEligibleUser = messages.find((message) => message.content.startsWith("Message 10"));
+    const precedingAssistant = messages.find((message) => message.content.startsWith("Message 9"));
+
+    expect(result.didCompact).toBe(true);
+    expect(trailingEligibleUser?.compactedAt).toBeNull();
+    expect(precedingAssistant?.compactedAt).not.toBeNull();
+  });
+
   it("compacts older turns without creating a visible compaction notice message", async () => {
     updateDefaultProfile({
       modelContextLimit: 6000,

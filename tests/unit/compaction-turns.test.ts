@@ -34,7 +34,85 @@ function makeMessage(
 }
 
 describe("compaction turns", () => {
-  it("groups a completed user turn, skips empty streaming placeholders, and keeps tool result summaries without raw details", () => {
+  it("groups completed turns across empty streaming placeholders in the middle", () => {
+    const messages: Message[] = [
+      makeMessage({
+        id: "msg_1",
+        role: "user",
+        content: "Plan the rollout",
+        status: "completed"
+      }),
+      makeMessage({
+        id: "msg_2",
+        role: "assistant",
+        content: "Use a staged release.",
+        status: "completed"
+      }),
+      makeMessage({
+        id: "msg_3",
+        role: "assistant",
+        content: "",
+        thinkingContent: "",
+        status: "streaming"
+      }),
+      makeMessage({
+        id: "msg_4",
+        role: "user",
+        content: "And keep a rollback plan ready.",
+        status: "completed"
+      }),
+      makeMessage({
+        id: "msg_5",
+        role: "assistant",
+        content: "Document the rollback path.",
+        status: "completed"
+      })
+    ];
+
+    const turns = groupCompletedTurns(messages);
+    const rendered = renderCompletedTurns(messages);
+
+    expect(turns).toHaveLength(2);
+    expect(turns.map((turn) => turn.assistant.id)).toEqual(["msg_2", "msg_5"]);
+    expect(rendered).toContain("Use a staged release.");
+    expect(rendered).toContain("Document the rollback path.");
+    expect(rendered).not.toContain("msg_3");
+  });
+
+  it("keeps tool result summaries concise and strips multiline log content", () => {
+    const messages: Message[] = [
+      makeMessage({
+        id: "msg_1",
+        role: "user",
+        content: "Run the command",
+        status: "completed"
+      }),
+      makeMessage({
+        id: "msg_2",
+        role: "assistant",
+        content: "Done.",
+        status: "completed",
+        actions: [
+          makeAction({
+            id: "act_1",
+            messageId: "msg_2",
+            label: "Shell command",
+            detail: "npm test",
+            resultSummary: "Applied patch to plan.md\n---\nlog line 1\nlog line 2"
+          })
+        ]
+      })
+    ];
+
+    const rendered = renderCompletedTurns(messages);
+
+    expect(rendered).toContain("result: Applied patch to plan.md");
+    expect(rendered).not.toContain("log line 1");
+    expect(rendered).not.toContain("log line 2");
+    expect(rendered).not.toContain("---");
+  });
+
+  it("groups a completed user turn and keeps tool result summaries without raw details", () => {
     const messages: Message[] = [
       makeMessage({
         id: "msg_1",
