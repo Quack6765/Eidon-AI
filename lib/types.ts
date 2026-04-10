@@ -349,6 +349,9 @@ export type CompactionEvent = {
 export type AuthUser = {
   id: string;
   username: string;
+  role: UserRole;
+  authSource: AuthSource;
+  passwordManagedBy: "env" | "local";
   createdAt: string;
   updatedAt: string;
 };

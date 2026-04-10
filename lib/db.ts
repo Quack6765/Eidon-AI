@@ -119,7 +119,7 @@ function migrate(db: Database.Database) {
       user_id TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE CASCADE
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -432,6 +432,37 @@ function migrate(db: Database.Database) {
   const automationCols = db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>;
   if (!automationCols.some((col) => col.name === "user_id")) {
     db.exec("ALTER TABLE automations ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
+  }
+
+  db.exec(`
+    INSERT OR IGNORE INTO users (id, username, role, auth_source, password_hash, created_at, updated_at)
+    SELECT id, username, 'admin', 'env_super_admin', NULL, created_at, updated_at
+    FROM admin_users
+  `);
+  db.exec(`
+    INSERT OR IGNORE INTO user_settings (user_id, updated_at)
+    SELECT id, updated_at
+    FROM admin_users
+  `);
+
+  const authSessionForeignKeys = (
+    db.prepare("PRAGMA foreign_key_list(auth_sessions)").all() as Array<{ table: string }>
+  ).map((row) => row.table);
+  if (!authSessionForeignKeys.includes("users")) {
+    db.exec(`
+      CREATE TABLE auth_sessions_new (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      );
+      INSERT INTO auth_sessions_new (id, user_id, expires_at, created_at)
+      SELECT id, user_id, expires_at, created_at
+      FROM auth_sessions;
+      DROP TABLE auth_sessions;
+      ALTER TABLE auth_sessions_new RENAME TO auth_sessions;
+    `);
   }
 
   const settingsCols = db.prepare("PRAGMA table_info(app_settings)").all() as Array<{ name: string }>;

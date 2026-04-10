@@ -1,11 +1,6 @@
 import { z } from "zod";
 
-import {
-  createSession,
-  findUserByUsername,
-  setSessionCookie,
-  verifyPassword
-} from "@/lib/auth";
+import { authenticateUser, createSession, setSessionCookie } from "@/lib/auth";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { badRequest, ok } from "@/lib/http";
 
@@ -25,20 +20,13 @@ export async function POST(request: Request) {
     return badRequest("Invalid login payload");
   }
 
-  const result = await findUserByUsername(body.data.username);
-
-  if (!result) {
+  const user = await authenticateUser(body.data.username, body.data.password);
+  if (!user) {
     return badRequest("Invalid username or password", 401);
   }
 
-  const matches = await verifyPassword(body.data.password, result.passwordHash);
-
-  if (!matches) {
-    return badRequest("Invalid username or password", 401);
-  }
-
-  const session = await createSession(result.user.id);
+  const session = await createSession(user.id);
   await setSessionCookie(session.token, session.expiresAt, request);
 
-  return ok({ user: result.user });
+  return ok({ user });
 }
