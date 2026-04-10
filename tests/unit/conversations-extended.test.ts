@@ -6,6 +6,7 @@ import {
   createMessage,
   listConversationsPage
 } from "@/lib/conversations";
+import { createAutomation, createAutomationRun } from "@/lib/automations";
 import { getDb } from "@/lib/db";
 import { createFolder } from "@/lib/folders";
 import { getSettings } from "@/lib/settings";
@@ -56,6 +57,9 @@ describe("conversations extended", () => {
     const results = searchConversations("JavaScript");
     expect(results).toHaveLength(1);
     expect(results[0].title).toBe("JavaScript Basics");
+    expect(results[0].automationId).toBeNull();
+    expect(results[0].automationRunId).toBeNull();
+    expect(results[0].conversationOrigin).toBe("manual");
   });
 
   it("searches conversations by message content", () => {
@@ -69,6 +73,37 @@ describe("conversations extended", () => {
     const results = searchConversations("quantum");
     expect(results).toHaveLength(1);
     expect(results[0].id).toBe(conv.id);
+  });
+
+  it("excludes automation conversations from manual search results", () => {
+    const automation = createAutomation({
+      name: "Automation",
+      prompt: "Run automatically",
+      providerProfileId: getSettings().defaultProviderProfileId,
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 5,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+    const automationRun = createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-09T00:00:00.000Z",
+      triggerSource: "schedule"
+    });
+
+    createConversation("Manual Chat");
+    createConversation("Automation Chat", null, {
+      providerProfileId: getSettings().defaultProviderProfileId,
+      origin: "automation",
+      automationId: automation.id,
+      automationRunId: automationRun.id
+    });
+
+    const results = searchConversations("Chat");
+
+    expect(results.map((conversation) => conversation.title)).toEqual(["Manual Chat"]);
   });
 
   it("does not match hidden system prompts in search results", () => {

@@ -97,8 +97,9 @@ app.prepare().then(async () => {
 
   const wss = new WebSocketServer({ server, path: "/ws" });
 
-  const { setupWebSocketHandler } = require("./ws-handler-compiled.cjs");
+  const { createAutomationScheduler, setupWebSocketHandler } = require("./ws-handler-compiled.cjs");
   setupWebSocketHandler(wss);
+  const automationScheduler = createAutomationScheduler?.();
 
   let port;
 
@@ -120,11 +121,13 @@ app.prepare().then(async () => {
 
     process.on("exit", cleanupDevServerFile);
     process.on("SIGINT", async () => {
+      automationScheduler?.stop?.();
       cleanupDevServerFile();
       await require("./ws-handler-compiled.cjs").shutdownAllProcesses?.();
       process.exit(0);
     });
     process.on("SIGTERM", async () => {
+      automationScheduler?.stop?.();
       cleanupDevServerFile();
       await require("./ws-handler-compiled.cjs").shutdownAllProcesses?.();
       process.exit(0);
@@ -144,6 +147,8 @@ app.prepare().then(async () => {
       console.error("[mcp] Failed to initialize MCP servers:", err.message);
     });
   }
+
+  automationScheduler?.start?.();
 }).catch((err) => {
   console.error("[server] Next.js prepare failed:", err);
   process.exit(1);

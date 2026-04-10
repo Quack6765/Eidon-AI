@@ -66,6 +66,14 @@ function setupProviderProfile(): { profileId: string; profile: ProviderProfileWi
   return { profileId, profile };
 }
 
+function createMockSocket(send = vi.fn()) {
+  return {
+    readyState: 1,
+    send,
+    close: vi.fn()
+  } as unknown as Parameters<ReturnType<typeof import("@/lib/conversation-manager")["createConversationManager"]>["subscribe"]>[1];
+}
+
 describe("chat-turn", () => {
   beforeEach(async () => {
     vi.resetModules();
@@ -79,11 +87,7 @@ describe("chat-turn", () => {
 
     const manager = createConversationManager();
 
-    const mockWs = {
-      readyState: 1,
-      send: vi.fn(),
-      close: vi.fn()
-    } as unknown as WebSocket;
+    const mockWs = createMockSocket();
     manager.subscribe("conv-1", mockWs);
 
     const { profileId, profile } = setupProviderProfile();
@@ -114,9 +118,7 @@ describe("chat-turn", () => {
 
     await startChatTurn(manager, conv.id, "Hi", []);
 
-    const deltaEvents = events.filter(
-      (e) => ((e as { event: { type: string } }).event.type) === "answer_delta"
-    );
+    const deltaEvents = events.filter((event) => event.event.type === "answer_delta");
     expect(deltaEvents.length).toBeGreaterThan(0);
 
     const { listVisibleMessages } = await import("@/lib/conversations");
@@ -166,7 +168,10 @@ describe("chat-turn", () => {
     const manager = createConversationManager();
 
     const { startChatTurn } = await import("@/lib/chat-turn");
-    await expect(startChatTurn(manager, "nonexistent", "Hi", [])).resolves.toBeUndefined();
+    await expect(startChatTurn(manager, "nonexistent", "Hi", [])).resolves.toEqual({
+      status: "skipped",
+      errorMessage: "Conversation not found"
+    });
   });
 
   it("broadcasts error if no API key configured", async () => {
@@ -174,11 +179,7 @@ describe("chat-turn", () => {
 
     const manager = createConversationManager();
     const sent: unknown[] = [];
-    const mockWs = {
-      readyState: 1,
-      send: vi.fn((data: string) => sent.push(JSON.parse(data))),
-      close: vi.fn()
-    } as unknown as WebSocket;
+    const mockWs = createMockSocket(vi.fn((data: string) => sent.push(JSON.parse(data))));
 
     const conv = (await import("@/lib/conversations")).createConversation(
       undefined,

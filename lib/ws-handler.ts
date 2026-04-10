@@ -1,6 +1,7 @@
 import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 import { verifySessionToken } from "@/lib/auth";
+import { createAutomationScheduler as createAutomationSchedulerBase } from "@/lib/automation-scheduler";
 import { startChatTurn } from "@/lib/chat-turn";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import { getConversationSnapshot, listActiveConversations } from "@/lib/conversations";
@@ -22,6 +23,13 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
   wss.on("connection", async (ws, req) => {
     const token = extractToken(req);
     await handleConnection(ws, token);
+  });
+}
+
+export function createAutomationScheduler() {
+  return createAutomationSchedulerBase({
+    manager: getConversationManager(),
+    startChatTurn
   });
 }
 

@@ -1,4 +1,4 @@
-import { parseEnv } from "@/lib/env";
+import { env, parseEnv } from "@/lib/env";
 
 describe("env validation", () => {
   it("falls back to local defaults outside production", async () => {
@@ -79,6 +79,69 @@ describe("env validation", () => {
     expect(env.EIDON_GITHUB_APP_CALLBACK_URL).toBe(
       "https://eidon.example.com/api/providers/github/callback"
     );
+  });
+
+  it("parses the timezone env and exposes it", async () => {
+    const { parseEnv } = await import("@/lib/env");
+
+    const env = parseEnv({
+      NODE_ENV: "development",
+      EIDON_PASSWORD_LOGIN_ENABLED: "true",
+      EIDON_ADMIN_USERNAME: "admin",
+      EIDON_DATA_DIR: ".test-data",
+      TZ: "America/Toronto"
+    });
+
+    expect(env.TZ).toBe("America/Toronto");
+  });
+
+  it("defaults the timezone env to the current system timezone", () => {
+    const env = parseEnv({
+      NODE_ENV: "development",
+      EIDON_PASSWORD_LOGIN_ENABLED: "true",
+      EIDON_ADMIN_USERNAME: "admin",
+      EIDON_DATA_DIR: ".test-data"
+    });
+
+    expect(env.TZ).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
+  });
+
+  it("returns undefined for non-string env proxy keys", () => {
+    expect(Reflect.get(env, Symbol.toStringTag)).toBeUndefined();
+  });
+
+  it("rejects invalid timezones", () => {
+    expect(() =>
+      parseEnv({
+        NODE_ENV: "development",
+        EIDON_PASSWORD_LOGIN_ENABLED: "true",
+        EIDON_ADMIN_USERNAME: "admin",
+        EIDON_DATA_DIR: ".test-data",
+        TZ: "Mars/Olympus"
+      })
+    ).toThrow();
+  });
+
+  it("rejects fixed-offset timezone forms", () => {
+    expect(() =>
+      parseEnv({
+        NODE_ENV: "development",
+        EIDON_PASSWORD_LOGIN_ENABLED: "true",
+        EIDON_ADMIN_USERNAME: "admin",
+        EIDON_DATA_DIR: ".test-data",
+        TZ: "+01:00"
+      })
+    ).toThrow();
+
+    expect(() =>
+      parseEnv({
+        NODE_ENV: "development",
+        EIDON_PASSWORD_LOGIN_ENABLED: "true",
+        EIDON_ADMIN_USERNAME: "admin",
+        EIDON_DATA_DIR: ".test-data",
+        TZ: "-2359"
+      })
+    ).toThrow();
   });
 
   it("defers production secret validation until a sensitive value is accessed", async () => {

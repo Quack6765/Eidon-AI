@@ -76,7 +76,9 @@ function createAttachment(overrides: Partial<MessageAttachment> = {}): MessageAt
   };
 }
 
-function createPayload(): React.ComponentProps<typeof ChatView>["payload"] {
+type ChatViewPayload = React.ComponentProps<typeof ChatView>["payload"];
+
+function createPayload(): ChatViewPayload {
   return {
     conversation: {
       id: "conv_1",
@@ -84,6 +86,9 @@ function createPayload(): React.ComponentProps<typeof ChatView>["payload"] {
       titleGenerationStatus: "completed" as const,
       folderId: null,
       providerProfileId: "profile_default",
+      automationId: null,
+      automationRunId: null,
+      conversationOrigin: "manual",
       sortOrder: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

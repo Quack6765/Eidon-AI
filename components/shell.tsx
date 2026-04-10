@@ -4,18 +4,20 @@ import { useState, type PropsWithChildren } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Menu, Plus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { AutomationsNav } from "@/components/automations/automations-nav";
 import { Sidebar } from "@/components/sidebar";
 import { SettingsNav } from "@/components/settings/settings-nav";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
-import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
+import type { Automation, Conversation, ConversationListPage, Folder } from "@/lib/types";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { useGlobalWebSocket } from "@/lib/ws-client";
 
 export function Shell({
   conversationPage,
   folders,
+  automations,
   children
-}: PropsWithChildren<{ conversationPage: ConversationListPage; folders?: Folder[] }>) {
+}: PropsWithChildren<{ conversationPage: ConversationListPage; folders?: Folder[]; automations?: Automation[] }>) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
@@ -24,6 +26,7 @@ export function Shell({
     ? pathname.split("/chat/")[1]
     : null;
   const isSettingsPage = pathname.startsWith("/settings");
+  const isAutomationsPage = pathname.startsWith("/automations");
   const mobileMenuLabel = isSettingsPage ? "Open settings menu" : "Open menu";
 
   return (
@@ -49,6 +52,8 @@ export function Shell({
       >
         {isSettingsPage ? (
           <SettingsNav onCloseAction={() => setIsSidebarOpen(false)} />
+        ) : isAutomationsPage ? (
+          <AutomationsNav automations={automations ?? []} onCloseAction={() => setIsSidebarOpen(false)} />
         ) : (
           <Sidebar conversationPage={conversationPage} folders={folders} onClose={() => setIsSidebarOpen(false)} />
         )}
@@ -85,21 +90,25 @@ export function Shell({
             </span>
           )}
 
-          <button
-            type="button"
-            className="p-2 -mr-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
-            onClick={async () => {
-              try {
-                await deleteConversationIfStillEmpty(activeConversationId);
-                const res = await fetch("/api/conversations", { method: "POST" });
-                const data = (await res.json()) as { conversation: Conversation };
+          {isAutomationsPage ? (
+            <div className="h-9 w-9" />
+          ) : (
+            <button
+              type="button"
+              className="p-2 -mr-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
+              onClick={async () => {
+                try {
+                  await deleteConversationIfStillEmpty(activeConversationId);
+                  const res = await fetch("/api/conversations", { method: "POST" });
+                  const data = (await res.json()) as { conversation: Conversation };
                 router.push(`/chat/${data.conversation.id}`);
               } catch (e) {}
             }}
             aria-label="New chat"
           >
-            <Plus className="h-5 w-5" />
-          </button>
+              <Plus className="h-5 w-5" />
+            </button>
+          )}
         </div>
 
         <ContextTokensProvider>{children}</ContextTokensProvider>

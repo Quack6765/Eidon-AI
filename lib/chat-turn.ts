@@ -29,6 +29,19 @@ export type ChatEmitter = ReturnType<typeof createEmitter<{
   status: [string, string];
 }>>;
 
+export type ChatTurnResult = {
+  status: "completed" | "failed" | "stopped" | "skipped";
+  errorMessage?: string;
+};
+
+export type StartChatTurn = (
+  manager: ConversationManager,
+  conversationId: string,
+  content: string,
+  attachmentIds: string[],
+  personaId?: string
+) => Promise<ChatTurnResult>;
+
 const globalEmitter = createEmitter<{
   delta: [string, unknown];
   status: [string, string];
@@ -44,9 +57,11 @@ export async function startChatTurn(
   content: string,
   attachmentIds: string[],
   personaId?: string
-) {
+) : Promise<ChatTurnResult> {
   const conversation = getConversation(conversationId);
-  if (!conversation) return;
+  if (!conversation) {
+    return { status: "skipped", errorMessage: "Conversation not found" };
+  }
 
   const settings =
     (conversation.providerProfileId
@@ -59,7 +74,7 @@ export async function startChatTurn(
       type: "error",
       message: "No provider profile configured"
     });
-    return;
+    return { status: "failed", errorMessage: "No provider profile configured" };
   }
 
   if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
@@ -67,7 +82,7 @@ export async function startChatTurn(
       type: "error",
       message: "Set an API key in settings before starting a chat"
     });
-    return;
+    return { status: "failed", errorMessage: "Set an API key in settings before starting a chat" };
   }
 
   if (settings.providerKind === "github_copilot" && !settings.githubUserAccessTokenEncrypted) {
@@ -75,7 +90,7 @@ export async function startChatTurn(
       type: "error",
       message: "Connect a GitHub account in settings before starting a chat"
     });
-    return;
+    return { status: "failed", errorMessage: "Connect a GitHub account in settings before starting a chat" };
   }
 
   const userMessage = createMessage({
@@ -295,6 +310,7 @@ export async function startChatTurn(
       conversationId,
       event: { type: "done", messageId: assistantMessage.id }
     });
+    return { status: "completed" };
   } catch (error) {
     if (error instanceof ChatTurnStoppedError) {
       if (flushTimer) clearTimeout(flushTimer);
@@ -319,6 +335,7 @@ export async function startChatTurn(
         conversationId,
         event: { type: "done", messageId: assistantMessage.id }
       });
+      return { status: "stopped" };
     } else {
       updateMessage(assistantMessage.id, {
         content: "",
@@ -333,6 +350,10 @@ export async function startChatTurn(
           message: error instanceof Error ? error.message : "Chat stream failed"
         }
       });
+      return {
+        status: "failed",
+        errorMessage: error instanceof Error ? error.message : "Chat stream failed"
+      };
     }
   } finally {
     clearChatTurn(conversationId);

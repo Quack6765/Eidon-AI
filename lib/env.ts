@@ -1,7 +1,33 @@
 import { z } from "zod";
 
+const fixedOffsetTimeZonePattern = /^[+-](?:[01]\d|2[0-3])(?::?[0-5]\d)?$/;
+
+function isValidIanaTimeZone(value: string) {
+  if (fixedOffsetTimeZonePattern.test(value)) {
+    return false;
+  }
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getSystemTimeZone() {
+  const systemTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return isValidIanaTimeZone(systemTimeZone) ? systemTimeZone : "UTC";
+}
+
 const nodeEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+  TZ: z
+    .string()
+    .min(1)
+    .optional()
+    .transform((value) => value ?? getSystemTimeZone())
+    .refine(isValidIanaTimeZone, "TZ must be a valid IANA timezone"),
   EIDON_PASSWORD_LOGIN_ENABLED: z
     .enum(["true", "false"])
     .default("false")
