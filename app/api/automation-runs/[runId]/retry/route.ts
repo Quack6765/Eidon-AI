@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import { retryAutomationRun } from "@/lib/automations";
+import { getAutomationRun, retryAutomationRun } from "@/lib/automations";
 import { badRequest, ok } from "@/lib/http";
 
 const paramsSchema = z.object({
@@ -17,6 +17,15 @@ export async function POST(
 
   if (!params.success) {
     return badRequest("Invalid automation run id");
+  }
+
+  const existingRun = getAutomationRun(params.data.runId);
+  if (!existingRun) {
+    return badRequest("Automation run not found", 404);
+  }
+
+  if (existingRun.status !== "failed") {
+    return badRequest("Only failed automation runs can be retried");
   }
 
   const run = retryAutomationRun(params.data.runId);

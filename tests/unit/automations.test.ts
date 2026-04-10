@@ -625,4 +625,39 @@ describe("automation routes", () => {
       conversationId: null
     });
   });
+
+  it("rejects retry requests for runs that have not failed", async () => {
+    const automation = createAutomation({
+      name: "Completed run",
+      prompt: "Prompt",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 20,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+
+    const completedRun = createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-09T13:00:00.000Z",
+      triggerSource: "schedule"
+    });
+
+    updateAutomationRunStatus(completedRun.id, {
+      status: "completed",
+      finishedAt: "2026-04-09T13:01:00.000Z"
+    });
+
+    const response = await retryAutomationRunRoute(
+      new Request(`http://localhost/api/automation-runs/${completedRun.id}/retry`, { method: "POST" }),
+      { params: Promise.resolve({ runId: completedRun.id }) }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(json<{ error: string }>(response)).resolves.toEqual({
+      error: "Only failed automation runs can be retried"
+    });
+  });
 });
