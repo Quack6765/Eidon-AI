@@ -188,6 +188,47 @@ describe("db", () => {
     vi.resetModules();
   });
 
+  it("adds multi-user tables and owner columns", async () => {
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+
+    const userColumns = (db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const userSettingsColumns = (
+      db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const conversationColumns = (
+      db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const folderColumns = (db.prepare("PRAGMA table_info(folders)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const personaColumns = (db.prepare("PRAGMA table_info(personas)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const memoryColumns = (
+      db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const automationColumns = (
+      db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+
+    expect(userColumns).toEqual(
+      expect.arrayContaining(["username", "role", "auth_source", "password_hash"])
+    );
+    expect(userSettingsColumns).toEqual(
+      expect.arrayContaining([
+        "user_id",
+        "default_provider_profile_id",
+        "conversation_retention",
+        "mcp_timeout"
+      ])
+    );
+    expect(conversationColumns).toContain("user_id");
+    expect(folderColumns).toContain("user_id");
+    expect(personaColumns).toContain("user_id");
+    expect(memoryColumns).toContain("user_id");
+    expect(automationColumns).toContain("user_id");
+  });
+
   it("migrates legacy schemas and backfills defaults", async () => {
     prepareLegacyDatabase();
 

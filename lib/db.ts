@@ -98,6 +98,15 @@ function getDatabasePath() {
 function migrate(db: Database.Database) {
   db.exec(`
     PRAGMA journal_mode = WAL;
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL UNIQUE,
+      role TEXT NOT NULL,
+      auth_source TEXT NOT NULL,
+      password_hash TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS admin_users (
       id TEXT PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
@@ -110,7 +119,7 @@ function migrate(db: Database.Database) {
       user_id TEXT NOT NULL,
       expires_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES admin_users(id) ON DELETE CASCADE
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -167,20 +176,24 @@ function migrate(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS folders (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
+      user_id TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
       title TEXT NOT NULL,
       title_generation_status TEXT NOT NULL DEFAULT 'completed',
+      user_id TEXT,
       folder_id TEXT,
       provider_profile_id TEXT,
       tool_execution_mode TEXT NOT NULL DEFAULT 'read_only',
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (folder_id) REFERENCES folders(id) ON DELETE SET NULL,
       FOREIGN KEY (provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
     );
@@ -287,15 +300,19 @@ function migrate(db: Database.Database) {
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
       content TEXT NOT NULL,
+      user_id TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS user_memories (
       id TEXT PRIMARY KEY,
       content TEXT NOT NULL,
       category TEXT NOT NULL,
+      user_id TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS automations (
       id TEXT PRIMARY KEY,
@@ -303,6 +320,7 @@ function migrate(db: Database.Database) {
       prompt TEXT NOT NULL,
       provider_profile_id TEXT NOT NULL,
       persona_id TEXT,
+      user_id TEXT,
       schedule_kind TEXT NOT NULL,
       interval_minutes INTEGER,
       calendar_frequency TEXT,
@@ -315,7 +333,21 @@ function migrate(db: Database.Database) {
       last_finished_at TEXT,
       last_status TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS user_settings (
+      user_id TEXT PRIMARY KEY,
+      default_provider_profile_id TEXT,
+      skills_enabled INTEGER NOT NULL DEFAULT 1,
+      conversation_retention TEXT NOT NULL DEFAULT 'forever',
+      auto_compaction INTEGER NOT NULL DEFAULT 1,
+      memories_enabled INTEGER NOT NULL DEFAULT 1,
+      memories_max_count INTEGER NOT NULL DEFAULT 100,
+      mcp_timeout INTEGER NOT NULL DEFAULT 120000,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
     );
     CREATE TABLE IF NOT EXISTS automation_runs (
       id TEXT PRIMARY KEY,
@@ -335,6 +367,9 @@ function migrate(db: Database.Database) {
 
   const convCols = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
   const convColNames = convCols.map((c) => c.name);
+  if (!convColNames.includes("user_id")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
+  }
   if (!convColNames.includes("folder_id")) {
     db.exec("ALTER TABLE conversations ADD COLUMN folder_id TEXT REFERENCES folders(id) ON DELETE SET NULL");
   }
@@ -377,6 +412,26 @@ function migrate(db: Database.Database) {
     db.exec(
       "ALTER TABLE conversations ADD COLUMN conversation_origin TEXT NOT NULL DEFAULT 'manual'"
     );
+  }
+
+  const folderCols = db.prepare("PRAGMA table_info(folders)").all() as Array<{ name: string }>;
+  if (!folderCols.some((col) => col.name === "user_id")) {
+    db.exec("ALTER TABLE folders ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
+  }
+
+  const personaCols = db.prepare("PRAGMA table_info(personas)").all() as Array<{ name: string }>;
+  if (!personaCols.some((col) => col.name === "user_id")) {
+    db.exec("ALTER TABLE personas ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
+  }
+
+  const memoryCols = db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>;
+  if (!memoryCols.some((col) => col.name === "user_id")) {
+    db.exec("ALTER TABLE user_memories ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
+  }
+
+  const automationCols = db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>;
+  if (!automationCols.some((col) => col.name === "user_id")) {
+    db.exec("ALTER TABLE automations ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
   }
 
   const settingsCols = db.prepare("PRAGMA table_info(app_settings)").all() as Array<{ name: string }>;
