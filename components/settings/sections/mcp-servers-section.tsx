@@ -99,7 +99,8 @@ export function McpServersSection() {
         body: JSON.stringify(payload)
       });
       if (!patchRes.ok) {
-        setError("Failed to update server");
+        const errorData = await patchRes.json().catch(() => null);
+        setError(errorData?.error ?? "Failed to update server");
         return;
       }
     } else {
@@ -109,7 +110,8 @@ export function McpServersSection() {
         body: JSON.stringify(payload)
       });
       if (!postRes.ok) {
-        setError("Failed to add server");
+        const errorData = await postRes.json().catch(() => null);
+        setError(errorData?.error ?? "Failed to add server");
         return;
       }
       const created = (await postRes.json()) as { server: McpServer };

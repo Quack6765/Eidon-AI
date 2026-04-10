@@ -188,7 +188,7 @@ describe("assistant runtime", () => {
       promptMessages: [{ role: "user", content: "Search" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_exa", name: "Exa", url: "https://exa.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_exa", slug: "exa", name: "Exa", url: "https://exa.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{
           name: "web_search",
           title: "Web Search",
@@ -210,7 +210,7 @@ describe("assistant runtime", () => {
     });
 
     const toolDefs = streamProviderResponse.mock.calls[0][0].tools!;
-    const webSearchTool = toolDefs.find((t: any) => t.function.name === "mcp_mcp_exa_web_search")!;
+    const webSearchTool = toolDefs.find((t: any) => t.function.name === "mcp_exa_web_search")!;
     expect(webSearchTool.function.description).toContain("Valid values for freshness: 24h, week, month, year, any.");
   });
 
@@ -220,7 +220,7 @@ describe("assistant runtime", () => {
         createProviderStream([], {
           answer: "",
           thinking: "",
-          toolCalls: [{ id: "call_1", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
+          toolCalls: [{ id: "call_1", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
           usage: { inputTokens: 9 }
         })
       )
@@ -242,7 +242,7 @@ describe("assistant runtime", () => {
       promptMessages: [{ role: "user", content: "Find MCP docs" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", title: "Search docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
       }],
       onEvent: () => {},
@@ -390,7 +390,7 @@ Run browser commands.`
         createProviderStream([], {
           answer: "",
           thinking: "",
-          toolCalls: [{ id: "call_1", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
+          toolCalls: [{ id: "call_1", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
           usage: { inputTokens: 5 }
         })
       )
@@ -414,7 +414,7 @@ Run browser commands.`
       promptMessages: [{ role: "user", content: "Use MCP" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
       }],
       onActionStart: () => "act_tool",
@@ -431,7 +431,7 @@ Run browser commands.`
         createProviderStream([], {
           answer: "",
           thinking: "",
-          toolCalls: [{ id: "call_1", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
+          toolCalls: [{ id: "call_1", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
           usage: { inputTokens: 5 }
         })
       )
@@ -460,7 +460,7 @@ Run browser commands.`
       promptMessages: [{ role: "user", content: "Use MCP" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
       }]
     });
@@ -475,7 +475,7 @@ Run browser commands.`
         createProviderStream([], {
           answer: "",
           thinking: "",
-          toolCalls: [{ id: "call_1", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
+          toolCalls: [{ id: "call_1", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
           usage: { inputTokens: 5 }
         })
       )
@@ -483,7 +483,7 @@ Run browser commands.`
         createProviderStream([], {
           answer: "",
           thinking: "",
-          toolCalls: [{ id: "call_2", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP again" }) }],
+          toolCalls: [{ id: "call_2", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP again" }) }],
           usage: { inputTokens: 4 }
         })
       )
@@ -506,7 +506,7 @@ Run browser commands.`
       promptMessages: [{ role: "user", content: "Use MCP" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
       }],
       onActionStart: (action) => {
@@ -552,6 +552,78 @@ Run browser commands.`
     expect(result.answer).toBe("Fallback answer");
   });
 
+  it("resolves MCP tool calls against the most specific matching slug", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "mcp_exa_docs_search", arguments: JSON.stringify({ query: "MCP" }) }],
+          usage: { inputTokens: 5 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "Resolved the specific server",
+          thinking: "",
+          usage: { inputTokens: 3, outputTokens: 2 }
+        })
+      );
+    callMcpTool.mockResolvedValue({ content: [{ type: "text", text: "Found MCP docs" }] });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Use MCP" }],
+      skills: [],
+      mcpToolSets: [
+        {
+          server: {
+            id: "mcp_exa",
+            slug: "exa",
+            name: "Exa",
+            url: "https://exa.example.com",
+            headers: {},
+            transport: "streamable_http",
+            command: null,
+            args: null,
+            env: null,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          tools: [{ name: "docs_search", description: "Search docs", inputSchema: { type: "object" } }]
+        },
+        {
+          server: {
+            id: "mcp_exa_docs",
+            slug: "exa_docs",
+            name: "Exa Docs",
+            url: "https://exa-docs.example.com",
+            headers: {},
+            transport: "streamable_http",
+            command: null,
+            args: null,
+            env: null,
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          },
+          tools: [{ name: "search", description: "Search docs", inputSchema: { type: "object" } }]
+        }
+      ]
+    });
+
+    expect(callMcpTool).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "mcp_exa_docs" }),
+      "search",
+      { query: "MCP" },
+      undefined
+    );
+    expect(result.answer).toBe("Resolved the specific server");
+  });
+
   it("returns a tool error when execute_shell_command is called without a command", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
@@ -591,7 +663,7 @@ Run browser commands.`
       createProviderStream([], {
         answer: "",
         thinking: "",
-        toolCalls: [{ id: "call_loop", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "loop" }) }],
+        toolCalls: [{ id: "call_loop", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "loop" }) }],
         usage: { inputTokens: 1 }
       })
     );
@@ -607,7 +679,7 @@ Run browser commands.`
         promptMessages: [{ role: "user", content: "Loop forever" }],
         skills: [],
         mcpToolSets: [{
-          server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+          server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
           tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
         }]
       })
@@ -631,7 +703,7 @@ Run browser commands.`
       return createProviderStream([], {
         answer: "",
         thinking: "",
-        toolCalls: [{ id: `call_${Math.random()}`, name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "loop" }) }],
+        toolCalls: [{ id: `call_${Math.random()}`, name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "loop" }) }],
         usage: { inputTokens: 1 }
       });
     });
@@ -646,7 +718,7 @@ Run browser commands.`
       promptMessages: [{ role: "user", content: "Loop forever" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" } }]
       }]
     });
@@ -705,7 +777,7 @@ Run browser commands.`
         createProviderStream([], {
           answer: "",
           thinking: "",
-          toolCalls: [{ id: "call_1", name: "mcp_mcp_exa_search", arguments: JSON.stringify({ query: "test", freshness: "today" }) }],
+          toolCalls: [{ id: "call_1", name: "mcp_exa_search", arguments: JSON.stringify({ query: "test", freshness: "today" }) }],
           usage: { inputTokens: 10 }
         })
       )
@@ -725,7 +797,7 @@ Run browser commands.`
       promptMessages: [{ role: "user", content: "Search recent" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_exa", name: "Exa", url: "https://exa.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_exa", slug: "exa", name: "Exa", url: "https://exa.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{
           name: "search",
           title: "Search",
@@ -760,7 +832,7 @@ Run browser commands.`
         createProviderStream([{ type: "answer_delta", text: "Let me search." }], {
           answer: "Let me search.",
           thinking: "",
-          toolCalls: [{ id: "call_1", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
+          toolCalls: [{ id: "call_1", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
           usage: { inputTokens: 7 }
         })
       )
@@ -783,7 +855,7 @@ Run browser commands.`
       promptMessages: [{ role: "user", content: "Find MCP docs" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
       }],
       onEvent: () => {},
@@ -1002,7 +1074,7 @@ Run browser commands.`
       createProviderStream([], {
         answer: "",
         thinking: "",
-        toolCalls: [{ id: "call_1", name: "mcp_mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
+        toolCalls: [{ id: "call_1", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
         usage: { inputTokens: 9 }
       })
     );

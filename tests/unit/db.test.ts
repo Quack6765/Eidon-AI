@@ -149,6 +149,9 @@ function prepareLegacyDatabase() {
   db.prepare(
     "INSERT INTO mcp_servers (id, name, url, headers, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
   ).run("mcp_legacy", "Legacy MCP", "https://mcp.example.com", "{}", 1, now, now);
+  db.prepare(
+    "INSERT INTO mcp_servers (id, name, url, headers, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+  ).run("mcp_legacy_duplicate", "Legacy MCP", "https://mcp-2.example.com", "{}", 1, now, now);
 
   db.prepare(
     "INSERT INTO skills (id, name, content, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)"
@@ -212,7 +215,7 @@ describe("db", () => {
     expect(settingsColumns).toEqual(
       expect.arrayContaining(["default_provider_profile_id", "skills_enabled"])
     );
-    expect(mcpColumns).toEqual(expect.arrayContaining(["transport", "command", "args", "env"]));
+    expect(mcpColumns).toEqual(expect.arrayContaining(["transport", "command", "args", "env", "slug"]));
     expect(skillColumns).toContain("description");
 
     const conversation = db
@@ -238,6 +241,9 @@ describe("db", () => {
     const builtinSkill = db
       .prepare("SELECT name, description FROM skills WHERE id = ?")
       .get("builtin-agent-browser") as { name: string; description: string } | undefined;
+    const migratedMcpServers = db
+      .prepare("SELECT id, slug FROM mcp_servers ORDER BY id ASC")
+      .all() as Array<{ id: string; slug: string }>;
 
     expect(appSettings.default_provider_profile_id).toBe("profile_existing");
     expect(appSettings.skills_enabled).toBe(1);
@@ -252,6 +258,10 @@ describe("db", () => {
       description: "Summarize notable product changes."
     });
     expect(builtinSkill?.name).toBe("Agent Browser");
+    expect(migratedMcpServers).toEqual([
+      { id: "mcp_legacy", slug: "legacy_mcp" },
+      { id: "mcp_legacy_duplicate", slug: "legacy_mcp_2" }
+    ]);
   });
 
   it("reuses the same database instance until reset is called", async () => {

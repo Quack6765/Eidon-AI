@@ -118,6 +118,7 @@ export type McpTransport = "streamable_http" | "stdio";
 export type McpServer = {
   id: string;
   name: string;
+  slug: string;
   url: string;
   headers: Record<string, string>;
   transport: McpTransport;
@@ -137,6 +138,7 @@ export type McpTool = {
     type: string;
     properties?: Record<string, unknown>;
     required?: string[];
+    additionalProperties?: boolean;
   };
   annotations?: {
     title?: string;
@@ -357,6 +359,7 @@ export type ToolDefinition = {
       type: string;
       properties?: Record<string, unknown>;
       required?: string[];
+      additionalProperties?: boolean;
     };
   };
 };

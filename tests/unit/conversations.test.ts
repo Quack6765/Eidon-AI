@@ -469,13 +469,12 @@ describe("conversation helpers", () => {
     const snapshot = getConversationSnapshot(conv.id);
     expect(snapshot).not.toBeNull();
 
-    const conversationSnapshot = snapshot!;
-    expect(conversationSnapshot.conversation.id).toBe(conv.id);
-    expect(conversationSnapshot.messages).toHaveLength(2);
-    expect(conversationSnapshot.messages[0].role).toBe("user");
-    expect(conversationSnapshot.messages[1].status).toBe("streaming");
-    expect(conversationSnapshot.messages[1].textSegments).toHaveLength(1);
-    expect(conversationSnapshot.messages[1].textSegments![0].content).toBe("partial answer");
-    expect(conversationSnapshot.messages[1].actions).toHaveLength(1);
+    expect(snapshot!.conversation.id).toBe(conv.id);
+    expect(snapshot!.messages).toHaveLength(2);
+    expect(snapshot!.messages[0].role).toBe("user");
+    expect(snapshot!.messages[1].status).toBe("streaming");
+    expect(snapshot!.messages[1].textSegments).toHaveLength(1);
+    expect(snapshot!.messages[1].textSegments![0].content).toBe("partial answer");
+    expect(snapshot!.messages[1].actions).toHaveLength(1);
   });
 });
