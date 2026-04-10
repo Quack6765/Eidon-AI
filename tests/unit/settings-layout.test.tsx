@@ -6,7 +6,7 @@ import { render, screen } from "@testing-library/react";
 import { GeneralSection } from "@/components/settings/sections/general-section";
 import { SettingRow } from "@/components/settings/setting-row";
 import { Shell } from "@/components/shell";
-import type { AppSettings, ConversationListPage } from "@/lib/types";
+import type { AppSettings, AuthUser, ConversationListPage } from "@/lib/types";
 
 const mockRefresh = vi.fn();
 const mockPush = vi.fn();
@@ -62,6 +62,16 @@ const conversationPage: ConversationListPage = {
   hasMore: false
 };
 
+const currentUser: AuthUser = {
+  id: "user_admin",
+  username: "admin",
+  role: "admin",
+  authSource: "env_super_admin",
+  passwordManagedBy: "env",
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
+};
+
 describe("settings mobile layout", () => {
   beforeEach(() => {
     mockPathname = "/settings/general";
@@ -100,6 +110,8 @@ describe("settings mobile layout", () => {
       React.createElement(
         Shell,
         {
+          currentUser,
+          passwordLoginEnabled: true,
           conversationPage
         },
         React.createElement("div", null, "Settings content")

@@ -5,6 +5,7 @@ import { Shell } from "@/components/shell";
 import { requireUser } from "@/lib/auth";
 import { getConversation, listConversationsPage, listVisibleMessages } from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
+import { isPasswordLoginEnabled } from "@/lib/env";
 import { listFolders } from "@/lib/folders";
 import { getSanitizedSettings } from "@/lib/settings";
 import type { ConversationListPage } from "@/lib/types";
@@ -53,7 +54,12 @@ export default async function ConversationPage({
   }
 
   return (
-    <Shell conversationPage={ensureConversationInPage(conversationPage, conversation)} folders={folders}>
+    <Shell
+      currentUser={user}
+      passwordLoginEnabled={isPasswordLoginEnabled()}
+      conversationPage={ensureConversationInPage(conversationPage, conversation)}
+      folders={folders}
+    >
       <ChatView
         payload={{
           conversation,

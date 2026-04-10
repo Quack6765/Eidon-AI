@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { getAutomationRun, listAutomations } from "@/lib/automations";
 import { getConversation, listConversationsPage, listVisibleMessages } from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
+import { isPasswordLoginEnabled } from "@/lib/env";
 import { listFolders } from "@/lib/folders";
 import { getSanitizedSettings } from "@/lib/settings";
 
@@ -33,6 +34,8 @@ export default async function AutomationRunPage({
 
   return (
     <Shell
+      currentUser={user}
+      passwordLoginEnabled={isPasswordLoginEnabled()}
       conversationPage={listConversationsPage({ userId: user.id })}
       folders={listFolders(user.id)}
       automations={listAutomations(user.id)}
