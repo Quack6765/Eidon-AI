@@ -138,6 +138,14 @@ function createPayload(): ChatViewPayload {
   };
 }
 
+async function flushAnimationFrame() {
+  await act(async () => {
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => resolve());
+    });
+  });
+}
+
 describe("chat view", () => {
   const originalMaxTouchPoints = Object.getOwnPropertyDescriptor(navigator, "maxTouchPoints");
 
@@ -471,10 +479,12 @@ describe("chat view", () => {
       expect(screen.getByText("hello")).toBeInTheDocument();
     });
 
-    wsMock.onMessage!({
-      type: "delta",
-      conversationId: "conv_1",
-      event: { type: "message_start", messageId: "msg_assistant" }
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
     });
     wsMock.onMessage!({
       type: "delta",
@@ -495,10 +505,12 @@ describe("chat view", () => {
   it("does not append duplicate assistant placeholders for the same stream message", async () => {
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    wsMock.onMessage!({
-      type: "delta",
-      conversationId: "conv_1",
-      event: { type: "message_start", messageId: "msg_assistant" }
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
     });
     wsMock.onMessage!({
       type: "delta",
@@ -528,6 +540,63 @@ describe("chat view", () => {
     await waitFor(() => {
       expect(screen.getByText("Done")).toBeInTheDocument();
     });
+  });
+
+  it("does not force-scroll streaming updates when the user has scrolled away from the bottom", async () => {
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
+
+    let scrollTop = 700;
+    const scrollTo = vi.fn(({ top }: { top?: number }) => {
+      if (typeof top === "number") {
+        scrollTop = top;
+      }
+    });
+
+    Object.defineProperty(queue, "clientHeight", {
+      configurable: true,
+      get: () => 300
+    });
+    Object.defineProperty(queue, "scrollHeight", {
+      configurable: true,
+      get: () => 1000
+    });
+    Object.defineProperty(queue, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      }
+    });
+    Object.defineProperty(queue, "scrollTo", {
+      configurable: true,
+      value: scrollTo
+    });
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+
+    await flushAnimationFrame();
+
+    scrollTop = 120;
+    fireEvent.scroll(queue);
+    scrollTo.mockClear();
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Still working" }
+      });
+    });
+
+    await flushAnimationFrame();
+
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(scrollTop).toBe(120);
   });
 
   it("renders tool actions and answer text while streaming", async () => {
