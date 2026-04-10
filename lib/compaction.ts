@@ -13,6 +13,10 @@ import { createId } from "@/lib/ids";
 import { getPersona } from "@/lib/personas";
 import { callProviderText } from "@/lib/provider";
 import {
+  buildCompactionSummaryPromptBody,
+  selectCompactionMemoryNodes
+} from "@/lib/compaction-summary";
+import {
   groupCompletedTurns,
   isEmptyStreamingAssistantPlaceholder,
   renderCompletedTurns
@@ -181,48 +185,12 @@ function buildSummaryPrompt(label: string, blocks: string, sourceSpan: {
   endMessageId: string;
   messageCount: number;
 }, existingSummary?: string) {
-  const parts: string[] = [];
-
-  if (existingSummary) {
-    parts.push(
-      "You are updating this existing conversation summary.",
-      "",
-      "EXISTING SUMMARY (for context):",
-      existingSummary,
-      "",
-      "NEW MESSAGES:",
-      blocks,
-      "",
-      "Produce an updated summary that incorporates the new messages into the existing context.",
-      "Write your response as a bullet-point list grouped by these categories:",
-      "- Facts & commitments the assistant needs to remember",
-      "- User preferences and constraints",
-      "- Unresolved questions or open tasks",
-      "- Important technical references or files",
-      "- Chronology of key events",
-      "",
-      "Be specific and concise. Use short sentences. Do not invent details.",
-      `sourceSpan: startMessageId="${sourceSpan.startMessageId}", endMessageId="${sourceSpan.endMessageId}", messageCount=${sourceSpan.messageCount}`
-    );
-  } else {
-    parts.push(
-      `You are compacting ${label} for a chat memory engine.`,
-      "",
-      "Write your response as a bullet-point list grouped by these categories:",
-      "- Facts & commitments the assistant needs to remember",
-      "- User preferences and constraints",
-      "- Unresolved questions or open tasks",
-      "- Important technical references or files",
-      "- Chronology of key events",
-      "",
-      "Be specific and concise. Use short sentences. Do not invent details.",
-      blocks,
-      "",
-      `sourceSpan: startMessageId="${sourceSpan.startMessageId}", endMessageId="${sourceSpan.endMessageId}", messageCount=${sourceSpan.messageCount}`
-    );
-  }
-
-  return parts.join("\n");
+  return buildCompactionSummaryPromptBody({
+    label,
+    blocks,
+    sourceSpan,
+    existingSummary
+  });
 }
 
 async function summarizeBlocks(
@@ -508,39 +476,18 @@ function renderMemoryNode(content: string): string {
   return content;
 }
 
-async function scoreMemoryNodes(input: {
+function scoreMemoryNodes(input: {
   userInput: string;
   activeNodes: MemoryNode[];
-  settings: ProviderProfileWithApiKey;
-  conversationId: string;
-}): Promise<string[]> {
-  const { userInput, activeNodes, settings, conversationId } = input;
+  summaryTokenBudget: number;
+}): string[] {
+  const selectedNodes = selectCompactionMemoryNodes({
+    activeNodes: input.activeNodes,
+    latestUserMessage: input.userInput,
+    summaryTokenBudget: input.summaryTokenBudget
+  });
 
-  const nodeBlocks = activeNodes
-    .map((node) => `[node: ${node.id}] ${renderMemoryNode(node.content)}`)
-    .join("\n\n");
-
-  const prompt = [
-    "The user just asked:",
-    `"${userInput}"`,
-    "",
-    "Which of these context summaries are relevant?",
-    'Return only a valid JSON object: {"relevantNodes": ["nodeId1", "nodeId2"]}',
-    "",
-    "Context summaries:",
-    nodeBlocks
-  ].join("\n");
-
-  try {
-    const result = await callProviderText({ settings, prompt, purpose: "compaction", conversationId });
-    const parsed = JSON.parse(result);
-    if (Array.isArray(parsed.relevantNodes)) {
-      return parsed.relevantNodes.filter((id: string): id is string => typeof id === "string" && id.length > 0);
-    }
-    return [];
-  } catch {
-    return [];
-  }
+  return selectedNodes.map((node) => node.id);
 }
 
 export function buildPromptMessages(input: {
@@ -687,43 +634,27 @@ export async function ensureCompactedContext(
         let selectedNodes = activeMemoryNodes;
 
         if (activeMemoryNodes.length > 2) {
-          const scoredNodeIds = await scoreMemoryNodes({
+          const promptWithoutMemoryNodes = buildPromptMessages({
+            systemPrompt: settings.systemPrompt,
+            personaContent,
+            messages: visibleMessages,
+            activeMemoryNodes: [],
+            maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
+            memoriesEnabled
+          });
+          const summaryTokenBudget = Math.max(
+            compactionLimit - estimatePromptTokens(promptWithoutMemoryNodes),
+            0
+          );
+          const scoredNodeIds = scoreMemoryNodes({
             userInput: lastUserMessage?.content ?? "",
             activeNodes: activeMemoryNodes,
-            settings,
-            conversationId
+            summaryTokenBudget
           });
-
-          if (scoredNodeIds.length > 0 && scoredNodeIds.length < activeMemoryNodes.length) {
-            const scored = activeMemoryNodes.filter(n => scoredNodeIds.includes(n.id));
-            const unscored = activeMemoryNodes.filter(n => !scoredNodeIds.includes(n.id));
-
-            const sortedUnscored = [...unscored].sort((a, b) => {
-              if (b.depth !== a.depth) return b.depth - a.depth;
-              return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-            });
-
-            selectedNodes = [...scored];
-            const scoredTokens = buildPromptMessages({
-              systemPrompt: settings.systemPrompt,
-              personaContent,
-              messages: visibleMessages,
-              activeMemoryNodes: scored,
-              maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
-              memoriesEnabled
-            }).reduce((t, m) => {
-              if (typeof m.content === "string") return t + estimateTextTokens(m.content) + 12;
-              return t + estimatePromptContentTokens(m.content) + 12;
-            }, 0);
-
-            const remaining = compactionLimit - scoredTokens;
-            for (const node of sortedUnscored) {
-              const nodeTokens = node.summaryTokenCount;
-              if (nodeTokens <= remaining) {
-                selectedNodes.push(node);
-              }
-            }
-          }
+          const nodeById = new Map(activeMemoryNodes.map((node) => [node.id, node] as const));
+          selectedNodes = scoredNodeIds
+            .map((id) => nodeById.get(id))
+            .filter((node): node is MemoryNode => Boolean(node));
         }
 
         const finalPromptMessages = buildPromptMessages({
