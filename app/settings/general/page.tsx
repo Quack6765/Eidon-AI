@@ -3,8 +3,8 @@ import { getSanitizedSettings } from "@/lib/settings";
 import { requireUser } from "@/lib/auth";
 
 export default async function GeneralPage() {
-  await requireUser();
-  const settings = getSanitizedSettings();
+  const user = await requireUser();
+  const settings = getSanitizedSettings(user.id);
 
   return <GeneralSection settings={settings} />;
 }

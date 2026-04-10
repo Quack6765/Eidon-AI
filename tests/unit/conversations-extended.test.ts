@@ -9,7 +9,7 @@ import {
 import { createAutomation, createAutomationRun } from "@/lib/automations";
 import { getDb } from "@/lib/db";
 import { createFolder } from "@/lib/folders";
-import { getSettings } from "@/lib/settings";
+import { getSettings, listProviderProfiles } from "@/lib/settings";
 
 describe("conversations extended", () => {
   it("creates conversations with folder assignment", () => {
@@ -76,10 +76,12 @@ describe("conversations extended", () => {
   });
 
   it("excludes automation conversations from manual search results", () => {
+    const defaultProviderProfileId =
+      getSettings().defaultProviderProfileId ?? listProviderProfiles()[0]?.id ?? "";
     const automation = createAutomation({
       name: "Automation",
       prompt: "Run automatically",
-      providerProfileId: getSettings().defaultProviderProfileId,
+      providerProfileId: defaultProviderProfileId,
       personaId: null,
       scheduleKind: "interval",
       intervalMinutes: 5,
@@ -95,7 +97,7 @@ describe("conversations extended", () => {
 
     createConversation("Manual Chat");
     createConversation("Automation Chat", null, {
-      providerProfileId: getSettings().defaultProviderProfileId,
+      providerProfileId: defaultProviderProfileId,
       origin: "automation",
       automationId: automation.id,
       automationRunId: automationRun.id

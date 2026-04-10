@@ -125,4 +125,84 @@ describe("providers section", () => {
       expect(screen.getByRole("option", { name: "GPT-4.1" })).toBeInTheDocument();
     });
   });
+
+  it("saves provider changes through the admin-only providers endpoint", async () => {
+    vi.mocked(global.fetch).mockImplementation(async (input) => {
+      const url = String(input);
+
+      if (url === "/api/mcp-servers") {
+        return {
+          ok: true,
+          json: async () => ({ servers: [] })
+        } as Response;
+      }
+
+      if (url === "/api/settings/providers") {
+        return {
+          ok: true,
+          json: async () => ({ settings: {} })
+        } as Response;
+      }
+
+      return {
+        ok: true,
+        json: async () => ({ servers: [], models: [] })
+      } as Response;
+    });
+
+    render(
+      React.createElement(ProvidersSection, {
+        settings: {
+          defaultProviderProfileId: "profile_alpha",
+          skillsEnabled: true,
+          providerProfiles: [
+            {
+              id: "profile_alpha",
+              providerKind: "openai_compatible",
+              name: "Alpha",
+              apiBaseUrl: "https://api.example.com/v1",
+              model: "gpt-test",
+              apiMode: "responses",
+              systemPrompt: "Be exact.",
+              temperature: 0.2,
+              maxOutputTokens: 512,
+              reasoningEffort: "medium",
+              reasoningSummaryEnabled: true,
+              modelContextLimit: 16000,
+              compactionThreshold: 0.8,
+              freshTailCount: 12,
+              tokenizerModel: "gpt-tokenizer",
+              safetyMarginTokens: 1200,
+              leafSourceTokenLimit: 12000,
+              leafMinMessageCount: 6,
+              mergedMinNodeCount: 4,
+              mergedTargetTokens: 1600,
+              visionMode: "native",
+              visionMcpServerId: null,
+              githubAccountLogin: null,
+              githubAccountName: null,
+              githubTokenExpiresAt: null,
+              githubRefreshTokenExpiresAt: null,
+              githubConnectionStatus: "disconnected",
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              hasApiKey: false
+            }
+          ],
+          updatedAt: new Date().toISOString()
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/settings/providers",
+        expect.objectContaining({
+          method: "PUT"
+        })
+      );
+    });
+  });
 });

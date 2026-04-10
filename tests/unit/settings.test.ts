@@ -6,12 +6,15 @@ import {
   getProviderProfile,
   getProviderProfileWithApiKey,
   getSanitizedSettings,
+  getSettingsForUser,
   getDefaultProviderProfileWithApiKey,
   getSettingsDefaults,
   getSettings,
   listProviderProfiles,
+  updateGeneralSettingsForUser,
   updateSettings
 } from "@/lib/settings";
+import { createLocalUser } from "@/lib/users";
 
 function buildProfile(
   overrides: Partial<{
@@ -217,6 +220,78 @@ describe("settings storage", () => {
     expect(getSettings().autoCompaction).toBe(false);
     expect(getSettings().memoriesEnabled).toBe(false);
     expect(listProviderProfiles()[0].reasoningSummaryEnabled).toBe(false);
+  });
+
+  it("stores general settings per user while keeping provider settings global", async () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-alpha"
+    });
+    const beta = buildProfile({
+      id: "profile_beta",
+      name: "Beta",
+      apiKey: "sk-beta"
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: false,
+      providerProfiles: [alpha, beta]
+    });
+
+    const userA = await createLocalUser({
+      username: "user-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "user-b",
+      password: "Password123!",
+      role: "user"
+    });
+
+    updateGeneralSettingsForUser(userA.id, {
+      conversationRetention: "30d",
+      autoCompaction: false,
+      memoriesEnabled: false,
+      memoriesMaxCount: 42,
+      mcpTimeout: 45_000
+    });
+    updateGeneralSettingsForUser(userB.id, {
+      conversationRetention: "7d",
+      autoCompaction: true,
+      memoriesEnabled: true,
+      memoriesMaxCount: 7,
+      mcpTimeout: 90_000
+    });
+
+    expect(getSettingsForUser(userA.id)).toMatchObject({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: false,
+      conversationRetention: "30d",
+      autoCompaction: false,
+      memoriesEnabled: false,
+      memoriesMaxCount: 42,
+      mcpTimeout: 45_000
+    });
+    expect(getSettingsForUser(userB.id)).toMatchObject({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: false,
+      conversationRetention: "7d",
+      autoCompaction: true,
+      memoriesEnabled: true,
+      memoriesMaxCount: 7,
+      mcpTimeout: 90_000
+    });
+    expect(getSanitizedSettings(userA.id).providerProfiles.map((profile) => profile.id)).toEqual([
+      alpha.id,
+      beta.id
+    ]);
+    expect(getSanitizedSettings(userB.id).providerProfiles.map((profile) => profile.id)).toEqual([
+      alpha.id,
+      beta.id
+    ]);
   });
 
   it("returns the default MCP timeout from persisted settings", () => {

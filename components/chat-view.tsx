@@ -29,7 +29,7 @@ type ConversationPayload = {
   conversation: Conversation;
   messages: Message[];
   providerProfiles: ProviderProfileSummary[];
-  defaultProviderProfileId: string;
+  defaultProviderProfileId: string | null;
   debug: {
     rawTurnCount: number;
     memoryNodeCount: number;
@@ -262,7 +262,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const thinkingStartTimeRef = useRef<number | null>(null);
   const [thinkingDuration, setThinkingDuration] = useState<number | undefined>(undefined);
   const [providerProfileId, setProviderProfileId] = useState(
-    payload.conversation.providerProfileId ?? payload.defaultProviderProfileId
+    payload.conversation.providerProfileId ??
+      payload.defaultProviderProfileId ??
+      payload.providerProfiles[0]?.id ??
+      ""
   );
   const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
@@ -343,8 +346,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [payload.conversation.titleGenerationStatus]);
 
   useEffect(() => {
-    setProviderProfileId(payload.conversation.providerProfileId ?? payload.defaultProviderProfileId);
-  }, [payload.conversation.providerProfileId, payload.defaultProviderProfileId]);
+    setProviderProfileId(
+      payload.conversation.providerProfileId ??
+        payload.defaultProviderProfileId ??
+        payload.providerProfiles[0]?.id ??
+        ""
+    );
+  }, [payload.conversation.providerProfileId, payload.defaultProviderProfileId, payload.providerProfiles]);
 
   useEffect(() => {
     fetch("/api/personas")

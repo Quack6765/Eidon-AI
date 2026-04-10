@@ -31,7 +31,7 @@ import { ProfileCard } from "../profile-card";
 import { CollapsibleSection } from "../collapsible-section";
 
 type SettingsPayload = {
-  defaultProviderProfileId: string;
+  defaultProviderProfileId: string | null;
   skillsEnabled: boolean;
   providerProfiles: Array<{
     id: string;
@@ -81,11 +81,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const [success, setSuccess] = useState("");
   const [testResult, setTestResult] = useState("");
   const [defaultProviderProfileId, setDefaultProviderProfileId] = useState(
-    settings.defaultProviderProfileId
+    settings.defaultProviderProfileId ?? settings.providerProfiles[0]?.id ?? ""
   );
   const [skillsEnabled, setSkillsEnabled] = useState(settings.skillsEnabled);
   const [selectedProviderProfileId, setSelectedProviderProfileId] = useState(
-    settings.defaultProviderProfileId
+    settings.defaultProviderProfileId ?? settings.providerProfiles[0]?.id ?? ""
   );
   const [providerProfiles, setProviderProfiles] = useState<ProviderProfileDraft[]>(
     settings.providerProfiles.map((profile) => ({
@@ -259,7 +259,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   }
 
   async function saveSettings() {
-    const response = await fetch("/api/settings", {
+    const response = await fetch("/api/settings/providers", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(await buildSettingsPayload())

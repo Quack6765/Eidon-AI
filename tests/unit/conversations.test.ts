@@ -322,7 +322,8 @@ describe("conversation helpers", () => {
 
   it("updates the conversation provider profile", () => {
     const conversation = createConversation();
-    const nextProfileId = listProviderProfiles().at(-1)?.id ?? getSettings().defaultProviderProfileId;
+    const nextProfileId =
+      listProviderProfiles().at(-1)?.id ?? getSettings().defaultProviderProfileId ?? "";
 
     updateConversationProviderProfile(conversation.id, nextProfileId);
 

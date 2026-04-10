@@ -1,18 +1,36 @@
+import { z } from "zod";
+
 import { requireUser } from "@/lib/auth";
 import { badRequest, ok } from "@/lib/http";
-import { getSanitizedSettings, updateSettings } from "@/lib/settings";
+import { getSanitizedSettings, updateGeneralSettingsForUser } from "@/lib/settings";
+
+const generalSettingsSchema = z
+  .object({
+    conversationRetention: z.enum(["forever", "90d", "30d", "7d"]).optional(),
+    autoCompaction: z.coerce.boolean().optional(),
+    memoriesEnabled: z.coerce.boolean().optional(),
+    memoriesMaxCount: z.coerce.number().int().min(1).max(500).optional(),
+    mcpTimeout: z.coerce.number().int().min(10_000).max(600_000).optional()
+  })
+  .strip();
 
 export async function GET() {
-  await requireUser();
-  return ok({ settings: getSanitizedSettings() });
+  const user = await requireUser();
+  return ok({ settings: getSanitizedSettings(user.id) });
 }
 
 export async function PUT(request: Request) {
-  await requireUser();
+  const user = await requireUser();
 
   try {
-    const payload = await request.json();
-    return ok({ settings: updateSettings(payload) });
+    const body = await request.json().catch(() => ({}));
+    const payload = generalSettingsSchema.safeParse(body);
+
+    if (!payload.success) {
+      return badRequest("Invalid general settings payload");
+    }
+
+    return ok({ settings: updateGeneralSettingsForUser(user.id, payload.data) });
   } catch (error) {
     return badRequest(error instanceof Error ? error.message : "Unable to update settings");
   }

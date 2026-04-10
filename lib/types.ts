@@ -97,7 +97,7 @@ export type ProviderProfileSummary = Omit<
 };
 
 export type AppSettings = {
-  defaultProviderProfileId: string;
+  defaultProviderProfileId: string | null;
   skillsEnabled: boolean;
   conversationRetention: ConversationRetention;
   autoCompaction: boolean;
