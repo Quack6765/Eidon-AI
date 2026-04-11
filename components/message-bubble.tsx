@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, LoaderCircle, Pencil, Square, X } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, GitFork, LoaderCircle, Pencil, Square, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
@@ -251,7 +251,8 @@ export function MessageBubble({
   thinkingDuration,
   hasThinking = false,
   onUpdateUserMessage,
-  isUpdating = false
+  isUpdating = false,
+  onForkAssistantMessage
 }: {
   message: Message;
   streamingTimeline?: MessageTimelineItem[];
@@ -264,6 +265,7 @@ export function MessageBubble({
   hasThinking?: boolean;
   onUpdateUserMessage?: (messageId: string, content: string) => Promise<void>;
   isUpdating?: boolean;
+  onForkAssistantMessage?: (messageId: string) => void;
 }) {
   const rawContent = streamingAnswer ?? message.content;
   const rawThinking = streamingThinking ?? message.thinkingContent;
@@ -371,7 +373,7 @@ export function MessageBubble({
   const copyResetHandle = useRef<number | null>(null);
   const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || hasThinking || Boolean(thinkingContent));
   const showUserBubbleActions = Boolean(content) && !awaitingFirstToken;
-  const showAssistantBubbleActions = Boolean(assistantText) && !awaitingFirstToken;
+  const showAssistantBubbleActions = Boolean(assistantText) && !awaitingFirstToken && message.status === "completed";
 
   useEffect(() => {
     setDraft(message.content);
@@ -646,6 +648,14 @@ export function MessageBubble({
                         <Copy className="h-3.5 w-3.5" />
                       )}
                     </ActionButton>
+                    {onForkAssistantMessage ? (
+                      <ActionButton
+                        label="Fork conversation from message"
+                        onClick={() => onForkAssistantMessage(message.id)}
+                      >
+                        <GitFork className="h-3.5 w-3.5" />
+                      </ActionButton>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
@@ -666,7 +676,8 @@ export function StreamingPlaceholder({
   compactionInProgress = false,
   thinkingInProgress,
   thinkingDuration,
-  hasThinking = false
+  hasThinking = false,
+  onForkAssistantMessage
 }: {
   createdAt: string;
   thinking: string;
@@ -677,6 +688,7 @@ export function StreamingPlaceholder({
   thinkingInProgress: boolean;
   thinkingDuration?: number;
   hasThinking?: boolean;
+  onForkAssistantMessage?: (messageId: string) => void;
 }) {
   return (
     <MessageBubble
@@ -700,6 +712,7 @@ export function StreamingPlaceholder({
       thinkingInProgress={thinkingInProgress}
       thinkingDuration={thinkingDuration}
       hasThinking={hasThinking}
+      onForkAssistantMessage={onForkAssistantMessage}
     />
   );
 }
