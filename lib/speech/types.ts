@@ -1,4 +1,6 @@
-import type { SttEngine, SttLanguage } from "@/lib/types";
+export type SttEngine = "browser" | "embedded";
+
+export type SttLanguage = "en" | "fr" | "es";
 
 export type SpeechPhase =
   | "idle"

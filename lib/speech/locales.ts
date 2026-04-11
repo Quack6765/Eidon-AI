@@ -1,4 +1,4 @@
-import type { SttLanguage } from "@/lib/types";
+import type { SttLanguage } from "@/lib/speech/types";
 
 const LOCALE_BY_LANGUAGE: Record<SttLanguage, string> = {
   en: "en-US",
