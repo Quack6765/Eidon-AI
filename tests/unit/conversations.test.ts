@@ -38,6 +38,10 @@ const { generateConversationTitle } = vi.hoisted(() => ({
   generateConversationTitle: vi.fn()
 }));
 
+const { requireUserMock } = vi.hoisted(() => ({
+  requireUserMock: vi.fn()
+}));
+
 vi.mock("@/lib/conversation-title-generator", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/conversation-title-generator")>();
 
@@ -46,6 +50,10 @@ vi.mock("@/lib/conversation-title-generator", async (importOriginal) => {
     generateConversationTitle
   };
 });
+
+vi.mock("@/lib/auth", () => ({
+  requireUser: requireUserMock
+}));
 
 describe("conversation helpers", () => {
   beforeEach(() => {
@@ -995,5 +1003,92 @@ describe("conversation helpers", () => {
     expect(snapshot!.messages[1].textSegments).toHaveLength(1);
     expect(snapshot!.messages[1].textSegments![0].content).toBe("partial answer");
     expect(snapshot!.messages[1].actions).toHaveLength(1);
+  });
+});
+
+describe("message fork routes", () => {
+  beforeEach(() => {
+    requireUserMock.mockReset();
+    requireUserMock.mockResolvedValue({
+      id: "user_fork_route",
+      username: "fork-route-user",
+      role: "user",
+      authSource: "local",
+      passwordManagedBy: "local",
+      createdAt: "2026-04-11T00:00:00.000Z",
+      updatedAt: "2026-04-11T00:00:00.000Z"
+    });
+  });
+
+  it("creates a forked conversation from an assistant message", async () => {
+    const user = await createLocalUser({
+      username: "fork-route-owner",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValueOnce(user);
+
+    const conversation = createConversation("Forkable thread", null, undefined, user.id);
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Start here"
+    });
+    const assistantMessage = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Selected answer"
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Later follow-up"
+    });
+
+    const { POST } = await import("@/app/api/messages/[messageId]/fork/route");
+    const response = await POST(
+      new Request(`http://localhost/api/messages/${assistantMessage.id}/fork`, {
+        method: "POST"
+      }),
+      { params: Promise.resolve({ messageId: assistantMessage.id }) }
+    );
+
+    expect(response.status).toBe(201);
+
+    const body = (await response.json()) as { conversation: { id: string } };
+    expect(body.conversation.id).toBeTruthy();
+    expect(listVisibleMessages(body.conversation.id).map((message) => message.content)).toEqual([
+      "Start here",
+      "Selected answer"
+    ]);
+  });
+
+  it("rejects forks for user messages", async () => {
+    const user = await createLocalUser({
+      username: "fork-route-rejector",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValueOnce(user);
+
+    const conversation = createConversation("Forkable thread", null, undefined, user.id);
+    const userMessage = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Do not fork me"
+    });
+
+    const { POST } = await import("@/app/api/messages/[messageId]/fork/route");
+    const response = await POST(
+      new Request(`http://localhost/api/messages/${userMessage.id}/fork`, {
+        method: "POST"
+      }),
+      { params: Promise.resolve({ messageId: userMessage.id }) }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Only assistant messages can be forked"
+    });
   });
 });
