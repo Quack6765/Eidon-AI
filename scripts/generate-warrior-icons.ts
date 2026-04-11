@@ -9,6 +9,8 @@ async function main() {
     sourcePath: path.join(projectRoot, "public/eidon-banner.png"),
     outputDir: path.join(projectRoot, "public")
   });
+
+  console.log("Generated warrior icon assets in public/");
 }
 
 main().catch((error) => {

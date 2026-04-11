@@ -16,26 +16,18 @@ const ASSET_SPECS = [
   { filename: "apple-touch-icon.png", size: 180 }
 ] as const;
 
+const WARRIOR_ICON_CROP = {
+  left: 332,
+  top: 8,
+  width: 360,
+  height: 360
+} as const;
+
 export async function generateWarriorIconAssets(input: WarriorIconAssetInput) {
-  const metadata = await sharp(input.sourcePath).metadata();
-
-  if (!metadata.width || !metadata.height) {
-    throw new Error(`Unable to read image dimensions from ${input.sourcePath}`);
-  }
-
-  const cropSize = Math.min(metadata.width, metadata.height);
-  const left = Math.floor((metadata.width - cropSize) / 2);
-  const top = Math.floor((metadata.height - cropSize) / 2);
-
   await fs.mkdir(input.outputDir, { recursive: true });
 
   const cropBuffer = await sharp(input.sourcePath)
-    .extract({
-      left,
-      top,
-      width: cropSize,
-      height: cropSize
-    })
+    .extract(WARRIOR_ICON_CROP)
     .png()
     .toBuffer();
 
