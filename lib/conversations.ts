@@ -1243,11 +1243,7 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
         const referencesMissingChild = childNodeIds.some((childNodeId) => {
           return !cloneableMemoryNodeIds.has(childNodeId);
         });
-        const referencesMissingSupersededNode =
-          node.superseded_by_node_id !== null &&
-          !cloneableMemoryNodeIds.has(node.superseded_by_node_id);
-
-        if (referencesMissingChild || referencesMissingSupersededNode) {
+        if (referencesMissingChild) {
           cloneableMemoryNodeIds.delete(node.id);
           hasChanges = true;
         }
@@ -1280,9 +1276,10 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
         return;
       }
 
-      const clonedSupersededByNodeId = node.superseded_by_node_id
-        ? clonedNodeIdBySourceId.get(node.superseded_by_node_id) ?? null
-        : null;
+      const clonedSupersededByNodeId =
+        node.superseded_by_node_id && cloneableMemoryNodeIds.has(node.superseded_by_node_id)
+          ? clonedNodeIdBySourceId.get(node.superseded_by_node_id) ?? null
+          : null;
 
       db.prepare(
         `INSERT INTO memory_nodes (

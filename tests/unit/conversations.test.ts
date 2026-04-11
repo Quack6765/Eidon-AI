@@ -698,6 +698,35 @@ describe("conversation helpers", () => {
         child_node_ids,
         superseded_by_node_id,
         created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "mem_retained_with_tail_superseder",
+      sourceConversation.id,
+      "leaf_summary",
+      0,
+      "Retained memory with tail superseder",
+      userMessage.id,
+      assistantMessage.id,
+      18,
+      9,
+      JSON.stringify([]),
+      "mem_external_superseder",
+      "2026-04-11T10:00:45.000Z"
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id,
+        conversation_id,
+        type,
+        depth,
+        content,
+        source_start_message_id,
+        source_end_message_id,
+        source_token_count,
+        summary_token_count,
+        child_node_ids,
+        superseded_by_node_id,
+        created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
     ).run(
       "mem_external_child",
@@ -711,6 +740,34 @@ describe("conversation helpers", () => {
       3,
       JSON.stringify([]),
       "2026-04-11T10:00:50.000Z"
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id,
+        conversation_id,
+        type,
+        depth,
+        content,
+        source_start_message_id,
+        source_end_message_id,
+        source_token_count,
+        summary_token_count,
+        child_node_ids,
+        superseded_by_node_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+    ).run(
+      "mem_external_superseder",
+      sourceConversation.id,
+      "leaf_summary",
+      0,
+      "External superseder",
+      laterAssistantMessage.id,
+      laterAssistantMessage.id,
+      6,
+      3,
+      JSON.stringify([]),
+      "2026-04-11T10:00:55.000Z"
     );
     db.prepare(
       `INSERT INTO memory_nodes (
@@ -852,7 +909,7 @@ describe("conversation helpers", () => {
       notice_message_id: string | null;
     }>;
 
-    expect(forkMemoryNodes).toHaveLength(3);
+    expect(forkMemoryNodes).toHaveLength(4);
     expect(forkMemoryNodes[0]).toEqual(expect.objectContaining({
       content: "Prefix memory",
       source_start_message_id: forkUserMessage?.id,
@@ -866,6 +923,15 @@ describe("conversation helpers", () => {
     }));
     expect(forkMemoryNodes[0].superseded_by_node_id).toBe(forkMemoryNodes[1].id);
     expect(forkMemoryNodes.find((node) => node.content === "Notice memory")).toBeDefined();
+    expect(
+      forkMemoryNodes.find((node) => node.content === "Retained memory with tail superseder")
+    ).toEqual(
+      expect.objectContaining({
+        source_start_message_id: forkUserMessage?.id,
+        source_end_message_id: forkAssistantMessage?.id,
+        superseded_by_node_id: null
+      })
+    );
     expect(forkMemoryNodes.find((node) => node.content === "Partial child memory")).toBeUndefined();
     expect(forkCompactionEvents).toHaveLength(1);
     expect(forkCompactionEvents[0]).toEqual(expect.objectContaining({
