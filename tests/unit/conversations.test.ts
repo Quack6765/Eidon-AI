@@ -494,6 +494,18 @@ describe("conversation helpers", () => {
       content: "First reply",
       thinkingContent: "Reasoning kept"
     });
+    const sourceMessageTimes = {
+      user: "2026-04-11T10:00:00.000Z",
+      assistant: "2026-04-11T10:00:30.000Z",
+      laterAssistant: "2026-04-11T10:01:30.000Z"
+    };
+    const sourceActionTimes = {
+      startedAt: "2026-04-11T10:00:45.000Z",
+      completedAt: "2026-04-11T10:01:00.000Z"
+    };
+    const sourceTextSegmentTime = "2026-04-11T10:00:40.000Z";
+    const db = getDb();
+
     createMessageAction({
       messageId: assistantMessage.id,
       kind: "mcp_tool_call",
@@ -511,6 +523,21 @@ describe("conversation helpers", () => {
       content: "Partial answer",
       sortOrder: 0
     });
+    db.prepare("UPDATE messages SET created_at = ? WHERE id = ?").run(sourceMessageTimes.user, userMessage.id);
+    db.prepare("UPDATE messages SET created_at = ? WHERE id = ?").run(
+      sourceMessageTimes.assistant,
+      assistantMessage.id
+    );
+    db.prepare("UPDATE message_actions SET started_at = ?, completed_at = ?, status = ? WHERE message_id = ?").run(
+      sourceActionTimes.startedAt,
+      sourceActionTimes.completedAt,
+      "completed",
+      assistantMessage.id
+    );
+    db.prepare("UPDATE message_text_segments SET created_at = ? WHERE message_id = ?").run(
+      sourceTextSegmentTime,
+      assistantMessage.id
+    );
     const [attachment] = createAttachments(sourceConversation.id, [
       {
         filename: "notes.txt",
@@ -524,8 +551,15 @@ describe("conversation helpers", () => {
       role: "assistant",
       content: "Later tail"
     });
+    db.prepare("UPDATE messages SET created_at = ? WHERE id = ?").run(
+      sourceMessageTimes.laterAssistant,
+      laterAssistantMessage.id
+    );
 
-    const db = getDb();
+    const sourceAssistantMessage = getMessage(assistantMessage.id);
+    const sourceAssistantAction = sourceAssistantMessage?.actions[0];
+    const sourceAssistantTextSegment = sourceAssistantMessage?.textSegments[0];
+
     db.prepare(
       `INSERT INTO memory_nodes (
         id,
@@ -552,7 +586,7 @@ describe("conversation helpers", () => {
       20,
       10,
       JSON.stringify([]),
-      "2026-04-11T10:00:00.000Z"
+      "2026-04-11T10:00:10.000Z"
     );
     db.prepare(
       `INSERT INTO memory_nodes (
@@ -580,11 +614,95 @@ describe("conversation helpers", () => {
       10,
       5,
       JSON.stringify([]),
-      "2026-04-11T10:00:30.000Z"
+      "2026-04-11T10:00:20.000Z"
     );
     db.prepare("UPDATE memory_nodes SET superseded_by_node_id = ? WHERE id = ?").run(
       "mem_superseding",
       "mem_prefix"
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id,
+        conversation_id,
+        type,
+        depth,
+        content,
+        source_start_message_id,
+        source_end_message_id,
+        source_token_count,
+        summary_token_count,
+        child_node_ids,
+        superseded_by_node_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+    ).run(
+      "mem_noticeful",
+      sourceConversation.id,
+      "leaf_summary",
+      0,
+      "Notice memory",
+      userMessage.id,
+      assistantMessage.id,
+      30,
+      15,
+      JSON.stringify([]),
+      "2026-04-11T10:00:30.000Z"
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id,
+        conversation_id,
+        type,
+        depth,
+        content,
+        source_start_message_id,
+        source_end_message_id,
+        source_token_count,
+        summary_token_count,
+        child_node_ids,
+        superseded_by_node_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+    ).run(
+      "mem_partial_child",
+      sourceConversation.id,
+      "leaf_summary",
+      0,
+      "Partial child memory",
+      userMessage.id,
+      assistantMessage.id,
+      15,
+      8,
+      JSON.stringify(["mem_external_child"]),
+      "2026-04-11T10:00:40.000Z"
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id,
+        conversation_id,
+        type,
+        depth,
+        content,
+        source_start_message_id,
+        source_end_message_id,
+        source_token_count,
+        summary_token_count,
+        child_node_ids,
+        superseded_by_node_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+    ).run(
+      "mem_external_child",
+      sourceConversation.id,
+      "leaf_summary",
+      0,
+      "External child memory",
+      laterAssistantMessage.id,
+      laterAssistantMessage.id,
+      5,
+      3,
+      JSON.stringify([]),
+      "2026-04-11T10:00:50.000Z"
     );
     db.prepare(
       `INSERT INTO memory_nodes (
@@ -633,6 +751,25 @@ describe("conversation helpers", () => {
       null,
       "2026-04-11T10:02:00.000Z"
     );
+    db.prepare(
+      `INSERT INTO compaction_events (
+        id,
+        conversation_id,
+        node_id,
+        source_start_message_id,
+        source_end_message_id,
+        notice_message_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "cmp_notice",
+      sourceConversation.id,
+      "mem_noticeful",
+      userMessage.id,
+      assistantMessage.id,
+      laterAssistantMessage.id,
+      "2026-04-11T10:02:30.000Z"
+    );
 
     const forkConversation = forkConversationFromMessage(assistantMessage.id, user.id);
 
@@ -650,6 +787,8 @@ describe("conversation helpers", () => {
 
     expect(forkMessages.map((message) => message.role)).toEqual(["user", "assistant"]);
     expect(forkMessages.map((message) => message.content)).toEqual(["First prompt", "First reply"]);
+    expect(forkUserMessage?.createdAt).toBe(sourceMessageTimes.user);
+    expect(forkAssistantMessage?.createdAt).toBe(sourceMessageTimes.assistant);
     expect(forkAssistantMessage?.thinkingContent).toBe("Reasoning kept");
     expect(forkAction).toEqual(expect.objectContaining({
       messageId: forkAssistantMessage?.id,
@@ -657,10 +796,13 @@ describe("conversation helpers", () => {
       toolName: "search_docs",
       resultSummary: "Found docs"
     }));
+    expect(forkAction?.startedAt).toBe(sourceAssistantAction?.startedAt);
+    expect(forkAction?.completedAt).toBe(sourceAssistantAction?.completedAt);
     expect(forkTextSegment).toEqual(expect.objectContaining({
       messageId: forkAssistantMessage?.id,
       content: "Partial answer"
     }));
+    expect(forkTextSegment?.createdAt).toBe(sourceAssistantTextSegment?.createdAt);
     expect(forkAttachment).toEqual(expect.objectContaining({
       conversationId: forkConversation.id,
       messageId: forkAssistantMessage?.id,
@@ -670,10 +812,11 @@ describe("conversation helpers", () => {
     expect(forkUserMessage?.id).not.toBe(userMessage.id);
     expect(forkAssistantMessage?.id).not.toBe(assistantMessage.id);
     expect(forkAttachment?.id).not.toBe(attachment.id);
+    expect(forkAttachment?.relativePath).not.toBe(attachment.relativePath);
 
     const forkMemoryNodes = db
       .prepare(
-        `SELECT id, content, source_start_message_id, source_end_message_id, superseded_by_node_id
+        `SELECT id, content, source_start_message_id, source_end_message_id, superseded_by_node_id, child_node_ids
          FROM memory_nodes
          WHERE conversation_id = ?
          ORDER BY created_at ASC`
@@ -684,10 +827,11 @@ describe("conversation helpers", () => {
       source_start_message_id: string;
       source_end_message_id: string;
       superseded_by_node_id: string | null;
+      child_node_ids: string;
     }>;
     const forkCompactionEvents = db
       .prepare(
-        `SELECT id, node_id, source_start_message_id, source_end_message_id
+        `SELECT id, node_id, source_start_message_id, source_end_message_id, notice_message_id
          FROM compaction_events
          WHERE conversation_id = ?
          ORDER BY created_at ASC`
@@ -697,9 +841,10 @@ describe("conversation helpers", () => {
       node_id: string;
       source_start_message_id: string;
       source_end_message_id: string;
+      notice_message_id: string | null;
     }>;
 
-    expect(forkMemoryNodes).toHaveLength(2);
+    expect(forkMemoryNodes).toHaveLength(3);
     expect(forkMemoryNodes[0]).toEqual(expect.objectContaining({
       content: "Prefix memory",
       source_start_message_id: forkUserMessage?.id,
@@ -712,12 +857,15 @@ describe("conversation helpers", () => {
       superseded_by_node_id: null
     }));
     expect(forkMemoryNodes[0].superseded_by_node_id).toBe(forkMemoryNodes[1].id);
+    expect(forkMemoryNodes.find((node) => node.content === "Notice memory")).toBeDefined();
+    expect(forkMemoryNodes.find((node) => node.content === "Partial child memory")).toBeUndefined();
     expect(forkCompactionEvents).toHaveLength(1);
     expect(forkCompactionEvents[0]).toEqual(expect.objectContaining({
       source_start_message_id: forkUserMessage?.id,
       source_end_message_id: forkAssistantMessage?.id
     }));
     expect(forkMemoryNodes[0].id).toBe(forkCompactionEvents[0].node_id);
+    expect(forkCompactionEvents[0].notice_message_id).toBeNull();
 
     expect(
       db
@@ -729,6 +877,18 @@ describe("conversation helpers", () => {
         .prepare("SELECT id FROM compaction_events WHERE conversation_id = ? AND id = ?")
         .get(forkConversation.id, "cmp_prefix")
     ).toBeUndefined();
+
+    deleteConversation(sourceConversation.id);
+    expect(
+      fs.existsSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath))
+    ).toBe(false);
+    expect(
+      fs.existsSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", forkAttachment?.relativePath ?? ""))
+    ).toBe(true);
+  });
+
+  it("rejects forking a missing message", () => {
+    expect(() => forkConversationFromMessage("msg_missing")).toThrow("Message not found");
   });
 
   it("rejects forking a non-assistant message", async () => {

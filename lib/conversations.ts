@@ -992,37 +992,7 @@ function cloneAttachmentFile(input: {
 }
 
 export function forkConversationFromMessage(messageId: string, userId?: string) {
-  const sourceMessage = getMessage(messageId, userId);
-
-  if (!sourceMessage) {
-    throw new Error("Message not found");
-  }
-
-  if (sourceMessage.role !== "assistant") {
-    throw new Error("Only assistant messages can be forked");
-  }
-
-  const sourceConversation = getConversation(sourceMessage.conversationId, userId);
-
-  if (!sourceConversation) {
-    throw new Error("Conversation not found");
-  }
-
-  const sourceConversationOwnerId = getConversationOwnerId(sourceConversation.id);
-  const sourceMessages = listMessages(sourceConversation.id);
-  const selectedIndex = sourceMessages.findIndex((message) => message.id === messageId);
-
-  if (selectedIndex < 0) {
-    throw new Error("Message not found");
-  }
-
-  const retainedMessages = sourceMessages.slice(0, selectedIndex + 1);
-  const retainedMessageIds = new Set(retainedMessages.map((message) => message.id));
-
   const db = getDb();
-  let forkConversation: Conversation | null = null;
-  const clonedMessageIdBySourceId = new Map<string, string>();
-  const clonedNodeIdBySourceId = new Map<string, string>();
   const copiedAttachmentPaths: string[] = [];
 
   const cleanupCopiedAttachments = () => {
@@ -1035,7 +1005,37 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
   };
 
   const transaction = db.transaction(() => {
-    forkConversation = createConversation(
+    const sourceMessage = getMessage(messageId, userId);
+
+    if (!sourceMessage) {
+      throw new Error("Message not found");
+    }
+
+    if (sourceMessage.role !== "assistant") {
+      throw new Error("Only assistant messages can be forked");
+    }
+
+    const sourceConversation = getConversation(sourceMessage.conversationId, userId);
+
+    if (!sourceConversation) {
+      throw new Error("Conversation not found");
+    }
+
+    const sourceConversationOwnerRow = db
+      .prepare("SELECT user_id FROM conversations WHERE id = ?")
+      .get(sourceConversation.id) as { user_id: string | null } | undefined;
+    const sourceConversationOwnerId = sourceConversationOwnerRow?.user_id ?? null;
+    const sourceMessages = listMessages(sourceConversation.id);
+    const selectedIndex = sourceMessages.findIndex((message) => message.id === messageId);
+
+    if (selectedIndex < 0) {
+      throw new Error("Message not found");
+    }
+
+    const retainedMessages = sourceMessages.slice(0, selectedIndex + 1);
+    const retainedMessageIds = new Set(retainedMessages.map((message) => message.id));
+
+    const forkConversation = createConversation(
       undefined,
       sourceConversation.folderId,
       {
@@ -1044,26 +1044,43 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       sourceConversationOwnerId ?? userId
     );
 
-    if (!forkConversation) {
-      throw new Error("Conversation not created");
+    if (sourceConversation.providerProfileId === null) {
+      db.prepare("UPDATE conversations SET provider_profile_id = NULL WHERE id = ?").run(
+        forkConversation.id
+      );
     }
 
-    if (sourceConversation.providerProfileId === null) {
-      db.prepare("UPDATE conversations SET provider_profile_id = NULL WHERE id = ?").run(forkConversation.id);
-    }
+    const clonedMessageIdBySourceId = new Map<string, string>();
 
     retainedMessages.forEach((message) => {
-      const clonedMessage = createMessage({
-        conversationId: forkConversation.id,
-        role: message.role,
-        content: message.content,
-        thinkingContent: message.thinkingContent,
-        status: message.status,
-        systemKind: message.systemKind,
-        estimatedTokens: message.estimatedTokens
-      });
+      const clonedMessageId = createId("msg");
+      clonedMessageIdBySourceId.set(message.id, clonedMessageId);
 
-      clonedMessageIdBySourceId.set(message.id, clonedMessage.id);
+      db.prepare(
+        `INSERT INTO messages (
+          id,
+          conversation_id,
+          role,
+          content,
+          thinking_content,
+          status,
+          estimated_tokens,
+          system_kind,
+          compacted_at,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        clonedMessageId,
+        forkConversation.id,
+        message.role,
+        message.content,
+        message.thinkingContent,
+        message.status,
+        message.estimatedTokens,
+        message.systemKind,
+        message.compactedAt,
+        message.createdAt
+      );
     });
 
     retainedMessages.forEach((message) => {
@@ -1074,27 +1091,51 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       }
 
       message.actions.forEach((action) => {
-        createMessageAction({
-          messageId: clonedMessageId,
-          kind: action.kind,
-          status: action.status,
-          serverId: action.serverId,
-          skillId: action.skillId,
-          toolName: action.toolName,
-          label: action.label,
-          detail: action.detail,
-          arguments: action.arguments,
-          resultSummary: action.resultSummary,
-          sortOrder: action.sortOrder
-        });
+        db.prepare(
+          `INSERT INTO message_actions (
+            id,
+            message_id,
+            kind,
+            status,
+            server_id,
+            skill_id,
+            tool_name,
+            label,
+            detail,
+            arguments_json,
+            result_summary,
+            sort_order,
+            started_at,
+            completed_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          createId("act"),
+          clonedMessageId,
+          action.kind,
+          action.status,
+          action.serverId,
+          action.skillId,
+          action.toolName,
+          action.label,
+          action.detail,
+          action.arguments ? JSON.stringify(action.arguments) : null,
+          action.resultSummary,
+          action.sortOrder,
+          action.startedAt,
+          action.completedAt
+        );
       });
 
       message.textSegments.forEach((segment) => {
-        createMessageTextSegment({
-          messageId: clonedMessageId,
-          content: segment.content,
-          sortOrder: segment.sortOrder
-        });
+        db.prepare(
+          `INSERT INTO message_text_segments (
+            id,
+            message_id,
+            content,
+            sort_order,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?)`
+        ).run(createId("seg"), clonedMessageId, segment.content, segment.sortOrder, segment.createdAt);
       });
     });
 
@@ -1146,14 +1187,6 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
           attachment.createdAt
         );
       });
-
-      const refreshedMessage = getMessage(clonedMessageId);
-      if (refreshedMessage) {
-        db.prepare("UPDATE messages SET estimated_tokens = ? WHERE id = ?").run(
-          estimateMessageTokens(refreshedMessage),
-          clonedMessageId
-        );
-      }
     });
 
     const sourceMemoryNodes = db
@@ -1188,23 +1221,49 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       created_at: string;
     }>;
 
-    const retainedMemoryNodes = sourceMemoryNodes
-      .filter((node) => {
-        return (
-          retainedMessageIds.has(node.source_start_message_id) &&
-          retainedMessageIds.has(node.source_end_message_id)
-        );
-      })
-      .map((node) => ({
-        ...node,
-        clonedNodeId: createId("mem")
-      }));
-
-    retainedMemoryNodes.forEach((node) => {
-      clonedNodeIdBySourceId.set(node.id, node.clonedNodeId);
+    const retainedMemoryNodes = sourceMemoryNodes.filter((node) => {
+      return (
+        retainedMessageIds.has(node.source_start_message_id) &&
+        retainedMessageIds.has(node.source_end_message_id)
+      );
     });
 
-    retainedMemoryNodes.forEach((node) => {
+    const cloneableMemoryNodeIds = new Set(retainedMemoryNodes.map((node) => node.id));
+    let hasChanges = true;
+
+    while (hasChanges) {
+      hasChanges = false;
+
+      for (const node of retainedMemoryNodes) {
+        if (!cloneableMemoryNodeIds.has(node.id)) {
+          continue;
+        }
+
+        const childNodeIds = JSON.parse(node.child_node_ids) as string[];
+        const referencesMissingChild = childNodeIds.some((childNodeId) => {
+          return !cloneableMemoryNodeIds.has(childNodeId);
+        });
+        const referencesMissingSupersededNode =
+          node.superseded_by_node_id !== null &&
+          !cloneableMemoryNodeIds.has(node.superseded_by_node_id);
+
+        if (referencesMissingChild || referencesMissingSupersededNode) {
+          cloneableMemoryNodeIds.delete(node.id);
+          hasChanges = true;
+        }
+      }
+    }
+
+    const cloneableRetainedMemoryNodes = retainedMemoryNodes.filter((node) =>
+      cloneableMemoryNodeIds.has(node.id)
+    );
+    const clonedNodeIdBySourceId = new Map<string, string>();
+
+    cloneableRetainedMemoryNodes.forEach((node) => {
+      clonedNodeIdBySourceId.set(node.id, createId("mem"));
+    });
+
+    cloneableRetainedMemoryNodes.forEach((node) => {
       const clonedStartMessageId = clonedMessageIdBySourceId.get(node.source_start_message_id);
       const clonedEndMessageId = clonedMessageIdBySourceId.get(node.source_end_message_id);
 
@@ -1212,9 +1271,15 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
         return;
       }
 
-      const childNodeIds = (JSON.parse(node.child_node_ids) as string[])
+      const childNodeIds = JSON.parse(node.child_node_ids) as string[];
+      const clonedChildNodeIds = childNodeIds
         .map((childNodeId) => clonedNodeIdBySourceId.get(childNodeId))
         .filter((childNodeId): childNodeId is string => Boolean(childNodeId));
+
+      if (clonedChildNodeIds.length !== childNodeIds.length) {
+        return;
+      }
+
       const clonedSupersededByNodeId = node.superseded_by_node_id
         ? clonedNodeIdBySourceId.get(node.superseded_by_node_id) ?? null
         : null;
@@ -1235,7 +1300,7 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
           created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
-        node.clonedNodeId,
+        clonedNodeIdBySourceId.get(node.id),
         forkConversation.id,
         node.type,
         node.depth,
@@ -1244,7 +1309,7 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
         clonedEndMessageId,
         node.source_token_count,
         node.summary_token_count,
-        JSON.stringify(childNodeIds),
+        JSON.stringify(clonedChildNodeIds),
         clonedSupersededByNodeId,
         node.created_at
       );
@@ -1276,11 +1341,20 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       const clonedNodeId = clonedNodeIdBySourceId.get(event.node_id);
       const clonedStartMessageId = clonedMessageIdBySourceId.get(event.source_start_message_id);
       const clonedEndMessageId = clonedMessageIdBySourceId.get(event.source_end_message_id);
+
+      if (!clonedNodeId || !clonedStartMessageId || !clonedEndMessageId) {
+        return;
+      }
+
+      if (event.notice_message_id && !retainedMessageIds.has(event.notice_message_id)) {
+        return;
+      }
+
       const clonedNoticeMessageId = event.notice_message_id
         ? clonedMessageIdBySourceId.get(event.notice_message_id) ?? null
         : null;
 
-      if (!clonedNodeId || !clonedStartMessageId || !clonedEndMessageId) {
+      if (event.notice_message_id && !clonedNoticeMessageId) {
         return;
       }
 
@@ -1304,20 +1378,23 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
         event.created_at
       );
     });
+
+    return forkConversation.id;
   });
 
   try {
-    transaction();
+    const forkConversationId = transaction();
+    const forkConversation = getConversation(forkConversationId);
+
+    if (!forkConversation) {
+      throw new Error("Conversation not created");
+    }
+
+    return forkConversation;
   } catch (error) {
     cleanupCopiedAttachments();
     throw error;
   }
-
-  if (!forkConversation) {
-    throw new Error("Conversation not created");
-  }
-
-  return getConversation(forkConversation.id) ?? forkConversation;
 }
 
 export function createMessageAction(input: {
