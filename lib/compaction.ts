@@ -13,7 +13,17 @@ import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { getPersona } from "@/lib/personas";
 import { callProviderText } from "@/lib/provider";
-import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens, estimatePromptContentTokens } from "@/lib/tokenization";
+import {
+  buildCompactionSummaryPromptBody,
+  extractOpenTasks,
+  selectCompactionMemoryNodes
+} from "@/lib/compaction-summary";
+import {
+  groupCompletedTurns,
+  isEmptyStreamingAssistantPlaceholder,
+  renderCompletedTurns
+} from "@/lib/compaction-turns";
+import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
   EnsureCompactedContextResult,
   MemoryNode,
@@ -28,25 +38,6 @@ type CompactionLifecycleHooks = {
   onCompactionStart?: () => void;
   onCompactionEnd?: () => void;
 };
-
-function dropOldestMemoryNode(conversationId: string): boolean {
-  const db = getDb();
-  const node = db.prepare(
-    `SELECT id FROM memory_nodes
-     WHERE conversation_id = ? AND superseded_by_node_id IS NULL
-     ORDER BY depth DESC, created_at ASC
-     LIMIT 1`
-  ).get(conversationId) as { id: string } | undefined;
-
-  if (!node) return false;
-
-  db.prepare(
-    `UPDATE memory_nodes SET superseded_by_node_id = '_dropped'
-     WHERE id = ?`
-  ).run(node.id);
-
-  return true;
-}
 
 function getActiveMemoryNodes(conversationId: string): MemoryNode[] {
   const rows = getDb()
@@ -66,7 +57,7 @@ function getActiveMemoryNodes(conversationId: string): MemoryNode[] {
         created_at
        FROM memory_nodes
        WHERE conversation_id = ? AND superseded_by_node_id IS NULL
-       ORDER BY created_at ASC`
+       ORDER BY created_at ASC, rowid ASC`
     )
     .all(conversationId) as Array<{
     id: string;
@@ -97,6 +88,77 @@ function getActiveMemoryNodes(conversationId: string): MemoryNode[] {
     supersededByNodeId: row.superseded_by_node_id,
     createdAt: row.created_at
   }));
+}
+
+function getVisibleConversationMessages(messages: Message[]) {
+  return messages.filter((message) => !message.compactedAt);
+}
+
+function getCompletedTurns(messages: Message[]) {
+  return groupCompletedTurns(getVisibleConversationMessages(messages));
+}
+
+function getLatestVisibleUserMessage(messages: Message[]) {
+  return [...messages]
+    .reverse()
+    .find((message) => message.role === "user" && !message.compactedAt) ?? null;
+}
+
+function getFreshConversationMessages(messages: Message[], freshCompletedTurnCount: number) {
+  const visibleMessages = getVisibleConversationMessages(messages);
+  const completedTurns = getCompletedTurns(messages);
+  const selectedTurns = completedTurns.slice(
+    Math.max(0, completedTurns.length - freshCompletedTurnCount)
+  );
+  const freshMessages = selectedTurns.flatMap((turn) => [turn.user, turn.assistant]);
+  const latestUserMessage = getLatestVisibleUserMessage(visibleMessages);
+
+  if (latestUserMessage && !freshMessages.some((message) => message.id === latestUserMessage.id)) {
+    freshMessages.push(latestUserMessage);
+  }
+
+  return freshMessages;
+}
+
+function estimateRenderedMemoryNodeTokens(node: MemoryNode): number {
+  return Math.max(0, estimateTextTokens(renderMemoryNode(node.content)));
+}
+
+function getRenderableMemoryNodes(activeNodes: MemoryNode[]): MemoryNode[] {
+  return activeNodes.map((node) => ({
+    ...node,
+    summaryTokenCount: estimateRenderedMemoryNodeTokens(node)
+  }));
+}
+
+function insertCompactionEvent(input: {
+  conversationId: string;
+  nodeId: string;
+  sourceStartMessageId: string;
+  sourceEndMessageId: string;
+  noticeMessageId?: string | null;
+}) {
+  getDb()
+    .prepare(
+      `INSERT INTO compaction_events (
+        id,
+        conversation_id,
+        node_id,
+        source_start_message_id,
+        source_end_message_id,
+        notice_message_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      createId("cmp"),
+      input.conversationId,
+      input.nodeId,
+      input.sourceStartMessageId,
+      input.sourceEndMessageId,
+      input.noticeMessageId ?? null,
+      new Date().toISOString()
+    );
 }
 
 function insertMemoryNode(input: {
@@ -177,48 +239,12 @@ function buildSummaryPrompt(label: string, blocks: string, sourceSpan: {
   endMessageId: string;
   messageCount: number;
 }, existingSummary?: string) {
-  const parts: string[] = [];
-
-  if (existingSummary) {
-    parts.push(
-      "You are updating this existing conversation summary.",
-      "",
-      "EXISTING SUMMARY (for context):",
-      existingSummary,
-      "",
-      "NEW MESSAGES:",
-      blocks,
-      "",
-      "Produce an updated summary that incorporates the new messages into the existing context.",
-      "Write your response as a bullet-point list grouped by these categories:",
-      "- Facts & commitments the assistant needs to remember",
-      "- User preferences and constraints",
-      "- Unresolved questions or open tasks",
-      "- Important technical references or files",
-      "- Chronology of key events",
-      "",
-      "Be specific and concise. Use short sentences. Do not invent details.",
-      `sourceSpan: startMessageId="${sourceSpan.startMessageId}", endMessageId="${sourceSpan.endMessageId}", messageCount=${sourceSpan.messageCount}`
-    );
-  } else {
-    parts.push(
-      `You are compacting ${label} for a chat memory engine.`,
-      "",
-      "Write your response as a bullet-point list grouped by these categories:",
-      "- Facts & commitments the assistant needs to remember",
-      "- User preferences and constraints",
-      "- Unresolved questions or open tasks",
-      "- Important technical references or files",
-      "- Chronology of key events",
-      "",
-      "Be specific and concise. Use short sentences. Do not invent details.",
-      blocks,
-      "",
-      `sourceSpan: startMessageId="${sourceSpan.startMessageId}", endMessageId="${sourceSpan.endMessageId}", messageCount=${sourceSpan.messageCount}`
-    );
-  }
-
-  return parts.join("\n");
+  return buildCompactionSummaryPromptBody({
+    label,
+    blocks,
+    sourceSpan,
+    existingSummary
+  });
 }
 
 async function summarizeBlocks(
@@ -235,37 +261,15 @@ async function summarizeBlocks(
 }
 
 function getCompactionEligibleMessages(messages: Message[], freshTailCount: number) {
-  const rawMessages = messages.filter(
-    (message) => message.role !== "system" && !message.compactedAt
-  );
+  const completedTurns = getCompletedTurns(messages);
 
-  if (rawMessages.length <= freshTailCount) {
+  if (completedTurns.length <= freshTailCount) {
     return [];
   }
 
-  return rawMessages.slice(0, rawMessages.length - freshTailCount);
-}
-
-function renderAttachmentSummary(attachments: MessageAttachment[]) {
-  if (!attachments.length) {
-    return "";
-  }
-
-  return attachments
-    .map((attachment) => {
-      if (attachment.kind === "image") {
-        return `attachment image: ${attachment.filename} (${attachment.mimeType})`;
-      }
-
-      const parts = [`attachment file: ${attachment.filename}`];
-
-      if (attachment.extractedText) {
-        parts.push(attachment.extractedText);
-      }
-
-      return parts.join("\n");
-    })
-    .join("\n\n");
+  return completedTurns
+    .slice(0, completedTurns.length - freshTailCount)
+    .flatMap((turn) => [turn.user, turn.assistant]);
 }
 
 function truncateTextToTokenLimit(text: string, maxTokens: number) {
@@ -401,27 +405,17 @@ async function compactLeafMessages(
     return null;
   }
 
-  const blocks = selected
-    .map((message) => {
-      const attachmentSummary = renderAttachmentSummary(message.attachments ?? []);
+  const completedTurns = groupCompletedTurns(selected);
+  if (!completedTurns.length) {
+    return null;
+  }
 
-      if (message.role === "assistant" && message.thinkingContent) {
-        return [
-          `[${message.role}] ${message.id}`,
-          `thinking: ${message.thinkingContent}`,
-          `answer: ${message.content}`,
-          attachmentSummary
-        ]
-          .filter(Boolean)
-          .join("\n");
-      }
+  const completedTurnMessages = completedTurns.flatMap((turn) => [turn.user, turn.assistant]);
+  if (completedTurnMessages.length < settings.leafMinMessageCount) {
+    return null;
+  }
 
-      return [[`[${message.role}] ${message.id}`, message.content, attachmentSummary]
-        .filter(Boolean)
-        .join("\n")];
-    })
-    .flat()
-    .join("\n\n");
+  const blocks = renderCompletedTurns(selected);
 
   const activeNodes = getActiveMemoryNodes(conversationId);
   const existingSummary = activeNodes.length
@@ -430,10 +424,10 @@ async function compactLeafMessages(
 
   const payload = await summarizeBlocks(
     conversationId,
-    buildSummaryPrompt("raw chat messages", blocks, {
-      startMessageId: selected[0].id,
-      endMessageId: selected[selected.length - 1].id,
-      messageCount: selected.length
+    buildSummaryPrompt("completed chat turns", blocks, {
+      startMessageId: completedTurns[0].user.id,
+      endMessageId: completedTurns[completedTurns.length - 1].assistant.id,
+      messageCount: completedTurnMessages.length
     }, existingSummary),
     settings
   );
@@ -444,14 +438,23 @@ async function compactLeafMessages(
     type: "leaf_summary",
     depth: 0,
     content,
-    sourceStartMessageId: selected[0].id,
-    sourceEndMessageId: selected[selected.length - 1].id,
-    sourceTokenCount,
+    sourceStartMessageId: completedTurns[0].user.id,
+    sourceEndMessageId: completedTurns[completedTurns.length - 1].assistant.id,
+    sourceTokenCount: completedTurnMessages.reduce(
+      (total, message) => total + Math.max(message.estimatedTokens, estimateMessageTokens(message)),
+      0
+    ),
     summaryTokenCount: estimateTextTokens(content),
     childNodeIds: []
   });
 
-  markMessagesCompacted(selected.map((message) => message.id));
+  insertCompactionEvent({
+    conversationId,
+    nodeId: node.id,
+    sourceStartMessageId: completedTurns[0].user.id,
+    sourceEndMessageId: completedTurns[completedTurns.length - 1].assistant.id
+  });
+  markMessagesCompacted(completedTurnMessages.map((message) => message.id));
   bumpConversation(conversationId);
 
   return {
@@ -533,41 +536,6 @@ function renderMemoryNode(content: string): string {
   return content;
 }
 
-async function scoreMemoryNodes(input: {
-  userInput: string;
-  activeNodes: MemoryNode[];
-  settings: ProviderProfileWithApiKey;
-  conversationId: string;
-}): Promise<string[]> {
-  const { userInput, activeNodes, settings, conversationId } = input;
-
-  const nodeBlocks = activeNodes
-    .map((node) => `[node: ${node.id}] ${renderMemoryNode(node.content)}`)
-    .join("\n\n");
-
-  const prompt = [
-    "The user just asked:",
-    `"${userInput}"`,
-    "",
-    "Which of these context summaries are relevant?",
-    'Return only a valid JSON object: {"relevantNodes": ["nodeId1", "nodeId2"]}',
-    "",
-    "Context summaries:",
-    nodeBlocks
-  ].join("\n");
-
-  try {
-    const result = await callProviderText({ settings, prompt, purpose: "compaction", conversationId });
-    const parsed = JSON.parse(result);
-    if (Array.isArray(parsed.relevantNodes)) {
-      return parsed.relevantNodes.filter((id: string): id is string => typeof id === "string" && id.length > 0);
-    }
-    return [];
-  } catch {
-    return [];
-  }
-}
-
 export function buildPromptMessages(input: {
   systemPrompt: string;
   personaContent?: string;
@@ -629,14 +597,13 @@ export function buildPromptMessages(input: {
     if (message.role === "system") return;
 
     if (message.role === "assistant") {
-      const parts = [
-        message.thinkingContent ? `Thinking:\n${message.thinkingContent}` : "",
-        message.content ? `Answer:\n${message.content}` : ""
-      ].filter(Boolean);
+      if (isEmptyStreamingAssistantPlaceholder(message) || !message.content.trim()) {
+        return;
+      }
 
       promptMessages.push({
         role: "assistant",
-        content: parts.join("\n\n")
+        content: message.content
       });
       return;
     }
@@ -696,81 +663,56 @@ export async function ensureCompactedContext(
   };
 
   try {
-    while (true) {
-      const messages = listMessages(conversationId);
-      const activeMemoryNodes = getActiveMemoryNodes(conversationId);
-      const visibleMessages = messages.filter((message) => !message.compactedAt);
-      const promptMessages = buildPromptMessages({
+    const buildPrompt = (messages: Message[], activeMemoryNodes: MemoryNode[]) =>
+      buildPromptMessages({
         systemPrompt: settings.systemPrompt,
         personaContent,
-        messages: visibleMessages,
+        messages,
         activeMemoryNodes,
         maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
         memoriesEnabled,
         memoryUserId: conversationOwnerId ?? undefined
       });
+
+    while (true) {
+      const messages = listMessages(conversationId);
+      const activeMemoryNodes = getActiveMemoryNodes(conversationId);
+      const visibleMessages = getVisibleConversationMessages(messages);
+      const visibleSystemMessages = visibleMessages.filter((message) => message.role === "system");
+      const freshMessages = getFreshConversationMessages(messages, effectiveFreshTail);
+      const promptHistoryMessages = [...visibleSystemMessages, ...freshMessages];
+      const promptMessages = buildPrompt(promptHistoryMessages, activeMemoryNodes);
       const promptTokens = estimatePromptTokens(promptMessages);
 
       if (promptTokens <= compactionLimit) {
-        const lastUserMessage = visibleMessages.filter(m => m.role === "user").at(-1);
-        let selectedNodes = activeMemoryNodes;
-
-        if (activeMemoryNodes.length > 2) {
-          const scoredNodeIds = await scoreMemoryNodes({
-            userInput: lastUserMessage?.content ?? "",
-            activeNodes: activeMemoryNodes,
-            settings,
-            conversationId
-          });
-
-          if (scoredNodeIds.length > 0 && scoredNodeIds.length < activeMemoryNodes.length) {
-            const scored = activeMemoryNodes.filter(n => scoredNodeIds.includes(n.id));
-            const unscored = activeMemoryNodes.filter(n => !scoredNodeIds.includes(n.id));
-
-            const sortedUnscored = [...unscored].sort((a, b) => {
-              if (b.depth !== a.depth) return b.depth - a.depth;
-              return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-            });
-
-            selectedNodes = [...scored];
-            const scoredTokens = buildPromptMessages({
-              systemPrompt: settings.systemPrompt,
-              personaContent,
-              messages: visibleMessages,
-              activeMemoryNodes: scored,
-              maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
-              memoriesEnabled,
-              memoryUserId: conversationOwnerId ?? undefined
-            }).reduce((t, m) => {
-              if (typeof m.content === "string") return t + estimateTextTokens(m.content) + 12;
-              return t + estimatePromptContentTokens(m.content) + 12;
-            }, 0);
-
-            const remaining = compactionLimit - scoredTokens;
-            for (const node of sortedUnscored) {
-              const nodeTokens = node.summaryTokenCount;
-              if (nodeTokens <= remaining) {
-                selectedNodes.push(node);
-              }
-            }
-          }
-        }
-
-        const finalPromptMessages = buildPromptMessages({
-          systemPrompt: settings.systemPrompt,
-          personaContent,
-          messages: visibleMessages,
-          activeMemoryNodes: selectedNodes,
-          maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
-          memoriesEnabled,
-          memoryUserId: conversationOwnerId ?? undefined
-        });
-
         return {
-          promptMessages: finalPromptMessages,
-          promptTokens: estimatePromptTokens(finalPromptMessages),
+          promptMessages,
+          promptTokens,
           didCompact
         };
+      }
+
+      const latestUserMessage = getLatestVisibleUserMessage(visibleMessages);
+      const renderedMemoryNodes = getRenderableMemoryNodes(activeMemoryNodes);
+      const basePromptMessages = buildPrompt(promptHistoryMessages, []);
+      const remainingBudget = Math.max(compactionLimit - estimatePromptTokens(basePromptMessages), 0);
+      const selectedMemoryNodes = selectCompactionMemoryNodes({
+        activeNodes: renderedMemoryNodes,
+        latestUserMessage: latestUserMessage?.content ?? "",
+        summaryTokenBudget: remainingBudget
+      });
+
+      if (selectedMemoryNodes.length) {
+        const selectedPromptMessages = buildPrompt(promptHistoryMessages, selectedMemoryNodes);
+        const selectedPromptTokens = estimatePromptTokens(selectedPromptMessages);
+
+        if (selectedPromptTokens <= compactionLimit) {
+          return {
+            promptMessages: selectedPromptMessages,
+            promptTokens: selectedPromptTokens,
+            didCompact
+          };
+        }
       }
 
       const eligible = getCompactionEligibleMessages(messages, effectiveFreshTail);
@@ -788,29 +730,44 @@ export async function ensureCompactedContext(
       }
 
       if (effectiveFreshTail > MIN_FRESH_TAIL) {
-        effectiveFreshTail = Math.max(MIN_FRESH_TAIL, effectiveFreshTail - Math.ceil(effectiveFreshTail / 3));
+        effectiveFreshTail = Math.max(
+          MIN_FRESH_TAIL,
+          effectiveFreshTail - Math.ceil(effectiveFreshTail / 3)
+        );
         continue;
       }
 
-      const dropped = dropOldestMemoryNode(conversationId);
+      const openTaskNodes = renderedMemoryNodes.filter((node) => extractOpenTasks(node.content).length > 0);
+      const latestUserOnlyMessages = latestUserMessage ? [latestUserMessage] : [];
+      const latestUserOnlyHistoryMessages = [...visibleSystemMessages, ...latestUserOnlyMessages];
+      const latestUserOnlyPrompt = buildPrompt(latestUserOnlyHistoryMessages, []);
+      const fallbackBudget = Math.max(compactionLimit - estimatePromptTokens(latestUserOnlyPrompt), 0);
+      const fallbackMemoryNodes = selectCompactionMemoryNodes({
+        activeNodes: openTaskNodes,
+        latestUserMessage: latestUserMessage?.content ?? "",
+        summaryTokenBudget: fallbackBudget
+      });
 
-      if (dropped) {
-        continue;
-      }
+      if (latestUserMessage) {
+        const fallbackPromptMessages = buildPrompt(latestUserOnlyHistoryMessages, fallbackMemoryNodes);
+        const fallbackPromptTokens = estimatePromptTokens(fallbackPromptMessages);
 
-      const lastUserMessage = [...messages].reverse().find(m => m.role === "user" && !m.compactedAt);
-      const remainingNodes = getActiveMemoryNodes(conversationId);
+        if (fallbackPromptTokens <= compactionLimit) {
+          return {
+            promptMessages: fallbackPromptMessages,
+            promptTokens: fallbackPromptTokens,
+            didCompact
+          };
+        }
 
-      if (lastUserMessage) {
-        const promptMessages = buildPromptMessages({
-          systemPrompt: settings.systemPrompt,
-          personaContent,
-          messages: [lastUserMessage],
-          activeMemoryNodes: remainingNodes,
-          memoriesEnabled,
-          memoryUserId: conversationOwnerId ?? undefined
-        });
-        return { promptMessages, promptTokens: estimatePromptTokens(promptMessages), didCompact };
+        const latestUserOnlyTokens = estimatePromptTokens(latestUserOnlyPrompt);
+        if (latestUserOnlyTokens <= compactionLimit) {
+          return {
+            promptMessages: latestUserOnlyPrompt,
+            promptTokens: latestUserOnlyTokens,
+            didCompact
+          };
+        }
       }
 
       throw new Error(

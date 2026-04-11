@@ -951,7 +951,7 @@ Run browser commands.`
         onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
       });
 
-      expect(createMemoryFn).toHaveBeenCalledWith("User lives in Montreal", "location");
+      expect(createMemoryFn).toHaveBeenCalledWith("User lives in Montreal", "location", undefined);
       expect(started).toEqual([expect.objectContaining({ kind: "create_memory", label: "Saved memory", detail: "User lives in Montreal" })]);
       expect(completed).toEqual([{ handle: "act_mem", resultSummary: "Saved as location" }]);
       expect(result.answer).toBe("Saved");
@@ -990,7 +990,11 @@ Run browser commands.`
         onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
       });
 
-      expect(updateMemoryRecord).toHaveBeenCalledWith("mem_test", { content: "Updated fact" });
+      expect(updateMemoryRecord).toHaveBeenCalledWith(
+        "mem_test",
+        { content: "Updated fact" },
+        undefined
+      );
       expect(started).toEqual([expect.objectContaining({ kind: "update_memory", detail: "Updated fact" })]);
       expect(completed).toEqual([{ handle: "act_mem", resultSummary: "Was: Old fact" }]);
       expect(result.answer).toBe("Updated");
@@ -1028,7 +1032,7 @@ Run browser commands.`
         onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
       });
 
-      expect(deleteMemoryRecord).toHaveBeenCalledWith("mem_test");
+      expect(deleteMemoryRecord).toHaveBeenCalledWith("mem_test", undefined);
       expect(started).toEqual([expect.objectContaining({ kind: "delete_memory", detail: "Outdated fact" })]);
       expect(completed).toEqual([{ handle: "act_mem", resultSummary: "Deleted" }]);
       expect(result.answer).toBe("Deleted");

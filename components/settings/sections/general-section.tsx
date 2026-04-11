@@ -14,7 +14,6 @@ export function GeneralSection({ settings }: { settings: AppSettings }) {
   const [conversationRetention, setConversationRetention] = useState<ConversationRetention>(
     settings.conversationRetention
   );
-  const [autoCompaction, setAutoCompaction] = useState(settings.autoCompaction);
   const [mcpTimeout, setMcpTimeout] = useState(settings.mcpTimeout);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
@@ -28,7 +27,6 @@ export function GeneralSection({ settings }: { settings: AppSettings }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         conversationRetention,
-        autoCompaction,
         mcpTimeout
       })
     });
@@ -58,23 +56,6 @@ export function GeneralSection({ settings }: { settings: AppSettings }) {
             <option value="30d">30 days</option>
             <option value="7d">7 days</option>
           </select>
-        </SettingRow>
-      </SettingsCard>
-
-      <SettingsCard title="Auto-Compaction">
-        <SettingRow
-          label="Enable auto-compaction"
-          description="Compact long conversations to stay within context limits"
-        >
-          <label className="relative inline-flex h-5 w-9 cursor-pointer items-center">
-            <input
-              type="checkbox"
-              checked={autoCompaction}
-              onChange={(e) => setAutoCompaction(e.target.checked)}
-              className="peer sr-only"
-            />
-            <div className="h-5 w-9 rounded-full bg-white/10 transition-colors peer-checked:bg-[var(--accent)] after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-transform peer-checked:after:translate-x-4" />
-          </label>
         </SettingRow>
       </SettingsCard>
 

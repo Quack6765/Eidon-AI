@@ -3,6 +3,7 @@ import {
   ensureCompactedContext,
   getConversationDebugStats
 } from "@/lib/compaction";
+import { getDb } from "@/lib/db";
 import { createConversation, createMessage, listMessages } from "@/lib/conversations";
 import { getDefaultProviderProfileWithApiKey, updateSettings } from "@/lib/settings";
 import { createMemory, deleteMemory } from "@/lib/memories";
@@ -240,9 +241,585 @@ describe("lossless compaction", () => {
     );
   });
 
+  it("omits assistant reasoning and empty streaming placeholders from prompt messages", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Stay concise.",
+      activeMemoryNodes: [],
+      messages: [
+        {
+          id: "msg_user",
+          conversationId: "conv_1",
+          role: "user",
+          content: "What should I do next?",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 1,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "msg_assistant",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "Proceed with the rollout.",
+          thinkingContent: "Internal reasoning that should stay out of prompt context.",
+          status: "completed",
+          estimatedTokens: 8,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "msg_streaming",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "",
+          thinkingContent: "",
+          status: "streaming",
+          estimatedTokens: 0,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        }
+      ]
+    });
+
+    const assistantMessages = prompt.filter((message) => message.role === "assistant");
+
+    expect(assistantMessages).toHaveLength(1);
+    expect(getPromptText(assistantMessages[0]!)).toBe("Proceed with the rollout.");
+    expect(getPromptText(assistantMessages[0]!)).not.toContain("Internal reasoning");
+  });
+
+  it("does not compact an unmatched trailing user message out of visible history", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4096,
+      maxOutputTokens: 2000,
+      compactionThreshold: 0.6
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
+      .run(2, "profile_default");
+
+    const conversation = createConversation();
+    const messageIds: string[] = [];
+
+    for (let index = 0; index < 45; index += 1) {
+      const message = createMessage({
+        conversationId: conversation.id,
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `Message ${index} ${"dense context ".repeat(220)}`,
+        thinkingContent: index % 2 === 1 ? "Reasoning " + "step ".repeat(24) : ""
+      });
+      messageIds.push(message.id);
+    }
+
+    messageIds.forEach((id, index) => {
+      getDb()
+        .prepare("UPDATE messages SET created_at = ? WHERE id = ?")
+        .run(new Date(Date.UTC(2026, 3, 10, 19, 0, index)).toISOString(), id);
+    });
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const messages = listMessages(conversation.id);
+    const trailingEligibleUser = messages.find((message) => message.content.startsWith("Message 44"));
+    const compactedOlderAssistant = messages.find((message) => message.content.startsWith("Message 1"));
+
+    expect(result.didCompact).toBe(true);
+    expect(trailingEligibleUser?.compactedAt).toBeNull();
+    expect(compactedOlderAssistant?.compactedAt).not.toBeNull();
+  });
+
+  it("replays only the freshest completed turns instead of the whole visible raw history", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 20000,
+      compactionThreshold: 0.9
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
+      .run(2, "profile_default");
+
+    const conversation = createConversation();
+
+    for (let index = 0; index < 5; index += 1) {
+      createMessage({
+        conversationId: conversation.id,
+        role: "user",
+        content: `Turn ${index} user ${"context ".repeat(12)}`
+      });
+      createMessage({
+        conversationId: conversation.id,
+        role: "assistant",
+        content: `Turn ${index} assistant ${"context ".repeat(12)}`,
+        thinkingContent: `Internal reasoning for turn ${index}`
+      });
+    }
+
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Current user question"
+    });
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const promptText = result.promptMessages.map((message) => getPromptText(message)).join("\n");
+
+    expect(result.didCompact).toBe(false);
+    expect(promptText).toContain("Turn 4 user");
+    expect(promptText).toContain("Turn 4 assistant");
+    expect(promptText).toContain("Turn 3 user");
+    expect(promptText).toContain("Turn 3 assistant");
+    expect(promptText).toContain("Current user question");
+    expect(promptText).not.toContain("Turn 0 user");
+    expect(promptText).not.toContain("Turn 1 assistant");
+  });
+
+  it("keeps the fresh completed-turn tail un-compacted when leaf compaction runs", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4096,
+      maxOutputTokens: 2000,
+      compactionThreshold: 0.6
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
+      .run(2, "profile_default");
+
+    const conversation = createConversation();
+    const messageIds: string[] = [];
+
+    for (let index = 0; index < 18; index += 1) {
+      const message = createMessage({
+        conversationId: conversation.id,
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `Turn ${Math.floor(index / 2)} ${index % 2 === 0 ? "user" : "assistant"} ${"dense context ".repeat(240)}`,
+        thinkingContent: index % 2 === 1 ? "Reasoning " + "step ".repeat(24) : ""
+      });
+      messageIds.push(message.id);
+    }
+
+    messageIds.forEach((id, index) => {
+      getDb()
+        .prepare("UPDATE messages SET created_at = ? WHERE id = ?")
+        .run(new Date(Date.UTC(2026, 3, 10, 19, 10, index)).toISOString(), id);
+    });
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const messages = listMessages(conversation.id);
+
+    expect(result.didCompact).toBe(true);
+    expect(messages.find((message) => message.content.startsWith("Turn 8 user"))?.compactedAt).toBeNull();
+    expect(messages.find((message) => message.content.startsWith("Turn 8 assistant"))?.compactedAt).toBeNull();
+    expect(messages.find((message) => message.content.startsWith("Turn 7 user"))?.compactedAt).toBeNull();
+    expect(messages.find((message) => message.content.startsWith("Turn 7 assistant"))?.compactedAt).toBeNull();
+    expect(messages.find((message) => message.content.startsWith("Turn 6 user"))?.compactedAt).not.toBeNull();
+    expect(messages.find((message) => message.content.startsWith("Turn 6 assistant"))?.compactedAt).not.toBeNull();
+  });
+
+  it("records a compaction event when a leaf summary is created", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4096,
+      compactionThreshold: 0.7
+    });
+
+    const conversation = createConversation();
+
+    for (let index = 0; index < 18; index += 1) {
+      createMessage({
+        conversationId: conversation.id,
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `Message ${index} ${"dense context ".repeat(90)}`,
+        thinkingContent: index % 2 === 1 ? "Reasoning " + "step ".repeat(24) : ""
+      });
+    }
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const stats = getConversationDebugStats(conversation.id);
+
+    expect(result.didCompact).toBe(true);
+    expect(stats.latestCompactionAt).not.toBeNull();
+  });
+
+  it("prefers rendered memory-node selection before compacting older raw turns when memory pressure is the overflow source", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4096,
+      compactionThreshold: 0.7
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
+      .run(2, "profile_default");
+
+    const conversation = createConversation();
+
+    for (let index = 0; index < 10; index += 1) {
+      createMessage({
+        conversationId: conversation.id,
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: `Message ${index} ${"dense context ".repeat(90)}`,
+        thinkingContent: index % 2 === 1 ? "Reasoning " + "step ".repeat(24) : ""
+      });
+    }
+
+    const timestamp = new Date().toISOString();
+    getDb()
+      .prepare(
+        `INSERT INTO memory_nodes (
+          id,
+          conversation_id,
+          type,
+          depth,
+          content,
+          source_start_message_id,
+          source_end_message_id,
+          source_token_count,
+          summary_token_count,
+          child_node_ids,
+          superseded_by_node_id,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+      )
+      .run(
+        "mem_open",
+        conversation.id,
+        "leaf_summary",
+        0,
+        [
+          "Goal:",
+          "- Keep the memory pressure path stable",
+          "Constraints:",
+          "- Do not compact raw history unnecessarily",
+          "Actions Taken:",
+          "- Added deterministic selection",
+          "Outcomes:",
+          "- The live prompt should shrink memory context first",
+          "Open Tasks:",
+          "- Verify the overflow source",
+          "Artifact References:",
+          "- lib/compaction.ts",
+          "Time Span:",
+          "- 2026-04-10T10:00:00.000Z -> 2026-04-10T10:30:00.000Z",
+          "Additional context:",
+          "x ".repeat(900)
+        ].join("\n"),
+        "msg_mem_open_start",
+        "msg_mem_open_end",
+        80,
+        400,
+        JSON.stringify([]),
+        timestamp
+      );
+    getDb()
+      .prepare(
+        `INSERT INTO memory_nodes (
+          id,
+          conversation_id,
+          type,
+          depth,
+          content,
+          source_start_message_id,
+          source_end_message_id,
+          source_token_count,
+          summary_token_count,
+          child_node_ids,
+          superseded_by_node_id,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+      )
+      .run(
+        "mem_generic",
+        conversation.id,
+        "leaf_summary",
+        0,
+        [
+          "Goal:",
+          "- Keep the memory pressure path stable",
+          "Constraints:",
+          "- This node is generic",
+          "Actions Taken:",
+          "- Added generic history",
+          "Outcomes:",
+          "- Should be deprioritized",
+          "Open Tasks:",
+          "- None",
+          "Artifact References:",
+          "- tests/unit/compaction.test.ts",
+          "Time Span:",
+          "- 2026-04-10T10:00:00.000Z -> 2026-04-10T10:30:00.000Z",
+          "Additional context:",
+          "y ".repeat(900)
+        ].join("\n"),
+        "msg_mem_generic_start",
+        "msg_mem_generic_end",
+        80,
+        400,
+        JSON.stringify([]),
+        timestamp
+      );
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const messages = listMessages(conversation.id);
+    const systemMessage = result.promptMessages.find((message) => message.role === "system");
+    const promptText = getPromptText(systemMessage!);
+
+    expect(result.didCompact).toBe(false);
+    expect(messages.every((message) => message.compactedAt === null)).toBe(true);
+    expect(promptText).toContain("Verify the overflow source");
+    expect(promptText).not.toContain("Should be deprioritized");
+  });
+
+  it("keeps memory nodes active when prompt pressure forces a fallback", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4096,
+      compactionThreshold: 0.7
+    });
+
+    const conversation = createConversation();
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Need the latest summary"
+    });
+
+    const timestamp = new Date().toISOString();
+    getDb()
+      .prepare(
+        `INSERT INTO memory_nodes (
+          id,
+          conversation_id,
+          type,
+          depth,
+          content,
+          source_start_message_id,
+          source_end_message_id,
+          source_token_count,
+          summary_token_count,
+          child_node_ids,
+          superseded_by_node_id,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+      )
+      .run(
+        "mem_fallback",
+        conversation.id,
+        "leaf_summary",
+        0,
+        [
+          "Goal:",
+          "- Keep this node available",
+          "Constraints:",
+          "- Do not delete memory nodes as pressure relief",
+          "Actions Taken:",
+          "- Added deterministic fallback handling",
+          "Outcomes:",
+          "- The prompt should fall back to the current user message instead",
+          "Open Tasks:",
+          "- Review the fallback path",
+          "Artifact References:",
+          "- lib/compaction.ts",
+          "Time Span:",
+          "- 2026-04-10T10:00:00.000Z -> 2026-04-10T10:30:00.000Z",
+          "Additional context:",
+          "x ".repeat(1200)
+        ].join("\n"),
+        "msg_mem_start",
+        "msg_mem_end",
+        80,
+        80,
+        JSON.stringify([]),
+        timestamp
+      );
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const memoryNode = getDb()
+      .prepare(
+        `SELECT superseded_by_node_id
+         FROM memory_nodes
+         WHERE id = ?`
+      )
+      .get("mem_fallback") as { superseded_by_node_id: string | null } | undefined;
+
+    expect(result.promptMessages.some((message) => getPromptText(message).includes("Need the latest summary"))).toBe(true);
+    expect(memoryNode?.superseded_by_node_id).toBeNull();
+  });
+
+  it("keeps rendered memory nodes when the prompt already fits even if stored summary counts are inflated", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 12000,
+      compactionThreshold: 0.9
+    });
+
+    const conversation = createConversation();
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Short follow-up"
+    });
+
+    const db = getDb();
+    const timestamp = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id,
+        conversation_id,
+        type,
+        depth,
+        content,
+        source_start_message_id,
+        source_end_message_id,
+        source_token_count,
+        summary_token_count,
+        child_node_ids,
+        superseded_by_node_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+    ).run(
+      "mem_legacy",
+      conversation.id,
+      "leaf_summary",
+      0,
+      JSON.stringify({
+        factualCommitments: ["Use deterministic compaction"],
+        userPreferences: ["Keep artifact references"],
+        unresolvedItems: ["Review the live selector path"],
+        importantReferences: ["lib/compaction-summary.ts"],
+        chronology: ["2026-04-10"]
+      }),
+      "msg_legacy_start",
+      "msg_legacy_end",
+      40,
+      999,
+      JSON.stringify([]),
+      timestamp
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id,
+        conversation_id,
+        type,
+        depth,
+        content,
+        source_start_message_id,
+        source_end_message_id,
+        source_token_count,
+        summary_token_count,
+        child_node_ids,
+        superseded_by_node_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+    ).run(
+      "mem_summary",
+      conversation.id,
+      "leaf_summary",
+      0,
+      [
+        "Goal:",
+        "- Keep all rendered memory nodes",
+        "Constraints:",
+        "- Do not drop nodes when the prompt fits",
+        "Actions Taken:",
+        "- Added deterministic summary helpers",
+        "Outcomes:",
+        "- Selection should preserve rendered context",
+        "Open Tasks:",
+        "- None",
+        "Artifact References:",
+        "- tests/unit/compaction-summary.test.ts",
+        "Time Span:",
+        "- 2026-04-10T10:00:00.000Z -> 2026-04-10T10:05:00.000Z"
+      ].join("\n"),
+      "msg_summary_start",
+      "msg_summary_end",
+      50,
+      999,
+      JSON.stringify([]),
+      timestamp
+    );
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const systemMessage = result.promptMessages.find((message) => message.role === "system");
+
+    expect(result.didCompact).toBe(false);
+    expect(typeof systemMessage?.content).toBe("string");
+    expect(systemMessage?.content).toContain("Facts: Use deterministic compaction");
+    expect(systemMessage?.content).toContain("Keep all rendered memory nodes");
+    expect(systemMessage?.content).toContain("Review the live selector path");
+  });
+
+  it("rejects a raw-eligible slice when the completed-turn count falls below the leaf minimum", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4096,
+      compactionThreshold: 0.7
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
+      .run(2, "profile_default");
+
+    const conversation = createConversation();
+
+    createMessage({ conversationId: conversation.id, role: "user", content: `Message 0 ${"dense context ".repeat(160)}` });
+    createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: `Message 1 ${"dense context ".repeat(160)}`,
+      thinkingContent: "Reasoning " + "step ".repeat(24)
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "",
+      thinkingContent: "",
+      status: "streaming"
+    });
+    createMessage({ conversationId: conversation.id, role: "user", content: `Message 3 ${"dense context ".repeat(160)}` });
+    createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: `Message 4 ${"dense context ".repeat(160)}`,
+      thinkingContent: "Reasoning " + "step ".repeat(24)
+    });
+    createMessage({ conversationId: conversation.id, role: "user", content: `Message 5 ${"dense context ".repeat(160)}` });
+    createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: `Message 6 ${"dense context ".repeat(160)}`,
+      thinkingContent: "Reasoning " + "step ".repeat(24)
+    });
+    createMessage({ conversationId: conversation.id, role: "user", content: `Message 7 ${"dense context ".repeat(160)}` });
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const messages = listMessages(conversation.id);
+
+    expect(result.didCompact).toBe(false);
+    expect(messages.every((message) => message.compactedAt === null)).toBe(true);
+  });
+
   it("compacts older turns without creating a visible compaction notice message", async () => {
     updateDefaultProfile({
-      modelContextLimit: 6000,
+      modelContextLimit: 4096,
       compactionThreshold: 0.7
     });
 

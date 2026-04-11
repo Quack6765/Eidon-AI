@@ -347,6 +347,38 @@ describe("message bubble", () => {
     expect(screen.getByText("Working through the prompt")).toBeInTheDocument();
   });
 
+  it("renders expanded thinking content with the compact thinking markdown wrapper", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          thinkingContent: [
+            "## Reasoning",
+            "",
+            "- First check",
+            "- Second check",
+            "",
+            "Final detail"
+          ].join("\n")
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Thought/i }));
+
+    const thinkingMarkdown = container.querySelector(".thinking-markdown-body");
+    const assistantMarkdown = container.querySelector(
+      '[data-testid="assistant-message-bubble"] .markdown-body'
+    );
+
+    expect(thinkingMarkdown).not.toBeNull();
+    expect(thinkingMarkdown?.textContent).toContain("Reasoning");
+    expect(thinkingMarkdown?.textContent).toContain("First check");
+    expect(thinkingMarkdown?.textContent).toContain("Second check");
+    expect(thinkingMarkdown?.textContent).toContain("Final detail");
+    expect(assistantMarkdown).not.toBeNull();
+  });
+
   it("keeps persisted thinking content collapsed by default", () => {
     render(
       React.createElement(MessageBubble, {
@@ -374,19 +406,21 @@ describe("message bubble", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Thought/i }));
 
-    const markdownBlocks = Array.from(container.querySelectorAll(".markdown-body"));
+    const thinkingMarkdown = container.querySelector(".thinking-markdown-body");
+    const answerMarkdown = container.querySelector(
+      '[data-testid="assistant-message-bubble"] .markdown-body'
+    );
 
-    expect(markdownBlocks).toHaveLength(2);
-    expect(markdownBlocks[0]?.textContent).toContain("Thought one");
-    expect(markdownBlocks[0]?.textContent).toContain("Thought two");
-    expect(markdownBlocks[0]?.textContent).toContain("Thought three");
-    expect(markdownBlocks[0]?.textContent).toContain("Thought four");
-    expect(markdownBlocks[0]?.textContent).not.toContain("\\\\n");
-    expect(markdownBlocks[1]?.textContent).toContain("First line");
-    expect(markdownBlocks[1]?.textContent).toContain("Second line");
-    expect(markdownBlocks[1]?.textContent).toContain("Third paragraph");
-    expect(markdownBlocks[1]?.textContent).toContain("Fourth paragraph");
-    expect(markdownBlocks[1]?.textContent).not.toContain("\\\\n");
+    expect(thinkingMarkdown?.textContent).toContain("Thought one");
+    expect(thinkingMarkdown?.textContent).toContain("Thought two");
+    expect(thinkingMarkdown?.textContent).toContain("Thought three");
+    expect(thinkingMarkdown?.textContent).toContain("Thought four");
+    expect(thinkingMarkdown?.textContent).not.toContain("\\\\n");
+    expect(answerMarkdown?.textContent).toContain("First line");
+    expect(answerMarkdown?.textContent).toContain("Second line");
+    expect(answerMarkdown?.textContent).toContain("Third paragraph");
+    expect(answerMarkdown?.textContent).toContain("Fourth paragraph");
+    expect(answerMarkdown?.textContent).not.toContain("\\\\n");
   });
 
   it("renders markdown elements inside a compact assistant bubble", () => {

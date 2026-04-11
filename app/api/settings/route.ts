@@ -7,7 +7,6 @@ import { getSanitizedSettings, updateGeneralSettingsForUser } from "@/lib/settin
 const generalSettingsSchema = z
   .object({
     conversationRetention: z.enum(["forever", "90d", "30d", "7d"]).optional(),
-    autoCompaction: z.coerce.boolean().optional(),
     memoriesEnabled: z.coerce.boolean().optional(),
     memoriesMaxCount: z.coerce.number().int().min(1).max(500).optional(),
     mcpTimeout: z.coerce.number().int().min(10_000).max(600_000).optional()

@@ -100,7 +100,6 @@ export type AppSettings = {
   defaultProviderProfileId: string | null;
   skillsEnabled: boolean;
   conversationRetention: ConversationRetention;
-  autoCompaction: boolean;
   memoriesEnabled: boolean;
   memoriesMaxCount: number;
   mcpTimeout: number;
@@ -342,7 +341,7 @@ export type CompactionEvent = {
   nodeId: string;
   sourceStartMessageId: string;
   sourceEndMessageId: string;
-  noticeMessageId: string;
+  noticeMessageId: string | null;
   createdAt: string;
 };
 

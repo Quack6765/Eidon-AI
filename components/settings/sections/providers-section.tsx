@@ -24,15 +24,13 @@ import {
   PROVIDER_PRESETS,
   type ProviderPresetId
 } from "@/lib/provider-presets";
-import type { ApiMode, McpServer, ReasoningEffort, VisionMode } from "@/lib/types";
+import type { AppSettings, ApiMode, McpServer, ReasoningEffort, VisionMode } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
 import { CollapsibleSection } from "../collapsible-section";
 
-type SettingsPayload = {
-  defaultProviderProfileId: string | null;
-  skillsEnabled: boolean;
+type SettingsPayload = AppSettings & {
   providerProfiles: Array<{
     id: string;
     name: string;
@@ -156,7 +154,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         reasoningEffort: "medium" as ReasoningEffort,
         reasoningSummaryEnabled: true,
         modelContextLimit: 128000,
-        compactionThreshold: 0.78,
+        compactionThreshold: 0.8,
         freshTailCount: 28,
         tokenizerModel: "gpt-tokenizer" as const,
         safetyMarginTokens: 1200,
@@ -224,6 +222,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
   async function buildSettingsPayload() {
     return {
+      ...settings,
       defaultProviderProfileId,
       skillsEnabled,
       providerProfiles: providerProfiles.map((profile) => ({
@@ -240,7 +239,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         reasoningEffort: profile.reasoningEffort,
         reasoningSummaryEnabled: profile.reasoningSummaryEnabled,
         modelContextLimit: profile.modelContextLimit,
-        compactionThreshold: profile.compactionThreshold,
+        compactionThreshold: Math.round(profile.compactionThreshold * 100) / 100,
         freshTailCount: profile.freshTailCount,
         tokenizerModel: profile.tokenizerModel,
         safetyMarginTokens: profile.safetyMarginTokens,
@@ -721,21 +720,24 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                       />
                     </div>
                     <div>
-                      <label className={labelClass}>Compaction threshold</label>
+                      <label className={labelClass}>Compaction threshold %</label>
                       <Input
                         name="provider-compaction-threshold"
                         type="number"
-                        step="0.01"
-                        value={activeProviderProfile.compactionThreshold}
+                        step="1"
+                        min="50"
+                        max="95"
+                        value={Math.round(activeProviderProfile.compactionThreshold * 100)}
                         onChange={(event) =>
                           updateActiveProviderProfile({
-                            compactionThreshold: Number(event.target.value || 0)
+                            compactionThreshold:
+                              Math.round(Number(event.target.value || 0)) / 100
                           })
                         }
                       />
                     </div>
                     <div>
-                      <label className={labelClass}>Fresh tail count</label>
+                      <label className={labelClass}>Fresh tail turns</label>
                       <Input
                         name="provider-fresh-tail-count"
                         type="number"

@@ -843,7 +843,7 @@ export function listMessages(conversationId: string) {
         created_at
        FROM messages
        WHERE conversation_id = ?
-       ORDER BY created_at ASC`
+       ORDER BY created_at ASC, rowid ASC`
     )
     .all(conversationId) as Array<{
     id: string;

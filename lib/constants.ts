@@ -30,7 +30,7 @@ export const DEFAULT_PROVIDER_SETTINGS = {
   reasoningEffort: "medium",
   reasoningSummaryEnabled: true,
   modelContextLimit: 128000,
-  compactionThreshold: 0.78,
+  compactionThreshold: 0.8,
   freshTailCount: 28,
   tokenizerModel: "gpt-tokenizer" as const,
   safetyMarginTokens: 1200,
