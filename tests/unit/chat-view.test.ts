@@ -138,6 +138,22 @@ function createPayload(): ChatViewPayload {
   };
 }
 
+function createMessage(overrides: Partial<Message> = {}): Message {
+  return {
+    id: "msg_1",
+    conversationId: "conv_1",
+    role: "assistant",
+    content: "Assistant reply",
+    thinkingContent: "",
+    status: "completed",
+    estimatedTokens: 3,
+    systemKind: null,
+    compactedAt: null,
+    createdAt: new Date().toISOString(),
+    ...overrides
+  };
+}
+
 async function flushAnimationFrame() {
   await act(async () => {
     await new Promise<void>((resolve) => {
@@ -452,6 +468,143 @@ describe("chat view", () => {
     await waitFor(() => {
       expect(screen.getByText("Hello")).toBeInTheDocument();
       expect(screen.getByText("Hi there!")).toBeInTheDocument();
+    });
+  });
+
+  it("forks from an assistant message and redirects to the new conversation", async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ conversationId: "conv_forked" })
+      } as Response);
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: {
+          ...createPayload(),
+          messages: [
+            createMessage({
+              id: "msg_assistant",
+              content: "Fork me"
+            })
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Fork conversation from message" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/messages/msg_assistant/fork", {
+        method: "POST"
+      });
+    });
+
+    await waitFor(() => {
+      expect(push).toHaveBeenCalledWith("/chat/conv_forked");
+    });
+  });
+
+  it("shows a local fork error and does not navigate when the fork request fails", async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: "Fork denied" })
+      } as Response);
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: {
+          ...createPayload(),
+          messages: [
+            createMessage({
+              id: "msg_assistant",
+              content: "Fork me"
+            })
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Fork conversation from message" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Fork denied")).toBeInTheDocument();
+    });
+
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("prevents duplicate fork requests while a fork is already in flight", async () => {
+    let resolveForkResponse: ((value: Response) => void) | null = null;
+    const forkResponse = new Promise<Response>((resolve) => {
+      resolveForkResponse = resolve;
+    });
+
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (input === "/api/personas") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ personas: [] })
+        } as Response);
+      }
+
+      if (input === "/api/messages/msg_assistant/fork") {
+        return forkResponse;
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({})
+      } as Response);
+    });
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: {
+          ...createPayload(),
+          messages: [
+            createMessage({
+              id: "msg_assistant",
+              content: "Fork me"
+            })
+          ]
+        }
+      })
+    );
+
+    const forkButton = screen.getByRole("button", { name: "Fork conversation from message" });
+
+    fireEvent.click(forkButton);
+    fireEvent.click(forkButton);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/messages/msg_assistant/fork", {
+        method: "POST"
+      });
+    });
+
+    expect(
+      vi
+        .mocked(global.fetch)
+        .mock.calls.filter(([input]) => input === "/api/messages/msg_assistant/fork")
+    ).toHaveLength(1);
+
+    resolveForkResponse?.({
+      ok: true,
+      json: async () => ({ conversationId: "conv_forked" })
+    } as Response);
+
+    await waitFor(() => {
+      expect(push).toHaveBeenCalledWith("/chat/conv_forked");
     });
   });
 

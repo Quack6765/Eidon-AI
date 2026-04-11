@@ -252,7 +252,8 @@ export function MessageBubble({
   hasThinking = false,
   onUpdateUserMessage,
   isUpdating = false,
-  onForkAssistantMessage
+  onForkAssistantMessage,
+  isForking = false
 }: {
   message: Message;
   streamingTimeline?: MessageTimelineItem[];
@@ -266,6 +267,7 @@ export function MessageBubble({
   onUpdateUserMessage?: (messageId: string, content: string) => Promise<void>;
   isUpdating?: boolean;
   onForkAssistantMessage?: (messageId: string) => void;
+  isForking?: boolean;
 }) {
   const rawContent = streamingAnswer ?? message.content;
   const rawThinking = streamingThinking ?? message.thinkingContent;
@@ -652,8 +654,13 @@ export function MessageBubble({
                       <ActionButton
                         label="Fork conversation from message"
                         onClick={() => onForkAssistantMessage(message.id)}
+                        disabled={isForking}
                       >
-                        <GitFork className="h-3.5 w-3.5" />
+                        {isForking ? (
+                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <GitFork className="h-3.5 w-3.5" />
+                        )}
                       </ActionButton>
                     ) : null}
                   </div>
