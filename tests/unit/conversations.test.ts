@@ -516,6 +516,47 @@ describe("conversation helpers", () => {
     ]);
   });
 
+  it("persists proposal metadata on message actions", async () => {
+    const { createMessage, createMessageAction, updateMessageAction, getMessage, createConversation } =
+      await import("@/lib/conversations");
+
+    const conversation = createConversation();
+
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "",
+      thinkingContent: "",
+      status: "completed",
+      estimatedTokens: 0
+    });
+
+    const created = createMessageAction({
+      messageId: message.id,
+      kind: "create_memory",
+      status: "pending",
+      label: "Save memory",
+      proposalState: "pending",
+      proposalPayload: {
+        operation: "create",
+        targetMemoryId: null,
+        proposedMemory: { content: "User prefers TypeScript", category: "preference" }
+      }
+    });
+
+    expect(created.proposalState).toBe("pending");
+    expect(created.proposalPayload?.operation).toBe("create");
+
+    const updated = updateMessageAction(created.id, {
+      status: "completed",
+      proposalState: "dismissed",
+      proposalUpdatedAt: "2026-04-11T12:00:00.000Z"
+    });
+
+    expect(updated?.proposalState).toBe("dismissed");
+    expect(getMessage(message.id)?.actions?.[0]?.proposalState).toBe("dismissed");
+  });
+
   it("hydrates assistant text segments into a chronological timeline", () => {
     const conversation = createConversation();
     const message = createMessage({

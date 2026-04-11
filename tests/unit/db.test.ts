@@ -317,6 +317,16 @@ describe("db", () => {
     vi.resetModules();
   });
 
+  it("adds memory proposal columns to message_actions", async () => {
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+    const columns = db.prepare("PRAGMA table_info(message_actions)").all() as Array<{ name: string }>;
+
+    expect(columns.map((column) => column.name)).toEqual(
+      expect.arrayContaining(["proposal_state", "proposal_payload_json", "proposal_updated_at"])
+    );
+  });
+
   it("adds multi-user tables and owner columns", async () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();

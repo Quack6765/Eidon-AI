@@ -46,7 +46,7 @@ export type ConversationTitleGenerationStatus =
 
 export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory";
 
-export type MessageActionStatus = "running" | "completed" | "error" | "stopped";
+export type MessageActionStatus = "running" | "pending" | "completed" | "error" | "stopped";
 
 export type AttachmentKind = "image" | "text";
 
@@ -250,6 +250,23 @@ export type Persona = {
 
 export type MemoryCategory = "personal" | "preference" | "work" | "location" | "other";
 
+export type MemoryProposalOperation = "create" | "update" | "delete";
+export type MemoryProposalState = "pending" | "approved" | "dismissed" | "superseded";
+
+export type MemoryProposalPayload = {
+  operation: MemoryProposalOperation;
+  targetMemoryId: string | null;
+  currentMemory?: {
+    id: string;
+    content: string;
+    category: MemoryCategory;
+  };
+  proposedMemory?: {
+    content: string;
+    category: MemoryCategory;
+  };
+};
+
 export type UserMemory = {
   id: string;
   content: string;
@@ -304,6 +321,9 @@ export type MessageAction = {
   sortOrder: number;
   startedAt: string;
   completedAt: string | null;
+  proposalState: MemoryProposalState | null;
+  proposalPayload: MemoryProposalPayload | null;
+  proposalUpdatedAt: string | null;
 };
 
 export type MessageTextSegment = {

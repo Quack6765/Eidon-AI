@@ -36,6 +36,8 @@ import type {
   MessageTimelineItem,
   MessageRole,
   MessageStatus,
+  MemoryProposalPayload,
+  MemoryProposalState,
   SystemMessageKind
 } from "@/lib/types";
 
@@ -136,6 +138,9 @@ function rowToMessageAction(row: {
   sort_order: number;
   started_at: string;
   completed_at: string | null;
+  proposal_state: MemoryProposalState | null;
+  proposal_payload_json: string | null;
+  proposal_updated_at: string | null;
 }): MessageAction {
   return {
     id: row.id,
@@ -151,7 +156,12 @@ function rowToMessageAction(row: {
     resultSummary: row.result_summary,
     sortOrder: row.sort_order,
     startedAt: row.started_at,
-    completedAt: row.completed_at
+    completedAt: row.completed_at,
+    proposalState: row.proposal_state,
+    proposalPayload: row.proposal_payload_json
+      ? (JSON.parse(row.proposal_payload_json) as MemoryProposalPayload)
+      : null,
+    proposalUpdatedAt: row.proposal_updated_at
   };
 }
 
@@ -719,7 +729,10 @@ function listMessageActionsForMessageIds(messageIds: string[]) {
         result_summary,
         sort_order,
         started_at,
-        completed_at
+        completed_at,
+        proposal_state,
+        proposal_payload_json,
+        proposal_updated_at
        FROM message_actions
        WHERE message_id IN (${placeholders})
        ORDER BY message_id ASC, sort_order ASC, started_at ASC`
@@ -739,6 +752,9 @@ function listMessageActionsForMessageIds(messageIds: string[]) {
       sort_order: number;
       started_at: string;
       completed_at: string | null;
+      proposal_state: MemoryProposalState | null;
+      proposal_payload_json: string | null;
+      proposal_updated_at: string | null;
     }>;
 
   return rows.map(rowToMessageAction);
@@ -1441,6 +1457,9 @@ export function createMessageAction(input: {
   arguments?: Record<string, unknown> | null;
   resultSummary?: string;
   sortOrder?: number;
+  proposalState?: MemoryProposalState | null;
+  proposalPayload?: MemoryProposalPayload | null;
+  proposalUpdatedAt?: string | null;
 }) {
   const timestamp = nowIso();
   const action: MessageAction = {
@@ -1457,7 +1476,10 @@ export function createMessageAction(input: {
     resultSummary: input.resultSummary ?? "",
     sortOrder: input.sortOrder ?? 0,
     startedAt: timestamp,
-    completedAt: null
+    completedAt: null,
+    proposalState: input.proposalState ?? null,
+    proposalPayload: input.proposalPayload ?? null,
+    proposalUpdatedAt: input.proposalUpdatedAt ?? null
   };
 
   getDb()
@@ -1476,8 +1498,11 @@ export function createMessageAction(input: {
         result_summary,
         sort_order,
         started_at,
-        completed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        completed_at,
+        proposal_state,
+        proposal_payload_json,
+        proposal_updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       action.id,
@@ -1493,7 +1518,10 @@ export function createMessageAction(input: {
       action.resultSummary,
       action.sortOrder,
       action.startedAt,
-      action.completedAt
+      action.completedAt,
+      action.proposalState,
+      action.proposalPayload ? JSON.stringify(action.proposalPayload) : null,
+      action.proposalUpdatedAt
     );
 
   return action;
@@ -1540,6 +1568,9 @@ export function updateMessageAction(
     detail?: string;
     resultSummary?: string;
     completedAt?: string | null;
+    proposalState?: MemoryProposalState | null;
+    proposalPayload?: MemoryProposalPayload | null;
+    proposalUpdatedAt?: string | null;
   }
 ) {
   const current = getDb()
@@ -1558,7 +1589,10 @@ export function updateMessageAction(
         result_summary,
         sort_order,
         started_at,
-        completed_at
+        completed_at,
+        proposal_state,
+        proposal_payload_json,
+        proposal_updated_at
        FROM message_actions
        WHERE id = ?`
     )
@@ -1578,6 +1612,9 @@ export function updateMessageAction(
         sort_order: number;
         started_at: string;
         completed_at: string | null;
+        proposal_state: MemoryProposalState | null;
+        proposal_payload_json: string | null;
+        proposal_updated_at: string | null;
       }
     | undefined;
 
@@ -1588,7 +1625,8 @@ export function updateMessageAction(
   getDb()
     .prepare(
       `UPDATE message_actions
-       SET status = ?, detail = ?, result_summary = ?, completed_at = ?
+       SET status = ?, detail = ?, result_summary = ?, completed_at = ?,
+           proposal_state = ?, proposal_payload_json = ?, proposal_updated_at = ?
        WHERE id = ?`
     )
     .run(
@@ -1596,6 +1634,13 @@ export function updateMessageAction(
       patch.detail ?? current.detail,
       patch.resultSummary ?? current.result_summary,
       patch.completedAt !== undefined ? patch.completedAt : current.completed_at,
+      patch.proposalState !== undefined ? patch.proposalState : current.proposal_state,
+      patch.proposalPayload !== undefined
+        ? patch.proposalPayload
+          ? JSON.stringify(patch.proposalPayload)
+          : null
+        : current.proposal_payload_json,
+      patch.proposalUpdatedAt !== undefined ? patch.proposalUpdatedAt : current.proposal_updated_at,
       actionId
     );
 
