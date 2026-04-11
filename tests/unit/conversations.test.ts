@@ -1091,4 +1091,26 @@ describe("message fork routes", () => {
       error: "Only assistant messages can be forked"
     });
   });
+
+  it("returns 404 for a missing message", async () => {
+    const user = await createLocalUser({
+      username: "fork-route-missing",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValueOnce(user);
+
+    const { POST } = await import("@/app/api/messages/[messageId]/fork/route");
+    const response = await POST(
+      new Request("http://localhost/api/messages/msg_missing/fork", {
+        method: "POST"
+      }),
+      { params: Promise.resolve({ messageId: "msg_missing" }) }
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: "Message not found"
+    });
+  });
 });
