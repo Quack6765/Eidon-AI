@@ -22,14 +22,23 @@ function rowToPersona(row: {
   };
 }
 
-export function listPersonas(): Persona[] {
-  const rows = getDb()
-    .prepare(
-      `SELECT id, name, content, created_at, updated_at
-       FROM personas
-       ORDER BY created_at ASC`
-    )
-    .all() as Array<{
+export function listPersonas(userId?: string): Persona[] {
+  const rows = (userId
+    ? getDb()
+        .prepare(
+          `SELECT id, name, content, created_at, updated_at
+           FROM personas
+           WHERE user_id = ?
+           ORDER BY created_at ASC`
+        )
+        .all(userId)
+    : getDb()
+        .prepare(
+          `SELECT id, name, content, created_at, updated_at
+           FROM personas
+           ORDER BY created_at ASC`
+        )
+        .all()) as Array<{
     id: string;
     name: string;
     content: string;
@@ -40,14 +49,22 @@ export function listPersonas(): Persona[] {
   return rows.map(rowToPersona);
 }
 
-export function getPersona(personaId: string): Persona | null {
-  const row = getDb()
-    .prepare(
-      `SELECT id, name, content, created_at, updated_at
-       FROM personas
-       WHERE id = ?`
-    )
-    .get(personaId) as {
+export function getPersona(personaId: string, userId?: string): Persona | null {
+  const row = (userId
+    ? getDb()
+        .prepare(
+          `SELECT id, name, content, created_at, updated_at
+           FROM personas
+           WHERE id = ? AND user_id = ?`
+        )
+        .get(personaId, userId)
+    : getDb()
+        .prepare(
+          `SELECT id, name, content, created_at, updated_at
+           FROM personas
+           WHERE id = ?`
+        )
+        .get(personaId)) as {
     id: string;
     name: string;
     content: string;
@@ -58,7 +75,7 @@ export function getPersona(personaId: string): Persona | null {
   return row ? rowToPersona(row) : null;
 }
 
-export function createPersona(input: { name: string; content: string }): Persona {
+export function createPersona(input: { name: string; content: string }, userId?: string): Persona {
   const timestamp = nowIso();
   const persona: Persona = {
     id: createId("persona"),
@@ -70,34 +87,48 @@ export function createPersona(input: { name: string; content: string }): Persona
 
   getDb()
     .prepare(
-      `INSERT INTO personas (id, name, content, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO personas (id, user_id, name, content, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
     )
-    .run(persona.id, persona.name, persona.content, persona.createdAt, persona.updatedAt);
+    .run(persona.id, userId ?? null, persona.name, persona.content, persona.createdAt, persona.updatedAt);
 
   return persona;
 }
 
 export function updatePersona(
   personaId: string,
-  input: { name?: string; content?: string }
+  input: { name?: string; content?: string },
+  userId?: string
 ): Persona | null {
-  const current = getPersona(personaId);
+  const current = getPersona(personaId, userId);
   if (!current) return null;
 
   const timestamp = nowIso();
   const name = input.name?.trim() ?? current.name;
   const content = input.content ?? current.content;
 
-  getDb()
-    .prepare(
-      `UPDATE personas SET name = ?, content = ?, updated_at = ? WHERE id = ?`
-    )
-    .run(name, content, timestamp, personaId);
+  if (userId) {
+    getDb()
+      .prepare(
+        `UPDATE personas SET name = ?, content = ?, updated_at = ? WHERE id = ? AND user_id = ?`
+      )
+      .run(name, content, timestamp, personaId, userId);
+  } else {
+    getDb()
+      .prepare(
+        `UPDATE personas SET name = ?, content = ?, updated_at = ? WHERE id = ?`
+      )
+      .run(name, content, timestamp, personaId);
+  }
 
-  return getPersona(personaId);
+  return getPersona(personaId, userId);
 }
 
-export function deletePersona(personaId: string): void {
+export function deletePersona(personaId: string, userId?: string): void {
+  if (userId) {
+    getDb().prepare("DELETE FROM personas WHERE id = ? AND user_id = ?").run(personaId, userId);
+    return;
+  }
+
   getDb().prepare("DELETE FROM personas WHERE id = ?").run(personaId);
 }

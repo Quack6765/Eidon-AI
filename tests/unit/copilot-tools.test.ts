@@ -45,6 +45,7 @@ function makeMcpServer(overrides: Partial<McpServer> = {}): McpServer {
   return {
     id: "server_1",
     name: "Test Server",
+    slug: "test_server",
     url: "http://localhost:8080",
     headers: {},
     transport: "streamable_http",
@@ -650,7 +651,7 @@ describe("buildCopilotTools", () => {
     );
 
     expect(result).toBe("Memory saved: Works in Toronto [other]");
-    expect(createMemory).toHaveBeenCalledWith("Works in Toronto", "other");
+    expect(createMemory).toHaveBeenCalledWith("Works in Toronto", "other", undefined);
     expect(onActionComplete).toHaveBeenCalledWith(undefined, { resultSummary: "Saved as other" });
   });
 
@@ -671,7 +672,7 @@ describe("buildCopilotTools", () => {
     );
 
     expect(result).toBe("Memory saved: Lives near the office [other]");
-    expect(createMemory).toHaveBeenCalledWith("Lives near the office", "other");
+    expect(createMemory).toHaveBeenCalledWith("Lives near the office", "other", undefined);
   });
 
   it("records create memory failures without interrupting the tool response", async () => {
@@ -720,10 +721,14 @@ describe("buildCopilotTools", () => {
     );
 
     expect(result).toBe("Memory updated: Prefers dark mode");
-    expect(updateMemory).toHaveBeenCalledWith("mem_1", {
-      content: "Prefers dark mode",
-      category: "preference"
-    });
+    expect(updateMemory).toHaveBeenCalledWith(
+      "mem_1",
+      {
+        content: "Prefers dark mode",
+        category: "preference"
+      },
+      undefined
+    );
     expect(onActionComplete).toHaveBeenCalledWith(undefined, {
       detail: "Prefers dark mode",
       resultSummary: "Updated"
@@ -790,7 +795,7 @@ describe("buildCopilotTools", () => {
     );
 
     expect(result).toBe("Memory deleted: mem_1");
-    expect(deleteMemory).toHaveBeenCalledWith("mem_1");
+    expect(deleteMemory).toHaveBeenCalledWith("mem_1", undefined);
     expect(onActionComplete).toHaveBeenCalledWith(undefined, { resultSummary: "Deleted" });
   });
 

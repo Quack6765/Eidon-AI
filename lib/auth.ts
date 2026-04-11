@@ -8,6 +8,12 @@ import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import { getDb } from "@/lib/db";
 import { env, isPasswordLoginEnabled, isProduction } from "@/lib/env";
 import { createId } from "@/lib/ids";
+import {
+  ensureEnvSuperAdminUser,
+  findPersistedUserByUsername,
+  getUserById,
+  getUserRecordById
+} from "@/lib/users";
 import type { AuthSession, AuthUser } from "@/lib/types";
 
 const encoder = new TextEncoder();
@@ -24,14 +30,19 @@ function nowIso() {
 function rowToUser(row: {
   id: string;
   username: string;
-  created_at: string;
-  updated_at: string;
+  role: AuthUser["role"];
+  authSource: AuthUser["authSource"];
+  createdAt: string;
+  updatedAt: string;
 }): AuthUser {
   return {
     id: row.id,
     username: row.username,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
+    role: row.role,
+    authSource: row.authSource,
+    passwordManagedBy: row.authSource === "env_super_admin" ? "env" : "local",
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
   };
 }
 
@@ -58,76 +69,38 @@ export async function verifyPassword(password: string, hashedPassword: string) {
 }
 
 export async function ensureAdminBootstrap() {
-  const db = getDb();
-  const count = db.prepare("SELECT COUNT(*) as count FROM admin_users").get() as {
-    count: number;
-  };
-
-  if (count.count > 0) {
-    return;
-  }
-
-  const timestamp = nowIso();
-  db.prepare(
-    `INSERT INTO admin_users (id, username, password_hash, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(
-    createId("user"),
-    env.EIDON_ADMIN_USERNAME,
-    await hashPassword(env.EIDON_ADMIN_PASSWORD),
-    timestamp,
-    timestamp
-  );
+  await ensureEnvSuperAdminUser();
 }
 
 async function getBootstrapUser() {
-  await ensureAdminBootstrap();
-
-  const row = getDb()
-    .prepare(
-      `SELECT id, username, created_at, updated_at
-       FROM admin_users
-       ORDER BY created_at ASC
-       LIMIT 1`
-    )
-    .get() as
-    | {
-        id: string;
-        username: string;
-        created_at: string;
-        updated_at: string;
-      }
-    | undefined;
-
-  if (!row) {
-    return null;
-  }
-
-  return rowToUser(row);
+  const user = await ensureEnvSuperAdminUser();
+  return rowToUser(user);
 }
 
 export async function findUserByUsername(username: string) {
   await ensureAdminBootstrap();
-
-  const db = getDb();
-  const row = db
-    .prepare(
-      `SELECT id, username, created_at, updated_at, password_hash
-       FROM admin_users
-       WHERE username = ?`
-    )
-    .get(username) as
-    | (AuthUser & { password_hash: string; created_at: string; updated_at: string })
-    | undefined;
-
-  if (!row) {
+  const record = findPersistedUserByUsername(username);
+  if (!record) {
     return null;
   }
 
   return {
-    user: rowToUser(row),
-    passwordHash: row.password_hash
+    user: rowToUser(record.user),
+    passwordHash: record.passwordHash
   };
+}
+
+export async function authenticateUser(username: string, password: string) {
+  await ensureAdminBootstrap();
+  const record = await findUserByUsername(username);
+  if (!record) return null;
+
+  if (record.user.authSource === "env_super_admin") {
+    return password === env.EIDON_ADMIN_PASSWORD ? record.user : null;
+  }
+
+  if (!record.passwordHash) return null;
+  return (await verifyPassword(password, record.passwordHash)) ? record.user : null;
 }
 
 export async function createSession(userId: string) {
@@ -266,26 +239,12 @@ export async function getCurrentUser() {
     return null;
   }
 
-  const userRow = db
-    .prepare(
-      `SELECT id, username, created_at, updated_at
-       FROM admin_users
-       WHERE id = ?`
-    )
-    .get(session.userId) as
-    | {
-        id: string;
-        username: string;
-        created_at: string;
-        updated_at: string;
-      }
-    | undefined;
-
-  if (!userRow) {
+  const user = getUserById(session.userId);
+  if (!user) {
     return null;
   }
 
-  return rowToUser(userRow);
+  return rowToUser(user);
 }
 
 export async function requireUser(redirectToLogin?: true): Promise<AuthUser>
@@ -305,6 +264,14 @@ export async function requireUser(redirectToLogin?: boolean): Promise<AuthUser |
   return user;
 }
 
+export async function requireAdminUser() {
+  const user = await requireUser();
+  if (user.role !== "admin") {
+    throw new Error("forbidden");
+  }
+  return user;
+}
+
 export async function invalidateSession(sessionId: string) {
   getDb().prepare("DELETE FROM auth_sessions WHERE id = ?").run(sessionId);
 }
@@ -314,10 +281,17 @@ export async function invalidateAllSessionsForUser(userId: string) {
 }
 
 export async function updateUsername(userId: string, username: string) {
+  const record = getUserRecordById(userId);
+  if (!record) {
+    return;
+  }
+  if (record.user.authSource === "env_super_admin") {
+    throw new Error("Env-managed credentials cannot be changed in the UI");
+  }
   const timestamp = nowIso();
   getDb()
     .prepare(
-      `UPDATE admin_users
+      `UPDATE users
        SET username = ?, updated_at = ?
        WHERE id = ?`
     )
@@ -325,12 +299,27 @@ export async function updateUsername(userId: string, username: string) {
 }
 
 export async function updatePassword(userId: string, password: string) {
+  const record = getUserRecordById(userId);
+  if (!record) {
+    return;
+  }
+  if (record.user.authSource === "env_super_admin") {
+    throw new Error("Env-managed credentials cannot be changed in the UI");
+  }
   const timestamp = nowIso();
   getDb()
     .prepare(
-      `UPDATE admin_users
+      `UPDATE users
        SET password_hash = ?, updated_at = ?
        WHERE id = ?`
     )
     .run(await hashPassword(password), timestamp, userId);
+}
+
+export async function updateOwnPassword(user: AuthUser, password: string) {
+  if (user.passwordManagedBy === "env") {
+    throw new Error("Env-managed credentials cannot be changed in the UI");
+  }
+
+  await updatePassword(user.id, password);
 }

@@ -5,6 +5,7 @@ import { serializeServerMessage } from "@/lib/ws-protocol";
 export function createConversationManager() {
   const rooms = new Map<string, Set<WebSocket>>();
   const clientRooms = new Map<WebSocket, Set<string>>();
+  const connectionUsers = new Map<WebSocket, string | null>();
   const activeTurns = new Map<string, boolean>();
   const connectedSockets = new Set<WebSocket>();
 
@@ -52,6 +53,7 @@ export function createConversationManager() {
       }
     }
     clientRooms.delete(ws);
+    connectionUsers.delete(ws);
   }
 
   function isActive(conversationId: string): boolean {
@@ -75,17 +77,23 @@ export function createConversationManager() {
     return [...activeTurns.keys()];
   }
 
-  function addConnection(ws: WebSocket) {
+  function addConnection(ws: WebSocket, userId?: string | null) {
     connectedSockets.add(ws);
+    connectionUsers.set(ws, userId ?? null);
   }
 
   function removeConnection(ws: WebSocket) {
     connectedSockets.delete(ws);
+    connectionUsers.delete(ws);
   }
 
-  function broadcastAll(event: ServerMessage) {
+  function broadcastAll(event: ServerMessage, userId?: string | null) {
     const raw = serializeServerMessage(event);
     for (const ws of connectedSockets) {
+      if (userId !== undefined && (connectionUsers.get(ws) ?? null) !== userId) {
+        continue;
+      }
+
       if (ws.readyState === WebSocket.OPEN) {
         ws.send(raw);
       }

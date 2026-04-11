@@ -20,7 +20,7 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ messageId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
 
   if (!params.success) {
@@ -33,7 +33,7 @@ export async function PATCH(
     return badRequest("Invalid message update");
   }
 
-  const message = getMessage(params.data.messageId);
+  const message = getMessage(params.data.messageId, user.id);
 
   if (!message) {
     return badRequest("Message not found", 404);

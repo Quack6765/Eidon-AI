@@ -33,53 +33,11 @@ describe("general section", () => {
     global.fetch = vi.fn();
   });
 
-  it("hides auto-compaction and preserves unrelated settings when saving", async () => {
+  it("hides auto-compaction and saves general settings through the per-user endpoint", async () => {
     const settings = makeSettings();
-    const settingsResponse = {
-      ...settings,
-      providerProfiles: [
-        {
-          id: "profile_default",
-          providerKind: "openai_compatible",
-          name: "Default",
-          apiBaseUrl: "https://api.example.com/v1",
-          model: "gpt-test",
-          apiMode: "responses",
-          systemPrompt: "Be exact.",
-          temperature: 0.4,
-          maxOutputTokens: 512,
-          reasoningEffort: "medium",
-          reasoningSummaryEnabled: true,
-          modelContextLimit: 16384,
-          compactionThreshold: 0.8,
-          freshTailCount: 12,
-          tokenizerModel: "gpt-tokenizer",
-          safetyMarginTokens: 1200,
-          leafSourceTokenLimit: 12000,
-          leafMinMessageCount: 6,
-          mergedMinNodeCount: 4,
-          mergedTargetTokens: 1600,
-          visionMode: "native",
-          visionMcpServerId: null,
-          githubTokenExpiresAt: null,
-          githubRefreshTokenExpiresAt: null,
-          githubAccountLogin: null,
-          githubAccountName: null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-          hasApiKey: false,
-          githubConnectionStatus: "disconnected"
-        }
-      ]
-    };
-
     vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ settings: settingsResponse })
-    } as Response);
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ settings: settingsResponse })
+      json: async () => ({ settings })
     } as Response);
 
     render(React.createElement(GeneralSection, { settings }));
@@ -92,11 +50,11 @@ describe("general section", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledTimes(2);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
-    const putCall = vi.mocked(global.fetch).mock.calls[1];
-    expect(putCall[0]).toBe("/api/settings");
+    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    expect(putCall[0]).toBe("/api/settings/general");
     expect(putCall[1]).toMatchObject({
       method: "PUT",
       headers: { "Content-Type": "application/json" }
@@ -105,13 +63,8 @@ describe("general section", () => {
     const body = JSON.parse(String(putCall[1]?.body));
 
     expect(body).toMatchObject({
-      defaultProviderProfileId: "profile_default",
-      skillsEnabled: true,
       conversationRetention: "30d",
-      memoriesEnabled: false,
-      memoriesMaxCount: 3,
-      mcpTimeout: 45_000,
-      providerProfiles: settingsResponse.providerProfiles
+      mcpTimeout: 45_000
     });
     expect(body).not.toHaveProperty("autoCompaction");
   });

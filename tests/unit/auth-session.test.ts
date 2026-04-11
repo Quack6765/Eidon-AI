@@ -94,17 +94,25 @@ describe("session lifecycle", () => {
 
   it("updates credentials and invalidates sessions", async () => {
     const auth = await import("@/lib/auth");
-    await auth.ensureAdminBootstrap();
-    const found = await auth.findUserByUsername("admin");
-    const user = found!.user;
+    const { createLocalUser } = await import("@/lib/users");
+    const user = await createLocalUser({
+      username: "captain",
+      password: "starter-secret-123",
+      role: "user"
+    });
 
     const session = await auth.createSession(user.id);
     await auth.setSessionCookie(session.token, session.expiresAt);
-    await auth.updateUsername(user.id, "captain");
+    await auth.updateUsername(user.id, "captain-admin");
     await auth.updatePassword(user.id, "supersecret123");
 
-    expect((await auth.findUserByUsername("captain"))?.user.username).toBe("captain");
-    expect(await auth.verifyPassword("supersecret123", (await auth.findUserByUsername("captain"))!.passwordHash)).toBe(true);
+    expect((await auth.findUserByUsername("captain-admin"))?.user.username).toBe("captain-admin");
+    expect(
+      await auth.verifyPassword(
+        "supersecret123",
+        (await auth.findUserByUsername("captain-admin"))!.passwordHash!
+      )
+    ).toBe(true);
 
     await auth.invalidateAllSessionsForUser(user.id);
 
@@ -130,7 +138,7 @@ describe("session lifecycle", () => {
     const session = await auth.createSession(found!.user.id);
     await auth.setSessionCookie(session.token, session.expiresAt);
 
-    getDb().prepare("DELETE FROM admin_users WHERE id = ?").run(found!.user.id);
+    getDb().prepare("DELETE FROM users WHERE id = ?").run(found!.user.id);
 
     expect(await auth.getCurrentUser()).toBeNull();
     expect(cookieState.get("eidon_session")).toBe(session.token);
@@ -159,6 +167,16 @@ describe("session lifecycle", () => {
 
       vi.resetModules();
     }
+  });
+
+  it("rejects account credential updates for env-managed users", async () => {
+    const auth = await import("@/lib/auth");
+    await auth.ensureAdminBootstrap();
+    const admin = await auth.findUserByUsername("admin");
+
+    await expect(auth.updateOwnPassword(admin!.user, "new-secret-123")).rejects.toThrow(
+      "Env-managed credentials cannot be changed in the UI"
+    );
   });
 
   it("rejects login requests when username/password login is disabled", async () => {

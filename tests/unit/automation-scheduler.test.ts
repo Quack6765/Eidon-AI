@@ -13,6 +13,7 @@ import {
 import { createConversationManager } from "@/lib/conversation-manager";
 import { getConversation } from "@/lib/conversations";
 import { createPersona } from "@/lib/personas";
+import { createLocalUser } from "@/lib/users";
 import type { ChatTurnResult } from "@/lib/chat-turn";
 import type { ProviderProfileWithApiKey } from "@/lib/types";
 
@@ -306,6 +307,52 @@ describe("automation scheduler", () => {
       conversationOrigin: "automation",
       providerProfileId: "profile_scheduler"
     });
+  });
+
+  it("creates manual automation conversations for the owning user", async () => {
+    const { runAutomationNow } = await import("@/lib/automation-scheduler");
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+    const userA = await createLocalUser({
+      username: "scheduler-owner-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "scheduler-owner-b",
+      password: "Password123!",
+      role: "user"
+    });
+
+    const automation = createAutomation(
+      {
+        name: "Owned automation",
+        prompt: "Run privately",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 15,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: []
+      },
+      userA.id
+    );
+
+    const completedRun = await runAutomationNow(automation.id, {
+      manager: createConversationManager(),
+      startChatTurn: vi.fn().mockResolvedValue({ status: "completed" })
+    });
+    if (!completedRun?.conversationId) {
+      throw new Error("Expected a manual run with a conversation");
+    }
+
+    expect(getConversation(completedRun.conversationId!, userA.id)?.conversationOrigin).toBe("automation");
+    expect(getConversation(completedRun.conversationId!, userB.id)).toBeNull();
   });
 
   it("reuses the same in-flight run cycle for concurrent runOnce calls", async () => {

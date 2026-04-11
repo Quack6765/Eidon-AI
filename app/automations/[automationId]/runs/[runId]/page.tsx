@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { getAutomationRun, listAutomations } from "@/lib/automations";
 import { getConversation, listConversationsPage, listVisibleMessages } from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
+import { isPasswordLoginEnabled } from "@/lib/env";
 import { listFolders } from "@/lib/folders";
 import { getSanitizedSettings } from "@/lib/settings";
 
@@ -16,26 +17,28 @@ export default async function AutomationRunPage({
 }: {
   params: Promise<{ automationId: string; runId: string }>;
 }) {
-  await requireUser();
+  const user = await requireUser();
   const { automationId, runId } = await params;
-  const run = getAutomationRun(runId);
+  const run = getAutomationRun(runId, user.id);
 
   if (!run?.conversationId || run.automationId !== automationId) {
     notFound();
   }
 
-  const conversation = getConversation(run.conversationId);
+  const conversation = getConversation(run.conversationId, user.id);
   if (!conversation) {
     notFound();
   }
 
-  const settings = getSanitizedSettings();
+  const settings = getSanitizedSettings(user.id);
 
   return (
     <Shell
-      conversationPage={listConversationsPage()}
-      folders={listFolders()}
-      automations={listAutomations()}
+      currentUser={user}
+      passwordLoginEnabled={isPasswordLoginEnabled()}
+      conversationPage={listConversationsPage({ userId: user.id })}
+      folders={listFolders(user.id)}
+      automations={listAutomations(user.id)}
     >
       <ChatView
         payload={{

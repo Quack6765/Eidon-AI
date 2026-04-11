@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { listPersonas, createPersona, getPersona, deletePersona, updatePersona } from "@/lib/personas";
+import { createLocalUser } from "@/lib/users";
 
 describe("personas", () => {
   describe("listPersonas", () => {
@@ -56,5 +57,24 @@ describe("personas", () => {
       deletePersona(created.id);
       expect(getPersona(created.id)).toBeNull();
     });
+  });
+
+  it("lists only personas owned by the requested user", async () => {
+    const userA = await createLocalUser({
+      username: "persona-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "persona-b",
+      password: "Password123!",
+      role: "user"
+    });
+
+    createPersona({ name: "Admin Persona", content: "A" }, userA.id);
+    createPersona({ name: "Member Persona", content: "B" }, userB.id);
+
+    expect(listPersonas(userA.id).map((persona) => persona.name)).toEqual(["Admin Persona"]);
+    expect(listPersonas(userB.id).map((persona) => persona.name)).toEqual(["Member Persona"]);
   });
 });

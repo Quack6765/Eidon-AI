@@ -6,6 +6,10 @@ export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export type VisionMode = "none" | "native" | "mcp";
 
+export type UserRole = "admin" | "user";
+
+export type AuthSource = "env_super_admin" | "local";
+
 export type AutomationScheduleKind = "interval" | "calendar";
 
 export type AutomationCalendarFrequency = "daily" | "weekly";
@@ -93,7 +97,7 @@ export type ProviderProfileSummary = Omit<
 };
 
 export type AppSettings = {
-  defaultProviderProfileId: string;
+  defaultProviderProfileId: string | null;
   skillsEnabled: boolean;
   conversationRetention: ConversationRetention;
   memoriesEnabled: boolean;
@@ -344,6 +348,18 @@ export type CompactionEvent = {
 export type AuthUser = {
   id: string;
   username: string;
+  role: UserRole;
+  authSource: AuthSource;
+  passwordManagedBy: "env" | "local";
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type PersistedUser = {
+  id: string;
+  username: string;
+  role: UserRole;
+  authSource: AuthSource;
   createdAt: string;
   updatedAt: string;
 };

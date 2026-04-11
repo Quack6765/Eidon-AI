@@ -8,16 +8,24 @@ import { AutomationsNav } from "@/components/automations/automations-nav";
 import { Sidebar } from "@/components/sidebar";
 import { SettingsNav } from "@/components/settings/settings-nav";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
-import type { Automation, Conversation, ConversationListPage, Folder } from "@/lib/types";
+import type { AuthUser, Automation, Conversation, ConversationListPage, Folder } from "@/lib/types";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { useGlobalWebSocket } from "@/lib/ws-client";
 
 export function Shell({
+  currentUser,
+  passwordLoginEnabled,
   conversationPage,
   folders,
   automations,
   children
-}: PropsWithChildren<{ conversationPage: ConversationListPage; folders?: Folder[]; automations?: Automation[] }>) {
+}: PropsWithChildren<{
+  currentUser: AuthUser;
+  passwordLoginEnabled: boolean;
+  conversationPage: ConversationListPage;
+  folders?: Folder[];
+  automations?: Automation[];
+}>) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
@@ -51,7 +59,11 @@ export function Shell({
         }`}
       >
         {isSettingsPage ? (
-          <SettingsNav onCloseAction={() => setIsSidebarOpen(false)} />
+          <SettingsNav
+            currentUser={currentUser}
+            passwordLoginEnabled={passwordLoginEnabled}
+            onCloseAction={() => setIsSidebarOpen(false)}
+          />
         ) : isAutomationsPage ? (
           <AutomationsNav automations={automations ?? []} onCloseAction={() => setIsSidebarOpen(false)} />
         ) : (
@@ -101,11 +113,11 @@ export function Shell({
                   await deleteConversationIfStillEmpty(activeConversationId);
                   const res = await fetch("/api/conversations", { method: "POST" });
                   const data = (await res.json()) as { conversation: Conversation };
-                router.push(`/chat/${data.conversation.id}`);
-              } catch (e) {}
-            }}
-            aria-label="New chat"
-          >
+                  router.push(`/chat/${data.conversation.id}`);
+                } catch {}
+              }}
+              aria-label="New chat"
+            >
               <Plus className="h-5 w-5" />
             </button>
           )}

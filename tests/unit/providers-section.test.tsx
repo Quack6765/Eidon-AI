@@ -265,7 +265,12 @@ describe("providers section", () => {
 
   it("shows compaction threshold as a percent and preserves top-level settings on save", async () => {
     const fetchMock = vi.mocked(global.fetch);
-    const settings = makeSettings();
+    const settings = makeSettings({
+      conversationRetention: "7d",
+      memoriesEnabled: false,
+      memoriesMaxCount: 17,
+      mcpTimeout: 240_000
+    });
 
     fetchMock.mockImplementation((input, init) => {
       const url = String(input);
@@ -277,22 +282,7 @@ describe("providers section", () => {
         } as Response);
       }
 
-      if (url === "/api/settings" && !init) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            settings: {
-              ...settings,
-              conversationRetention: "7d",
-              memoriesEnabled: false,
-              memoriesMaxCount: 17,
-              mcpTimeout: 240_000
-            }
-          })
-        } as Response);
-      }
-
-      if (url === "/api/settings" && init?.method === "PUT") {
+      if (url === "/api/settings/providers" && init?.method === "PUT") {
         return Promise.resolve({
           ok: true,
           json: async () => ({ settings: settings })
@@ -320,10 +310,15 @@ describe("providers section", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/settings", expect.objectContaining({ method: "PUT" }));
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/settings/providers",
+        expect.objectContaining({ method: "PUT" })
+      );
     });
 
-    const putCall = fetchMock.mock.calls.find(([url, init]) => url === "/api/settings" && init?.method === "PUT");
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/api/settings/providers" && init?.method === "PUT"
+    );
     expect(putCall).toBeTruthy();
 
     const body = JSON.parse(String(putCall?.[1]?.body));
@@ -358,14 +353,7 @@ describe("providers section", () => {
         } as Response);
       }
 
-      if (url === "/api/settings" && !init) {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ settings })
-        } as Response);
-      }
-
-      if (url === "/api/settings" && init?.method === "PUT") {
+      if (url === "/api/settings/providers" && init?.method === "PUT") {
         return Promise.resolve({
           ok: true,
           json: async () => ({ settings })
@@ -389,55 +377,17 @@ describe("providers section", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/settings", expect.objectContaining({ method: "PUT" }));
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/settings/providers",
+        expect.objectContaining({ method: "PUT" })
+      );
     });
 
-    const putCall = fetchMock.mock.calls.find(([url, init]) => url === "/api/settings" && init?.method === "PUT");
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/api/settings/providers" && init?.method === "PUT"
+    );
     const body = JSON.parse(String(putCall?.[1]?.body));
 
     expect(body.providerProfiles[0].compactionThreshold).toBe(0.76);
-  });
-
-  it("shows an error and skips save when loading current settings fails", async () => {
-    const fetchMock = vi.mocked(global.fetch);
-    const settings = makeSettings();
-
-    fetchMock.mockImplementation((input, init) => {
-      const url = String(input);
-
-      if (url === "/api/mcp-servers") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ servers: [], models: [] })
-        } as Response);
-      }
-
-      if (url === "/api/settings" && !init) {
-        return Promise.resolve({
-          ok: false,
-          json: async () => ({ error: "Current settings unavailable" })
-        } as Response);
-      }
-
-      return Promise.resolve({
-        ok: true,
-        json: async () => ({})
-      } as Response);
-    });
-
-    const { container } = render(React.createElement(ProvidersSection, { settings }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith("/api/mcp-servers");
-    });
-
-    fireEvent.click(container.querySelectorAll("summary")[0]);
-    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
-
-    await waitFor(() => {
-      expect(screen.getByText("Unable to load current settings")).toBeInTheDocument();
-    });
-
-    expect(fetchMock.mock.calls.some(([url, init]) => url === "/api/settings" && init?.method === "PUT")).toBe(false);
   });
 });

@@ -1,4 +1,3 @@
-import type WebSocket from "ws";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type WebSocket from "ws";
 
@@ -65,6 +64,7 @@ describe("ws-handler", () => {
     const ready = sent.find(s => JSON.parse(s).type === "ready");
     expect(ready).toBeDefined();
     expect(JSON.parse(ready!).type).toBe("ready");
+    expect(listActiveConversations).toHaveBeenCalledWith("user-1");
 
     const subscribeMsg = JSON.stringify({ type: "subscribe", conversationId: "conv-1" });
     for (const handler of messageHandlers) handler(subscribeMsg);
@@ -72,7 +72,7 @@ describe("ws-handler", () => {
     const snapshot = sent.find(s => JSON.parse(s).type === "snapshot");
     expect(snapshot).toBeDefined();
     expect(JSON.parse(snapshot!).conversationId).toBe("conv-1");
-    expect(getConversationSnapshot).toHaveBeenCalledWith("conv-1");
+    expect(getConversationSnapshot).toHaveBeenCalledWith("conv-1", "user-1");
   });
 
   it("routes client stop messages to the turn registry", async () => {

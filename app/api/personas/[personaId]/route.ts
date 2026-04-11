@@ -10,7 +10,7 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ personaId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
   if (!params.success) return badRequest("Invalid persona id");
 
@@ -20,7 +20,7 @@ export async function PATCH(
     content?: string;
   };
 
-  const updated = updatePersona(personaId, body);
+  const updated = updatePersona(personaId, body, user.id);
   if (!updated) return badRequest("Persona not found", 404);
 
   return ok({ persona: updated });
@@ -30,10 +30,10 @@ export async function DELETE(
   _request: Request,
   context: { params: Promise<{ personaId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
   if (!params.success) return badRequest("Invalid persona id");
 
-  deletePersona(params.data.personaId);
+  deletePersona(params.data.personaId, user.id);
   return ok({ success: true });
 }

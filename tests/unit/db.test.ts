@@ -52,6 +52,47 @@ function prepareLegacyDatabase() {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE folders (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE personas (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE user_memories (
+      id TEXT PRIMARY KEY,
+      content TEXT NOT NULL,
+      category TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE automations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      prompt TEXT NOT NULL,
+      provider_profile_id TEXT NOT NULL,
+      persona_id TEXT,
+      schedule_kind TEXT NOT NULL,
+      interval_minutes INTEGER,
+      calendar_frequency TEXT,
+      time_of_day TEXT,
+      days_of_week TEXT NOT NULL DEFAULT '[]',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      next_run_at TEXT,
+      last_scheduled_for TEXT,
+      last_started_at TEXT,
+      last_finished_at TEXT,
+      last_status TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE mcp_servers (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -146,6 +187,55 @@ function prepareLegacyDatabase() {
   db.prepare("INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
     .run("conv_legacy", "Legacy chat", now, now);
 
+  db.prepare("INSERT INTO folders (id, name, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+    .run("folder_legacy", "Legacy folder", 0, now, now);
+  db.prepare("INSERT INTO personas (id, name, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
+    .run("persona_legacy", "Legacy persona", "Persona content", now, now);
+  db.prepare(
+    "INSERT INTO user_memories (id, content, category, created_at, updated_at) VALUES (?, ?, ?, ?, ?)"
+  ).run("memory_legacy", "Memory content", "general", now, now);
+  db.prepare(
+    `INSERT INTO automations (
+      id,
+      name,
+      prompt,
+      provider_profile_id,
+      persona_id,
+      schedule_kind,
+      interval_minutes,
+      calendar_frequency,
+      time_of_day,
+      days_of_week,
+      enabled,
+      next_run_at,
+      last_scheduled_for,
+      last_started_at,
+      last_finished_at,
+      last_status,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    "automation_legacy",
+    "Legacy automation",
+    "Do the thing",
+    "profile_existing",
+    null,
+    "interval",
+    60,
+    null,
+    null,
+    "[]",
+    1,
+    null,
+    null,
+    null,
+    null,
+    null,
+    now,
+    now
+  );
+
   db.prepare(
     "INSERT INTO mcp_servers (id, name, url, headers, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
   ).run("mcp_legacy", "Legacy MCP", "https://mcp.example.com", "{}", 1, now, now);
@@ -188,14 +278,70 @@ describe("db", () => {
     vi.resetModules();
   });
 
+  it("adds multi-user tables and owner columns", async () => {
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+
+    const userColumns = (db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const userSettingsColumns = (
+      db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const conversationColumns = (
+      db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const folderColumns = (db.prepare("PRAGMA table_info(folders)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const personaColumns = (db.prepare("PRAGMA table_info(personas)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const memoryColumns = (
+      db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const legacyAutomationColumns = (
+      db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+
+    expect(userColumns).toEqual(
+      expect.arrayContaining(["username", "role", "auth_source", "password_hash"])
+    );
+    expect(userSettingsColumns).toEqual(
+      expect.arrayContaining([
+        "user_id",
+        "default_provider_profile_id",
+        "conversation_retention",
+        "mcp_timeout"
+      ])
+    );
+    expect(conversationColumns).toContain("user_id");
+    expect(folderColumns).toContain("user_id");
+    expect(personaColumns).toContain("user_id");
+    expect(memoryColumns).toContain("user_id");
+    expect(legacyAutomationColumns).toContain("user_id");
+  });
+
   it("migrates legacy schemas and backfills defaults", async () => {
     prepareLegacyDatabase();
 
     const { getDb } = await import("@/lib/db");
     const db = getDb();
 
+    const userColumns = (db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const userSettingsColumns = (
+      db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
     const conversationColumns = (db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>)
       .map((column) => column.name);
+    const folderColumns = (db.prepare("PRAGMA table_info(folders)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const personaColumns = (db.prepare("PRAGMA table_info(personas)").all() as Array<{ name: string }>)
+      .map((column) => column.name);
+    const memoryColumns = (
+      db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const legacyAutomationColumns = (
+      db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
     const settingsColumns = (db.prepare("PRAGMA table_info(app_settings)").all() as Array<{ name: string }>)
       .map((column) => column.name);
     const mcpColumns = (db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>)
@@ -211,9 +357,13 @@ describe("db", () => {
     const automationRunIndexes = (
       db.prepare("PRAGMA index_list(automation_runs)").all() as Array<{ name: string }>
     ).map((index) => index.name);
+    const authSessionForeignKeys = (
+      db.prepare("PRAGMA foreign_key_list(auth_sessions)").all() as Array<{ table: string }>
+    ).map((row) => row.table);
 
     expect(conversationColumns).toEqual(
       expect.arrayContaining([
+        "user_id",
         "folder_id",
         "sort_order",
         "provider_profile_id",
@@ -224,6 +374,28 @@ describe("db", () => {
         "conversation_origin"
       ])
     );
+    expect(userColumns).toEqual(
+      expect.arrayContaining(["id", "username", "role", "auth_source", "password_hash"])
+    );
+    expect(userSettingsColumns).toEqual(
+      expect.arrayContaining([
+        "user_id",
+        "default_provider_profile_id",
+        "skills_enabled",
+        "conversation_retention",
+        "auto_compaction",
+        "memories_enabled",
+        "memories_max_count",
+        "mcp_timeout",
+        "updated_at"
+      ])
+    );
+    expect(folderColumns).toContain("user_id");
+    expect(personaColumns).toContain("user_id");
+    expect(memoryColumns).toContain("user_id");
+    expect(legacyAutomationColumns).toContain("user_id");
+    expect(authSessionForeignKeys).toContain("users");
+    expect(authSessionForeignKeys).not.toContain("admin_users");
     expect(settingsColumns).toEqual(
       expect.arrayContaining(["default_provider_profile_id", "skills_enabled"])
     );

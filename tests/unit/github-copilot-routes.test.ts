@@ -1,3 +1,5 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
 import { encryptValue } from "@/lib/crypto";
 import {
   getProviderProfile,
@@ -5,19 +7,25 @@ import {
   updateSettings
 } from "@/lib/settings";
 
-import { GET as connect } from "@/app/api/providers/github/connect/route";
-import { GET as callback } from "@/app/api/providers/github/callback/route";
-import { POST as disconnect } from "@/app/api/providers/github/disconnect/route";
-import { GET as models } from "@/app/api/providers/github/models/route";
+const { requireAdminUserMock } = vi.hoisted(() => ({
+  requireAdminUserMock: vi.fn()
+}));
 
 vi.mock("@/lib/auth", () => ({
-  requireUser: vi.fn().mockResolvedValue({
-    id: "user_test",
+  requireAdminUser: requireAdminUserMock
+}));
+
+function buildAdminUser() {
+  return {
+    id: "user_admin",
     username: "admin",
+    role: "admin" as const,
+    authSource: "env_super_admin" as const,
+    passwordManagedBy: "env" as const,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z"
-  })
-}));
+  };
+}
 
 vi.mock("next/navigation", () => ({
   redirect: vi.fn(() => {
@@ -69,7 +77,13 @@ function seedCopilotProfile(overrides: Record<string, unknown> = {}) {
 }
 
 describe("github copilot routes", () => {
+  beforeEach(() => {
+    requireAdminUserMock.mockReset();
+    requireAdminUserMock.mockResolvedValue(buildAdminUser());
+  });
+
   it("rejects connect requests for non-copilot profiles", async () => {
+    const { GET: connect } = await import("@/app/api/providers/github/connect/route");
     const id = seedCopilotProfile();
 
     const response = await connect(
@@ -82,6 +96,7 @@ describe("github copilot routes", () => {
   });
 
   it("rejects callback requests with an invalid state token", async () => {
+    const { GET: callback } = await import("@/app/api/providers/github/callback/route");
     const response = await callback(
       new Request(
         "http://localhost/api/providers/github/callback?code=test-code&state=invalid-state"
@@ -92,6 +107,7 @@ describe("github copilot routes", () => {
   });
 
   it("clears oauth credentials on disconnect", async () => {
+    const { POST: disconnect } = await import("@/app/api/providers/github/disconnect/route");
     const id = seedCopilotProfile({
       githubUserAccessTokenEncrypted: encryptValue("ghu_token"),
       githubTokenExpiresAt: new Date(Date.now() + 60_000).toISOString()
@@ -113,6 +129,7 @@ describe("github copilot routes", () => {
   });
 
   it("rejects model discovery for disconnected profiles", async () => {
+    const { GET: models } = await import("@/app/api/providers/github/models/route");
     const id = seedCopilotProfile();
 
     const response = await models(
@@ -122,5 +139,21 @@ describe("github copilot routes", () => {
     );
 
     expect(response.status).toBe(400);
+  });
+
+  it("returns forbidden for non-admin users", async () => {
+    requireAdminUserMock.mockRejectedValueOnce(new Error("forbidden"));
+    const { POST: disconnect } = await import("@/app/api/providers/github/disconnect/route");
+
+    const response = await disconnect(
+      new Request("http://localhost/api/providers/github/disconnect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerProfileId: "profile_copilot" })
+      })
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "Forbidden" });
   });
 });

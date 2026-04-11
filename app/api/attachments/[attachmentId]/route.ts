@@ -24,7 +24,7 @@ export async function GET(
     return badRequest("Invalid attachment id");
   }
 
-  const attachment = getAttachment(params.data.attachmentId);
+  const attachment = getAttachment(params.data.attachmentId, user.id);
 
   if (!attachment) {
     return badRequest("Attachment not found", 404);
@@ -62,7 +62,7 @@ export async function DELETE(
   }
 
   try {
-    const deleted = deleteAttachmentById(params.data.attachmentId);
+    const deleted = deleteAttachmentById(params.data.attachmentId, { userId: user.id });
     return Response.json({ success: deleted });
   } catch (error) {
     return badRequest(error instanceof Error ? error.message : "Unable to delete attachment");

@@ -22,18 +22,13 @@ export function GeneralSection({ settings }: { settings: AppSettings }) {
     setError("");
     setSuccess("");
 
-    const current = await fetch("/api/settings").then((r) => r.json()) as {
-      settings: AppSettings & { providerProfiles: unknown[] };
-    };
-
-    const response = await fetch("/api/settings", {
+    const response = await fetch("/api/settings/general", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        ...current.settings,
         conversationRetention,
-        mcpTimeout,
-      }),
+        mcpTimeout
+      })
     });
     const result = (await response.json()) as { error?: string };
     if (!response.ok) {

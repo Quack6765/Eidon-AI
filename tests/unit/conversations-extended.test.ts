@@ -9,7 +9,8 @@ import {
 import { createAutomation, createAutomationRun } from "@/lib/automations";
 import { getDb } from "@/lib/db";
 import { createFolder } from "@/lib/folders";
-import { getSettings } from "@/lib/settings";
+import { getSettings, listProviderProfiles } from "@/lib/settings";
+import { createLocalUser } from "@/lib/users";
 
 describe("conversations extended", () => {
   it("creates conversations with folder assignment", () => {
@@ -49,6 +50,66 @@ describe("conversations extended", () => {
     // but the reorder function persists the new sort_order
   });
 
+  it("scopes conversation search results to the requested user", async () => {
+    const userA = await createLocalUser({
+      username: "conversation-search-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "conversation-search-b",
+      password: "Password123!",
+      role: "user"
+    });
+
+    createConversation("Admin Search Match", null, undefined, userA.id);
+    createConversation("Member Search Match", null, undefined, userB.id);
+
+    expect(searchConversations("Search Match", userA.id).map((conversation) => conversation.title)).toEqual([
+      "Admin Search Match"
+    ]);
+    expect(searchConversations("Search Match", userB.id).map((conversation) => conversation.title)).toEqual([
+      "Member Search Match"
+    ]);
+  });
+
+  it("reorders only conversations owned by the requested user", async () => {
+    const userA = await createLocalUser({
+      username: "conversation-reorder-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "conversation-reorder-b",
+      password: "Password123!",
+      role: "user"
+    });
+    const adminFolder = createFolder("Admin Folder", userA.id);
+    createFolder("Member Folder", userB.id);
+    const adminConversation = createConversation("Admin Conversation", null, undefined, userA.id);
+    const memberConversation = createConversation("Member Conversation", null, undefined, userB.id);
+
+    reorderConversations(
+      [
+        { id: adminConversation.id, folderId: adminFolder.id },
+        { id: memberConversation.id, folderId: adminFolder.id }
+      ],
+      userA.id
+    );
+
+    const rows = getDb()
+      .prepare("SELECT id, folder_id FROM conversations WHERE id IN (?, ?)")
+      .all(adminConversation.id, memberConversation.id) as Array<{ id: string; folder_id: string | null }>;
+
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { id: adminConversation.id, folder_id: adminFolder.id },
+        { id: memberConversation.id, folder_id: null }
+      ])
+    );
+    expect(searchConversations("Member Conversation", userB.id)[0]?.folderId).toBeNull();
+  });
+
   it("searches conversations by title", () => {
     createConversation("JavaScript Basics");
     createConversation("Python Advanced");
@@ -76,10 +137,12 @@ describe("conversations extended", () => {
   });
 
   it("excludes automation conversations from manual search results", () => {
+    const defaultProviderProfileId =
+      getSettings().defaultProviderProfileId ?? listProviderProfiles()[0]?.id ?? "";
     const automation = createAutomation({
       name: "Automation",
       prompt: "Run automatically",
-      providerProfileId: getSettings().defaultProviderProfileId,
+      providerProfileId: defaultProviderProfileId,
       personaId: null,
       scheduleKind: "interval",
       intervalMinutes: 5,
@@ -95,7 +158,7 @@ describe("conversations extended", () => {
 
     createConversation("Manual Chat");
     createConversation("Automation Chat", null, {
-      providerProfileId: getSettings().defaultProviderProfileId,
+      providerProfileId: defaultProviderProfileId,
       origin: "automation",
       automationId: automation.id,
       automationRunId: automationRun.id

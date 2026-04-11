@@ -8,6 +8,7 @@ import {
   getAttachmentDataUrl
 } from "@/lib/attachments";
 import { bindAttachmentsToMessage, createConversation, createMessage } from "@/lib/conversations";
+import { createLocalUser } from "@/lib/users";
 
 describe("attachment helpers", () => {
   it("stores attachments on disk and returns metadata", () => {
@@ -26,6 +27,31 @@ describe("attachment helpers", () => {
     expect(
       fs.existsSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath))
     ).toBe(true);
+  });
+
+  it("scopes attachments to the requested user", async () => {
+    const userA = await createLocalUser({
+      username: "attachment-owner-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "attachment-owner-b",
+      password: "Password123!",
+      role: "user"
+    });
+    const conversation = createConversation("Scoped attachment chat", null, undefined, userA.id);
+    const [attachment] = createAttachments(conversation.id, [
+      {
+        filename: "private.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("private", "utf8")
+      }
+    ]);
+
+    expect(getAttachment(attachment.id, userA.id)?.filename).toBe("private.txt");
+    expect(getAttachment(attachment.id, userB.id)).toBeNull();
+    expect(deleteAttachmentById(attachment.id, { userId: userB.id })).toBe(false);
   });
 
   it("builds data urls for image attachments", () => {

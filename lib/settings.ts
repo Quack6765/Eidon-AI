@@ -110,7 +110,19 @@ const settingsSchema = z
   });
 
 type AppSettingsRow = {
-  default_provider_profile_id: string;
+  default_provider_profile_id: string | null;
+  skills_enabled: number;
+  conversation_retention: string;
+  auto_compaction: number;
+  memories_enabled: number;
+  memories_max_count: number;
+  mcp_timeout: number;
+  updated_at: string;
+};
+
+type UserSettingsRow = {
+  user_id: string;
+  default_provider_profile_id: string | null;
   skills_enabled: number;
   conversation_retention: string;
   auto_compaction: number;
@@ -156,7 +168,7 @@ type ProviderProfileRow = {
 
 function rowToSettings(row: AppSettingsRow): AppSettings {
   return {
-    defaultProviderProfileId: row.default_provider_profile_id,
+    defaultProviderProfileId: row.default_provider_profile_id || null,
     skillsEnabled: Boolean(row.skills_enabled),
     conversationRetention: row.conversation_retention as AppSettings["conversationRetention"],
     memoriesEnabled: Boolean(row.memories_enabled),
@@ -383,6 +395,83 @@ export function getSettings() {
   return rowToSettings(row);
 }
 
+function ensureUserSettingsRow(userId: string) {
+  const settings = getDb()
+    .prepare(
+      `SELECT
+        default_provider_profile_id,
+        skills_enabled,
+        conversation_retention,
+        auto_compaction,
+        memories_enabled,
+        memories_max_count,
+        mcp_timeout,
+        updated_at
+      FROM app_settings
+      WHERE id = ?`
+    )
+    .get(SETTINGS_ROW_ID) as AppSettingsRow;
+
+  getDb()
+    .prepare(
+      `INSERT OR IGNORE INTO user_settings (
+        user_id,
+        default_provider_profile_id,
+        skills_enabled,
+        conversation_retention,
+        auto_compaction,
+        memories_enabled,
+        memories_max_count,
+        mcp_timeout,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      userId,
+      settings.default_provider_profile_id,
+      settings.skills_enabled,
+      settings.conversation_retention,
+      settings.auto_compaction,
+      settings.memories_enabled,
+      settings.memories_max_count,
+      settings.mcp_timeout,
+      new Date().toISOString()
+    );
+}
+
+function getUserSettingsRow(userId: string) {
+  ensureUserSettingsRow(userId);
+
+  return getDb()
+    .prepare(
+      `SELECT
+        user_id,
+        default_provider_profile_id,
+        skills_enabled,
+        conversation_retention,
+        auto_compaction,
+        memories_enabled,
+        memories_max_count,
+        mcp_timeout,
+        updated_at
+      FROM user_settings
+      WHERE user_id = ?`
+    )
+    .get(userId) as UserSettingsRow;
+}
+
+export function getSettingsForUser(userId: string): AppSettings {
+  const globalSettings = getSettings();
+  const row = getUserSettingsRow(userId);
+  const userSettings = rowToSettings(row);
+
+  return {
+    ...userSettings,
+    defaultProviderProfileId: globalSettings.defaultProviderProfileId,
+    skillsEnabled: globalSettings.skillsEnabled
+  };
+}
+
 export function listProviderProfiles() {
   return listProviderProfileRows().map(rowToProviderProfile);
 }
@@ -403,16 +492,20 @@ export function getProviderProfileWithApiKey(profileId: string) {
 
 export function getDefaultProviderProfile() {
   const settings = getSettings();
-  return getProviderProfile(settings.defaultProviderProfileId);
+  return settings.defaultProviderProfileId
+    ? getProviderProfile(settings.defaultProviderProfileId)
+    : null;
 }
 
 export function getDefaultProviderProfileWithApiKey() {
   const settings = getSettings();
-  return getProviderProfileWithApiKey(settings.defaultProviderProfileId);
+  return settings.defaultProviderProfileId
+    ? getProviderProfileWithApiKey(settings.defaultProviderProfileId)
+    : null;
 }
 
-export function getSanitizedSettings() {
-  const settings = getSettings();
+export function getSanitizedSettings(userId?: string) {
+  const settings = userId ? getSettingsForUser(userId) : getSettings();
   const providerProfiles = listProviderProfiles().map((profile) => {
     const {
       apiKeyEncrypted: _apiKeyEncrypted,
@@ -437,6 +530,48 @@ export function getSanitizedSettings() {
     ...settings,
     providerProfiles
   };
+}
+
+export function updateGeneralSettingsForUser(
+  userId: string,
+  input: Partial<
+    Pick<
+      AppSettings,
+      "conversationRetention" | "memoriesEnabled" | "memoriesMaxCount" | "mcpTimeout"
+    >
+  >
+) {
+  const current = getSettingsForUser(userId);
+  const next = {
+    ...current,
+    ...input,
+    updatedAt: new Date().toISOString()
+  };
+
+  getDb()
+    .prepare(
+      `UPDATE user_settings
+       SET default_provider_profile_id = ?,
+           skills_enabled = ?,
+           conversation_retention = ?,
+           memories_enabled = ?,
+           memories_max_count = ?,
+           mcp_timeout = ?,
+           updated_at = ?
+       WHERE user_id = ?`
+    )
+    .run(
+      current.defaultProviderProfileId,
+      current.skillsEnabled ? 1 : 0,
+      next.conversationRetention,
+      next.memoriesEnabled ? 1 : 0,
+      next.memoriesMaxCount,
+      next.mcpTimeout,
+      next.updatedAt,
+      userId
+    );
+
+  return getSettingsForUser(userId);
 }
 
 export function updateSettings(input: unknown) {
@@ -635,6 +770,10 @@ export function updateSettings(input: unknown) {
   transaction();
 
   return getSanitizedSettings();
+}
+
+export function updateProviderCatalog(input: unknown) {
+  return updateSettings(input);
 }
 
 export function getSettingsDefaults() {

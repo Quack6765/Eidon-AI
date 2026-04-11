@@ -1,8 +1,18 @@
-import { badRequest, ok } from "@/lib/http";
+import { requireAdminUser } from "@/lib/auth";
+import { badRequest, forbidden, ok } from "@/lib/http";
 import { getGithubConnectionStatus, listGithubCopilotModels } from "@/lib/github-copilot";
 import { getProviderProfileWithApiKey } from "@/lib/settings";
 
 export async function GET(request: Request) {
+  try {
+    await requireAdminUser();
+  } catch (error) {
+    if (error instanceof Error && error.message === "forbidden") {
+      return forbidden();
+    }
+    throw error;
+  }
+
   const url = new URL(request.url);
   const providerProfileId = url.searchParams.get("providerProfileId");
 

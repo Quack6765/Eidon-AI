@@ -11,6 +11,7 @@ import {
   updateConversationProviderProfile
 } from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
+import { getFolder } from "@/lib/folders";
 import { badRequest, ok } from "@/lib/http";
 import { getProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
@@ -23,14 +24,14 @@ export async function GET(
   _request: Request,
   context: { params: Promise<{ conversationId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
 
   if (!params.success) {
     return badRequest("Invalid conversation id");
   }
 
-  const conversation = getConversation(params.data.conversationId);
+  const conversation = getConversation(params.data.conversationId, user.id);
 
   if (!conversation) {
     return badRequest("Conversation not found", 404);
@@ -47,7 +48,7 @@ export async function DELETE(
   request: Request,
   context: { params: Promise<{ conversationId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
 
   if (!params.success) {
@@ -57,15 +58,15 @@ export async function DELETE(
   const onlyIfEmptyParam = new URL(request.url).searchParams.get("onlyIfEmpty");
   const onlyIfEmpty = onlyIfEmptyParam === "1" || onlyIfEmptyParam === "true";
   const deleted = onlyIfEmpty
-    ? deleteConversationIfEmpty(params.data.conversationId)
-    : (deleteConversation(params.data.conversationId), true);
+    ? deleteConversationIfEmpty(params.data.conversationId, user.id)
+    : (deleteConversation(params.data.conversationId, user.id), true);
 
   if (deleted) {
     try {
       getConversationManager().broadcastAll({
         type: "conversation_deleted",
         conversationId: params.data.conversationId
-      });
+      }, user.id);
     } catch { /* WS server may not be running */ }
   }
 
@@ -90,7 +91,7 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ conversationId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
 
   if (!params.success) {
@@ -103,14 +104,18 @@ export async function PATCH(
     return badRequest("Invalid conversation update");
   }
 
-  const conversation = getConversation(params.data.conversationId);
+  const conversation = getConversation(params.data.conversationId, user.id);
 
   if (!conversation) {
     return badRequest("Conversation not found", 404);
   }
 
   if (body.data.folderId !== undefined) {
-    moveConversationToFolder(conversation.id, body.data.folderId);
+    if (body.data.folderId && !getFolder(body.data.folderId, user.id)) {
+      return badRequest("Folder not found", 404);
+    }
+
+    moveConversationToFolder(conversation.id, body.data.folderId, user.id);
   }
 
   if (body.data.providerProfileId !== undefined) {
@@ -120,14 +125,14 @@ export async function PATCH(
       return badRequest("Provider profile not found", 404);
     }
 
-    updateConversationProviderProfile(conversation.id, providerProfile.id);
+    updateConversationProviderProfile(conversation.id, providerProfile.id, user.id);
   }
 
   if (body.data.isActive !== undefined) {
     setConversationActive(conversation.id, body.data.isActive);
   }
 
-  const updated = getConversation(conversation.id);
+  const updated = getConversation(conversation.id, user.id);
 
   try {
     getConversationManager().broadcastAll({
@@ -139,7 +144,7 @@ export async function PATCH(
         updatedAt: updated!.updatedAt,
         isActive: updated!.isActive
       }
-    });
+    }, user.id);
   } catch { /* WS server may not be running */ }
 
   return ok({ conversation: updated });

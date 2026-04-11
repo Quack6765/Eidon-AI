@@ -216,39 +216,63 @@ function decodeConversationCursor(cursor: string): ConversationCursor {
   };
 }
 
-export function listConversations() {
+export function listConversations(userId?: string) {
   const activityTimestamp = conversationActivityTimestampSql("c");
-  const rows = getDb()
-    .prepare(
-      `SELECT
-        c.id,
-        c.title,
-        c.title_generation_status,
-        c.folder_id,
-        c.provider_profile_id,
-        c.automation_id,
-        c.automation_run_id,
-        c.conversation_origin,
-        c.sort_order,
-        c.created_at,
-        ${activityTimestamp} AS updated_at,
-        c.is_active
-       FROM conversations c
-       WHERE c.conversation_origin = ?
-       ORDER BY ${activityTimestamp} DESC, c.id DESC`
-    )
-    .all(MANUAL_CONVERSATION_ORIGIN) as ConversationRow[];
+  const rows = (userId
+    ? getDb()
+        .prepare(
+          `SELECT
+            c.id,
+            c.title,
+            c.title_generation_status,
+            c.folder_id,
+            c.provider_profile_id,
+            c.automation_id,
+            c.automation_run_id,
+            c.conversation_origin,
+            c.sort_order,
+            c.created_at,
+            ${activityTimestamp} AS updated_at,
+            c.is_active
+           FROM conversations c
+           WHERE c.user_id = ?
+             AND c.conversation_origin = ?
+           ORDER BY ${activityTimestamp} DESC, c.id DESC`
+        )
+        .all(userId, MANUAL_CONVERSATION_ORIGIN)
+    : getDb()
+        .prepare(
+          `SELECT
+            c.id,
+            c.title,
+            c.title_generation_status,
+            c.folder_id,
+            c.provider_profile_id,
+            c.automation_id,
+            c.automation_run_id,
+            c.conversation_origin,
+            c.sort_order,
+            c.created_at,
+            ${activityTimestamp} AS updated_at,
+            c.is_active
+           FROM conversations c
+           WHERE c.conversation_origin = ?
+           ORDER BY ${activityTimestamp} DESC, c.id DESC`
+        )
+        .all(MANUAL_CONVERSATION_ORIGIN)) as ConversationRow[];
 
   return rows.map(rowToConversation);
 }
 
 export function listConversationsPage(input: {
+  userId?: string;
   limit?: number;
   cursor?: string | null;
 } = {}): ConversationListPage {
   const limit = input.limit ?? DEFAULT_CONVERSATION_PAGE_SIZE;
   const cursor = input.cursor ? decodeConversationCursor(input.cursor) : null;
   const activityTimestamp = conversationActivityTimestampSql("c");
+  const userCondition = input.userId ? "c.user_id = ? AND " : "";
 
   const rows = cursor
     ? (getDb()
@@ -267,7 +291,7 @@ export function listConversationsPage(input: {
            ${activityTimestamp} AS updated_at,
            c.is_active
            FROM conversations c
-           WHERE c.conversation_origin = ?
+           WHERE ${userCondition}c.conversation_origin = ?
              AND (
                ${activityTimestamp} < ?
                OR (${activityTimestamp} = ? AND c.id < ?)
@@ -276,6 +300,7 @@ export function listConversationsPage(input: {
            LIMIT ?`
         )
         .all(
+          ...(input.userId ? [input.userId] : []),
           MANUAL_CONVERSATION_ORIGIN,
           cursor.updatedAt,
           cursor.updatedAt,
@@ -298,11 +323,11 @@ export function listConversationsPage(input: {
             ${activityTimestamp} AS updated_at,
             c.is_active
            FROM conversations c
-           WHERE c.conversation_origin = ?
+           WHERE ${userCondition}c.conversation_origin = ?
            ORDER BY ${activityTimestamp} DESC, c.id DESC
            LIMIT ?`
         )
-        .all(MANUAL_CONVERSATION_ORIGIN, limit + 1) as ConversationRow[]);
+        .all(...(input.userId ? [input.userId] : []), MANUAL_CONVERSATION_ORIGIN, limit + 1) as ConversationRow[]);
 
   const hasMore = rows.length > limit;
   const conversations = rows.slice(0, limit).map(rowToConversation);
@@ -320,29 +345,57 @@ export function listConversationsPage(input: {
   };
 }
 
-export function getConversation(conversationId: string) {
+export function getConversation(conversationId: string, userId?: string) {
   const activityTimestamp = conversationActivityTimestampSql("c");
-  const row = getDb()
-    .prepare(
-      `SELECT
-        c.id,
-        c.title,
-        c.title_generation_status,
-        c.folder_id,
-        c.provider_profile_id,
-        c.automation_id,
-        c.automation_run_id,
-        c.conversation_origin,
-        c.sort_order,
-        c.created_at,
-        ${activityTimestamp} AS updated_at,
-        c.is_active
-       FROM conversations c
-       WHERE c.id = ?`
-    )
-    .get(conversationId) as ConversationRow | undefined;
+  const row = (userId
+    ? getDb()
+        .prepare(
+          `SELECT
+            c.id,
+            c.title,
+            c.title_generation_status,
+            c.folder_id,
+            c.provider_profile_id,
+            c.automation_id,
+            c.automation_run_id,
+            c.conversation_origin,
+            c.sort_order,
+            c.created_at,
+            ${activityTimestamp} AS updated_at,
+            c.is_active
+           FROM conversations c
+           WHERE c.id = ? AND c.user_id = ?`
+        )
+        .get(conversationId, userId)
+    : getDb()
+        .prepare(
+          `SELECT
+            c.id,
+            c.title,
+            c.title_generation_status,
+            c.folder_id,
+            c.provider_profile_id,
+            c.automation_id,
+            c.automation_run_id,
+            c.conversation_origin,
+            c.sort_order,
+            c.created_at,
+            ${activityTimestamp} AS updated_at,
+            c.is_active
+           FROM conversations c
+           WHERE c.id = ?`
+        )
+        .get(conversationId)) as ConversationRow | undefined;
 
   return row ? rowToConversation(row) : null;
+}
+
+export function getConversationOwnerId(conversationId: string) {
+  const row = getDb()
+    .prepare("SELECT user_id FROM conversations WHERE id = ?")
+    .get(conversationId) as { user_id: string | null } | undefined;
+
+  return row?.user_id ?? null;
 }
 
 export function createConversation(
@@ -353,15 +406,20 @@ export function createConversation(
     origin?: ConversationOrigin;
     automationId?: string | null;
     automationRunId?: string | null;
-  }
+  },
+  userId?: string
 ) {
   const timestamp = nowIso();
   const settings = getSettings();
   const trimmedTitle = title?.trim() ?? "";
 
-  const maxOrder = getDb()
-    .prepare("SELECT COALESCE(MAX(sort_order), -1) as max_order FROM conversations")
-    .get() as { max_order: number };
+  const maxOrder = (userId
+    ? getDb()
+        .prepare("SELECT COALESCE(MAX(sort_order), -1) as max_order FROM conversations WHERE user_id = ?")
+        .get(userId)
+    : getDb()
+        .prepare("SELECT COALESCE(MAX(sort_order), -1) as max_order FROM conversations")
+        .get()) as { max_order: number };
 
   const conversation = {
     id: createId("conv"),
@@ -384,6 +442,7 @@ export function createConversation(
         id,
         title,
         title_generation_status,
+        user_id,
         folder_id,
         provider_profile_id,
         automation_id,
@@ -393,12 +452,13 @@ export function createConversation(
         created_at,
         updated_at,
         is_active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       conversation.id,
       conversation.title,
       conversation.titleGenerationStatus,
+      userId ?? null,
       conversation.folderId,
       conversation.providerProfileId,
       conversation.automationId,
@@ -419,7 +479,11 @@ function deleteConversationRecord(conversationId: string) {
   return getDb().prepare("DELETE FROM conversations WHERE id = ?").run(conversationId).changes > 0;
 }
 
-export function deleteConversation(conversationId: string) {
+export function deleteConversation(conversationId: string, userId?: string) {
+  if (userId && !getConversation(conversationId, userId)) {
+    return;
+  }
+
   const transaction = getDb().transaction((id: string) => {
     deleteConversationRecord(id);
   });
@@ -427,11 +491,15 @@ export function deleteConversation(conversationId: string) {
   transaction(conversationId);
 }
 
-export function deleteConversationIfEmpty(conversationId: string) {
+export function deleteConversationIfEmpty(conversationId: string, userId?: string) {
   const transaction = getDb().transaction((id: string) => {
-    const conversation = getDb()
-      .prepare("SELECT id FROM conversations WHERE id = ?")
-      .get(id) as { id: string } | undefined;
+    const conversation = (userId
+      ? getDb()
+          .prepare("SELECT id FROM conversations WHERE id = ? AND user_id = ?")
+          .get(id, userId)
+      : getDb()
+          .prepare("SELECT id FROM conversations WHERE id = ?")
+          .get(id)) as { id: string } | undefined;
 
     if (!conversation) {
       return false;
@@ -802,39 +870,64 @@ export type ConversationSnapshot = {
   messages: Message[];
 };
 
-export function getConversationSnapshot(conversationId: string): ConversationSnapshot | null {
-  const conversation = getConversation(conversationId);
+export function getConversationSnapshot(conversationId: string, userId?: string): ConversationSnapshot | null {
+  const conversation = getConversation(conversationId, userId);
   if (!conversation) return null;
   const messages = listVisibleMessages(conversationId);
   return { conversation, messages };
 }
 
-export function listActiveConversations(): Array<{ id: string; title: string; isActive: boolean }> {
+export function listActiveConversations(userId?: string): Array<{ id: string; title: string; isActive: boolean }> {
   const db = getDb();
-  const rows = db
-    .prepare("SELECT id, title, is_active FROM conversations WHERE is_active = 1 ORDER BY updated_at DESC")
-    .all() as Array<{ id: string; title: string; is_active: number }>;
+  const rows = (userId
+    ? db
+        .prepare(
+          "SELECT id, title, is_active FROM conversations WHERE is_active = 1 AND user_id = ? ORDER BY updated_at DESC"
+        )
+        .all(userId)
+    : db
+        .prepare("SELECT id, title, is_active FROM conversations WHERE is_active = 1 ORDER BY updated_at DESC")
+        .all()) as Array<{ id: string; title: string; is_active: number }>;
   return rows.map(r => ({ id: r.id, title: r.title, isActive: Boolean(r.is_active) }));
 }
 
-export function getMessage(messageId: string) {
-  const row = getDb()
-    .prepare(
-      `SELECT
-        id,
-        conversation_id,
-        role,
-        content,
-        thinking_content,
-        status,
-        estimated_tokens,
-        system_kind,
-        compacted_at,
-        created_at
-       FROM messages
-       WHERE id = ?`
-    )
-    .get(messageId) as
+export function getMessage(messageId: string, userId?: string) {
+  const row = (userId
+    ? getDb()
+        .prepare(
+          `SELECT
+            m.id,
+            m.conversation_id,
+            m.role,
+            m.content,
+            m.thinking_content,
+            m.status,
+            m.estimated_tokens,
+            m.system_kind,
+            m.compacted_at,
+            m.created_at
+           FROM messages m
+           JOIN conversations c ON c.id = m.conversation_id
+           WHERE m.id = ? AND c.user_id = ?`
+        )
+        .get(messageId, userId)
+    : getDb()
+        .prepare(
+          `SELECT
+            id,
+            conversation_id,
+            role,
+            content,
+            thinking_content,
+            status,
+            estimated_tokens,
+            system_kind,
+            compacted_at,
+            created_at
+           FROM messages
+           WHERE id = ?`
+        )
+        .get(messageId)) as
     | {
         id: string;
         conversation_id: string;
@@ -1151,11 +1244,12 @@ export async function generateConversationTitleFromFirstUserMessage(
       const currentConversation = getConversation(conversationId);
       if (currentConversation) {
         try {
+          const conversationOwnerId = getConversationOwnerId(conversationId);
           getConversationManager().broadcastAll({
             type: "conversation_title_updated",
             conversationId,
             title: DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE
-          });
+          }, conversationOwnerId ?? undefined);
         } catch { /* WS server may not be running */ }
       }
 
@@ -1187,11 +1281,12 @@ export async function generateConversationTitleFromFirstUserMessage(
     completeConversationTitleGeneration(conversationId, title);
 
     try {
+      const conversationOwnerId = getConversationOwnerId(conversationId);
       getConversationManager().broadcastAll({
         type: "conversation_title_updated",
         conversationId,
         title
-      });
+      }, conversationOwnerId ?? undefined);
     } catch { /* WS server may not be running */ }
 
     return true;
@@ -1201,8 +1296,17 @@ export async function generateConversationTitleFromFirstUserMessage(
   }
 }
 
-export function moveConversationToFolder(conversationId: string, folderId: string | null) {
+export function moveConversationToFolder(conversationId: string, folderId: string | null, userId?: string) {
   const timestamp = nowIso();
+  if (userId) {
+    getDb()
+      .prepare(
+        `UPDATE conversations SET folder_id = ?, updated_at = ? WHERE id = ? AND user_id = ?`
+      )
+      .run(folderId, timestamp, conversationId, userId);
+    return;
+  }
+
   getDb()
     .prepare(
       `UPDATE conversations SET folder_id = ?, updated_at = ? WHERE id = ?`
@@ -1212,9 +1316,21 @@ export function moveConversationToFolder(conversationId: string, folderId: strin
 
 export function updateConversationProviderProfile(
   conversationId: string,
-  providerProfileId: string
+  providerProfileId: string,
+  userId?: string
 ) {
   const timestamp = nowIso();
+  if (userId) {
+    getDb()
+      .prepare(
+        `UPDATE conversations
+         SET provider_profile_id = ?, updated_at = ?
+         WHERE id = ? AND user_id = ?`
+      )
+      .run(providerProfileId, timestamp, conversationId, userId);
+    return;
+  }
+
   getDb()
     .prepare(
       `UPDATE conversations
@@ -1224,14 +1340,27 @@ export function updateConversationProviderProfile(
     .run(providerProfileId, timestamp, conversationId);
 }
 
-export function reorderConversations(items: Array<{ id: string; folderId: string | null }>) {
-  const statement = getDb()
-    .prepare("UPDATE conversations SET sort_order = ?, folder_id = ?, updated_at = ? WHERE id = ?");
+export function reorderConversations(
+  items: Array<{ id: string; folderId: string | null }>,
+  userId?: string
+) {
+  const statement = userId
+    ? getDb()
+        .prepare(
+          "UPDATE conversations SET sort_order = ?, folder_id = ?, updated_at = ? WHERE id = ? AND user_id = ?"
+        )
+    : getDb()
+        .prepare("UPDATE conversations SET sort_order = ?, folder_id = ?, updated_at = ? WHERE id = ?");
 
   const timestamp = nowIso();
   const transaction = getDb().transaction(
     (entries: Array<{ id: string; folderId: string | null; sortOrder: number }>) => {
       entries.forEach((entry) => {
+        if (userId) {
+          statement.run(entry.sortOrder, entry.folderId, timestamp, entry.id, userId);
+          return;
+        }
+
         statement.run(entry.sortOrder, entry.folderId, timestamp, entry.id);
       });
     }
@@ -1246,9 +1375,10 @@ export function reorderConversations(items: Array<{ id: string; folderId: string
   );
 }
 
-export function searchConversations(query: string) {
+export function searchConversations(query: string, userId?: string) {
   const likeQuery = `%${query}%`;
   const activityTimestamp = conversationActivityTimestampSql("c");
+  const userCondition = userId ? "c.user_id = ? AND " : "";
 
   const rows = getDb()
     .prepare(
@@ -1267,7 +1397,7 @@ export function searchConversations(query: string) {
         c.is_active
        FROM conversations c
        LEFT JOIN messages m ON c.id = m.conversation_id
-       WHERE c.conversation_origin = ?
+       WHERE ${userCondition}c.conversation_origin = ?
          AND (
            c.title LIKE ?
            OR (
@@ -1277,7 +1407,7 @@ export function searchConversations(query: string) {
          )
        ORDER BY ${activityTimestamp} DESC, c.id DESC`
     )
-    .all(MANUAL_CONVERSATION_ORIGIN, likeQuery, likeQuery) as ConversationRow[];
+    .all(...(userId ? [userId] : []), MANUAL_CONVERSATION_ORIGIN, likeQuery, likeQuery) as ConversationRow[];
 
   return rows.map(rowToConversation);
 }

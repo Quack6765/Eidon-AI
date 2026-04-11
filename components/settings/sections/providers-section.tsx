@@ -79,11 +79,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const [success, setSuccess] = useState("");
   const [testResult, setTestResult] = useState("");
   const [defaultProviderProfileId, setDefaultProviderProfileId] = useState(
-    settings.defaultProviderProfileId
+    settings.defaultProviderProfileId ?? settings.providerProfiles[0]?.id ?? ""
   );
   const [skillsEnabled, setSkillsEnabled] = useState(settings.skillsEnabled);
   const [selectedProviderProfileId, setSelectedProviderProfileId] = useState(
-    settings.defaultProviderProfileId
+    settings.defaultProviderProfileId ?? settings.providerProfiles[0]?.id ?? ""
   );
   const [providerProfiles, setProviderProfiles] = useState<ProviderProfileDraft[]>(
     settings.providerProfiles.map((profile) => ({
@@ -221,15 +221,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   }
 
   async function buildSettingsPayload() {
-    const currentResponse = await fetch("/api/settings");
-    if (!currentResponse.ok) {
-      throw new Error("Unable to load current settings");
-    }
-
-    const currentPayload = (await currentResponse.json()) as { settings: SettingsPayload };
-
     return {
-      ...currentPayload.settings,
+      ...settings,
       defaultProviderProfileId,
       skillsEnabled,
       providerProfiles: providerProfiles.map((profile) => ({
@@ -265,24 +258,19 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   }
 
   async function saveSettings() {
-    try {
-      const response = await fetch("/api/settings", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(await buildSettingsPayload())
-      });
+    const response = await fetch("/api/settings/providers", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(await buildSettingsPayload())
+    });
 
-      const result = (await response.json()) as { error?: string };
-      if (!response.ok) {
-        setError(result.error ?? "Unable to save settings");
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Unable to save settings");
+    const result = (await response.json()) as { error?: string };
+    if (!response.ok) {
+      setError(result.error ?? "Unable to save settings");
       return false;
     }
+
+    return true;
   }
 
   async function handleSettings(event: FormEvent<HTMLFormElement>) {

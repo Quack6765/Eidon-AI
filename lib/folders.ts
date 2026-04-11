@@ -22,14 +22,23 @@ function rowToFolder(row: {
   };
 }
 
-export function listFolders() {
-  const rows = getDb()
-    .prepare(
-      `SELECT id, name, sort_order, created_at, updated_at
-       FROM folders
-       ORDER BY sort_order ASC, created_at ASC`
-    )
-    .all() as Array<{
+export function listFolders(userId?: string) {
+  const rows = (userId
+    ? getDb()
+        .prepare(
+          `SELECT id, name, sort_order, created_at, updated_at
+           FROM folders
+           WHERE user_id = ?
+           ORDER BY sort_order ASC, created_at ASC`
+        )
+        .all(userId)
+    : getDb()
+        .prepare(
+          `SELECT id, name, sort_order, created_at, updated_at
+           FROM folders
+           ORDER BY sort_order ASC, created_at ASC`
+        )
+        .all()) as Array<{
     id: string;
     name: string;
     sort_order: number;
@@ -40,14 +49,22 @@ export function listFolders() {
   return rows.map(rowToFolder);
 }
 
-export function getFolder(folderId: string) {
-  const row = getDb()
-    .prepare(
-      `SELECT id, name, sort_order, created_at, updated_at
-       FROM folders
-       WHERE id = ?`
-    )
-    .get(folderId) as
+export function getFolder(folderId: string, userId?: string) {
+  const row = (userId
+    ? getDb()
+        .prepare(
+          `SELECT id, name, sort_order, created_at, updated_at
+           FROM folders
+           WHERE id = ? AND user_id = ?`
+        )
+        .get(folderId, userId)
+    : getDb()
+        .prepare(
+          `SELECT id, name, sort_order, created_at, updated_at
+           FROM folders
+           WHERE id = ?`
+        )
+        .get(folderId)) as
     | {
         id: string;
         name: string;
@@ -60,12 +77,16 @@ export function getFolder(folderId: string) {
   return row ? rowToFolder(row) : null;
 }
 
-export function createFolder(name: string) {
+export function createFolder(name: string, userId?: string) {
   const timestamp = nowIso();
 
-  const maxOrder = getDb()
-    .prepare("SELECT COALESCE(MAX(sort_order), -1) as max_order FROM folders")
-    .get() as { max_order: number };
+  const maxOrder = (userId
+    ? getDb()
+        .prepare("SELECT COALESCE(MAX(sort_order), -1) as max_order FROM folders WHERE user_id = ?")
+        .get(userId)
+    : getDb()
+        .prepare("SELECT COALESCE(MAX(sort_order), -1) as max_order FROM folders")
+        .get()) as { max_order: number };
 
   const folder = {
     id: createId("folder"),
@@ -77,16 +98,25 @@ export function createFolder(name: string) {
 
   getDb()
     .prepare(
-      `INSERT INTO folders (id, name, sort_order, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`
+      `INSERT INTO folders (id, name, user_id, sort_order, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?)`
     )
-    .run(folder.id, folder.name, folder.sortOrder, folder.createdAt, folder.updatedAt);
+    .run(folder.id, folder.name, userId ?? null, folder.sortOrder, folder.createdAt, folder.updatedAt);
 
   return folder;
 }
 
-export function renameFolder(folderId: string, name: string) {
+export function renameFolder(folderId: string, name: string, userId?: string) {
   const timestamp = nowIso();
+  if (userId) {
+    getDb()
+      .prepare(
+        `UPDATE folders SET name = ?, updated_at = ? WHERE id = ? AND user_id = ?`
+      )
+      .run(name, timestamp, folderId, userId);
+    return;
+  }
+
   getDb()
     .prepare(
       `UPDATE folders SET name = ?, updated_at = ? WHERE id = ?`
@@ -94,26 +124,40 @@ export function renameFolder(folderId: string, name: string) {
     .run(name, timestamp, folderId);
 }
 
-export function deleteFolder(folderId: string) {
+export function deleteFolder(folderId: string, userId?: string) {
+  if (userId) {
+    getDb().prepare("DELETE FROM folders WHERE id = ? AND user_id = ?").run(folderId, userId);
+    return;
+  }
+
   getDb().prepare("DELETE FROM folders WHERE id = ?").run(folderId);
 }
 
-export function getFolderConversationCount(folderId: string) {
-  const result = getDb()
-    .prepare("SELECT COUNT(*) as count FROM conversations WHERE folder_id = ?")
-    .get(folderId) as { count: number };
+export function getFolderConversationCount(folderId: string, userId?: string) {
+  const result = (userId
+    ? getDb()
+        .prepare("SELECT COUNT(*) as count FROM conversations WHERE folder_id = ? AND user_id = ?")
+        .get(folderId, userId)
+    : getDb()
+        .prepare("SELECT COUNT(*) as count FROM conversations WHERE folder_id = ?")
+        .get(folderId)) as { count: number };
 
   return result.count;
 }
 
-export function reorderFolders(folderIds: string[]) {
-  const statement = getDb()
-    .prepare("UPDATE folders SET sort_order = ?, updated_at = ? WHERE id = ?");
+export function reorderFolders(folderIds: string[], userId?: string) {
+  const statement = userId
+    ? getDb().prepare("UPDATE folders SET sort_order = ?, updated_at = ? WHERE id = ? AND user_id = ?")
+    : getDb().prepare("UPDATE folders SET sort_order = ?, updated_at = ? WHERE id = ?");
 
   const timestamp = nowIso();
   const transaction = getDb().transaction((ids: string[]) => {
     ids.forEach((id, index) => {
-      statement.run(index, timestamp, id);
+      if (userId) {
+        statement.run(index, timestamp, id, userId);
+      } else {
+        statement.run(index, timestamp, id);
+      }
     });
   });
 

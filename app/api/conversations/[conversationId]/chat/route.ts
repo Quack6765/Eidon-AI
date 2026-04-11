@@ -10,6 +10,7 @@ import {
   createMessageTextSegment,
   generateConversationTitleFromFirstUserMessage,
   getConversation,
+  getConversationOwnerId,
   setConversationActive,
   updateMessage,
   updateMessageAction,
@@ -62,11 +63,12 @@ export async function POST(
     return badRequest("Invalid chat payload");
   }
 
-  const conversation = getConversation(params.data.conversationId);
+  const conversation = getConversation(params.data.conversationId, user.id);
 
   if (!conversation) {
     return badRequest("Conversation not found", 404);
   }
+  const conversationOwnerId = getConversationOwnerId(conversation.id);
 
   const settings =
     (conversation.providerProfileId
@@ -163,6 +165,7 @@ export async function POST(
           mcpServers,
           mcpToolSets,
           mcpTimeout: appSettings.mcpTimeout,
+          memoryUserId: conversationOwnerId ?? undefined,
           abortSignal: control.abortController.signal,
           throwIfStopped: control.throwIfStopped,
           onEvent(event: ChatStreamEvent) {

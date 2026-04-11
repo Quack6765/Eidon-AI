@@ -1,7 +1,17 @@
+import { notFound } from "next/navigation";
+
 import { McpServersSection } from "@/components/settings/sections/mcp-servers-section";
-import { requireUser } from "@/lib/auth";
+import { requireAdminUser } from "@/lib/auth";
 
 export default async function McpServersPage() {
-  await requireUser();
+  try {
+    await requireAdminUser();
+  } catch (error) {
+    if (error instanceof Error && error.message === "forbidden") {
+      notFound();
+    }
+    throw error;
+  }
+
   return <McpServersSection />;
 }

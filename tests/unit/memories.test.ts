@@ -7,6 +7,7 @@ import {
   deleteMemory,
   getMemoryCount
 } from "@/lib/memories";
+import { createLocalUser } from "@/lib/users";
 
 describe("memories", () => {
   describe("listMemories", () => {
@@ -131,5 +132,24 @@ describe("memories", () => {
       createMemory("Fact 2", "work");
       expect(getMemoryCount()).toBeGreaterThanOrEqual(2);
     });
+  });
+
+  it("lists only memories owned by the requested user", async () => {
+    const userA = await createLocalUser({
+      username: "memory-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "memory-b",
+      password: "Password123!",
+      role: "user"
+    });
+
+    createMemory("Admin memory", "work", userA.id);
+    createMemory("Member memory", "personal", userB.id);
+
+    expect(listMemories(userA.id).map((memory) => memory.content)).toEqual(["Admin memory"]);
+    expect(listMemories(userB.id).map((memory) => memory.content)).toEqual(["Member memory"]);
   });
 });

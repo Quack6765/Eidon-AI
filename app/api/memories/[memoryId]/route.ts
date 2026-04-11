@@ -11,7 +11,7 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ memoryId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
   if (!params.success) return badRequest("Invalid memory id");
 
@@ -21,7 +21,7 @@ export async function PATCH(
     category?: MemoryCategory;
   };
 
-  const updated = updateMemory(memoryId, body);
+  const updated = updateMemory(memoryId, body, user.id);
   if (!updated) return badRequest("Memory not found", 404);
 
   return ok({ memory: updated });
@@ -31,10 +31,10 @@ export async function DELETE(
   _request: Request,
   context: { params: Promise<{ memoryId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
   if (!params.success) return badRequest("Invalid memory id");
 
-  deleteMemory(params.data.memoryId);
+  deleteMemory(params.data.memoryId, user.id);
   return ok({ success: true });
 }

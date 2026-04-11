@@ -74,7 +74,7 @@ export function MemoriesSection() {
   }, [filterCategory, searchQuery, fetchMemories]);
 
   async function saveSettings(patch: Partial<AppSettings>) {
-    const res = await fetch("/api/settings", {
+    const res = await fetch("/api/settings/general", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...settings, ...patch })

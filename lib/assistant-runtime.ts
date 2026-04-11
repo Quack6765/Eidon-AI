@@ -572,6 +572,7 @@ async function executeCreateMemory(
   toolCallId: string,
   args: Record<string, unknown>,
   context: {
+    memoryUserId?: string;
     input: {
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -594,7 +595,7 @@ async function executeCreateMemory(
   const normalizedCategory = validCategories.includes(category) ? category : "other";
 
   const appSettings = getSettings();
-  const currentCount = getMemoryCount();
+  const currentCount = getMemoryCount(context.memoryUserId);
 
   if (currentCount >= (appSettings.memoriesMaxCount ?? 100)) {
     const errorMsg = `Memory limit reached (${currentCount}/${appSettings.memoriesMaxCount}). Update or delete an existing memory instead.`;
@@ -611,7 +612,11 @@ async function executeCreateMemory(
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
   try {
-    createMemory(content, normalizedCategory as "personal" | "preference" | "work" | "location" | "other");
+    createMemory(
+      content,
+      normalizedCategory as "personal" | "preference" | "work" | "location" | "other",
+      context.memoryUserId
+    );
     await context.input.onActionComplete?.(actionHandle, { resultSummary: `Saved as ${normalizedCategory}` });
   } catch (e) {
     const errorMsg = e instanceof Error ? e.message : "Failed to create memory";
@@ -626,6 +631,7 @@ async function executeUpdateMemory(
   toolCallId: string,
   args: Record<string, unknown>,
   context: {
+    memoryUserId?: string;
     input: {
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -645,7 +651,7 @@ async function executeUpdateMemory(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const existing = getMemoryRecord(id);
+  const existing = getMemoryRecord(id, context.memoryUserId);
   if (!existing) {
     const resultMsg = buildToolResultMessage(toolCallId, `Error: Memory ${id} not found`);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
@@ -663,7 +669,7 @@ async function executeUpdateMemory(
     updateMemoryRecord(id, {
       content,
       ...(category ? { category: category as "personal" | "preference" | "work" | "location" | "other" } : {})
-    });
+    }, context.memoryUserId);
     await context.input.onActionComplete?.(actionHandle, {
       detail: content,
       resultSummary: `Was: ${existing.content}`
@@ -681,6 +687,7 @@ async function executeDeleteMemory(
   toolCallId: string,
   args: Record<string, unknown>,
   context: {
+    memoryUserId?: string;
     input: {
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -698,7 +705,7 @@ async function executeDeleteMemory(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const existing = getMemoryRecord(id);
+  const existing = getMemoryRecord(id, context.memoryUserId);
   if (!existing) {
     const resultMsg = buildToolResultMessage(toolCallId, `Error: Memory ${id} not found`);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
@@ -713,7 +720,7 @@ async function executeDeleteMemory(
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
   try {
-    deleteMemoryRecord(id);
+    deleteMemoryRecord(id, context.memoryUserId);
     await context.input.onActionComplete?.(actionHandle, { resultSummary: "Deleted" });
   } catch (e) {
     const errorMsg = e instanceof Error ? e.message : "Failed to delete memory";
@@ -730,6 +737,7 @@ async function executeToolCall(
     input: {
       skills: Skill[];
       mcpToolSets: ToolSet[];
+      memoryUserId?: string;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -739,6 +747,7 @@ async function executeToolCall(
     successfulReadOnlyToolResults: Map<string, SuccessfulReadOnlyToolResult>;
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
+    memoryUserId?: string;
   }
 ) {
   const { id: toolCallId, name, arguments: argsJson } = toolCall;
@@ -828,6 +837,7 @@ export async function resolveAssistantTurn(input: {
   mcpToolSets: ToolSet[];
   visionMcpServer?: McpServer | null;
   memoriesEnabled?: boolean;
+  memoryUserId?: string;
   mcpTimeout?: number;
   abortSignal?: AbortSignal;
   throwIfStopped?: () => void;
@@ -905,6 +915,7 @@ export async function resolveAssistantTurn(input: {
         skills: turnSkills,
         loadedSkillIds,
         memoriesEnabled: input.memoriesEnabled ?? false,
+        memoryUserId: input.memoryUserId,
         onActionStart: input.onActionStart,
         onActionComplete: input.onActionComplete,
         onActionError: input.onActionError,
@@ -966,7 +977,8 @@ export async function resolveAssistantTurn(input: {
         loadedSkillIds,
         successfulReadOnlyToolResults,
         timelineSortOrder,
-        promptMessages
+        promptMessages,
+        memoryUserId: input.memoryUserId
       });
 
       timelineSortOrder = result.nextSortOrder;

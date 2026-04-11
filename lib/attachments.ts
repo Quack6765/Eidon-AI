@@ -184,25 +184,45 @@ function removeAttachmentFile(relativePath: string) {
   }
 }
 
-export function getAttachment(attachmentId: string) {
-  const row = getDb()
-    .prepare(
-      `SELECT
-        id,
-        conversation_id,
-        message_id,
-        filename,
-        mime_type,
-        byte_size,
-        sha256,
-        relative_path,
-        kind,
-        extracted_text,
-        created_at
-       FROM message_attachments
-       WHERE id = ?`
-    )
-    .get(attachmentId) as AttachmentRow | undefined;
+export function getAttachment(attachmentId: string, userId?: string) {
+  const row = (userId
+    ? getDb()
+        .prepare(
+          `SELECT
+            a.id,
+            a.conversation_id,
+            a.message_id,
+            a.filename,
+            a.mime_type,
+            a.byte_size,
+            a.sha256,
+            a.relative_path,
+            a.kind,
+            a.extracted_text,
+            a.created_at
+           FROM message_attachments a
+           JOIN conversations c ON c.id = a.conversation_id
+           WHERE a.id = ? AND c.user_id = ?`
+        )
+        .get(attachmentId, userId)
+    : getDb()
+        .prepare(
+          `SELECT
+            id,
+            conversation_id,
+            message_id,
+            filename,
+            mime_type,
+            byte_size,
+            sha256,
+            relative_path,
+            kind,
+            extracted_text,
+            created_at
+           FROM message_attachments
+           WHERE id = ?`
+        )
+        .get(attachmentId)) as AttachmentRow | undefined;
 
   return row ? rowToAttachment(row) : null;
 }
@@ -419,8 +439,11 @@ export function assignAttachmentsToMessage(conversationId: string, messageId: st
     .filter((attachment): attachment is MessageAttachment => Boolean(attachment));
 }
 
-export function deleteAttachmentById(attachmentId: string, options?: { allowAssigned?: boolean }) {
-  const attachment = getAttachment(attachmentId);
+export function deleteAttachmentById(
+  attachmentId: string,
+  options?: { allowAssigned?: boolean; userId?: string }
+) {
+  const attachment = getAttachment(attachmentId, options?.userId);
 
   if (!attachment) {
     return false;

@@ -15,7 +15,7 @@ import type {
 
 type HomeViewProps = {
   providerProfiles: ProviderProfileSummary[];
-  defaultProviderProfileId: string;
+  defaultProviderProfileId: string | null;
 };
 
 export function HomeView({
@@ -25,7 +25,9 @@ export function HomeView({
   const router = useRouter();
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
-  const [providerProfileId, setProviderProfileId] = useState(defaultProviderProfileId);
+  const [providerProfileId, setProviderProfileId] = useState(
+    defaultProviderProfileId ?? providerProfiles[0]?.id ?? ""
+  );
   const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);

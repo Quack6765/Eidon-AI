@@ -1,5 +1,5 @@
-import { requireUser } from "@/lib/auth";
-import { badRequest, ok } from "@/lib/http";
+import { requireAdminUser } from "@/lib/auth";
+import { badRequest, forbidden, ok } from "@/lib/http";
 import { callProviderText } from "@/lib/provider";
 import {
   getDefaultProviderProfileWithApiKey,
@@ -7,7 +7,14 @@ import {
 } from "@/lib/settings";
 
 export async function POST(request: Request) {
-  await requireUser();
+  try {
+    await requireAdminUser();
+  } catch (error) {
+    if (error instanceof Error && error.message === "forbidden") {
+      return forbidden();
+    }
+    throw error;
+  }
 
   try {
     const body = (await request.json().catch(() => ({}))) as {

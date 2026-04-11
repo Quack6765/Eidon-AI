@@ -1,11 +1,18 @@
 import { z } from "zod";
 
-import { requireUser } from "@/lib/auth";
+import { requireAdminUser } from "@/lib/auth";
 import { createMcpServer, getMcpServerBySlug, listMcpServers, slugify } from "@/lib/mcp-servers";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, forbidden, ok } from "@/lib/http";
 
 export async function GET() {
-  await requireUser();
+  try {
+    await requireAdminUser();
+  } catch (error) {
+    if (error instanceof Error && error.message === "forbidden") {
+      return forbidden();
+    }
+    throw error;
+  }
   return ok({ servers: listMcpServers() });
 }
 
@@ -28,7 +35,15 @@ const createSchema = z.discriminatedUnion("transport", [
 ]);
 
 export async function POST(request: Request) {
-  await requireUser();
+  try {
+    await requireAdminUser();
+  } catch (error) {
+    if (error instanceof Error && error.message === "forbidden") {
+      return forbidden();
+    }
+    throw error;
+  }
+
   const body = createSchema.safeParse(await request.json());
   if (!body.success) return badRequest("Invalid server config");
 

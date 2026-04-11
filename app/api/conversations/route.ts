@@ -7,6 +7,7 @@ import {
   listConversationsPage,
   reorderConversations
 } from "@/lib/conversations";
+import { getFolder } from "@/lib/folders";
 import { badRequest, ok } from "@/lib/http";
 import { getProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
@@ -17,7 +18,7 @@ const listSchema = z.object({
 });
 
 export async function GET(request: Request) {
-  await requireUser();
+  const user = await requireUser();
   const params = Object.fromEntries(new URL(request.url).searchParams.entries());
   const query = listSchema.safeParse(params);
 
@@ -26,7 +27,7 @@ export async function GET(request: Request) {
   }
 
   try {
-    return ok(listConversationsPage(query.data));
+    return ok(listConversationsPage({ ...query.data, userId: user.id }));
   } catch {
     return badRequest("Invalid conversation list cursor");
   }
@@ -39,7 +40,7 @@ const createSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  await requireUser();
+  const user = await requireUser();
   let parsedBody: unknown = {};
 
   try {
@@ -58,9 +59,13 @@ export async function POST(request: Request) {
     return badRequest("Provider profile not found", 404);
   }
 
+  if (folderId && !getFolder(folderId, user.id)) {
+    return badRequest("Folder not found", 404);
+  }
+
   const conversation = createConversation(title, folderId, {
     providerProfileId
-  });
+  }, user.id);
 
   try {
     getConversationManager().broadcastAll({
@@ -73,18 +78,23 @@ export async function POST(request: Request) {
         updatedAt: conversation.updatedAt,
         isActive: conversation.isActive
       }
-    });
+    }, user.id);
   } catch { /* WS server may not be running */ }
 
   return ok({ conversation }, { status: 201 });
 }
 
 export async function PUT(request: Request) {
-  await requireUser();
+  const user = await requireUser();
   const body = await request.json() as Array<{ id: string; folderId: string | null }>;
   if (!Array.isArray(body)) {
     return badRequest("Invalid reorder payload");
   }
-  reorderConversations(body);
+  for (const item of body) {
+    if (item.folderId && !getFolder(item.folderId, user.id)) {
+      return badRequest("Folder not found", 404);
+    }
+  }
+  reorderConversations(body, user.id);
   return ok({ success: true });
 }

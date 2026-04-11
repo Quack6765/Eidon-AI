@@ -12,14 +12,14 @@ export async function POST(
   _request: Request,
   context: { params: Promise<{ automationId: string }> }
 ) {
-  await requireUser();
+  const user = await requireUser();
   const params = paramsSchema.safeParse(await context.params);
 
   if (!params.success) {
     return badRequest("Invalid automation id");
   }
 
-  const run = await runAutomationNow(params.data.automationId);
+  const run = await runAutomationNow(params.data.automationId, user.id);
 
   if (!run) {
     return badRequest("Automation not found", 404);
