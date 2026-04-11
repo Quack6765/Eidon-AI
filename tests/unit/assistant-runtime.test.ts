@@ -919,8 +919,7 @@ Run browser commands.`
       expect(seenToolNames[0]).not.toContain("create_memory");
     });
 
-    it("executes create_memory tool call", async () => {
-      createMemoryFn.mockReturnValue({ id: "mem_test", content: "User lives in Montreal", category: "location" as const, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    it("proposes create_memory tool calls instead of writing immediately", async () => {
       streamProviderResponse
         .mockReturnValueOnce(
           createProviderStream([], {
@@ -936,7 +935,7 @@ Run browser commands.`
           })
         );
 
-      const started: Array<{ kind: string; label: string; detail?: string }> = [];
+      const started: Array<Record<string, unknown>> = [];
       const completed: Array<{ handle?: string; resultSummary?: string }> = [];
       const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
@@ -951,15 +950,26 @@ Run browser commands.`
         onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
       });
 
-      expect(createMemoryFn).toHaveBeenCalledWith("User lives in Montreal", "location", undefined);
-      expect(started).toEqual([expect.objectContaining({ kind: "create_memory", label: "Saved memory", detail: "User lives in Montreal" })]);
-      expect(completed).toEqual([{ handle: "act_mem", resultSummary: "Saved as location" }]);
+      expect(createMemoryFn).not.toHaveBeenCalled();
+      expect(started).toEqual([expect.objectContaining({
+        kind: "create_memory",
+        status: "pending",
+        proposalState: "pending",
+        proposalPayload: {
+          operation: "create",
+          targetMemoryId: null,
+          proposedMemory: {
+            content: "User lives in Montreal",
+            category: "location"
+          }
+        }
+      })]);
+      expect(completed).toEqual([]);
       expect(result.answer).toBe("Saved");
     });
 
-    it("executes update_memory tool call", async () => {
+    it("proposes update_memory tool calls instead of writing immediately", async () => {
       getMemoryRecord.mockReturnValue({ id: "mem_test", content: "Old fact", category: "personal" as const, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-      updateMemoryRecord.mockReturnValue({ id: "mem_test", content: "Updated fact", category: "work" as const, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
       streamProviderResponse
         .mockReturnValueOnce(
           createProviderStream([], {
@@ -975,7 +985,7 @@ Run browser commands.`
           })
         );
 
-      const started: Array<{ kind: string; detail?: string }> = [];
+      const started: Array<Record<string, unknown>> = [];
       const completed: Array<{ handle?: string; resultSummary?: string }> = [];
       const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
@@ -990,17 +1000,30 @@ Run browser commands.`
         onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
       });
 
-      expect(updateMemoryRecord).toHaveBeenCalledWith(
-        "mem_test",
-        { content: "Updated fact" },
-        undefined
-      );
-      expect(started).toEqual([expect.objectContaining({ kind: "update_memory", detail: "Updated fact" })]);
-      expect(completed).toEqual([{ handle: "act_mem", resultSummary: "Was: Old fact" }]);
+      expect(updateMemoryRecord).not.toHaveBeenCalled();
+      expect(started).toEqual([expect.objectContaining({
+        kind: "update_memory",
+        status: "pending",
+        proposalState: "pending",
+        proposalPayload: {
+          operation: "update",
+          targetMemoryId: "mem_test",
+          currentMemory: {
+            id: "mem_test",
+            content: "Old fact",
+            category: "personal"
+          },
+          proposedMemory: {
+            content: "Updated fact",
+            category: "personal"
+          }
+        }
+      })]);
+      expect(completed).toEqual([]);
       expect(result.answer).toBe("Updated");
     });
 
-    it("executes delete_memory tool call", async () => {
+    it("proposes delete_memory tool calls instead of writing immediately", async () => {
       getMemoryRecord.mockReturnValue({ id: "mem_test", content: "Outdated fact", category: "other" as const, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
       streamProviderResponse
         .mockReturnValueOnce(
@@ -1017,7 +1040,7 @@ Run browser commands.`
           })
         );
 
-      const started: Array<{ kind: string; detail?: string }> = [];
+      const started: Array<Record<string, unknown>> = [];
       const completed: Array<{ handle?: string; resultSummary?: string }> = [];
       const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
@@ -1032,9 +1055,22 @@ Run browser commands.`
         onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
       });
 
-      expect(deleteMemoryRecord).toHaveBeenCalledWith("mem_test", undefined);
-      expect(started).toEqual([expect.objectContaining({ kind: "delete_memory", detail: "Outdated fact" })]);
-      expect(completed).toEqual([{ handle: "act_mem", resultSummary: "Deleted" }]);
+      expect(deleteMemoryRecord).not.toHaveBeenCalled();
+      expect(started).toEqual([expect.objectContaining({
+        kind: "delete_memory",
+        status: "pending",
+        proposalState: "pending",
+        proposalPayload: {
+          operation: "delete",
+          targetMemoryId: "mem_test",
+          currentMemory: {
+            id: "mem_test",
+            content: "Outdated fact",
+            category: "other"
+          }
+        }
+      })]);
+      expect(completed).toEqual([]);
       expect(result.answer).toBe("Deleted");
     });
 

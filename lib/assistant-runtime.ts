@@ -1,6 +1,12 @@
 import { resolveAttachmentPath } from "@/lib/attachments";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
-import { getMemory as getMemoryRecord, createMemory, updateMemory as updateMemoryRecord, deleteMemory as deleteMemoryRecord, getMemoryCount } from "@/lib/memories";
+import { getMemory as getMemoryRecord, getMemoryCount } from "@/lib/memories";
+import {
+  buildCreateMemoryProposal,
+  buildDeleteMemoryProposal,
+  buildUpdateMemoryProposal,
+  normalizeMemoryCategory
+} from "@/lib/memory-proposals";
 import { getSettings } from "@/lib/settings";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shell";
@@ -12,6 +18,9 @@ import type {
   ChatStreamEvent,
   McpServer,
   McpTool,
+  MessageActionStatus,
+  MemoryProposalPayload,
+  MemoryProposalState,
   MessageActionKind,
   ProviderProfileWithApiKey,
   ProviderToolCall,
@@ -33,12 +42,15 @@ type ToolSet = {
 
 type RuntimeAction = {
   kind: MessageActionKind;
+  status?: MessageActionStatus;
   label: string;
   detail?: string;
   serverId?: string | null;
   skillId?: string | null;
   toolName?: string | null;
   arguments?: Record<string, unknown> | null;
+  proposalState?: MemoryProposalState | null;
+  proposalPayload?: MemoryProposalPayload | null;
 };
 
 type SuccessfulReadOnlyToolResult = {
@@ -584,46 +596,37 @@ async function executeCreateMemory(
 ) {
   const sortOrder = context.timelineSortOrder;
   const content = String(args.content ?? "").trim();
-  const category = String(args.category ?? "other").trim();
 
   if (!content) {
     const resultMsg = buildToolResultMessage(toolCallId, "Error: content is required");
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const validCategories = ["personal", "preference", "work", "location", "other"];
-  const normalizedCategory = validCategories.includes(category) ? category : "other";
-
-  const appSettings = getSettings();
+  const normalizedCategory = normalizeMemoryCategory(args.category);
+  const proposalPayload = buildCreateMemoryProposal({ content, category: normalizedCategory });
+  const maxCount = getSettings().memoriesMaxCount ?? 100;
   const currentCount = getMemoryCount(context.memoryUserId);
 
-  if (currentCount >= (appSettings.memoriesMaxCount ?? 100)) {
-    const errorMsg = `Memory limit reached (${currentCount}/${appSettings.memoriesMaxCount}). Update or delete an existing memory instead.`;
+  if (currentCount >= maxCount) {
+    const errorMsg = `Memory limit reached (${currentCount}/${maxCount}). Update or delete an existing memory instead.`;
     const resultMsg = buildToolResultMessage(toolCallId, errorMsg);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const handle = await context.input.onActionStart?.({
+  await context.input.onActionStart?.({
     kind: "create_memory",
-    label: "Saved memory",
+    status: "pending",
+    label: "Create memory proposal",
     detail: content,
-    arguments: args
+    arguments: { content, category: normalizedCategory },
+    proposalState: "pending",
+    proposalPayload
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
 
-  try {
-    createMemory(
-      content,
-      normalizedCategory as "personal" | "preference" | "work" | "location" | "other",
-      context.memoryUserId
-    );
-    await context.input.onActionComplete?.(actionHandle, { resultSummary: `Saved as ${normalizedCategory}` });
-  } catch (e) {
-    const errorMsg = e instanceof Error ? e.message : "Failed to create memory";
-    await context.input.onActionError?.(actionHandle, { resultSummary: errorMsg });
-  }
-
-  const resultMsg = buildToolResultMessage(toolCallId, `Memory saved: ${content} [${normalizedCategory}]`);
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    `Memory change proposed for approval: create [${normalizedCategory}] ${content}`
+  );
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
@@ -657,29 +660,30 @@ async function executeUpdateMemory(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const handle = await context.input.onActionStart?.({
-    kind: "update_memory",
-    label: "Updated memory",
-    detail: content,
-    arguments: args
+  const proposalPayload = buildUpdateMemoryProposal({
+    memory: existing,
+    content,
+    category
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
 
-  try {
-    updateMemoryRecord(id, {
+  await context.input.onActionStart?.({
+    kind: "update_memory",
+    status: "pending",
+    label: "Update memory proposal",
+    detail: content,
+    arguments: {
+      id,
       content,
-      ...(category ? { category: category as "personal" | "preference" | "work" | "location" | "other" } : {})
-    }, context.memoryUserId);
-    await context.input.onActionComplete?.(actionHandle, {
-      detail: content,
-      resultSummary: `Was: ${existing.content}`
-    });
-  } catch (e) {
-    const errorMsg = e instanceof Error ? e.message : "Failed to update memory";
-    await context.input.onActionError?.(actionHandle, { resultSummary: errorMsg });
-  }
+      ...(proposalPayload.proposedMemory ? { category: proposalPayload.proposedMemory.category } : {})
+    },
+    proposalState: "pending",
+    proposalPayload
+  });
 
-  const resultMsg = buildToolResultMessage(toolCallId, `Memory updated: ${content}`);
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    `Memory change proposed for approval: update ${id} -> ${content} [${proposalPayload.proposedMemory?.category ?? existing.category}]`
+  );
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
@@ -711,23 +715,20 @@ async function executeDeleteMemory(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const handle = await context.input.onActionStart?.({
+  await context.input.onActionStart?.({
     kind: "delete_memory",
-    label: "Deleted memory",
+    status: "pending",
+    label: "Delete memory proposal",
     detail: existing.content,
-    arguments: args
+    arguments: { id },
+    proposalState: "pending",
+    proposalPayload: buildDeleteMemoryProposal(existing)
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
 
-  try {
-    deleteMemoryRecord(id, context.memoryUserId);
-    await context.input.onActionComplete?.(actionHandle, { resultSummary: "Deleted" });
-  } catch (e) {
-    const errorMsg = e instanceof Error ? e.message : "Failed to delete memory";
-    await context.input.onActionError?.(actionHandle, { resultSummary: errorMsg });
-  }
-
-  const resultMsg = buildToolResultMessage(toolCallId, `Memory deleted: ${existing.content}`);
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    `Memory change proposed for approval: delete ${id}`
+  );
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 

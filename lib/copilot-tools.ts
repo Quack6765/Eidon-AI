@@ -1,11 +1,25 @@
 import type { Tool } from "@github/copilot-sdk";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
-import { createMemory, updateMemory as updateMemoryRecord, deleteMemory as deleteMemoryRecord, getMemoryCount } from "@/lib/memories";
+import { getMemory, getMemoryCount } from "@/lib/memories";
+import {
+  buildCreateMemoryProposal,
+  buildDeleteMemoryProposal,
+  buildUpdateMemoryProposal,
+  normalizeMemoryCategory
+} from "@/lib/memory-proposals";
 import { getSettings } from "@/lib/settings";
 import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shell";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
-import type { McpServer, McpTool, Skill, MessageActionKind } from "@/lib/types";
+import type {
+  McpServer,
+  McpTool,
+  Skill,
+  MessageActionKind,
+  MessageActionStatus,
+  MemoryProposalPayload,
+  MemoryProposalState
+} from "@/lib/types";
 
 type ToolSet = {
   server: McpServer;
@@ -14,12 +28,15 @@ type ToolSet = {
 
 type RuntimeAction = {
   kind: MessageActionKind;
+  status?: MessageActionStatus;
   label: string;
   detail?: string;
   serverId?: string | null;
   skillId?: string | null;
   toolName?: string | null;
   arguments?: Record<string, unknown> | null;
+  proposalState?: MemoryProposalState | null;
+  proposalPayload?: MemoryProposalPayload | null;
 };
 
 export type CopilotToolContext = {
@@ -223,7 +240,7 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
     handler: async (args: unknown) => {
       const { content, category } = (args ?? {}) as { content?: string; category?: string };
       const trimmedContent = (content ?? "").trim();
-      const normalizedCategory = ["personal", "preference", "work", "location", "other"].includes(category ?? "other") ? (category ?? "other") : "other";
+      const normalizedCategory = normalizeMemoryCategory(category);
 
       if (!trimmedContent) return "Error: content is required";
 
@@ -231,22 +248,22 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
       const maxCount = getSettings().memoriesMaxCount ?? 100;
       if (currentCount >= maxCount) return `Memory limit reached (${currentCount}/${maxCount}). Update or delete an existing memory instead.`;
 
-      const handle = await ctx.onActionStart?.({ kind: "create_memory", label: "Saved memory", detail: trimmedContent, arguments: { content: trimmedContent, category: normalizedCategory } });
-      const actionHandle = typeof handle === "string" ? handle : undefined;
+      const proposalPayload = buildCreateMemoryProposal({
+        content: trimmedContent,
+        category: normalizedCategory
+      });
 
-      try {
-        createMemory(
-          trimmedContent,
-          normalizedCategory as "personal" | "preference" | "work" | "location" | "other",
-          ctx.memoryUserId
-        );
-        await ctx.onActionComplete?.(actionHandle, { resultSummary: `Saved as ${normalizedCategory}` });
-      } catch (e) {
-        const errorMsg = e instanceof Error ? e.message : "Failed to create memory";
-        await ctx.onActionError?.(actionHandle, { resultSummary: errorMsg });
-      }
+      await ctx.onActionStart?.({
+        kind: "create_memory",
+        status: "pending",
+        label: "Create memory proposal",
+        detail: trimmedContent,
+        arguments: { content: trimmedContent, category: normalizedCategory },
+        proposalState: "pending",
+        proposalPayload
+      });
 
-      return `Memory saved: ${trimmedContent} [${normalizedCategory}]`;
+      return `Memory change proposed for approval: create [${normalizedCategory}] ${trimmedContent}`;
     }
   };
 
@@ -267,25 +284,30 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
       const { id, content, category } = (args ?? {}) as { id?: string; content?: string; category?: string };
       if (!id?.trim() || !content?.trim()) return "Error: id and content are required";
 
-      const handle = await ctx.onActionStart?.({ kind: "update_memory", label: "Updated memory", detail: content, arguments: { id, content, category } });
-      const actionHandle = typeof handle === "string" ? handle : undefined;
+      const existing = getMemory(id, ctx.memoryUserId);
+      if (!existing) return `Error: Memory ${id} not found`;
 
-      try {
-        updateMemoryRecord(
+      const proposalPayload = buildUpdateMemoryProposal({
+        memory: existing,
+        content,
+        category
+      });
+
+      await ctx.onActionStart?.({
+        kind: "update_memory",
+        status: "pending",
+        label: "Update memory proposal",
+        detail: content,
+        arguments: {
           id,
-          {
-            content,
-            ...(category ? { category: category as "personal" | "preference" | "work" | "location" | "other" } : {})
-          },
-          ctx.memoryUserId
-        );
-        await ctx.onActionComplete?.(actionHandle, { detail: content, resultSummary: "Updated" });
-      } catch (e) {
-        const errorMsg = e instanceof Error ? e.message : "Failed to update memory";
-        await ctx.onActionError?.(actionHandle, { resultSummary: errorMsg });
-      }
+          content: content.trim(),
+          ...(proposalPayload.proposedMemory ? { category: proposalPayload.proposedMemory.category } : {})
+        },
+        proposalState: "pending",
+        proposalPayload
+      });
 
-      return `Memory updated: ${content}`;
+      return `Memory change proposed for approval: update ${id} -> ${content.trim()} [${proposalPayload.proposedMemory?.category ?? existing.category}]`;
     }
   };
 
@@ -304,18 +326,20 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
       const { id } = (args ?? {}) as { id?: string };
       if (!id?.trim()) return "Error: id is required";
 
-      const handle = await ctx.onActionStart?.({ kind: "delete_memory", label: "Deleted memory", detail: id, arguments: { id } });
-      const actionHandle = typeof handle === "string" ? handle : undefined;
+      const existing = getMemory(id, ctx.memoryUserId);
+      if (!existing) return `Error: Memory ${id} not found`;
 
-      try {
-        deleteMemoryRecord(id, ctx.memoryUserId);
-        await ctx.onActionComplete?.(actionHandle, { resultSummary: "Deleted" });
-      } catch (e) {
-        const errorMsg = e instanceof Error ? e.message : "Failed to delete memory";
-        await ctx.onActionError?.(actionHandle, { resultSummary: errorMsg });
-      }
+      await ctx.onActionStart?.({
+        kind: "delete_memory",
+        status: "pending",
+        label: "Delete memory proposal",
+        detail: existing.content,
+        arguments: { id },
+        proposalState: "pending",
+        proposalPayload: buildDeleteMemoryProposal(existing)
+      });
 
-      return `Memory deleted: ${id}`;
+      return `Memory change proposed for approval: delete ${id}`;
     }
   };
 
