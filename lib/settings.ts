@@ -117,6 +117,8 @@ type AppSettingsRow = {
   memories_enabled: number;
   memories_max_count: number;
   mcp_timeout: number;
+  stt_engine?: string;
+  stt_language?: string;
   updated_at: string;
 };
 
@@ -129,6 +131,8 @@ type UserSettingsRow = {
   memories_enabled: number;
   memories_max_count: number;
   mcp_timeout: number;
+  stt_engine: string;
+  stt_language: string;
   updated_at: string;
 };
 
@@ -166,7 +170,7 @@ type ProviderProfileRow = {
   updated_at: string;
 };
 
-function rowToSettings(row: AppSettingsRow): AppSettings {
+function rowToSettings(row: AppSettingsRow | UserSettingsRow): AppSettings {
   return {
     defaultProviderProfileId: row.default_provider_profile_id || null,
     skillsEnabled: Boolean(row.skills_enabled),
@@ -174,6 +178,8 @@ function rowToSettings(row: AppSettingsRow): AppSettings {
     memoriesEnabled: Boolean(row.memories_enabled),
     memoriesMaxCount: row.memories_max_count,
     mcpTimeout: row.mcp_timeout,
+    sttEngine: (row.stt_engine ?? "browser") as AppSettings["sttEngine"],
+    sttLanguage: (row.stt_language ?? "en") as AppSettings["sttLanguage"],
     updatedAt: row.updated_at
   };
 }
@@ -423,8 +429,10 @@ function ensureUserSettingsRow(userId: string) {
         memories_enabled,
         memories_max_count,
         mcp_timeout,
+        stt_engine,
+        stt_language,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
@@ -435,6 +443,8 @@ function ensureUserSettingsRow(userId: string) {
       settings.memories_enabled,
       settings.memories_max_count,
       settings.mcp_timeout,
+      "browser",
+      "en",
       new Date().toISOString()
     );
 }
@@ -453,6 +463,8 @@ function getUserSettingsRow(userId: string) {
         memories_enabled,
         memories_max_count,
         mcp_timeout,
+        stt_engine,
+        stt_language,
         updated_at
       FROM user_settings
       WHERE user_id = ?`
@@ -537,7 +549,7 @@ export function updateGeneralSettingsForUser(
   input: Partial<
     Pick<
       AppSettings,
-      "conversationRetention" | "memoriesEnabled" | "memoriesMaxCount" | "mcpTimeout"
+      "conversationRetention" | "memoriesEnabled" | "memoriesMaxCount" | "mcpTimeout" | "sttEngine" | "sttLanguage"
     >
   >
 ) {
@@ -557,6 +569,8 @@ export function updateGeneralSettingsForUser(
            memories_enabled = ?,
            memories_max_count = ?,
            mcp_timeout = ?,
+           stt_engine = ?,
+           stt_language = ?,
            updated_at = ?
        WHERE user_id = ?`
     )
@@ -567,6 +581,8 @@ export function updateGeneralSettingsForUser(
       next.memoriesEnabled ? 1 : 0,
       next.memoriesMaxCount,
       next.mcpTimeout,
+      next.sttEngine,
+      next.sttLanguage,
       next.updatedAt,
       userId
     );

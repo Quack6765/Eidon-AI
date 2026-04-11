@@ -369,6 +369,49 @@ describe("settings storage", () => {
     ]);
   });
 
+  it("stores speech-to-text preferences per user", async () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-alpha"
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: false,
+      providerProfiles: [alpha]
+    });
+
+    const userA = await createLocalUser({
+      username: "voice-a",
+      password: "changeme123",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "voice-b",
+      password: "changeme123",
+      role: "user"
+    });
+
+    updateGeneralSettingsForUser(userA.id, {
+      sttEngine: "embedded",
+      sttLanguage: "fr"
+    });
+    updateGeneralSettingsForUser(userB.id, {
+      sttEngine: "browser",
+      sttLanguage: "es"
+    });
+
+    expect(getSettingsForUser(userA.id)).toMatchObject({
+      sttEngine: "embedded",
+      sttLanguage: "fr"
+    });
+    expect(getSettingsForUser(userB.id)).toMatchObject({
+      sttEngine: "browser",
+      sttLanguage: "es"
+    });
+  });
+
   it("returns the default MCP timeout from persisted settings", () => {
     const alpha = buildProfile({
       id: "profile_alpha",

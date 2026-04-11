@@ -9,7 +9,9 @@ const generalSettingsSchema = z
     conversationRetention: z.enum(["forever", "90d", "30d", "7d"]).optional(),
     memoriesEnabled: z.coerce.boolean().optional(),
     memoriesMaxCount: z.coerce.number().int().min(1).max(500).optional(),
-    mcpTimeout: z.coerce.number().int().min(10_000).max(600_000).optional()
+    mcpTimeout: z.coerce.number().int().min(10_000).max(600_000).optional(),
+    sttEngine: z.enum(["browser", "embedded"]).optional(),
+    sttLanguage: z.enum(["en", "fr", "es"]).optional()
   })
   .strip();
 

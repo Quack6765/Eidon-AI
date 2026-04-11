@@ -6,7 +6,7 @@ import Database from "better-sqlite3";
 const dataDir = path.resolve(".test-data");
 const dbPath = path.join(dataDir, "eidon.db");
 
-function prepareLegacyDatabase() {
+function openLegacyDatabase(options: { userSettingsColumns?: string[] } = {}) {
   fs.mkdirSync(dataDir, { recursive: true });
   const db = new Database(dbPath);
   const now = new Date().toISOString();
@@ -111,6 +111,40 @@ function prepareLegacyDatabase() {
       updated_at TEXT NOT NULL
     );
   `);
+
+  if (options.userSettingsColumns?.length) {
+    db.exec(
+      `CREATE TABLE user_settings (
+        ${options.userSettingsColumns
+          .map((column) =>
+            column === "user_id"
+              ? "user_id TEXT NOT NULL PRIMARY KEY"
+              : column === "default_provider_profile_id"
+                ? "default_provider_profile_id TEXT"
+                : column === "skills_enabled"
+                  ? "skills_enabled INTEGER NOT NULL DEFAULT 1"
+                  : column === "conversation_retention"
+                    ? "conversation_retention TEXT NOT NULL DEFAULT 'forever'"
+                    : column === "auto_compaction"
+                      ? "auto_compaction INTEGER NOT NULL DEFAULT 1"
+                      : column === "memories_enabled"
+                        ? "memories_enabled INTEGER NOT NULL DEFAULT 1"
+                        : column === "memories_max_count"
+                          ? "memories_max_count INTEGER NOT NULL DEFAULT 100"
+                          : column === "mcp_timeout"
+                            ? "mcp_timeout INTEGER NOT NULL DEFAULT 120000"
+                            : column === "stt_engine"
+                              ? "stt_engine TEXT NOT NULL DEFAULT 'browser'"
+                              : column === "stt_language"
+                                ? "stt_language TEXT NOT NULL DEFAULT 'en'"
+                                : column === "updated_at"
+                                  ? "updated_at TEXT NOT NULL"
+                                  : `${column} TEXT`
+          )
+          .join(",\n        ")}
+      );`
+    );
+  }
 
   db.prepare(
     `INSERT INTO app_settings (
@@ -270,6 +304,11 @@ description: Use for browser workflows.
     now
   );
 
+  return db;
+}
+
+function prepareLegacyDatabase() {
+  const db = openLegacyDatabase();
   db.close();
 }
 
@@ -317,6 +356,34 @@ describe("db", () => {
     expect(personaColumns).toContain("user_id");
     expect(memoryColumns).toContain("user_id");
     expect(legacyAutomationColumns).toContain("user_id");
+  });
+
+  it("adds speech-to-text columns to user_settings during migration", async () => {
+    const legacyDb = openLegacyDatabase({
+      userSettingsColumns: [
+        "user_id",
+        "default_provider_profile_id",
+        "skills_enabled",
+        "conversation_retention",
+        "auto_compaction",
+        "memories_enabled",
+        "memories_max_count",
+        "mcp_timeout",
+        "updated_at"
+      ]
+    });
+    legacyDb.close();
+
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+
+    const userSettingsColumns = (
+      db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+
+    expect(userSettingsColumns).toEqual(
+      expect.arrayContaining(["stt_engine", "stt_language"])
+    );
   });
 
   it("migrates legacy schemas and backfills defaults", async () => {
