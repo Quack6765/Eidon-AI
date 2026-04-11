@@ -17,8 +17,10 @@ function toProposalMemorySnapshot(memory: UserMemory) {
 }
 
 export function normalizeMemoryCategory(category: unknown): MemoryCategory {
-  return typeof category === "string" && VALID_MEMORY_CATEGORIES.includes(category as MemoryCategory)
-    ? (category as MemoryCategory)
+  const normalizedValue = typeof category === "string" ? category.trim().toLowerCase() : "";
+
+  return VALID_MEMORY_CATEGORIES.includes(normalizedValue as MemoryCategory)
+    ? (normalizedValue as MemoryCategory)
     : "other";
 }
 

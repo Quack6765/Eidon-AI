@@ -771,7 +771,7 @@ Run browser commands.`
     expect(result.thinking).toBe("Thinking ");
   });
 
-  it("auto-corrects invalid enum arguments before calling MCP tool", async () => {
+  it("uses coerced MCP args in the runtime action trail", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([], {
@@ -789,6 +789,9 @@ Run browser commands.`
         })
       );
     callMcpTool.mockResolvedValue({ content: [{ type: "text", text: "Found results" }] });
+
+    const started: Array<Record<string, unknown>> = [];
+    const completed: Array<Record<string, unknown>> = [];
 
     const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
@@ -814,8 +817,12 @@ Run browser commands.`
         }]
       }],
       onEvent: () => {},
-      onActionStart: () => {},
-      onActionComplete: () => {}
+      onActionStart: (action) => {
+        started.push(action);
+      },
+      onActionComplete: (_handle, patch) => {
+        completed.push(patch);
+      }
     });
 
     expect(callMcpTool).toHaveBeenCalledWith(
@@ -824,6 +831,16 @@ Run browser commands.`
       { query: "test", freshness: "month" },
       undefined
     );
+    expect(started).toEqual([expect.objectContaining({
+      detail: "query=test",
+      arguments: {
+        query: "test",
+        freshness: "month"
+      }
+    })]);
+    expect(completed).toEqual([expect.objectContaining({
+      detail: "query=test"
+    })]);
   });
 
   it("commits answer text that appears before tool calls", async () => {

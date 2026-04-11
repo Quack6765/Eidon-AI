@@ -422,26 +422,27 @@ async function executeMcpToolCall(
     };
   }
 
+  const correctedArgs = coerceEnumValues(resolvedTool.inputSchema ?? {}, args);
+
   const handle = await context.input.onActionStart?.({
     kind: "mcp_tool_call",
     label: getToolLabel(resolvedTool),
-    detail: buildArgumentsSummary(args),
+    detail: buildArgumentsSummary(correctedArgs),
     serverId: resolvedServer.id,
     toolName: resolvedTool.name,
-    arguments: args
+    arguments: correctedArgs
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
-  const correctedArgs = coerceEnumValues(resolvedTool.inputSchema ?? {}, args);
   const result = await callMcpTool(resolvedServer, resolvedTool.name, correctedArgs, context.input.mcpTimeout);
   const resultText = getToolResultText(result);
 
   sortOrder += 1;
 
   if (result.isError) {
-    await context.input.onActionError?.(actionHandle, { detail: buildArgumentsSummary(args), resultSummary: resultText });
+    await context.input.onActionError?.(actionHandle, { detail: buildArgumentsSummary(correctedArgs), resultSummary: resultText });
   } else {
-    await context.input.onActionComplete?.(actionHandle, { detail: buildArgumentsSummary(args), resultSummary: resultText });
+    await context.input.onActionComplete?.(actionHandle, { detail: buildArgumentsSummary(correctedArgs), resultSummary: resultText });
   }
 
   if (!result.isError && resolvedTool.annotations?.readOnlyHint === true) {

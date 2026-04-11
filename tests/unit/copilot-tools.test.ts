@@ -647,7 +647,7 @@ describe("buildCopilotTools", () => {
     expect(result).toBe("Memory limit reached (3/3). Update or delete an existing memory instead.");
   });
 
-  it("proposes memory creation with pending approval metadata", async () => {
+  it("normalizes memory category case and whitespace before proposing", async () => {
     const { createMemory } = await import("@/lib/memories");
     const onActionStart = vi.fn().mockResolvedValue("act_mem");
     const onActionComplete = vi.fn();
@@ -657,11 +657,11 @@ describe("buildCopilotTools", () => {
     const createMemoryTool = tools.find((t) => t.name === "create_memory")!;
 
     const result = await createMemoryTool.handler!(
-      { content: "Works in Toronto", category: "city" },
+      { content: "Works in Toronto", category: " Work " },
       { sessionId: "s1", toolCallId: "tc1", toolName: "create_memory", arguments: {} }
     );
 
-    expect(result).toBe("Memory change proposed for approval: create [other] Works in Toronto");
+    expect(result).toBe("Memory change proposed for approval: create [work] Works in Toronto");
     expect(createMemory).not.toHaveBeenCalled();
     expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
       kind: "create_memory",
@@ -672,7 +672,7 @@ describe("buildCopilotTools", () => {
         targetMemoryId: null,
         proposedMemory: {
           content: "Works in Toronto",
-          category: "other"
+          category: "work"
         }
       }
     }));
