@@ -539,7 +539,7 @@ export function MessageBubble({
     <div className="w-full">
       <div className="flex gap-3.5">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] border border-white/6 text-[10px] font-bold text-white/60 overflow-hidden mt-1">
-          <img src="/chat-icon.png" alt="" width={28} height={28} className="h-full w-full object-cover" />
+          <img src="/agent-icon.png" alt="" width={28} height={28} className="h-full w-full object-cover" />
         </div>
 
         <div className="min-w-0 flex-1 pt-0.5 text-[14.5px] text-[var(--text)]">
