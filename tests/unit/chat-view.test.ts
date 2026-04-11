@@ -501,6 +501,26 @@ describe("chat view", () => {
     expect(wsMock.send).not.toHaveBeenCalled();
   });
 
+  it("does not submit when Enter is pressed during active voice input", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(textarea, { target: { value: "Keep this draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start voice input" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Stop voice input" })).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(wsMock.send).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue("Keep this draft");
+  });
+
   it("shows an inline error when the selected speech engine is unsupported", async () => {
     renderWithProvider(
       React.createElement(ChatView, {

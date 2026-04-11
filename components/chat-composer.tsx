@@ -323,6 +323,9 @@ export function ChatComposer({
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
+                if (isSpeechActive) {
+                  return;
+                }
                 void onSubmit();
               }
             }}

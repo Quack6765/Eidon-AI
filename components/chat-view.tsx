@@ -1373,7 +1373,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     const value = nextInput.trim();
     const effectivePersonaId = nextPersonaId ?? personaId;
 
-    if ((!value && nextPendingAttachments.length === 0) || isSending || isUploadingAttachments) {
+    if (
+      speechSnapshot.phase === "listening" ||
+      speechSnapshot.phase === "transcribing" ||
+      (!value && nextPendingAttachments.length === 0) ||
+      isSending ||
+      isUploadingAttachments
+    ) {
       return;
     }
 
