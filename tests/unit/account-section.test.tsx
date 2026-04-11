@@ -32,6 +32,7 @@ describe("account section", () => {
     expect(screen.getByText(/managed by environment variables/i)).toBeInTheDocument();
     expect(screen.queryByText("New password")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Update account" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
   });
 
   it("shows password editing controls for local users", () => {
@@ -49,5 +50,6 @@ describe("account section", () => {
 
     expect(screen.getByText("New password")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Update account" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
   });
 });

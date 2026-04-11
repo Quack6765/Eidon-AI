@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
@@ -12,9 +13,11 @@ import {
   Server,
   Zap,
   Shield,
+  LogOut,
   Users,
 } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import type { AuthUser } from "@/lib/types";
 
 const PERSONAL_ITEMS = [
@@ -105,12 +108,26 @@ export function SettingsNav({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const serverItems =
     currentUser.role !== "admin"
       ? []
       : passwordLoginEnabled
         ? [...SERVER_ITEMS, USER_MANAGEMENT_ITEM]
         : [...SERVER_ITEMS];
+
+  async function handleLogout() {
+    if (isSigningOut) {
+      return;
+    }
+
+    try {
+      setIsSigningOut(true);
+      await fetch("/api/auth/logout", { method: "POST" });
+    } finally {
+      window.location.href = "/login";
+    }
+  }
 
   return (
     <aside className="flex h-full flex-col bg-transparent text-gray-300">
@@ -168,6 +185,16 @@ export function SettingsNav({
           <p className="mt-1 text-xs text-white/45">
             {currentUser.role === "admin" ? "Administrator access" : "Private workspace"}
           </p>
+          <Button
+            type="button"
+            variant="danger"
+            onClick={() => void handleLogout()}
+            disabled={isSigningOut}
+            className="mt-4 w-full gap-2 rounded-2xl border-red-400/15 bg-red-500/[0.07] px-3 py-2.5 text-sm text-red-100 hover:bg-red-500/[0.12]"
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            Sign out
+          </Button>
         </div>
       </div>
     </aside>

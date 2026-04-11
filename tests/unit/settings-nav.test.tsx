@@ -46,6 +46,7 @@ describe("settings nav", () => {
     expect(screen.getByText("Providers")).toBeInTheDocument();
     expect(screen.getByText("MCP Servers")).toBeInTheDocument();
     expect(screen.getByText("Skills")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 
   it("hides admin-only items for regular users", () => {
@@ -67,5 +68,6 @@ describe("settings nav", () => {
     expect(screen.queryByText("Providers")).not.toBeInTheDocument();
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.getByText("Account")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 });

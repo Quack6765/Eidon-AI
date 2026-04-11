@@ -1,8 +1,8 @@
 "use client";
 
-import { type FormEvent, useState, useTransition } from "react";
+import { type FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Shield, LogOut, Check } from "lucide-react";
+import { Shield, Check } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,7 +11,6 @@ import type { AuthUser } from "@/lib/types";
 
 export function AccountSection({ user }: { user: AuthUser }) {
   const router = useRouter();
-  const [isPending] = useTransition();
   const [error, setError] = useState("");
   const [accountSuccess, setAccountSuccess] = useState("");
   const isEnvManaged = user.passwordManagedBy === "env";
@@ -36,11 +35,6 @@ export function AccountSection({ user }: { user: AuthUser }) {
     }
     setAccountSuccess("Account updated. Sign in again if you changed the password.");
     router.refresh();
-  }
-
-  async function logout() {
-    await fetch("/api/auth/logout", { method: "POST" });
-    window.location.href = "/login";
   }
 
   return (
@@ -104,33 +98,6 @@ export function AccountSection({ user }: { user: AuthUser }) {
             </div>
           </form>
         )}
-      </div>
-
-      <div className="rounded-2xl border border-white/6 bg-white/[0.02] p-6 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-rose-500/10 text-rose-300">
-            <LogOut className="h-4 w-4" />
-          </div>
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-rose-300">
-              Session
-            </p>
-            <h2
-              className="mt-1 text-2xl leading-none text-[var(--text)]"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              Sign out
-            </h2>
-          </div>
-        </div>
-
-        <p className="text-sm leading-6 text-[var(--muted)]">
-          End the current local session and return to the login screen.
-        </p>
-
-        <Button type="button" variant="danger" onClick={logout} disabled={isPending}>
-          Sign out
-        </Button>
       </div>
 
       {error ? (
