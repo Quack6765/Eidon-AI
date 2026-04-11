@@ -64,4 +64,53 @@ describe("browser speech engine", () => {
       });
     }
   });
+
+  it("stops an active recognition session and detaches handlers when disposed", async () => {
+    const originalWindow = globalThis.window;
+    let recognition: FakeSpeechRecognition | null = null;
+
+    class FakeSpeechRecognition {
+      lang = "";
+      interimResults = true;
+      continuous = false;
+      onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null = () => {};
+      onerror: ((event: { error: string }) => void) | null = () => {};
+      onend: (() => void) | null = () => {};
+      stopCalls = 0;
+
+      constructor() {
+        recognition = this;
+      }
+
+      start() {}
+
+      stop() {
+        this.stopCalls += 1;
+      }
+    }
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        webkitSpeechRecognition: FakeSpeechRecognition
+      }
+    });
+
+    try {
+      const engine = new BrowserSpeechEngine();
+      await engine.start({ language: "en" });
+
+      engine.dispose();
+
+      expect(recognition?.stopCalls).toBe(1);
+      expect(recognition?.onresult).toBeNull();
+      expect(recognition?.onerror).toBeNull();
+      expect(recognition?.onend).toBeNull();
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow
+      });
+    }
+  });
 });

@@ -84,13 +84,31 @@ export class BrowserSpeechEngine implements SpeechEngine {
       return { transcript: "" };
     }
 
-    this.recognition.stop();
+    const recognition = this.recognition;
+    recognition.stop();
     return this.stopPromise.finally(() => {
-      this.dispose();
+      this.detachRecognition(recognition);
+      this.resetState();
     });
   }
 
   dispose() {
+    if (this.recognition) {
+      this.detachRecognition(this.recognition);
+      this.recognition.stop();
+    }
+
+    this.resetState();
+  }
+
+  private detachRecognition(recognition: BrowserSpeechRecognitionInstance) {
+    recognition.onresult = null;
+    recognition.onerror = null;
+    recognition.onend = null;
+  }
+
+  private resetState() {
+    this.transcript = "";
     this.recognition = null;
     this.stopPromise = null;
     this.resolveStop = null;

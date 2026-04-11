@@ -37,21 +37,33 @@ export function createSpeechController(input: {
         throw new Error("Selected speech engine is unavailable.");
       }
 
-      snapshot = {
-        ...snapshot,
-        phase: "requesting-permission",
-        engine: settings.engine,
-        language: settings.language,
-        error: null
-      };
-      await input.engine.start({ language: settings.language });
-      snapshot = {
-        ...snapshot,
-        phase: "listening",
-        engine: settings.engine,
-        language: settings.language,
-        error: null
-      };
+      try {
+        snapshot = {
+          ...snapshot,
+          phase: "requesting-permission",
+          engine: settings.engine,
+          language: settings.language,
+          error: null
+        };
+        await input.engine.start({ language: settings.language });
+        snapshot = {
+          ...snapshot,
+          phase: "listening",
+          engine: settings.engine,
+          language: settings.language,
+          error: null
+        };
+      } catch (error) {
+        snapshot = {
+          ...snapshot,
+          phase: "error",
+          level: 0,
+          engine: settings.engine,
+          language: settings.language,
+          error: error instanceof Error ? error.message : "Speech transcription failed."
+        };
+        throw error;
+      }
     },
     async stop(): Promise<SpeechSessionResult> {
       snapshot = { ...snapshot, phase: "transcribing" };
