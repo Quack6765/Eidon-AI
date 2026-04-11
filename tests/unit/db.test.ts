@@ -102,6 +102,23 @@ function openLegacyDatabase(options: { userSettingsColumns?: string[] } = {}) {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE message_actions (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL,
+      server_id TEXT,
+      skill_id TEXT,
+      tool_name TEXT,
+      label TEXT NOT NULL,
+      detail TEXT NOT NULL DEFAULT '',
+      arguments_json TEXT,
+      result_summary TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+    );
     CREATE TABLE skills (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -429,6 +446,9 @@ describe("db", () => {
       .map((column) => column.name);
     const automationRunColumns = (db.prepare("PRAGMA table_info(automation_runs)").all() as Array<{ name: string }>)
       .map((column) => column.name);
+    const messageActionColumns = (
+      db.prepare("PRAGMA table_info(message_actions)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
     const automationIndexes = (db.prepare("PRAGMA index_list(automations)").all() as Array<{ name: string }>)
       .map((index) => index.name);
     const automationRunIndexes = (
@@ -483,6 +503,9 @@ describe("db", () => {
     );
     expect(automationRunColumns).toEqual(
       expect.arrayContaining(["automation_id", "conversation_id", "scheduled_for", "status"])
+    );
+    expect(messageActionColumns).toEqual(
+      expect.arrayContaining(["proposal_state", "proposal_payload_json", "proposal_updated_at"])
     );
     expect(automationIndexes).toContain("idx_automations_enabled_next_run_at");
     expect(automationRunIndexes).toEqual(
