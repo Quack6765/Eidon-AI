@@ -660,6 +660,81 @@ describe("lossless compaction", () => {
     expect(memoryNode?.superseded_by_node_id).toBeNull();
   });
 
+  it("falls back to the latest user-only prompt when open-task memory nodes still overflow the budget", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4096,
+      maxOutputTokens: 2000,
+      compactionThreshold: 0.5
+    });
+
+    const conversation = createConversation();
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Keep only the latest request in view"
+    });
+
+    const timestamp = new Date().toISOString();
+    getDb()
+      .prepare(
+        `INSERT INTO memory_nodes (
+          id,
+          conversation_id,
+          type,
+          depth,
+          content,
+          source_start_message_id,
+          source_end_message_id,
+          source_token_count,
+          summary_token_count,
+          child_node_ids,
+          superseded_by_node_id,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+      )
+      .run(
+        "mem_user_only_fallback",
+        conversation.id,
+        "leaf_summary",
+        0,
+        [
+          "Goal:",
+          "- Keep only the newest request when budget is exhausted",
+          "Constraints:",
+          "- Memory nodes may stay persisted even if omitted from the live prompt",
+          "Actions Taken:",
+          "- Exercise the user-only fallback path",
+          "Outcomes:",
+          "- The prompt should omit this memory block",
+          "Open Tasks:",
+          "- Confirm the latest user-only fallback path",
+          "Artifact References:",
+          "- lib/compaction.ts",
+          "Time Span:",
+          "- 2026-04-11T08:00:00.000Z -> 2026-04-11T08:05:00.000Z",
+          "Additional context:",
+          "fallback ".repeat(420)
+        ].join("\n"),
+        "msg_mem_user_only_fallback_start",
+        "msg_mem_user_only_fallback_end",
+        80,
+        80,
+        JSON.stringify([]),
+        timestamp
+      );
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!
+    );
+    const promptText = result.promptMessages.map((message) => getPromptText(message)).join("\n");
+
+    expect(result.didCompact).toBe(false);
+    expect(promptText).toContain("Keep only the latest request in view");
+    expect(promptText).not.toContain("Confirm the latest user-only fallback path");
+    expect(promptText).not.toContain("mem_user_only_fallback");
+  });
+
   it("keeps rendered memory nodes when the prompt already fits even if stored summary counts are inflated", async () => {
     updateDefaultProfile({
       modelContextLimit: 12000,
@@ -903,6 +978,28 @@ describe("lossless compaction", () => {
 
     expect(result.promptMessages.some(m => m.role === "system")).toBe(true);
     expect(result.promptMessages.some(m => m.role === "user")).toBe(true);
+  });
+
+  it("throws when even the latest user-only fallback exceeds the context budget", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4096,
+      maxOutputTokens: 2000,
+      compactionThreshold: 0.5
+    });
+
+    const conversation = createConversation();
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: `Oversized ${"context ".repeat(1200)}`
+    });
+
+    await expect(
+      ensureCompactedContext(
+        conversation.id,
+        getDefaultProviderProfileWithApiKey()!
+      )
+    ).rejects.toThrow("Conversation exceeds the configured context limit. No fallback available.");
   });
 });
 
