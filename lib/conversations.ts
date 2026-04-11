@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import {
   assignAttachmentsToMessage,
   deleteConversationAttachmentFiles,
@@ -9,6 +12,7 @@ import {
   generateConversationTitle
 } from "@/lib/conversation-title-generator";
 import { getDb } from "@/lib/db";
+import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
 import {
   getDefaultProviderProfileWithApiKey,
@@ -969,6 +973,351 @@ export function bindAttachmentsToMessage(conversationId: string, messageId: stri
   const attachments = assignAttachmentsToMessage(conversationId, messageId, attachmentIds);
   updateMessageEstimatedTokens(messageId);
   return attachments;
+}
+
+function getAttachmentsRoot() {
+  const root = path.resolve(env.EIDON_DATA_DIR, "attachments");
+  fs.mkdirSync(root, { recursive: true });
+  return root;
+}
+
+function cloneAttachmentFile(input: {
+  sourceRelativePath: string;
+  targetRelativePath: string;
+}) {
+  const sourcePath = path.resolve(getAttachmentsRoot(), input.sourceRelativePath);
+  const targetPath = path.resolve(getAttachmentsRoot(), input.targetRelativePath);
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.copyFileSync(sourcePath, targetPath);
+}
+
+export function forkConversationFromMessage(messageId: string, userId?: string) {
+  const sourceMessage = getMessage(messageId, userId);
+
+  if (!sourceMessage) {
+    throw new Error("Message not found");
+  }
+
+  if (sourceMessage.role !== "assistant") {
+    throw new Error("Only assistant messages can be forked");
+  }
+
+  const sourceConversation = getConversation(sourceMessage.conversationId, userId);
+
+  if (!sourceConversation) {
+    throw new Error("Conversation not found");
+  }
+
+  const sourceConversationOwnerId = getConversationOwnerId(sourceConversation.id);
+  const sourceMessages = listMessages(sourceConversation.id);
+  const selectedIndex = sourceMessages.findIndex((message) => message.id === messageId);
+
+  if (selectedIndex < 0) {
+    throw new Error("Message not found");
+  }
+
+  const retainedMessages = sourceMessages.slice(0, selectedIndex + 1);
+  const retainedMessageIds = new Set(retainedMessages.map((message) => message.id));
+
+  const db = getDb();
+  let forkConversation: Conversation | null = null;
+  const clonedMessageIdBySourceId = new Map<string, string>();
+  const clonedNodeIdBySourceId = new Map<string, string>();
+  const copiedAttachmentPaths: string[] = [];
+
+  const cleanupCopiedAttachments = () => {
+    copiedAttachmentPaths.forEach((relativePath) => {
+      const absolutePath = path.resolve(getAttachmentsRoot(), relativePath);
+      try {
+        fs.unlinkSync(absolutePath);
+      } catch {}
+    });
+  };
+
+  const transaction = db.transaction(() => {
+    forkConversation = createConversation(
+      undefined,
+      sourceConversation.folderId,
+      {
+        providerProfileId: sourceConversation.providerProfileId ?? undefined
+      },
+      sourceConversationOwnerId ?? userId
+    );
+
+    if (!forkConversation) {
+      throw new Error("Conversation not created");
+    }
+
+    if (sourceConversation.providerProfileId === null) {
+      db.prepare("UPDATE conversations SET provider_profile_id = NULL WHERE id = ?").run(forkConversation.id);
+    }
+
+    retainedMessages.forEach((message) => {
+      const clonedMessage = createMessage({
+        conversationId: forkConversation.id,
+        role: message.role,
+        content: message.content,
+        thinkingContent: message.thinkingContent,
+        status: message.status,
+        systemKind: message.systemKind,
+        estimatedTokens: message.estimatedTokens
+      });
+
+      clonedMessageIdBySourceId.set(message.id, clonedMessage.id);
+    });
+
+    retainedMessages.forEach((message) => {
+      const clonedMessageId = clonedMessageIdBySourceId.get(message.id);
+
+      if (!clonedMessageId) {
+        return;
+      }
+
+      message.actions.forEach((action) => {
+        createMessageAction({
+          messageId: clonedMessageId,
+          kind: action.kind,
+          status: action.status,
+          serverId: action.serverId,
+          skillId: action.skillId,
+          toolName: action.toolName,
+          label: action.label,
+          detail: action.detail,
+          arguments: action.arguments,
+          resultSummary: action.resultSummary,
+          sortOrder: action.sortOrder
+        });
+      });
+
+      message.textSegments.forEach((segment) => {
+        createMessageTextSegment({
+          messageId: clonedMessageId,
+          content: segment.content,
+          sortOrder: segment.sortOrder
+        });
+      });
+    });
+
+    retainedMessages.forEach((message) => {
+      const clonedMessageId = clonedMessageIdBySourceId.get(message.id);
+
+      if (!clonedMessageId) {
+        return;
+      }
+
+      message.attachments.forEach((attachment) => {
+        const clonedAttachmentId = createId("att");
+        const clonedRelativePath = path.join(
+          forkConversation.id,
+          `${clonedAttachmentId}_${attachment.filename}`
+        );
+
+        cloneAttachmentFile({
+          sourceRelativePath: attachment.relativePath,
+          targetRelativePath: clonedRelativePath
+        });
+        copiedAttachmentPaths.push(clonedRelativePath);
+
+        db.prepare(
+          `INSERT INTO message_attachments (
+            id,
+            conversation_id,
+            message_id,
+            filename,
+            mime_type,
+            byte_size,
+            sha256,
+            relative_path,
+            kind,
+            extracted_text,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        ).run(
+          clonedAttachmentId,
+          forkConversation.id,
+          clonedMessageId,
+          attachment.filename,
+          attachment.mimeType,
+          attachment.byteSize,
+          attachment.sha256,
+          clonedRelativePath,
+          attachment.kind,
+          attachment.extractedText,
+          attachment.createdAt
+        );
+      });
+
+      const refreshedMessage = getMessage(clonedMessageId);
+      if (refreshedMessage) {
+        db.prepare("UPDATE messages SET estimated_tokens = ? WHERE id = ?").run(
+          estimateMessageTokens(refreshedMessage),
+          clonedMessageId
+        );
+      }
+    });
+
+    const sourceMemoryNodes = db
+      .prepare(
+        `SELECT
+          id,
+          type,
+          depth,
+          content,
+          source_start_message_id,
+          source_end_message_id,
+          source_token_count,
+          summary_token_count,
+          child_node_ids,
+          superseded_by_node_id,
+          created_at
+         FROM memory_nodes
+         WHERE conversation_id = ?
+         ORDER BY created_at ASC, rowid ASC`
+      )
+      .all(sourceConversation.id) as Array<{
+      id: string;
+      type: "leaf_summary" | "merged_summary";
+      depth: number;
+      content: string;
+      source_start_message_id: string;
+      source_end_message_id: string;
+      source_token_count: number;
+      summary_token_count: number;
+      child_node_ids: string;
+      superseded_by_node_id: string | null;
+      created_at: string;
+    }>;
+
+    const retainedMemoryNodes = sourceMemoryNodes
+      .filter((node) => {
+        return (
+          retainedMessageIds.has(node.source_start_message_id) &&
+          retainedMessageIds.has(node.source_end_message_id)
+        );
+      })
+      .map((node) => ({
+        ...node,
+        clonedNodeId: createId("mem")
+      }));
+
+    retainedMemoryNodes.forEach((node) => {
+      clonedNodeIdBySourceId.set(node.id, node.clonedNodeId);
+    });
+
+    retainedMemoryNodes.forEach((node) => {
+      const clonedStartMessageId = clonedMessageIdBySourceId.get(node.source_start_message_id);
+      const clonedEndMessageId = clonedMessageIdBySourceId.get(node.source_end_message_id);
+
+      if (!clonedStartMessageId || !clonedEndMessageId) {
+        return;
+      }
+
+      const childNodeIds = (JSON.parse(node.child_node_ids) as string[])
+        .map((childNodeId) => clonedNodeIdBySourceId.get(childNodeId))
+        .filter((childNodeId): childNodeId is string => Boolean(childNodeId));
+      const clonedSupersededByNodeId = node.superseded_by_node_id
+        ? clonedNodeIdBySourceId.get(node.superseded_by_node_id) ?? null
+        : null;
+
+      db.prepare(
+        `INSERT INTO memory_nodes (
+          id,
+          conversation_id,
+          type,
+          depth,
+          content,
+          source_start_message_id,
+          source_end_message_id,
+          source_token_count,
+          summary_token_count,
+          child_node_ids,
+          superseded_by_node_id,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        node.clonedNodeId,
+        forkConversation.id,
+        node.type,
+        node.depth,
+        node.content,
+        clonedStartMessageId,
+        clonedEndMessageId,
+        node.source_token_count,
+        node.summary_token_count,
+        JSON.stringify(childNodeIds),
+        clonedSupersededByNodeId,
+        node.created_at
+      );
+    });
+
+    const sourceCompactionEvents = db
+      .prepare(
+        `SELECT
+          id,
+          node_id,
+          source_start_message_id,
+          source_end_message_id,
+          notice_message_id,
+          created_at
+         FROM compaction_events
+         WHERE conversation_id = ?
+         ORDER BY created_at ASC, rowid ASC`
+      )
+      .all(sourceConversation.id) as Array<{
+      id: string;
+      node_id: string;
+      source_start_message_id: string;
+      source_end_message_id: string;
+      notice_message_id: string | null;
+      created_at: string;
+    }>;
+
+    sourceCompactionEvents.forEach((event) => {
+      const clonedNodeId = clonedNodeIdBySourceId.get(event.node_id);
+      const clonedStartMessageId = clonedMessageIdBySourceId.get(event.source_start_message_id);
+      const clonedEndMessageId = clonedMessageIdBySourceId.get(event.source_end_message_id);
+      const clonedNoticeMessageId = event.notice_message_id
+        ? clonedMessageIdBySourceId.get(event.notice_message_id) ?? null
+        : null;
+
+      if (!clonedNodeId || !clonedStartMessageId || !clonedEndMessageId) {
+        return;
+      }
+
+      db.prepare(
+        `INSERT INTO compaction_events (
+          id,
+          conversation_id,
+          node_id,
+          source_start_message_id,
+          source_end_message_id,
+          notice_message_id,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        createId("cmp"),
+        forkConversation.id,
+        clonedNodeId,
+        clonedStartMessageId,
+        clonedEndMessageId,
+        clonedNoticeMessageId,
+        event.created_at
+      );
+    });
+  });
+
+  try {
+    transaction();
+  } catch (error) {
+    cleanupCopiedAttachments();
+    throw error;
+  }
+
+  if (!forkConversation) {
+    throw new Error("Conversation not created");
+  }
+
+  return getConversation(forkConversation.id) ?? forkConversation;
 }
 
 export function createMessageAction(input: {

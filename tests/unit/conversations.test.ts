@@ -3,10 +3,12 @@ import path from "node:path";
 
 import { createAttachments } from "@/lib/attachments";
 import { createAutomation, createAutomationRun } from "@/lib/automations";
+import { createFolder } from "@/lib/folders";
 import {
   claimConversationTitleGeneration,
   completeConversationTitleGeneration,
   createConversation,
+  bindAttachmentsToMessage,
   createMessageAction,
   createMessageTextSegment,
   createMessage,
@@ -17,6 +19,7 @@ import {
   getConversation,
   getMessage,
   isVisibleMessage,
+  forkConversationFromMessage,
   listConversations,
   listConversationsPage,
   listMessages,
@@ -27,6 +30,7 @@ import {
   getConversationSnapshot,
   updateMessageAction
 } from "@/lib/conversations";
+import { getDb } from "@/lib/db";
 import { getSettings, listProviderProfiles, updateSettings } from "@/lib/settings";
 import { createLocalUser } from "@/lib/users";
 
@@ -467,6 +471,277 @@ describe("conversation helpers", () => {
         sortOrder: 2
       })
     ]);
+  });
+
+  it("forks a conversation from an assistant message and clones the retained prefix", async () => {
+    const user = await createLocalUser({
+      username: "fork-owner",
+      password: "Password123!",
+      role: "user"
+    });
+    const folder = createFolder("Source folder", user.id);
+    const sourceConversation = createConversation("Source thread", folder.id, {
+      providerProfileId: "profile_default"
+    }, user.id);
+    const userMessage = createMessage({
+      conversationId: sourceConversation.id,
+      role: "user",
+      content: "First prompt"
+    });
+    const assistantMessage = createMessage({
+      conversationId: sourceConversation.id,
+      role: "assistant",
+      content: "First reply",
+      thinkingContent: "Reasoning kept"
+    });
+    createMessageAction({
+      messageId: assistantMessage.id,
+      kind: "mcp_tool_call",
+      serverId: "mcp_docs",
+      toolName: "search_docs",
+      label: "Search docs",
+      detail: "query=forking",
+      arguments: { query: "forking" },
+      status: "completed",
+      resultSummary: "Found docs",
+      sortOrder: 0
+    });
+    createMessageTextSegment({
+      messageId: assistantMessage.id,
+      content: "Partial answer",
+      sortOrder: 0
+    });
+    const [attachment] = createAttachments(sourceConversation.id, [
+      {
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("source attachment", "utf8")
+      }
+    ]);
+    bindAttachmentsToMessage(sourceConversation.id, assistantMessage.id, [attachment.id]);
+    const laterAssistantMessage = createMessage({
+      conversationId: sourceConversation.id,
+      role: "assistant",
+      content: "Later tail"
+    });
+
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id,
+        conversation_id,
+        type,
+        depth,
+        content,
+        source_start_message_id,
+        source_end_message_id,
+        source_token_count,
+        summary_token_count,
+        child_node_ids,
+        superseded_by_node_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+    ).run(
+      "mem_prefix",
+      sourceConversation.id,
+      "leaf_summary",
+      0,
+      "Prefix memory",
+      userMessage.id,
+      assistantMessage.id,
+      20,
+      10,
+      JSON.stringify([]),
+      "2026-04-11T10:00:00.000Z"
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id,
+        conversation_id,
+        type,
+        depth,
+        content,
+        source_start_message_id,
+        source_end_message_id,
+        source_token_count,
+        summary_token_count,
+        child_node_ids,
+        superseded_by_node_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+    ).run(
+      "mem_superseding",
+      sourceConversation.id,
+      "leaf_summary",
+      0,
+      "Superseding memory",
+      assistantMessage.id,
+      assistantMessage.id,
+      10,
+      5,
+      JSON.stringify([]),
+      "2026-04-11T10:00:30.000Z"
+    );
+    db.prepare("UPDATE memory_nodes SET superseded_by_node_id = ? WHERE id = ?").run(
+      "mem_superseding",
+      "mem_prefix"
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id,
+        conversation_id,
+        type,
+        depth,
+        content,
+        source_start_message_id,
+        source_end_message_id,
+        source_token_count,
+        summary_token_count,
+        child_node_ids,
+        superseded_by_node_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`
+    ).run(
+      "mem_spanning",
+      sourceConversation.id,
+      "leaf_summary",
+      0,
+      "Tail memory",
+      userMessage.id,
+      laterAssistantMessage.id,
+      40,
+      20,
+      JSON.stringify([]),
+      "2026-04-11T10:01:00.000Z"
+    );
+    db.prepare(
+      `INSERT INTO compaction_events (
+        id,
+        conversation_id,
+        node_id,
+        source_start_message_id,
+        source_end_message_id,
+        notice_message_id,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "cmp_prefix",
+      sourceConversation.id,
+      "mem_prefix",
+      userMessage.id,
+      assistantMessage.id,
+      null,
+      "2026-04-11T10:02:00.000Z"
+    );
+
+    const forkConversation = forkConversationFromMessage(assistantMessage.id, user.id);
+
+    expect(forkConversation.id).not.toBe(sourceConversation.id);
+    expect(forkConversation.folderId).toBe(sourceConversation.folderId);
+    expect(forkConversation.providerProfileId).toBe(sourceConversation.providerProfileId);
+    expect(forkConversation.title).toBe("Conversation");
+    expect(forkConversation.titleGenerationStatus).toBe("pending");
+
+    const forkMessages = listMessages(forkConversation.id);
+    const [forkUserMessage, forkAssistantMessage] = forkMessages;
+    const forkAttachment = forkAssistantMessage?.attachments?.[0];
+    const forkAction = forkAssistantMessage?.actions?.[0];
+    const forkTextSegment = forkAssistantMessage?.textSegments?.[0];
+
+    expect(forkMessages.map((message) => message.role)).toEqual(["user", "assistant"]);
+    expect(forkMessages.map((message) => message.content)).toEqual(["First prompt", "First reply"]);
+    expect(forkAssistantMessage?.thinkingContent).toBe("Reasoning kept");
+    expect(forkAction).toEqual(expect.objectContaining({
+      messageId: forkAssistantMessage?.id,
+      label: "Search docs",
+      toolName: "search_docs",
+      resultSummary: "Found docs"
+    }));
+    expect(forkTextSegment).toEqual(expect.objectContaining({
+      messageId: forkAssistantMessage?.id,
+      content: "Partial answer"
+    }));
+    expect(forkAttachment).toEqual(expect.objectContaining({
+      conversationId: forkConversation.id,
+      messageId: forkAssistantMessage?.id,
+      filename: "notes.txt",
+      extractedText: "source attachment"
+    }));
+    expect(forkUserMessage?.id).not.toBe(userMessage.id);
+    expect(forkAssistantMessage?.id).not.toBe(assistantMessage.id);
+    expect(forkAttachment?.id).not.toBe(attachment.id);
+
+    const forkMemoryNodes = db
+      .prepare(
+        `SELECT id, content, source_start_message_id, source_end_message_id, superseded_by_node_id
+         FROM memory_nodes
+         WHERE conversation_id = ?
+         ORDER BY created_at ASC`
+      )
+      .all(forkConversation.id) as Array<{
+      id: string;
+      content: string;
+      source_start_message_id: string;
+      source_end_message_id: string;
+      superseded_by_node_id: string | null;
+    }>;
+    const forkCompactionEvents = db
+      .prepare(
+        `SELECT id, node_id, source_start_message_id, source_end_message_id
+         FROM compaction_events
+         WHERE conversation_id = ?
+         ORDER BY created_at ASC`
+      )
+      .all(forkConversation.id) as Array<{
+      id: string;
+      node_id: string;
+      source_start_message_id: string;
+      source_end_message_id: string;
+    }>;
+
+    expect(forkMemoryNodes).toHaveLength(2);
+    expect(forkMemoryNodes[0]).toEqual(expect.objectContaining({
+      content: "Prefix memory",
+      source_start_message_id: forkUserMessage?.id,
+      source_end_message_id: forkAssistantMessage?.id
+    }));
+    expect(forkMemoryNodes[1]).toEqual(expect.objectContaining({
+      content: "Superseding memory",
+      source_start_message_id: forkAssistantMessage?.id,
+      source_end_message_id: forkAssistantMessage?.id,
+      superseded_by_node_id: null
+    }));
+    expect(forkMemoryNodes[0].superseded_by_node_id).toBe(forkMemoryNodes[1].id);
+    expect(forkCompactionEvents).toHaveLength(1);
+    expect(forkCompactionEvents[0]).toEqual(expect.objectContaining({
+      source_start_message_id: forkUserMessage?.id,
+      source_end_message_id: forkAssistantMessage?.id
+    }));
+    expect(forkMemoryNodes[0].id).toBe(forkCompactionEvents[0].node_id);
+
+    expect(
+      db
+        .prepare("SELECT id FROM memory_nodes WHERE conversation_id = ? AND id = ?")
+        .get(forkConversation.id, "mem_spanning")
+    ).toBeUndefined();
+    expect(
+      db
+        .prepare("SELECT id FROM compaction_events WHERE conversation_id = ? AND id = ?")
+        .get(forkConversation.id, "cmp_prefix")
+    ).toBeUndefined();
+  });
+
+  it("rejects forking a non-assistant message", async () => {
+    const conversation = createConversation();
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Nope"
+    });
+
+    expect(() => forkConversationFromMessage(message.id)).toThrow(
+      "Only assistant messages can be forked"
+    );
   });
 
   it("updates message content and returns the refreshed message row", () => {
