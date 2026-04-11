@@ -52,6 +52,8 @@ const settings: AppSettings = {
   memoriesEnabled: true,
   memoriesMaxCount: 100,
   mcpTimeout: 120_000,
+  sttEngine: "browser",
+  sttLanguage: "en",
   updatedAt: new Date().toISOString()
 };
 

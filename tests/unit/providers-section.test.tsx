@@ -51,6 +51,8 @@ type SettingsFixture = {
   memoriesEnabled: boolean;
   memoriesMaxCount: number;
   mcpTimeout: number;
+  sttEngine: "browser" | "embedded";
+  sttLanguage: "en" | "fr" | "es";
   providerProfiles: ProviderProfileFixture[];
   updatedAt: string;
 };
@@ -63,6 +65,8 @@ function makeSettings(overrides: Partial<SettingsFixture> = {}): SettingsFixture
     memoriesEnabled: true,
     memoriesMaxCount: 100,
     mcpTimeout: 120_000,
+    sttEngine: "browser",
+    sttLanguage: "en",
     providerProfiles: [
       {
         id: "profile_default",

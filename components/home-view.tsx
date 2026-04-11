@@ -339,6 +339,13 @@ export function HomeView({
           canStop={false}
           isStopPending={false}
           onStop={() => {}}
+          speechLanguage="en"
+          onSpeechLanguageChange={() => {}}
+          speechPhase="idle"
+          speechLevel={0}
+          speechError={null}
+          onStartSpeech={() => {}}
+          onStopSpeech={() => {}}
         />
 
         {error ? (

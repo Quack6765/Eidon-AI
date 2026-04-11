@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ChatComposer } from "@/components/chat-composer";
@@ -476,8 +476,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     shouldAutoScrollRef.current = true;
   }, [payload.conversation.id]);
 
-  useEffect(() => disposeSpeechSession, [payload.conversation.id]);
-
   useEffect(() => {
     if (!queueRef.current || !shouldAutoScrollRef.current) {
       return;
@@ -851,20 +849,22 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
-  function stopSpeechPolling() {
+  const stopSpeechPolling = useCallback(() => {
     if (speechPollingRef.current !== null) {
       window.clearInterval(speechPollingRef.current);
       speechPollingRef.current = null;
     }
-  }
+  }, []);
 
-  function disposeSpeechSession() {
+  const disposeSpeechSession = useCallback(() => {
     stopSpeechPolling();
     speechControllerRef.current?.dispose();
     speechControllerRef.current = null;
     speechAudioSessionRef.current?.dispose();
     speechAudioSessionRef.current = null;
-  }
+  }, [stopSpeechPolling]);
+
+  useEffect(() => disposeSpeechSession, [disposeSpeechSession, payload.conversation.id]);
 
   function syncSpeechSnapshot(controller: ReturnType<typeof createSpeechController>) {
     setSpeechSnapshot(controller.getSnapshot());

@@ -12,7 +12,15 @@ describe("browser speech engine", () => {
 
   it("starts browser recognition with the resolved locale and returns the final transcript on stop", async () => {
     const originalWindow = globalThis.window;
-    let recognition: FakeSpeechRecognition | null = null;
+    type FakeRecognitionInstance = {
+      lang: string;
+      interimResults: boolean;
+      continuous: boolean;
+      onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+      onerror: ((event: { error: string }) => void) | null;
+      onend: (() => void) | null;
+    };
+    let recognition: FakeRecognitionInstance | null = null;
 
     class FakeSpeechRecognition {
       lang = "";
@@ -49,10 +57,12 @@ describe("browser speech engine", () => {
       expect(engine.isSupported()).toBe(true);
 
       await engine.start({ language: "fr" });
+      expect(recognition).not.toBeNull();
+      const activeRecognition = recognition!;
 
-      expect(recognition?.lang).toBe("fr-FR");
-      expect(recognition?.interimResults).toBe(false);
-      expect(recognition?.continuous).toBe(true);
+      expect(activeRecognition.lang).toBe("fr-FR");
+      expect(activeRecognition.interimResults).toBe(false);
+      expect(activeRecognition.continuous).toBe(true);
 
       await expect(engine.stop()).resolves.toEqual({
         transcript: "bonjour tout le monde"
@@ -67,7 +77,13 @@ describe("browser speech engine", () => {
 
   it("stops an active recognition session and detaches handlers when disposed", async () => {
     const originalWindow = globalThis.window;
-    let recognition: FakeSpeechRecognition | null = null;
+    type FakeRecognitionInstance = {
+      stopCalls: number;
+      onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+      onerror: ((event: { error: string }) => void) | null;
+      onend: (() => void) | null;
+    };
+    let recognition: FakeRecognitionInstance | null = null;
 
     class FakeSpeechRecognition {
       lang = "";
@@ -99,13 +115,15 @@ describe("browser speech engine", () => {
     try {
       const engine = new BrowserSpeechEngine();
       await engine.start({ language: "en" });
+      expect(recognition).not.toBeNull();
+      const activeRecognition = recognition!;
 
       engine.dispose();
 
-      expect(recognition?.stopCalls).toBe(1);
-      expect(recognition?.onresult).toBeNull();
-      expect(recognition?.onerror).toBeNull();
-      expect(recognition?.onend).toBeNull();
+      expect(activeRecognition.stopCalls).toBe(1);
+      expect(activeRecognition.onresult).toBeNull();
+      expect(activeRecognition.onerror).toBeNull();
+      expect(activeRecognition.onend).toBeNull();
     } finally {
       Object.defineProperty(globalThis, "window", {
         configurable: true,

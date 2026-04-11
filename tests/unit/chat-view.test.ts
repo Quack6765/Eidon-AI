@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { ChatView } from "@/components/chat-view";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
+import type { SpeechSessionSnapshot, SttEngine, SttLanguage } from "@/lib/speech/types";
 import type { Message, MessageAttachment } from "@/lib/types";
 
 const push = vi.fn();
@@ -53,12 +54,12 @@ const speechMock = vi.hoisted(() => {
   }));
 
   const createSpeechController = vi.fn((input: { audioMonitor: typeof audioMonitor }) => {
-    let snapshot = {
-      phase: "idle" as const,
-      engine: "browser" as const,
-      language: "en" as const,
+    let snapshot: SpeechSessionSnapshot = {
+      phase: "idle",
+      engine: "browser",
+      language: "en",
       level: 0,
-      error: null as string | null
+      error: null
     };
 
     const controller = {
@@ -66,7 +67,7 @@ const speechMock = vi.hoisted(() => {
         ...snapshot,
         level: snapshot.phase === "listening" ? input.audioMonitor.readLevel() : 0
       })),
-      start: vi.fn(async ({ engine, language }: { engine: "browser" | "embedded"; language: "en" | "fr" | "es" }) => {
+      start: vi.fn(async ({ engine, language }: { engine: SttEngine; language: SttLanguage }) => {
         snapshot = {
           ...snapshot,
           phase: "requesting-permission",
@@ -314,13 +315,19 @@ describe("chat view", () => {
     if (originalMediaDevices) {
       Object.defineProperty(navigator, "mediaDevices", originalMediaDevices);
     } else {
-      delete (navigator as Navigator & { mediaDevices?: MediaDevices }).mediaDevices;
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: undefined
+      });
     }
 
     if (originalAudioContext) {
       Object.defineProperty(window, "AudioContext", originalAudioContext);
     } else {
-      delete (window as Window & { AudioContext?: typeof AudioContext }).AudioContext;
+      Object.defineProperty(window, "AudioContext", {
+        configurable: true,
+        value: undefined
+      });
     }
   });
 

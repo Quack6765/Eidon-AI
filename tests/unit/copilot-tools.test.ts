@@ -107,6 +107,8 @@ function makeAppSettings(overrides: Partial<import("@/lib/types").AppSettings> =
     memoriesEnabled: true,
     memoriesMaxCount: 100,
     mcpTimeout: 30000,
+    sttEngine: "browser" as const,
+    sttLanguage: "en" as const,
     updatedAt: new Date().toISOString(),
     ...overrides
   };
