@@ -240,7 +240,10 @@ function createMessage(overrides: Partial<Message> = {}): Message {
   };
 }
 
-function createMemoryProposalMessage(): Message {
+function createMemoryProposalMessage(
+  overrides: Partial<Message> = {},
+  actionOverrides: Partial<NonNullable<Message["timeline"]>[number]> = {}
+): Message {
   return {
     id: "msg_assistant_memory",
     conversationId: "conv_1",
@@ -262,7 +265,7 @@ function createMemoryProposalMessage(): Message {
         serverId: null,
         skillId: null,
         toolName: "create_memory",
-        label: "Saved memory",
+        label: "Create memory proposal",
         detail: "TypeScript preference",
         arguments: {
           content: "TypeScript preference",
@@ -281,9 +284,11 @@ function createMemoryProposalMessage(): Message {
             category: "preference"
           }
         },
-        proposalUpdatedAt: new Date().toISOString()
+        proposalUpdatedAt: new Date().toISOString(),
+        ...actionOverrides
       }
-    ]
+    ],
+    ...overrides
   };
 }
 
@@ -524,7 +529,7 @@ describe("chat view", () => {
             serverId: null,
             skillId: null,
             toolName: "create_memory",
-            label: "Saved memory",
+            label: "Create memory proposal",
             detail: "Prefers strict TypeScript",
             arguments: {
               content: "Prefers strict TypeScript",
@@ -550,14 +555,14 @@ describe("chat view", () => {
 
     renderWithProvider(React.createElement(ChatView, { payload }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Edit memory proposal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.change(screen.getByDisplayValue("TypeScript preference"), {
       target: { value: "Prefers strict TypeScript" }
     });
     fireEvent.change(screen.getByRole("combobox"), {
       target: { value: "work" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save memory proposal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenNthCalledWith(
@@ -574,12 +579,10 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Saved memory" })).toBeInTheDocument();
+      expect(screen.getByText("Memory saved")).toBeInTheDocument();
     });
 
-    expect(
-      screen.queryByRole("button", { name: "Save memory proposal" })
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
   });
 
   it("dismisses a memory proposal and updates the assistant timeline in place", async () => {
@@ -602,7 +605,7 @@ describe("chat view", () => {
             serverId: null,
             skillId: null,
             toolName: "create_memory",
-            label: "Ignored memory proposal",
+            label: "Create memory proposal",
             detail: "TypeScript preference",
             arguments: {
               content: "TypeScript preference",
@@ -628,7 +631,7 @@ describe("chat view", () => {
 
     renderWithProvider(React.createElement(ChatView, { payload }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Ignore memory proposal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ignore" }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenNthCalledWith(
@@ -641,7 +644,7 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Ignored memory proposal" })).toBeInTheDocument();
+      expect(screen.getByText("Memory ignored")).toBeInTheDocument();
     });
   });
 
@@ -661,7 +664,7 @@ describe("chat view", () => {
 
     renderWithProvider(React.createElement(ChatView, { payload }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Save memory proposal" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(
@@ -670,9 +673,97 @@ describe("chat view", () => {
     });
 
     expect(screen.getByText("TypeScript preference")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Save memory proposal" })
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+
+  it("renders resolved update proposals as specialized cards after mutation", async () => {
+    const payload = createPayload();
+    payload.messages = [
+      createMemoryProposalMessage(
+        {},
+        {
+          kind: "update_memory",
+          toolName: "update_memory",
+          label: "Update memory proposal",
+          detail: "Prefers strict TypeScript",
+          arguments: {
+            id: "mem_1",
+            content: "Prefers strict TypeScript",
+            category: "work"
+          },
+          proposalPayload: {
+            operation: "update",
+            targetMemoryId: "mem_1",
+            currentMemory: {
+              id: "mem_1",
+              content: "TypeScript preference",
+              category: "preference"
+            },
+            proposedMemory: {
+              content: "Prefers strict TypeScript",
+              category: "work"
+            }
+          }
+        }
+      )
+    ];
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          action: {
+            id: "act_memory",
+            messageId: "msg_assistant_memory",
+            kind: "update_memory",
+            status: "completed",
+            serverId: null,
+            skillId: null,
+            toolName: "update_memory",
+            label: "Update memory proposal",
+            detail: "Prefers strict TypeScript",
+            arguments: {
+              id: "mem_1",
+              content: "Prefers strict TypeScript",
+              category: "work"
+            },
+            resultSummary: "",
+            sortOrder: 0,
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            proposalState: "approved",
+            proposalPayload: {
+              operation: "update",
+              targetMemoryId: "mem_1",
+              currentMemory: {
+                id: "mem_1",
+                content: "TypeScript preference",
+                category: "preference"
+              },
+              proposedMemory: {
+                content: "Prefers strict TypeScript",
+                category: "work"
+              }
+            },
+            proposalUpdatedAt: new Date().toISOString()
+          }
+        })
+      } as Response);
+
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Memory updated")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Prefers strict TypeScript")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Update memory proposal" })).toBeNull();
   });
 
   it("sends a message via WebSocket when the user submits", async () => {
