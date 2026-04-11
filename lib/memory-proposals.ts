@@ -170,6 +170,21 @@ function applyProposalOverrides(
   };
 }
 
+function ensureCurrentMemorySnapshotMatches(
+  liveMemory: UserMemory,
+  proposalPayload: MemoryProposalPayload
+) {
+  const snapshot = proposalPayload.currentMemory;
+
+  if (!snapshot) {
+    throw new Error("Memory proposal payload is missing");
+  }
+
+  if (liveMemory.content !== snapshot.content || liveMemory.category !== snapshot.category) {
+    throw new Error("Target memory changed since this proposal was created");
+  }
+}
+
 export function approveMemoryProposal(
   actionId: string,
   overrides?: { content?: string; category?: MemoryCategory },
@@ -204,9 +219,13 @@ export function approveMemoryProposal(
       throw new Error("Memory proposal payload is missing");
     }
 
-    if (!getMemory(targetMemoryId, userId)) {
+    const liveMemory = getMemory(targetMemoryId, userId);
+
+    if (!liveMemory) {
       throw new Error("Target memory no longer exists");
     }
+
+    ensureCurrentMemorySnapshotMatches(liveMemory, finalPayload);
 
     const updated = updateMemory(
       targetMemoryId,
@@ -229,9 +248,13 @@ export function approveMemoryProposal(
       throw new Error("Memory proposal payload is missing");
     }
 
-    if (!getMemory(targetMemoryId, userId)) {
+    const liveMemory = getMemory(targetMemoryId, userId);
+
+    if (!liveMemory) {
       throw new Error("Target memory no longer exists");
     }
+
+    ensureCurrentMemorySnapshotMatches(liveMemory, finalPayload);
 
     deleteMemory(targetMemoryId, userId);
   }

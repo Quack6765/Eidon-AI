@@ -190,6 +190,62 @@ describe("memory proposal approval helpers", () => {
     expect(() => approveMemoryProposal(created.id, undefined, user.id)).toThrow("Target memory no longer exists");
   });
 
+  it("approving an update proposal fails if the target memory changed after the proposal was created", async () => {
+    const { user, message } = await createUserConversationFixture("memory-update-stale");
+    const memory = createMemory("User prefers tea", "preference", user.id);
+    const created = createMessageAction({
+      messageId: message.id,
+      kind: "update_memory",
+      status: "pending",
+      label: "Update memory proposal",
+      proposalState: "pending",
+      proposalPayload: buildUpdateMemoryProposal({
+        memory,
+        content: "User prefers green tea",
+        category: "preference"
+      })
+    });
+
+    const changed = await import("@/lib/memories");
+    changed.updateMemory(memory.id, { content: "User prefers coffee" }, user.id);
+
+    expect(() => approveMemoryProposal(created.id, undefined, user.id)).toThrow(
+      "Target memory changed since this proposal was created"
+    );
+    expect(getMemory(memory.id, user.id)).toEqual(
+      expect.objectContaining({
+        content: "User prefers coffee",
+        category: "preference"
+      })
+    );
+  });
+
+  it("approving a delete proposal fails if the target memory changed after the proposal was created", async () => {
+    const { user, message } = await createUserConversationFixture("memory-delete-stale");
+    const memory = createMemory("User lives in Toronto", "location", user.id);
+    const created = createMessageAction({
+      messageId: message.id,
+      kind: "delete_memory",
+      status: "pending",
+      label: "Delete memory proposal",
+      proposalState: "pending",
+      proposalPayload: buildDeleteMemoryProposal(memory)
+    });
+
+    const changed = await import("@/lib/memories");
+    changed.updateMemory(memory.id, { category: "personal" }, user.id);
+
+    expect(() => approveMemoryProposal(created.id, undefined, user.id)).toThrow(
+      "Target memory changed since this proposal was created"
+    );
+    expect(getMemory(memory.id, user.id)).toEqual(
+      expect.objectContaining({
+        content: "User lives in Toronto",
+        category: "personal"
+      })
+    );
+  });
+
   it("approving a create proposal with overrides applies the edited content and category", async () => {
     const { user, message } = await createUserConversationFixture("memory-create-overrides");
     const created = createMessageAction({
@@ -399,5 +455,73 @@ describe("memory proposal approval routes", () => {
       })
     });
     expect(getMemory(memory.id, user.id)).toEqual(expect.objectContaining({ id: memory.id }));
+  });
+
+  it("rejects approving another user's proposal through the route", async () => {
+    const owner = await createUserConversationFixture("memory-approve-cross-owner");
+    const otherUser = await createLocalUser({
+      username: "memory-approve-cross-other",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(buildRouteUser(otherUser.id));
+
+    const created = createMessageAction({
+      messageId: owner.message.id,
+      kind: "create_memory",
+      status: "pending",
+      label: "Create memory proposal",
+      proposalState: "pending",
+      proposalPayload: buildCreateMemoryProposal({
+        content: "Owner memory proposal",
+        category: "other"
+      })
+    });
+
+    const { POST } = await import("@/app/api/message-actions/[actionId]/approve/route");
+    const response = await POST(
+      new Request(`http://localhost/api/message-actions/${created.id}/approve`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({})
+      }),
+      { params: Promise.resolve({ actionId: created.id }) }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Memory proposal not found" });
+    expect(listMemories(owner.user.id)).toEqual([]);
+  });
+
+  it("rejects dismissing another user's proposal through the route", async () => {
+    const owner = await createUserConversationFixture("memory-dismiss-cross-owner");
+    const otherUser = await createLocalUser({
+      username: "memory-dismiss-cross-other",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(buildRouteUser(otherUser.id));
+
+    const memory = createMemory("Owner memory", "personal", owner.user.id);
+    const created = createMessageAction({
+      messageId: owner.message.id,
+      kind: "delete_memory",
+      status: "pending",
+      label: "Delete memory proposal",
+      proposalState: "pending",
+      proposalPayload: buildDeleteMemoryProposal(memory)
+    });
+
+    const { POST } = await import("@/app/api/message-actions/[actionId]/dismiss/route");
+    const response = await POST(
+      new Request(`http://localhost/api/message-actions/${created.id}/dismiss`, {
+        method: "POST"
+      }),
+      { params: Promise.resolve({ actionId: created.id }) }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Memory proposal not found" });
+    expect(getMemory(memory.id, owner.user.id)).toEqual(expect.objectContaining({ id: memory.id }));
   });
 });
