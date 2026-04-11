@@ -38,6 +38,48 @@ function createUserMessage(): Message {
   };
 }
 
+function createPendingMemoryProposalMessage(
+  overrides: Partial<Message> = {}
+): Message {
+  return {
+    ...createAssistantMessage(),
+    content: "I can remember that.",
+    timeline: [
+      {
+        id: "act_memory",
+        messageId: "msg_assistant",
+        timelineKind: "action",
+        kind: "create_memory",
+        status: "pending",
+        serverId: null,
+        skillId: null,
+        toolName: "create_memory",
+        label: "Saved memory",
+        detail: "TypeScript preference",
+        arguments: {
+          content: "TypeScript preference",
+          category: "preference"
+        },
+        resultSummary: "",
+        sortOrder: 0,
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        proposalState: "pending",
+        proposalPayload: {
+          operation: "create",
+          targetMemoryId: null,
+          proposedMemory: {
+            content: "TypeScript preference",
+            category: "preference"
+          }
+        },
+        proposalUpdatedAt: new Date().toISOString()
+      }
+    ],
+    ...overrides
+  };
+}
+
 describe("message bubble", () => {
   it("renders running tool actions with a spinner while streaming", () => {
     const { container } = render(
@@ -110,6 +152,107 @@ describe("message bubble", () => {
 
     expect(screen.getByText("query=MCP")).toBeInTheDocument();
     expect(screen.getByText("Found MCP documentation")).toBeInTheDocument();
+  });
+
+  it("renders pending memory proposals as inline approval cards", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: createPendingMemoryProposalMessage()
+      })
+    );
+
+    expect(screen.getByText("Saved memory")).toBeInTheDocument();
+    expect(screen.getByText("TypeScript preference")).toBeInTheDocument();
+    expect(screen.getByText("preference")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save memory proposal" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Ignore memory proposal" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Edit memory proposal" })
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/query=MCP/)).toBeNull();
+  });
+
+  it("lets the user edit a memory proposal before saving it", async () => {
+    const onApproveMemoryProposal = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: createPendingMemoryProposalMessage(),
+        onApproveMemoryProposal
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit memory proposal" }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "Prefers strict TypeScript" }
+    });
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "work" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save memory proposal" }));
+
+    await waitFor(() => {
+      expect(onApproveMemoryProposal).toHaveBeenCalledWith("act_memory", {
+        content: "Prefers strict TypeScript",
+        category: "work"
+      });
+    });
+  });
+
+  it("hides edit controls for delete proposals while keeping save and ignore actions", async () => {
+    const onDismissMemoryProposal = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: createPendingMemoryProposalMessage({
+          timeline: [
+            {
+              id: "act_memory_delete",
+              messageId: "msg_assistant",
+              timelineKind: "action",
+              kind: "delete_memory",
+              status: "pending",
+              serverId: null,
+              skillId: null,
+              toolName: "delete_memory",
+              label: "Delete memory",
+              detail: "Loves TypeScript",
+              arguments: { id: "mem_1" },
+              resultSummary: "",
+              sortOrder: 0,
+              startedAt: new Date().toISOString(),
+              completedAt: null,
+              proposalState: "pending",
+              proposalPayload: {
+                operation: "delete",
+                targetMemoryId: "mem_1",
+                currentMemory: {
+                  id: "mem_1",
+                  content: "Loves TypeScript",
+                  category: "preference"
+                }
+              },
+              proposalUpdatedAt: new Date().toISOString()
+            }
+          ]
+        }),
+        onDismissMemoryProposal
+      })
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Edit memory proposal" })
+    ).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Ignore memory proposal" }));
+
+    await waitFor(() => {
+      expect(onDismissMemoryProposal).toHaveBeenCalledWith("act_memory_delete");
+    });
   });
 
   it("keeps the thought shell above action rows", () => {

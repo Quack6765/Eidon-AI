@@ -21,6 +21,7 @@ import type { AppSettings } from "@/lib/types";
 import type {
   ChatStreamEvent,
   Conversation,
+  MemoryCategory,
   Message,
   MessageAction,
   MessageAttachment,
@@ -236,6 +237,32 @@ function adoptStreamingSnapshotState(timeline: MessageTimelineItem[] | undefined
     answer,
     timeline: closedTimeline
   };
+}
+
+function replaceMessageAction(
+  messages: Message[],
+  nextAction: MessageAction
+) {
+  return messages.map((message) => {
+    const nextActions = message.actions?.map((action) =>
+      action.id === nextAction.id ? nextAction : action
+    );
+    const nextTimeline = message.timeline?.map((item) =>
+      item.timelineKind === "action" && item.id === nextAction.id
+        ? { ...nextAction, timelineKind: "action" as const }
+        : item
+    );
+
+    if (nextActions === message.actions && nextTimeline === message.timeline) {
+      return message;
+    }
+
+    return {
+      ...message,
+      ...(nextActions ? { actions: nextActions } : {}),
+      ...(nextTimeline ? { timeline: nextTimeline } : {})
+    };
+  });
 }
 
 export function ChatView({ payload }: { payload: ConversationPayload }) {
@@ -1166,6 +1193,73 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  async function approveMemoryProposal(
+    actionId: string,
+    overrides?: { content?: string; category?: MemoryCategory }
+  ) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/message-actions/${actionId}/approve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(overrides ?? {})
+      });
+
+      const result = (await response.json()) as {
+        action?: MessageAction;
+        error?: string;
+      };
+
+      if (!response.ok || !result.action) {
+        throw new Error(result.error ?? "Unable to approve memory proposal");
+      }
+
+      setMessages((current) => replaceMessageAction(current, result.action!));
+    } catch (caughtError) {
+      const errorMessage =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to approve memory proposal";
+      setError(errorMessage);
+      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    }
+  }
+
+  async function dismissMemoryProposal(actionId: string) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/message-actions/${actionId}/dismiss`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({})
+      });
+
+      const result = (await response.json()) as {
+        action?: MessageAction;
+        error?: string;
+      };
+
+      if (!response.ok || !result.action) {
+        throw new Error(result.error ?? "Unable to dismiss memory proposal");
+      }
+
+      setMessages((current) => replaceMessageAction(current, result.action!));
+    } catch (caughtError) {
+      const errorMessage =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to dismiss memory proposal";
+      setError(errorMessage);
+      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    }
+  }
+
   async function updateProviderProfile(nextProviderProfileId: string) {
     const previousProviderProfileId = providerProfileId;
     setError("");
@@ -1391,6 +1485,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 thinkingDuration={message.id === streamMessageId ? thinkingDuration : undefined}
                 hasThinking={message.id === streamMessageId ? Boolean(streamThinkingTarget) : false}
                 onUpdateUserMessage={updateUserMessage}
+                onApproveMemoryProposal={approveMemoryProposal}
+                onDismissMemoryProposal={dismissMemoryProposal}
                 isUpdating={updatingMessageId === message.id}
                 onForkAssistantMessage={forkAssistantMessage}
                 isForking={forkingMessageId === message.id}

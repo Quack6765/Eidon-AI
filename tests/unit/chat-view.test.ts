@@ -240,6 +240,53 @@ function createMessage(overrides: Partial<Message> = {}): Message {
   };
 }
 
+function createMemoryProposalMessage(): Message {
+  return {
+    id: "msg_assistant_memory",
+    conversationId: "conv_1",
+    role: "assistant",
+    content: "I can remember that.",
+    thinkingContent: "",
+    status: "completed",
+    estimatedTokens: 0,
+    systemKind: null,
+    compactedAt: null,
+    createdAt: new Date().toISOString(),
+    timeline: [
+      {
+        id: "act_memory",
+        messageId: "msg_assistant_memory",
+        timelineKind: "action",
+        kind: "create_memory",
+        status: "pending",
+        serverId: null,
+        skillId: null,
+        toolName: "create_memory",
+        label: "Saved memory",
+        detail: "TypeScript preference",
+        arguments: {
+          content: "TypeScript preference",
+          category: "preference"
+        },
+        resultSummary: "",
+        sortOrder: 0,
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        proposalState: "pending",
+        proposalPayload: {
+          operation: "create",
+          targetMemoryId: null,
+          proposedMemory: {
+            content: "TypeScript preference",
+            category: "preference"
+          }
+        },
+        proposalUpdatedAt: new Date().toISOString()
+      }
+    ]
+  };
+}
+
 async function flushAnimationFrame() {
   await act(async () => {
     await new Promise<void>((resolve) => {
@@ -455,6 +502,177 @@ describe("chat view", () => {
     });
 
     expect(screen.queryByText("Drop files to attach")).toBeNull();
+  });
+
+  it("approves a memory proposal and updates the assistant timeline in place", async () => {
+    const payload = createPayload();
+    payload.messages = [createMemoryProposalMessage()];
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          action: {
+            id: "act_memory",
+            messageId: "msg_assistant_memory",
+            kind: "create_memory",
+            status: "completed",
+            serverId: null,
+            skillId: null,
+            toolName: "create_memory",
+            label: "Saved memory",
+            detail: "Prefers strict TypeScript",
+            arguments: {
+              content: "Prefers strict TypeScript",
+              category: "work"
+            },
+            resultSummary: "",
+            sortOrder: 0,
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            proposalState: "approved",
+            proposalPayload: {
+              operation: "create",
+              targetMemoryId: null,
+              proposedMemory: {
+                content: "Prefers strict TypeScript",
+                category: "work"
+              }
+            },
+            proposalUpdatedAt: new Date().toISOString()
+          }
+        })
+      } as Response);
+
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit memory proposal" }));
+    fireEvent.change(screen.getByDisplayValue("TypeScript preference"), {
+      target: { value: "Prefers strict TypeScript" }
+    });
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "work" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save memory proposal" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenNthCalledWith(
+        2,
+        "/api/message-actions/act_memory/approve",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({
+            content: "Prefers strict TypeScript",
+            category: "work"
+          })
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Saved memory" })).toBeInTheDocument();
+    });
+
+    expect(
+      screen.queryByRole("button", { name: "Save memory proposal" })
+    ).toBeNull();
+  });
+
+  it("dismisses a memory proposal and updates the assistant timeline in place", async () => {
+    const payload = createPayload();
+    payload.messages = [createMemoryProposalMessage()];
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          action: {
+            id: "act_memory",
+            messageId: "msg_assistant_memory",
+            kind: "create_memory",
+            status: "completed",
+            serverId: null,
+            skillId: null,
+            toolName: "create_memory",
+            label: "Ignored memory proposal",
+            detail: "TypeScript preference",
+            arguments: {
+              content: "TypeScript preference",
+              category: "preference"
+            },
+            resultSummary: "",
+            sortOrder: 0,
+            startedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            proposalState: "dismissed",
+            proposalPayload: {
+              operation: "create",
+              targetMemoryId: null,
+              proposedMemory: {
+                content: "TypeScript preference",
+                category: "preference"
+              }
+            },
+            proposalUpdatedAt: new Date().toISOString()
+          }
+        })
+      } as Response);
+
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Ignore memory proposal" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenNthCalledWith(
+        2,
+        "/api/message-actions/act_memory/dismiss",
+        expect.objectContaining({
+          method: "POST"
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Ignored memory proposal" })).toBeInTheDocument();
+    });
+  });
+
+  it("surfaces memory approval failures without breaking the conversation view", async () => {
+    const payload = createPayload();
+    payload.messages = [createMemoryProposalMessage()];
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: "Unable to approve memory proposal" })
+      } as Response);
+
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save memory proposal" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText("Unable to approve memory proposal").length
+      ).toBeGreaterThan(0);
+    });
+
+    expect(screen.getByText("TypeScript preference")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save memory proposal" })
+    ).toBeInTheDocument();
   });
 
   it("sends a message via WebSocket when the user submits", async () => {
