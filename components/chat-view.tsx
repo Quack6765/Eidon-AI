@@ -1133,10 +1133,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       }
 
       const result = (await response.json()) as {
-        conversationId?: string;
-        newConversationId?: string;
+        conversation?: {
+          id?: string;
+        };
       };
-      const nextConversationId = result.newConversationId ?? result.conversationId;
+      const nextConversationId = result.conversation?.id;
 
       if (!nextConversationId) {
         throw new Error("Unable to fork conversation");

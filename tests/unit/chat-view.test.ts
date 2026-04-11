@@ -479,7 +479,7 @@ describe("chat view", () => {
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ conversationId: "conv_forked" })
+        json: async () => ({ conversation: { id: "conv_forked" } })
       } as Response);
 
     renderWithProvider(
@@ -600,7 +600,7 @@ describe("chat view", () => {
 
     resolveForkResponse?.({
       ok: true,
-      json: async () => ({ conversationId: "conv_forked" })
+      json: async () => ({ conversation: { id: "conv_forked" } })
     } as Response);
 
     await waitFor(() => {
