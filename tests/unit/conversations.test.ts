@@ -565,8 +565,8 @@ describe("conversation helpers", () => {
     );
 
     const sourceAssistantMessage = getMessage(assistantMessage.id);
-    const sourceAssistantAction = sourceAssistantMessage?.actions[0];
-    const sourceAssistantTextSegment = sourceAssistantMessage?.textSegments[0];
+    const sourceAssistantAction = sourceAssistantMessage?.actions?.[0];
+    const sourceAssistantTextSegment = sourceAssistantMessage?.textSegments?.[0];
 
     db.prepare(
       `INSERT INTO memory_nodes (

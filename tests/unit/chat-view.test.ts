@@ -544,7 +544,7 @@ describe("chat view", () => {
   });
 
   it("prevents duplicate fork requests while a fork is already in flight", async () => {
-    let resolveForkResponse: ((value: Response) => void) | null = null;
+    let resolveForkResponse: ((value: Response) => void) | undefined;
     const forkResponse = new Promise<Response>((resolve) => {
       resolveForkResponse = resolve;
     });
@@ -598,6 +598,7 @@ describe("chat view", () => {
         .mock.calls.filter(([input]) => input === "/api/messages/msg_assistant/fork")
     ).toHaveLength(1);
 
+    expect(resolveForkResponse).toBeDefined();
     resolveForkResponse?.({
       ok: true,
       json: async () => ({ conversation: { id: "conv_forked" } })

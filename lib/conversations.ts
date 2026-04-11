@@ -1090,7 +1090,7 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
         return;
       }
 
-      message.actions.forEach((action) => {
+      (message.actions ?? []).forEach((action) => {
         db.prepare(
           `INSERT INTO message_actions (
             id,
@@ -1126,7 +1126,7 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
         );
       });
 
-      message.textSegments.forEach((segment) => {
+      (message.textSegments ?? []).forEach((segment) => {
         db.prepare(
           `INSERT INTO message_text_segments (
             id,
