@@ -524,6 +524,24 @@ describe("message bubble", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps the copy action visible for non-completed assistant messages while hiding fork", () => {
+    render(
+      React.createElement(MessageBubble as React.ComponentType<any>, {
+        message: {
+          ...createAssistantMessage(),
+          status: "streaming",
+          content: "Still composing"
+        },
+        onForkAssistantMessage: vi.fn()
+      })
+    );
+
+    expect(screen.getByRole("button", { name: "Copy message" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Fork conversation from message" })
+    ).toBeNull();
+  });
+
   it("does not render a fork action for user messages", () => {
     render(
       React.createElement(MessageBubble as React.ComponentType<any>, {

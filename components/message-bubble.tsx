@@ -373,7 +373,7 @@ export function MessageBubble({
   const copyResetHandle = useRef<number | null>(null);
   const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || hasThinking || Boolean(thinkingContent));
   const showUserBubbleActions = Boolean(content) && !awaitingFirstToken;
-  const showAssistantBubbleActions = Boolean(assistantText) && !awaitingFirstToken && message.status === "completed";
+  const showAssistantBubbleActions = Boolean(assistantText) && !awaitingFirstToken;
 
   useEffect(() => {
     setDraft(message.content);
@@ -648,7 +648,7 @@ export function MessageBubble({
                         <Copy className="h-3.5 w-3.5" />
                       )}
                     </ActionButton>
-                    {onForkAssistantMessage ? (
+                    {onForkAssistantMessage && message.status === "completed" ? (
                       <ActionButton
                         label="Fork conversation from message"
                         onClick={() => onForkAssistantMessage(message.id)}
