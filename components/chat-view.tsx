@@ -14,7 +14,12 @@ import {
 import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { supportsImageInput } from "@/lib/model-capabilities";
+import { createAudioLevelMonitor } from "@/lib/speech/audio-level-monitor";
+import { createSpeechEngine } from "@/lib/speech/create-speech-engine";
+import { createSpeechController } from "@/lib/speech/speech-controller";
+import type { SpeechSessionSnapshot, SttLanguage, SttEngine } from "@/lib/speech/types";
 import { shouldAutofocusTextInput } from "@/lib/utils";
+import type { AppSettings } from "@/lib/types";
 import type {
   ChatStreamEvent,
   Conversation,
@@ -28,6 +33,7 @@ import type {
 type ConversationPayload = {
   conversation: Conversation;
   messages: Message[];
+  settings: Pick<AppSettings, "sttEngine" | "sttLanguage">;
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string | null;
   debug: {
@@ -47,6 +53,71 @@ function isNearQueueBottom(element: HTMLDivElement) {
   const distanceFromBottom =
     element.scrollHeight - element.clientHeight - element.scrollTop;
   return distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX;
+}
+
+type SpeechAudioSession = {
+  audioMonitor: ReturnType<typeof createAudioLevelMonitor>;
+  dispose: () => void;
+};
+
+function normalizeSpeechError(error: unknown) {
+  return error instanceof Error ? error.message : "Speech transcription failed.";
+}
+
+function appendTranscriptToDraft(current: string, transcript: string) {
+  const trimmedTranscript = transcript.trim();
+
+  if (!trimmedTranscript) {
+    return current;
+  }
+
+  if (!current.trim()) {
+    return trimmedTranscript;
+  }
+
+  return `${current.replace(/\s+$/, "")}\n${trimmedTranscript}`;
+}
+
+async function createSpeechAudioSession(): Promise<SpeechAudioSession> {
+  if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Microphone access is unavailable.");
+  }
+
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const AudioContextCtor =
+    window.AudioContext ?? (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+  if (!AudioContextCtor) {
+    stream.getTracks().forEach((track) => track.stop());
+    throw new Error("Audio level monitoring is unavailable.");
+  }
+
+  const audioContext = new AudioContextCtor();
+
+  if (typeof audioContext.resume === "function") {
+    await audioContext.resume().catch(() => {});
+  }
+
+  const source = audioContext.createMediaStreamSource(stream);
+  const analyser = audioContext.createAnalyser();
+  analyser.fftSize = 256;
+  source.connect(analyser);
+  const audioMonitor = createAudioLevelMonitor({ analyser });
+
+  return {
+    audioMonitor,
+    dispose() {
+      try {
+        source.disconnect();
+      } catch {}
+
+      audioMonitor.dispose();
+
+      stream.getTracks().forEach((track) => track.stop());
+
+      void audioContext.close().catch(() => {});
+    }
+  };
 }
 
 function findMatchingActionIndex(timeline: MessageTimelineItem[], action: MessageAction) {
@@ -280,6 +351,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
   const [personaId, setPersonaId] = useState<string | null>(null);
+  const [speechLanguage, setSpeechLanguage] = useState<SttLanguage>(payload.settings.sttLanguage);
+  const [speechSnapshot, setSpeechSnapshot] = useState<SpeechSessionSnapshot>(() => ({
+    phase: "idle",
+    engine: payload.settings.sttEngine,
+    language: payload.settings.sttLanguage,
+    level: 0,
+    error: null
+  }));
   const hasEmptyAssistantShell = messages.some(
     (message) =>
       message.role === "assistant" &&
@@ -309,6 +388,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     content: string;
     attachments: MessageAttachment[];
   }>>([]);
+  const speechControllerRef = useRef<ReturnType<typeof createSpeechController> | null>(null);
+  const speechAudioSessionRef = useRef<SpeechAudioSession | null>(null);
+  const speechPollingRef = useRef<number | null>(null);
   const shouldAutoScrollRef = useRef(true);
   const bootstrapPayloadRef = useRef<{
     message: string;
@@ -364,6 +446,24 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [payload.conversation.providerProfileId, payload.defaultProviderProfileId, payload.providerProfiles]);
 
   useEffect(() => {
+    setSpeechLanguage(payload.settings.sttLanguage);
+  }, [payload.settings.sttLanguage]);
+
+  useEffect(() => {
+    setSpeechSnapshot((current) =>
+      current.phase === "idle"
+        ? {
+            phase: "idle",
+            engine: payload.settings.sttEngine,
+            language: payload.settings.sttLanguage,
+            level: 0,
+            error: null
+          }
+        : current
+    );
+  }, [payload.settings.sttEngine, payload.settings.sttLanguage]);
+
+  useEffect(() => {
     fetch("/api/personas")
       .then((r) => r.json())
       .then((d) => {
@@ -375,6 +475,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     shouldAutoScrollRef.current = true;
   }, [payload.conversation.id]);
+
+  useEffect(() => disposeSpeechSession, [payload.conversation.id]);
 
   useEffect(() => {
     if (!queueRef.current || !shouldAutoScrollRef.current) {
@@ -746,6 +848,128 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (messageSyncTimeoutRef.current !== null) {
       window.clearTimeout(messageSyncTimeoutRef.current);
       messageSyncTimeoutRef.current = null;
+    }
+  }
+
+  function stopSpeechPolling() {
+    if (speechPollingRef.current !== null) {
+      window.clearInterval(speechPollingRef.current);
+      speechPollingRef.current = null;
+    }
+  }
+
+  function disposeSpeechSession() {
+    stopSpeechPolling();
+    speechControllerRef.current?.dispose();
+    speechControllerRef.current = null;
+    speechAudioSessionRef.current?.dispose();
+    speechAudioSessionRef.current = null;
+  }
+
+  function syncSpeechSnapshot(controller: ReturnType<typeof createSpeechController>) {
+    setSpeechSnapshot(controller.getSnapshot());
+  }
+
+  function startSpeechPolling(controller: ReturnType<typeof createSpeechController>) {
+    stopSpeechPolling();
+    speechPollingRef.current = window.setInterval(() => {
+      setSpeechSnapshot(controller.getSnapshot());
+    }, 80);
+  }
+
+  async function startSpeech() {
+    if (
+      speechControllerRef.current ||
+      speechAudioSessionRef.current ||
+      speechSnapshot.phase === "requesting-permission" ||
+      speechSnapshot.phase === "listening" ||
+      speechSnapshot.phase === "transcribing"
+    ) {
+      return;
+    }
+
+    setError("");
+    setSpeechSnapshot((current) => ({
+      ...current,
+      engine: payload.settings.sttEngine,
+      language: speechLanguage,
+      error: null
+    }));
+
+    const engine = createSpeechEngine(payload.settings.sttEngine as SttEngine);
+
+    if (!engine.isSupported()) {
+      setSpeechSnapshot({
+        phase: "unsupported",
+        engine: payload.settings.sttEngine,
+        language: speechLanguage,
+        level: 0,
+        error: "Selected speech engine is unavailable."
+      });
+      engine.dispose();
+      return;
+    }
+
+    let controller: ReturnType<typeof createSpeechController> | null = null;
+    let audioSession: SpeechAudioSession | null = null;
+
+    try {
+      audioSession = await createSpeechAudioSession();
+      controller = createSpeechController({ engine, audioMonitor: audioSession.audioMonitor });
+      speechControllerRef.current = controller;
+      speechAudioSessionRef.current = audioSession;
+      audioSession = null;
+
+      const startPromise = controller.start({
+        engine: payload.settings.sttEngine,
+        language: speechLanguage
+      });
+
+      syncSpeechSnapshot(controller);
+      await startPromise;
+      syncSpeechSnapshot(controller);
+      startSpeechPolling(controller);
+    } catch (caughtError) {
+      if (controller) {
+        syncSpeechSnapshot(controller);
+      } else {
+        setSpeechSnapshot({
+          phase: "error",
+          engine: payload.settings.sttEngine,
+          language: speechLanguage,
+          level: 0,
+          error: normalizeSpeechError(caughtError)
+        });
+      }
+
+      if (controller || speechControllerRef.current) {
+        disposeSpeechSession();
+      } else {
+        audioSession?.dispose();
+        engine.dispose();
+      }
+    }
+  }
+
+  async function stopSpeech() {
+    const controller = speechControllerRef.current;
+
+    if (!controller) {
+      return;
+    }
+
+    try {
+      const result = await controller.stop();
+      syncSpeechSnapshot(controller);
+      setInput((current) => appendTranscriptToDraft(current, result.transcript));
+    } catch (caughtError) {
+      syncSpeechSnapshot(controller);
+      setSpeechSnapshot((current) => ({
+        ...current,
+        error: normalizeSpeechError(caughtError)
+      }));
+    } finally {
+      disposeSpeechSession();
     }
   }
 
@@ -1365,6 +1589,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             canStop={!!streamMessageId && !isStopPending}
             isStopPending={isStopPending}
             onStop={stopActiveTurn}
+            speechLanguage={speechLanguage}
+            onSpeechLanguageChange={setSpeechLanguage}
+            speechPhase={speechSnapshot.phase}
+            speechLevel={speechSnapshot.level}
+            speechError={speechSnapshot.error}
+            onStartSpeech={() => void startSpeech()}
+            onStopSpeech={() => void stopSpeech()}
           />
         </div>
       </div>
