@@ -265,6 +265,7 @@ test.describe("Feature: Create and delete conversations", () => {
     await expect(startVoiceInputButton).toBeVisible({
       timeout: 5000
     });
+    await expect(startVoiceInputButton).toBeEnabled({ timeout: 5000 });
 
     await startVoiceInputButton.click();
     await expect

@@ -214,7 +214,14 @@ export function ChatComposer({
   onStopSpeech
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const isSubmitDisabled =
+    !mounted ||
     isSending ||
     isUploadingAttachments ||
     speechPhase === "listening" ||
@@ -224,7 +231,7 @@ export function ChatComposer({
   const showContextUsage = hasMessages && usedTokens !== null;
   const isSpeechActive = speechPhase === "listening" || speechPhase === "transcribing";
   const speechLevelWidth = Math.max(8, Math.round(speechLevel * 100));
-  const speechControlsDisabled = isSending || isUploadingAttachments || isSpeechActive;
+  const speechControlsDisabled = !mounted || isSending || isUploadingAttachments || isSpeechActive;
 
   // For the model selector, we want to show the profile name prominently
   const displayModels = providerProfiles.map(p => ({
@@ -446,6 +453,7 @@ export function ChatComposer({
             className="p-2 text-white/30 hover:text-white/60 transition-all duration-200 rounded-xl hover:bg-white/5 shrink-0"
             aria-label="Attach files"
             type="button"
+            disabled={!mounted}
             onClick={() => fileInputRef.current?.click()}
           >
             <Paperclip className="h-4.5 w-4.5" />
@@ -460,7 +468,7 @@ export function ChatComposer({
             icon={Bot}
             placeholder=""
             accentColor="cyan"
-            disabled={isSending}
+            disabled={!mounted || isSending}
           />
 
           <CustomDropdown
@@ -470,7 +478,7 @@ export function ChatComposer({
             icon={Users}
             placeholder="None"
             accentColor="violet"
-            disabled={isSending}
+            disabled={!mounted || isSending}
           />
         </div>
 
