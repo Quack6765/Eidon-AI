@@ -9,6 +9,7 @@ import {
   ChevronDown,
   FileText,
   LoaderCircle,
+  Mic,
   Paperclip,
   Square,
   Users,
@@ -18,6 +19,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import { ContextGauge } from "@/components/context-gauge";
 import { Textarea } from "@/components/ui/textarea";
+import type { SpeechPhase } from "@/lib/speech/types";
 import { cn } from "@/lib/utils";
 import type {
   MessageAttachment,
@@ -49,6 +51,11 @@ type ChatComposerProps = {
   canStop: boolean;
   isStopPending: boolean;
   onStop: () => void | Promise<void>;
+  speechPhase: SpeechPhase;
+  speechLevel: number;
+  speechError: string | null;
+  onStartSpeech: () => void | Promise<void>;
+  onStopSpeech: () => void | Promise<void>;
 };
 
 function CustomDropdown<T extends { id: string; name: string }>({
@@ -199,13 +206,32 @@ export function ChatComposer({
   hasMessages,
   canStop,
   isStopPending,
-  onStop
+  onStop,
+  speechPhase,
+  speechLevel,
+  speechError,
+  onStartSpeech,
+  onStopSpeech
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   const isSubmitDisabled =
-    isSending || isUploadingAttachments || (!input.trim() && pendingAttachments.length === 0);
+    !mounted ||
+    isSending ||
+    isUploadingAttachments ||
+    speechPhase === "listening" ||
+    speechPhase === "transcribing" ||
+    (!input.trim() && pendingAttachments.length === 0);
   const showStopButton = canStop && !isUploadingAttachments;
   const showContextUsage = hasMessages && usedTokens !== null;
+  const isSpeechActive = speechPhase === "listening" || speechPhase === "transcribing";
+  const speechLevelWidth = Math.max(8, Math.round(speechLevel * 100));
+  const speechControlsDisabled = !mounted || isSending || isUploadingAttachments || isSpeechActive;
 
   // For the model selector, we want to show the profile name prominently
   const displayModels = providerProfiles.map(p => ({
@@ -289,7 +315,7 @@ export function ChatComposer({
         ) : null}
       </AnimatePresence>
 
-      <div className="flex w-full items-center gap-2 pb-1 pr-1.5">
+      <div className="flex w-full items-end gap-2 pb-1 pr-1.5">
         <div className="flex-1 min-w-0">
           <Textarea
             ref={textareaRef}
@@ -301,37 +327,100 @@ export function ChatComposer({
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
+                if (isSpeechActive) {
+                  return;
+                }
                 void onSubmit();
               }
             }}
           />
         </div>
 
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => void (showStopButton ? onStop() : onSubmit())}
-          disabled={showStopButton ? isStopPending : isSubmitDisabled}
-          className={cn(
-            "flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 shrink-0",
-            showStopButton
-              ? isStopPending
-                ? "bg-white/5 text-white/20"
-                : "bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]"
-              : !isSubmitDisabled
-                ? "bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)]"
-                : "bg-white/5 text-white/20"
-          )}
-          aria-label={showStopButton ? "Stop response" : "Send message"}
-        >
-          {showStopButton ? (
-            <Square className="h-4 w-4 fill-current" />
-          ) : isSending || isUploadingAttachments ? (
-            <LoaderCircle className="h-5 w-5 animate-spin" />
-          ) : (
-            <ArrowUp className="h-5 w-5 stroke-[2.5px]" />
-          )}
-        </motion.button>
+        <div className="flex shrink-0 items-center gap-2">
+          <AnimatePresence mode="wait" initial={false}>
+            {isSpeechActive ? (
+              <motion.div
+                key="active-speech-controls"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                transition={{ duration: 0.16 }}
+                className="flex items-center justify-end gap-2"
+              >
+                <div className="flex h-8 w-[96px] items-center rounded-full border border-white/[0.08] bg-white/[0.03] px-3">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-emerald-400 transition-[width] duration-100"
+                      style={{ width: `${speechLevelWidth}%` }}
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  aria-label="Stop voice input"
+                  onClick={() => void onStopSpeech()}
+                  disabled={speechPhase === "transcribing"}
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white transition-colors duration-200 hover:bg-red-400",
+                    speechPhase === "transcribing" && "cursor-not-allowed opacity-60"
+                  )}
+                >
+                  <Square className="h-3 w-3 fill-current" />
+                </button>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="idle-speech-controls"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                transition={{ duration: 0.16 }}
+                className="flex items-center justify-end"
+              >
+                <button
+                  type="button"
+                  aria-label="Start voice input"
+                  disabled={speechControlsDisabled}
+                  onClick={() => void onStartSpeech()}
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-200 shrink-0",
+                    speechControlsDisabled
+                      ? "bg-white/5 text-white/20 cursor-not-allowed"
+                      : "bg-white/5 text-white/45 hover:bg-white/10 hover:text-white/75"
+                  )}
+                >
+                  <Mic className="h-4 w-4" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => void (showStopButton ? onStop() : onSubmit())}
+            disabled={showStopButton ? isStopPending : isSubmitDisabled}
+            className={cn(
+              "flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 shrink-0",
+              showStopButton
+                ? isStopPending
+                  ? "bg-white/5 text-white/20"
+                  : "bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+                : !isSubmitDisabled
+                  ? "bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)]"
+                  : "bg-white/5 text-white/20"
+            )}
+            aria-label={showStopButton ? "Stop response" : "Send message"}
+          >
+            {showStopButton ? (
+              <Square className="h-4 w-4 fill-current" />
+            ) : isSending || isUploadingAttachments ? (
+              <LoaderCircle className="h-5 w-5 animate-spin" />
+            ) : (
+              <ArrowUp className="h-5 w-5 stroke-[2.5px]" />
+            )}
+          </motion.button>
+        </div>
       </div>
 
 
@@ -348,12 +437,23 @@ export function ChatComposer({
         </motion.div>
       ) : null}
 
+      {speechError ? (
+        <motion.div
+          initial={{ opacity: 0, y: 5 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mx-2 mb-2 rounded-2xl border border-red-400/10 bg-red-500/8 px-3 py-2 text-[11px] text-red-300"
+        >
+          {speechError}
+        </motion.div>
+      ) : null}
+
       <div className="flex items-center justify-between px-1.5 pb-1 pt-1.5 border-t border-white/5">
         <div className="flex items-center gap-0.5">
           <button
             className="p-2 text-white/30 hover:text-white/60 transition-all duration-200 rounded-xl hover:bg-white/5 shrink-0"
             aria-label="Attach files"
             type="button"
+            disabled={!mounted}
             onClick={() => fileInputRef.current?.click()}
           >
             <Paperclip className="h-4.5 w-4.5" />
@@ -368,7 +468,7 @@ export function ChatComposer({
             icon={Bot}
             placeholder=""
             accentColor="cyan"
-            disabled={isSending}
+            disabled={!mounted || isSending}
           />
 
           <CustomDropdown
@@ -378,7 +478,7 @@ export function ChatComposer({
             icon={Users}
             placeholder="None"
             accentColor="violet"
-            disabled={isSending}
+            disabled={!mounted || isSending}
           />
         </div>
 

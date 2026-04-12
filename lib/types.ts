@@ -2,6 +2,10 @@ export type ApiMode = "responses" | "chat_completions";
 
 export type ConversationRetention = "forever" | "90d" | "30d" | "7d";
 
+export type SttEngine = "browser" | "embedded";
+
+export type SttLanguage = "auto" | "en" | "fr" | "es";
+
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export type VisionMode = "none" | "native" | "mcp";
@@ -103,6 +107,8 @@ export type AppSettings = {
   memoriesEnabled: boolean;
   memoriesMaxCount: number;
   mcpTimeout: number;
+  sttEngine: SttEngine;
+  sttLanguage: SttLanguage;
   updatedAt: string;
 };
 

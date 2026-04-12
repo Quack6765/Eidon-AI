@@ -14,7 +14,10 @@ import {
 import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { supportsImageInput } from "@/lib/model-capabilities";
+import { appendTranscriptToDraft } from "@/lib/speech/append-transcript-to-draft";
+import { useSpeechInput } from "@/lib/speech/use-speech-input";
 import { shouldAutofocusTextInput } from "@/lib/utils";
+import type { AppSettings } from "@/lib/types";
 import type {
   ChatStreamEvent,
   Conversation,
@@ -28,6 +31,7 @@ import type {
 type ConversationPayload = {
   conversation: Conversation;
   messages: Message[];
+  settings: Pick<AppSettings, "sttEngine" | "sttLanguage">;
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string | null;
   debug: {
@@ -280,6 +284,15 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
   const [personaId, setPersonaId] = useState<string | null>(null);
+  const {
+    speechSnapshot,
+    startSpeech,
+    stopSpeech
+  } = useSpeechInput({
+    engine: payload.settings.sttEngine,
+    initialLanguage: payload.settings.sttLanguage,
+    resetKey: payload.conversation.id
+  });
   const hasEmptyAssistantShell = messages.some(
     (message) =>
       message.role === "assistant" &&
@@ -1195,7 +1208,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     const value = nextInput.trim();
     const effectivePersonaId = nextPersonaId ?? personaId;
 
-    if ((!value && nextPendingAttachments.length === 0) || isSending || isUploadingAttachments) {
+    if (
+      speechSnapshot.phase === "listening" ||
+      speechSnapshot.phase === "transcribing" ||
+      (!value && nextPendingAttachments.length === 0) ||
+      isSending ||
+      isUploadingAttachments
+    ) {
       return;
     }
 
@@ -1413,6 +1432,22 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             canStop={!!streamMessageId && !isStopPending}
             isStopPending={isStopPending}
             onStop={stopActiveTurn}
+            speechPhase={speechSnapshot.phase}
+            speechLevel={speechSnapshot.level}
+            speechError={speechSnapshot.error}
+            onStartSpeech={() => {
+              setError("");
+              void startSpeech();
+            }}
+            onStopSpeech={() => {
+              void stopSpeech().then((transcript) => {
+                if (!transcript) {
+                  return;
+                }
+
+                setInput((current) => appendTranscriptToDraft(current, transcript));
+              });
+            }}
           />
         </div>
       </div>

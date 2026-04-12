@@ -64,6 +64,10 @@ export default async function ConversationPage({
         payload={{
           conversation,
           messages: listVisibleMessages(conversation.id),
+          settings: {
+            sttEngine: settings.sttEngine,
+            sttLanguage: settings.sttLanguage
+          },
           providerProfiles: settings.providerProfiles,
           defaultProviderProfileId: settings.defaultProviderProfileId,
           debug: getConversationDebugStats(conversation.id)

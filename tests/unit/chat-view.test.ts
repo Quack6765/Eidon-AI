@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 
 import { ChatView } from "@/components/chat-view";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
+import type { SpeechSessionSnapshot, SttEngine, SttLanguage } from "@/lib/speech/types";
 import type { Message, MessageAttachment } from "@/lib/types";
 
 const push = vi.fn();
@@ -37,6 +38,74 @@ const conversationEventMock = vi.hoisted(() => ({
   dispatchConversationRemoved: vi.fn()
 }));
 
+const speechMock = vi.hoisted(() => {
+  const audioMonitor = {
+    readLevel: vi.fn(() => 0.42),
+    dispose: vi.fn()
+  };
+
+  const createAudioLevelMonitor = vi.fn(() => audioMonitor);
+
+  const createSpeechEngine = vi.fn((engine: "browser" | "embedded") => ({
+    isSupported: () => engine !== "embedded",
+    start: vi.fn(async () => {}),
+    stop: vi.fn(async () => ({ transcript: "" })),
+    dispose: vi.fn()
+  }));
+
+  const createSpeechController = vi.fn((input: { audioMonitor: typeof audioMonitor }) => {
+    let snapshot: SpeechSessionSnapshot = {
+      phase: "idle",
+      engine: "browser",
+      language: "en",
+      level: 0,
+      error: null
+    };
+
+    const controller = {
+      getSnapshot: vi.fn(() => ({
+        ...snapshot,
+        level: snapshot.phase === "listening" ? input.audioMonitor.readLevel() : 0
+      })),
+      start: vi.fn(async ({ engine, language }: { engine: SttEngine; language: SttLanguage }) => {
+        snapshot = {
+          ...snapshot,
+          phase: "requesting-permission",
+          engine,
+          language,
+          error: null
+        };
+        snapshot = {
+          ...snapshot,
+          phase: "listening",
+          engine,
+          language,
+          error: null
+        };
+      }),
+      stop: vi.fn(async () => {
+        snapshot = {
+          ...snapshot,
+          phase: "idle",
+          level: 0,
+          error: null
+        };
+        return { transcript: "mock transcript" };
+      }),
+      dispose: vi.fn()
+    };
+
+    return controller;
+  });
+
+  return {
+    audioMonitor,
+    createAudioLevelMonitor,
+    createSpeechController,
+    createSpeechEngine
+  };
+});
+
 vi.mock("@/lib/ws-client", () => ({
   useWebSocket: (options: { onMessage?: (msg: unknown) => void }) => {
     wsMock.onMessage = options.onMessage ?? null;
@@ -59,6 +128,18 @@ vi.mock("@/lib/conversation-events", () => ({
   dispatchConversationTitleUpdated: conversationEventMock.dispatchConversationTitleUpdated
 }));
 
+vi.mock("@/lib/speech/audio-level-monitor", () => ({
+  createAudioLevelMonitor: speechMock.createAudioLevelMonitor
+}));
+
+vi.mock("@/lib/speech/create-speech-engine", () => ({
+  createSpeechEngine: speechMock.createSpeechEngine
+}));
+
+vi.mock("@/lib/speech/speech-controller", () => ({
+  createSpeechController: speechMock.createSpeechController
+}));
+
 function createAttachment(overrides: Partial<MessageAttachment> = {}): MessageAttachment {
   return {
     id: "att_1",
@@ -78,7 +159,7 @@ function createAttachment(overrides: Partial<MessageAttachment> = {}): MessageAt
 
 type ChatViewPayload = React.ComponentProps<typeof ChatView>["payload"];
 
-function createPayload(): ChatViewPayload {
+function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayload {
   return {
     conversation: {
       id: "conv_1",
@@ -95,6 +176,10 @@ function createPayload(): ChatViewPayload {
       isActive: false
     },
     messages: [] as Message[],
+    settings: {
+      sttEngine: "browser",
+      sttLanguage: "en"
+    },
     providerProfiles: [
       {
         id: "profile_default",
@@ -134,7 +219,8 @@ function createPayload(): ChatViewPayload {
       rawTurnCount: 0,
       memoryNodeCount: 0,
       latestCompactionAt: null
-    }
+    },
+    ...overrides
   };
 }
 
@@ -164,6 +250,8 @@ async function flushAnimationFrame() {
 
 describe("chat view", () => {
   const originalMaxTouchPoints = Object.getOwnPropertyDescriptor(navigator, "maxTouchPoints");
+  const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
+  const originalAudioContext = Object.getOwnPropertyDescriptor(window, "AudioContext");
 
   beforeEach(() => {
     push.mockReset();
@@ -179,6 +267,49 @@ describe("chat view", () => {
     bootstrapMock.clearChatBootstrap.mockReset();
     conversationEventMock.dispatchConversationActivityUpdated.mockReset();
     conversationEventMock.dispatchConversationTitleUpdated.mockReset();
+    speechMock.createAudioLevelMonitor.mockClear();
+    speechMock.createSpeechController.mockClear();
+    speechMock.createSpeechEngine.mockClear();
+    speechMock.audioMonitor.readLevel.mockReturnValue(0.42);
+    speechMock.audioMonitor.dispose.mockReset();
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn().mockResolvedValue({
+          getTracks: () => [
+            {
+              stop: vi.fn()
+            }
+          ]
+        })
+      }
+    });
+    Object.defineProperty(window, "AudioContext", {
+      configurable: true,
+      value: class {
+        createMediaStreamSource() {
+          return {
+            connect: vi.fn(),
+            disconnect: vi.fn()
+          };
+        }
+
+        createAnalyser() {
+          return {
+            fftSize: 0,
+            getByteTimeDomainData: vi.fn()
+          };
+        }
+
+        resume() {
+          return Promise.resolve();
+        }
+
+        close() {
+          return Promise.resolve();
+        }
+      }
+    });
     vi.clearAllMocks();
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -190,13 +321,30 @@ describe("chat view", () => {
   afterEach(() => {
     if (originalMaxTouchPoints) {
       Object.defineProperty(navigator, "maxTouchPoints", originalMaxTouchPoints);
-      return;
+    } else {
+      Object.defineProperty(navigator, "maxTouchPoints", {
+        configurable: true,
+        value: 0
+      });
     }
 
-    Object.defineProperty(navigator, "maxTouchPoints", {
-      configurable: true,
-      value: 0
-    });
+    if (originalMediaDevices) {
+      Object.defineProperty(navigator, "mediaDevices", originalMediaDevices);
+    } else {
+      Object.defineProperty(navigator, "mediaDevices", {
+        configurable: true,
+        value: undefined
+      });
+    }
+
+    if (originalAudioContext) {
+      Object.defineProperty(window, "AudioContext", originalAudioContext);
+    } else {
+      Object.defineProperty(window, "AudioContext", {
+        configurable: true,
+        value: undefined
+      });
+    }
   });
 
   function renderWithProvider(ui: React.ReactElement) {
@@ -351,6 +499,71 @@ describe("chat view", () => {
     expect(wsMock.send).not.toHaveBeenCalled();
     expect(container.querySelectorAll(".animate-slide-up")).toHaveLength(1);
     expect(textarea).toHaveValue("Hello world");
+  });
+
+  it("appends dictated text into the draft without sending a message", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+    expect(screen.queryByRole("combobox", { name: "Speech language" })).toBeNull();
+
+    fireEvent.change(textarea, { target: { value: "Existing draft   " } });
+    fireEvent.click(screen.getByRole("button", { name: "Start voice input" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Stop voice input" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop voice input" }));
+
+    await waitFor(() => {
+      expect(textarea).toHaveValue("Existing draft\nmock transcript");
+    });
+
+    expect(wsMock.send).not.toHaveBeenCalled();
+  });
+
+  it("does not submit when Enter is pressed during active voice input", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(textarea, { target: { value: "Keep this draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start voice input" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Stop voice input" })).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    expect(wsMock.send).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue("Keep this draft");
+  });
+
+  it("shows an inline error when the selected speech engine is unsupported", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          settings: {
+            sttEngine: "embedded",
+            sttLanguage: "en"
+          }
+        })
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Start voice input" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Selected speech engine is unavailable.")).toBeInTheDocument();
+    });
+
+    expect(wsMock.send).not.toHaveBeenCalled();
   });
 
   it("submits the bootstrapped home prompt once the WebSocket is connected", async () => {

@@ -345,6 +345,8 @@ function migrate(db: Database.Database) {
       memories_enabled INTEGER NOT NULL DEFAULT 1,
       memories_max_count INTEGER NOT NULL DEFAULT 100,
       mcp_timeout INTEGER NOT NULL DEFAULT 120000,
+      stt_engine TEXT NOT NULL DEFAULT 'browser',
+      stt_language TEXT NOT NULL DEFAULT 'auto',
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
@@ -487,6 +489,15 @@ function migrate(db: Database.Database) {
   }
   if (!settingsColNames.includes("mcp_timeout")) {
     db.exec("ALTER TABLE app_settings ADD COLUMN mcp_timeout INTEGER NOT NULL DEFAULT 120000");
+  }
+
+  const userSettingsCols = db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>;
+  const userSettingsColNames = userSettingsCols.map((column) => column.name);
+  if (!userSettingsColNames.includes("stt_engine")) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN stt_engine TEXT NOT NULL DEFAULT 'browser'");
+  }
+  if (!userSettingsColNames.includes("stt_language")) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN stt_language TEXT NOT NULL DEFAULT 'auto'");
   }
 
   const mcpCols = db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;

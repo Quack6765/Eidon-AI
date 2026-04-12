@@ -1,10 +1,38 @@
 import { expect, test } from "@playwright/test";
 
 async function signIn(page: import("@playwright/test").Page) {
-  await page.goto("/");
-  await page.getByPlaceholder("Username").fill("admin");
-  await page.getByPlaceholder("Password").fill("changeme123");
-  await page.getByRole("button", { name: "Proceed" }).click();
+  const response = await page.request.post("/api/auth/login", {
+    data: {
+      username: "admin",
+      password: "changeme123"
+    }
+  });
+
+  expect(response.ok()).toBeTruthy();
+  const sessionCookie = response
+    .headersArray()
+    .find(
+      (header) =>
+        header.name.toLowerCase() === "set-cookie" &&
+        header.value.startsWith("eidon_session=")
+    )?.value;
+
+  expect(sessionCookie).toBeTruthy();
+
+  const token = sessionCookie?.match(/^eidon_session=([^;]+)/)?.[1];
+  expect(token).toBeTruthy();
+
+  await page.context().addCookies([
+    {
+      name: "eidon_session",
+      value: token!,
+      url: "http://localhost:3117",
+      httpOnly: true,
+      sameSite: "Lax"
+    }
+  ]);
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.waitForURL(/localhost:3117\/$/, { timeout: 15000 });
 }
 
@@ -25,12 +53,32 @@ async function mockChatResponse(page: import("@playwright/test").Page) {
   });
 }
 
+async function createNewChat(page: import("@playwright/test").Page) {
+  const newChatButton = page.getByRole("button", { name: "New chat", exact: true });
+  await expect(newChatButton).toBeVisible({ timeout: 10000 });
+  await expect(newChatButton).toBeEnabled({ timeout: 10000 });
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await newChatButton.click();
+
+    try {
+      await expect(page).toHaveURL(/\/chat\//, { timeout: 4000 });
+      return;
+    } catch (error) {
+      if (attempt === 2) {
+        throw error;
+      }
+      await page.waitForTimeout(500);
+    }
+  }
+}
+
 test.describe("Feature: Create and delete conversations", () => {
   test("creates a new chat and deletes it", async ({ page }) => {
     await signIn(page);
 
     // Create chat
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     // Verify the new conversation appears in sidebar
@@ -61,7 +109,7 @@ test.describe("Feature: Create and delete conversations", () => {
     await signIn(page);
     await mockChatResponse(page);
 
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     await page
@@ -72,7 +120,7 @@ test.describe("Feature: Create and delete conversations", () => {
 
     const firstConversationPath = new URL(page.url()).pathname;
 
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     const emptyConversationPath = new URL(page.url()).pathname;
@@ -83,6 +131,185 @@ test.describe("Feature: Create and delete conversations", () => {
     await page.locator(`aside a[href="${firstConversationPath}"]`).first().click();
     await expect(page).toHaveURL(new RegExp(`${firstConversationPath}$`), { timeout: 10000 });
     await expect(page.locator(`aside a[href="${emptyConversationPath}"]`)).toHaveCount(0);
+  });
+
+  test("dictates into the composer draft and waits for manual send", async ({ page }) => {
+    let chatRequests = 0;
+
+    await page.addInitScript(() => {
+      (window as Window & {
+        __EIDON_SPEECH_START_CALLED__?: boolean;
+        __EIDON_SPEECH_AUDIO_REQUESTED__?: boolean;
+      }).__EIDON_SPEECH_START_CALLED__ = false;
+      (window as Window & {
+        __EIDON_SPEECH_START_CALLED__?: boolean;
+        __EIDON_SPEECH_AUDIO_REQUESTED__?: boolean;
+      }).__EIDON_SPEECH_AUDIO_REQUESTED__ = false;
+
+      class FakeSpeechRecognition {
+        lang = "en-US";
+        interimResults = false;
+        continuous = true;
+        onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null = null;
+        onerror: ((event: { error: string }) => void) | null = null;
+        onend: (() => void) | null = null;
+
+        start() {
+          (
+            window as Window & {
+              __EIDON_SPEECH_START_CALLED__?: boolean;
+            }
+          ).__EIDON_SPEECH_START_CALLED__ = true;
+        }
+
+        stop() {
+          this.onresult?.({
+            results: [[{ transcript: "hello from voice input" }]]
+          });
+          this.onend?.();
+        }
+      }
+
+      Object.defineProperty(window, "SpeechRecognition", {
+        configurable: true,
+        value: FakeSpeechRecognition
+      });
+      Object.defineProperty(window, "webkitSpeechRecognition", {
+        configurable: true,
+        value: FakeSpeechRecognition
+      });
+      Object.defineProperty(window, "AudioContext", {
+        configurable: true,
+        value: class {
+          createMediaStreamSource() {
+            return {
+              connect() {},
+              disconnect() {}
+            };
+          }
+
+          createAnalyser() {
+            return {
+              fftSize: 256,
+              getByteTimeDomainData(target: Uint8Array) {
+                target.fill(128);
+              }
+            };
+          }
+
+          resume() {
+            return Promise.resolve();
+          }
+
+          close() {
+            return Promise.resolve();
+          }
+        }
+      });
+
+      Object.defineProperty(window.navigator, "mediaDevices", {
+        configurable: true,
+        value: {
+          getUserMedia: async () => {
+            (
+              window as Window & {
+                __EIDON_SPEECH_AUDIO_REQUESTED__?: boolean;
+              }
+            ).__EIDON_SPEECH_AUDIO_REQUESTED__ = true;
+
+            return new MediaStream();
+          }
+        }
+      });
+    });
+
+    await page.route("**/api/conversations/*/chat", async (route) => {
+      chatRequests += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: "text/event-stream",
+        body: [
+          'data: {"type":"message_start","messageId":"msg_assistant"}',
+          "",
+          'data: {"type":"answer_delta","text":"Attachment received"}',
+          "",
+          'data: {"type":"done","messageId":"msg_assistant"}',
+          "",
+        ].join("\n")
+      });
+    });
+
+    await signIn(page);
+    await createNewChat(page);
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => ({
+            hasSpeechRecognition: typeof (window as Window & { SpeechRecognition?: unknown }).SpeechRecognition,
+            hasMediaDevices: typeof navigator.mediaDevices?.getUserMedia
+          })),
+        { timeout: 5000 }
+      )
+      .toEqual({
+        hasSpeechRecognition: "function",
+        hasMediaDevices: "function"
+      });
+
+    const composer = page.getByPlaceholder(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+    const startVoiceInputButton = page.getByRole("button", { name: "Start voice input" });
+
+    await expect(composer).toBeVisible({ timeout: 5000 });
+    await expect(startVoiceInputButton).toBeVisible({
+      timeout: 5000
+    });
+    await expect(startVoiceInputButton).toBeEnabled({ timeout: 5000 });
+
+    await startVoiceInputButton.click();
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => ({
+            audioRequested: Boolean(
+              (
+                window as Window & {
+                  __EIDON_SPEECH_AUDIO_REQUESTED__?: boolean;
+                }
+              ).__EIDON_SPEECH_AUDIO_REQUESTED__
+            ),
+            speechStartCalled: Boolean(
+              (
+                window as Window & {
+                  __EIDON_SPEECH_START_CALLED__?: boolean;
+                }
+              ).__EIDON_SPEECH_START_CALLED__
+            )
+          })),
+        { timeout: 5000 }
+      )
+      .toEqual({
+        audioRequested: true,
+        speechStartCalled: true
+      });
+
+    await expect(page.getByRole("button", { name: "Stop voice input" })).toBeVisible({
+      timeout: 5000
+    });
+
+    await page.getByRole("button", { name: "Stop voice input" }).click();
+
+    await expect(composer).toHaveValue("hello from voice input", { timeout: 5000 });
+    const submittedTranscript = page.locator("p").filter({ hasText: "hello from voice input" });
+    await expect(submittedTranscript).toHaveCount(0);
+    const sendMessageButton = page.getByRole("button", { name: "Send message" });
+    await expect(sendMessageButton).toBeVisible();
+    await expect(sendMessageButton).toBeEnabled({ timeout: 5000 });
+    await expect.poll(() => chatRequests, { timeout: 2000 }).toBe(0);
+
+    await sendMessageButton.click();
+    await expect(submittedTranscript).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -118,7 +345,7 @@ test.describe("Feature: Move conversation to folder", () => {
     });
 
     // Create a chat
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     const convLink = page.locator('aside a[href*="/chat/"]').first();
@@ -149,7 +376,7 @@ test.describe("Feature: Search conversations", () => {
     await signIn(page);
 
     // Create a chat
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     // Click search
@@ -307,7 +534,7 @@ test.describe("Feature: Chat attachments", () => {
     await signIn(page);
     await mockChatResponse(page);
 
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     await page.locator('input[type="file"]').setInputFiles({
@@ -330,7 +557,7 @@ test.describe("Feature: Chat attachments", () => {
     await signIn(page);
     await mockChatResponse(page);
 
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     await page.evaluate(async () => {
