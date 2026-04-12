@@ -427,6 +427,50 @@ describe("conversation helpers", () => {
     expect(getConversation(conversation.id)?.providerProfileId).toBe(nextProfileId);
   });
 
+  it("updates the conversation provider profile only for the requested user", async () => {
+    updateSettings({
+      ...getSettings(),
+      providerProfiles: [
+        ...listProviderProfiles(),
+        {
+          id: "profile_secondary",
+          name: "Secondary",
+          apiBaseUrl: "https://api.example.com/v1",
+          apiKey: "sk-secondary",
+          model: "gpt-5-mini",
+          apiMode: "responses",
+          systemPrompt: "Be exact.",
+          temperature: 0.2,
+          maxOutputTokens: 512,
+          reasoningEffort: "medium",
+          reasoningSummaryEnabled: true,
+          modelContextLimit: 16000,
+          compactionThreshold: 0.8,
+          freshTailCount: 12
+        }
+      ]
+    });
+    const nextProfileId = "profile_secondary";
+    const userA = await createLocalUser({
+      username: "provider-profile-owner-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "provider-profile-owner-b",
+      password: "Password123!",
+      role: "user"
+    });
+    const ownedConversation = createConversation("Owned", null, undefined, userA.id);
+    const otherConversation = createConversation("Other", null, undefined, userB.id);
+
+    updateConversationProviderProfile(ownedConversation.id, nextProfileId, userA.id);
+    updateConversationProviderProfile(otherConversation.id, nextProfileId, userA.id);
+
+    expect(getConversation(ownedConversation.id)?.providerProfileId).toBe(nextProfileId);
+    expect(getConversation(otherConversation.id)?.providerProfileId).not.toBe(nextProfileId);
+  });
+
   it("stores message actions on assistant turns and hydrates them from message reads", () => {
     const conversation = createConversation();
     const message = createMessage({
@@ -1000,6 +1044,51 @@ describe("conversation helpers", () => {
     expect(
       fs.existsSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", forkAttachment?.relativePath ?? ""))
     ).toBe(true);
+  });
+
+  it("forks text attachments even when the source file is missing", async () => {
+    const user = await createLocalUser({
+      username: "fork-missing-text-attachment-owner",
+      password: "Password123!",
+      role: "user"
+    });
+    const sourceConversation = createConversation("Source thread", null, {
+      providerProfileId: "profile_default"
+    }, user.id);
+    createMessage({
+      conversationId: sourceConversation.id,
+      role: "user",
+      content: "First prompt"
+    });
+    const assistantMessage = createMessage({
+      conversationId: sourceConversation.id,
+      role: "assistant",
+      content: "First reply"
+    });
+    const [attachment] = createAttachments(sourceConversation.id, [
+      {
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("source attachment", "utf8")
+      }
+    ]);
+
+    bindAttachmentsToMessage(sourceConversation.id, assistantMessage.id, [attachment.id]);
+    fs.unlinkSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath));
+
+    const forkConversation = forkConversationFromMessage(assistantMessage.id, user.id);
+    const forkAssistantMessage = listMessages(forkConversation.id)[1];
+    const forkAttachment = forkAssistantMessage?.attachments?.[0];
+    const forkAttachmentPath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      forkAttachment?.relativePath ?? ""
+    );
+
+    expect(forkAttachment?.filename).toBe("notes.txt");
+    expect(forkAttachment?.extractedText).toBe("source attachment");
+    expect(fs.existsSync(forkAttachmentPath)).toBe(true);
+    expect(fs.readFileSync(forkAttachmentPath, "utf8")).toBe("source attachment");
   });
 
   it("rejects forking a missing message", () => {

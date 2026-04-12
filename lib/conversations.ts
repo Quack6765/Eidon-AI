@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -991,6 +992,20 @@ function cloneAttachmentFile(input: {
   fs.copyFileSync(sourcePath, targetPath);
 }
 
+function recoverTextAttachmentFile(input: {
+  targetRelativePath: string;
+  extractedText: string;
+}) {
+  const targetPath = path.resolve(getAttachmentsRoot(), input.targetRelativePath);
+  const bytes = Buffer.from(input.extractedText, "utf8");
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, bytes);
+  return {
+    byteSize: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex")
+  };
+}
+
 export function forkConversationFromMessage(messageId: string, userId?: string) {
   const db = getDb();
   const copiedAttachmentPaths: string[] = [];
@@ -1152,11 +1167,31 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
           forkConversation.id,
           `${clonedAttachmentId}_${attachment.filename}`
         );
+        let clonedByteSize = attachment.byteSize;
+        let clonedSha256 = attachment.sha256;
 
-        cloneAttachmentFile({
-          sourceRelativePath: attachment.relativePath,
-          targetRelativePath: clonedRelativePath
-        });
+        try {
+          cloneAttachmentFile({
+            sourceRelativePath: attachment.relativePath,
+            targetRelativePath: clonedRelativePath
+          });
+        } catch (error) {
+          if (
+            attachment.kind === "text" &&
+            error instanceof Error &&
+            "code" in error &&
+            error.code === "ENOENT"
+          ) {
+            const recovered = recoverTextAttachmentFile({
+              targetRelativePath: clonedRelativePath,
+              extractedText: attachment.extractedText
+            });
+            clonedByteSize = recovered.byteSize;
+            clonedSha256 = recovered.sha256;
+          } else {
+            throw error;
+          }
+        }
         copiedAttachmentPaths.push(clonedRelativePath);
 
         db.prepare(
@@ -1179,8 +1214,8 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
           clonedMessageId,
           attachment.filename,
           attachment.mimeType,
-          attachment.byteSize,
-          attachment.sha256,
+          clonedByteSize,
+          clonedSha256,
           clonedRelativePath,
           attachment.kind,
           attachment.extractedText,
