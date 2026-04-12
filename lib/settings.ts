@@ -179,7 +179,7 @@ function rowToSettings(row: AppSettingsRow | UserSettingsRow): AppSettings {
     memoriesMaxCount: row.memories_max_count,
     mcpTimeout: row.mcp_timeout,
     sttEngine: (row.stt_engine ?? "browser") as AppSettings["sttEngine"],
-    sttLanguage: (row.stt_language ?? "en") as AppSettings["sttLanguage"],
+    sttLanguage: (row.stt_language ?? "auto") as AppSettings["sttLanguage"],
     updatedAt: row.updated_at
   };
 }

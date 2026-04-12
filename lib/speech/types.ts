@@ -1,6 +1,6 @@
 export type SttEngine = "browser" | "embedded";
 
-export type SttLanguage = "en" | "fr" | "es";
+export type SttLanguage = "auto" | "en" | "fr" | "es";
 
 export type SpeechPhase =
   | "idle"

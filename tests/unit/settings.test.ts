@@ -399,7 +399,7 @@ describe("settings storage", () => {
     });
     updateGeneralSettingsForUser(userB.id, {
       sttEngine: "browser",
-      sttLanguage: "es"
+      sttLanguage: "auto"
     });
 
     expect(getSettingsForUser(userA.id)).toMatchObject({
@@ -408,7 +408,7 @@ describe("settings storage", () => {
     });
     expect(getSettingsForUser(userB.id)).toMatchObject({
       sttEngine: "browser",
-      sttLanguage: "es"
+      sttLanguage: "auto"
     });
   });
 

@@ -24,6 +24,10 @@ export default async function HomePage() {
       <HomeView
         providerProfiles={settings.providerProfiles}
         defaultProviderProfileId={settings.defaultProviderProfileId}
+        settings={{
+          sttEngine: settings.sttEngine,
+          sttLanguage: settings.sttLanguage
+        }}
       />
     </Shell>
   );

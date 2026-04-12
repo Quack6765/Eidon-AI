@@ -19,7 +19,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import { ContextGauge } from "@/components/context-gauge";
 import { Textarea } from "@/components/ui/textarea";
-import type { SpeechPhase, SttLanguage } from "@/lib/speech/types";
+import type { SpeechPhase } from "@/lib/speech/types";
 import { cn } from "@/lib/utils";
 import type {
   MessageAttachment,
@@ -51,8 +51,6 @@ type ChatComposerProps = {
   canStop: boolean;
   isStopPending: boolean;
   onStop: () => void | Promise<void>;
-  speechLanguage: SttLanguage;
-  onSpeechLanguageChange: (speechLanguage: SttLanguage) => void | Promise<void>;
   speechPhase: SpeechPhase;
   speechLevel: number;
   speechError: string | null;
@@ -209,8 +207,6 @@ export function ChatComposer({
   canStop,
   isStopPending,
   onStop,
-  speechLanguage,
-  onSpeechLanguageChange,
   speechPhase,
   speechLevel,
   speechError,
@@ -228,6 +224,7 @@ export function ChatComposer({
   const showContextUsage = hasMessages && usedTokens !== null;
   const isSpeechActive = speechPhase === "listening" || speechPhase === "transcribing";
   const speechLevelWidth = Math.max(8, Math.round(speechLevel * 100));
+  const speechControlsDisabled = isSending || isUploadingAttachments || isSpeechActive;
 
   // For the model selector, we want to show the profile name prominently
   const displayModels = providerProfiles.map(p => ({
@@ -311,7 +308,7 @@ export function ChatComposer({
         ) : null}
       </AnimatePresence>
 
-      <div className="flex w-full items-center gap-2 pb-1 pr-1.5">
+      <div className="flex w-full items-end gap-2 pb-1 pr-1.5">
         <div className="flex-1 min-w-0">
           <Textarea
             ref={textareaRef}
@@ -332,52 +329,24 @@ export function ChatComposer({
           />
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            aria-label="Start voice input"
-            disabled={isSending || isUploadingAttachments || isSpeechActive}
-            onClick={() => void onStartSpeech()}
-            className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200 shrink-0",
-              isSpeechActive
-                ? "bg-white/5 text-white/20"
-                : "bg-white/5 text-white/45 hover:bg-white/10 hover:text-white/75",
-              (isSending || isUploadingAttachments || isSpeechActive) && "cursor-not-allowed"
-            )}
-          >
-            <Mic className="h-4.5 w-4.5" />
-          </button>
-
-          <select
-            aria-label="Speech language"
-            value={speechLanguage}
-            onChange={(event) => void onSpeechLanguageChange(event.target.value as SttLanguage)}
-            disabled={isSending || isUploadingAttachments || isSpeechActive}
-            className={cn(
-              "h-10 rounded-full border border-white/[0.08] bg-white/[0.03] px-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-white/70 outline-none transition-colors focus:border-[var(--accent)]/30",
-              (isSending || isUploadingAttachments || isSpeechActive) && "cursor-not-allowed opacity-60"
-            )}
-          >
-            <option value="en">EN</option>
-            <option value="fr">FR</option>
-            <option value="es">ES</option>
-          </select>
-
-          <AnimatePresence initial={false}>
+        <div className="flex shrink-0 items-center gap-2">
+          <AnimatePresence mode="wait" initial={false}>
             {isSpeechActive ? (
               <motion.div
-                initial={{ opacity: 0, scale: 0.98, width: 0 }}
-                animate={{ opacity: 1, scale: 1, width: "auto" }}
-                exit={{ opacity: 0, scale: 0.98, width: 0 }}
-                transition={{ duration: 0.18 }}
-                className="flex items-center gap-2 overflow-hidden rounded-full border border-white/[0.08] bg-white/[0.03] px-3 py-1.5"
+                key="active-speech-controls"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                transition={{ duration: 0.16 }}
+                className="flex items-center justify-end gap-2"
               >
-                <div className="h-1.5 w-20 overflow-hidden rounded-full bg-white/10">
-                  <div
-                    className="h-full rounded-full bg-emerald-400 transition-[width] duration-100"
-                    style={{ width: `${speechLevelWidth}%` }}
-                  />
+                <div className="flex h-8 w-[96px] items-center rounded-full border border-white/[0.08] bg-white/[0.03] px-3">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                    <div
+                      className="h-full rounded-full bg-emerald-400 transition-[width] duration-100"
+                      style={{ width: `${speechLevelWidth}%` }}
+                    />
+                  </div>
                 </div>
                 <button
                   type="button"
@@ -385,14 +354,38 @@ export function ChatComposer({
                   onClick={() => void onStopSpeech()}
                   disabled={speechPhase === "transcribing"}
                   className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-full bg-red-500 text-white transition-opacity duration-200 hover:bg-red-400",
+                    "flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white transition-colors duration-200 hover:bg-red-400",
                     speechPhase === "transcribing" && "cursor-not-allowed opacity-60"
                   )}
                 >
-                  <Square className="h-3.5 w-3.5 fill-current" />
+                  <Square className="h-3 w-3 fill-current" />
                 </button>
               </motion.div>
-            ) : null}
+            ) : (
+              <motion.div
+                key="idle-speech-controls"
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 4 }}
+                transition={{ duration: 0.16 }}
+                className="flex items-center justify-end"
+              >
+                <button
+                  type="button"
+                  aria-label="Start voice input"
+                  disabled={speechControlsDisabled}
+                  onClick={() => void onStartSpeech()}
+                  className={cn(
+                    "flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-200 shrink-0",
+                    speechControlsDisabled
+                      ? "bg-white/5 text-white/20 cursor-not-allowed"
+                      : "bg-white/5 text-white/45 hover:bg-white/10 hover:text-white/75"
+                  )}
+                >
+                  <Mic className="h-4 w-4" />
+                </button>
+              </motion.div>
+            )}
           </AnimatePresence>
 
           <motion.button

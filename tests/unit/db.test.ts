@@ -136,7 +136,7 @@ function openLegacyDatabase(options: { userSettingsColumns?: string[] } = {}) {
                             : column === "stt_engine"
                               ? "stt_engine TEXT NOT NULL DEFAULT 'browser'"
                               : column === "stt_language"
-                                ? "stt_language TEXT NOT NULL DEFAULT 'en'"
+                                ? "stt_language TEXT NOT NULL DEFAULT 'auto'"
                                 : column === "updated_at"
                                   ? "updated_at TEXT NOT NULL"
                                   : `${column} TEXT`

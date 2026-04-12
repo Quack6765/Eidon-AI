@@ -31,7 +31,7 @@ describe("settings route", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           sttEngine: "embedded",
-          sttLanguage: "fr"
+          sttLanguage: "auto"
         })
       })
     );
@@ -41,7 +41,7 @@ describe("settings route", () => {
       expect.objectContaining({
         settings: expect.objectContaining({
           sttEngine: "embedded",
-          sttLanguage: "fr"
+          sttLanguage: "auto"
         })
       })
     );

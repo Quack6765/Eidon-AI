@@ -4,7 +4,7 @@ export type ConversationRetention = "forever" | "90d" | "30d" | "7d";
 
 export type SttEngine = "browser" | "embedded";
 
-export type SttLanguage = "en" | "fr" | "es";
+export type SttLanguage = "auto" | "en" | "fr" | "es";
 
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 

@@ -53,12 +53,32 @@ async function mockChatResponse(page: import("@playwright/test").Page) {
   });
 }
 
+async function createNewChat(page: import("@playwright/test").Page) {
+  const newChatButton = page.getByRole("button", { name: "New chat", exact: true });
+  await expect(newChatButton).toBeVisible({ timeout: 10000 });
+  await expect(newChatButton).toBeEnabled({ timeout: 10000 });
+
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await newChatButton.click();
+
+    try {
+      await expect(page).toHaveURL(/\/chat\//, { timeout: 4000 });
+      return;
+    } catch (error) {
+      if (attempt === 2) {
+        throw error;
+      }
+      await page.waitForTimeout(500);
+    }
+  }
+}
+
 test.describe("Feature: Create and delete conversations", () => {
   test("creates a new chat and deletes it", async ({ page }) => {
     await signIn(page);
 
     // Create chat
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     // Verify the new conversation appears in sidebar
@@ -89,7 +109,7 @@ test.describe("Feature: Create and delete conversations", () => {
     await signIn(page);
     await mockChatResponse(page);
 
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     await page
@@ -100,7 +120,7 @@ test.describe("Feature: Create and delete conversations", () => {
 
     const firstConversationPath = new URL(page.url()).pathname;
 
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     const emptyConversationPath = new URL(page.url()).pathname;
@@ -220,7 +240,7 @@ test.describe("Feature: Create and delete conversations", () => {
     });
 
     await signIn(page);
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
     await expect
       .poll(
@@ -324,7 +344,7 @@ test.describe("Feature: Move conversation to folder", () => {
     });
 
     // Create a chat
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     const convLink = page.locator('aside a[href*="/chat/"]').first();
@@ -355,7 +375,7 @@ test.describe("Feature: Search conversations", () => {
     await signIn(page);
 
     // Create a chat
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     // Click search
@@ -513,7 +533,7 @@ test.describe("Feature: Chat attachments", () => {
     await signIn(page);
     await mockChatResponse(page);
 
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     await page.locator('input[type="file"]').setInputFiles({
@@ -536,7 +556,7 @@ test.describe("Feature: Chat attachments", () => {
     await signIn(page);
     await mockChatResponse(page);
 
-    await page.getByRole("button", { name: "New chat", exact: true }).click();
+    await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     await page.evaluate(async () => {

@@ -507,6 +507,7 @@ describe("chat view", () => {
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
     );
+    expect(screen.queryByRole("combobox", { name: "Speech language" })).toBeNull();
 
     fireEvent.change(textarea, { target: { value: "Existing draft   " } });
     fireEvent.click(screen.getByRole("button", { name: "Start voice input" }));

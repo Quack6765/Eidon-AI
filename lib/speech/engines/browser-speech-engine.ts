@@ -56,7 +56,10 @@ export class BrowserSpeechEngine implements SpeechEngine {
 
     this.transcript = "";
     this.recognition = new RecognitionCtor();
-    this.recognition.lang = resolveSpeechLocale(input.language);
+    const locale = resolveSpeechLocale(input.language);
+    if (locale) {
+      this.recognition.lang = locale;
+    }
     this.recognition.interimResults = false;
     this.recognition.continuous = true;
     this.stopPromise = new Promise<SpeechSessionResult>((resolve, reject) => {

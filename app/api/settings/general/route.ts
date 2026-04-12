@@ -11,7 +11,7 @@ const generalSettingsSchema = z
     memoriesMaxCount: z.coerce.number().int().min(1).max(500).optional(),
     mcpTimeout: z.coerce.number().int().min(10_000).max(600_000).optional(),
     sttEngine: z.enum(["browser", "embedded"]).optional(),
-    sttLanguage: z.enum(["en", "fr", "es"]).optional()
+    sttLanguage: z.enum(["auto", "en", "fr", "es"]).optional()
   })
   .strip();
 

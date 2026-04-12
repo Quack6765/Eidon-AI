@@ -5,6 +5,7 @@ import { resolveSpeechLocale } from "@/lib/speech/locales";
 
 describe("browser speech engine", () => {
   it("maps app languages to browser recognition locales", () => {
+    expect(resolveSpeechLocale("auto")).toBeNull();
     expect(resolveSpeechLocale("en")).toBe("en-US");
     expect(resolveSpeechLocale("fr")).toBe("fr-FR");
     expect(resolveSpeechLocale("es")).toBe("es-ES");
@@ -67,6 +68,51 @@ describe("browser speech engine", () => {
       await expect(engine.stop()).resolves.toEqual({
         transcript: "bonjour tout le monde"
       });
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        value: originalWindow
+      });
+    }
+  });
+
+  it("leaves the browser recognition locale unset when auto-detect is selected", async () => {
+    const originalWindow = globalThis.window;
+    let recognition: FakeSpeechRecognition | null = null;
+
+    class FakeSpeechRecognition {
+      lang = "";
+      interimResults = true;
+      continuous = false;
+      onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null = null;
+      onerror: ((event: { error: string }) => void) | null = null;
+      onend: (() => void) | null = null;
+
+      constructor() {
+        recognition = this;
+      }
+
+      start() {}
+
+      stop() {
+        this.onend?.();
+      }
+    }
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        webkitSpeechRecognition: FakeSpeechRecognition
+      }
+    });
+
+    try {
+      const engine = new BrowserSpeechEngine();
+      await engine.start({ language: "auto" });
+      expect(recognition).not.toBeNull();
+      const activeRecognition = recognition!;
+      expect(activeRecognition.lang).toBe("");
+      await engine.stop();
     } finally {
       Object.defineProperty(globalThis, "window", {
         configurable: true,

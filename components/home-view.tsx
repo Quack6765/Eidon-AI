@@ -6,8 +6,11 @@ import { useRouter } from "next/navigation";
 import { ChatComposer } from "@/components/chat-composer";
 import { storeChatBootstrap } from "@/lib/chat-bootstrap";
 import { supportsImageInput } from "@/lib/model-capabilities";
+import { appendTranscriptToDraft } from "@/lib/speech/append-transcript-to-draft";
+import { useSpeechInput } from "@/lib/speech/use-speech-input";
 import { shouldAutofocusTextInput } from "@/lib/utils";
 import type {
+  AppSettings,
   Conversation,
   MessageAttachment,
   ProviderProfileSummary
@@ -16,11 +19,13 @@ import type {
 type HomeViewProps = {
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string | null;
+  settings: Pick<AppSettings, "sttEngine" | "sttLanguage">;
 };
 
 export function HomeView({
   providerProfiles,
-  defaultProviderProfileId
+  defaultProviderProfileId,
+  settings
 }: HomeViewProps) {
   const router = useRouter();
   const [input, setInput] = useState("");
@@ -37,6 +42,14 @@ export function HomeView({
   const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
+  const {
+    speechSnapshot,
+    startSpeech,
+    stopSpeech
+  } = useSpeechInput({
+    engine: settings.sttEngine,
+    initialLanguage: settings.sttLanguage
+  });
 
   useEffect(() => {
     if (!shouldAutofocusTextInput()) {
@@ -227,7 +240,13 @@ export function HomeView({
   async function submit() {
     const value = input.trim();
 
-    if ((!value && pendingAttachments.length === 0) || isSubmitting || isUploadingAttachments) {
+    if (
+      speechSnapshot.phase === "listening" ||
+      speechSnapshot.phase === "transcribing" ||
+      (!value && pendingAttachments.length === 0) ||
+      isSubmitting ||
+      isUploadingAttachments
+    ) {
       return;
     }
 
@@ -339,13 +358,22 @@ export function HomeView({
           canStop={false}
           isStopPending={false}
           onStop={() => {}}
-          speechLanguage="en"
-          onSpeechLanguageChange={() => {}}
-          speechPhase="idle"
-          speechLevel={0}
-          speechError={null}
-          onStartSpeech={() => {}}
-          onStopSpeech={() => {}}
+          speechPhase={speechSnapshot.phase}
+          speechLevel={speechSnapshot.level}
+          speechError={speechSnapshot.error}
+          onStartSpeech={() => {
+            setError("");
+            void startSpeech();
+          }}
+          onStopSpeech={() => {
+            void stopSpeech().then((transcript) => {
+              if (!transcript) {
+                return;
+              }
+
+              setInput((current) => appendTranscriptToDraft(current, transcript));
+            });
+          }}
         />
 
         {error ? (

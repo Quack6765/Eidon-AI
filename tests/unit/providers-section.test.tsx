@@ -52,7 +52,7 @@ type SettingsFixture = {
   memoriesMaxCount: number;
   mcpTimeout: number;
   sttEngine: "browser" | "embedded";
-  sttLanguage: "en" | "fr" | "es";
+  sttLanguage: "auto" | "en" | "fr" | "es";
   providerProfiles: ProviderProfileFixture[];
   updatedAt: string;
 };

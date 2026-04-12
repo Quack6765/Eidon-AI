@@ -895,9 +895,9 @@ export function Sidebar({
       body: JSON.stringify(body)
     });
     const payload = (await response.json()) as { conversation: Conversation };
-    router.push(`/chat/${payload.conversation.id}`);
-    router.refresh();
+    const href = `/chat/${payload.conversation.id}`;
     if (onClose) onClose();
+    window.location.assign(href);
   }
 
   async function handleCreateFolder() {
@@ -1148,7 +1148,12 @@ export function Sidebar({
           ) : (
             <button
               onClick={() => setShowSearch(true)}
-              className="flex items-center gap-3 rounded-2xl px-4 py-2.5 text-sm text-white/30 hover:bg-white/[0.03] hover:text-white/50 transition-all duration-300 group"
+              disabled={!mounted}
+              className={`flex items-center gap-3 rounded-2xl px-4 py-2.5 text-sm transition-all duration-300 group ${
+                mounted
+                  ? "text-white/30 hover:bg-white/[0.03] hover:text-white/50"
+                  : "cursor-not-allowed text-white/15"
+              }`}
             >
               <Search className="h-4 w-4 opacity-50 group-hover:opacity-100" />
               <span>Search</span>
@@ -1157,7 +1162,12 @@ export function Sidebar({
 
           <button
             onClick={() => handleCreate()}
-            className="mt-1 flex w-full items-center justify-center gap-2 rounded-2xl bg-[var(--accent)] text-white px-4 py-3 text-sm font-semibold shadow-[0_0_20px_var(--accent-glow)] transition-all duration-300 hover:opacity-90 hover:scale-[0.98] active:scale-[0.96]"
+            disabled={!mounted}
+            className={`mt-1 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition-all duration-300 ${
+              mounted
+                ? "bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)] hover:opacity-90 hover:scale-[0.98] active:scale-[0.96]"
+                : "cursor-not-allowed bg-white/[0.04] text-white/30"
+            }`}
             title="New chat"
             aria-label="New chat"
           >

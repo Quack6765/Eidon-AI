@@ -19,6 +19,26 @@ export function GeneralSection({ settings }: { settings: AppSettings }) {
   const [sttLanguage, setSttLanguage] = useState(settings.sttLanguage);
   const [success, setSuccess] = useState("");
   const [error, setError] = useState("");
+  const speechLanguageOptions =
+    sttEngine === "browser"
+      ? [
+          { value: "auto", label: "Auto-detect" },
+          { value: "en", label: "English" },
+          { value: "fr", label: "French" },
+          { value: "es", label: "Spanish" }
+        ]
+      : [
+          { value: "en", label: "English" },
+          { value: "fr", label: "French" },
+          { value: "es", label: "Spanish" }
+        ];
+
+  function handleSpeechEngineChange(nextEngine: AppSettings["sttEngine"]) {
+    setSttEngine(nextEngine);
+    if (nextEngine === "embedded" && sttLanguage === "auto") {
+      setSttLanguage("en");
+    }
+  }
 
   async function save() {
     setError("");
@@ -81,32 +101,37 @@ export function GeneralSection({ settings }: { settings: AppSettings }) {
 
       <SettingsCard title="Speech-to-Text">
         <SettingRow
-          label="Speech engine"
-          description="Choose whether dictation uses the browser speech engine or the embedded model path."
+          label="Speech engine and language"
+          description="Choose whether dictation uses the browser speech engine or the embedded model path, then set its default language behavior."
         >
-          <select
-            value={sttEngine}
-            onChange={(event) => setSttEngine(event.target.value as AppSettings["sttEngine"])}
-            className="w-full rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-[var(--accent)]/30 sm:w-auto"
-          >
-            <option value="browser">Browser</option>
-            <option value="embedded">Embedded model</option>
-          </select>
-        </SettingRow>
+          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+            <select
+              aria-label="Speech engine"
+              value={sttEngine}
+              onChange={(event) =>
+                handleSpeechEngineChange(event.target.value as AppSettings["sttEngine"])
+              }
+              className="w-full rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-[var(--accent)]/30 sm:w-auto"
+            >
+              <option value="browser">Browser</option>
+              <option value="embedded">Embedded model</option>
+            </select>
 
-        <SettingRow
-          label="Default dictation language"
-          description="This is the default language for composer voice input."
-        >
-          <select
-            value={sttLanguage}
-            onChange={(event) => setSttLanguage(event.target.value as AppSettings["sttLanguage"])}
-            className="w-full rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-[var(--accent)]/30 sm:w-auto"
-          >
-            <option value="en">English</option>
-            <option value="fr">French</option>
-            <option value="es">Spanish</option>
-          </select>
+            <select
+              aria-label="Speech language"
+              value={sttLanguage}
+              onChange={(event) =>
+                setSttLanguage(event.target.value as AppSettings["sttLanguage"])
+              }
+              className="w-full rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-[var(--accent)]/30 sm:w-auto"
+            >
+              {speechLanguageOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </SettingRow>
       </SettingsCard>
 
