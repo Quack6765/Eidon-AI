@@ -167,6 +167,8 @@ export function SkillsSection() {
               <button
                 type="button"
                 onClick={handleAddNew}
+                aria-label="Add skill"
+                title="Add skill"
                 className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] hover:text-[#f4f4f5] hover:bg-white/[0.06] transition-all duration-200"
               >
                 <Plus className="h-4 w-4" />

@@ -22,6 +22,7 @@ vi.mock("@/lib/local-shell", () => ({
 }));
 
 vi.mock("@/lib/memories", () => ({
+  getMemory: vi.fn(),
   createMemory: vi.fn(),
   updateMemory: vi.fn(),
   deleteMemory: vi.fn(),
@@ -120,7 +121,7 @@ describe("buildCopilotTools", () => {
 
     const { callMcpTool, getToolResultText } = await import("@/lib/mcp-client");
     const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
-    const { getMemoryCount } = await import("@/lib/memories");
+    const { getMemory, getMemoryCount } = await import("@/lib/memories");
     const { getSettings } = await import("@/lib/settings");
     const { parseSkillContentMetadata } = await import("@/lib/skill-metadata");
     const { coerceEnumValues } = await import("@/lib/tool-schema-helpers");
@@ -138,6 +139,13 @@ describe("buildCopilotTools", () => {
       isError: false
     });
     vi.mocked(summarizeShellResult).mockReturnValue("ok");
+    vi.mocked(getMemory).mockReturnValue({
+      id: "mem_1",
+      content: "Current memory",
+      category: "other",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
     vi.mocked(getMemoryCount).mockReturnValue(0);
     vi.mocked(getSettings).mockReturnValue(makeAppSettings());
     vi.mocked(parseSkillContentMetadata).mockReturnValue({
@@ -639,25 +647,39 @@ describe("buildCopilotTools", () => {
     expect(result).toBe("Memory limit reached (3/3). Update or delete an existing memory instead.");
   });
 
-  it("creates memories with invalid categories normalized to other", async () => {
+  it("normalizes memory category case and whitespace before proposing", async () => {
     const { createMemory } = await import("@/lib/memories");
+    const onActionStart = vi.fn().mockResolvedValue("act_mem");
     const onActionComplete = vi.fn();
-    const ctx = makeCtx({ memoriesEnabled: true, onActionComplete });
+    const ctx = makeCtx({ memoriesEnabled: true, onActionStart, onActionComplete });
 
     const tools = buildCopilotTools(ctx);
     const createMemoryTool = tools.find((t) => t.name === "create_memory")!;
 
     const result = await createMemoryTool.handler!(
-      { content: "Works in Toronto", category: "city" },
+      { content: "Works in Toronto", category: " Work " },
       { sessionId: "s1", toolCallId: "tc1", toolName: "create_memory", arguments: {} }
     );
 
-    expect(result).toBe("Memory saved: Works in Toronto [other]");
-    expect(createMemory).toHaveBeenCalledWith("Works in Toronto", "other", undefined);
-    expect(onActionComplete).toHaveBeenCalledWith(undefined, { resultSummary: "Saved as other" });
+    expect(result).toBe("Memory change proposed for approval: create [work] Works in Toronto");
+    expect(createMemory).not.toHaveBeenCalled();
+    expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "create_memory",
+      status: "pending",
+      proposalState: "pending",
+      proposalPayload: {
+        operation: "create",
+        targetMemoryId: null,
+        proposedMemory: {
+          content: "Works in Toronto",
+          category: "work"
+        }
+      }
+    }));
+    expect(onActionComplete).not.toHaveBeenCalled();
   });
 
-  it("defaults omitted memory categories and limits", async () => {
+  it("defaults omitted create proposal categories and limits", async () => {
     const { createMemory } = await import("@/lib/memories");
     const { getSettings } = await import("@/lib/settings");
     vi.mocked(getSettings).mockReturnValueOnce(makeAppSettings({ memoriesMaxCount: undefined as unknown as number }));
@@ -673,29 +695,17 @@ describe("buildCopilotTools", () => {
       { sessionId: "s1", toolCallId: "tc1", toolName: "create_memory", arguments: {} }
     );
 
-    expect(result).toBe("Memory saved: Lives near the office [other]");
-    expect(createMemory).toHaveBeenCalledWith("Lives near the office", "other", undefined);
-  });
-
-  it("records create memory failures without interrupting the tool response", async () => {
-    const { createMemory } = await import("@/lib/memories");
-    vi.mocked(createMemory).mockImplementationOnce(() => {
-      throw "write failed";
-    });
-
-    const onActionError = vi.fn();
-    const ctx = makeCtx({ memoriesEnabled: true, onActionError });
-
-    const tools = buildCopilotTools(ctx);
-    const createMemoryTool = tools.find((t) => t.name === "create_memory")!;
-
-    const result = await createMemoryTool.handler!(
-      { content: "Prefers concise answers", category: "preference" },
-      { sessionId: "s1", toolCallId: "tc1", toolName: "create_memory", arguments: {} }
-    );
-
-    expect(result).toBe("Memory saved: Prefers concise answers [preference]");
-    expect(onActionError).toHaveBeenCalledWith(undefined, { resultSummary: "Failed to create memory" });
+    expect(result).toBe("Memory change proposed for approval: create [other] Lives near the office");
+    expect(createMemory).not.toHaveBeenCalled();
+    expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
+      status: "pending",
+      proposalPayload: expect.objectContaining({
+        proposedMemory: {
+          content: "Lives near the office",
+          category: "other"
+        }
+      })
+    }));
   });
 
   it("returns error string when update memory id is missing", async () => {
@@ -709,10 +719,19 @@ describe("buildCopilotTools", () => {
     expect(result).toBe("Error: id and content are required");
   });
 
-  it("updates a memory with an explicit category", async () => {
-    const { updateMemory } = await import("@/lib/memories");
+  it("proposes memory updates with the current memory in payload", async () => {
+    const { getMemory, updateMemory } = await import("@/lib/memories");
+    vi.mocked(getMemory).mockReturnValueOnce({
+      id: "mem_1",
+      content: "Prefers light mode",
+      category: "preference",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+
+    const onActionStart = vi.fn().mockResolvedValue("act_mem");
     const onActionComplete = vi.fn();
-    const ctx = makeCtx({ memoriesEnabled: true, onActionComplete });
+    const ctx = makeCtx({ memoriesEnabled: true, onActionStart, onActionComplete });
 
     const tools = buildCopilotTools(ctx);
     const updateMemoryTool = tools.find((t) => t.name === "update_memory")!;
@@ -722,40 +741,27 @@ describe("buildCopilotTools", () => {
       { sessionId: "s1", toolCallId: "tc1", toolName: "update_memory", arguments: {} }
     );
 
-    expect(result).toBe("Memory updated: Prefers dark mode");
-    expect(updateMemory).toHaveBeenCalledWith(
-      "mem_1",
-      {
-        content: "Prefers dark mode",
-        category: "preference"
-      },
-      undefined
-    );
-    expect(onActionComplete).toHaveBeenCalledWith(undefined, {
-      detail: "Prefers dark mode",
-      resultSummary: "Updated"
-    });
-  });
-
-  it("records update memory failures without interrupting the tool response", async () => {
-    const { updateMemory } = await import("@/lib/memories");
-    vi.mocked(updateMemory).mockImplementationOnce(() => {
-      throw "cannot update";
-    });
-
-    const onActionError = vi.fn();
-    const ctx = makeCtx({ memoriesEnabled: true, onActionError });
-
-    const tools = buildCopilotTools(ctx);
-    const updateMemoryTool = tools.find((t) => t.name === "update_memory")!;
-
-    const result = await updateMemoryTool.handler!(
-      { id: "mem_1", content: "Updated detail" },
-      { sessionId: "s1", toolCallId: "tc1", toolName: "update_memory", arguments: {} }
-    );
-
-    expect(result).toBe("Memory updated: Updated detail");
-    expect(onActionError).toHaveBeenCalledWith(undefined, { resultSummary: "Failed to update memory" });
+    expect(result).toBe("Memory change proposed for approval: update mem_1 -> Prefers dark mode [preference]");
+    expect(updateMemory).not.toHaveBeenCalled();
+    expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "update_memory",
+      status: "pending",
+      proposalState: "pending",
+      proposalPayload: {
+        operation: "update",
+        targetMemoryId: "mem_1",
+        currentMemory: {
+          id: "mem_1",
+          content: "Prefers light mode",
+          category: "preference"
+        },
+        proposedMemory: {
+          content: "Prefers dark mode",
+          category: "preference"
+        }
+      }
+    }));
+    expect(onActionComplete).not.toHaveBeenCalled();
   });
 
   it("returns update memory validation errors when args are missing", async () => {
@@ -783,32 +789,19 @@ describe("buildCopilotTools", () => {
     expect(result).toBe("Error: id is required");
   });
 
-  it("deletes a memory and records completion", async () => {
-    const { deleteMemory } = await import("@/lib/memories");
-    const onActionComplete = vi.fn();
-    const ctx = makeCtx({ memoriesEnabled: true, onActionComplete });
-
-    const tools = buildCopilotTools(ctx);
-    const deleteMemoryTool = tools.find((t) => t.name === "delete_memory")!;
-
-    const result = await deleteMemoryTool.handler!(
-      { id: "mem_1" },
-      { sessionId: "s1", toolCallId: "tc1", toolName: "delete_memory", arguments: {} }
-    );
-
-    expect(result).toBe("Memory deleted: mem_1");
-    expect(deleteMemory).toHaveBeenCalledWith("mem_1", undefined);
-    expect(onActionComplete).toHaveBeenCalledWith(undefined, { resultSummary: "Deleted" });
-  });
-
-  it("records delete memory failures without interrupting the tool response", async () => {
-    const { deleteMemory } = await import("@/lib/memories");
-    vi.mocked(deleteMemory).mockImplementationOnce(() => {
-      throw "cannot delete";
+  it("proposes memory deletion with the current memory in payload", async () => {
+    const { getMemory, deleteMemory } = await import("@/lib/memories");
+    vi.mocked(getMemory).mockReturnValueOnce({
+      id: "mem_1",
+      content: "Prefers dark mode",
+      category: "preference",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     });
 
-    const onActionError = vi.fn();
-    const ctx = makeCtx({ memoriesEnabled: true, onActionError });
+    const onActionStart = vi.fn().mockResolvedValue("act_mem");
+    const onActionComplete = vi.fn();
+    const ctx = makeCtx({ memoriesEnabled: true, onActionStart, onActionComplete });
 
     const tools = buildCopilotTools(ctx);
     const deleteMemoryTool = tools.find((t) => t.name === "delete_memory")!;
@@ -818,8 +811,23 @@ describe("buildCopilotTools", () => {
       { sessionId: "s1", toolCallId: "tc1", toolName: "delete_memory", arguments: {} }
     );
 
-    expect(result).toBe("Memory deleted: mem_1");
-    expect(onActionError).toHaveBeenCalledWith(undefined, { resultSummary: "Failed to delete memory" });
+    expect(result).toBe("Memory change proposed for approval: delete mem_1");
+    expect(deleteMemory).not.toHaveBeenCalled();
+    expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "delete_memory",
+      status: "pending",
+      proposalState: "pending",
+      proposalPayload: {
+        operation: "delete",
+        targetMemoryId: "mem_1",
+        currentMemory: {
+          id: "mem_1",
+          content: "Prefers dark mode",
+          category: "preference"
+        }
+      }
+    }));
+    expect(onActionComplete).not.toHaveBeenCalled();
   });
 
   it("returns delete memory validation errors when args are missing", async () => {

@@ -296,6 +296,8 @@ export function McpServersSection() {
             </div>
             <button
               onClick={handleAddNew}
+              aria-label="Add MCP server"
+              title="Add MCP server"
               className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted)] transition-colors hover:bg-white/5 hover:text-[var(--text)]"
             >
               <Plus className="h-4 w-4" />

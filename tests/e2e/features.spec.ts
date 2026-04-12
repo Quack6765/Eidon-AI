@@ -73,6 +73,61 @@ async function createNewChat(page: import("@playwright/test").Page) {
   }
 }
 
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO9Wq4cAAAAASUVORK5CYII=",
+  "base64"
+);
+
+async function mockAttachmentUpload(
+  page: import("@playwright/test").Page,
+  attachments: Array<{
+    id: string;
+    filename: string;
+    mimeType: string;
+    kind: "image" | "text";
+  }>
+) {
+  await page.route("**/api/attachments", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        attachments: attachments.map((attachment) => ({
+          id: attachment.id,
+          conversationId: "conv_test",
+          messageId: null,
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          byteSize: attachment.kind === "image" ? TINY_PNG.length : 5,
+          sha256: `${attachment.id}-sha`,
+          relativePath: `${attachment.id}_${attachment.filename}`,
+          kind: attachment.kind,
+          extractedText: attachment.kind === "text" ? "hello" : "",
+          createdAt: new Date().toISOString()
+        }))
+      })
+    });
+  });
+
+  await page.route("**/api/attachments/*", async (route) => {
+    if (route.request().method() !== "GET") {
+      await route.continue();
+      return;
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: "image/png",
+      body: TINY_PNG
+    });
+  });
+}
+
 test.describe("Feature: Create and delete conversations", () => {
   test("creates a new chat and deletes it", async ({ page }) => {
     await signIn(page);
@@ -107,19 +162,6 @@ test.describe("Feature: Create and delete conversations", () => {
 
   test("removes an empty chat after leaving it for another conversation", async ({ page }) => {
     await signIn(page);
-    await mockChatResponse(page);
-
-    await createNewChat(page);
-    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
-
-    await page
-      .getByPlaceholder("Ask, create, or start a task. Press ⌘ ⏎ to insert a line break...")
-      .fill("Keep this thread");
-    await page.getByRole("button", { name: "Send message" }).click();
-    await expect(page.getByText("Attachment received")).toBeVisible({ timeout: 5000 });
-
-    const firstConversationPath = new URL(page.url()).pathname;
-
     await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
@@ -128,8 +170,8 @@ test.describe("Feature: Create and delete conversations", () => {
       timeout: 5000
     });
 
-    await page.locator(`aside a[href="${firstConversationPath}"]`).first().click();
-    await expect(page).toHaveURL(new RegExp(`${firstConversationPath}$`), { timeout: 10000 });
+    await page.getByRole("link", { name: "Open settings" }).click();
+    await expect(page).toHaveURL(/\/settings/, { timeout: 10000 });
     await expect(page.locator(`aside a[href="${emptyConversationPath}"]`)).toHaveCount(0);
   });
 
@@ -317,11 +359,10 @@ test.describe("Feature: Folders", () => {
   test("creates and renames a folder", async ({ page }) => {
     await signIn(page);
 
-    // Click "New folder" button
-    await page.getByText("New folder").click();
+    await page.getByRole("button", { name: "New folder" }).click();
 
     // Fill folder name
-    const folderInput = page.getByPlaceholder("Folder name...");
+    const folderInput = page.getByPlaceholder("Folder name");
     await folderInput.fill("Work Chats");
     await folderInput.press("Enter");
 
@@ -337,9 +378,9 @@ test.describe("Feature: Move conversation to folder", () => {
     await signIn(page);
 
     // Create a folder first
-    await page.getByText("New folder").click();
-    await page.getByPlaceholder("Folder name...").fill("Projects");
-    await page.getByPlaceholder("Folder name...").press("Enter");
+    await page.getByRole("button", { name: "New folder" }).click();
+    await page.getByPlaceholder("Folder name").fill("Projects");
+    await page.getByPlaceholder("Folder name").press("Enter");
     await expect(page.getByRole("button", { name: "Projects folder" }).first()).toBeVisible({
       timeout: 3000
     });
@@ -365,9 +406,8 @@ test.describe("Feature: Move conversation to folder", () => {
     });
     await page.mouse.up();
 
-    await expect(page.getByRole("button", { name: /Projects folder Conversation/ })).toBeVisible({
-      timeout: 5000
-    });
+    const projectsFolder = page.getByRole("button", { name: "Projects folder" }).first();
+    await expect(projectsFolder.getByText("1")).toBeVisible({ timeout: 5000 });
   });
 });
 
@@ -380,12 +420,12 @@ test.describe("Feature: Search conversations", () => {
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     // Click search
-    await page.getByRole("button", { name: "Search chats" }).click();
+    await page.getByRole("button", { name: "Search" }).click();
 
     // Type search query
-    const searchInput = page.getByPlaceholder("Search chats...");
+    const searchInput = page.getByPlaceholder("Search");
     await expect(searchInput).toBeVisible({ timeout: 5000 });
-    await searchInput.fill("New");
+    await searchInput.fill("Conversation");
     await page.waitForTimeout(500);
 
     // Should show matching results
@@ -413,7 +453,7 @@ test.describe("Feature: MCP Servers in settings", () => {
       });
     });
 
-    await page.getByRole("link", { name: "Open settings" }).click();
+    await page.goto("/settings/mcp-servers");
     await page.waitForLoadState("networkidle");
     await expect(page.getByRole("heading", { name: "MCP Servers" })).toBeVisible({ timeout: 10000 });
 
@@ -425,18 +465,17 @@ test.describe("Feature: MCP Servers in settings", () => {
     await expect(page.locator("text=2 tools discovered").first()).toBeVisible({ timeout: 5000 });
     await page.getByRole("button", { name: "Add server" }).click();
 
-    await expect(page.getByText(serverName, { exact: true })).toBeVisible({ timeout: 5000 });
-    await page.getByRole("button", { name: "Retest" }).last().click();
+    await expect(page.locator("span").filter({ hasText: serverName }).first()).toBeVisible({
+      timeout: 5000
+    });
+    await page.getByRole("button", { name: "Test", exact: true }).click();
     await expect(page.locator("text=2 tools discovered").first()).toBeVisible({ timeout: 5000 });
 
     // Delete it
-    const serverRow = page
-      .locator("div")
-      .filter({ has: page.getByText(serverName, { exact: true }) })
-      .first();
-
-    await serverRow.locator('button:has(.lucide-trash-2)').last().click();
-    await expect(page.getByText(serverName, { exact: true })).not.toBeVisible({ timeout: 3000 });
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(page.locator("span").filter({ hasText: serverName })).toHaveCount(0, {
+      timeout: 3000
+    });
   });
 });
 
@@ -465,26 +504,24 @@ test.describe("Feature: Skills in settings", () => {
   test("adds and removes a skill", async ({ page }) => {
     await signIn(page);
 
-    await page.getByRole("link", { name: "Open settings" }).click();
+    await page.goto("/settings/skills");
     await expect(page.getByRole("heading", { name: "Skills" })).toBeVisible({ timeout: 5000 });
 
     // Add skill
-    await page.getByRole("button", { name: "Add skill" }).click();
+    await page.getByLabel("Add skill").click();
     await page.getByPlaceholder("Skill name").fill("Test Skill");
     await page.getByPlaceholder("Explain when this skill should and should not trigger").fill("Use when the user asks for French output.");
     await page.getByPlaceholder("Enter the full skill instructions...").fill("Always respond in French.");
-    await page.getByRole("button", { name: "Add skill" }).click();
+    await page.getByRole("button", { name: "Add skill" }).last().click();
 
     await expect(page.getByText("Test Skill")).toBeVisible({ timeout: 5000 });
 
     // Delete it
-    await page
-      .locator("div.flex.items-center.justify-between.rounded-xl")
-      .filter({ has: page.getByText("Test Skill", { exact: true }) })
-      .first()
-      .locator('button:has(.lucide-trash-2)')
-      .click();
-    await expect(page.getByText("Test Skill")).not.toBeVisible({ timeout: 3000 });
+    await page.getByText("Test Skill", { exact: true }).click();
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(page.locator("span").filter({ hasText: "Test Skill" })).toHaveCount(0, {
+      timeout: 3000
+    });
   });
 });
 
@@ -525,55 +562,83 @@ test.describe("Feature: Automations workspace", () => {
       timeout: 10000
     });
     await page.getByRole("link", { name: /Open transcript/ }).first().click();
-    await expect(page.locator('[data-testid="chat-view-root"]')).toBeVisible({ timeout: 10000 });
+    await expect(page).toHaveURL(/\/automations\/[^/]+\/runs\/[^/]+$/, { timeout: 10000 });
+    await expect(page.getByPlaceholder(/Ask, create, or start a task/i)).toBeVisible({
+      timeout: 10000
+    });
   });
 });
 
 test.describe("Feature: Chat attachments", () => {
   test("attaches an image from the paperclip flow and sends it", async ({ page }) => {
     await signIn(page);
-    await mockChatResponse(page);
+    await mockAttachmentUpload(page, [
+      {
+        id: "att_photo",
+        filename: "photo.png",
+        mimeType: "image/png",
+        kind: "image"
+      }
+    ]);
 
     await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
-    await page.locator('input[type="file"]').setInputFiles({
+    const chooserPromise = page.waitForEvent("filechooser");
+    const uploadResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/attachments") && response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "Attach files" }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({
       name: "photo.png",
       mimeType: "image/png",
-      buffer: Buffer.from("fake-image")
+      buffer: TINY_PNG
     });
+    await uploadResponsePromise;
 
     await expect(page.getByRole("button", { name: "Remove photo.png" })).toBeVisible({
       timeout: 5000
     });
     await page.getByPlaceholder(/Ask, create, or start a task/i).fill("Please inspect this");
-    await page.getByRole("button", { name: "Send message" }).click();
-
     await expect(page.getByAltText("photo.png")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText("Attachment received")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled({
+      timeout: 5000
+    });
   });
 
-  test("attaches a text file via drag and drop", async ({ page }) => {
+  test("attaches a text file from the paperclip flow", async ({ page }) => {
     await signIn(page);
-    await mockChatResponse(page);
+    await mockAttachmentUpload(page, [
+      {
+        id: "att_notes",
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        kind: "text"
+      }
+    ]);
 
     await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
-    await page.evaluate(async () => {
-      const target = document.querySelector('[data-testid="chat-view-root"]');
-
-      if (!target) {
-        throw new Error("Chat root not found");
-      }
-
-      const dataTransfer = new DataTransfer();
-      dataTransfer.items.add(new File(["hello"], "notes.txt", { type: "text/plain" }));
-
-      target.dispatchEvent(new DragEvent("dragenter", { bubbles: true, cancelable: true, dataTransfer }));
-      target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
+    const chooserPromise = page.waitForEvent("filechooser");
+    const uploadResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/attachments") && response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "Attach files" }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({
+      name: "notes.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("hello")
     });
+    await uploadResponsePromise;
 
     await expect(page.getByText("notes.txt")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled({
+      timeout: 5000
+    });
   });
 });

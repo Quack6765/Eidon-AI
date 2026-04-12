@@ -243,12 +243,15 @@ export async function startChatTurn(
         const persisted = createMessageAction({
           messageId: assistantMessage.id,
           kind: action.kind,
+          status: action.status,
           label: action.label,
           detail: action.detail,
           serverId: action.serverId,
           skillId: action.skillId,
           toolName: action.toolName,
           arguments: action.arguments,
+          proposalState: action.proposalState,
+          proposalPayload: action.proposalPayload,
           sortOrder: timelineSortOrder++
         });
         runningActionHandles.add(persisted.id);

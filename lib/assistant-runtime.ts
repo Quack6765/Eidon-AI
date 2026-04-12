@@ -1,6 +1,12 @@
 import { resolveAttachmentPath } from "@/lib/attachments";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
-import { getMemory as getMemoryRecord, createMemory, updateMemory as updateMemoryRecord, deleteMemory as deleteMemoryRecord, getMemoryCount } from "@/lib/memories";
+import { getMemory as getMemoryRecord, getMemoryCount } from "@/lib/memories";
+import {
+  buildCreateMemoryProposal,
+  buildDeleteMemoryProposal,
+  buildUpdateMemoryProposal,
+  normalizeMemoryCategory
+} from "@/lib/memory-proposals";
 import { getSettings } from "@/lib/settings";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shell";
@@ -12,6 +18,9 @@ import type {
   ChatStreamEvent,
   McpServer,
   McpTool,
+  MessageActionStatus,
+  MemoryProposalPayload,
+  MemoryProposalState,
   MessageActionKind,
   ProviderProfileWithApiKey,
   ProviderToolCall,
@@ -33,12 +42,15 @@ type ToolSet = {
 
 type RuntimeAction = {
   kind: MessageActionKind;
+  status?: MessageActionStatus;
   label: string;
   detail?: string;
   serverId?: string | null;
   skillId?: string | null;
   toolName?: string | null;
   arguments?: Record<string, unknown> | null;
+  proposalState?: MemoryProposalState | null;
+  proposalPayload?: MemoryProposalPayload | null;
 };
 
 type SuccessfulReadOnlyToolResult = {
@@ -48,6 +60,8 @@ type SuccessfulReadOnlyToolResult = {
 const SHELL_SKILL_INTENT_PATTERN =
   /\b(browser|website|web site|webpage|web page|url|link|click|navigate|navigation|screenshot|snapshot|inspect|form|login|dom)\b/i;
 const URLISH_PATTERN = /\b(?:https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,})(?:\/\S*)?/i;
+const MEMORY_INTENT_WITHOUT_TOOL_PATTERN =
+  /\b(?:let me|i(?:'ll| will| can| should|(?: am|'m) going to))\s+(?:save|remember|store|update|delete|remove)\b|\b(?:remember|save|store|update|delete|remove)\s+(?:that|this|it)\s+(?:for later|in memory|as memory)\b|\b(?:i(?:'ve| have)|we(?:'ve| have))\s+proposed\s+to\s+(?:add|save|store|update|delete|remove)\b.*\bmemory\b|\bit(?:'ll| will)\s+be\s+saved\s+once\s+you\s+approve\s+it\b/i;
 
 function mcpToolFunctionName(serverSlug: string, toolName: string) {
   return `mcp_${serverSlug}_${toolName}`;
@@ -333,6 +347,14 @@ function buildToolResultMessage(toolCallId: string, content: string): PromptMess
   };
 }
 
+function isMemoryProposalToolCall(name: string) {
+  return name === "create_memory" || name === "update_memory" || name === "delete_memory";
+}
+
+function hasUnfulfilledMemoryIntent(answer: string) {
+  return MEMORY_INTENT_WITHOUT_TOOL_PATTERN.test(answer);
+}
+
 function buildShellResultForPrompt(input: { command: string; resultSummary: string; isError: boolean }) {
   return [
     "Local shell command result",
@@ -410,26 +432,27 @@ async function executeMcpToolCall(
     };
   }
 
+  const correctedArgs = coerceEnumValues(resolvedTool.inputSchema ?? {}, args);
+
   const handle = await context.input.onActionStart?.({
     kind: "mcp_tool_call",
     label: getToolLabel(resolvedTool),
-    detail: buildArgumentsSummary(args),
+    detail: buildArgumentsSummary(correctedArgs),
     serverId: resolvedServer.id,
     toolName: resolvedTool.name,
-    arguments: args
+    arguments: correctedArgs
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
-  const correctedArgs = coerceEnumValues(resolvedTool.inputSchema ?? {}, args);
   const result = await callMcpTool(resolvedServer, resolvedTool.name, correctedArgs, context.input.mcpTimeout);
   const resultText = getToolResultText(result);
 
   sortOrder += 1;
 
   if (result.isError) {
-    await context.input.onActionError?.(actionHandle, { detail: buildArgumentsSummary(args), resultSummary: resultText });
+    await context.input.onActionError?.(actionHandle, { detail: buildArgumentsSummary(correctedArgs), resultSummary: resultText });
   } else {
-    await context.input.onActionComplete?.(actionHandle, { detail: buildArgumentsSummary(args), resultSummary: resultText });
+    await context.input.onActionComplete?.(actionHandle, { detail: buildArgumentsSummary(correctedArgs), resultSummary: resultText });
   }
 
   if (!result.isError && resolvedTool.annotations?.readOnlyHint === true) {
@@ -584,46 +607,37 @@ async function executeCreateMemory(
 ) {
   const sortOrder = context.timelineSortOrder;
   const content = String(args.content ?? "").trim();
-  const category = String(args.category ?? "other").trim();
 
   if (!content) {
     const resultMsg = buildToolResultMessage(toolCallId, "Error: content is required");
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const validCategories = ["personal", "preference", "work", "location", "other"];
-  const normalizedCategory = validCategories.includes(category) ? category : "other";
-
-  const appSettings = getSettings();
+  const normalizedCategory = normalizeMemoryCategory(args.category);
+  const proposalPayload = buildCreateMemoryProposal({ content, category: normalizedCategory });
+  const maxCount = getSettings().memoriesMaxCount ?? 100;
   const currentCount = getMemoryCount(context.memoryUserId);
 
-  if (currentCount >= (appSettings.memoriesMaxCount ?? 100)) {
-    const errorMsg = `Memory limit reached (${currentCount}/${appSettings.memoriesMaxCount}). Update or delete an existing memory instead.`;
+  if (currentCount >= maxCount) {
+    const errorMsg = `Memory limit reached (${currentCount}/${maxCount}). Update or delete an existing memory instead.`;
     const resultMsg = buildToolResultMessage(toolCallId, errorMsg);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const handle = await context.input.onActionStart?.({
+  await context.input.onActionStart?.({
     kind: "create_memory",
-    label: "Saved memory",
+    status: "pending",
+    label: "Create memory proposal",
     detail: content,
-    arguments: args
+    arguments: { content, category: normalizedCategory },
+    proposalState: "pending",
+    proposalPayload
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
 
-  try {
-    createMemory(
-      content,
-      normalizedCategory as "personal" | "preference" | "work" | "location" | "other",
-      context.memoryUserId
-    );
-    await context.input.onActionComplete?.(actionHandle, { resultSummary: `Saved as ${normalizedCategory}` });
-  } catch (e) {
-    const errorMsg = e instanceof Error ? e.message : "Failed to create memory";
-    await context.input.onActionError?.(actionHandle, { resultSummary: errorMsg });
-  }
-
-  const resultMsg = buildToolResultMessage(toolCallId, `Memory saved: ${content} [${normalizedCategory}]`);
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    `Memory change proposed for approval: create [${normalizedCategory}] ${content}`
+  );
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
@@ -657,29 +671,30 @@ async function executeUpdateMemory(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const handle = await context.input.onActionStart?.({
-    kind: "update_memory",
-    label: "Updated memory",
-    detail: content,
-    arguments: args
+  const proposalPayload = buildUpdateMemoryProposal({
+    memory: existing,
+    content,
+    category
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
 
-  try {
-    updateMemoryRecord(id, {
+  await context.input.onActionStart?.({
+    kind: "update_memory",
+    status: "pending",
+    label: "Update memory proposal",
+    detail: content,
+    arguments: {
+      id,
       content,
-      ...(category ? { category: category as "personal" | "preference" | "work" | "location" | "other" } : {})
-    }, context.memoryUserId);
-    await context.input.onActionComplete?.(actionHandle, {
-      detail: content,
-      resultSummary: `Was: ${existing.content}`
-    });
-  } catch (e) {
-    const errorMsg = e instanceof Error ? e.message : "Failed to update memory";
-    await context.input.onActionError?.(actionHandle, { resultSummary: errorMsg });
-  }
+      ...(proposalPayload.proposedMemory ? { category: proposalPayload.proposedMemory.category } : {})
+    },
+    proposalState: "pending",
+    proposalPayload
+  });
 
-  const resultMsg = buildToolResultMessage(toolCallId, `Memory updated: ${content}`);
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    `Memory change proposed for approval: update ${id} -> ${content} [${proposalPayload.proposedMemory?.category ?? existing.category}]`
+  );
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
@@ -711,23 +726,20 @@ async function executeDeleteMemory(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const handle = await context.input.onActionStart?.({
+  await context.input.onActionStart?.({
     kind: "delete_memory",
-    label: "Deleted memory",
+    status: "pending",
+    label: "Delete memory proposal",
     detail: existing.content,
-    arguments: args
+    arguments: { id },
+    proposalState: "pending",
+    proposalPayload: buildDeleteMemoryProposal(existing)
   });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
 
-  try {
-    deleteMemoryRecord(id, context.memoryUserId);
-    await context.input.onActionComplete?.(actionHandle, { resultSummary: "Deleted" });
-  } catch (e) {
-    const errorMsg = e instanceof Error ? e.message : "Failed to delete memory";
-    await context.input.onActionError?.(actionHandle, { resultSummary: errorMsg });
-  }
-
-  const resultMsg = buildToolResultMessage(toolCallId, `Memory deleted: ${existing.content}`);
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    `Memory change proposed for approval: delete ${id}`
+  );
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
@@ -944,6 +956,14 @@ export async function resolveAssistantTurn(input: {
     assertRunning();
 
     if (!toolCalls.length) {
+      if ((input.memoriesEnabled ?? false) && hasUnfulfilledMemoryIntent(answer)) {
+        promptMessages = mergeSystemMessage(
+          promptMessages,
+          "Do not say that you saved, stored, remembered, updated, or deleted a memory unless you actually call the corresponding memory tool in that same response. If a memory proposal is warranted, call the memory tool now. Otherwise, answer normally without mentioning memory-saving."
+        );
+        continue;
+      }
+
       if (!answer.trim() && step > 0) {
         promptMessages = mergeSystemMessage(promptMessages, "Your previous response was empty after using tools. Answer the user directly. Do not emit an empty response.");
         continue;
@@ -983,6 +1003,10 @@ export async function resolveAssistantTurn(input: {
 
       timelineSortOrder = result.nextSortOrder;
       promptMessages = result.promptMessages;
+    }
+
+    if (answer.trim() && toolCalls.every((toolCall) => isMemoryProposalToolCall(toolCall.name))) {
+      return { answer, thinking, usage: totalUsage };
     }
   }
 

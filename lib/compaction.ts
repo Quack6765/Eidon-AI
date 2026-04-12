@@ -567,7 +567,7 @@ export function buildPromptMessages(input: {
         "\n</memory>"
       );
       systemParts.push(
-        "You have access to memory tools (create_memory, update_memory, delete_memory) to persist facts about the user across conversations. Use these conservatively — only save durable, recurring facts (name, location, preferences, work details). Do not save transient details about the current task. Before creating a new memory, check if a similar one already exists and update it instead. The user can see and manage all memories in their settings."
+        "You have access to memory tools (create_memory, update_memory, delete_memory) to propose memory changes for inline review. These tools do not apply changes immediately: each call creates a pending proposal the user can approve or dismiss. Use them conservatively — only for durable, recurring facts (name, location, preferences, work details). Do not save transient details about the current task. Before proposing a new memory, check if a similar one already exists and update it instead. The user can review and manage all memory proposals and memories in their settings."
       );
     }
   }

@@ -771,7 +771,7 @@ Run browser commands.`
     expect(result.thinking).toBe("Thinking ");
   });
 
-  it("auto-corrects invalid enum arguments before calling MCP tool", async () => {
+  it("uses coerced MCP args in the runtime action trail", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([], {
@@ -789,6 +789,9 @@ Run browser commands.`
         })
       );
     callMcpTool.mockResolvedValue({ content: [{ type: "text", text: "Found results" }] });
+
+    const started: Array<Record<string, unknown>> = [];
+    const completed: Array<Record<string, unknown>> = [];
 
     const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
@@ -814,8 +817,12 @@ Run browser commands.`
         }]
       }],
       onEvent: () => {},
-      onActionStart: () => {},
-      onActionComplete: () => {}
+      onActionStart: (action) => {
+        started.push(action);
+      },
+      onActionComplete: (_handle, patch) => {
+        completed.push(patch);
+      }
     });
 
     expect(callMcpTool).toHaveBeenCalledWith(
@@ -824,6 +831,16 @@ Run browser commands.`
       { query: "test", freshness: "month" },
       undefined
     );
+    expect(started).toEqual([expect.objectContaining({
+      detail: "query=test",
+      arguments: {
+        query: "test",
+        freshness: "month"
+      }
+    })]);
+    expect(completed).toEqual([expect.objectContaining({
+      detail: "query=test"
+    })]);
   });
 
   it("commits answer text that appears before tool calls", async () => {
@@ -919,8 +936,7 @@ Run browser commands.`
       expect(seenToolNames[0]).not.toContain("create_memory");
     });
 
-    it("executes create_memory tool call", async () => {
-      createMemoryFn.mockReturnValue({ id: "mem_test", content: "User lives in Montreal", category: "location" as const, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+    it("proposes create_memory tool calls instead of writing immediately", async () => {
       streamProviderResponse
         .mockReturnValueOnce(
           createProviderStream([], {
@@ -936,7 +952,7 @@ Run browser commands.`
           })
         );
 
-      const started: Array<{ kind: string; label: string; detail?: string }> = [];
+      const started: Array<Record<string, unknown>> = [];
       const completed: Array<{ handle?: string; resultSummary?: string }> = [];
       const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
@@ -951,15 +967,198 @@ Run browser commands.`
         onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
       });
 
-      expect(createMemoryFn).toHaveBeenCalledWith("User lives in Montreal", "location", undefined);
-      expect(started).toEqual([expect.objectContaining({ kind: "create_memory", label: "Saved memory", detail: "User lives in Montreal" })]);
-      expect(completed).toEqual([{ handle: "act_mem", resultSummary: "Saved as location" }]);
+      expect(createMemoryFn).not.toHaveBeenCalled();
+      expect(started).toEqual([expect.objectContaining({
+        kind: "create_memory",
+        status: "pending",
+        proposalState: "pending",
+        proposalPayload: {
+          operation: "create",
+          targetMemoryId: null,
+          proposedMemory: {
+            content: "User lives in Montreal",
+            category: "location"
+          }
+        }
+      })]);
+      expect(completed).toEqual([]);
       expect(result.answer).toBe("Saved");
     });
 
-    it("executes update_memory tool call", async () => {
+    it("does not force a second assistant pass when a memory proposal already has a direct answer", async () => {
+      streamProviderResponse.mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Nice to meet you, Charles." }], {
+          answer: "Nice to meet you, Charles.",
+          thinking: "",
+          toolCalls: [
+            {
+              id: "call_1",
+              name: "create_memory",
+              arguments: JSON.stringify({
+                content: "User name is Charles",
+                category: "personal"
+              })
+            }
+          ],
+          usage: { inputTokens: 10, outputTokens: 5 }
+        })
+      );
+
+      const started: Array<Record<string, unknown>> = [];
+      const persistedSegments: string[] = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Hi, my name is Charles." }],
+        skills: [],
+        mcpToolSets: [],
+        memoriesEnabled: true,
+        onEvent: () => {},
+        onAnswerSegment: (segment) => {
+          persistedSegments.push(segment);
+        },
+        onActionStart: (action) => {
+          started.push(action);
+          return "act_mem";
+        }
+      });
+
+      expect(streamProviderResponse).toHaveBeenCalledTimes(1);
+      expect(persistedSegments).toEqual(["Nice to meet you, Charles."]);
+      expect(started).toEqual([
+        expect.objectContaining({
+          kind: "create_memory",
+          status: "pending",
+          proposalState: "pending"
+        })
+      ]);
+      expect(result.answer).toBe("Nice to meet you, Charles.");
+    });
+
+    it("retries when the model narrates a memory save without calling a memory tool", async () => {
+      streamProviderResponse
+        .mockReturnValueOnce(
+          createProviderStream([{ type: "answer_delta", text: "Let me save that for later." }], {
+            answer: "Let me save that for later.",
+            thinking: "",
+            usage: { inputTokens: 8, outputTokens: 5 }
+          })
+        )
+        .mockReturnValueOnce(
+          createProviderStream([{ type: "answer_delta", text: "Nice to meet you, Charles." }], {
+            answer: "Nice to meet you, Charles.",
+            thinking: "",
+            toolCalls: [
+              {
+                id: "call_1",
+                name: "create_memory",
+                arguments: JSON.stringify({
+                  content: "User name is Charles",
+                  category: "personal"
+                })
+              }
+            ],
+            usage: { inputTokens: 10, outputTokens: 5 }
+          })
+        );
+
+      const started: Array<Record<string, unknown>> = [];
+      const persistedSegments: string[] = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Hi, my name is Charles." }],
+        skills: [],
+        mcpToolSets: [],
+        memoriesEnabled: true,
+        onEvent: () => {},
+        onAnswerSegment: (segment) => {
+          persistedSegments.push(segment);
+        },
+        onActionStart: (action) => {
+          started.push(action);
+          return "act_mem";
+        }
+      });
+
+      expect(streamProviderResponse).toHaveBeenCalledTimes(2);
+      expect(persistedSegments).toEqual(["Nice to meet you, Charles."]);
+      expect(started).toEqual([
+        expect.objectContaining({
+          kind: "create_memory",
+          status: "pending",
+          proposalState: "pending"
+        })
+      ]);
+      expect(result.answer).toBe("Nice to meet you, Charles.");
+    });
+
+    it("retries when the model claims it proposed a memory change without calling a memory tool", async () => {
+      streamProviderResponse
+        .mockReturnValueOnce(
+          createProviderStream(
+            [{ type: "answer_delta", text: "I've proposed to add your DevOps Engineer role back to your work memories. It'll be saved once you approve it." }],
+            {
+              answer: "I've proposed to add your DevOps Engineer role back to your work memories. It'll be saved once you approve it.",
+              thinking: "",
+              usage: { inputTokens: 8, outputTokens: 19 }
+            }
+          )
+        )
+        .mockReturnValueOnce(
+          createProviderStream([{ type: "answer_delta", text: "I can add that back to memory." }], {
+            answer: "I can add that back to memory.",
+            thinking: "",
+            toolCalls: [
+              {
+                id: "call_1",
+                name: "create_memory",
+                arguments: JSON.stringify({
+                  content: "User works as a DevOps Engineer",
+                  category: "work"
+                })
+              }
+            ],
+            usage: { inputTokens: 10, outputTokens: 8 }
+          })
+        );
+
+      const started: Array<Record<string, unknown>> = [];
+      const persistedSegments: string[] = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "lets add it back" }],
+        skills: [],
+        mcpToolSets: [],
+        memoriesEnabled: true,
+        onEvent: () => {},
+        onAnswerSegment: (segment) => {
+          persistedSegments.push(segment);
+        },
+        onActionStart: (action) => {
+          started.push(action);
+          return "act_mem";
+        }
+      });
+
+      expect(streamProviderResponse).toHaveBeenCalledTimes(2);
+      expect(persistedSegments).toEqual(["I can add that back to memory."]);
+      expect(started).toEqual([
+        expect.objectContaining({
+          kind: "create_memory",
+          status: "pending",
+          proposalState: "pending"
+        })
+      ]);
+      expect(result.answer).toBe("I can add that back to memory.");
+    });
+
+    it("proposes update_memory tool calls instead of writing immediately", async () => {
       getMemoryRecord.mockReturnValue({ id: "mem_test", content: "Old fact", category: "personal" as const, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
-      updateMemoryRecord.mockReturnValue({ id: "mem_test", content: "Updated fact", category: "work" as const, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
       streamProviderResponse
         .mockReturnValueOnce(
           createProviderStream([], {
@@ -975,7 +1174,7 @@ Run browser commands.`
           })
         );
 
-      const started: Array<{ kind: string; detail?: string }> = [];
+      const started: Array<Record<string, unknown>> = [];
       const completed: Array<{ handle?: string; resultSummary?: string }> = [];
       const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
@@ -990,17 +1189,30 @@ Run browser commands.`
         onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
       });
 
-      expect(updateMemoryRecord).toHaveBeenCalledWith(
-        "mem_test",
-        { content: "Updated fact" },
-        undefined
-      );
-      expect(started).toEqual([expect.objectContaining({ kind: "update_memory", detail: "Updated fact" })]);
-      expect(completed).toEqual([{ handle: "act_mem", resultSummary: "Was: Old fact" }]);
+      expect(updateMemoryRecord).not.toHaveBeenCalled();
+      expect(started).toEqual([expect.objectContaining({
+        kind: "update_memory",
+        status: "pending",
+        proposalState: "pending",
+        proposalPayload: {
+          operation: "update",
+          targetMemoryId: "mem_test",
+          currentMemory: {
+            id: "mem_test",
+            content: "Old fact",
+            category: "personal"
+          },
+          proposedMemory: {
+            content: "Updated fact",
+            category: "personal"
+          }
+        }
+      })]);
+      expect(completed).toEqual([]);
       expect(result.answer).toBe("Updated");
     });
 
-    it("executes delete_memory tool call", async () => {
+    it("proposes delete_memory tool calls instead of writing immediately", async () => {
       getMemoryRecord.mockReturnValue({ id: "mem_test", content: "Outdated fact", category: "other" as const, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
       streamProviderResponse
         .mockReturnValueOnce(
@@ -1017,7 +1229,7 @@ Run browser commands.`
           })
         );
 
-      const started: Array<{ kind: string; detail?: string }> = [];
+      const started: Array<Record<string, unknown>> = [];
       const completed: Array<{ handle?: string; resultSummary?: string }> = [];
       const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
@@ -1032,9 +1244,22 @@ Run browser commands.`
         onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
       });
 
-      expect(deleteMemoryRecord).toHaveBeenCalledWith("mem_test", undefined);
-      expect(started).toEqual([expect.objectContaining({ kind: "delete_memory", detail: "Outdated fact" })]);
-      expect(completed).toEqual([{ handle: "act_mem", resultSummary: "Deleted" }]);
+      expect(deleteMemoryRecord).not.toHaveBeenCalled();
+      expect(started).toEqual([expect.objectContaining({
+        kind: "delete_memory",
+        status: "pending",
+        proposalState: "pending",
+        proposalPayload: {
+          operation: "delete",
+          targetMemoryId: "mem_test",
+          currentMemory: {
+            id: "mem_test",
+            content: "Outdated fact",
+            category: "other"
+          }
+        }
+      })]);
+      expect(completed).toEqual([]);
       expect(result.answer).toBe("Deleted");
     });
 

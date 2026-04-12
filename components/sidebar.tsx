@@ -1188,6 +1188,8 @@ export function Sidebar({
               {!showNewFolder && (
                 <button
                   onClick={() => setShowNewFolder(true)}
+                  aria-label="New folder"
+                  title="New folder"
                   className="p-1 text-white/20 hover:text-white/50 transition-colors"
                 >
                   <Plus className="h-3.5 w-3.5" />

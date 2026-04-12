@@ -21,6 +21,7 @@ import type { AppSettings } from "@/lib/types";
 import type {
   ChatStreamEvent,
   Conversation,
+  MemoryCategory,
   Message,
   MessageAction,
   MessageAttachment,
@@ -238,6 +239,32 @@ function adoptStreamingSnapshotState(timeline: MessageTimelineItem[] | undefined
   };
 }
 
+function replaceMessageAction(
+  messages: Message[],
+  nextAction: MessageAction
+) {
+  return messages.map((message) => {
+    const nextActions = message.actions?.map((action) =>
+      action.id === nextAction.id ? nextAction : action
+    );
+    const nextTimeline = message.timeline?.map((item) =>
+      item.timelineKind === "action" && item.id === nextAction.id
+        ? { ...nextAction, timelineKind: "action" as const }
+        : item
+    );
+
+    if (nextActions === message.actions && nextTimeline === message.timeline) {
+      return message;
+    }
+
+    return {
+      ...message,
+      ...(nextActions ? { actions: nextActions } : {}),
+      ...(nextTimeline ? { timeline: nextTimeline } : {})
+    };
+  });
+}
+
 export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
   const { getTokenUsage, setTokenUsage } = useContextTokens();
@@ -333,6 +360,19 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const submitRef = useRef<
     (nextInput?: string, nextPendingAttachments?: MessageAttachment[], nextPersonaId?: string) => Promise<void>
   >(async () => {});
+
+  function updateStreamTimeline(
+    nextTimeline:
+      | MessageTimelineItem[]
+      | ((previous: MessageTimelineItem[]) => MessageTimelineItem[])
+  ) {
+    const resolvedTimeline =
+      typeof nextTimeline === "function"
+        ? nextTimeline(streamTimelineRef.current)
+        : nextTimeline;
+    streamTimelineRef.current = resolvedTimeline;
+    setStreamTimeline(resolvedTimeline);
+  }
 
   useEffect(() => {
     setMessages(sanitizeMessages(payload.messages));
@@ -517,7 +557,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "action_start") {
       clearCompactionIndicator();
-      setStreamTimeline((prev) => {
+      updateStreamTimeline((prev) => {
         const isExisting = prev.some((item) => item.timelineKind === "action" && item.id === event.action.id);
         if (isExisting) {
           return appendStreamingAction(prev, event.action);
@@ -546,7 +586,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "action_complete" || event.type === "action_error") {
       clearCompactionIndicator();
-      setStreamTimeline((prev) => updateStreamingAction(prev, event.action));
+      updateStreamTimeline((prev) => updateStreamingAction(prev, event.action));
     }
 
     if (event.type === "done") {
@@ -575,7 +615,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         )
       );
       setStreamMessageId(null);
-      setStreamTimeline([]);
+      updateStreamTimeline([]);
       setStreamAnswerTarget("");
       setStreamAnswerDisplay("");
       setStreamThinkingTarget("");
@@ -600,7 +640,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       );
       setError(event.message);
       setStreamMessageId(null);
-      setStreamTimeline([]);
+      updateStreamTimeline([]);
       setIsSending(false);
     }
   }
@@ -632,7 +672,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
             if (activeSnapshotMessage && activeSnapshotMessage.status !== "streaming") {
               setStreamMessageId(null);
-              setStreamTimeline([]);
+              updateStreamTimeline([]);
               setStreamAnswerTarget("");
               setStreamAnswerDisplay("");
               setStreamThinkingTarget("");
@@ -656,7 +696,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               setStreamAnswerDisplay(answerFromTimeline);
               setStreamThinkingTarget(streamingMsg.thinkingContent ?? "");
               setStreamThinkingDisplay(streamingMsg.thinkingContent ?? "");
-              setStreamTimeline(adoptedStream.timeline);
+              updateStreamTimeline(adoptedStream.timeline);
               setHasReceivedFirstToken(Boolean(answerFromTimeline || streamingMsg.thinkingContent));
               setIsSending(true);
             }
@@ -687,7 +727,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           });
           setError(msg.message);
           setStreamMessageId(null);
-          setStreamTimeline([]);
+          updateStreamTimeline([]);
           setIsSending(false);
           break;
         case "delta":
@@ -910,7 +950,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
         if (!result.conversation.isActive || (activeMessage && activeMessage.status !== "streaming")) {
           setStreamMessageId(null);
-          setStreamTimeline([]);
+          updateStreamTimeline([]);
           setStreamAnswerTarget("");
           setStreamAnswerDisplay("");
           setStreamThinkingTarget("");
@@ -1166,6 +1206,73 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  async function approveMemoryProposal(
+    actionId: string,
+    overrides?: { content?: string; category?: MemoryCategory }
+  ) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/message-actions/${actionId}/approve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(overrides ?? {})
+      });
+
+      const result = (await response.json()) as {
+        action?: MessageAction;
+        error?: string;
+      };
+
+      if (!response.ok || !result.action) {
+        throw new Error(result.error ?? "Unable to approve memory proposal");
+      }
+
+      setMessages((current) => replaceMessageAction(current, result.action!));
+    } catch (caughtError) {
+      const errorMessage =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to approve memory proposal";
+      setError(errorMessage);
+      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    }
+  }
+
+  async function dismissMemoryProposal(actionId: string) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/message-actions/${actionId}/dismiss`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({})
+      });
+
+      const result = (await response.json()) as {
+        action?: MessageAction;
+        error?: string;
+      };
+
+      if (!response.ok || !result.action) {
+        throw new Error(result.error ?? "Unable to dismiss memory proposal");
+      }
+
+      setMessages((current) => replaceMessageAction(current, result.action!));
+    } catch (caughtError) {
+      const errorMessage =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to dismiss memory proposal";
+      setError(errorMessage);
+      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    }
+  }
+
   async function updateProviderProfile(nextProviderProfileId: string) {
     const previousProviderProfileId = providerProfileId;
     setError("");
@@ -1235,7 +1342,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     streamAnswerTargetRef.current = "";
     streamThinkingTargetRef.current = "";
     setStreamMessageId(null);
-    setStreamTimeline([]);
+    updateStreamTimeline([]);
     setHasReceivedFirstToken(false);
     thinkingStartTimeRef.current = null;
     setThinkingDuration(undefined);
@@ -1391,6 +1498,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 thinkingDuration={message.id === streamMessageId ? thinkingDuration : undefined}
                 hasThinking={message.id === streamMessageId ? Boolean(streamThinkingTarget) : false}
                 onUpdateUserMessage={updateUserMessage}
+                onApproveMemoryProposal={approveMemoryProposal}
+                onDismissMemoryProposal={dismissMemoryProposal}
                 isUpdating={updatingMessageId === message.id}
                 onForkAssistantMessage={forkAssistantMessage}
                 isForking={forkingMessageId === message.id}
