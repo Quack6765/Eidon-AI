@@ -13,6 +13,9 @@ function makeAction(overrides: Partial<MessageAction> & Pick<MessageAction, "id"
     startedAt: "2026-04-10T10:00:00.000Z",
     completedAt: "2026-04-10T10:00:01.000Z",
     arguments: { command: "npm run test -- --verbose" },
+    proposalState: null,
+    proposalPayload: null,
+    proposalUpdatedAt: null,
     ...overrides
   };
 }

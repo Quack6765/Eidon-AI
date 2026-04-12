@@ -596,6 +596,7 @@ export function MessageBubble({
     timelineKind: "action" as const
   }));
   const assistantBlocks: MessageTimelineItem[] = [];
+  const deferredMemoryProposalBlocks: Extract<MessageTimelineItem, { timelineKind: "action" }>[] = [];
   let bufferedText = "";
 
   function appendBufferedText() {
@@ -631,6 +632,11 @@ export function MessageBubble({
 
   timeline.forEach((item) => {
     if (item.timelineKind === "action") {
+      if (isMemoryProposalAction(item)) {
+        deferredMemoryProposalBlocks.push(item);
+        return;
+      }
+
       appendBufferedText();
       const previousBlock = assistantBlocks[assistantBlocks.length - 1];
 
@@ -667,6 +673,15 @@ export function MessageBubble({
       createdAt: message.createdAt,
       content: rawContent.slice(consumedText.length)
     });
+  }
+
+  if (deferredMemoryProposalBlocks.length) {
+    assistantBlocks.push(
+      ...deferredMemoryProposalBlocks.map((item, index) => ({
+        ...item,
+        sortOrder: assistantBlocks.length + index
+      }))
+    );
   }
 
   const assistantText = assistantBlocks

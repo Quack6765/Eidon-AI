@@ -4,7 +4,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
-import type { Message } from "@/lib/types";
+import type { Message, MessageAction, MessageTimelineItem } from "@/lib/types";
 
 function createAssistantMessage(): Message {
   return {
@@ -39,7 +39,7 @@ function createUserMessage(): Message {
 }
 
 function createMemoryProposalAction(
-  overrides: Partial<NonNullable<Message["timeline"]>[number]> = {}
+  overrides: Partial<Extract<MessageTimelineItem, { timelineKind: "action" }>> = {}
 ) {
   return {
     id: "act_memory",
@@ -74,9 +74,30 @@ function createMemoryProposalAction(
   };
 }
 
+function createToolAction(
+  overrides: Partial<MessageAction> &
+    Pick<MessageAction, "id" | "messageId" | "label" | "detail" | "resultSummary">
+): MessageAction {
+  return {
+    kind: "mcp_tool_call",
+    status: "completed",
+    serverId: null,
+    skillId: null,
+    toolName: "search_docs",
+    arguments: { query: "MCP" },
+    sortOrder: 0,
+    startedAt: new Date().toISOString(),
+    completedAt: new Date().toISOString(),
+    proposalState: null,
+    proposalPayload: null,
+    proposalUpdatedAt: null,
+    ...overrides
+  };
+}
+
 function createMemoryProposalMessage(
   overrides: Partial<Message> = {},
-  actionOverrides: Partial<NonNullable<Message["timeline"]>[number]> = {}
+  actionOverrides: Partial<Extract<MessageTimelineItem, { timelineKind: "action" }>> = {}
 ): Message {
   return {
     ...createAssistantMessage(),
@@ -97,21 +118,18 @@ describe("message bubble", () => {
         thinkingInProgress: false,
         timeline: [
           {
-            id: "act_running",
-            messageId: "msg_assistant",
+            ...createToolAction({
+              id: "act_running",
+              messageId: "msg_assistant",
+              label: "Search docs",
+              detail: "query=MCP",
+              resultSummary: "",
+              status: "running",
+              serverId: "mcp_docs",
+              toolName: "search_docs",
+              completedAt: null
+            }),
             timelineKind: "action",
-            kind: "mcp_tool_call",
-            status: "running",
-            serverId: "mcp_docs",
-            skillId: null,
-            toolName: "search_docs",
-            label: "Search docs",
-            detail: "query=MCP",
-            arguments: { query: "MCP" },
-            resultSummary: "",
-            sortOrder: 0,
-            startedAt: new Date().toISOString(),
-            completedAt: null
           }
         ]
       })
@@ -128,22 +146,15 @@ describe("message bubble", () => {
         message: {
           ...createAssistantMessage(),
           actions: [
-            {
+            createToolAction({
               id: "act_done",
               messageId: "msg_assistant",
-              kind: "mcp_tool_call",
-              status: "completed",
               serverId: "mcp_docs",
-              skillId: null,
               toolName: "search_docs",
               label: "Search docs",
               detail: "query=MCP",
-              arguments: { query: "MCP" },
-              resultSummary: "Found MCP documentation",
-              sortOrder: 0,
-              startedAt: new Date().toISOString(),
-              completedAt: new Date().toISOString()
-            }
+              resultSummary: "Found MCP documentation"
+            })
           ]
         }
       })
@@ -373,22 +384,15 @@ describe("message bubble", () => {
           ...createAssistantMessage(),
           thinkingContent: "Reasoning summary",
           actions: [
-            {
+            createToolAction({
               id: "act_done",
               messageId: "msg_assistant",
-              kind: "mcp_tool_call",
-              status: "completed",
               serverId: "mcp_docs",
-              skillId: null,
               toolName: "search_docs",
               label: "Search docs",
               detail: "query=MCP",
-              arguments: { query: "MCP" },
-              resultSummary: "Found MCP documentation",
-              sortOrder: 0,
-              startedAt: new Date().toISOString(),
-              completedAt: new Date().toISOString()
-            }
+              resultSummary: "Found MCP documentation"
+            })
           ]
         }
       })
@@ -417,21 +421,17 @@ describe("message bubble", () => {
               content: "First segment"
             },
             {
-              id: "act_done",
-              messageId: "msg_assistant",
+              ...createToolAction({
+                id: "act_done",
+                messageId: "msg_assistant",
+                serverId: "mcp_docs",
+                toolName: "search_docs",
+                label: "Search docs",
+                detail: "query=MCP",
+                resultSummary: "Found MCP documentation",
+                sortOrder: 1
+              }),
               timelineKind: "action",
-              kind: "mcp_tool_call",
-              status: "completed",
-              serverId: "mcp_docs",
-              skillId: null,
-              toolName: "search_docs",
-              label: "Search docs",
-              detail: "query=MCP",
-              arguments: { query: "MCP" },
-              resultSummary: "Found MCP documentation",
-              sortOrder: 1,
-              startedAt: new Date().toISOString(),
-              completedAt: new Date().toISOString()
             },
             {
               id: "txt_2",
@@ -485,6 +485,50 @@ describe("message bubble", () => {
     expect(bubbles[0]?.textContent).toContain("Hello there");
   });
 
+  it("renders memory proposal cards after the full assistant answer", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Got it, Charles. I'll remember that you prefer Celsius over Fahrenheit.",
+          timeline: [
+            {
+              id: "txt_before_memory",
+              timelineKind: "text",
+              sortOrder: 0,
+              createdAt: new Date().toISOString(),
+              content: "Got it, Charles. "
+            },
+            createMemoryProposalAction(),
+            {
+              id: "txt_after_memory",
+              timelineKind: "text",
+              sortOrder: 2,
+              createdAt: new Date().toISOString(),
+              content: "I'll remember that you prefer Celsius over Fahrenheit."
+            }
+          ]
+        }
+      })
+    );
+
+    const blocks = Array.from(
+      container.querySelectorAll(
+        '[data-testid="assistant-message-bubble"], [data-testid="assistant-actions-shell"]'
+      )
+    );
+    const bubbles = container.querySelectorAll('[data-testid="assistant-message-bubble"]');
+
+    expect(bubbles).toHaveLength(1);
+    expect(bubbles[0]?.textContent).toContain(
+      "Got it, Charles. I'll remember that you prefer Celsius over Fahrenheit."
+    );
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]?.getAttribute("data-testid")).toBe("assistant-message-bubble");
+    expect(blocks[1]?.getAttribute("data-testid")).toBe("assistant-actions-shell");
+    expect(blocks[1]?.textContent).toContain("Save memory");
+  });
+
   it("collapses consecutive retries of the same tool into a single visible action row", () => {
     render(
       React.createElement(MessageBubble, {
@@ -493,38 +537,30 @@ describe("message bubble", () => {
           content: "Done",
           timeline: [
             {
-              id: "act_error",
-              messageId: "msg_assistant",
+              ...createToolAction({
+                id: "act_error",
+                messageId: "msg_assistant",
+                serverId: "mcp_exa",
+                toolName: "web_search_exa",
+                label: "web_search_exa",
+                detail: "query=weather",
+                resultSummary: "validation failed",
+                status: "error"
+              }),
               timelineKind: "action",
-              kind: "mcp_tool_call",
-              status: "error",
-              serverId: "mcp_exa",
-              skillId: null,
-              toolName: "web_search_exa",
-              label: "web_search_exa",
-              detail: "query=weather",
-              arguments: { query: "weather" },
-              resultSummary: "validation failed",
-              sortOrder: 0,
-              startedAt: new Date().toISOString(),
-              completedAt: new Date().toISOString()
             },
             {
-              id: "act_done",
-              messageId: "msg_assistant",
+              ...createToolAction({
+                id: "act_done",
+                messageId: "msg_assistant",
+                serverId: "mcp_exa",
+                toolName: "web_search_exa",
+                label: "web_search_exa",
+                detail: "query=weather",
+                resultSummary: "Found weather",
+                sortOrder: 1
+              }),
               timelineKind: "action",
-              kind: "mcp_tool_call",
-              status: "completed",
-              serverId: "mcp_exa",
-              skillId: null,
-              toolName: "web_search_exa",
-              label: "web_search_exa",
-              detail: "query=weather",
-              arguments: { query: "weather" },
-              resultSummary: "Found weather",
-              sortOrder: 1,
-              startedAt: new Date().toISOString(),
-              completedAt: new Date().toISOString()
             }
           ]
         }
@@ -908,21 +944,16 @@ describe("message bubble", () => {
         thinkingInProgress: false,
         timeline: [
           {
-            id: "act_done",
-            messageId: "msg_streaming",
+            ...createToolAction({
+              id: "act_done",
+              messageId: "msg_streaming",
+              serverId: "mcp_exa",
+              toolName: "web_search_exa",
+              label: "Web search",
+              detail: "query=test",
+              resultSummary: "Found results"
+            }),
             timelineKind: "action",
-            kind: "mcp_tool_call",
-            status: "completed",
-            serverId: "mcp_exa",
-            skillId: null,
-            toolName: "web_search_exa",
-            label: "Web search",
-            detail: "query=test",
-            arguments: { query: "test" },
-            resultSummary: "Found results",
-            sortOrder: 0,
-            startedAt: new Date().toISOString(),
-            completedAt: new Date().toISOString()
           }
         ]
       })

@@ -409,7 +409,10 @@ export async function* streamProviderResponse(input: {
             resultSummary: "",
             sortOrder: 0,
             startedAt: event.timestamp ?? new Date().toISOString(),
-            completedAt: null
+            completedAt: null,
+            proposalState: null,
+            proposalPayload: null,
+            proposalUpdatedAt: null
           };
           liveCopilotActions.set(toolData.toolCallId, action);
           enqueue({ event: { type: "action_start", action } });
@@ -444,7 +447,10 @@ export async function* streamProviderResponse(input: {
             resultSummary,
             sortOrder: existing?.sortOrder ?? 0,
             startedAt: existing?.startedAt ?? event.timestamp ?? new Date().toISOString(),
-            completedAt: event.timestamp ?? new Date().toISOString()
+            completedAt: event.timestamp ?? new Date().toISOString(),
+            proposalState: existing?.proposalState ?? null,
+            proposalPayload: existing?.proposalPayload ?? null,
+            proposalUpdatedAt: existing?.proposalUpdatedAt ?? null
           };
           liveCopilotActions.delete(toolData.toolCallId);
           enqueue({ event: { type: toolData.success ? "action_complete" : "action_error", action } });

@@ -60,6 +60,8 @@ type SuccessfulReadOnlyToolResult = {
 const SHELL_SKILL_INTENT_PATTERN =
   /\b(browser|website|web site|webpage|web page|url|link|click|navigate|navigation|screenshot|snapshot|inspect|form|login|dom)\b/i;
 const URLISH_PATTERN = /\b(?:https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,})(?:\/\S*)?/i;
+const MEMORY_INTENT_WITHOUT_TOOL_PATTERN =
+  /\b(?:let me|i(?:'ll| will| can| should|(?: am|'m) going to))\s+(?:save|remember|store|update|delete|remove)\b|\b(?:remember|save|store|update|delete|remove)\s+(?:that|this|it)\s+(?:for later|in memory|as memory)\b|\b(?:i(?:'ve| have)|we(?:'ve| have))\s+proposed\s+to\s+(?:add|save|store|update|delete|remove)\b.*\bmemory\b|\bit(?:'ll| will)\s+be\s+saved\s+once\s+you\s+approve\s+it\b/i;
 
 function mcpToolFunctionName(serverSlug: string, toolName: string) {
   return `mcp_${serverSlug}_${toolName}`;
@@ -343,6 +345,14 @@ function buildToolResultMessage(toolCallId: string, content: string): PromptMess
     toolCallId,
     content
   };
+}
+
+function isMemoryProposalToolCall(name: string) {
+  return name === "create_memory" || name === "update_memory" || name === "delete_memory";
+}
+
+function hasUnfulfilledMemoryIntent(answer: string) {
+  return MEMORY_INTENT_WITHOUT_TOOL_PATTERN.test(answer);
 }
 
 function buildShellResultForPrompt(input: { command: string; resultSummary: string; isError: boolean }) {
@@ -946,6 +956,14 @@ export async function resolveAssistantTurn(input: {
     assertRunning();
 
     if (!toolCalls.length) {
+      if ((input.memoriesEnabled ?? false) && hasUnfulfilledMemoryIntent(answer)) {
+        promptMessages = mergeSystemMessage(
+          promptMessages,
+          "Do not say that you saved, stored, remembered, updated, or deleted a memory unless you actually call the corresponding memory tool in that same response. If a memory proposal is warranted, call the memory tool now. Otherwise, answer normally without mentioning memory-saving."
+        );
+        continue;
+      }
+
       if (!answer.trim() && step > 0) {
         promptMessages = mergeSystemMessage(promptMessages, "Your previous response was empty after using tools. Answer the user directly. Do not emit an empty response.");
         continue;
@@ -985,6 +1003,10 @@ export async function resolveAssistantTurn(input: {
 
       timelineSortOrder = result.nextSortOrder;
       promptMessages = result.promptMessages;
+    }
+
+    if (answer.trim() && toolCalls.every((toolCall) => isMemoryProposalToolCall(toolCall.name))) {
+      return { answer, thinking, usage: totalUsage };
     }
   }
 

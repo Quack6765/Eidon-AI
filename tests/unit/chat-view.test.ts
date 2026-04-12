@@ -6,7 +6,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { ChatView } from "@/components/chat-view";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
 import type { SpeechSessionSnapshot, SttEngine, SttLanguage } from "@/lib/speech/types";
-import type { Message, MessageAttachment } from "@/lib/types";
+import type { Message, MessageAttachment, MessageTimelineItem } from "@/lib/types";
 
 const push = vi.fn();
 const refresh = vi.fn();
@@ -242,7 +242,7 @@ function createMessage(overrides: Partial<Message> = {}): Message {
 
 function createMemoryProposalMessage(
   overrides: Partial<Message> = {},
-  actionOverrides: Partial<NonNullable<Message["timeline"]>[number]> = {}
+  actionOverrides: Partial<Extract<MessageTimelineItem, { timelineKind: "action" }>> = {}
 ): Message {
   return {
     id: "msg_assistant_memory",
@@ -1307,7 +1307,10 @@ describe("chat view", () => {
           resultSummary: "",
           sortOrder: 0,
           startedAt: new Date().toISOString(),
-          completedAt: null
+          completedAt: null,
+          proposalState: null,
+          proposalPayload: null,
+          proposalUpdatedAt: null
         }
       }
     });
@@ -1381,7 +1384,10 @@ describe("chat view", () => {
             resultSummary: "Found booking details",
             sortOrder: 0,
             startedAt: new Date().toISOString(),
-            completedAt: new Date().toISOString()
+            completedAt: new Date().toISOString(),
+            proposalState: null,
+            proposalPayload: null,
+            proposalUpdatedAt: null
           }
         }
       });
@@ -1421,7 +1427,10 @@ describe("chat view", () => {
                   resultSummary: "Found booking details",
                   sortOrder: 0,
                   startedAt: new Date().toISOString(),
-                  completedAt: new Date().toISOString()
+                  completedAt: new Date().toISOString(),
+                  proposalState: null,
+                  proposalPayload: null,
+                  proposalUpdatedAt: null
                 }
               ]
             }
@@ -1605,6 +1614,72 @@ describe("chat view", () => {
     });
   });
 
+  it("keeps a pending memory proposal visible when action_start and done arrive back to back", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const actionStartedAt = new Date().toISOString();
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Nice, DevOps is a solid background." }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "action_start",
+          action: {
+            id: "act_memory_live",
+            messageId: "msg_assistant",
+            kind: "create_memory",
+            status: "pending",
+            serverId: null,
+            skillId: null,
+            toolName: "create_memory",
+            label: "Create memory proposal",
+            detail: "User works as a DevOps Engineer",
+            arguments: {
+              content: "User works as a DevOps Engineer",
+              category: "work"
+            },
+            resultSummary: "",
+            sortOrder: 0,
+            startedAt: actionStartedAt,
+            completedAt: null,
+            proposalState: "pending",
+            proposalPayload: {
+              operation: "create",
+              targetMemoryId: null,
+              proposedMemory: {
+                content: "User works as a DevOps Engineer",
+                category: "work"
+              }
+            },
+            proposalUpdatedAt: actionStartedAt
+          }
+        }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Save")).toBeInTheDocument();
+      expect(screen.getByText("Ignore")).toBeInTheDocument();
+      expect(screen.getByText("Edit")).toBeInTheDocument();
+    });
+  });
+
   it("dedupes repeated action_start events for the same action id", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
@@ -1633,7 +1708,10 @@ describe("chat view", () => {
       resultSummary: "",
       sortOrder: 0,
       startedAt: new Date().toISOString(),
-      completedAt: null
+      completedAt: null,
+      proposalState: null,
+      proposalPayload: null,
+      proposalUpdatedAt: null
     };
 
     wsMock.onMessage!({
@@ -1691,7 +1769,10 @@ describe("chat view", () => {
           resultSummary: "validation failed",
           sortOrder: 0,
           startedAt: new Date().toISOString(),
-          completedAt: new Date().toISOString()
+          completedAt: new Date().toISOString(),
+          proposalState: null,
+          proposalPayload: null,
+          proposalUpdatedAt: null
         }
       }
     });
@@ -1714,7 +1795,10 @@ describe("chat view", () => {
           resultSummary: "",
           sortOrder: 1,
           startedAt: new Date().toISOString(),
-          completedAt: null
+          completedAt: null,
+          proposalState: null,
+          proposalPayload: null,
+          proposalUpdatedAt: null
         }
       }
     });

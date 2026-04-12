@@ -361,6 +361,19 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     (nextInput?: string, nextPendingAttachments?: MessageAttachment[], nextPersonaId?: string) => Promise<void>
   >(async () => {});
 
+  function updateStreamTimeline(
+    nextTimeline:
+      | MessageTimelineItem[]
+      | ((previous: MessageTimelineItem[]) => MessageTimelineItem[])
+  ) {
+    const resolvedTimeline =
+      typeof nextTimeline === "function"
+        ? nextTimeline(streamTimelineRef.current)
+        : nextTimeline;
+    streamTimelineRef.current = resolvedTimeline;
+    setStreamTimeline(resolvedTimeline);
+  }
+
   useEffect(() => {
     setMessages(sanitizeMessages(payload.messages));
   }, [payload.messages]);
@@ -544,7 +557,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "action_start") {
       clearCompactionIndicator();
-      setStreamTimeline((prev) => {
+      updateStreamTimeline((prev) => {
         const isExisting = prev.some((item) => item.timelineKind === "action" && item.id === event.action.id);
         if (isExisting) {
           return appendStreamingAction(prev, event.action);
@@ -573,7 +586,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "action_complete" || event.type === "action_error") {
       clearCompactionIndicator();
-      setStreamTimeline((prev) => updateStreamingAction(prev, event.action));
+      updateStreamTimeline((prev) => updateStreamingAction(prev, event.action));
     }
 
     if (event.type === "done") {
@@ -602,7 +615,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         )
       );
       setStreamMessageId(null);
-      setStreamTimeline([]);
+      updateStreamTimeline([]);
       setStreamAnswerTarget("");
       setStreamAnswerDisplay("");
       setStreamThinkingTarget("");
@@ -627,7 +640,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       );
       setError(event.message);
       setStreamMessageId(null);
-      setStreamTimeline([]);
+      updateStreamTimeline([]);
       setIsSending(false);
     }
   }
@@ -659,7 +672,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
             if (activeSnapshotMessage && activeSnapshotMessage.status !== "streaming") {
               setStreamMessageId(null);
-              setStreamTimeline([]);
+              updateStreamTimeline([]);
               setStreamAnswerTarget("");
               setStreamAnswerDisplay("");
               setStreamThinkingTarget("");
@@ -683,7 +696,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               setStreamAnswerDisplay(answerFromTimeline);
               setStreamThinkingTarget(streamingMsg.thinkingContent ?? "");
               setStreamThinkingDisplay(streamingMsg.thinkingContent ?? "");
-              setStreamTimeline(adoptedStream.timeline);
+              updateStreamTimeline(adoptedStream.timeline);
               setHasReceivedFirstToken(Boolean(answerFromTimeline || streamingMsg.thinkingContent));
               setIsSending(true);
             }
@@ -714,7 +727,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           });
           setError(msg.message);
           setStreamMessageId(null);
-          setStreamTimeline([]);
+          updateStreamTimeline([]);
           setIsSending(false);
           break;
         case "delta":
@@ -937,7 +950,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
         if (!result.conversation.isActive || (activeMessage && activeMessage.status !== "streaming")) {
           setStreamMessageId(null);
-          setStreamTimeline([]);
+          updateStreamTimeline([]);
           setStreamAnswerTarget("");
           setStreamAnswerDisplay("");
           setStreamThinkingTarget("");
@@ -1329,7 +1342,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     streamAnswerTargetRef.current = "";
     streamThinkingTargetRef.current = "";
     setStreamMessageId(null);
-    setStreamTimeline([]);
+    updateStreamTimeline([]);
     setHasReceivedFirstToken(false);
     thinkingStartTimeRef.current = null;
     setThinkingDuration(undefined);
