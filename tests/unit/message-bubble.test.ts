@@ -507,6 +507,72 @@ describe("message bubble", () => {
     });
   });
 
+  it("renders a fork action for completed assistant messages", () => {
+    render(
+      React.createElement(MessageBubble as React.ComponentType<any>, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Ready to fork"
+        },
+        onForkAssistantMessage: vi.fn()
+      })
+    );
+
+    expect(screen.getByRole("button", { name: "Copy message" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Fork conversation from message" })
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the copy action visible for non-completed assistant messages while hiding fork", () => {
+    render(
+      React.createElement(MessageBubble as React.ComponentType<any>, {
+        message: {
+          ...createAssistantMessage(),
+          status: "streaming",
+          content: "Still composing"
+        },
+        onForkAssistantMessage: vi.fn()
+      })
+    );
+
+    expect(screen.getByRole("button", { name: "Copy message" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Fork conversation from message" })
+    ).toBeNull();
+  });
+
+  it("does not render a fork action for user messages", () => {
+    render(
+      React.createElement(MessageBubble as React.ComponentType<any>, {
+        message: createUserMessage(),
+        onForkAssistantMessage: vi.fn()
+      })
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Fork conversation from message" })
+    ).toBeNull();
+  });
+
+  it("does not render a fork action for streaming placeholders", () => {
+    render(
+      React.createElement(StreamingPlaceholder, {
+        createdAt: new Date().toISOString(),
+        thinking: "",
+        answer: "Still streaming",
+        awaitingFirstToken: false,
+        thinkingInProgress: false,
+        timeline: [],
+        onForkAssistantMessage: vi.fn()
+      } as any)
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "Fork conversation from message" })
+    ).toBeNull();
+  });
+
   it("allows editing user messages through the inline controls", async () => {
     const onUpdateUserMessage = vi.fn().mockResolvedValue(undefined);
 

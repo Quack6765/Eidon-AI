@@ -380,6 +380,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const streamMessageIdRef = useRef<string | null>(null);
   const streamTimelineRef = useRef<MessageTimelineItem[]>([]);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
+  const [forkingMessageId, setForkingMessageId] = useState<string | null>(null);
   const titlePollTimeoutRef = useRef<number | null>(null);
   const titlePollAttemptsRef = useRef(0);
   const messageSyncTimeoutRef = useRef<number | null>(null);
@@ -1331,6 +1332,51 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  async function forkAssistantMessage(messageId: string) {
+    if (forkingMessageId) {
+      return;
+    }
+
+    setError("");
+    setForkingMessageId(messageId);
+
+    try {
+      const response = await fetch(`/api/messages/${messageId}/fork`, {
+        method: "POST"
+      });
+
+      if (!response.ok) {
+        let message = "Unable to fork conversation";
+
+        try {
+          const failure = (await response.json()) as { error?: string };
+          message = failure.error ?? message;
+        } catch {}
+
+        throw new Error(message);
+      }
+
+      const result = (await response.json()) as {
+        conversation?: {
+          id?: string;
+        };
+      };
+      const nextConversationId = result.conversation?.id;
+
+      if (!nextConversationId) {
+        throw new Error("Unable to fork conversation");
+      }
+
+      router.push(`/chat/${nextConversationId}`);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : "Unable to fork conversation"
+      );
+    } finally {
+      setForkingMessageId((current) => (current === messageId ? null : current));
+    }
+  }
+
   async function updateProviderProfile(nextProviderProfileId: string) {
     const previousProviderProfileId = providerProfileId;
     setError("");
@@ -1557,6 +1603,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 hasThinking={message.id === streamMessageId ? Boolean(streamThinkingTarget) : false}
                 onUpdateUserMessage={updateUserMessage}
                 isUpdating={updatingMessageId === message.id}
+                onForkAssistantMessage={forkAssistantMessage}
+                isForking={forkingMessageId === message.id}
               />
             </div>
           ))}
