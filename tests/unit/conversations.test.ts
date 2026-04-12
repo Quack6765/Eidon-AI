@@ -209,6 +209,47 @@ describe("conversation helpers", () => {
     expect(getConversation(conversation.id)?.titleGenerationStatus).toBe("pending");
   });
 
+  it("sorts a newly forked conversation above its source in the sidebar", () => {
+    const db = getDb();
+    const sourceConversation = createConversation("Source thread");
+    const userMessage = createMessage({
+      conversationId: sourceConversation.id,
+      role: "user",
+      content: "Explore approach A"
+    });
+    const branchAssistantMessage = createMessage({
+      conversationId: sourceConversation.id,
+      role: "assistant",
+      content: "Approach A details"
+    });
+    createMessage({
+      conversationId: sourceConversation.id,
+      role: "assistant",
+      content: "Later continuation"
+    });
+
+    db.prepare("UPDATE messages SET created_at = ? WHERE id = ?").run(
+      "2026-04-11T10:00:00.000Z",
+      userMessage.id
+    );
+    db.prepare("UPDATE messages SET created_at = ? WHERE id = ?").run(
+      "2026-04-11T10:01:00.000Z",
+      branchAssistantMessage.id
+    );
+    db.prepare(
+      "UPDATE messages SET created_at = ? WHERE conversation_id = ? AND content = ?"
+    ).run("2026-04-11T10:02:00.000Z", sourceConversation.id, "Later continuation");
+    db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(
+      "2026-04-11T10:02:00.000Z",
+      sourceConversation.id
+    );
+
+    const forkConversation = forkConversationFromMessage(branchAssistantMessage.id);
+    const conversationIds = listConversationsPage().conversations.map((conversation) => conversation.id);
+
+    expect(conversationIds.slice(0, 2)).toEqual([forkConversation.id, sourceConversation.id]);
+  });
+
   it("retrieves messages only for the requested user", async () => {
     const userA = await createLocalUser({
       username: "message-owner-a",
@@ -841,8 +882,8 @@ describe("conversation helpers", () => {
     expect(forkConversation.id).not.toBe(sourceConversation.id);
     expect(forkConversation.folderId).toBe(sourceConversation.folderId);
     expect(forkConversation.providerProfileId).toBe(sourceConversation.providerProfileId);
-    expect(forkConversation.title).toBe("Conversation");
-    expect(forkConversation.titleGenerationStatus).toBe("pending");
+    expect(forkConversation.title).toBe("Fork Source thread");
+    expect(forkConversation.titleGenerationStatus).toBe("completed");
 
     const forkMessages = listMessages(forkConversation.id);
     const [forkUserMessage, forkAssistantMessage] = forkMessages;
@@ -1121,8 +1162,9 @@ describe("message fork routes", () => {
 
     expect(response.status).toBe(201);
 
-    const body = (await response.json()) as { conversation: { id: string } };
+    const body = (await response.json()) as { conversation: { id: string; title: string } };
     expect(body.conversation.id).toBeTruthy();
+    expect(body.conversation.title).toBe("Fork Forkable thread");
     expect(listVisibleMessages(body.conversation.id).map((message) => message.content)).toEqual([
       "Start here",
       "Selected answer"

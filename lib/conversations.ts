@@ -63,12 +63,12 @@ type ConversationCursor = {
 };
 
 function conversationActivityTimestampSql(alias: string) {
-  return `COALESCE((
+  return `MAX(COALESCE((
     SELECT MAX(m.created_at)
     FROM messages m
     WHERE m.conversation_id = ${alias}.id
       AND m.role != 'system'
-  ), ${alias}.updated_at)`;
+  ), ''), ${alias}.updated_at)`;
 }
 
 function nowIso() {
@@ -1036,7 +1036,7 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
     const retainedMessageIds = new Set(retainedMessages.map((message) => message.id));
 
     const forkConversation = createConversation(
-      undefined,
+      `Fork ${sourceConversation.title}`,
       sourceConversation.folderId,
       {
         providerProfileId: sourceConversation.providerProfileId ?? undefined
