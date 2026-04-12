@@ -35,6 +35,28 @@ describe("conversations extended", () => {
     expect(results2[0].folderId).toBeNull();
   });
 
+  it("moves conversations between folders only for the requested user", async () => {
+    const userA = await createLocalUser({
+      username: "conversation-folder-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "conversation-folder-b",
+      password: "Password123!",
+      role: "user"
+    });
+    const folderA = createFolder("Folder A", userA.id);
+    const ownedConversation = createConversation("Owned chat", null, undefined, userA.id);
+    const otherConversation = createConversation("Other chat", null, undefined, userB.id);
+
+    moveConversationToFolder(ownedConversation.id, folderA.id, userA.id);
+    moveConversationToFolder(otherConversation.id, folderA.id, userA.id);
+
+    expect(searchConversations("Owned chat", userA.id)[0]?.folderId).toBe(folderA.id);
+    expect(searchConversations("Other chat", userB.id)[0]?.folderId).toBeNull();
+  });
+
   it("reorders conversations", () => {
     const c1 = createConversation("C1");
     const c2 = createConversation("C2");
@@ -230,9 +252,14 @@ describe("conversations extended", () => {
     expect(() => listConversationsPage({ cursor: "invalid" })).toThrow();
   });
 
-  it("orders pagination by the latest visible message activity", () => {
-    const olderConversation = createConversation("Older");
-    const newerConversation = createConversation("Newer");
+  it("orders pagination by the latest conversation activity", async () => {
+    const user = await createLocalUser({
+      username: "conversation-pagination-owner",
+      password: "Password123!",
+      role: "user"
+    });
+    const olderConversation = createConversation("Older", null, undefined, user.id);
+    const newerConversation = createConversation("Newer", null, undefined, user.id);
 
     const olderMessage = createMessage({
       conversationId: olderConversation.id,
@@ -252,15 +279,19 @@ describe("conversations extended", () => {
       .prepare("UPDATE messages SET created_at = ? WHERE id = ?")
       .run("2026-03-31T12:00:00.000Z", newerMessage.id);
     getDb()
-      .prepare("UPDATE conversations SET updated_at = ? WHERE id IN (?, ?)")
-      .run("2026-04-01T00:00:00.000Z", olderConversation.id, newerConversation.id);
+      .prepare("UPDATE conversations SET updated_at = ? WHERE id = ?")
+      .run("2026-04-01T00:00:00.000Z", olderConversation.id);
+    getDb()
+      .prepare("UPDATE conversations SET updated_at = ? WHERE id = ?")
+      .run("2026-03-29T00:00:00.000Z", newerConversation.id);
 
-    const page = listConversationsPage({ limit: 2 });
+    const page = listConversationsPage({ limit: 2, userId: user.id });
 
     expect(page.conversations.map((conversation) => conversation.id)).toEqual([
-      newerConversation.id,
-      olderConversation.id
+      olderConversation.id,
+      newerConversation.id
     ]);
-    expect(page.conversations[0]?.updatedAt).toBe("2026-03-31T12:00:00.000Z");
+    expect(page.conversations[0]?.updatedAt).toBe("2026-04-01T00:00:00.000Z");
+    expect(page.conversations[1]?.updatedAt).toBe("2026-03-31T12:00:00.000Z");
   });
 });
