@@ -56,6 +56,7 @@ type ChatComposerProps = {
   speechError: string | null;
   onStartSpeech: () => void | Promise<void>;
   onStopSpeech: () => void | Promise<void>;
+  queueingEnabled?: boolean;
 };
 
 function CustomDropdown<T extends { id: string; name: string }>({
@@ -211,7 +212,8 @@ export function ChatComposer({
   speechLevel,
   speechError,
   onStartSpeech,
-  onStopSpeech
+  onStopSpeech,
+  queueingEnabled = false
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -220,14 +222,17 @@ export function ChatComposer({
     setMounted(true);
   }, []);
 
+  const hasTextDraft = input.trim().length > 0;
+  const canQueueDraft = queueingEnabled && hasTextDraft;
+  const canImmediateDraft = !queueingEnabled && (hasTextDraft || pendingAttachments.length > 0);
+  const showStopButton = canStop && !isUploadingAttachments && !canQueueDraft;
   const isSubmitDisabled =
     !mounted ||
-    isSending ||
     isUploadingAttachments ||
     speechPhase === "listening" ||
     speechPhase === "transcribing" ||
-    (!input.trim() && pendingAttachments.length === 0);
-  const showStopButton = canStop && !isUploadingAttachments;
+    (!showStopButton && !canQueueDraft && !canImmediateDraft) ||
+    (!queueingEnabled && isSending);
   const showContextUsage = hasMessages && usedTokens !== null;
   const isSpeechActive = speechPhase === "listening" || speechPhase === "transcribing";
   const speechLevelWidth = Math.max(8, Math.round(speechLevel * 100));
@@ -410,7 +415,7 @@ export function ChatComposer({
                   ? "bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)]"
                   : "bg-white/5 text-white/20"
             )}
-            aria-label={showStopButton ? "Stop response" : "Send message"}
+            aria-label={showStopButton ? "Stop response" : canQueueDraft ? "Queue follow-up" : "Send message"}
           >
             {showStopButton ? (
               <Square className="h-4 w-4 fill-current" />
