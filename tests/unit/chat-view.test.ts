@@ -2004,6 +2004,58 @@ describe("chat view", () => {
     });
   });
 
+  it("keeps the active stream running when a queued-message websocket error arrives", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await act(async () => {
+      wsMock.onMessage?.({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant_queued_error" }
+      });
+      wsMock.onMessage?.({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Still streaming" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      wsMock.onMessage?.({
+        type: "error",
+        message: "Queued message not found"
+      });
+    });
+
+    expect(screen.getByText("Queued message not found")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
+  });
+
+  it("keeps stop control available while drafting a queued follow-up during an active turn", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await act(async () => {
+      wsMock.onMessage?.({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant_draft_stop" }
+      });
+    });
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(textarea, { target: { value: "Queued while streaming" } });
+
+    expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Queue follow-up" })).toBeInTheDocument();
+  });
+
   it("updates token usage gauge when usage event arrives", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 

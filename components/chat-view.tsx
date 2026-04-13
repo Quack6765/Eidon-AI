@@ -268,6 +268,10 @@ function replaceMessageAction(
   });
 }
 
+function isQueuedMessageOperationError(message: string) {
+  return message === "Queued message not found";
+}
+
 export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
   const { getTokenUsage, setTokenUsage } = useContextTokens();
@@ -743,6 +747,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           setQueuedMessages((msg.queuedMessages as QueuedMessage[] | undefined) ?? []);
           break;
         case "error":
+          if (isQueuedMessageOperationError(msg.message)) {
+            setError(msg.message);
+            break;
+          }
+
           clearCompactionIndicator();
           setIsConversationActive(false);
           dispatchConversationActivityUpdated({

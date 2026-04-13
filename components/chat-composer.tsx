@@ -225,13 +225,14 @@ export function ChatComposer({
   const hasTextDraft = input.trim().length > 0;
   const canQueueDraft = queueingEnabled && hasTextDraft;
   const canImmediateDraft = !queueingEnabled && (hasTextDraft || pendingAttachments.length > 0);
-  const showStopButton = canStop && !isUploadingAttachments && !canQueueDraft;
+  const showStopButton = canStop && !isUploadingAttachments;
+  const showPrimaryStopButton = showStopButton && !canQueueDraft;
   const isSubmitDisabled =
     !mounted ||
     isUploadingAttachments ||
     speechPhase === "listening" ||
     speechPhase === "transcribing" ||
-    (!showStopButton && !canQueueDraft && !canImmediateDraft) ||
+    (!showPrimaryStopButton && !canQueueDraft && !canImmediateDraft) ||
     (!queueingEnabled && isSending);
   const showContextUsage = hasMessages && usedTokens !== null;
   const isSpeechActive = speechPhase === "listening" || speechPhase === "transcribing";
@@ -400,14 +401,31 @@ export function ChatComposer({
             )}
           </AnimatePresence>
 
+          {showStopButton && canQueueDraft ? (
+            <button
+              type="button"
+              onClick={() => void onStop()}
+              disabled={isStopPending}
+              className={cn(
+                "flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 shrink-0",
+                isStopPending
+                  ? "bg-white/5 text-white/20"
+                  : "bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+              )}
+              aria-label="Stop response"
+            >
+              <Square className="h-4 w-4 fill-current" />
+            </button>
+          ) : null}
+
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => void (showStopButton ? onStop() : onSubmit())}
-            disabled={showStopButton ? isStopPending : isSubmitDisabled}
+            onClick={() => void (showPrimaryStopButton ? onStop() : onSubmit())}
+            disabled={showPrimaryStopButton ? isStopPending : isSubmitDisabled}
             className={cn(
               "flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 shrink-0",
-              showStopButton
+              showPrimaryStopButton
                 ? isStopPending
                   ? "bg-white/5 text-white/20"
                   : "bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]"
@@ -415,9 +433,9 @@ export function ChatComposer({
                   ? "bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)]"
                   : "bg-white/5 text-white/20"
             )}
-            aria-label={showStopButton ? "Stop response" : canQueueDraft ? "Queue follow-up" : "Send message"}
+            aria-label={showPrimaryStopButton ? "Stop response" : canQueueDraft ? "Queue follow-up" : "Send message"}
           >
-            {showStopButton ? (
+            {showPrimaryStopButton ? (
               <Square className="h-4 w-4 fill-current" />
             ) : isSending || isUploadingAttachments ? (
               <LoaderCircle className="h-5 w-5 animate-spin" />
