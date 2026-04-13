@@ -1105,6 +1105,52 @@ export function deleteQueuedMessage({
   return result.changes > 0;
 }
 
+export function failQueuedMessage({
+  conversationId,
+  queuedMessageId,
+  failureMessage
+}: {
+  conversationId: string;
+  queuedMessageId: string;
+  failureMessage: string;
+}) {
+  const timestamp = nowIso();
+  const result = getDb()
+    .prepare(
+      `UPDATE queued_messages
+       SET status = 'failed',
+           failure_message = ?,
+           processing_started_at = NULL,
+           updated_at = ?
+       WHERE id = ?
+         AND conversation_id = ?
+         AND status = 'processing'`
+    )
+    .run(failureMessage, timestamp, queuedMessageId, conversationId);
+
+  return result.changes > 0;
+}
+
+export function markOrphanedQueuedMessagesFailed(
+  conversationId: string,
+  failureMessage = "Queued follow-up was abandoned before dispatch completed"
+) {
+  const timestamp = nowIso();
+  const result = getDb()
+    .prepare(
+      `UPDATE queued_messages
+       SET status = 'failed',
+           failure_message = ?,
+           processing_started_at = NULL,
+           updated_at = ?
+       WHERE conversation_id = ?
+         AND status = 'processing'`
+    )
+    .run(failureMessage, timestamp, conversationId);
+
+  return result.changes;
+}
+
 export function moveQueuedMessageToFront({
   conversationId,
   queuedMessageId

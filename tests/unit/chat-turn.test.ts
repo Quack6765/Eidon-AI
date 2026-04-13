@@ -360,4 +360,46 @@ describe("chat-turn", () => {
       })
     );
   });
+
+  it("ensures queued dispatch runs after the turn finalizes", async () => {
+    const ensureQueuedDispatch = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("@/lib/queued-chat-dispatcher", () => ({
+      ensureQueuedDispatch
+    }));
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Hi", []);
+
+    expect(ensureQueuedDispatch).toHaveBeenCalledWith({
+      manager,
+      conversationId: conv.id,
+      startChatTurn
+    });
+  });
 });

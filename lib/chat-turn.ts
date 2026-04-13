@@ -40,7 +40,11 @@ export type StartChatTurn = (
   conversationId: string,
   content: string,
   attachmentIds: string[],
-  personaId?: string
+  personaId?: string,
+  options?: {
+    source?: "live" | "queue";
+    onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
+  }
 ) => Promise<ChatTurnResult>;
 
 const globalEmitter = createEmitter<{
@@ -57,7 +61,11 @@ export async function startChatTurn(
   conversationId: string,
   content: string,
   attachmentIds: string[],
-  personaId?: string
+  personaId?: string,
+  options?: {
+    source?: "live" | "queue";
+    onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
+  }
 ) : Promise<ChatTurnResult> {
   const conversation = getConversation(conversationId);
   if (!conversation) {
@@ -112,6 +120,11 @@ export async function startChatTurn(
     thinkingContent: "",
     status: "streaming",
     estimatedTokens: 0
+  });
+
+  options?.onMessagesCreated?.({
+    userMessageId: userMessage.id,
+    assistantMessageId: assistantMessage.id
   });
 
   manager.broadcast(conversationId, {
@@ -373,5 +386,11 @@ export async function startChatTurn(
       conversationOwnerId ?? undefined
     );
     globalEmitter.emit("status", conversationId, "completed");
+    const { ensureQueuedDispatch } = await import("@/lib/queued-chat-dispatcher");
+    await ensureQueuedDispatch({
+      manager,
+      conversationId,
+      startChatTurn
+    });
   }
 }
