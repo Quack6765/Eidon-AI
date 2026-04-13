@@ -1178,6 +1178,115 @@ describe("chat view", () => {
     });
   });
 
+  it("keeps an optimistic user message visible when an unrelated server user message arrives first", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(textarea, { target: { value: "keep this attachment" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("keep this attachment")).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: [
+          createMessage({
+            id: "msg_other_user",
+            role: "user",
+            content: "server-side note"
+          })
+        ]
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("keep this attachment")).toBeInTheDocument();
+      expect(screen.getByText("server-side note")).toBeInTheDocument();
+    });
+  });
+
+  it("keeps the attachment preview open when a local message is replaced by the persisted server message", async () => {
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (input === "/api/personas") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ personas: [] })
+        } as Response);
+      }
+
+      if (input === "/api/attachments/att_text?format=text") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "att_text",
+            filename: "notes.txt",
+            mimeType: "text/plain",
+            content: "preview content"
+          })
+        } as Response);
+      }
+
+      return Promise.reject(new Error(`Unexpected fetch: ${String(input)}`));
+    });
+
+    const attachment = createAttachment({
+      id: "att_text",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      kind: "text",
+      extractedText: "preview content"
+    });
+    const localPayload = createPayload({
+      messages: [
+        createMessage({
+          id: "local_1",
+          role: "user",
+          content: "Keep these notes",
+          attachments: [attachment]
+        })
+      ]
+    });
+    const view = renderWithProvider(React.createElement(ChatView, { payload: localPayload }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview notes.txt" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Attachment preview" })).toBeInTheDocument();
+      expect(screen.getByText("preview content")).toBeInTheDocument();
+    });
+
+    const persistedPayload = createPayload({
+      messages: [
+        createMessage({
+          id: "msg_user",
+          role: "user",
+          content: "Keep these notes",
+          attachments: [attachment]
+        })
+      ]
+    });
+
+    view.rerender(
+      React.createElement(
+        ContextTokensProvider,
+        null,
+        React.createElement(ChatView, { payload: persistedPayload })
+      )
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Attachment preview" })).toBeInTheDocument();
+      expect(screen.getByText("preview content")).toBeInTheDocument();
+    });
+  });
+
   it("does not append duplicate assistant placeholders for the same stream message", async () => {
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 

@@ -8,7 +8,7 @@ import remarkGfm from "remark-gfm";
 
 import {
   AttachmentPreviewModal,
-  type AttachmentPreviewState
+  useAttachmentPreviewController
 } from "@/components/attachment-preview-modal";
 import { CompactionIndicator } from "@/components/compaction-indicator";
 import { Textarea } from "@/components/ui/textarea";
@@ -587,7 +587,8 @@ export function MessageBubble({
   onForkAssistantMessage,
   isForking = false,
   onApproveMemoryProposal,
-  onDismissMemoryProposal
+  onDismissMemoryProposal,
+  onPreviewAttachment
 }: {
   message: Message;
   streamingTimeline?: MessageTimelineItem[];
@@ -607,6 +608,7 @@ export function MessageBubble({
   isUpdating?: boolean;
   onForkAssistantMessage?: (messageId: string) => void;
   isForking?: boolean;
+  onPreviewAttachment?: (attachment: MessageAttachment) => void;
 }) {
   const rawContent = streamingAnswer ?? message.content;
   const rawThinking = streamingThinking ?? message.thinkingContent;
@@ -716,13 +718,7 @@ export function MessageBubble({
     .join("");
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
-  const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
-  const [previewState, setPreviewState] = useState<AttachmentPreviewState>({
-    kind: "unsupported"
-  });
-  const [textPreviewCache, setTextPreviewCache] = useState<Record<string, string>>({});
-  const previewRequestTokenRef = useRef(0);
-  const previewAttachmentIdRef = useRef<string | null>(null);
+  const previewController = useAttachmentPreviewController();
 
   function toggleToolItem(id: string) {
     setToolOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -757,13 +753,6 @@ export function MessageBubble({
       if (copyResetHandle.current) {
         window.clearTimeout(copyResetHandle.current);
       }
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      previewRequestTokenRef.current += 1;
-      previewAttachmentIdRef.current = null;
     };
   }, []);
 
@@ -820,92 +809,7 @@ export function MessageBubble({
     setIsEditing(false);
   }
 
-  function isCurrentPreviewRequest(requestToken: number, attachmentId: string) {
-    return (
-      previewRequestTokenRef.current === requestToken &&
-      previewAttachmentIdRef.current === attachmentId
-    );
-  }
-
-  async function openAttachmentPreview(attachment: MessageAttachment) {
-    const requestToken = previewRequestTokenRef.current + 1;
-    previewRequestTokenRef.current = requestToken;
-    previewAttachmentIdRef.current = attachment.id;
-    setPreviewAttachment(attachment);
-    setPreviewState({ kind: "loading" });
-
-    if (attachment.kind === "image") {
-      const image = new Image();
-      image.onload = () => {
-        if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
-          return;
-        }
-
-        setPreviewState({ kind: "image" });
-      };
-      image.onerror = () => {
-        if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
-          return;
-        }
-
-        setPreviewState({
-          kind: "error",
-          message: "Unable to load attachment preview."
-        });
-      };
-      image.src = `/api/attachments/${attachment.id}`;
-      return;
-    }
-
-    if (Object.hasOwn(textPreviewCache, attachment.id)) {
-      const cached = textPreviewCache[attachment.id];
-      if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
-        return;
-      }
-
-      setPreviewState({ kind: "text", content: cached });
-      return;
-    }
-
-    try {
-      const response = await fetch(`/api/attachments/${attachment.id}?format=text`);
-      if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
-        return;
-      }
-
-      if (!response.ok) {
-        if (response.status === 415) {
-          setPreviewState({ kind: "unsupported" });
-          return;
-        }
-        throw new Error("Unable to load attachment preview.");
-      }
-
-      const payload = await response.json();
-      if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
-        return;
-      }
-
-      setTextPreviewCache((current) => ({ ...current, [attachment.id]: payload.content }));
-      setPreviewState({ kind: "text", content: payload.content });
-    } catch (error) {
-      if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
-        return;
-      }
-
-      setPreviewState({
-        kind: "error",
-        message: error instanceof Error ? error.message : "Unable to load attachment preview."
-      });
-    }
-  }
-
-  function closeAttachmentPreview() {
-    previewRequestTokenRef.current += 1;
-    previewAttachmentIdRef.current = null;
-    setPreviewAttachment(null);
-    setPreviewState({ kind: "unsupported" });
-  }
+  const handleAttachmentPreview = onPreviewAttachment ?? previewController.openAttachmentPreview;
 
   if (message.role === "system") {
     return (
@@ -949,7 +853,7 @@ export function MessageBubble({
                   <MessageAttachments
                     attachments={message.attachments}
                     compact
-                    onPreview={openAttachmentPreview}
+                    onPreview={handleAttachmentPreview}
                   />
                 </div>
               ) : null}
@@ -996,12 +900,12 @@ export function MessageBubble({
             ) : null}
           </div>
         </div>
-        {previewAttachment ? (
+        {!onPreviewAttachment && previewController.previewAttachment ? (
           <AttachmentPreviewModal
-            attachment={previewAttachment}
-            state={previewState}
-            onClose={closeAttachmentPreview}
-            onRetry={() => void openAttachmentPreview(previewAttachment)}
+            attachment={previewController.previewAttachment}
+            state={previewController.previewState}
+            onClose={previewController.closeAttachmentPreview}
+            onRetry={() => void previewController.openAttachmentPreview(previewController.previewAttachment!)}
           />
         ) : null}
       </>

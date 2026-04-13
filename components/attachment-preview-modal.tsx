@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Download, FileText, X } from "lucide-react";
 
 import type { MessageAttachment } from "@/lib/types";
@@ -18,6 +18,117 @@ type AttachmentPreviewModalProps = {
   onClose: () => void;
   onRetry?: () => void;
 };
+
+export function useAttachmentPreviewController() {
+  const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
+  const [previewState, setPreviewState] = useState<AttachmentPreviewState>({
+    kind: "unsupported"
+  });
+  const [textPreviewCache, setTextPreviewCache] = useState<Record<string, string>>({});
+  const previewRequestTokenRef = useRef(0);
+  const previewAttachmentIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      previewRequestTokenRef.current += 1;
+      previewAttachmentIdRef.current = null;
+    };
+  }, []);
+
+  function isCurrentPreviewRequest(requestToken: number, attachmentId: string) {
+    return (
+      previewRequestTokenRef.current === requestToken &&
+      previewAttachmentIdRef.current === attachmentId
+    );
+  }
+
+  async function openAttachmentPreview(attachment: MessageAttachment) {
+    const requestToken = previewRequestTokenRef.current + 1;
+    previewRequestTokenRef.current = requestToken;
+    previewAttachmentIdRef.current = attachment.id;
+    setPreviewAttachment(attachment);
+    setPreviewState({ kind: "loading" });
+
+    if (attachment.kind === "image") {
+      const image = new Image();
+      image.onload = () => {
+        if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
+          return;
+        }
+
+        setPreviewState({ kind: "image" });
+      };
+      image.onerror = () => {
+        if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
+          return;
+        }
+
+        setPreviewState({
+          kind: "error",
+          message: "Unable to load attachment preview."
+        });
+      };
+      image.src = `/api/attachments/${attachment.id}`;
+      return;
+    }
+
+    if (Object.hasOwn(textPreviewCache, attachment.id)) {
+      const cached = textPreviewCache[attachment.id];
+      if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
+        return;
+      }
+
+      setPreviewState({ kind: "text", content: cached });
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/attachments/${attachment.id}?format=text`);
+      if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
+        return;
+      }
+
+      if (!response.ok) {
+        if (response.status === 415) {
+          setPreviewState({ kind: "unsupported" });
+          return;
+        }
+        throw new Error("Unable to load attachment preview.");
+      }
+
+      const payload = await response.json();
+      if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
+        return;
+      }
+
+      setTextPreviewCache((current) => ({ ...current, [attachment.id]: payload.content }));
+      setPreviewState({ kind: "text", content: payload.content });
+    } catch (error) {
+      if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
+        return;
+      }
+
+      setPreviewState({
+        kind: "error",
+        message: error instanceof Error ? error.message : "Unable to load attachment preview."
+      });
+    }
+  }
+
+  function closeAttachmentPreview() {
+    previewRequestTokenRef.current += 1;
+    previewAttachmentIdRef.current = null;
+    setPreviewAttachment(null);
+    setPreviewState({ kind: "unsupported" });
+  }
+
+  return {
+    previewAttachment,
+    previewState,
+    openAttachmentPreview,
+    closeAttachmentPreview
+  };
+}
 
 export function AttachmentPreviewModal({
   attachment,
