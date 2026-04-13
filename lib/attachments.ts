@@ -477,8 +477,6 @@ export function readAttachmentBuffer(attachment: Pick<MessageAttachment, "relati
   return fs.readFileSync(resolveAttachmentAbsolutePath(attachment.relativePath));
 }
 
-const INLINE_TEXT_PREVIEW_MIME_TYPES = new Set(["text/plain", "text/markdown", "application/json"]);
-
 export function isInlineTextPreviewableAttachment(
   attachment: Pick<MessageAttachment, "kind" | "mimeType" | "filename">
 ) {
@@ -486,11 +484,11 @@ export function isInlineTextPreviewableAttachment(
     return false;
   }
 
-  if (INLINE_TEXT_PREVIEW_MIME_TYPES.has(attachment.mimeType)) {
-    return true;
+  try {
+    return normalizeAttachmentKind(attachment.filename, attachment.mimeType).kind === "text";
+  } catch {
+    return false;
   }
-
-  return /\.(txt|md|markdown|json)$/i.test(attachment.filename);
 }
 
 export function readAttachmentText(

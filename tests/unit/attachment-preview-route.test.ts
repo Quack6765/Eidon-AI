@@ -17,6 +17,38 @@ describe("attachment preview route", () => {
     requireUserMock.mockReset();
   });
 
+  it("returns text preview JSON for supported text attachment types accepted by uploads", async () => {
+    const user = await createLocalUser({
+      username: "attachment-preview-csv-user",
+      password: "Password123!",
+      role: "user"
+    });
+    const conversation = createConversation("Attachment csv preview", null, undefined, user.id);
+    const [attachment] = createAttachments(conversation.id, [
+      {
+        filename: "data.csv",
+        mimeType: "text/csv",
+        bytes: Buffer.from("name,value\npreview,1", "utf8")
+      }
+    ]);
+
+    requireUserMock.mockResolvedValue(user);
+
+    const { GET } = await import("@/app/api/attachments/[attachmentId]/route");
+    const response = await GET(
+      new Request(`http://localhost/api/attachments/${attachment.id}?format=text`),
+      { params: Promise.resolve({ attachmentId: attachment.id }) }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      id: attachment.id,
+      filename: "data.csv",
+      mimeType: "text/csv",
+      content: "name,value\npreview,1"
+    });
+  });
+
   it("returns text preview JSON for supported text attachments", async () => {
     const user = await createLocalUser({
       username: "attachment-preview-user",
@@ -74,5 +106,46 @@ describe("attachment preview route", () => {
 
     expect(response.status).toBe(415);
     await expect(response.text()).resolves.toContain("Attachment cannot be previewed as text");
+  });
+
+  it("keeps the default response path as raw attachment bytes", async () => {
+    const user = await createLocalUser({
+      username: "attachment-raw-response-user",
+      password: "Password123!",
+      role: "user"
+    });
+    const conversation = createConversation("Raw attachment response", null, undefined, user.id);
+    const [attachment] = createAttachments(conversation.id, [
+      {
+        filename: "notes.md",
+        mimeType: "text/markdown",
+        bytes: Buffer.from("# Notes\nRaw body", "utf8")
+      }
+    ]);
+
+    requireUserMock.mockResolvedValue(user);
+
+    const { GET } = await import("@/app/api/attachments/[attachmentId]/route");
+    const response = await GET(
+      new Request(`http://localhost/api/attachments/${attachment.id}`),
+      { params: Promise.resolve({ attachmentId: attachment.id }) }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("text/markdown");
+    expect(response.headers.get("Content-Disposition")).toBe('inline; filename="notes.md"');
+    await expect(response.text()).resolves.toBe("# Notes\nRaw body");
+  });
+
+  it("requires authentication for text preview access", async () => {
+    requireUserMock.mockResolvedValue(null);
+
+    const { GET } = await import("@/app/api/attachments/[attachmentId]/route");
+    const response = await GET(new Request("http://localhost/api/attachments/att_missing?format=text"), {
+      params: Promise.resolve({ attachmentId: "att_missing" })
+    });
+
+    expect(response.status).toBe(401);
+    await expect(response.text()).resolves.toContain("Authentication required");
   });
 });
