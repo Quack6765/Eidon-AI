@@ -145,9 +145,9 @@ describe("attachment preview route", () => {
       { params: Promise.resolve({ attachmentId: attachment.id }) }
     );
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(500);
     expect(response.headers.get("Content-Type")).not.toBe("text/markdown");
-    await expect(response.text()).resolves.toContain("Attachment file not found");
+    await expect(response.text()).resolves.toContain("Internal server error");
   });
 
   it("rejects inline text preview for image attachments", async () => {

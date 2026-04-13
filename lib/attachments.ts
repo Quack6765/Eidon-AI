@@ -74,6 +74,13 @@ export class AttachmentTextPreviewUnsupportedError extends Error {
   }
 }
 
+export class AttachmentTextPreviewMissingFileError extends Error {
+  constructor() {
+    super("Attachment file not found");
+    this.name = "AttachmentTextPreviewMissingFileError";
+  }
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -509,7 +516,11 @@ export function readAttachmentText(
     return readAttachmentBuffer(attachment).toString("utf8");
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return attachment.extractedText;
+      if (attachment.extractedText.length > 0) {
+        return attachment.extractedText;
+      }
+
+      throw new AttachmentTextPreviewMissingFileError();
     }
 
     throw error;
