@@ -44,6 +44,11 @@ type ConversationPayload = {
 
 const AUTO_SCROLL_THRESHOLD_PX = 32;
 
+type SnapshotReconciliation = {
+  messages: Message[];
+  confirmedLocalMessageIds: string[];
+};
+
 function getActionSignature(action: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">) {
   return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
 }
@@ -135,10 +140,13 @@ function reconcileSnapshotMessages(
   current: Message[],
   snapshot: Message[] | undefined,
   activeStreamMessageId: string | null
-) {
+): SnapshotReconciliation {
   const sanitizedSnapshot = sanitizeMessages(snapshot);
   if (sanitizedSnapshot.length === 0) {
-    return current.filter((message) => !isLegacyCompactionNotice(message));
+    return {
+      messages: current.filter((message) => !isLegacyCompactionNotice(message)),
+      confirmedLocalMessageIds: []
+    };
   }
 
   const merged = sanitizedSnapshot.map((snapshotMsg) => {
@@ -184,7 +192,10 @@ function reconcileSnapshotMessages(
     return !isLegacyCompactionNotice(m);
   });
 
-  return [...merged, ...pendingLocalMessages];
+  return {
+    messages: [...merged, ...pendingLocalMessages],
+    confirmedLocalMessageIds: [...confirmedLocalIds]
+  };
 }
 
 function adoptStreamingSnapshotState(timeline: MessageTimelineItem[] | undefined) {
@@ -361,6 +372,34 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     (nextInput?: string, nextPendingAttachments?: MessageAttachment[], nextPersonaId?: string) => Promise<void>
   >(async () => {});
 
+  function removePendingLocalSubmissions(localMessageIds: string[]) {
+    if (localMessageIds.length === 0) {
+      return;
+    }
+
+    const confirmedIds = new Set(localMessageIds);
+    const nextPendingIds: string[] = [];
+    const nextPendingSubmissions: Array<{
+      content: string;
+      attachments: MessageAttachment[];
+    }> = [];
+
+    pendingLocalMessageIdsRef.current.forEach((messageId, index) => {
+      if (confirmedIds.has(messageId)) {
+        return;
+      }
+
+      nextPendingIds.push(messageId);
+      const submission = pendingLocalSubmissionsRef.current[index];
+      if (submission) {
+        nextPendingSubmissions.push(submission);
+      }
+    });
+
+    pendingLocalMessageIdsRef.current = nextPendingIds;
+    pendingLocalSubmissionsRef.current = nextPendingSubmissions;
+  }
+
   function updateStreamTimeline(
     nextTimeline:
       | MessageTimelineItem[]
@@ -471,23 +510,18 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "message_start") {
-      const confirmedLocalId = pendingLocalMessageIdsRef.current.shift() ?? null;
-      pendingLocalSubmissionsRef.current.shift();
       setStreamMessageId(event.messageId);
       dispatchConversationActivityUpdated({
         conversationId: payload.conversation.id,
         isActive: true
       });
       setMessages((current) => {
-        const withoutLocal = confirmedLocalId
-          ? current.filter((m) => m.id !== confirmedLocalId)
-          : current;
-        if (withoutLocal.some((message) => message.id === event.messageId)) {
-          return withoutLocal;
+        if (current.some((message) => message.id === event.messageId)) {
+          return current;
         }
 
         return [
-          ...withoutLocal,
+          ...current,
           {
             id: event.messageId,
             conversationId: payload.conversation.id,
@@ -702,13 +736,15 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             }
           }
 
-          setMessages((current) =>
-            reconcileSnapshotMessages(
+          setMessages((current) => {
+            const reconciliation = reconcileSnapshotMessages(
               current,
               msg.messages as Message[],
               streamMessageId
-            )
-          );
+            );
+            removePendingLocalSubmissions(reconciliation.confirmedLocalMessageIds);
+            return reconciliation.messages;
+          });
           break;
         case "error":
           clearCompactionIndicator();
@@ -926,9 +962,15 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           Boolean(streamAnswerTargetRef.current) ||
           streamTimelineRef.current.length > 0;
 
-        setMessages((current) =>
-          reconcileSnapshotMessages(current, result.messages, activeStreamMessageId)
-        );
+        setMessages((current) => {
+          const reconciliation = reconcileSnapshotMessages(
+            current,
+            result.messages,
+            activeStreamMessageId
+          );
+          removePendingLocalSubmissions(reconciliation.confirmedLocalMessageIds);
+          return reconciliation.messages;
+        });
         setConversationTitle(result.conversation.title);
         setTitleGenerationStatus(result.conversation.titleGenerationStatus);
 

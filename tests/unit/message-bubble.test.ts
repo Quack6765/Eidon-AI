@@ -1054,6 +1054,62 @@ describe("message bubble", () => {
     );
   });
 
+  it("reuses cached text previews when the content is an empty string", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "att_text",
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        content: ""
+      })
+    } as Response);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: "See attached",
+          attachments: [
+            {
+              id: "att_text",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "notes.txt",
+              mimeType: "text/plain",
+              byteSize: 10,
+              sha256: "hash2",
+              relativePath: "conv_test/att_text_notes.txt",
+              kind: "text",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview notes.txt" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("dialog", { name: "Attachment preview" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Close attachment preview" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Attachment preview" })).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview notes.txt" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("dialog", { name: "Attachment preview" })).toBeInTheDocument();
+    });
+  });
+
   it("closes the attachment modal when Escape is pressed", async () => {
     installMockImage();
 

@@ -709,6 +709,10 @@ test.describe("Feature: Chat attachments", () => {
     await page.getByPlaceholder(/Ask, create, or start a task/i).fill("Keep this image");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.getByRole("button", { name: "Preview photo.png" }).last()).toBeVisible({
+      timeout: 1000
+    });
+    await page.waitForTimeout(250);
+    await expect(page.getByRole("button", { name: "Preview photo.png" }).last()).toBeVisible({
       timeout: 10000
     });
 
@@ -746,6 +750,10 @@ test.describe("Feature: Chat attachments", () => {
 
     await page.getByPlaceholder(/Ask, create, or start a task/i).fill("Keep these notes");
     await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.getByRole("button", { name: "Preview notes.txt" }).last()).toBeVisible({
+      timeout: 1000
+    });
+    await page.waitForTimeout(250);
     await expect(page.getByRole("button", { name: "Preview notes.txt" }).last()).toBeVisible({
       timeout: 10000
     });

@@ -857,8 +857,8 @@ export function MessageBubble({
       return;
     }
 
-    const cached = textPreviewCache[attachment.id];
-    if (cached) {
+    if (Object.hasOwn(textPreviewCache, attachment.id)) {
+      const cached = textPreviewCache[attachment.id];
       if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
         return;
       }
