@@ -386,11 +386,16 @@ export async function startChatTurn(
       conversationOwnerId ?? undefined
     );
     globalEmitter.emit("status", conversationId, "completed");
-    const { ensureQueuedDispatch } = await import("@/lib/queued-chat-dispatcher");
-    await ensureQueuedDispatch({
-      manager,
-      conversationId,
-      startChatTurn
-    });
+    void import("@/lib/queued-chat-dispatcher")
+      .then(({ ensureQueuedDispatch }) =>
+        ensureQueuedDispatch({
+          manager,
+          conversationId,
+          startChatTurn
+        })
+      )
+      .catch((error) => {
+        console.error("Queued chat dispatch failed", error);
+      });
   }
 }

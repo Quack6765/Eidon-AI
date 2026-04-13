@@ -395,6 +395,7 @@ describe("chat-turn", () => {
 
     const { startChatTurn } = await import("@/lib/chat-turn");
     await startChatTurn(manager, conv.id, "Hi", []);
+    await vi.dynamicImportSettled();
 
     expect(ensureQueuedDispatch).toHaveBeenCalledWith({
       manager,
@@ -445,6 +446,7 @@ describe("chat-turn", () => {
       status: "failed",
       errorMessage: "Queue callback failed"
     });
+    await vi.dynamicImportSettled();
     expect(manager.isActive(conv.id)).toBe(false);
     expect(conversations.getConversation(conv.id)?.isActive).toBe(false);
     expect(conversations.listVisibleMessages(conv.id).find((message) => message.role === "assistant")?.status).toBe("error");
@@ -453,5 +455,53 @@ describe("chat-turn", () => {
       conversationId: conv.id,
       startChatTurn
     });
+  });
+
+  it("preserves the turn result when queued dispatch throws", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const ensureQueuedDispatch = vi.fn().mockRejectedValue(new Error("dispatcher failed"));
+    vi.doMock("@/lib/queued-chat-dispatcher", () => ({
+      ensureQueuedDispatch
+    }));
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversations = await import("@/lib/conversations");
+    const conv = conversations.createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const result = await startChatTurn(manager, conv.id, "Hi", []);
+    await vi.dynamicImportSettled();
+
+    expect(result).toEqual({ status: "completed" });
+    expect(ensureQueuedDispatch).toHaveBeenCalledWith({
+      manager,
+      conversationId: conv.id,
+      startChatTurn
+    });
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });
