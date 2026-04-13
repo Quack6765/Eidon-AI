@@ -425,8 +425,16 @@ export async function startChatTurn(
   attachmentIds: string[],
   personaId?: string
 ): Promise<ChatTurnResult> {
-  if (!getConversation(conversationId)) {
-    return { status: "skipped", errorMessage: "Conversation not found" };
+  const preflight = getAssistantTurnStartPreflight(conversationId);
+  if (!preflight.ok) {
+    if (preflight.status === "failed") {
+      manager.broadcast(conversationId, {
+        type: "error",
+        message: preflight.errorMessage
+      });
+    }
+
+    return { status: preflight.status, errorMessage: preflight.errorMessage };
   }
 
   const userMessage = createMessage({

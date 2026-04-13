@@ -190,10 +190,15 @@ describe("chat-turn", () => {
     manager.subscribe(conv.id, mockWs);
 
     const { startChatTurn } = await import("@/lib/chat-turn");
-    await startChatTurn(manager, conv.id, "Hi", []);
+    await expect(startChatTurn(manager, conv.id, "Hi", [])).resolves.toEqual({
+      status: "failed",
+      errorMessage: "Set an API key in settings before starting a chat"
+    });
 
     const errorMsg = sent.find((s: unknown) => (s as { type: string }).type === "error");
     expect(errorMsg).toBeDefined();
+    const { listVisibleMessages } = await import("@/lib/conversations");
+    expect(listVisibleMessages(conv.id)).toHaveLength(0);
   });
 
   it("persists a partial assistant message as stopped when the turn is cancelled", async () => {
@@ -362,9 +367,30 @@ describe("chat-turn", () => {
   });
 
   it("continues from an existing user message without creating a duplicate user row", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { updateSettings } = await import("@/lib/settings");
     const { createConversation, createMessage, listVisibleMessages } = await import("@/lib/conversations");
     const { startAssistantTurnFromExistingUserMessage } = await import("@/lib/chat-turn");
     const { getConversationManager } = await import("@/lib/ws-singleton");
+
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Restarted answer" };
+        return {
+          answer: "Restarted answer",
+          thinking: "",
+          usage: { outputTokens: 2 }
+        };
+      })()
+    );
 
     const conversation = createConversation("Restart conversation");
     const existingUser = createMessage({
@@ -373,15 +399,18 @@ describe("chat-turn", () => {
       content: "Edited prompt"
     });
 
-    await startAssistantTurnFromExistingUserMessage(
+    const result = await startAssistantTurnFromExistingUserMessage(
       getConversationManager(),
       conversation.id,
       existingUser.id
     );
 
+    expect(result).toEqual({ status: "completed" });
     const messages = listVisibleMessages(conversation.id);
     expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
     expect(messages[0]?.id).toBe(existingUser.id);
     expect(messages.at(-1)?.role).toBe("assistant");
+    expect(messages.at(-1)?.status).toBe("completed");
+    expect(messages.at(-1)?.content).toBe("Restarted answer");
   });
 });
