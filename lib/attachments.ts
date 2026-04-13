@@ -492,13 +492,21 @@ export function isInlineTextPreviewableAttachment(
 }
 
 export function readAttachmentText(
-  attachment: Pick<MessageAttachment, "relativePath" | "kind" | "mimeType" | "filename">
+  attachment: Pick<MessageAttachment, "relativePath" | "kind" | "mimeType" | "filename" | "extractedText">
 ) {
   if (!isInlineTextPreviewableAttachment(attachment)) {
     throw new Error("Attachment cannot be previewed as text");
   }
 
-  return readAttachmentBuffer(attachment).toString("utf8");
+  try {
+    return readAttachmentBuffer(attachment).toString("utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return attachment.extractedText;
+    }
+
+    throw error;
+  }
 }
 
 export function getAttachmentDataUrl(attachment: Pick<MessageAttachment, "relativePath" | "mimeType">) {

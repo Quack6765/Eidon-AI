@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import path from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createAttachments } from "@/lib/attachments";
@@ -78,6 +81,44 @@ describe("attachment preview route", () => {
       filename: "notes.md",
       mimeType: "text/markdown",
       content: "# Notes\nHello preview"
+    });
+  });
+
+  it("falls back to stored extracted text when the text attachment file is missing", async () => {
+    const user = await createLocalUser({
+      username: "attachment-preview-missing-file-user",
+      password: "Password123!",
+      role: "user"
+    });
+    const conversation = createConversation("Missing attachment file preview", null, undefined, user.id);
+    const [attachment] = createAttachments(conversation.id, [
+      {
+        filename: "fallback.md",
+        mimeType: "text/markdown",
+        bytes: Buffer.from("# Missing file\nRecovered from extracted text", "utf8")
+      }
+    ]);
+    const absolutePath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      attachment.relativePath
+    );
+
+    fs.unlinkSync(absolutePath);
+    requireUserMock.mockResolvedValue(user);
+
+    const { GET } = await import("@/app/api/attachments/[attachmentId]/route");
+    const response = await GET(
+      new Request(`http://localhost/api/attachments/${attachment.id}?format=text`),
+      { params: Promise.resolve({ attachmentId: attachment.id }) }
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      id: attachment.id,
+      filename: "fallback.md",
+      mimeType: "text/markdown",
+      content: "# Missing file\nRecovered from extracted text"
     });
   });
 

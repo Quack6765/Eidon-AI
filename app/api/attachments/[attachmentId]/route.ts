@@ -3,7 +3,6 @@ import { z } from "zod";
 import {
   deleteAttachmentById,
   getAttachment,
-  isInlineTextPreviewableAttachment,
   readAttachmentBuffer,
   readAttachmentText
 } from "@/lib/attachments";
@@ -38,20 +37,22 @@ export async function GET(
 
   const format = new URL(request.url).searchParams.get("format");
 
-  try {
-    if (format === "text") {
-      if (!isInlineTextPreviewableAttachment(attachment)) {
-        return badRequest("Attachment cannot be previewed as text", 415);
-      }
-
+  if (format === "text") {
+    try {
       return Response.json({
         id: attachment.id,
         filename: attachment.filename,
         mimeType: attachment.mimeType,
         content: readAttachmentText(attachment)
       });
+    } catch (error) {
+      if (error instanceof Error && error.message === "Attachment cannot be previewed as text") {
+        return badRequest("Attachment cannot be previewed as text", 415);
+      }
     }
+  }
 
+  try {
     const buffer = readAttachmentBuffer(attachment);
 
     return new Response(buffer, {
