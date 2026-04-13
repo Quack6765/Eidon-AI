@@ -1344,6 +1344,27 @@ describe("conversation helpers", () => {
         superseded_by_node_id, created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
+      "mem_merged_parent",
+      conversation.id,
+      "merged_summary",
+      1,
+      "Merged summary that depends on edited child",
+      firstUser.id,
+      firstAssistant.id,
+      50,
+      12,
+      JSON.stringify(["mem_edited"]),
+      null,
+      new Date().toISOString()
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id, conversation_id, type, depth, content,
+        source_start_message_id, source_end_message_id,
+        source_token_count, summary_token_count, child_node_ids,
+        superseded_by_node_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
       "mem_edited",
       conversation.id,
       "leaf_summary",
@@ -1383,6 +1404,20 @@ describe("conversation helpers", () => {
       "mem_edited",
       firstUser.id,
       editedUser.id,
+      null,
+      new Date().toISOString()
+    );
+    db.prepare(
+      `INSERT INTO compaction_events (
+        id, conversation_id, node_id, source_start_message_id,
+        source_end_message_id, notice_message_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "cmp_merged_parent",
+      conversation.id,
+      "mem_merged_parent",
+      firstUser.id,
+      firstAssistant.id,
       null,
       new Date().toISOString()
     );

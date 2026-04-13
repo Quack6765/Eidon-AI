@@ -1521,45 +1521,75 @@ export function rewriteConversationFromEditedUserMessage(
     updateMessageEstimatedTokens(message.id);
 
     const affectedPlaceholders = affectedIds.map(() => "?").join(", ");
-    const deletedNodeRows = (
+    const allNodeRows = (
       db
         .prepare(
           `SELECT
              id,
              source_start_message_id,
-             source_end_message_id
+             source_end_message_id,
+             child_node_ids
            FROM memory_nodes
-           WHERE conversation_id = ?
-             AND (source_start_message_id IN (${affectedPlaceholders})
-               OR source_end_message_id IN (${affectedPlaceholders}))`
+           WHERE conversation_id = ?`
         )
-        .all(conversation.id, ...affectedIds, ...affectedIds) as Array<{
+        .all(conversation.id) as Array<{
         id: string;
         source_start_message_id: string;
         source_end_message_id: string;
+        child_node_ids: string;
       }>
     );
+    const invalidNodeIds = new Set(
+      allNodeRows
+        .filter(
+          (row) =>
+            affectedIds.includes(row.source_start_message_id) ||
+            affectedIds.includes(row.source_end_message_id)
+        )
+        .map((row) => row.id)
+    );
+
+    let changed = true;
+    while (changed) {
+      changed = false;
+
+      allNodeRows.forEach((row) => {
+        if (invalidNodeIds.has(row.id)) {
+          return;
+        }
+
+        const childNodeIds = JSON.parse(row.child_node_ids) as string[];
+        if (childNodeIds.some((childNodeId) => invalidNodeIds.has(childNodeId))) {
+          invalidNodeIds.add(row.id);
+          changed = true;
+        }
+      });
+    }
+
+    const deletedNodeRows = allNodeRows.filter((row) => invalidNodeIds.has(row.id));
     const deletedNodeIds = deletedNodeRows.map((row) => row.id);
-
-    db.prepare(
-      `DELETE FROM compaction_events
-       WHERE conversation_id = ?
-         AND (source_start_message_id IN (${affectedPlaceholders})
-           OR source_end_message_id IN (${affectedPlaceholders}))`
-    ).run(conversation.id, ...affectedIds, ...affectedIds);
-
-    db.prepare(
-      `DELETE FROM memory_nodes
-       WHERE conversation_id = ?
-         AND (source_start_message_id IN (${affectedPlaceholders})
-           OR source_end_message_id IN (${affectedPlaceholders}))`
-    ).run(conversation.id, ...affectedIds, ...affectedIds);
 
     if (deletedNodeIds.length > 0) {
       const deletedNodePlaceholders = deletedNodeIds.map(() => "?").join(", ");
       const deletedIdSet = new Set(deletedIds);
       const messageIndexById = new Map(messages.map((item, index) => [item.id, index]));
       const restoredCompactionIds = new Set<string>();
+
+      db.prepare(
+        `DELETE FROM compaction_events
+         WHERE conversation_id = ?
+           AND (
+             node_id IN (${deletedNodePlaceholders})
+             OR source_start_message_id IN (${affectedPlaceholders})
+             OR source_end_message_id IN (${affectedPlaceholders})
+           )`
+      ).run(conversation.id, ...deletedNodeIds, ...affectedIds, ...affectedIds);
+
+      db.prepare(
+        `DELETE FROM memory_nodes
+         WHERE conversation_id = ?
+           AND id IN (${deletedNodePlaceholders})`
+      ).run(conversation.id, ...deletedNodeIds);
 
       deletedNodeRows.forEach((row) => {
         const startIndex = messageIndexById.get(row.source_start_message_id);
