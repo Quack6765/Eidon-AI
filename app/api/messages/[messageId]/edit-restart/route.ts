@@ -10,6 +10,7 @@ import {
   getMessage,
   rewriteConversationFromEditedUserMessage
 } from "@/lib/conversations";
+import { claimChatTurnStart, releaseChatTurnStart } from "@/lib/chat-turn-control";
 import { badRequest, ok } from "@/lib/http";
 import { getConversationManager } from "@/lib/ws-singleton";
 
@@ -67,20 +68,40 @@ export async function POST(
     return badRequest(preflight.errorMessage, preflight.statusCode);
   }
 
-  const rewritten = rewriteConversationFromEditedUserMessage(
-    message.id,
-    {
-      content: body.data.content
-    },
-    user.id
-  );
+  const claimed = claimChatTurnStart(message.conversationId);
+  if (!claimed.ok) {
+    return badRequest(
+      "Wait for the current assistant response to finish before editing this conversation",
+      409
+    );
+  }
 
-  void startAssistantTurnFromExistingUserMessage(
-    getConversationManager(),
-    rewritten.conversation.id,
-    message.id,
-    undefined
-  );
+  try {
+    const rewritten = rewriteConversationFromEditedUserMessage(
+      message.id,
+      {
+        content: body.data.content
+      },
+      user.id
+    );
 
-  return ok(rewritten);
+    void startAssistantTurnFromExistingUserMessage(
+      getConversationManager(),
+      rewritten.conversation.id,
+      message.id,
+      undefined,
+      {
+        control: claimed.control,
+        preflight
+      }
+    ).catch((error) => {
+      releaseChatTurnStart(message.conversationId, claimed.control);
+      console.error("[message-edit-restart-route] continuation failed:", error);
+    });
+
+    return ok(rewritten);
+  } catch (error) {
+    releaseChatTurnStart(message.conversationId, claimed.control);
+    throw error;
+  }
 }

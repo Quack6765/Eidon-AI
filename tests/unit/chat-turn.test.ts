@@ -442,4 +442,52 @@ describe("chat-turn", () => {
     expect(messages[0]?.id).toBe(existingUser.id);
     expect(messages[0]?.role).toBe("user");
   });
+
+  it("rejects a concurrent chat start without persisting another user row", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+    const { startChatTurn } = await import("@/lib/chat-turn");
+
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const manager = createConversationManager();
+    const conversation = createConversation("Concurrent start");
+
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "First answer" };
+        await gate;
+        return {
+          answer: "First answer",
+          thinking: "",
+          usage: { outputTokens: 2 }
+        };
+      })()
+    );
+
+    const firstStart = startChatTurn(manager, conversation.id, "First prompt", []);
+    const secondResult = await startChatTurn(manager, conversation.id, "Second prompt", []);
+
+    expect(secondResult).toEqual({
+      status: "failed",
+      errorMessage: "Conversation already has an active assistant turn"
+    });
+    expect(listVisibleMessages(conversation.id).filter((message) => message.role === "user")).toHaveLength(1);
+
+    release();
+    await expect(firstStart).resolves.toEqual({ status: "completed" });
+  });
 });

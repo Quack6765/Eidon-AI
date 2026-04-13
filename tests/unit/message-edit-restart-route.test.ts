@@ -15,6 +15,13 @@ const { getAssistantTurnStartPreflightMock } = vi.hoisted(() => ({
   getAssistantTurnStartPreflightMock: vi.fn()
 }));
 
+const claimTurnControl = { id: "claim-control" };
+
+const { claimChatTurnStartMock, releaseChatTurnStartMock } = vi.hoisted(() => ({
+  claimChatTurnStartMock: vi.fn(),
+  releaseChatTurnStartMock: vi.fn()
+}));
+
 vi.mock("@/lib/auth", () => ({
   requireUser: requireUserMock
 }));
@@ -22,6 +29,11 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/chat-turn", () => ({
   startAssistantTurnFromExistingUserMessage: startAssistantTurnFromExistingUserMessageMock,
   getAssistantTurnStartPreflight: getAssistantTurnStartPreflightMock
+}));
+
+vi.mock("@/lib/chat-turn-control", () => ({
+  claimChatTurnStart: claimChatTurnStartMock,
+  releaseChatTurnStart: releaseChatTurnStartMock
 }));
 
 describe("message edit restart route", () => {
@@ -34,6 +46,12 @@ describe("message edit restart route", () => {
       ok: true,
       context: {}
     });
+    claimChatTurnStartMock.mockReset();
+    claimChatTurnStartMock.mockReturnValue({
+      ok: true,
+      control: claimTurnControl
+    });
+    releaseChatTurnStartMock.mockReset();
   });
 
   it("rewrites the message and starts a new assistant turn", async () => {
@@ -78,7 +96,14 @@ describe("message edit restart route", () => {
       expect.anything(),
       conversation.id,
       message.id,
-      undefined
+      undefined,
+      {
+        control: claimTurnControl,
+        preflight: {
+          ok: true,
+          context: {}
+        }
+      }
     );
   });
 
@@ -207,6 +232,7 @@ describe("message edit restart route", () => {
     await expect(response.json()).resolves.toEqual({ error: "No provider profile configured" });
     expect(getMessage(message.id)?.content).toBe("Old content");
     expect(startAssistantTurnFromExistingUserMessageMock).not.toHaveBeenCalled();
+    expect(claimChatTurnStartMock).not.toHaveBeenCalled();
   });
 
   it("returns the rewritten snapshot without waiting for assistant completion", async () => {
@@ -216,10 +242,9 @@ describe("message edit restart route", () => {
       role: "user"
     });
     requireUserMock.mockResolvedValue(user);
-    startAssistantTurnFromExistingUserMessageMock.mockResolvedValue({
-      status: "failed",
-      errorMessage: "Chat stream failed"
-    });
+    startAssistantTurnFromExistingUserMessageMock.mockRejectedValue(
+      new Error("Chat stream failed")
+    );
 
     const conversation = createConversation("Restart failure", null, {}, user.id);
     const message = createMessage({
@@ -252,6 +277,8 @@ describe("message edit restart route", () => {
       })
     );
     expect(getMessage(message.id)?.content).toBe("New content");
+    await Promise.resolve();
+    expect(releaseChatTurnStartMock).toHaveBeenCalledWith(conversation.id, claimTurnControl);
   });
 
   it("returns 404 when the message does not exist", async () => {
@@ -274,5 +301,41 @@ describe("message edit restart route", () => {
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({ error: "Message not found" });
+  });
+
+  it("returns 409 when the conversation is already claimed for another turn", async () => {
+    const user = await createLocalUser({
+      username: "edit-route-claimed",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+    claimChatTurnStartMock.mockReturnValue({
+      ok: false
+    });
+
+    const conversation = createConversation("Claimed conversation", null, {}, user.id);
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Old content"
+    });
+
+    const { POST } = await import("@/app/api/messages/[messageId]/edit-restart/route");
+    const response = await POST(
+      new Request(`http://localhost/api/messages/${message.id}/edit-restart`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "New content" })
+      }),
+      { params: Promise.resolve({ messageId: message.id }) }
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "Wait for the current assistant response to finish before editing this conversation"
+    });
+    expect(getMessage(message.id)?.content).toBe("Old content");
+    expect(startAssistantTurnFromExistingUserMessageMock).not.toHaveBeenCalled();
   });
 });

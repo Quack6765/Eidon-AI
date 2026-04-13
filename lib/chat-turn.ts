@@ -1,5 +1,10 @@
 import { resolveAssistantTurn } from "@/lib/assistant-runtime";
-import { ChatTurnStoppedError, registerChatTurn, clearChatTurn } from "@/lib/chat-turn-control";
+import {
+  ChatTurnStoppedError,
+  claimChatTurnStart,
+  releaseChatTurnStart,
+  type ChatTurnControl
+} from "@/lib/chat-turn-control";
 import {
   bindAttachmentsToMessage,
   createMessage,
@@ -48,6 +53,8 @@ const globalEmitter = createEmitter<{
   delta: [string, unknown];
   status: [string, string];
 }>();
+
+const ACTIVE_TURN_ERROR_MESSAGE = "Conversation already has an active assistant turn";
 
 export function getChatEmitter(): ChatEmitter {
   return globalEmitter;
@@ -116,35 +123,12 @@ async function startAssistantTurn(
   conversationId: string,
   existingUserMessage: Message,
   preflight: AssistantTurnStartReady,
+  control: ChatTurnControl,
   personaId?: string
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
-
-  const assistantMessage = createMessage({
-    conversationId: conversation.id,
-    role: "assistant",
-    content: "",
-    thinkingContent: "",
-    status: "streaming",
-    estimatedTokens: 0
-  });
-
-  manager.broadcast(conversationId, {
-    type: "delta",
-    conversationId,
-    event: { type: "message_start", messageId: assistantMessage.id }
-  });
-
-  manager.setActive(conversationId, true);
-  globalEmitter.emit("status", conversationId, "streaming");
-  setConversationActive(conversation.id, true);
-  manager.broadcastAll(
-    { type: "conversation_activity", conversationId, isActive: true },
-    conversationOwnerId ?? undefined
-  );
-
-  const control = registerChatTurn(conversationId);
-
+  let assistantMessage: Message | null = null;
+  let started = false;
   let timelineSortOrder = 0;
   let answerBuffer = "";
   let latestAnswer = "";
@@ -154,26 +138,50 @@ async function startAssistantTurn(
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
   const runningActionHandles = new Set<string>();
 
-  function flushAnswerBuffer() {
-    if (!answerBuffer) return;
-    createMessageTextSegment({
-      messageId: assistantMessage.id,
-      content: answerBuffer,
-      sortOrder: timelineSortOrder++
-    });
-    answerBuffer = "";
-    lastFlush = Date.now();
-  }
-
-  function scheduleFlush() {
-    if (flushTimer) return;
-    flushTimer = setTimeout(() => {
-      flushTimer = null;
-      flushAnswerBuffer();
-    }, 100);
-  }
-
   try {
+    assistantMessage = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "",
+      thinkingContent: "",
+      status: "streaming",
+      estimatedTokens: 0
+    });
+
+    manager.broadcast(conversationId, {
+      type: "delta",
+      conversationId,
+      event: { type: "message_start", messageId: assistantMessage.id }
+    });
+
+    manager.setActive(conversationId, true);
+    globalEmitter.emit("status", conversationId, "streaming");
+    setConversationActive(conversation.id, true);
+    manager.broadcastAll(
+      { type: "conversation_activity", conversationId, isActive: true },
+      conversationOwnerId ?? undefined
+    );
+    started = true;
+
+    function flushAnswerBuffer() {
+      if (!assistantMessage || !answerBuffer) return;
+      createMessageTextSegment({
+        messageId: assistantMessage.id,
+        content: answerBuffer,
+        sortOrder: timelineSortOrder++
+      });
+      answerBuffer = "";
+      lastFlush = Date.now();
+    }
+
+    function scheduleFlush() {
+      if (flushTimer) return;
+      flushTimer = setTimeout(() => {
+        flushTimer = null;
+        flushAnswerBuffer();
+      }, 100);
+    }
+
     const compacted = await ensureCompactedContext(conversation.id, settings, {
       onCompactionStart() {
         manager.broadcast(conversationId, {
@@ -336,9 +344,16 @@ async function startAssistantTurn(
     });
     return { status: "completed" };
   } catch (error) {
-    if (error instanceof ChatTurnStoppedError) {
+    if (error instanceof ChatTurnStoppedError && assistantMessage) {
       if (flushTimer) clearTimeout(flushTimer);
-      flushAnswerBuffer();
+      if (answerBuffer) {
+        createMessageTextSegment({
+          messageId: assistantMessage.id,
+          content: answerBuffer,
+          sortOrder: timelineSortOrder++
+        });
+        answerBuffer = "";
+      }
 
       updateMessage(assistantMessage.id, {
         content: latestAnswer,
@@ -361,11 +376,13 @@ async function startAssistantTurn(
       });
       return { status: "stopped" };
     } else {
-      updateMessage(assistantMessage.id, {
-        content: "",
-        thinkingContent: "",
-        status: "error"
-      });
+      if (assistantMessage) {
+        updateMessage(assistantMessage.id, {
+          content: "",
+          thinkingContent: "",
+          status: "error"
+        });
+      }
       manager.broadcast(conversationId, {
         type: "delta",
         conversationId,
@@ -380,14 +397,16 @@ async function startAssistantTurn(
       };
     }
   } finally {
-    clearChatTurn(conversationId);
-    setConversationActive(conversation.id, false);
-    manager.setActive(conversationId, false);
-    manager.broadcastAll(
-      { type: "conversation_activity", conversationId, isActive: false },
-      conversationOwnerId ?? undefined
-    );
-    globalEmitter.emit("status", conversationId, "completed");
+    releaseChatTurnStart(conversationId, control);
+    if (started) {
+      setConversationActive(conversation.id, false);
+      manager.setActive(conversationId, false);
+      manager.broadcastAll(
+        { type: "conversation_activity", conversationId, isActive: false },
+        conversationOwnerId ?? undefined
+      );
+      globalEmitter.emit("status", conversationId, "completed");
+    }
   }
 }
 
@@ -395,15 +414,25 @@ export async function startAssistantTurnFromExistingUserMessage(
   manager: ConversationManager,
   conversationId: string,
   messageId: string,
-  personaId?: string
+  personaId?: string,
+  options?: {
+    control?: ChatTurnControl;
+    preflight?: AssistantTurnStartReady;
+  }
 ): Promise<ChatTurnResult> {
   const message = getMessage(messageId);
   if (!message || message.role !== "user" || message.conversationId !== conversationId) {
+    if (options?.control) {
+      releaseChatTurnStart(conversationId, options.control);
+    }
     return { status: "skipped", errorMessage: "User message not found" };
   }
 
-  const preflight = getAssistantTurnStartPreflight(conversationId);
+  const preflight = options?.preflight ?? getAssistantTurnStartPreflight(conversationId);
   if (!preflight.ok) {
+    if (options?.control) {
+      releaseChatTurnStart(conversationId, options.control);
+    }
     if (preflight.status === "failed") {
       manager.broadcast(conversationId, {
         type: "error",
@@ -414,7 +443,18 @@ export async function startAssistantTurnFromExistingUserMessage(
     return { status: preflight.status, errorMessage: preflight.errorMessage };
   }
 
-  return startAssistantTurn(manager, conversationId, message, preflight, personaId);
+  const claimed = options?.control
+    ? { ok: true as const, control: options.control }
+    : claimChatTurnStart(conversationId);
+  if (!claimed.ok) {
+    manager.broadcast(conversationId, {
+      type: "error",
+      message: ACTIVE_TURN_ERROR_MESSAGE
+    });
+    return { status: "failed", errorMessage: ACTIVE_TURN_ERROR_MESSAGE };
+  }
+
+  return startAssistantTurn(manager, conversationId, message, preflight, claimed.control, personaId);
 }
 
 export async function startChatTurn(
@@ -436,15 +476,29 @@ export async function startChatTurn(
     return { status: preflight.status, errorMessage: preflight.errorMessage };
   }
 
-  const userMessage = createMessage({
-    conversationId,
-    role: "user",
-    content,
-    estimatedTokens: estimateTextTokens(content)
-  });
+  const claimed = claimChatTurnStart(conversationId);
+  if (!claimed.ok) {
+    manager.broadcast(conversationId, {
+      type: "error",
+      message: ACTIVE_TURN_ERROR_MESSAGE
+    });
+    return { status: "failed", errorMessage: ACTIVE_TURN_ERROR_MESSAGE };
+  }
 
-  bindAttachmentsToMessage(conversationId, userMessage.id, attachmentIds);
-  void generateConversationTitleFromFirstUserMessage(conversationId, userMessage.id);
+  try {
+    const userMessage = createMessage({
+      conversationId,
+      role: "user",
+      content,
+      estimatedTokens: estimateTextTokens(content)
+    });
 
-  return startAssistantTurn(manager, conversationId, userMessage, preflight, personaId);
+    bindAttachmentsToMessage(conversationId, userMessage.id, attachmentIds);
+    void generateConversationTitleFromFirstUserMessage(conversationId, userMessage.id);
+
+    return startAssistantTurn(manager, conversationId, userMessage, preflight, claimed.control, personaId);
+  } catch (error) {
+    releaseChatTurnStart(conversationId, claimed.control);
+    throw error;
+  }
 }
