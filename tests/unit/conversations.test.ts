@@ -1346,6 +1346,37 @@ describe("conversation helpers", () => {
     ]);
   });
 
+  it("does not claim a second queued message while one is already processing", async () => {
+    const { createConversation, createQueuedMessage, claimNextQueuedMessageForDispatch, listQueuedMessages } =
+      await import("@/lib/conversations");
+
+    const conversation = createConversation();
+    const first = createQueuedMessage({
+      conversationId: conversation.id,
+      content: "First queued follow-up"
+    });
+    const second = createQueuedMessage({
+      conversationId: conversation.id,
+      content: "Second queued follow-up"
+    });
+
+    const firstClaim = claimNextQueuedMessageForDispatch(conversation.id);
+    const secondClaim = claimNextQueuedMessageForDispatch(conversation.id);
+
+    expect(firstClaim?.id).toBe(first.id);
+    expect(secondClaim).toBeNull();
+    expect(listQueuedMessages(conversation.id)).toEqual([
+      expect.objectContaining({
+        id: first.id,
+        status: "processing"
+      }),
+      expect.objectContaining({
+        id: second.id,
+        status: "pending"
+      })
+    ]);
+  });
+
   it("includes queued messages in conversation snapshots", async () => {
     const { createConversation, createQueuedMessage, getConversationSnapshot } =
       await import("@/lib/conversations");

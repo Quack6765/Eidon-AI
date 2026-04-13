@@ -1085,6 +1085,13 @@ export function moveQueuedMessageToFront({
 
 export function claimNextQueuedMessageForDispatch(conversationId: string) {
   const db = getDb();
+  const selectProcessing = db.prepare(
+    `SELECT id
+     FROM queued_messages
+     WHERE conversation_id = ?
+       AND status = 'processing'
+     LIMIT 1`
+  );
   const selectNextPending = db.prepare(
     `SELECT
       id,
@@ -1113,6 +1120,12 @@ export function claimNextQueuedMessageForDispatch(conversationId: string) {
   );
 
   const transaction = db.transaction((targetConversationId: string) => {
+    const processingRow = selectProcessing.get(targetConversationId) as { id: string } | undefined;
+
+    if (processingRow) {
+      return null;
+    }
+
     const row = selectNextPending.get(targetConversationId) as
       | {
           id: string;
