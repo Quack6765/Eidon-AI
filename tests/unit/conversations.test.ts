@@ -1289,6 +1289,28 @@ describe("conversation helpers", () => {
     });
   });
 
+  it("creates queued messages inside a transaction when assigning sort order", async () => {
+    const { createConversation, createQueuedMessage } = await import("@/lib/conversations");
+
+    const conversation = createConversation();
+    const db = getDb();
+    const originalTransaction = db.transaction.bind(db);
+    const transactionSpy = vi.fn((callback: (...args: unknown[]) => unknown) => originalTransaction(callback));
+
+    db.transaction = transactionSpy as typeof db.transaction;
+
+    try {
+      createQueuedMessage({
+        conversationId: conversation.id,
+        content: "Transactional queue insert"
+      });
+    } finally {
+      db.transaction = originalTransaction as typeof db.transaction;
+    }
+
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("includes queued messages in conversation snapshots", async () => {
     const { createConversation, createQueuedMessage, getConversationSnapshot } =
       await import("@/lib/conversations");

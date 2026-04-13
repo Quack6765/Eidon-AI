@@ -973,28 +973,11 @@ export function createQueuedMessage({
   conversationId: string;
   content: string;
 }) {
-  const timestamp = nowIso();
   const db = getDb();
-  const nextSortOrder =
-    ((db
-      .prepare(
-        "SELECT COALESCE(MAX(sort_order), -1) AS max_sort_order FROM queued_messages WHERE conversation_id = ?"
-      )
-      .get(conversationId) as { max_sort_order: number | null }).max_sort_order ?? -1) + 1;
-
-  const queuedMessage: QueuedMessage = {
-    id: createId("queue"),
-    conversationId,
-    content,
-    status: "pending",
-    sortOrder: nextSortOrder,
-    failureMessage: null,
-    createdAt: timestamp,
-    updatedAt: timestamp,
-    processingStartedAt: null
-  };
-
-  db.prepare(
+  const selectMaxSortOrder = db.prepare(
+    "SELECT COALESCE(MAX(sort_order), -1) AS max_sort_order FROM queued_messages WHERE conversation_id = ?"
+  );
+  const insertQueuedMessage = db.prepare(
     `INSERT INTO queued_messages (
       id,
       conversation_id,
@@ -1006,19 +989,41 @@ export function createQueuedMessage({
       created_at,
       updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    queuedMessage.id,
-    queuedMessage.conversationId,
-    queuedMessage.content,
-    queuedMessage.status,
-    queuedMessage.sortOrder,
-    queuedMessage.failureMessage,
-    queuedMessage.processingStartedAt,
-    queuedMessage.createdAt,
-    queuedMessage.updatedAt
   );
 
-  return queuedMessage;
+  const transaction = db.transaction((targetConversationId: string, queuedContent: string) => {
+    const timestamp = nowIso();
+    const nextSortOrder =
+      ((selectMaxSortOrder.get(targetConversationId) as { max_sort_order: number | null }).max_sort_order ?? -1) + 1;
+
+    const queuedMessage: QueuedMessage = {
+      id: createId("queue"),
+      conversationId: targetConversationId,
+      content: queuedContent,
+      status: "pending",
+      sortOrder: nextSortOrder,
+      failureMessage: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      processingStartedAt: null
+    };
+
+    insertQueuedMessage.run(
+      queuedMessage.id,
+      queuedMessage.conversationId,
+      queuedMessage.content,
+      queuedMessage.status,
+      queuedMessage.sortOrder,
+      queuedMessage.failureMessage,
+      queuedMessage.processingStartedAt,
+      queuedMessage.createdAt,
+      queuedMessage.updatedAt
+    );
+
+    return queuedMessage;
+  });
+
+  return transaction(conversationId, content);
 }
 
 export function moveQueuedMessageToFront({
