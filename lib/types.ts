@@ -127,6 +127,10 @@ export type Conversation = {
   isActive: boolean;
 };
 
+export type ConversationSearchResult = Conversation & {
+  matchSnippet?: string;
+};
+
 export type Automation = {
   id: string;
   name: string;

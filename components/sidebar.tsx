@@ -56,10 +56,10 @@ import {
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { addGlobalWsListener } from "@/lib/ws-client";
 import type { ServerMessage } from "@/lib/ws-protocol";
-import type { Conversation, ConversationListPage, Folder } from "@/lib/types";
+import type { Conversation, ConversationListPage, ConversationSearchResult, Folder } from "@/lib/types";
 import { SidebarFooterNav } from "@/components/sidebar-footer-nav";
 
-type SidebarConversation = Conversation & { matchSnippet?: string };
+type SidebarConversation = ConversationSearchResult;
 
 type ConversationSection = {
   label: string;
@@ -133,6 +133,34 @@ function buildConversationSections(conversations: SidebarConversation[]) {
     .filter((section) => section.conversations.length > 0);
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+export function highlightMatch(text: string, query: string): string {
+  if (!query) {
+    return escapeHtml(text);
+  }
+
+  const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const splitRegex = new RegExp(`(${escapedQuery})`, "gi");
+  const wholeMatchRegex = new RegExp(`^${escapedQuery}$`, "i");
+
+  return text
+    .split(splitRegex)
+    .map((segment) =>
+      wholeMatchRegex.test(segment)
+        ? `<mark class="bg-[var(--accent)]/30 text-white rounded px-0.5">${escapeHtml(segment)}</mark>`
+        : escapeHtml(segment)
+    )
+    .join("");
+}
+
 function ConversationItem({
   conversation,
   active,
@@ -140,7 +168,8 @@ function ConversationItem({
   onDeleteConversation,
   onMoveConversation,
   allFolders,
-  dragEnabled
+  dragEnabled,
+  searchQuery
 }: {
   conversation: SidebarConversation;
   active: boolean;
@@ -149,6 +178,7 @@ function ConversationItem({
   onMoveConversation: (conversationId: string, folderId: string | null) => void;
   allFolders: Folder[];
   dragEnabled: boolean;
+  searchQuery: string;
 }) {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -167,6 +197,14 @@ function ConversationItem({
     transform: CSS.Transform.toString(transform),
     transition
   };
+  const trimmedSearchQuery = searchQuery.trim();
+  const highlightedTitle = trimmedSearchQuery
+    ? highlightMatch(conversation.title, trimmedSearchQuery)
+    : null;
+  const highlightedMatchSnippet =
+    trimmedSearchQuery && conversation.matchSnippet
+      ? highlightMatch(conversation.matchSnippet, trimmedSearchQuery)
+      : null;
 
   function handleNavigate(event: ReactMouseEvent<HTMLAnchorElement>) {
     if (
@@ -251,13 +289,23 @@ function ConversationItem({
         )}
 
         <div className="relative min-w-0 flex-1 overflow-hidden">
-          {conversation.matchSnippet ? (
-            <div className="truncate" dangerouslySetInnerHTML={{ __html: conversation.matchSnippet }} />
+          {highlightedTitle ? (
+            <div
+              className={`truncate ${active ? "pr-8" : "group-hover:pr-8"}`}
+              dangerouslySetInnerHTML={{ __html: highlightedTitle }}
+            />
           ) : (
             <div className={`truncate ${active ? "pr-8" : "group-hover:pr-8"}`}>
               {conversation.title}
             </div>
           )}
+
+          {highlightedMatchSnippet ? (
+            <div
+              className={`mt-0.5 truncate pr-8 text-xs ${active ? "text-white/55" : "text-white/40 group-hover:text-white/50"}`}
+              dangerouslySetInnerHTML={{ __html: highlightedMatchSnippet }}
+            />
+          ) : null}
 
           <div
             className={`absolute right-0 top-0 bottom-0 flex items-center bg-gradient-to-l from-transparent via-transparent to-transparent pl-4 pr-1 transition-opacity duration-300 ${
@@ -353,7 +401,8 @@ function FolderItem({
   onCreateInFolder,
   dragEnabled,
   showCount,
-  isDraggingConversation
+  isDraggingConversation,
+  searchQuery
 }: {
   folder: Folder;
   conversations: SidebarConversation[];
@@ -366,6 +415,7 @@ function FolderItem({
   dragEnabled: boolean;
   showCount: boolean;
   isDraggingConversation: boolean;
+  searchQuery: string;
 }) {
   const [collapsed, setCollapsed] = useState(true);
   const [renaming, setRenaming] = useState(false);
@@ -557,6 +607,7 @@ function FolderItem({
               onMoveConversation={onMoveConversation}
               allFolders={allFolders}
               dragEnabled={dragEnabled}
+              searchQuery={searchQuery}
             />
           ))}
         </div>
@@ -707,13 +758,8 @@ export function Sidebar({
 
     searchTimeoutRef.current = setTimeout(async () => {
       const res = await fetch(`/api/conversations/search?q=${encodeURIComponent(query)}`);
-      const data = (await res.json()) as { conversations: Conversation[] };
-
-      const highlighted = data.conversations.map((c) => ({
-        ...c,
-        matchSnippet: highlightMatch(c.title, query)
-      }));
-      setSearchResults(highlighted);
+      const data = (await res.json()) as { conversations: ConversationSearchResult[] };
+      setSearchResults(data.conversations);
     }, 200);
   }, []);
 
@@ -755,10 +801,7 @@ export function Sidebar({
               conversation.id === detail.conversationId
                 ? {
                     ...conversation,
-                    title: detail.title,
-                    matchSnippet: searchQuery.trim()
-                      ? highlightMatch(detail.title, searchQuery)
-                      : conversation.matchSnippet
+                    title: detail.title
                   }
                 : conversation
             )
@@ -777,7 +820,7 @@ export function Sidebar({
         handleConversationTitleUpdated as EventListener
       );
     };
-  }, [searchQuery]);
+  }, []);
 
   useEffect(() => {
     function handleConversationRemoved(event: Event) {
@@ -880,11 +923,6 @@ export function Sidebar({
       }
     });
   }, []);
-
-  function highlightMatch(text: string, query: string): string {
-    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi");
-    return text.replace(regex, '<mark class="bg-[var(--accent)]/30 text-white rounded px-0.5">$1</mark>');
-  }
 
   async function handleCreate(folderId?: string) {
     await deleteConversationIfStillEmpty(activeConversationId);
@@ -1008,6 +1046,7 @@ export function Sidebar({
                 dragEnabled={enableDrag}
                 showCount={showFolderCounts}
                 isDraggingConversation={draggingConversation}
+                searchQuery={searchQuery}
               />
             </div>
           );
@@ -1035,6 +1074,7 @@ export function Sidebar({
                     onMoveConversation={moveConversationInState}
                     allFolders={localFolders}
                     dragEnabled={enableDrag}
+                    searchQuery={searchQuery}
                   />
                 ))}
               </div>
