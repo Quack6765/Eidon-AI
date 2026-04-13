@@ -1043,6 +1043,24 @@ function recoverTextAttachmentFile(input: {
   };
 }
 
+function deleteAttachmentFilesForMessageIds(messageIds: string[]) {
+  if (!messageIds.length) {
+    return;
+  }
+
+  listAttachmentsForMessageIds(messageIds).forEach((attachment) => {
+    const absolutePath = path.resolve(getAttachmentsRoot(), attachment.relativePath);
+
+    try {
+      fs.unlinkSync(absolutePath);
+    } catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  });
+}
+
 export function forkConversationFromMessage(messageId: string, userId?: string) {
   const db = getDb();
   const copiedAttachmentPaths: string[] = [];
@@ -1496,6 +1514,7 @@ export function rewriteConversationFromEditedUserMessage(
       throw new Error("Message not found");
     }
 
+    const affectedIds = messages.slice(targetIndex).map((item) => item.id);
     const deletedMessages = messages.slice(targetIndex + 1);
     const deletedIds = deletedMessages.map((item) => item.id);
 
@@ -1504,25 +1523,27 @@ export function rewriteConversationFromEditedUserMessage(
     });
     updateMessageEstimatedTokens(message.id);
 
+    const affectedPlaceholders = affectedIds.map(() => "?").join(", ");
+
+    db.prepare(
+      `DELETE FROM compaction_events
+       WHERE conversation_id = ?
+         AND (source_start_message_id IN (${affectedPlaceholders})
+           OR source_end_message_id IN (${affectedPlaceholders}))`
+    ).run(conversation.id, ...affectedIds, ...affectedIds);
+
+    db.prepare(
+      `DELETE FROM memory_nodes
+       WHERE conversation_id = ?
+         AND (source_start_message_id IN (${affectedPlaceholders})
+           OR source_end_message_id IN (${affectedPlaceholders}))`
+    ).run(conversation.id, ...affectedIds, ...affectedIds);
+
     if (deletedIds.length > 0) {
       const deleteMessage = db.prepare("DELETE FROM messages WHERE id = ?");
-      const placeholders = deletedIds.map(() => "?").join(", ");
+      deleteAttachmentFilesForMessageIds(deletedIds);
 
       deletedMessages.forEach((item) => deleteMessage.run(item.id));
-
-      db.prepare(
-        `DELETE FROM compaction_events
-         WHERE conversation_id = ?
-           AND (source_start_message_id IN (${placeholders})
-             OR source_end_message_id IN (${placeholders}))`
-      ).run(conversation.id, ...deletedIds, ...deletedIds);
-
-      db.prepare(
-        `DELETE FROM memory_nodes
-         WHERE conversation_id = ?
-           AND (source_start_message_id IN (${placeholders})
-             OR source_end_message_id IN (${placeholders}))`
-      ).run(conversation.id, ...deletedIds, ...deletedIds);
     }
 
     setConversationActive(conversation.id, false);

@@ -21,6 +21,7 @@ import {
   isVisibleMessage,
   forkConversationFromMessage,
   rewriteConversationFromEditedUserMessage,
+  setConversationActive,
   listConversations,
   listConversationsPage,
   listMessages,
@@ -1169,6 +1170,13 @@ describe("conversation helpers", () => {
       role: "assistant",
       content: "Old checklist"
     });
+    const [tailAttachment] = createAttachments(conversation.id, [
+      {
+        filename: "old-checklist.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("delete this attachment file", "utf8")
+      }
+    ]);
 
     const [attachment] = createAttachments(conversation.id, [
       {
@@ -1178,6 +1186,14 @@ describe("conversation helpers", () => {
       }
     ]);
     bindAttachmentsToMessage(conversation.id, editedUser.id, [attachment.id]);
+    bindAttachmentsToMessage(conversation.id, trailingAssistant.id, [tailAttachment.id]);
+    setConversationActive(conversation.id, true);
+
+    const tailAttachmentPath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      tailAttachment.relativePath
+    );
 
     const rewritten = rewriteConversationFromEditedUserMessage(editedUser.id, {
       content: "Need a deployment checklist with rollback steps"
@@ -1194,9 +1210,11 @@ describe("conversation helpers", () => {
     expect(rewritten.messages.at(-1)?.estimatedTokens).toBe(
       estimateMessageTokens(rewritten.messages.at(-1)!)
     );
+    expect(rewritten.conversation.isActive).toBe(false);
     expect(
       rewritten.messages.some((message) => message.id === trailingAssistant.id)
     ).toBe(false);
+    expect(fs.existsSync(tailAttachmentPath)).toBe(false);
     expect(getConversationSnapshot(conversation.id)?.messages).toHaveLength(3);
   });
 
@@ -1240,6 +1258,27 @@ describe("conversation helpers", () => {
       null,
       new Date().toISOString()
     );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id, conversation_id, type, depth, content,
+        source_start_message_id, source_end_message_id,
+        source_token_count, summary_token_count, child_node_ids,
+        superseded_by_node_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "mem_edited",
+      conversation.id,
+      "leaf_summary",
+      0,
+      "Summary ending on edited message",
+      firstUser.id,
+      editedUser.id,
+      60,
+      15,
+      "[]",
+      null,
+      new Date().toISOString()
+    );
 
     db.prepare(
       `INSERT INTO compaction_events (
@@ -1252,6 +1291,20 @@ describe("conversation helpers", () => {
       "mem_tail",
       firstUser.id,
       tailAssistant.id,
+      null,
+      new Date().toISOString()
+    );
+    db.prepare(
+      `INSERT INTO compaction_events (
+        id, conversation_id, node_id, source_start_message_id,
+        source_end_message_id, notice_message_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "cmp_edited",
+      conversation.id,
+      "mem_edited",
+      firstUser.id,
+      editedUser.id,
       null,
       new Date().toISOString()
     );
