@@ -5,7 +5,7 @@ import { Download, FileText, X } from "lucide-react";
 
 import type { MessageAttachment } from "@/lib/types";
 
-type AttachmentPreviewState =
+export type AttachmentPreviewState =
   | { kind: "loading" }
   | { kind: "image" }
   | { kind: "text"; content: string }

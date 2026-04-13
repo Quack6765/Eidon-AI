@@ -6,6 +6,9 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
 import type { Message, MessageAction, MessageTimelineItem } from "@/lib/types";
 
+const originalFetch = global.fetch;
+const OriginalImage = global.Image;
+
 function createAssistantMessage(): Message {
   return {
     id: "msg_assistant",
@@ -106,6 +109,32 @@ function createMemoryProposalMessage(
     ...overrides
   };
 }
+
+function installMockImage({ fail = false }: { fail?: boolean } = {}) {
+  class MockImage {
+    onload: null | (() => void) = null;
+    onerror: null | (() => void) = null;
+
+    set src(_value: string) {
+      window.setTimeout(() => {
+        if (fail) {
+          this.onerror?.();
+          return;
+        }
+
+        this.onload?.();
+      }, 0);
+    }
+  }
+
+  global.Image = MockImage as unknown as typeof Image;
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  global.fetch = originalFetch;
+  global.Image = OriginalImage;
+});
 
 describe("message bubble", () => {
   it("renders running tool actions with a spinner while streaming", () => {
@@ -935,6 +964,8 @@ describe("message bubble", () => {
   });
 
   it("opens image attachments in a centered modal and closes with the X button", async () => {
+    installMockImage();
+
     render(
       React.createElement(MessageBubble, {
         message: {
@@ -962,7 +993,11 @@ describe("message bubble", () => {
     fireEvent.click(screen.getByRole("button", { name: "Preview photo.png" }));
 
     expect(screen.getByRole("dialog", { name: "Attachment preview" })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "photo.png" })).toBeInTheDocument();
+    expect(screen.getByText("Loading preview…")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByRole("img", { name: "photo.png" })).toBeInTheDocument();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: "Close attachment preview" }));
 
@@ -1020,6 +1055,8 @@ describe("message bubble", () => {
   });
 
   it("closes the attachment modal when Escape is pressed", async () => {
+    installMockImage();
+
     render(
       React.createElement(MessageBubble, {
         message: {
@@ -1050,6 +1087,136 @@ describe("message bubble", () => {
     await waitFor(() => {
       expect(screen.queryByRole("dialog", { name: "Attachment preview" })).toBeNull();
     });
+  });
+
+  it("ignores stale text preview responses when a newer attachment is selected", async () => {
+    let resolveFirst:
+      | ((value: Response | PromiseLike<Response>) => void)
+      | undefined;
+    let resolveSecond:
+      | ((value: Response | PromiseLike<Response>) => void)
+      | undefined;
+
+    global.fetch = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFirst = resolve;
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveSecond = resolve;
+          })
+      );
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: "See attached",
+          attachments: [
+            {
+              id: "att_first",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "first.txt",
+              mimeType: "text/plain",
+              byteSize: 10,
+              sha256: "hash-first",
+              relativePath: "conv_test/att_first_first.txt",
+              kind: "text",
+              extractedText: "first",
+              createdAt: new Date().toISOString()
+            },
+            {
+              id: "att_second",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "second.txt",
+              mimeType: "text/plain",
+              byteSize: 10,
+              sha256: "hash-second",
+              relativePath: "conv_test/att_second_second.txt",
+              kind: "text",
+              extractedText: "second",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview first.txt" }));
+    fireEvent.click(screen.getByRole("button", { name: "Preview second.txt" }));
+
+    resolveSecond?.({
+      ok: true,
+      json: async () => ({
+        id: "att_second",
+        filename: "second.txt",
+        mimeType: "text/plain",
+        content: "second attachment content"
+      })
+    } as Response);
+
+    await waitFor(() => {
+      expect(screen.getByText("second attachment content")).toBeInTheDocument();
+    });
+
+    resolveFirst?.({
+      ok: true,
+      json: async () => ({
+        id: "att_first",
+        filename: "first.txt",
+        mimeType: "text/plain",
+        content: "stale attachment content"
+      })
+    } as Response);
+
+    await waitFor(() => {
+      expect(screen.getByText("second attachment content")).toBeInTheDocument();
+      expect(screen.queryByText("stale attachment content")).toBeNull();
+    });
+  });
+
+  it("shows an error state when an image preview fails to load", async () => {
+    installMockImage({ fail: true });
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: "See attached",
+          attachments: [
+            {
+              id: "att_image",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "photo.png",
+              mimeType: "image/png",
+              byteSize: 10,
+              sha256: "hash",
+              relativePath: "conv_test/att_image_photo.png",
+              kind: "image",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview photo.png" }));
+
+    expect(screen.getByText("Loading preview…")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText("Unable to load attachment preview.")).toBeInTheDocument();
+    });
+    expect(screen.getByRole("button", { name: "Retry preview" })).toBeInTheDocument();
   });
 
   it("renders streaming actions before the streaming answer text", () => {

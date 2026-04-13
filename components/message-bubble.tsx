@@ -6,7 +6,10 @@ import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
-import { AttachmentPreviewModal } from "@/components/attachment-preview-modal";
+import {
+  AttachmentPreviewModal,
+  type AttachmentPreviewState
+} from "@/components/attachment-preview-modal";
 import { CompactionIndicator } from "@/components/compaction-indicator";
 import { Textarea } from "@/components/ui/textarea";
 import type {
@@ -714,14 +717,12 @@ export function MessageBubble({
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
   const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
-  const [previewState, setPreviewState] = useState<
-    | { kind: "loading" }
-    | { kind: "image" }
-    | { kind: "text"; content: string }
-    | { kind: "error"; message: string }
-    | { kind: "unsupported" }
-  >({ kind: "unsupported" });
+  const [previewState, setPreviewState] = useState<AttachmentPreviewState>({
+    kind: "unsupported"
+  });
   const [textPreviewCache, setTextPreviewCache] = useState<Record<string, string>>({});
+  const previewRequestTokenRef = useRef(0);
+  const previewAttachmentIdRef = useRef<string | null>(null);
 
   function toggleToolItem(id: string) {
     setToolOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -756,6 +757,13 @@ export function MessageBubble({
       if (copyResetHandle.current) {
         window.clearTimeout(copyResetHandle.current);
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      previewRequestTokenRef.current += 1;
+      previewAttachmentIdRef.current = null;
     };
   }, []);
 
@@ -812,24 +820,59 @@ export function MessageBubble({
     setIsEditing(false);
   }
 
+  function isCurrentPreviewRequest(requestToken: number, attachmentId: string) {
+    return (
+      previewRequestTokenRef.current === requestToken &&
+      previewAttachmentIdRef.current === attachmentId
+    );
+  }
+
   async function openAttachmentPreview(attachment: MessageAttachment) {
+    const requestToken = previewRequestTokenRef.current + 1;
+    previewRequestTokenRef.current = requestToken;
+    previewAttachmentIdRef.current = attachment.id;
     setPreviewAttachment(attachment);
+    setPreviewState({ kind: "loading" });
 
     if (attachment.kind === "image") {
-      setPreviewState({ kind: "image" });
+      const image = new Image();
+      image.onload = () => {
+        if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
+          return;
+        }
+
+        setPreviewState({ kind: "image" });
+      };
+      image.onerror = () => {
+        if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
+          return;
+        }
+
+        setPreviewState({
+          kind: "error",
+          message: "Unable to load attachment preview."
+        });
+      };
+      image.src = `/api/attachments/${attachment.id}`;
       return;
     }
 
-    setPreviewState({ kind: "loading" });
-
     const cached = textPreviewCache[attachment.id];
     if (cached) {
+      if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
+        return;
+      }
+
       setPreviewState({ kind: "text", content: cached });
       return;
     }
 
     try {
       const response = await fetch(`/api/attachments/${attachment.id}?format=text`);
+      if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
+        return;
+      }
+
       if (!response.ok) {
         if (response.status === 415) {
           setPreviewState({ kind: "unsupported" });
@@ -839,9 +882,17 @@ export function MessageBubble({
       }
 
       const payload = await response.json();
+      if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
+        return;
+      }
+
       setTextPreviewCache((current) => ({ ...current, [attachment.id]: payload.content }));
       setPreviewState({ kind: "text", content: payload.content });
     } catch (error) {
+      if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
+        return;
+      }
+
       setPreviewState({
         kind: "error",
         message: error instanceof Error ? error.message : "Unable to load attachment preview."
@@ -850,6 +901,8 @@ export function MessageBubble({
   }
 
   function closeAttachmentPreview() {
+    previewRequestTokenRef.current += 1;
+    previewAttachmentIdRef.current = null;
     setPreviewAttachment(null);
     setPreviewState({ kind: "unsupported" });
   }
