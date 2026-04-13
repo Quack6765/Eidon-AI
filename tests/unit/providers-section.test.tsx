@@ -279,6 +279,7 @@ describe("providers section", () => {
     const apiBaseUrlInput = screen.getByDisplayValue("https://api.example.com/v1");
     const modelInput = container.querySelector<HTMLInputElement>('input[name="provider-model"]');
 
+    expect(screen.getByRole("option", { name: "OpenRouter" })).toBeInTheDocument();
     expect(modelInput).toBeTruthy();
     expect(modelInput).toHaveValue("gpt-test");
 
