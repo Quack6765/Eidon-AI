@@ -402,4 +402,56 @@ describe("chat-turn", () => {
       startChatTurn
     });
   });
+
+  it("cleans up normally when onMessagesCreated throws", async () => {
+    const ensureQueuedDispatch = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("@/lib/queued-chat-dispatcher", () => ({
+      ensureQueuedDispatch
+    }));
+
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversations = await import("@/lib/conversations");
+    const conv = conversations.createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const result = await startChatTurn(
+      manager,
+      conv.id,
+      "Hi",
+      [],
+      undefined,
+      {
+        onMessagesCreated() {
+          throw new Error("Queue callback failed");
+        }
+      }
+    );
+
+    expect(result).toEqual({
+      status: "failed",
+      errorMessage: "Queue callback failed"
+    });
+    expect(manager.isActive(conv.id)).toBe(false);
+    expect(conversations.getConversation(conv.id)?.isActive).toBe(false);
+    expect(conversations.listVisibleMessages(conv.id).find((message) => message.role === "assistant")?.status).toBe("error");
+    expect(ensureQueuedDispatch).toHaveBeenCalledWith({
+      manager,
+      conversationId: conv.id,
+      startChatTurn
+    });
+  });
 });

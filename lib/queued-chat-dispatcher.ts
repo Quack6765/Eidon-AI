@@ -31,40 +31,47 @@ export async function ensureQueuedDispatch({
   dispatchLocks.add(conversationId);
 
   try {
-    if (!manager.isActive(conversationId)) {
-      markOrphanedQueuedMessagesFailed(conversationId);
-    }
-
-    const queued = claimNextQueuedMessageForDispatch(conversationId);
-    if (!queued) {
-      return;
-    }
-
-    let messagesCreated = false;
-    const result = await startChatTurn(
-      manager,
-      conversationId,
-      queued.content,
-      [],
-      undefined,
-      {
-        source: "queue",
-        onMessagesCreated() {
-          messagesCreated = true;
-          deleteQueuedMessage({
-            conversationId,
-            queuedMessageId: queued.id
-          });
-        }
+    while (true) {
+      const currentConversation = getConversation(conversationId);
+      if (!currentConversation || currentConversation.isActive) {
+        return;
       }
-    );
 
-    if ((result.status === "failed" || result.status === "skipped") && !messagesCreated) {
-      failQueuedMessage({
+      if (!manager.isActive(conversationId)) {
+        markOrphanedQueuedMessagesFailed(conversationId);
+      }
+
+      const queued = claimNextQueuedMessageForDispatch(conversationId);
+      if (!queued) {
+        return;
+      }
+
+      let messagesCreated = false;
+      const result = await startChatTurn(
+        manager,
         conversationId,
-        queuedMessageId: queued.id,
-        failureMessage: result.errorMessage ?? "Unable to dispatch queued follow-up"
-      });
+        queued.content,
+        [],
+        undefined,
+        {
+          source: "queue",
+          onMessagesCreated() {
+            messagesCreated = true;
+            deleteQueuedMessage({
+              conversationId,
+              queuedMessageId: queued.id
+            });
+          }
+        }
+      );
+
+      if ((result.status === "failed" || result.status === "skipped") && !messagesCreated) {
+        failQueuedMessage({
+          conversationId,
+          queuedMessageId: queued.id,
+          failureMessage: result.errorMessage ?? "Unable to dispatch queued follow-up"
+        });
+      }
     }
   } finally {
     dispatchLocks.delete(conversationId);

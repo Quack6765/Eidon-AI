@@ -122,11 +122,6 @@ export async function startChatTurn(
     estimatedTokens: 0
   });
 
-  options?.onMessagesCreated?.({
-    userMessageId: userMessage.id,
-    assistantMessageId: assistantMessage.id
-  });
-
   manager.broadcast(conversationId, {
     type: "delta",
     conversationId,
@@ -172,6 +167,11 @@ export async function startChatTurn(
   }
 
   try {
+    options?.onMessagesCreated?.({
+      userMessageId: userMessage.id,
+      assistantMessageId: assistantMessage.id
+    });
+
     const compacted = await ensureCompactedContext(conversation.id, settings, {
       onCompactionStart() {
         manager.broadcast(conversationId, {

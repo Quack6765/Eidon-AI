@@ -49,7 +49,8 @@ describe("queued-chat-dispatcher", () => {
 
   it("consumes only the claimed queue row after a successful dispatch", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { createConversation, createQueuedMessage, listQueuedMessages } = await import("@/lib/conversations");
+    const { createConversation, createQueuedMessage, listQueuedMessages, setConversationActive } =
+      await import("@/lib/conversations");
     const { ensureQueuedDispatch } = await import("@/lib/queued-chat-dispatcher");
 
     const manager = createConversationManager();
@@ -62,6 +63,8 @@ describe("queued-chat-dispatcher", () => {
         userMessageId: "msg_user_1",
         assistantMessageId: "msg_assistant_1"
       });
+      manager.setActive(conversation.id, true);
+      setConversationActive(conversation.id, true);
       return { status: "completed" as const };
     });
 
@@ -79,6 +82,7 @@ describe("queued-chat-dispatcher", () => {
       undefined,
       expect.objectContaining({ source: "queue", onMessagesCreated: expect.any(Function) })
     );
+    expect(startChatTurn).toHaveBeenCalledTimes(1);
     expect(listQueuedMessages(conversation.id)).toEqual([
       expect.objectContaining({
         id: second.id,
@@ -87,5 +91,39 @@ describe("queued-chat-dispatcher", () => {
       })
     ]);
     expect(listQueuedMessages(conversation.id).some((item) => item.id === first.id)).toBe(false);
+  });
+
+  it("drains multiple queued items from a single dispatcher kick", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { createConversation, createQueuedMessage, listQueuedMessages } = await import("@/lib/conversations");
+    const { ensureQueuedDispatch } = await import("@/lib/queued-chat-dispatcher");
+
+    const manager = createConversationManager();
+    const conversation = createConversation();
+    createQueuedMessage({ conversationId: conversation.id, content: "First queued follow-up" });
+    createQueuedMessage({ conversationId: conversation.id, content: "Second queued follow-up" });
+    createQueuedMessage({ conversationId: conversation.id, content: "Third queued follow-up" });
+
+    const startChatTurn = vi.fn(async (_manager, _conversationId, content, _attachmentIds, _personaId, options) => {
+      options?.onMessagesCreated?.({
+        userMessageId: `user-${content}`,
+        assistantMessageId: `assistant-${content}`
+      });
+      return { status: "completed" as const };
+    });
+
+    await ensureQueuedDispatch({
+      manager,
+      conversationId: conversation.id,
+      startChatTurn
+    });
+
+    expect(startChatTurn).toHaveBeenCalledTimes(3);
+    expect(startChatTurn.mock.calls.map((call) => call[2])).toEqual([
+      "First queued follow-up",
+      "Second queued follow-up",
+      "Third queued follow-up"
+    ]);
+    expect(listQueuedMessages(conversation.id)).toEqual([]);
   });
 });
