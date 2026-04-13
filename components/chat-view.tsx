@@ -1358,7 +1358,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       estimatedTokens: 0,
       systemKind: null,
       compactedAt: null,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      attachments: nextPendingAttachments
     };
     pendingLocalMessageIdsRef.current.push(optimisticUserMessage.id);
     pendingLocalSubmissionsRef.current.push({

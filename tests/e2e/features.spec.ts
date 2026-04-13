@@ -120,11 +120,51 @@ async function mockAttachmentUpload(
       return;
     }
 
-    await route.fulfill({
-      status: 200,
-      contentType: "image/png",
-      body: TINY_PNG
-    });
+    const requestUrl = new URL(route.request().url());
+    const attachmentId = requestUrl.pathname.split("/").pop();
+    const attachment = attachments.find((item) => item.id === attachmentId);
+
+    if (!attachment) {
+      await route.fulfill({ status: 404 });
+      return;
+    }
+
+    if (requestUrl.searchParams.get("format") === "text") {
+      if (attachment.kind !== "text") {
+        await route.fulfill({
+          status: 415,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Preview unavailable for this attachment type." })
+        });
+        return;
+      }
+
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: attachment.id,
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          content: "hello"
+        })
+      });
+      return;
+    }
+
+    await route.fulfill(
+      attachment.kind === "image"
+        ? {
+            status: 200,
+            contentType: "image/png",
+            body: TINY_PNG
+          }
+        : {
+            status: 200,
+            contentType: attachment.mimeType,
+            body: "hello"
+          }
+    );
   });
 }
 
@@ -640,5 +680,78 @@ test.describe("Feature: Chat attachments", () => {
     await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled({
       timeout: 5000
     });
+  });
+
+  test("opens transcript image attachments in a modal and closes them", async ({ page }) => {
+    await signIn(page);
+    await mockChatResponse(page);
+    await mockAttachmentUpload(page, [
+      {
+        id: "att_photo",
+        filename: "photo.png",
+        mimeType: "image/png",
+        kind: "image"
+      }
+    ]);
+
+    await createNewChat(page);
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+    const chooserPromise = page.waitForEvent("filechooser");
+    const uploadResponsePromise = page.waitForResponse(
+      (response) => response.url().includes("/api/attachments") && response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "Attach files" }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({ name: "photo.png", mimeType: "image/png", buffer: TINY_PNG });
+    await uploadResponsePromise;
+
+    await page.getByPlaceholder(/Ask, create, or start a task/i).fill("Keep this image");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.getByRole("button", { name: "Preview photo.png" }).last()).toBeVisible({
+      timeout: 10000
+    });
+
+    await page.getByRole("button", { name: "Preview photo.png" }).last().click();
+    await expect(page.getByRole("dialog", { name: "Attachment preview" })).toBeVisible();
+    await expect(page.getByRole("img", { name: "photo.png" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Close attachment preview" }).click();
+    await expect(page.getByRole("dialog", { name: "Attachment preview" })).toBeHidden();
+  });
+
+  test("opens transcript text attachments in a modal and renders preview content", async ({ page }) => {
+    await signIn(page);
+    await mockChatResponse(page);
+    await mockAttachmentUpload(page, [
+      {
+        id: "att_notes",
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        kind: "text"
+      }
+    ]);
+
+    await createNewChat(page);
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+    const chooserPromise = page.waitForEvent("filechooser");
+    const uploadResponsePromise = page.waitForResponse(
+      (response) => response.url().includes("/api/attachments") && response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "Attach files" }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello") });
+    await uploadResponsePromise;
+
+    await page.getByPlaceholder(/Ask, create, or start a task/i).fill("Keep these notes");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.getByRole("button", { name: "Preview notes.txt" }).last()).toBeVisible({
+      timeout: 10000
+    });
+
+    await page.getByRole("button", { name: "Preview notes.txt" }).last().click();
+    await expect(page.getByRole("dialog", { name: "Attachment preview" })).toBeVisible();
+    await expect(page.getByText("hello")).toBeVisible();
   });
 });

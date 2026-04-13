@@ -930,8 +930,126 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByAltText("photo.png")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview photo.png" })).toBeInTheDocument();
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
+  });
+
+  it("opens image attachments in a centered modal and closes with the X button", async () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: "See attached",
+          attachments: [
+            {
+              id: "att_image",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "photo.png",
+              mimeType: "image/png",
+              byteSize: 10,
+              sha256: "hash",
+              relativePath: "conv_test/att_image_photo.png",
+              kind: "image",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview photo.png" }));
+
+    expect(screen.getByRole("dialog", { name: "Attachment preview" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "photo.png" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Close attachment preview" }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Attachment preview" })).toBeNull();
+    });
+  });
+
+  it("loads text attachments into a read-only preview surface", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "att_text",
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        content: "hello from the preview route"
+      })
+    } as Response);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: "See attached",
+          attachments: [
+            {
+              id: "att_text",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "notes.txt",
+              mimeType: "text/plain",
+              byteSize: 10,
+              sha256: "hash2",
+              relativePath: "conv_test/att_text_notes.txt",
+              kind: "text",
+              extractedText: "hello",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview notes.txt" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("hello from the preview route")).toBeInTheDocument();
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith("/api/attachments/att_text?format=text");
+    expect(screen.getByRole("link", { name: "Open raw attachment" })).toHaveAttribute(
+      "href",
+      "/api/attachments/att_text"
+    );
+  });
+
+  it("closes the attachment modal when Escape is pressed", async () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: "See attached",
+          attachments: [
+            {
+              id: "att_image",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "photo.png",
+              mimeType: "image/png",
+              byteSize: 10,
+              sha256: "hash",
+              relativePath: "conv_test/att_image_photo.png",
+              kind: "image",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview photo.png" }));
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Attachment preview" })).toBeNull();
+    });
   });
 
   it("renders streaming actions before the streaming answer text", () => {
