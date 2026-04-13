@@ -360,4 +360,28 @@ describe("chat-turn", () => {
       })
     );
   });
+
+  it("continues from an existing user message without creating a duplicate user row", async () => {
+    const { createConversation, createMessage, listVisibleMessages } = await import("@/lib/conversations");
+    const { startAssistantTurnFromExistingUserMessage } = await import("@/lib/chat-turn");
+    const { getConversationManager } = await import("@/lib/ws-singleton");
+
+    const conversation = createConversation("Restart conversation");
+    const existingUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Edited prompt"
+    });
+
+    await startAssistantTurnFromExistingUserMessage(
+      getConversationManager(),
+      conversation.id,
+      existingUser.id
+    );
+
+    const messages = listVisibleMessages(conversation.id);
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
+    expect(messages[0]?.id).toBe(existingUser.id);
+    expect(messages.at(-1)?.role).toBe("assistant");
+  });
 });

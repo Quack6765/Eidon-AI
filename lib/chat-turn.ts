@@ -7,6 +7,7 @@ import {
   createMessageAction,
   generateConversationTitleFromFirstUserMessage,
   getConversation,
+  getMessage,
   getConversationOwnerId,
   setConversationActive,
   updateMessage,
@@ -22,7 +23,7 @@ import {
   getProviderProfileWithApiKey
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
-import type { ChatStreamEvent } from "@/lib/types";
+import type { ChatStreamEvent, Message } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export type ChatEmitter = ReturnType<typeof createEmitter<{
@@ -52,11 +53,10 @@ export function getChatEmitter(): ChatEmitter {
   return globalEmitter;
 }
 
-export async function startChatTurn(
+async function startAssistantTurn(
   manager: ConversationManager,
   conversationId: string,
-  content: string,
-  attachmentIds: string[],
+  existingUserMessage: Message,
   personaId?: string
 ) : Promise<ChatTurnResult> {
   const conversation = getConversation(conversationId);
@@ -64,46 +64,6 @@ export async function startChatTurn(
     return { status: "skipped", errorMessage: "Conversation not found" };
   }
   const conversationOwnerId = getConversationOwnerId(conversationId);
-
-  const settings =
-    (conversation.providerProfileId
-      ? getProviderProfileWithApiKey(conversation.providerProfileId)
-      : null) ?? getDefaultProviderProfileWithApiKey();
-  const appSettings = getSettings();
-
-  if (!settings) {
-    manager.broadcast(conversationId, {
-      type: "error",
-      message: "No provider profile configured"
-    });
-    return { status: "failed", errorMessage: "No provider profile configured" };
-  }
-
-  if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
-    manager.broadcast(conversationId, {
-      type: "error",
-      message: "Set an API key in settings before starting a chat"
-    });
-    return { status: "failed", errorMessage: "Set an API key in settings before starting a chat" };
-  }
-
-  if (settings.providerKind === "github_copilot" && !settings.githubUserAccessTokenEncrypted) {
-    manager.broadcast(conversationId, {
-      type: "error",
-      message: "Connect a GitHub account in settings before starting a chat"
-    });
-    return { status: "failed", errorMessage: "Connect a GitHub account in settings before starting a chat" };
-  }
-
-  const userMessage = createMessage({
-    conversationId: conversation.id,
-    role: "user",
-    content,
-    estimatedTokens: estimateTextTokens(content)
-  });
-
-  bindAttachmentsToMessage(conversation.id, userMessage.id, attachmentIds);
-  void generateConversationTitleFromFirstUserMessage(conversation.id, userMessage.id);
 
   const assistantMessage = createMessage({
     conversationId: conversation.id,
@@ -119,6 +79,45 @@ export async function startChatTurn(
     conversationId,
     event: { type: "message_start", messageId: assistantMessage.id }
   });
+
+  const settings =
+    (conversation.providerProfileId
+      ? getProviderProfileWithApiKey(conversation.providerProfileId)
+      : null) ?? getDefaultProviderProfileWithApiKey();
+  const appSettings = getSettings();
+
+  if (!settings) {
+    updateMessage(assistantMessage.id, {
+      status: "error"
+    });
+    manager.broadcast(conversationId, {
+      type: "error",
+      message: "No provider profile configured"
+    });
+    return { status: "failed", errorMessage: "No provider profile configured" };
+  }
+
+  if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
+    updateMessage(assistantMessage.id, {
+      status: "error"
+    });
+    manager.broadcast(conversationId, {
+      type: "error",
+      message: "Set an API key in settings before starting a chat"
+    });
+    return { status: "failed", errorMessage: "Set an API key in settings before starting a chat" };
+  }
+
+  if (settings.providerKind === "github_copilot" && !settings.githubUserAccessTokenEncrypted) {
+    updateMessage(assistantMessage.id, {
+      status: "error"
+    });
+    manager.broadcast(conversationId, {
+      type: "error",
+      message: "Connect a GitHub account in settings before starting a chat"
+    });
+    return { status: "failed", errorMessage: "Connect a GitHub account in settings before starting a chat" };
+  }
 
   manager.setActive(conversationId, true);
   globalEmitter.emit("status", conversationId, "streaming");
@@ -374,4 +373,42 @@ export async function startChatTurn(
     );
     globalEmitter.emit("status", conversationId, "completed");
   }
+}
+
+export async function startAssistantTurnFromExistingUserMessage(
+  manager: ConversationManager,
+  conversationId: string,
+  messageId: string,
+  personaId?: string
+): Promise<ChatTurnResult> {
+  const message = getMessage(messageId);
+  if (!message || message.role !== "user" || message.conversationId !== conversationId) {
+    return { status: "skipped", errorMessage: "User message not found" };
+  }
+
+  return startAssistantTurn(manager, conversationId, message, personaId);
+}
+
+export async function startChatTurn(
+  manager: ConversationManager,
+  conversationId: string,
+  content: string,
+  attachmentIds: string[],
+  personaId?: string
+): Promise<ChatTurnResult> {
+  if (!getConversation(conversationId)) {
+    return { status: "skipped", errorMessage: "Conversation not found" };
+  }
+
+  const userMessage = createMessage({
+    conversationId,
+    role: "user",
+    content,
+    estimatedTokens: estimateTextTokens(content)
+  });
+
+  bindAttachmentsToMessage(conversationId, userMessage.id, attachmentIds);
+  void generateConversationTitleFromFirstUserMessage(conversationId, userMessage.id);
+
+  return startAssistantTurn(manager, conversationId, userMessage, personaId);
 }
