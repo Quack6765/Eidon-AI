@@ -477,6 +477,32 @@ export function readAttachmentBuffer(attachment: Pick<MessageAttachment, "relati
   return fs.readFileSync(resolveAttachmentAbsolutePath(attachment.relativePath));
 }
 
+const INLINE_TEXT_PREVIEW_MIME_TYPES = new Set(["text/plain", "text/markdown", "application/json"]);
+
+export function isInlineTextPreviewableAttachment(
+  attachment: Pick<MessageAttachment, "kind" | "mimeType" | "filename">
+) {
+  if (attachment.kind !== "text") {
+    return false;
+  }
+
+  if (INLINE_TEXT_PREVIEW_MIME_TYPES.has(attachment.mimeType)) {
+    return true;
+  }
+
+  return /\.(txt|md|markdown|json)$/i.test(attachment.filename);
+}
+
+export function readAttachmentText(
+  attachment: Pick<MessageAttachment, "relativePath" | "kind" | "mimeType" | "filename">
+) {
+  if (!isInlineTextPreviewableAttachment(attachment)) {
+    throw new Error("Attachment cannot be previewed as text");
+  }
+
+  return readAttachmentBuffer(attachment).toString("utf8");
+}
+
 export function getAttachmentDataUrl(attachment: Pick<MessageAttachment, "relativePath" | "mimeType">) {
   const buffer = readAttachmentBuffer(attachment);
   return `data:${attachment.mimeType};base64,${buffer.toString("base64")}`;
