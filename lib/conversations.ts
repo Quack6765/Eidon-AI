@@ -1105,6 +1105,7 @@ export function claimNextQueuedMessageForDispatch(conversationId: string) {
   const claimQueuedMessage = db.prepare(
     `UPDATE queued_messages
      SET status = 'processing',
+         failure_message = NULL,
          processing_started_at = ?,
          updated_at = ?
      WHERE id = ?
@@ -1140,6 +1141,7 @@ export function claimNextQueuedMessageForDispatch(conversationId: string) {
     return rowToQueuedMessage({
       ...row,
       status: "processing",
+      failure_message: null,
       updated_at: timestamp,
       processing_started_at: timestamp
     });

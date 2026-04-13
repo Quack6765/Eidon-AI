@@ -1311,6 +1311,41 @@ describe("conversation helpers", () => {
     expect(transactionSpy).toHaveBeenCalledTimes(1);
   });
 
+  it("clears stale failure text when claiming a retried queued message", async () => {
+    const { createConversation, createQueuedMessage, claimNextQueuedMessageForDispatch, listQueuedMessages } =
+      await import("@/lib/conversations");
+
+    const conversation = createConversation();
+    const queuedMessage = createQueuedMessage({
+      conversationId: conversation.id,
+      content: "Retry me"
+    });
+
+    getDb()
+      .prepare(
+        `UPDATE queued_messages
+         SET status = 'pending',
+             failure_message = ?
+         WHERE id = ?`
+      )
+      .run("Previous dispatch failed", queuedMessage.id);
+
+    const claimed = claimNextQueuedMessageForDispatch(conversation.id);
+
+    expect(claimed).toMatchObject({
+      id: queuedMessage.id,
+      status: "processing",
+      failureMessage: null
+    });
+    expect(listQueuedMessages(conversation.id)).toEqual([
+      expect.objectContaining({
+        id: queuedMessage.id,
+        status: "processing",
+        failureMessage: null
+      })
+    ]);
+  });
+
   it("includes queued messages in conversation snapshots", async () => {
     const { createConversation, createQueuedMessage, getConversationSnapshot } =
       await import("@/lib/conversations");
