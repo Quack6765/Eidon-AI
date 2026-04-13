@@ -158,6 +158,21 @@ describe("conversations extended", () => {
     expect(results[0].id).toBe(conv.id);
   });
 
+  it("returns the matched transcript text for message-content search hits", () => {
+    const conv = createConversation("Sprint Notes");
+    createMessage({
+      conversationId: conv.id,
+      role: "assistant",
+      content: "The launch code phrase is silver moon tonight."
+    });
+
+    const results = searchConversations("silver moon");
+
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe(conv.id);
+    expect((results[0] as { matchSnippet?: string }).matchSnippet).toContain("silver moon");
+  });
+
   it("excludes automation conversations from manual search results", () => {
     const defaultProviderProfileId =
       getSettings().defaultProviderProfileId ?? listProviderProfiles()[0]?.id ?? "";

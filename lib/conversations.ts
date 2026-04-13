@@ -26,6 +26,7 @@ import type {
   Conversation,
   ConversationListPage,
   ConversationOrigin,
+  ConversationSearchResult,
   ConversationTitleGenerationStatus,
   Message,
   MessageAttachment,
@@ -93,6 +94,26 @@ function rowToConversation(row: ConversationRow): Conversation {
     updatedAt: row.updated_at,
     isActive: row.is_active === 1
   };
+}
+
+function buildConversationMatchSnippet(content: string, query: string) {
+  const normalizedContent = content.replace(/\s+/g, " ").trim();
+  const normalizedQuery = query.replace(/\s+/g, " ").trim();
+
+  if (!normalizedContent || !normalizedQuery) {
+    return normalizedContent;
+  }
+
+  const matchIndex = normalizedContent.toLowerCase().indexOf(normalizedQuery.toLowerCase());
+
+  if (matchIndex === -1) {
+    return normalizedContent.slice(0, 120);
+  }
+
+  const start = Math.max(0, matchIndex - 36);
+  const end = Math.min(normalizedContent.length, matchIndex + normalizedQuery.length + 48);
+
+  return `${start > 0 ? "…" : ""}${normalizedContent.slice(start, end).trim()}${end < normalizedContent.length ? "…" : ""}`;
 }
 
 function rowToMessage(row: {
@@ -1878,14 +1899,14 @@ export function reorderConversations(
   );
 }
 
-export function searchConversations(query: string, userId?: string) {
+export function searchConversations(query: string, userId?: string): ConversationSearchResult[] {
   const likeQuery = `%${query}%`;
   const activityTimestamp = conversationActivityTimestampSql("c");
   const userCondition = userId ? "c.user_id = ? AND " : "";
 
   const rows = getDb()
     .prepare(
-      `SELECT DISTINCT
+      `SELECT
         c.id,
         c.title,
         c.title_generation_status,
@@ -1897,20 +1918,50 @@ export function searchConversations(query: string, userId?: string) {
         c.sort_order,
         c.created_at,
         ${activityTimestamp} AS updated_at,
-        c.is_active
+        c.is_active,
+        m.content AS matched_message_content
        FROM conversations c
-       LEFT JOIN messages m ON c.id = m.conversation_id
+       LEFT JOIN messages m
+         ON c.id = m.conversation_id
+        AND m.content LIKE ?
+        AND (m.role != 'system' OR m.system_kind IS NOT NULL)
        WHERE ${userCondition}c.conversation_origin = ?
          AND (
            c.title LIKE ?
-           OR (
-             m.content LIKE ?
-             AND (m.role != 'system' OR m.system_kind IS NOT NULL)
-           )
+           OR m.id IS NOT NULL
          )
-       ORDER BY ${activityTimestamp} DESC, c.id DESC`
+       ORDER BY ${activityTimestamp} DESC, c.id DESC, m.created_at ASC`
     )
-    .all(...(userId ? [userId] : []), MANUAL_CONVERSATION_ORIGIN, likeQuery, likeQuery) as ConversationRow[];
+    .all(
+      likeQuery,
+      ...(userId ? [userId] : []),
+      MANUAL_CONVERSATION_ORIGIN,
+      likeQuery
+    ) as Array<ConversationRow & { matched_message_content: string | null }>;
 
-  return rows.map(rowToConversation);
+  const normalizedQuery = query.trim().toLowerCase();
+  const results: ConversationSearchResult[] = [];
+  const seenConversationIds = new Set<string>();
+
+  rows.forEach((row) => {
+    if (seenConversationIds.has(row.id)) {
+      return;
+    }
+
+    seenConversationIds.add(row.id);
+
+    const conversation = rowToConversation(row);
+    const titleMatches = row.title.toLowerCase().includes(normalizedQuery);
+
+    results.push(
+      titleMatches || !row.matched_message_content
+        ? conversation
+        : {
+            ...conversation,
+            matchSnippet: buildConversationMatchSnippet(row.matched_message_content, query)
+          }
+    );
+  });
+
+  return results;
 }
