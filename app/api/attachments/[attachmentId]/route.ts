@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  AttachmentTextPreviewUnsupportedError,
   deleteAttachmentById,
   getAttachment,
   readAttachmentBuffer,
@@ -46,9 +47,11 @@ export async function GET(
         content: readAttachmentText(attachment)
       });
     } catch (error) {
-      if (error instanceof Error && error.message === "Attachment cannot be previewed as text") {
+      if (error instanceof AttachmentTextPreviewUnsupportedError) {
         return badRequest("Attachment cannot be previewed as text", 415);
       }
+
+      return badRequest("Attachment file not found", 404);
     }
   }
 

@@ -67,6 +67,13 @@ type CreateAttachmentInput = {
   bytes: Buffer;
 };
 
+export class AttachmentTextPreviewUnsupportedError extends Error {
+  constructor() {
+    super("Attachment cannot be previewed as text");
+    this.name = "AttachmentTextPreviewUnsupportedError";
+  }
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -495,7 +502,7 @@ export function readAttachmentText(
   attachment: Pick<MessageAttachment, "relativePath" | "kind" | "mimeType" | "filename" | "extractedText">
 ) {
   if (!isInlineTextPreviewableAttachment(attachment)) {
-    throw new Error("Attachment cannot be previewed as text");
+    throw new AttachmentTextPreviewUnsupportedError();
   }
 
   try {

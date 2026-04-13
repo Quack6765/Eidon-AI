@@ -1,9 +1,8 @@
 import fs from "node:fs";
-import path from "node:path";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createAttachments } from "@/lib/attachments";
+import { createAttachments, resolveAttachmentPath } from "@/lib/attachments";
 import { createConversation } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
 
@@ -18,6 +17,7 @@ vi.mock("@/lib/auth", () => ({
 describe("attachment preview route", () => {
   beforeEach(() => {
     requireUserMock.mockReset();
+    vi.restoreAllMocks();
   });
 
   it("returns text preview JSON for supported text attachment types accepted by uploads", async () => {
@@ -98,11 +98,7 @@ describe("attachment preview route", () => {
         bytes: Buffer.from("# Missing file\nRecovered from extracted text", "utf8")
       }
     ]);
-    const absolutePath = path.resolve(
-      process.env.EIDON_DATA_DIR!,
-      "attachments",
-      attachment.relativePath
-    );
+    const absolutePath = resolveAttachmentPath(attachment);
 
     fs.unlinkSync(absolutePath);
     requireUserMock.mockResolvedValue(user);
@@ -120,6 +116,38 @@ describe("attachment preview route", () => {
       mimeType: "text/markdown",
       content: "# Missing file\nRecovered from extracted text"
     });
+  });
+
+  it("keeps text preview requests in text mode when preview reading fails unexpectedly", async () => {
+    const user = await createLocalUser({
+      username: "attachment-preview-read-error-user",
+      password: "Password123!",
+      role: "user"
+    });
+    const conversation = createConversation("Attachment preview read error", null, undefined, user.id);
+    const [attachment] = createAttachments(conversation.id, [
+      {
+        filename: "read-error.md",
+        mimeType: "text/markdown",
+        bytes: Buffer.from("# Read error\nStill text", "utf8")
+      }
+    ]);
+
+    requireUserMock.mockResolvedValue(user);
+    const attachmentsModule = await import("@/lib/attachments");
+    vi.spyOn(attachmentsModule, "readAttachmentText").mockImplementation(() => {
+      throw new Error("unexpected preview failure");
+    });
+
+    const { GET } = await import("@/app/api/attachments/[attachmentId]/route");
+    const response = await GET(
+      new Request(`http://localhost/api/attachments/${attachment.id}?format=text`),
+      { params: Promise.resolve({ attachmentId: attachment.id }) }
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("Content-Type")).not.toBe("text/markdown");
+    await expect(response.text()).resolves.toContain("Attachment file not found");
   });
 
   it("rejects inline text preview for image attachments", async () => {
