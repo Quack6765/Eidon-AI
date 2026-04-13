@@ -33,6 +33,7 @@ import {
 } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getSettings, listProviderProfiles, updateSettings } from "@/lib/settings";
+import { estimateMessageTokens } from "@/lib/tokenization";
 import { createLocalUser } from "@/lib/users";
 
 const { generateConversationTitle } = vi.hoisted(() => ({
@@ -1190,6 +1191,9 @@ describe("conversation helpers", () => {
     expect(rewritten.messages.at(-1)?.attachments?.map((item) => item.filename)).toEqual([
       "context.txt"
     ]);
+    expect(rewritten.messages.at(-1)?.estimatedTokens).toBe(
+      estimateMessageTokens(rewritten.messages.at(-1)!)
+    );
     expect(
       rewritten.messages.some((message) => message.id === trailingAssistant.id)
     ).toBe(false);

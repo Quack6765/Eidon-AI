@@ -1500,9 +1500,9 @@ export function rewriteConversationFromEditedUserMessage(
     const deletedIds = deletedMessages.map((item) => item.id);
 
     updateMessage(message.id, {
-      content: input.content,
-      estimatedTokens: estimateTextTokens(input.content)
+      content: input.content
     });
+    updateMessageEstimatedTokens(message.id);
 
     if (deletedIds.length > 0) {
       const deleteMessage = db.prepare("DELETE FROM messages WHERE id = ?");
