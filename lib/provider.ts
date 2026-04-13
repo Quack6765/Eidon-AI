@@ -232,6 +232,68 @@ function getResponseText(output: unknown) {
   return "";
 }
 
+function getResponseOutputItemMessageText(item: unknown) {
+  if (
+    !item ||
+    typeof item !== "object" ||
+    !("content" in item) ||
+    !Array.isArray((item as { content?: unknown[] }).content)
+  ) {
+    return "";
+  }
+
+  return normalizeLineBreaks(
+    (item as { content: unknown[] }).content
+      .flatMap((part) => {
+        if (!part || typeof part !== "object") {
+          return [];
+        }
+
+        const text = "text" in part && typeof (part as { text?: string }).text === "string"
+          ? (part as { text: string }).text
+          : "";
+
+        if (!text) {
+          return [];
+        }
+
+        const type = "type" in part && typeof (part as { type?: string }).type === "string"
+          ? (part as { type: string }).type
+          : "";
+
+        if (!type || type === "output_text" || type === "text") {
+          return [text];
+        }
+
+        return [];
+      })
+      .join("")
+  );
+}
+
+function mergeRecoveredStreamText(current: string, recovered: string) {
+  const nextText = normalizeLineBreaks(recovered);
+
+  if (!nextText || nextText === current) {
+    return {
+      nextText: current,
+      delta: ""
+    };
+  }
+
+  if (nextText.startsWith(current)) {
+    return {
+      nextText,
+      delta: nextText.slice(current.length)
+    };
+  }
+
+  return {
+    nextText,
+    delta: ""
+  };
+}
+
 export async function callProviderText(input: {
   settings: ProviderProfileWithApiKey;
   prompt: string;
@@ -555,7 +617,10 @@ export async function* streamProviderResponse(input: {
             continue;
           }
 
-          if (event.type === "response.output_text.delta") {
+          if (
+            event.type === "response.output_text.delta" ||
+            event.type === "response.content_part.delta"
+          ) {
             const text = normalizeLineBreaks(String(event.delta ?? ""));
             answer += text;
             yield { type: "answer_delta", text };
@@ -585,6 +650,7 @@ export async function* streamProviderResponse(input: {
               arguments?: string;
               call_id?: string;
               summary?: Array<{ text?: string }>;
+              content?: unknown[];
             };
 
             if (item.type === "function_call" && item.call_id) {
@@ -596,14 +662,20 @@ export async function* streamProviderResponse(input: {
 
             if (item.type === "reasoning" && Array.isArray(item.summary)) {
               const combined = normalizeLineBreaks(item.summary.map((part) => part.text ?? "").join(""));
+              const recovery = mergeRecoveredStreamText(thinking, combined);
+              thinking = recovery.nextText;
 
-              if (combined && combined !== thinking) {
-                const delta = combined.slice(thinking.length);
-                thinking = combined;
+              if (recovery.delta) {
+                yield { type: "thinking_delta", text: recovery.delta };
+              }
+            }
 
-                if (delta) {
-                  yield { type: "thinking_delta", text: delta };
-                }
+            if (item.type === "message") {
+              const recovery = mergeRecoveredStreamText(answer, getResponseOutputItemMessageText(item));
+              answer = recovery.nextText;
+
+              if (recovery.delta) {
+                yield { type: "answer_delta", text: recovery.delta };
               }
             }
           }
@@ -642,7 +714,10 @@ export async function* streamProviderResponse(input: {
           continue;
         }
 
-        if (event.type === "response.output_text.delta") {
+        if (
+          event.type === "response.output_text.delta" ||
+          event.type === "response.content_part.delta"
+        ) {
           const text = normalizeLineBreaks(String(event.delta ?? ""));
           answer += text;
           yield { type: "answer_delta", text };
@@ -672,6 +747,7 @@ export async function* streamProviderResponse(input: {
             arguments?: string;
             call_id?: string;
             summary?: Array<{ text?: string }>;
+            content?: unknown[];
           };
 
           if (item.type === "function_call" && item.call_id) {
@@ -683,14 +759,20 @@ export async function* streamProviderResponse(input: {
 
           if (item.type === "reasoning" && Array.isArray(item.summary)) {
             const combined = normalizeLineBreaks(item.summary.map((part) => part.text ?? "").join(""));
+            const recovery = mergeRecoveredStreamText(thinking, combined);
+            thinking = recovery.nextText;
 
-            if (combined && combined !== thinking) {
-              const delta = combined.slice(thinking.length);
-              thinking = combined;
+            if (recovery.delta) {
+              yield { type: "thinking_delta", text: recovery.delta };
+            }
+          }
 
-              if (delta) {
-                yield { type: "thinking_delta", text: delta };
-              }
+          if (item.type === "message") {
+            const recovery = mergeRecoveredStreamText(answer, getResponseOutputItemMessageText(item));
+            answer = recovery.nextText;
+
+            if (recovery.delta) {
+              yield { type: "answer_delta", text: recovery.delta };
             }
           }
         }

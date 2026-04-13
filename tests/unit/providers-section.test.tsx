@@ -267,6 +267,31 @@ describe("providers section", () => {
     });
   });
 
+  it("applies the OpenRouter preset from the providers settings dropdown", async () => {
+    const { container } = render(React.createElement(ProvidersSection, { settings: makeSettings() }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    const presetSelect = screen.getByDisplayValue("Manual configuration");
+    const profileNameInput = screen.getByDisplayValue("Default");
+    const apiBaseUrlInput = screen.getByDisplayValue("https://api.example.com/v1");
+    const modelInput = container.querySelector<HTMLInputElement>('input[name="provider-model"]');
+
+    expect(screen.getByRole("option", { name: "OpenRouter" })).toBeInTheDocument();
+    expect(modelInput).toBeTruthy();
+    expect(modelInput).toHaveValue("gpt-test");
+
+    fireEvent.change(presetSelect, {
+      target: { value: "openrouter" }
+    });
+
+    expect(profileNameInput).toHaveValue("OpenRouter");
+    expect(apiBaseUrlInput).toHaveValue("https://openrouter.ai/api/v1");
+    expect(modelInput).toHaveValue("");
+  });
+
   it("shows compaction threshold as a percent and preserves top-level settings on save", async () => {
     const fetchMock = vi.mocked(global.fetch);
     const settings = makeSettings({
