@@ -1254,6 +1254,58 @@ describe("conversation helpers", () => {
     expect(snapshot!.messages[1].textSegments![0].content).toBe("partial answer");
     expect(snapshot!.messages[1].actions).toHaveLength(1);
   });
+
+  it("creates, reorders, and claims queued messages for a conversation", async () => {
+    const {
+      createConversation,
+      createQueuedMessage,
+      listQueuedMessages,
+      moveQueuedMessageToFront,
+      claimNextQueuedMessageForDispatch
+    } = await import("@/lib/conversations");
+
+    const conversation = createConversation();
+    const first = createQueuedMessage({
+      conversationId: conversation.id,
+      content: "First queued follow-up"
+    });
+    const second = createQueuedMessage({
+      conversationId: conversation.id,
+      content: "Second queued follow-up"
+    });
+
+    moveQueuedMessageToFront({
+      conversationId: conversation.id,
+      queuedMessageId: second.id
+    });
+
+    expect(listQueuedMessages(conversation.id).map((item) => item.id)).toEqual([second.id, first.id]);
+
+    const claimed = claimNextQueuedMessageForDispatch(conversation.id);
+    expect(claimed?.id).toBe(second.id);
+    expect(listQueuedMessages(conversation.id)[0]).toMatchObject({
+      id: second.id,
+      status: "processing"
+    });
+  });
+
+  it("includes queued messages in conversation snapshots", async () => {
+    const { createConversation, createQueuedMessage, getConversationSnapshot } =
+      await import("@/lib/conversations");
+
+    const conversation = createConversation();
+    createQueuedMessage({
+      conversationId: conversation.id,
+      content: "Queued while busy"
+    });
+
+    expect(getConversationSnapshot(conversation.id)?.queuedMessages).toEqual([
+      expect.objectContaining({
+        content: "Queued while busy",
+        status: "pending"
+      })
+    ]);
+  });
 });
 
 describe("message fork routes", () => {
