@@ -26,12 +26,14 @@ import type {
   MessageAction,
   MessageAttachment,
   MessageTimelineItem,
+  QueuedMessage,
   ProviderProfileSummary
 } from "@/lib/types";
 
 type ConversationPayload = {
   conversation: Conversation;
   messages: Message[];
+  queuedMessages: QueuedMessage[];
   settings: Pick<AppSettings, "sttEngine" | "sttLanguage">;
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string | null;

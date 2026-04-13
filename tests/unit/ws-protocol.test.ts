@@ -17,6 +17,13 @@ describe("ws-protocol", () => {
     expect(parsed).toEqual(msg);
   });
 
+  it("serializes and parses queue client messages", async () => {
+    const { serializeClientMessage, parseClientMessage } = await import("@/lib/ws-protocol");
+    const message = { type: "queue_message", conversationId: "conv-1", content: "Queued follow-up" } as const;
+
+    expect(parseClientMessage(serializeClientMessage(message))).toEqual(message);
+  });
+
   it("serializes a server ready message", async () => {
     const { serializeServerMessage } = await import("@/lib/ws-protocol");
     const msg = { type: "ready" as const, activeConversations: [{ id: "conv-1", title: "Test", status: "streaming" as const }] };

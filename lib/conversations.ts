@@ -1026,6 +1026,85 @@ export function createQueuedMessage({
   return transaction(conversationId, content);
 }
 
+export function updateQueuedMessage({
+  conversationId,
+  queuedMessageId,
+  content
+}: {
+  conversationId: string;
+  queuedMessageId: string;
+  content: string;
+}) {
+  const db = getDb();
+  const updateQueuedMessageRow = db.prepare(
+    `UPDATE queued_messages
+     SET content = ?,
+         updated_at = ?
+     WHERE id = ?
+       AND conversation_id = ?`
+  );
+  const selectQueuedMessageRow = db.prepare(
+    `SELECT
+      id,
+      conversation_id,
+      content,
+      status,
+      sort_order,
+      failure_message,
+      created_at,
+      updated_at,
+      processing_started_at
+     FROM queued_messages
+     WHERE id = ?
+       AND conversation_id = ?`
+  );
+
+  const transaction = db.transaction((targetConversationId: string, targetQueuedMessageId: string, nextContent: string) => {
+    const timestamp = nowIso();
+    const result = updateQueuedMessageRow.run(nextContent, timestamp, targetQueuedMessageId, targetConversationId);
+
+    if (result.changes === 0) {
+      return null;
+    }
+
+    const row = selectQueuedMessageRow.get(targetQueuedMessageId, targetConversationId) as
+      | {
+          id: string;
+          conversation_id: string;
+          content: string;
+          status: QueuedMessageStatus;
+          sort_order: number;
+          failure_message: string | null;
+          created_at: string;
+          updated_at: string;
+          processing_started_at: string | null;
+        }
+      | undefined;
+
+    return row ? rowToQueuedMessage(row) : null;
+  });
+
+  return transaction(conversationId, queuedMessageId, content);
+}
+
+export function deleteQueuedMessage({
+  conversationId,
+  queuedMessageId
+}: {
+  conversationId: string;
+  queuedMessageId: string;
+}) {
+  const result = getDb()
+    .prepare(
+      `DELETE FROM queued_messages
+       WHERE id = ?
+         AND conversation_id = ?`
+    )
+    .run(queuedMessageId, conversationId);
+
+  return result.changes > 0;
+}
+
 export function moveQueuedMessageToFront({
   conversationId,
   queuedMessageId

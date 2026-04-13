@@ -4,7 +4,15 @@ import { verifySessionToken } from "@/lib/auth";
 import { createAutomationScheduler as createAutomationSchedulerBase } from "@/lib/automation-scheduler";
 import { startChatTurn } from "@/lib/chat-turn";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
-import { getConversationSnapshot, listActiveConversations } from "@/lib/conversations";
+import {
+  createQueuedMessage,
+  deleteQueuedMessage,
+  getConversationSnapshot,
+  listActiveConversations,
+  listQueuedMessages,
+  moveQueuedMessageToFront,
+  updateQueuedMessage
+} from "@/lib/conversations";
 import { type ConversationManager } from "@/lib/conversation-manager";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { requestStop } from "@/lib/chat-turn-control";
@@ -104,7 +112,8 @@ function handleMessage(
         conversationId: msg.conversationId,
         messages: snapshot.messages,
         actions: snapshot.messages.flatMap(m => m.actions ?? []),
-        segments: snapshot.messages.flatMap(m => m.textSegments ?? [])
+        segments: snapshot.messages.flatMap(m => m.textSegments ?? []),
+        queuedMessages: snapshot.queuedMessages
       }));
       break;
     }
@@ -134,7 +143,78 @@ function handleMessage(
       requestStop(msg.conversationId);
       break;
     }
+    case "queue_message": {
+      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId)) {
+        break;
+      }
+
+      createQueuedMessage({
+        conversationId: msg.conversationId,
+        content: msg.content
+      });
+      broadcastQueueUpdated(mgr, msg.conversationId);
+      break;
+    }
+    case "update_queued_message": {
+      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId)) {
+        break;
+      }
+
+      updateQueuedMessage({
+        conversationId: msg.conversationId,
+        queuedMessageId: msg.queuedMessageId,
+        content: msg.content
+      });
+      broadcastQueueUpdated(mgr, msg.conversationId);
+      break;
+    }
+    case "delete_queued_message": {
+      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId)) {
+        break;
+      }
+
+      deleteQueuedMessage({
+        conversationId: msg.conversationId,
+        queuedMessageId: msg.queuedMessageId
+      });
+      broadcastQueueUpdated(mgr, msg.conversationId);
+      break;
+    }
+    case "send_queued_message_now": {
+      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId)) {
+        break;
+      }
+
+      moveQueuedMessageToFront({
+        conversationId: msg.conversationId,
+        queuedMessageId: msg.queuedMessageId
+      });
+      requestStop(msg.conversationId);
+      broadcastQueueUpdated(mgr, msg.conversationId);
+      break;
+    }
   }
+}
+
+function ensureConversationAccess(
+  ws: WebSocket,
+  conversationId: string,
+  currentUserId: string | null
+) {
+  if (!getConversationSnapshot(conversationId, currentUserId ?? undefined)) {
+    ws.send(serializeServerMessage({ type: "error", message: "Conversation not found" }));
+    return false;
+  }
+
+  return true;
+}
+
+function broadcastQueueUpdated(mgr: ConversationManager, conversationId: string) {
+  mgr.broadcast(conversationId, {
+    type: "queue_updated",
+    conversationId,
+    queuedMessages: listQueuedMessages(conversationId)
+  });
 }
 
 async function handleUserMessage(

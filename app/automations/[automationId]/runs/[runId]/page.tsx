@@ -4,7 +4,7 @@ import { ChatView } from "@/components/chat-view";
 import { Shell } from "@/components/shell";
 import { requireUser } from "@/lib/auth";
 import { getAutomationRun, listAutomations } from "@/lib/automations";
-import { getConversation, listConversationsPage, listVisibleMessages } from "@/lib/conversations";
+import { getConversation, listConversationsPage, listQueuedMessages, listVisibleMessages } from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { listFolders } from "@/lib/folders";
@@ -44,6 +44,7 @@ export default async function AutomationRunPage({
         payload={{
           conversation,
           messages: listVisibleMessages(conversation.id),
+          queuedMessages: listQueuedMessages(conversation.id),
           settings: {
             sttEngine: settings.sttEngine,
             sttLanguage: settings.sttLanguage
