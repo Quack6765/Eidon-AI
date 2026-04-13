@@ -367,6 +367,94 @@ describe("provider integration", () => {
     });
   });
 
+  it("streams response content_part deltas as answer text", async () => {
+    responsesCreate.mockResolvedValue(
+      createAsyncStream([
+        { type: "response.content_part.delta", delta: "Hello " },
+        { type: "response.content_part.delta", delta: "world" }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+
+      if (next.done) {
+        expect(next.value.answer).toBe("Hello world");
+        break;
+      }
+
+      events.push(next.value);
+    }
+
+    expect(events).toEqual([
+      { type: "answer_delta", text: "Hello " },
+      { type: "answer_delta", text: "world" },
+      expect.objectContaining({
+        type: "usage",
+        inputTokens: expect.any(Number),
+        outputTokens: undefined,
+        reasoningTokens: undefined
+      })
+    ]);
+  });
+
+  it("recovers final responses message text from output items when earlier deltas were missed", async () => {
+    responsesCreate.mockResolvedValue(
+      createAsyncStream([
+        { type: "response.output_text.delta", delta: "a short story. However" },
+        {
+          type: "response.output_item.done",
+          item: {
+            type: "message",
+            content: [
+              {
+                type: "output_text",
+                text: "I don't have any tools that are relevant for writing a short story. However"
+              }
+            ]
+          }
+        }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+
+      if (next.done) {
+        expect(next.value.answer).toBe("I don't have any tools that are relevant for writing a short story. However");
+        break;
+      }
+
+      events.push(next.value);
+    }
+
+    expect(events).toEqual([
+      { type: "answer_delta", text: "a short story. However" },
+      expect.objectContaining({
+        type: "usage",
+        inputTokens: expect.any(Number),
+        outputTokens: undefined,
+        reasoningTokens: undefined
+      })
+    ]);
+  });
+
   it("accepts plain string responses and reasoning_text deltas", async () => {
     responsesCreate.mockResolvedValueOnce("plain text");
 

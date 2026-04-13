@@ -964,8 +964,11 @@ export async function resolveAssistantTurn(input: {
         continue;
       }
 
-      if (!answer.trim() && step > 0) {
-        promptMessages = mergeSystemMessage(promptMessages, "Your previous response was empty after using tools. Answer the user directly. Do not emit an empty response.");
+      if (!answer.trim()) {
+        promptMessages = mergeSystemMessage(
+          promptMessages,
+          "Your previous response was empty. Answer the user directly. Do not emit an empty response."
+        );
         continue;
       }
       await commitAnswerSegment(answer);
