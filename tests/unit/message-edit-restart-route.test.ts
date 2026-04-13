@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createConversation, createMessage, setConversationActive } from "@/lib/conversations";
+import { createConversation, createMessage, getMessage, setConversationActive } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
 
 const { requireUserMock } = vi.hoisted(() => ({
@@ -11,12 +11,17 @@ const { startAssistantTurnFromExistingUserMessageMock } = vi.hoisted(() => ({
   startAssistantTurnFromExistingUserMessageMock: vi.fn()
 }));
 
+const { getAssistantTurnStartPreflightMock } = vi.hoisted(() => ({
+  getAssistantTurnStartPreflightMock: vi.fn()
+}));
+
 vi.mock("@/lib/auth", () => ({
   requireUser: requireUserMock
 }));
 
 vi.mock("@/lib/chat-turn", () => ({
-  startAssistantTurnFromExistingUserMessage: startAssistantTurnFromExistingUserMessageMock
+  startAssistantTurnFromExistingUserMessage: startAssistantTurnFromExistingUserMessageMock,
+  getAssistantTurnStartPreflight: getAssistantTurnStartPreflightMock
 }));
 
 describe("message edit restart route", () => {
@@ -24,6 +29,11 @@ describe("message edit restart route", () => {
     requireUserMock.mockReset();
     startAssistantTurnFromExistingUserMessageMock.mockReset();
     startAssistantTurnFromExistingUserMessageMock.mockResolvedValue({ status: "completed" });
+    getAssistantTurnStartPreflightMock.mockReset();
+    getAssistantTurnStartPreflightMock.mockReturnValue({
+      ok: true,
+      context: {}
+    });
   });
 
   it("rewrites the message and starts a new assistant turn", async () => {
@@ -52,6 +62,18 @@ describe("message edit restart route", () => {
     );
 
     expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        conversation: expect.objectContaining({ id: conversation.id }),
+        messages: [
+          expect.objectContaining({
+            id: message.id,
+            role: "user",
+            content: "New content"
+          })
+        ]
+      })
+    );
     expect(startAssistantTurnFromExistingUserMessageMock).toHaveBeenCalledWith(
       expect.anything(),
       conversation.id,
@@ -119,5 +141,105 @@ describe("message edit restart route", () => {
     await expect(response.json()).resolves.toEqual({
       error: "Wait for the current assistant response to finish before editing this conversation"
     });
+  });
+
+  it("returns 400 for malformed json bodies", async () => {
+    const user = await createLocalUser({
+      username: "edit-route-bad-json",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const conversation = createConversation("Malformed body", null, {}, user.id);
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Original"
+    });
+
+    const { POST } = await import("@/app/api/messages/[messageId]/edit-restart/route");
+    const response = await POST(
+      new Request(`http://localhost/api/messages/${message.id}/edit-restart`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{"
+      }),
+      { params: Promise.resolve({ messageId: message.id }) }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "Invalid message update" });
+  });
+
+  it("does not rewrite when assistant-start preflight fails", async () => {
+    const user = await createLocalUser({
+      username: "edit-route-preflight-fail",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+    getAssistantTurnStartPreflightMock.mockReturnValue({
+      ok: false,
+      status: "failed",
+      statusCode: 400,
+      errorMessage: "No provider profile configured"
+    });
+
+    const conversation = createConversation("Preflight failure", null, {}, user.id);
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Old content"
+    });
+
+    const { POST } = await import("@/app/api/messages/[messageId]/edit-restart/route");
+    const response = await POST(
+      new Request(`http://localhost/api/messages/${message.id}/edit-restart`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "New content" })
+      }),
+      { params: Promise.resolve({ messageId: message.id }) }
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({ error: "No provider profile configured" });
+    expect(getMessage(message.id)?.content).toBe("Old content");
+    expect(startAssistantTurnFromExistingUserMessageMock).not.toHaveBeenCalled();
+  });
+
+  it("returns an error when assistant restart fails after rewrite", async () => {
+    const user = await createLocalUser({
+      username: "edit-route-restart-fail",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+    startAssistantTurnFromExistingUserMessageMock.mockResolvedValue({
+      status: "failed",
+      errorMessage: "Chat stream failed"
+    });
+
+    const conversation = createConversation("Restart failure", null, {}, user.id);
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Old content"
+    });
+
+    const { POST } = await import("@/app/api/messages/[messageId]/edit-restart/route");
+    const response = await POST(
+      new Request(`http://localhost/api/messages/${message.id}/edit-restart`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "New content" })
+      }),
+      { params: Promise.resolve({ messageId: message.id }) }
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({ error: "Chat stream failed" });
+    expect(getMessage(message.id)?.content).toBe("New content");
   });
 });

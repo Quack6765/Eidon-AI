@@ -1,7 +1,10 @@
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import { startAssistantTurnFromExistingUserMessage } from "@/lib/chat-turn";
+import {
+  getAssistantTurnStartPreflight,
+  startAssistantTurnFromExistingUserMessage
+} from "@/lib/chat-turn";
 import {
   getConversationSnapshot,
   getMessage,
@@ -18,6 +21,14 @@ const bodySchema = z.object({
   content: z.string().trim().min(1)
 });
 
+function getRestartFailureStatus(status: "failed" | "skipped" | "stopped") {
+  if (status === "failed") {
+    return 500;
+  }
+
+  return 409;
+}
+
 export async function POST(
   request: Request,
   context: { params: Promise<{ messageId: string }> }
@@ -28,7 +39,14 @@ export async function POST(
     return badRequest("Invalid message id");
   }
 
-  const body = bodySchema.safeParse(await request.json());
+  let rawBody: unknown;
+  try {
+    rawBody = await request.json();
+  } catch {
+    return badRequest("Invalid message update");
+  }
+
+  const body = bodySchema.safeParse(rawBody);
   if (!body.success) {
     return badRequest("Invalid message update");
   }
@@ -52,6 +70,11 @@ export async function POST(
     );
   }
 
+  const preflight = getAssistantTurnStartPreflight(message.conversationId);
+  if (!preflight.ok) {
+    return badRequest(preflight.errorMessage, preflight.statusCode);
+  }
+
   const rewritten = rewriteConversationFromEditedUserMessage(
     message.id,
     {
@@ -60,12 +83,19 @@ export async function POST(
     user.id
   );
 
-  await startAssistantTurnFromExistingUserMessage(
+  const restartResult = await startAssistantTurnFromExistingUserMessage(
     getConversationManager(),
     rewritten.conversation.id,
     message.id,
     undefined
   );
+
+  if (restartResult.status !== "completed") {
+    return badRequest(
+      restartResult.errorMessage ?? "Unable to restart assistant response",
+      getRestartFailureStatus(restartResult.status)
+    );
+  }
 
   return ok(rewritten);
 }

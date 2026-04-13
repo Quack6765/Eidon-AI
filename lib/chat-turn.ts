@@ -53,6 +53,59 @@ export function getChatEmitter(): ChatEmitter {
   return globalEmitter;
 }
 
+export function getAssistantTurnStartPreflight(conversationId: string) {
+  const conversation = getConversation(conversationId);
+  if (!conversation) {
+    return {
+      ok: false as const,
+      status: "skipped" as const,
+      statusCode: 404,
+      errorMessage: "Conversation not found"
+    };
+  }
+
+  const settings =
+    (conversation.providerProfileId
+      ? getProviderProfileWithApiKey(conversation.providerProfileId)
+      : null) ?? getDefaultProviderProfileWithApiKey();
+  const appSettings = getSettings();
+
+  if (!settings) {
+    return {
+      ok: false as const,
+      status: "failed" as const,
+      statusCode: 400,
+      errorMessage: "No provider profile configured"
+    };
+  }
+
+  if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
+    return {
+      ok: false as const,
+      status: "failed" as const,
+      statusCode: 400,
+      errorMessage: "Set an API key in settings before starting a chat"
+    };
+  }
+
+  if (settings.providerKind === "github_copilot" && !settings.githubUserAccessTokenEncrypted) {
+    return {
+      ok: false as const,
+      status: "failed" as const,
+      statusCode: 400,
+      errorMessage: "Connect a GitHub account in settings before starting a chat"
+    };
+  }
+
+  return {
+    ok: true as const,
+    conversation,
+    conversationOwnerId: getConversationOwnerId(conversationId),
+    settings,
+    appSettings
+  };
+}
+
 async function startAssistantTurn(
   manager: ConversationManager,
   conversationId: string,
@@ -80,44 +133,20 @@ async function startAssistantTurn(
     event: { type: "message_start", messageId: assistantMessage.id }
   });
 
-  const settings =
-    (conversation.providerProfileId
-      ? getProviderProfileWithApiKey(conversation.providerProfileId)
-      : null) ?? getDefaultProviderProfileWithApiKey();
-  const appSettings = getSettings();
-
-  if (!settings) {
+  const preflight = getAssistantTurnStartPreflight(conversationId);
+  if (!preflight.ok) {
     updateMessage(assistantMessage.id, {
       status: "error"
     });
-    manager.broadcast(conversationId, {
-      type: "error",
-      message: "No provider profile configured"
-    });
-    return { status: "failed", errorMessage: "No provider profile configured" };
+    if (preflight.status === "failed") {
+      manager.broadcast(conversationId, {
+        type: "error",
+        message: preflight.errorMessage
+      });
+    }
+    return { status: preflight.status, errorMessage: preflight.errorMessage };
   }
-
-  if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
-    updateMessage(assistantMessage.id, {
-      status: "error"
-    });
-    manager.broadcast(conversationId, {
-      type: "error",
-      message: "Set an API key in settings before starting a chat"
-    });
-    return { status: "failed", errorMessage: "Set an API key in settings before starting a chat" };
-  }
-
-  if (settings.providerKind === "github_copilot" && !settings.githubUserAccessTokenEncrypted) {
-    updateMessage(assistantMessage.id, {
-      status: "error"
-    });
-    manager.broadcast(conversationId, {
-      type: "error",
-      message: "Connect a GitHub account in settings before starting a chat"
-    });
-    return { status: "failed", errorMessage: "Connect a GitHub account in settings before starting a chat" };
-  }
+  const { settings, appSettings } = preflight;
 
   manager.setActive(conversationId, true);
   globalEmitter.emit("status", conversationId, "streaming");
