@@ -21,14 +21,6 @@ const bodySchema = z.object({
   content: z.string().trim().min(1)
 });
 
-function getRestartFailureStatus(status: "failed" | "skipped" | "stopped") {
-  if (status === "failed") {
-    return 500;
-  }
-
-  return 409;
-}
-
 export async function POST(
   request: Request,
   context: { params: Promise<{ messageId: string }> }
@@ -83,19 +75,12 @@ export async function POST(
     user.id
   );
 
-  const restartResult = await startAssistantTurnFromExistingUserMessage(
+  void startAssistantTurnFromExistingUserMessage(
     getConversationManager(),
     rewritten.conversation.id,
     message.id,
     undefined
   );
-
-  if (restartResult.status !== "completed") {
-    return badRequest(
-      restartResult.errorMessage ?? "Unable to restart assistant response",
-      getRestartFailureStatus(restartResult.status)
-    );
-  }
 
   return ok(rewritten);
 }

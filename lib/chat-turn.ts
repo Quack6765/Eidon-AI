@@ -106,17 +106,19 @@ export function getAssistantTurnStartPreflight(conversationId: string) {
   };
 }
 
+type AssistantTurnStartReady = Extract<
+  ReturnType<typeof getAssistantTurnStartPreflight>,
+  { ok: true }
+>;
+
 async function startAssistantTurn(
   manager: ConversationManager,
   conversationId: string,
   existingUserMessage: Message,
+  preflight: AssistantTurnStartReady,
   personaId?: string
 ) : Promise<ChatTurnResult> {
-  const conversation = getConversation(conversationId);
-  if (!conversation) {
-    return { status: "skipped", errorMessage: "Conversation not found" };
-  }
-  const conversationOwnerId = getConversationOwnerId(conversationId);
+  const { conversation, conversationOwnerId, settings, appSettings } = preflight;
 
   const assistantMessage = createMessage({
     conversationId: conversation.id,
@@ -132,21 +134,6 @@ async function startAssistantTurn(
     conversationId,
     event: { type: "message_start", messageId: assistantMessage.id }
   });
-
-  const preflight = getAssistantTurnStartPreflight(conversationId);
-  if (!preflight.ok) {
-    updateMessage(assistantMessage.id, {
-      status: "error"
-    });
-    if (preflight.status === "failed") {
-      manager.broadcast(conversationId, {
-        type: "error",
-        message: preflight.errorMessage
-      });
-    }
-    return { status: preflight.status, errorMessage: preflight.errorMessage };
-  }
-  const { settings, appSettings } = preflight;
 
   manager.setActive(conversationId, true);
   globalEmitter.emit("status", conversationId, "streaming");
@@ -415,7 +402,19 @@ export async function startAssistantTurnFromExistingUserMessage(
     return { status: "skipped", errorMessage: "User message not found" };
   }
 
-  return startAssistantTurn(manager, conversationId, message, personaId);
+  const preflight = getAssistantTurnStartPreflight(conversationId);
+  if (!preflight.ok) {
+    if (preflight.status === "failed") {
+      manager.broadcast(conversationId, {
+        type: "error",
+        message: preflight.errorMessage
+      });
+    }
+
+    return { status: preflight.status, errorMessage: preflight.errorMessage };
+  }
+
+  return startAssistantTurn(manager, conversationId, message, preflight, personaId);
 }
 
 export async function startChatTurn(
@@ -447,5 +446,5 @@ export async function startChatTurn(
   bindAttachmentsToMessage(conversationId, userMessage.id, attachmentIds);
   void generateConversationTitleFromFirstUserMessage(conversationId, userMessage.id);
 
-  return startAssistantTurn(manager, conversationId, userMessage, personaId);
+  return startAssistantTurn(manager, conversationId, userMessage, preflight, personaId);
 }

@@ -413,4 +413,33 @@ describe("chat-turn", () => {
     expect(messages.at(-1)?.status).toBe("completed");
     expect(messages.at(-1)?.content).toBe("Restarted answer");
   });
+
+  it("does not create an assistant placeholder when continuation preflight fails", async () => {
+    const { createConversation, createMessage, listVisibleMessages } = await import("@/lib/conversations");
+    const { startAssistantTurnFromExistingUserMessage } = await import("@/lib/chat-turn");
+    const { getConversationManager } = await import("@/lib/ws-singleton");
+
+    const conversation = createConversation("Restart conversation");
+    const existingUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Edited prompt"
+    });
+
+    await expect(
+      startAssistantTurnFromExistingUserMessage(
+        getConversationManager(),
+        conversation.id,
+        existingUser.id
+      )
+    ).resolves.toEqual({
+      status: "failed",
+      errorMessage: "Set an API key in settings before starting a chat"
+    });
+
+    const messages = listVisibleMessages(conversation.id);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.id).toBe(existingUser.id);
+    expect(messages[0]?.role).toBe("user");
+  });
 });

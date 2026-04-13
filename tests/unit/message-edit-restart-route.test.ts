@@ -209,7 +209,7 @@ describe("message edit restart route", () => {
     expect(startAssistantTurnFromExistingUserMessageMock).not.toHaveBeenCalled();
   });
 
-  it("returns an error when assistant restart fails after rewrite", async () => {
+  it("returns the rewritten snapshot without waiting for assistant completion", async () => {
     const user = await createLocalUser({
       username: "edit-route-restart-fail",
       password: "Password123!",
@@ -238,8 +238,41 @@ describe("message edit restart route", () => {
       { params: Promise.resolve({ messageId: message.id }) }
     );
 
-    expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({ error: "Chat stream failed" });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        conversation: expect.objectContaining({ id: conversation.id }),
+        messages: [
+          expect.objectContaining({
+            id: message.id,
+            role: "user",
+            content: "New content"
+          })
+        ]
+      })
+    );
     expect(getMessage(message.id)?.content).toBe("New content");
+  });
+
+  it("returns 404 when the message does not exist", async () => {
+    const user = await createLocalUser({
+      username: "edit-route-missing-message",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { POST } = await import("@/app/api/messages/[messageId]/edit-restart/route");
+    const response = await POST(
+      new Request("http://localhost/api/messages/missing/edit-restart", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ content: "New content" })
+      }),
+      { params: Promise.resolve({ messageId: "missing" }) }
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({ error: "Message not found" });
   });
 });
