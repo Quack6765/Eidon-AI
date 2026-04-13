@@ -1043,13 +1043,9 @@ function recoverTextAttachmentFile(input: {
   };
 }
 
-function deleteAttachmentFilesForMessageIds(messageIds: string[]) {
-  if (!messageIds.length) {
-    return;
-  }
-
-  listAttachmentsForMessageIds(messageIds).forEach((attachment) => {
-    const absolutePath = path.resolve(getAttachmentsRoot(), attachment.relativePath);
+function deleteAttachmentFiles(relativePaths: string[]) {
+  relativePaths.forEach((relativePath) => {
+    const absolutePath = path.resolve(getAttachmentsRoot(), relativePath);
 
     try {
       fs.unlinkSync(absolutePath);
@@ -1490,6 +1486,7 @@ export function rewriteConversationFromEditedUserMessage(
   userId?: string
 ) {
   const db = getDb();
+  const deletedAttachmentPaths = new Set<string>();
   const transaction = db.transaction(() => {
     const message = getMessage(messageId, userId);
 
@@ -1524,6 +1521,17 @@ export function rewriteConversationFromEditedUserMessage(
     updateMessageEstimatedTokens(message.id);
 
     const affectedPlaceholders = affectedIds.map(() => "?").join(", ");
+    const deletedNodeIds = (
+      db
+        .prepare(
+          `SELECT id
+           FROM memory_nodes
+           WHERE conversation_id = ?
+             AND (source_start_message_id IN (${affectedPlaceholders})
+               OR source_end_message_id IN (${affectedPlaceholders}))`
+        )
+        .all(conversation.id, ...affectedIds, ...affectedIds) as Array<{ id: string }>
+    ).map((row) => row.id);
 
     db.prepare(
       `DELETE FROM compaction_events
@@ -1539,9 +1547,23 @@ export function rewriteConversationFromEditedUserMessage(
            OR source_end_message_id IN (${affectedPlaceholders}))`
     ).run(conversation.id, ...affectedIds, ...affectedIds);
 
+    if (deletedNodeIds.length > 0) {
+      const deletedNodePlaceholders = deletedNodeIds.map(() => "?").join(", ");
+
+      db.prepare(
+        `UPDATE memory_nodes
+         SET superseded_by_node_id = NULL
+         WHERE conversation_id = ?
+           AND superseded_by_node_id IN (${deletedNodePlaceholders})`
+      ).run(conversation.id, ...deletedNodeIds);
+    }
+
     if (deletedIds.length > 0) {
       const deleteMessage = db.prepare("DELETE FROM messages WHERE id = ?");
-      deleteAttachmentFilesForMessageIds(deletedIds);
+
+      listAttachmentsForMessageIds(deletedIds).forEach((attachment) => {
+        deletedAttachmentPaths.add(attachment.relativePath);
+      });
 
       deletedMessages.forEach((item) => deleteMessage.run(item.id));
     }
@@ -1552,6 +1574,7 @@ export function rewriteConversationFromEditedUserMessage(
   });
 
   const snapshot = transaction();
+  deleteAttachmentFiles([...deletedAttachmentPaths]);
 
   if (!snapshot) {
     throw new Error("Conversation not found");
