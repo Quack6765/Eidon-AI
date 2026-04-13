@@ -190,10 +190,15 @@ describe("chat-turn", () => {
     manager.subscribe(conv.id, mockWs);
 
     const { startChatTurn } = await import("@/lib/chat-turn");
-    await startChatTurn(manager, conv.id, "Hi", []);
+    await expect(startChatTurn(manager, conv.id, "Hi", [])).resolves.toEqual({
+      status: "failed",
+      errorMessage: "Set an API key in settings before starting a chat"
+    });
 
     const errorMsg = sent.find((s: unknown) => (s as { type: string }).type === "error");
     expect(errorMsg).toBeDefined();
+    const { listVisibleMessages } = await import("@/lib/conversations");
+    expect(listVisibleMessages(conv.id)).toHaveLength(0);
   });
 
   it("persists a partial assistant message as stopped when the turn is cancelled", async () => {
@@ -359,5 +364,130 @@ describe("chat-turn", () => {
         }
       })
     );
+  });
+
+  it("continues from an existing user message without creating a duplicate user row", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { updateSettings } = await import("@/lib/settings");
+    const { createConversation, createMessage, listVisibleMessages } = await import("@/lib/conversations");
+    const { startAssistantTurnFromExistingUserMessage } = await import("@/lib/chat-turn");
+    const { getConversationManager } = await import("@/lib/ws-singleton");
+
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Restarted answer" };
+        return {
+          answer: "Restarted answer",
+          thinking: "",
+          usage: { outputTokens: 2 }
+        };
+      })()
+    );
+
+    const conversation = createConversation("Restart conversation");
+    const existingUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Edited prompt"
+    });
+
+    const result = await startAssistantTurnFromExistingUserMessage(
+      getConversationManager(),
+      conversation.id,
+      existingUser.id
+    );
+
+    expect(result).toEqual({ status: "completed" });
+    const messages = listVisibleMessages(conversation.id);
+    expect(messages.filter((message) => message.role === "user")).toHaveLength(1);
+    expect(messages[0]?.id).toBe(existingUser.id);
+    expect(messages.at(-1)?.role).toBe("assistant");
+    expect(messages.at(-1)?.status).toBe("completed");
+    expect(messages.at(-1)?.content).toBe("Restarted answer");
+  });
+
+  it("does not create an assistant placeholder when continuation preflight fails", async () => {
+    const { createConversation, createMessage, listVisibleMessages } = await import("@/lib/conversations");
+    const { startAssistantTurnFromExistingUserMessage } = await import("@/lib/chat-turn");
+    const { getConversationManager } = await import("@/lib/ws-singleton");
+
+    const conversation = createConversation("Restart conversation");
+    const existingUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Edited prompt"
+    });
+
+    await expect(
+      startAssistantTurnFromExistingUserMessage(
+        getConversationManager(),
+        conversation.id,
+        existingUser.id
+      )
+    ).resolves.toEqual({
+      status: "failed",
+      errorMessage: "Set an API key in settings before starting a chat"
+    });
+
+    const messages = listVisibleMessages(conversation.id);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.id).toBe(existingUser.id);
+    expect(messages[0]?.role).toBe("user");
+  });
+
+  it("rejects a concurrent chat start without persisting another user row", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+    const { startChatTurn } = await import("@/lib/chat-turn");
+
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const manager = createConversationManager();
+    const conversation = createConversation("Concurrent start");
+
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "First answer" };
+        await gate;
+        return {
+          answer: "First answer",
+          thinking: "",
+          usage: { outputTokens: 2 }
+        };
+      })()
+    );
+
+    const firstStart = startChatTurn(manager, conversation.id, "First prompt", []);
+    const secondResult = await startChatTurn(manager, conversation.id, "Second prompt", []);
+
+    expect(secondResult).toEqual({
+      status: "failed",
+      errorMessage: "Conversation already has an active assistant turn"
+    });
+    expect(listVisibleMessages(conversation.id).filter((message) => message.role === "user")).toHaveLength(1);
+
+    release();
+    await expect(firstStart).resolves.toEqual({ status: "completed" });
   });
 });

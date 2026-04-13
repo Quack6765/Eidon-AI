@@ -1031,6 +1031,114 @@ describe("chat view", () => {
     });
   });
 
+  it("restarts the conversation from an edited user message and trims later turns", async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          conversation: {
+            ...createPayload().conversation,
+            id: "conv_1"
+          },
+          messages: [
+            createMessage({
+              id: "msg_user",
+              role: "user",
+              content: "Edited prompt"
+            })
+          ]
+        })
+      } as Response);
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: {
+          ...createPayload(),
+          messages: [
+            createMessage({
+              id: "msg_user",
+              role: "user",
+              content: "Original prompt"
+            }),
+            createMessage({
+              id: "msg_assistant_old",
+              content: "Old answer"
+            })
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
+    fireEvent.change(screen.getByDisplayValue("Original prompt"), {
+      target: { value: "Edited prompt" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save edit" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/messages/msg_user/edit-restart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ content: "Edited prompt" })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Edited prompt")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Old answer")).toBeNull();
+  });
+
+  it("keeps the existing transcript visible when edit restart fails", async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: "Restart denied" })
+      } as Response);
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: {
+          ...createPayload(),
+          messages: [
+            createMessage({
+              id: "msg_user",
+              role: "user",
+              content: "Original prompt"
+            }),
+            createMessage({
+              id: "msg_assistant_old",
+              content: "Old answer"
+            })
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
+    fireEvent.change(screen.getByDisplayValue("Original prompt"), {
+      target: { value: "Edited prompt" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save edit" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Restart denied")).toBeInTheDocument();
+    });
+
+    expect(screen.getByDisplayValue("Edited prompt")).toBeInTheDocument();
+    expect(screen.getByText("Old answer")).toBeInTheDocument();
+  });
+
   it("shows a local fork error and does not navigate when the fork request fails", async () => {
     vi.mocked(global.fetch)
       .mockResolvedValueOnce({

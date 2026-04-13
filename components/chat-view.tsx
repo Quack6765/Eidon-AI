@@ -400,6 +400,22 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  function resetStreamingState() {
+    clearCompactionIndicator();
+    setStreamMessageId(null);
+    updateStreamTimeline([]);
+    setStreamThinkingTarget("");
+    setStreamThinkingDisplay("");
+    setStreamAnswerTarget("");
+    setStreamAnswerDisplay("");
+    streamAnswerTargetRef.current = "";
+    streamThinkingTargetRef.current = "";
+    setHasReceivedFirstToken(false);
+    thinkingStartTimeRef.current = null;
+    setThinkingDuration(undefined);
+    setIsStopPending(false);
+  }
+
   useEffect(() => {
     setConversationTitle(payload.conversation.title);
   }, [payload.conversation.title]);
@@ -1110,20 +1126,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     setError("");
     setUpdatingMessageId(messageId);
-    setMessages((current) =>
-      current.map((message) =>
-        message.id === messageId
-          ? {
-              ...message,
-              content
-            }
-          : message
-      )
-    );
 
     try {
-      const response = await fetch(`/api/messages/${messageId}`, {
-        method: "PATCH",
+      const response = await fetch(`/api/messages/${messageId}/edit-restart`, {
+        method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
@@ -1131,7 +1137,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       });
 
       if (!response.ok) {
-        let message = "Unable to update message";
+        let message = "Unable to restart from edited message";
 
         try {
           const failure = (await response.json()) as { error?: string };
@@ -1141,19 +1147,28 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         throw new Error(message);
       }
 
-      const result = (await response.json()) as { message?: Message };
+      const result = (await response.json()) as {
+        conversation?: Conversation;
+        messages?: Message[];
+      };
 
-      if (result.message) {
-        setMessages((current) =>
-          current.map((message) => (message.id === result.message?.id ? result.message : message))
-        );
+      resetStreamingState();
+
+      if (result.messages) {
+        setMessages(sanitizeMessages(result.messages));
       }
 
-      router.refresh();
+      if (result.conversation) {
+        setConversationTitle(result.conversation.title);
+        setTitleGenerationStatus(result.conversation.titleGenerationStatus);
+        dispatchConversationActivityUpdated({
+          conversationId: result.conversation.id,
+          isActive: true
+        });
+      }
+
+      setIsSending(true);
     } catch (caughtError) {
-      setMessages((current) =>
-        current.map((message) => (message.id === previousMessage.id ? previousMessage : message))
-      );
       setError(caughtError instanceof Error ? caughtError.message : "Unable to update message");
       throw caughtError;
     } finally {
@@ -1320,7 +1335,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       speechSnapshot.phase === "transcribing" ||
       (!value && nextPendingAttachments.length === 0) ||
       isSending ||
-      isUploadingAttachments
+      isUploadingAttachments ||
+      updatingMessageId !== null
     ) {
       return;
     }
@@ -1521,7 +1537,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             input={input}
             onInputChange={setInput}
             onSubmit={submit}
-            isSending={isSending}
+            isSending={isSending || updatingMessageId !== null}
             pendingAttachments={pendingAttachments}
             isUploadingAttachments={isUploadingAttachments}
             onUploadFiles={uploadFiles}

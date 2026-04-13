@@ -5,7 +5,9 @@ export class ChatTurnStoppedError extends Error {
   }
 }
 
-const activeTurns = new Map<string, ReturnType<typeof createChatTurnControl>>();
+export type ChatTurnControl = ReturnType<typeof createChatTurnControl>;
+
+const activeTurns = new Map<string, ChatTurnControl>();
 
 export function createChatTurnControl(conversationId: string, abortController = new AbortController()) {
   let stopped = false;
@@ -30,16 +32,42 @@ export function createChatTurnControl(conversationId: string, abortController = 
   };
 }
 
-export function registerChatTurn(conversationId: string) {
-  const control = createChatTurnControl(conversationId);
+export function claimChatTurnStart(conversationId: string, control = createChatTurnControl(conversationId)) {
+  if (activeTurns.has(conversationId)) {
+    return { ok: false as const };
+  }
+
   activeTurns.set(conversationId, control);
-  return control;
+  return {
+    ok: true as const,
+    control
+  };
+}
+
+export function registerChatTurn(conversationId: string) {
+  const claimed = claimChatTurnStart(conversationId);
+  if (!claimed.ok) {
+    throw new Error("Conversation already has an active assistant turn");
+  }
+
+  return claimed.control;
 }
 
 export function requestStop(conversationId: string) {
   activeTurns.get(conversationId)?.requestStop();
 }
 
+export function releaseChatTurnStart(conversationId: string, control?: ChatTurnControl) {
+  if (!control) {
+    activeTurns.delete(conversationId);
+    return;
+  }
+
+  if (activeTurns.get(conversationId) === control) {
+    activeTurns.delete(conversationId);
+  }
+}
+
 export function clearChatTurn(conversationId: string) {
-  activeTurns.delete(conversationId);
+  releaseChatTurnStart(conversationId);
 }
