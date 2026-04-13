@@ -2,11 +2,7 @@ import fs from "node:fs";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  AttachmentTextPreviewMissingFileError,
-  createAttachments,
-  resolveAttachmentPath
-} from "@/lib/attachments";
+import { createAttachments, resolveAttachmentPath } from "@/lib/attachments";
 import { createConversation } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
 
@@ -153,37 +149,6 @@ describe("attachment preview route", () => {
       mimeType: "text/markdown",
       content: ""
     });
-  });
-
-  it("returns 404 for known missing-file preview failures without usable fallback", async () => {
-    const user = await createLocalUser({
-      username: "attachment-preview-known-missing-user",
-      password: "Password123!",
-      role: "user"
-    });
-    const conversation = createConversation("Known missing preview", null, undefined, user.id);
-    const [attachment] = createAttachments(conversation.id, [
-      {
-        filename: "missing.md",
-        mimeType: "text/markdown",
-        bytes: Buffer.from("# Missing\nNo fallback", "utf8")
-      }
-    ]);
-
-    requireUserMock.mockResolvedValue(user);
-    const attachmentsModule = await import("@/lib/attachments");
-    vi.spyOn(attachmentsModule, "readAttachmentText").mockImplementation(() => {
-      throw new AttachmentTextPreviewMissingFileError();
-    });
-
-    const { GET } = await import("@/app/api/attachments/[attachmentId]/route");
-    const response = await GET(
-      new Request(`http://localhost/api/attachments/${attachment.id}?format=text`),
-      { params: Promise.resolve({ attachmentId: attachment.id }) }
-    );
-
-    expect(response.status).toBe(404);
-    await expect(response.text()).resolves.toContain("Attachment file not found");
   });
 
   it("keeps text preview requests in text mode when preview reading fails unexpectedly", async () => {
