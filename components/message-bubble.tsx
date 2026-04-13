@@ -774,8 +774,10 @@ export function MessageBubble({
       return;
     }
 
-    await onUpdateUserMessage(message.id, nextContent);
-    setIsEditing(false);
+    try {
+      await onUpdateUserMessage(message.id, nextContent);
+      setIsEditing(false);
+    } catch {}
   }
 
   function handleCancelEdit() {

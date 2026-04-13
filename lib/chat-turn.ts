@@ -28,7 +28,7 @@ import {
   getProviderProfileWithApiKey
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
-import type { ChatStreamEvent, Message } from "@/lib/types";
+import type { ChatStreamEvent } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export type ChatEmitter = ReturnType<typeof createEmitter<{
@@ -121,13 +121,12 @@ type AssistantTurnStartReady = Extract<
 async function startAssistantTurn(
   manager: ConversationManager,
   conversationId: string,
-  existingUserMessage: Message,
   preflight: AssistantTurnStartReady,
   control: ChatTurnControl,
   personaId?: string
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
-  let assistantMessage: Message | null = null;
+  let assistantMessageId: string | null = null;
   let started = false;
   let timelineSortOrder = 0;
   let answerBuffer = "";
@@ -139,7 +138,7 @@ async function startAssistantTurn(
   const runningActionHandles = new Set<string>();
 
   try {
-    assistantMessage = createMessage({
+    const assistantMessage = createMessage({
       conversationId: conversation.id,
       role: "assistant",
       content: "",
@@ -147,6 +146,7 @@ async function startAssistantTurn(
       status: "streaming",
       estimatedTokens: 0
     });
+    assistantMessageId = assistantMessage.id;
 
     manager.broadcast(conversationId, {
       type: "delta",
@@ -164,9 +164,9 @@ async function startAssistantTurn(
     started = true;
 
     function flushAnswerBuffer() {
-      if (!assistantMessage || !answerBuffer) return;
+      if (!assistantMessageId || !answerBuffer) return;
       createMessageTextSegment({
-        messageId: assistantMessage.id,
+        messageId: assistantMessageId,
         content: answerBuffer,
         sortOrder: timelineSortOrder++
       });
@@ -253,9 +253,9 @@ async function startAssistantTurn(
       },
       onAnswerSegment(segment) {
         flushAnswerBuffer();
-        if (!sawStreamedAnswerSinceLastSegment && segment) {
+        if (!sawStreamedAnswerSinceLastSegment && segment && assistantMessageId) {
           createMessageTextSegment({
-            messageId: assistantMessage.id,
+            messageId: assistantMessageId,
             content: segment,
             sortOrder: timelineSortOrder++
           });
@@ -263,8 +263,11 @@ async function startAssistantTurn(
         sawStreamedAnswerSinceLastSegment = false;
       },
       onActionStart(action) {
+        if (!assistantMessageId) {
+          return "";
+        }
         const persisted = createMessageAction({
-          messageId: assistantMessage.id,
+          messageId: assistantMessageId,
           kind: action.kind,
           status: action.status,
           label: action.label,
@@ -327,7 +330,7 @@ async function startAssistantTurn(
     if (flushTimer) clearTimeout(flushTimer);
     flushAnswerBuffer();
 
-    updateMessage(assistantMessage.id, {
+    updateMessage(assistantMessageId, {
       content: providerResult.answer,
       thinkingContent: providerResult.thinking,
       status: "completed",
@@ -340,22 +343,22 @@ async function startAssistantTurn(
     manager.broadcast(conversationId, {
       type: "delta",
       conversationId,
-      event: { type: "done", messageId: assistantMessage.id }
+      event: { type: "done", messageId: assistantMessageId }
     });
     return { status: "completed" };
   } catch (error) {
-    if (error instanceof ChatTurnStoppedError && assistantMessage) {
+    if (error instanceof ChatTurnStoppedError && assistantMessageId) {
       if (flushTimer) clearTimeout(flushTimer);
       if (answerBuffer) {
         createMessageTextSegment({
-          messageId: assistantMessage.id,
+          messageId: assistantMessageId,
           content: answerBuffer,
           sortOrder: timelineSortOrder++
         });
         answerBuffer = "";
       }
 
-      updateMessage(assistantMessage.id, {
+      updateMessage(assistantMessageId, {
         content: latestAnswer,
         thinkingContent: latestThinking,
         status: "stopped",
@@ -372,12 +375,12 @@ async function startAssistantTurn(
       manager.broadcast(conversationId, {
         type: "delta",
         conversationId,
-        event: { type: "done", messageId: assistantMessage.id }
+        event: { type: "done", messageId: assistantMessageId }
       });
       return { status: "stopped" };
     } else {
-      if (assistantMessage) {
-        updateMessage(assistantMessage.id, {
+      if (assistantMessageId) {
+        updateMessage(assistantMessageId, {
           content: "",
           thinkingContent: "",
           status: "error"
@@ -454,7 +457,7 @@ export async function startAssistantTurnFromExistingUserMessage(
     return { status: "failed", errorMessage: ACTIVE_TURN_ERROR_MESSAGE };
   }
 
-  return startAssistantTurn(manager, conversationId, message, preflight, claimed.control, personaId);
+  return startAssistantTurn(manager, conversationId, preflight, claimed.control, personaId);
 }
 
 export async function startChatTurn(
@@ -496,7 +499,7 @@ export async function startChatTurn(
     bindAttachmentsToMessage(conversationId, userMessage.id, attachmentIds);
     void generateConversationTitleFromFirstUserMessage(conversationId, userMessage.id);
 
-    return startAssistantTurn(manager, conversationId, userMessage, preflight, claimed.control, personaId);
+    return startAssistantTurn(manager, conversationId, preflight, claimed.control, personaId);
   } catch (error) {
     releaseChatTurnStart(conversationId, claimed.control);
     throw error;
