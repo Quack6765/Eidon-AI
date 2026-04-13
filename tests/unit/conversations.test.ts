@@ -1249,7 +1249,7 @@ describe("conversation helpers", () => {
     const prepareSpy = vi.spyOn(db, "prepare");
 
     prepareSpy.mockImplementation(((sql: string) => {
-      if (sql === "UPDATE conversations SET is_active = ?, updated_at = ? WHERE id = ?") {
+      if (sql.includes("UPDATE conversations SET is_active =")) {
         throw new Error("force rollback");
       }
 
@@ -1406,6 +1406,80 @@ describe("conversation helpers", () => {
     expect(
       db.prepare("SELECT COUNT(*) as count FROM compaction_events WHERE conversation_id = ?").get(conversation.id)
     ).toEqual({ count: 0 });
+  });
+
+  it("restores compacted retained messages when rewrite invalidates their summaries", () => {
+    const conversation = createConversation("Compacted rewrite");
+    const firstUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "First request"
+    });
+    const firstAssistant = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "First answer"
+    });
+    const editedUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Second request"
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Later answer"
+    });
+
+    markMessagesCompacted([firstUser.id, firstAssistant.id, editedUser.id]);
+
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id, conversation_id, type, depth, content,
+        source_start_message_id, source_end_message_id,
+        source_token_count, summary_token_count, child_node_ids,
+        superseded_by_node_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "mem_compacted",
+      conversation.id,
+      "leaf_summary",
+      0,
+      "Summary covering retained messages",
+      firstUser.id,
+      editedUser.id,
+      75,
+      20,
+      "[]",
+      null,
+      new Date().toISOString()
+    );
+    db.prepare(
+      `INSERT INTO compaction_events (
+        id, conversation_id, node_id, source_start_message_id,
+        source_end_message_id, notice_message_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "cmp_compacted",
+      conversation.id,
+      "mem_compacted",
+      firstUser.id,
+      editedUser.id,
+      null,
+      new Date().toISOString()
+    );
+
+    rewriteConversationFromEditedUserMessage(editedUser.id, {
+      content: "Edited second request"
+    });
+
+    expect(getMessage(editedUser.id)?.compactedAt).toBeNull();
+    expect(listMessages(conversation.id).map((message) => message.compactedAt)).toEqual([
+      null,
+      null,
+      null
+    ]);
   });
 
   it("rejects rewriting a non-user message", () => {

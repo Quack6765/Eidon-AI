@@ -1521,17 +1521,25 @@ export function rewriteConversationFromEditedUserMessage(
     updateMessageEstimatedTokens(message.id);
 
     const affectedPlaceholders = affectedIds.map(() => "?").join(", ");
-    const deletedNodeIds = (
+    const deletedNodeRows = (
       db
         .prepare(
-          `SELECT id
+          `SELECT
+             id,
+             source_start_message_id,
+             source_end_message_id
            FROM memory_nodes
            WHERE conversation_id = ?
              AND (source_start_message_id IN (${affectedPlaceholders})
                OR source_end_message_id IN (${affectedPlaceholders}))`
         )
-        .all(conversation.id, ...affectedIds, ...affectedIds) as Array<{ id: string }>
-    ).map((row) => row.id);
+        .all(conversation.id, ...affectedIds, ...affectedIds) as Array<{
+        id: string;
+        source_start_message_id: string;
+        source_end_message_id: string;
+      }>
+    );
+    const deletedNodeIds = deletedNodeRows.map((row) => row.id);
 
     db.prepare(
       `DELETE FROM compaction_events
@@ -1549,6 +1557,27 @@ export function rewriteConversationFromEditedUserMessage(
 
     if (deletedNodeIds.length > 0) {
       const deletedNodePlaceholders = deletedNodeIds.map(() => "?").join(", ");
+      const deletedIdSet = new Set(deletedIds);
+      const messageIndexById = new Map(messages.map((item, index) => [item.id, index]));
+      const restoredCompactionIds = new Set<string>();
+
+      deletedNodeRows.forEach((row) => {
+        const startIndex = messageIndexById.get(row.source_start_message_id);
+        const endIndex = messageIndexById.get(row.source_end_message_id);
+
+        if (startIndex === undefined || endIndex === undefined) {
+          return;
+        }
+
+        const spanStart = Math.min(startIndex, endIndex);
+        const spanEnd = Math.max(startIndex, endIndex);
+
+        messages.slice(spanStart, spanEnd + 1).forEach((item) => {
+          if (!deletedIdSet.has(item.id)) {
+            restoredCompactionIds.add(item.id);
+          }
+        });
+      });
 
       db.prepare(
         `UPDATE memory_nodes
@@ -1556,6 +1585,16 @@ export function rewriteConversationFromEditedUserMessage(
          WHERE conversation_id = ?
            AND superseded_by_node_id IN (${deletedNodePlaceholders})`
       ).run(conversation.id, ...deletedNodeIds);
+
+      if (restoredCompactionIds.size > 0) {
+        const restoredPlaceholders = Array.from(restoredCompactionIds).map(() => "?").join(", ");
+
+        db.prepare(
+          `UPDATE messages
+           SET compacted_at = NULL
+           WHERE id IN (${restoredPlaceholders})`
+        ).run(...restoredCompactionIds);
+      }
     }
 
     if (deletedIds.length > 0) {
