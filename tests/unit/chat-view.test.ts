@@ -176,6 +176,7 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
       isActive: false
     },
     messages: [] as Message[],
+    queuedMessages: [],
     settings: {
       sttEngine: "browser",
       sttLanguage: "en"

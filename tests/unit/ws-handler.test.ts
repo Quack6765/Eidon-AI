@@ -185,6 +185,115 @@ describe("ws-handler", () => {
     expect(listQueuedMessages).toHaveBeenCalledWith("conv-1");
   });
 
+  it("sends an error when deleting a queued message fails", async () => {
+    const { verifySessionToken } = await import("@/lib/auth");
+    (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });
+
+    const {
+      deleteQueuedMessage,
+      getConversationSnapshot,
+      listActiveConversations,
+      listQueuedMessages
+    } = await import("@/lib/conversations");
+    (listActiveConversations as ReturnType<typeof vi.fn>).mockReturnValue([]);
+    (getConversationSnapshot as ReturnType<typeof vi.fn>).mockReturnValue({
+      conversation: { id: "conv-1", title: "Test", is_active: false },
+      messages: [],
+      queuedMessages: []
+    });
+    (deleteQueuedMessage as ReturnType<typeof vi.fn>).mockReturnValue(false);
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const sent: string[] = [];
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      send: vi.fn((data: string) => sent.push(data)),
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((d: string) => handler(d));
+      })
+    } as unknown as WebSocket;
+
+    await handleConnection(ws, "session=valid-token");
+
+    messageHandlers.forEach((handler) => handler(JSON.stringify({ type: "subscribe", conversationId: "conv-1" })));
+    (listQueuedMessages as ReturnType<typeof vi.fn>).mockClear();
+    messageHandlers.forEach((handler) =>
+      handler(JSON.stringify({ type: "delete_queued_message", conversationId: "conv-1", queuedMessageId: "queue-404" }))
+    );
+
+    expect(deleteQueuedMessage).toHaveBeenCalledWith({
+      conversationId: "conv-1",
+      queuedMessageId: "queue-404"
+    });
+    expect(listQueuedMessages).not.toHaveBeenCalled();
+
+    const parsed = sent.map((raw) => JSON.parse(raw));
+    expect(parsed.some((message) => message.type === "queue_updated")).toBe(false);
+    expect(parsed.find((message) => message.type === "error")).toEqual({
+      type: "error",
+      message: "Queued message not found"
+    });
+  });
+
+  it("sends an error when reprioritizing a queued message fails", async () => {
+    const requestStop = vi.fn();
+    vi.doMock("@/lib/chat-turn-control", () => ({ requestStop }));
+
+    const { verifySessionToken } = await import("@/lib/auth");
+    (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });
+
+    const {
+      getConversationSnapshot,
+      listActiveConversations,
+      listQueuedMessages,
+      moveQueuedMessageToFront
+    } = await import("@/lib/conversations");
+    (listActiveConversations as ReturnType<typeof vi.fn>).mockReturnValue([]);
+    (getConversationSnapshot as ReturnType<typeof vi.fn>).mockReturnValue({
+      conversation: { id: "conv-1", title: "Test", is_active: false },
+      messages: [],
+      queuedMessages: []
+    });
+    (moveQueuedMessageToFront as ReturnType<typeof vi.fn>).mockReturnValue(false);
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const sent: string[] = [];
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      send: vi.fn((data: string) => sent.push(data)),
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((d: string) => handler(d));
+      })
+    } as unknown as WebSocket;
+
+    await handleConnection(ws, "session=valid-token");
+
+    messageHandlers.forEach((handler) => handler(JSON.stringify({ type: "subscribe", conversationId: "conv-1" })));
+    (listQueuedMessages as ReturnType<typeof vi.fn>).mockClear();
+    requestStop.mockClear();
+    messageHandlers.forEach((handler) =>
+      handler(JSON.stringify({ type: "send_queued_message_now", conversationId: "conv-1", queuedMessageId: "queue-404" }))
+    );
+
+    expect(moveQueuedMessageToFront).toHaveBeenCalledWith({
+      conversationId: "conv-1",
+      queuedMessageId: "queue-404"
+    });
+    expect(requestStop).not.toHaveBeenCalled();
+    expect(listQueuedMessages).not.toHaveBeenCalled();
+
+    const parsed = sent.map((raw) => JSON.parse(raw));
+    expect(parsed.some((message) => message.type === "queue_updated")).toBe(false);
+    expect(parsed.find((message) => message.type === "error")).toEqual({
+      type: "error",
+      message: "Queued message not found"
+    });
+  });
+
   it("sends error and closes when no token provided", async () => {
     const { handleConnection } = await import("@/lib/ws-handler");
     const sent: string[] = [];

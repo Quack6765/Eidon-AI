@@ -160,11 +160,17 @@ function handleMessage(
         break;
       }
 
-      updateQueuedMessage({
+      const updated = updateQueuedMessage({
         conversationId: msg.conversationId,
         queuedMessageId: msg.queuedMessageId,
         content: msg.content
       });
+
+      if (!updated) {
+        sendError(ws, "Queued message not found");
+        break;
+      }
+
       broadcastQueueUpdated(mgr, msg.conversationId);
       break;
     }
@@ -173,10 +179,16 @@ function handleMessage(
         break;
       }
 
-      deleteQueuedMessage({
+      const deleted = deleteQueuedMessage({
         conversationId: msg.conversationId,
         queuedMessageId: msg.queuedMessageId
       });
+
+      if (!deleted) {
+        sendError(ws, "Queued message not found");
+        break;
+      }
+
       broadcastQueueUpdated(mgr, msg.conversationId);
       break;
     }
@@ -185,10 +197,16 @@ function handleMessage(
         break;
       }
 
-      moveQueuedMessageToFront({
+      const moved = moveQueuedMessageToFront({
         conversationId: msg.conversationId,
         queuedMessageId: msg.queuedMessageId
       });
+
+      if (!moved) {
+        sendError(ws, "Queued message not found");
+        break;
+      }
+
       requestStop(msg.conversationId);
       broadcastQueueUpdated(mgr, msg.conversationId);
       break;
@@ -202,11 +220,15 @@ function ensureConversationAccess(
   currentUserId: string | null
 ) {
   if (!getConversationSnapshot(conversationId, currentUserId ?? undefined)) {
-    ws.send(serializeServerMessage({ type: "error", message: "Conversation not found" }));
+    sendError(ws, "Conversation not found");
     return false;
   }
 
   return true;
+}
+
+function sendError(ws: WebSocket, message: string) {
+  ws.send(serializeServerMessage({ type: "error", message }));
 }
 
 function broadcastQueueUpdated(mgr: ConversationManager, conversationId: string) {
