@@ -506,7 +506,9 @@ export function isInlineTextPreviewableAttachment(
 }
 
 export function readAttachmentText(
-  attachment: Pick<MessageAttachment, "relativePath" | "kind" | "mimeType" | "filename" | "extractedText">
+  attachment: Pick<MessageAttachment, "relativePath" | "kind" | "mimeType" | "filename"> & {
+    extractedText?: string | null;
+  }
 ) {
   if (!isInlineTextPreviewableAttachment(attachment)) {
     throw new AttachmentTextPreviewUnsupportedError();
@@ -516,7 +518,7 @@ export function readAttachmentText(
     return readAttachmentBuffer(attachment).toString("utf8");
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      if (attachment.extractedText.length > 0) {
+      if (attachment.extractedText !== undefined && attachment.extractedText !== null) {
         return attachment.extractedText;
       }
 
