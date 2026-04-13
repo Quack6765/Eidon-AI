@@ -20,6 +20,7 @@ import {
   getMessage,
   isVisibleMessage,
   forkConversationFromMessage,
+  rewriteConversationFromEditedUserMessage,
   listConversations,
   listConversationsPage,
   listMessages,
@@ -1143,6 +1144,137 @@ describe("conversation helpers", () => {
     expect(forkAttachment?.extractedText).toBe("source attachment");
     expect(fs.existsSync(forkAttachmentPath)).toBe(true);
     expect(fs.readFileSync(forkAttachmentPath, "utf8")).toBe("source attachment");
+  });
+
+  it("rewrites a user message, deletes later turns, and preserves the edited message attachment", () => {
+    const conversation = createConversation("Rewrite target");
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Original prompt"
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "First answer"
+    });
+    const editedUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Need a deployment checklist"
+    });
+    const trailingAssistant = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Old checklist"
+    });
+
+    const [attachment] = createAttachments(conversation.id, [
+      {
+        filename: "context.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("retain this attachment", "utf8")
+      }
+    ]);
+    bindAttachmentsToMessage(conversation.id, editedUser.id, [attachment.id]);
+
+    const rewritten = rewriteConversationFromEditedUserMessage(editedUser.id, {
+      content: "Need a deployment checklist with rollback steps"
+    });
+
+    expect(rewritten.messages.map((message) => message.content)).toEqual([
+      "Original prompt",
+      "First answer",
+      "Need a deployment checklist with rollback steps"
+    ]);
+    expect(rewritten.messages.at(-1)?.attachments?.map((item) => item.filename)).toEqual([
+      "context.txt"
+    ]);
+    expect(
+      rewritten.messages.some((message) => message.id === trailingAssistant.id)
+    ).toBe(false);
+    expect(getConversationSnapshot(conversation.id)?.messages).toHaveLength(3);
+  });
+
+  it("removes compaction artifacts that depend on deleted tail messages", () => {
+    const conversation = createConversation("Compaction cleanup");
+    const firstUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "First request"
+    });
+    const editedUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Second request"
+    });
+    const tailAssistant = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Later answer"
+    });
+
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id, conversation_id, type, depth, content,
+        source_start_message_id, source_end_message_id,
+        source_token_count, summary_token_count, child_node_ids,
+        superseded_by_node_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "mem_tail",
+      conversation.id,
+      "leaf_summary",
+      0,
+      "Summary reaching into deleted history",
+      firstUser.id,
+      tailAssistant.id,
+      90,
+      20,
+      "[]",
+      null,
+      new Date().toISOString()
+    );
+
+    db.prepare(
+      `INSERT INTO compaction_events (
+        id, conversation_id, node_id, source_start_message_id,
+        source_end_message_id, notice_message_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "cmp_tail",
+      conversation.id,
+      "mem_tail",
+      firstUser.id,
+      tailAssistant.id,
+      null,
+      new Date().toISOString()
+    );
+
+    rewriteConversationFromEditedUserMessage(editedUser.id, {
+      content: "Edited second request"
+    });
+
+    expect(
+      db.prepare("SELECT COUNT(*) as count FROM memory_nodes WHERE conversation_id = ?").get(conversation.id)
+    ).toEqual({ count: 0 });
+    expect(
+      db.prepare("SELECT COUNT(*) as count FROM compaction_events WHERE conversation_id = ?").get(conversation.id)
+    ).toEqual({ count: 0 });
+  });
+
+  it("rejects rewriting a non-user message", () => {
+    const conversation = createConversation("Assistant immutable");
+    const assistant = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Cannot edit me"
+    });
+
+    expect(() =>
+      rewriteConversationFromEditedUserMessage(assistant.id, { content: "changed" })
+    ).toThrow("Only user messages can be edited");
   });
 
   it("rejects forking a missing message", () => {

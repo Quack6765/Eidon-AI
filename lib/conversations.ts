@@ -1466,6 +1466,79 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
   }
 }
 
+export function rewriteConversationFromEditedUserMessage(
+  messageId: string,
+  input: { content: string },
+  userId?: string
+) {
+  const db = getDb();
+  const transaction = db.transaction(() => {
+    const message = getMessage(messageId, userId);
+
+    if (!message) {
+      throw new Error("Message not found");
+    }
+
+    if (message.role !== "user") {
+      throw new Error("Only user messages can be edited");
+    }
+
+    const conversation = getConversation(message.conversationId, userId);
+
+    if (!conversation) {
+      throw new Error("Conversation not found");
+    }
+
+    const messages = listMessages(conversation.id);
+    const targetIndex = messages.findIndex((item) => item.id === message.id);
+
+    if (targetIndex === -1) {
+      throw new Error("Message not found");
+    }
+
+    const deletedMessages = messages.slice(targetIndex + 1);
+    const deletedIds = deletedMessages.map((item) => item.id);
+
+    updateMessage(message.id, {
+      content: input.content,
+      estimatedTokens: estimateTextTokens(input.content)
+    });
+
+    if (deletedIds.length > 0) {
+      const deleteMessage = db.prepare("DELETE FROM messages WHERE id = ?");
+      const placeholders = deletedIds.map(() => "?").join(", ");
+
+      deletedMessages.forEach((item) => deleteMessage.run(item.id));
+
+      db.prepare(
+        `DELETE FROM compaction_events
+         WHERE conversation_id = ?
+           AND (source_start_message_id IN (${placeholders})
+             OR source_end_message_id IN (${placeholders}))`
+      ).run(conversation.id, ...deletedIds, ...deletedIds);
+
+      db.prepare(
+        `DELETE FROM memory_nodes
+         WHERE conversation_id = ?
+           AND (source_start_message_id IN (${placeholders})
+             OR source_end_message_id IN (${placeholders}))`
+      ).run(conversation.id, ...deletedIds, ...deletedIds);
+    }
+
+    setConversationActive(conversation.id, false);
+
+    return getConversationSnapshot(conversation.id, userId);
+  });
+
+  const snapshot = transaction();
+
+  if (!snapshot) {
+    throw new Error("Conversation not found");
+  }
+
+  return snapshot;
+}
+
 export function createMessageAction(input: {
   messageId: string;
   kind: MessageActionKind;
