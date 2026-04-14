@@ -5,6 +5,7 @@ import {
   deleteConversation,
   deleteConversationIfEmpty,
   getConversation,
+  listQueuedMessages,
   listVisibleMessages,
   moveConversationToFolder,
   setConversationActive,
@@ -40,6 +41,7 @@ export async function GET(
   return ok({
     conversation,
     messages: listVisibleMessages(conversation.id),
+    queuedMessages: listQueuedMessages(conversation.id),
     debug: getConversationDebugStats(conversation.id)
   });
 }

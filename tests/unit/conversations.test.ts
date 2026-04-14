@@ -1639,6 +1639,146 @@ describe("conversation helpers", () => {
     expect(snapshot!.messages[1].textSegments![0].content).toBe("partial answer");
     expect(snapshot!.messages[1].actions).toHaveLength(1);
   });
+
+  it("creates, reorders, and claims queued messages for a conversation", async () => {
+    const {
+      createConversation,
+      createQueuedMessage,
+      listQueuedMessages,
+      moveQueuedMessageToFront,
+      claimNextQueuedMessageForDispatch
+    } = await import("@/lib/conversations");
+
+    const conversation = createConversation();
+    const first = createQueuedMessage({
+      conversationId: conversation.id,
+      content: "First queued follow-up"
+    });
+    const second = createQueuedMessage({
+      conversationId: conversation.id,
+      content: "Second queued follow-up"
+    });
+
+    moveQueuedMessageToFront({
+      conversationId: conversation.id,
+      queuedMessageId: second.id
+    });
+
+    expect(listQueuedMessages(conversation.id).map((item) => item.id)).toEqual([second.id, first.id]);
+
+    const claimed = claimNextQueuedMessageForDispatch(conversation.id);
+    expect(claimed?.id).toBe(second.id);
+    expect(listQueuedMessages(conversation.id)[0]).toMatchObject({
+      id: second.id,
+      status: "processing"
+    });
+  });
+
+  it("creates queued messages inside a transaction when assigning sort order", async () => {
+    const { createConversation, createQueuedMessage } = await import("@/lib/conversations");
+
+    const conversation = createConversation();
+    const db = getDb();
+    const originalTransaction = db.transaction.bind(db);
+    const transactionSpy = vi.fn((callback: (...args: unknown[]) => unknown) => originalTransaction(callback));
+
+    db.transaction = transactionSpy as typeof db.transaction;
+
+    try {
+      createQueuedMessage({
+        conversationId: conversation.id,
+        content: "Transactional queue insert"
+      });
+    } finally {
+      db.transaction = originalTransaction as typeof db.transaction;
+    }
+
+    expect(transactionSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears stale failure text when claiming a retried queued message", async () => {
+    const { createConversation, createQueuedMessage, claimNextQueuedMessageForDispatch, listQueuedMessages } =
+      await import("@/lib/conversations");
+
+    const conversation = createConversation();
+    const queuedMessage = createQueuedMessage({
+      conversationId: conversation.id,
+      content: "Retry me"
+    });
+
+    getDb()
+      .prepare(
+        `UPDATE queued_messages
+         SET status = 'pending',
+             failure_message = ?
+         WHERE id = ?`
+      )
+      .run("Previous dispatch failed", queuedMessage.id);
+
+    const claimed = claimNextQueuedMessageForDispatch(conversation.id);
+
+    expect(claimed).toMatchObject({
+      id: queuedMessage.id,
+      status: "processing",
+      failureMessage: null
+    });
+    expect(listQueuedMessages(conversation.id)).toEqual([
+      expect.objectContaining({
+        id: queuedMessage.id,
+        status: "processing",
+        failureMessage: null
+      })
+    ]);
+  });
+
+  it("does not claim a second queued message while one is already processing", async () => {
+    const { createConversation, createQueuedMessage, claimNextQueuedMessageForDispatch, listQueuedMessages } =
+      await import("@/lib/conversations");
+
+    const conversation = createConversation();
+    const first = createQueuedMessage({
+      conversationId: conversation.id,
+      content: "First queued follow-up"
+    });
+    const second = createQueuedMessage({
+      conversationId: conversation.id,
+      content: "Second queued follow-up"
+    });
+
+    const firstClaim = claimNextQueuedMessageForDispatch(conversation.id);
+    const secondClaim = claimNextQueuedMessageForDispatch(conversation.id);
+
+    expect(firstClaim?.id).toBe(first.id);
+    expect(secondClaim).toBeNull();
+    expect(listQueuedMessages(conversation.id)).toEqual([
+      expect.objectContaining({
+        id: first.id,
+        status: "processing"
+      }),
+      expect.objectContaining({
+        id: second.id,
+        status: "pending"
+      })
+    ]);
+  });
+
+  it("includes queued messages in conversation snapshots", async () => {
+    const { createConversation, createQueuedMessage, getConversationSnapshot } =
+      await import("@/lib/conversations");
+
+    const conversation = createConversation();
+    createQueuedMessage({
+      conversationId: conversation.id,
+      content: "Queued while busy"
+    });
+
+    expect(getConversationSnapshot(conversation.id)?.queuedMessages).toEqual([
+      expect.objectContaining({
+        content: "Queued while busy",
+        status: "pending"
+      })
+    ]);
+  });
 });
 
 describe("message fork routes", () => {

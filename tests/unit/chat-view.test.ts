@@ -6,7 +6,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { ChatView } from "@/components/chat-view";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
 import type { SpeechSessionSnapshot, SttEngine, SttLanguage } from "@/lib/speech/types";
-import type { Message, MessageAttachment, MessageTimelineItem } from "@/lib/types";
+import type { Message, MessageAttachment, MessageTimelineItem, QueuedMessage } from "@/lib/types";
 
 const push = vi.fn();
 const refresh = vi.fn();
@@ -157,6 +157,21 @@ function createAttachment(overrides: Partial<MessageAttachment> = {}): MessageAt
   };
 }
 
+function createQueuedMessage(overrides: Partial<QueuedMessage> = {}): QueuedMessage {
+  return {
+    id: "queue_1",
+    conversationId: "conv_1",
+    content: "Queued follow-up",
+    status: "pending",
+    sortOrder: 0,
+    failureMessage: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    processingStartedAt: null,
+    ...overrides
+  };
+}
+
 type ChatViewPayload = React.ComponentProps<typeof ChatView>["payload"];
 
 function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayload {
@@ -176,6 +191,7 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
       isActive: false
     },
     messages: [] as Message[],
+    queuedMessages: [],
     settings: {
       sttEngine: "browser",
       sttLanguage: "en"
@@ -796,6 +812,40 @@ describe("chat view", () => {
     });
   });
 
+  it("queues a follow-up over WebSocket when the conversation already has an active turn", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          conversation: {
+            ...createPayload().conversation,
+            isActive: true
+          }
+        })
+      })
+    );
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(textarea, { target: { value: "Queued follow-up" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "queue_message",
+        conversationId: "conv_1",
+        content: "Queued follow-up"
+      });
+    });
+
+    expect(wsMock.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "message"
+      })
+    );
+  });
+
   it("shows an error instead of queuing a message when the websocket transport is unavailable", async () => {
     wsMock.connected = false;
     wsMock.failed = true;
@@ -1176,6 +1226,40 @@ describe("chat view", () => {
     await waitFor(() => {
       expect(screen.getByText("Hello")).toBeInTheDocument();
       expect(screen.getByText("Hi there!")).toBeInTheDocument();
+    });
+  });
+
+  it("hydrates queued messages from a WebSocket snapshot", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    wsMock.onMessage!({
+      type: "snapshot",
+      conversationId: "conv_1",
+      messages: [],
+      queuedMessages: [createQueuedMessage()]
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Queued follow-up")).toBeInTheDocument();
+    });
+  });
+
+  it("hydrates queued messages from queue updates", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    wsMock.onMessage!({
+      type: "queue_updated",
+      conversationId: "conv_1",
+      queuedMessages: [
+        createQueuedMessage({
+          id: "queue_2",
+          content: "Second queued follow-up"
+        })
+      ]
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Second queued follow-up")).toBeInTheDocument();
     });
   });
 
@@ -3009,6 +3093,74 @@ describe("chat view", () => {
       type: "stop",
       conversationId: "conv_1"
     });
+  });
+
+  it("keeps the active stream running when a queued-message websocket error arrives", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await act(async () => {
+      wsMock.onMessage?.({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant_queued_error" }
+      });
+      wsMock.onMessage?.({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Still streaming" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      wsMock.onMessage?.({
+        type: "error",
+        message: "Queued message not found"
+      });
+    });
+
+    expect(screen.getByText("Queued message not found")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
+    expect(screen.getByText("Agent working - send still queues")).toBeInTheDocument();
+  });
+
+  it("reuses the primary action as queue follow-up while drafting during an active turn", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await act(async () => {
+      wsMock.onMessage?.({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant_draft_stop" }
+      });
+    });
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(textarea, { target: { value: "Queued while streaming" } });
+
+    expect(screen.getByRole("button", { name: "Queue follow-up" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull();
+    expect(screen.getByText("Agent working - send still queues")).toBeInTheDocument();
+  });
+
+  it("centers the composer controls against the textarea body", async () => {
+    await act(async () => {
+      renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    });
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+    const composerRow = textarea.parentElement?.parentElement;
+
+    expect(composerRow).toHaveClass("items-center");
+    expect(composerRow).not.toHaveClass("items-end");
   });
 
   it("updates token usage gauge when usage event arrives", async () => {

@@ -210,6 +210,18 @@ function migrate(db: Database.Database) {
       created_at TEXT NOT NULL,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS queued_messages (
+      id TEXT PRIMARY KEY,
+      conversation_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      sort_order INTEGER NOT NULL,
+      failure_message TEXT,
+      processing_started_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS memory_nodes (
       id TEXT PRIMARY KEY,
       conversation_id TEXT NOT NULL,
@@ -651,6 +663,8 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_automation_runs_status_scheduled_for ON automation_runs(status, scheduled_for);
     CREATE INDEX IF NOT EXISTS idx_message_actions_message_sort_order ON message_actions(message_id, sort_order, started_at);
     CREATE INDEX IF NOT EXISTS idx_message_text_segments_message_sort_order ON message_text_segments(message_id, sort_order, created_at);
+    CREATE INDEX IF NOT EXISTS idx_queued_messages_conversation_status_sort
+      ON queued_messages(conversation_id, status, sort_order, created_at);
     CREATE INDEX IF NOT EXISTS idx_message_attachments_message_created_at ON message_attachments(message_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_message_attachments_conversation_created_at ON message_attachments(conversation_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_memory_nodes_conversation_depth ON memory_nodes(conversation_id, depth, created_at);

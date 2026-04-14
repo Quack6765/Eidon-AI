@@ -8,6 +8,7 @@ import {
   useAttachmentPreviewController
 } from "@/components/attachment-preview-modal";
 import { ChatComposer } from "@/components/chat-composer";
+import { QueuedMessageBanner } from "@/components/queued-message-banner";
 import { MessageBubble } from "@/components/message-bubble";
 import { clearChatBootstrap, readChatBootstrap } from "@/lib/chat-bootstrap";
 import { useContextTokens } from "@/lib/context-tokens-context";
@@ -29,12 +30,14 @@ import type {
   MessageAction,
   MessageAttachment,
   MessageTimelineItem,
+  QueuedMessage,
   ProviderProfileSummary
 } from "@/lib/types";
 
 type ConversationPayload = {
   conversation: Conversation;
   messages: Message[];
+  queuedMessages: QueuedMessage[];
   settings: Pick<AppSettings, "sttEngine" | "sttLanguage">;
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string | null;
@@ -354,12 +357,17 @@ function replaceMessageAction(
   });
 }
 
+function isQueuedMessageOperationError(message: string) {
+  return message === "Queued message not found";
+}
+
 export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
   const { getTokenUsage, setTokenUsage } = useContextTokens();
   const previewController = useAttachmentPreviewController();
   const activeConversationIdRef = useRef(payload.conversation.id);
   const [messages, setMessages] = useState(() => sanitizeMessages(payload.messages));
+  const [queuedMessages, setQueuedMessages] = useState(() => payload.queuedMessages);
   const [conversationTitle, setConversationTitle] = useState(payload.conversation.title);
   const [titleGenerationStatus, setTitleGenerationStatus] = useState(
     payload.conversation.titleGenerationStatus
@@ -377,6 +385,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
   const [compactionInProgress, setCompactionInProgress] = useState(false);
   const [usedTokens, setUsedTokens] = useState<number | null>(null);
+  const [isConversationActive, setIsConversationActive] = useState(payload.conversation.isActive);
   const hasInitializedTokensRef = useRef(false);
 
   useEffect(() => {
@@ -513,6 +522,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [payload.messages]);
 
   useEffect(() => {
+    setQueuedMessages(payload.queuedMessages);
+  }, [payload.queuedMessages]);
+
+  useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
 
@@ -553,6 +566,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     setConversationTitle(payload.conversation.title);
   }, [payload.conversation.title]);
+
+  useEffect(() => {
+    setIsConversationActive(payload.conversation.isActive);
+  }, [payload.conversation.isActive]);
 
   useEffect(() => {
     setTitleGenerationStatus(payload.conversation.titleGenerationStatus);
@@ -621,6 +638,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "message_start") {
+      setIsConversationActive(true);
       setStreamMessageId(event.messageId);
       dispatchConversationActivityUpdated({
         conversationId: payload.conversation.id,
@@ -736,6 +754,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "done") {
       clearCompactionIndicator();
+      setIsConversationActive(false);
       const wasStopped = isStopPending;
       setIsStopPending(false);
       const finalAnswer = streamAnswerTargetRef.current;
@@ -772,6 +791,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "error") {
       clearCompactionIndicator();
+      setIsConversationActive(false);
       setIsStopPending(false);
       const activeStreamMessageId = streamMessageIdRef.current;
       dispatchConversationActivityUpdated({
@@ -800,6 +820,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     onMessage(msg) {
       switch (msg.type) {
         case "ready":
+          setIsConversationActive(
+            msg.activeConversations.some(
+              (conversation) =>
+                conversation.id === payload.conversation.id &&
+                conversation.status === "streaming"
+            )
+          );
           dispatchConversationActivityUpdated({
             conversationId: payload.conversation.id,
             isActive: msg.activeConversations.some(
@@ -810,6 +837,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           });
           break;
         case "snapshot":
+          setQueuedMessages((msg.queuedMessages as QueuedMessage[] | undefined) ?? []);
+          setIsConversationActive(
+            (msg.messages as Message[]).some(
+              (message) => message.role === "assistant" && message.status === "streaming"
+            )
+          );
           if (streamMessageId) {
             const activeSnapshotMessage = (msg.messages as Message[]).find(
               (message) => message.id === streamMessageId
@@ -858,8 +891,17 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             return reconciliation.messages;
           });
           break;
+        case "queue_updated":
+          setQueuedMessages((msg.queuedMessages as QueuedMessage[] | undefined) ?? []);
+          break;
         case "error":
+          if (isQueuedMessageOperationError(msg.message)) {
+            setError(msg.message);
+            break;
+          }
+
           clearCompactionIndicator();
+          setIsConversationActive(false);
           dispatchConversationActivityUpdated({
             conversationId: payload.conversation.id,
             isActive: false
@@ -1470,12 +1512,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   ) {
     const value = nextInput.trim();
     const effectivePersonaId = nextPersonaId ?? personaId;
+    const hasActiveTurn =
+      isConversationActive ||
+      Boolean(streamMessageIdRef.current) ||
+      messagesRef.current.some(
+        (message) => message.role === "assistant" && message.status === "streaming"
+      );
 
     if (
       speechSnapshot.phase === "listening" ||
       speechSnapshot.phase === "transcribing" ||
-      (!value && nextPendingAttachments.length === 0) ||
-      isSending ||
       isUploadingAttachments ||
       updatingMessageId !== null
     ) {
@@ -1486,6 +1532,25 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       setError(
         "Realtime chat connection is unavailable. Restart Eidon with the websocket server enabled."
       );
+      return;
+    }
+
+    if (hasActiveTurn) {
+      if (!value) {
+        return;
+      }
+
+      setError("");
+      setInput("");
+      wsSend({
+        type: "queue_message",
+        conversationId: payload.conversation.id,
+        content: value
+      });
+      return;
+    }
+
+    if ((!value && nextPendingAttachments.length === 0) || isSending) {
       return;
     }
 
@@ -1533,6 +1598,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       attachmentIds: nextPendingAttachments.map((attachment) => attachment.id),
       personaId: effectivePersonaId ?? undefined
     });
+    setIsConversationActive(true);
 
     if (titleGenerationStatus === "pending") {
       startTitlePolling();
@@ -1552,6 +1618,57 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }
 
   submitRef.current = submit;
+
+  function ensureRealtimeConnection() {
+    if (!wsFailed) {
+      return true;
+    }
+
+    setError(
+      "Realtime chat connection is unavailable. Restart Eidon with the websocket server enabled."
+    );
+    return false;
+  }
+
+  async function updateQueuedMessage(queuedMessageId: string, content: string) {
+    if (!ensureRealtimeConnection()) {
+      return;
+    }
+
+    setError("");
+    wsSend({
+      type: "update_queued_message",
+      conversationId: payload.conversation.id,
+      queuedMessageId,
+      content
+    });
+  }
+
+  async function deleteQueuedMessage(queuedMessageId: string) {
+    if (!ensureRealtimeConnection()) {
+      return;
+    }
+
+    setError("");
+    wsSend({
+      type: "delete_queued_message",
+      conversationId: payload.conversation.id,
+      queuedMessageId
+    });
+  }
+
+  async function sendQueuedMessageNow(queuedMessageId: string) {
+    if (!ensureRealtimeConnection()) {
+      return;
+    }
+
+    setError("");
+    wsSend({
+      type: "send_queued_message_now",
+      conversationId: payload.conversation.id,
+      queuedMessageId
+    });
+  }
 
   return (
     <div
@@ -1677,6 +1794,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
       <div className="fixed inset-x-0 bottom-0 z-10 pointer-events-none">
         <div className="mx-auto w-full px-4 md:px-8 pointer-events-auto max-w-[980px]">
+          <QueuedMessageBanner
+            items={queuedMessages}
+            onEdit={updateQueuedMessage}
+            onDelete={deleteQueuedMessage}
+            onSendNow={sendQueuedMessageNow}
+          />
           <ChatComposer
             input={input}
             onInputChange={setInput}
@@ -1704,6 +1827,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             speechPhase={speechSnapshot.phase}
             speechLevel={speechSnapshot.level}
             speechError={speechSnapshot.error}
+            queueingEnabled={isConversationActive}
             onStartSpeech={() => {
               setError("");
               void startSpeech();

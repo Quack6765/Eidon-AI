@@ -38,6 +38,8 @@ export type MessageRole = "user" | "assistant" | "system";
 
 export type MessageStatus = "idle" | "streaming" | "completed" | "error" | "stopped";
 
+export type QueuedMessageStatus = "pending" | "processing" | "failed" | "cancelled";
+
 export type ConversationTitleGenerationStatus =
   | "pending"
   | "running"
@@ -171,6 +173,18 @@ export type ConversationListPage = {
   hasMore: boolean;
 };
 
+export type QueuedMessage = {
+  id: string;
+  conversationId: string;
+  content: string;
+  status: QueuedMessageStatus;
+  sortOrder: number;
+  failureMessage: string | null;
+  createdAt: string;
+  updatedAt: string;
+  processingStartedAt: string | null;
+};
+
 export type Folder = {
   id: string;
   name: string;
@@ -294,6 +308,12 @@ export type Message = {
   textSegments?: MessageTextSegment[];
   timeline?: MessageTimelineItem[];
   attachments?: MessageAttachment[];
+};
+
+export type ConversationSnapshot = {
+  conversation: Conversation;
+  messages: Message[];
+  queuedMessages: QueuedMessage[];
 };
 
 export type MessageAttachment = {

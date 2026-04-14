@@ -366,6 +366,49 @@ describe("chat-turn", () => {
     );
   });
 
+  it("ensures queued dispatch runs after the turn finalizes", async () => {
+    const ensureQueuedDispatch = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("@/lib/queued-chat-dispatcher", () => ({
+      ensureQueuedDispatch
+    }));
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Hi", []);
+    await vi.dynamicImportSettled();
+
+    expect(ensureQueuedDispatch).toHaveBeenCalledWith({
+      manager,
+      conversationId: conv.id,
+      startChatTurn
+    });
+  });
+
   it("continues from an existing user message without creating a duplicate user row", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
@@ -414,6 +457,59 @@ describe("chat-turn", () => {
     expect(messages.at(-1)?.content).toBe("Restarted answer");
   });
 
+  it("cleans up normally when onMessagesCreated throws", async () => {
+    const ensureQueuedDispatch = vi.fn().mockResolvedValue(undefined);
+    vi.doMock("@/lib/queued-chat-dispatcher", () => ({
+      ensureQueuedDispatch
+    }));
+
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversations = await import("@/lib/conversations");
+    const conv = conversations.createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const result = await startChatTurn(
+      manager,
+      conv.id,
+      "Hi",
+      [],
+      undefined,
+      {
+        onMessagesCreated() {
+          throw new Error("Queue callback failed");
+        }
+      }
+    );
+
+    expect(result).toEqual({
+      status: "failed",
+      errorMessage: "Queue callback failed"
+    });
+    await vi.dynamicImportSettled();
+    expect(manager.isActive(conv.id)).toBe(false);
+    expect(conversations.getConversation(conv.id)?.isActive).toBe(false);
+    expect(conversations.listVisibleMessages(conv.id).find((message) => message.role === "assistant")?.status).toBe("error");
+    expect(ensureQueuedDispatch).toHaveBeenCalledWith({
+      manager,
+      conversationId: conv.id,
+      startChatTurn
+    });
+  });
+
   it("does not create an assistant placeholder when continuation preflight fails", async () => {
     const { createConversation, createMessage, listVisibleMessages } = await import("@/lib/conversations");
     const { startAssistantTurnFromExistingUserMessage } = await import("@/lib/chat-turn");
@@ -441,6 +537,54 @@ describe("chat-turn", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0]?.id).toBe(existingUser.id);
     expect(messages[0]?.role).toBe("user");
+  });
+
+  it("preserves the turn result when queued dispatch throws", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const ensureQueuedDispatch = vi.fn().mockRejectedValue(new Error("dispatcher failed"));
+    vi.doMock("@/lib/queued-chat-dispatcher", () => ({
+      ensureQueuedDispatch
+    }));
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversations = await import("@/lib/conversations");
+    const conv = conversations.createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const result = await startChatTurn(manager, conv.id, "Hi", []);
+    await vi.dynamicImportSettled();
+
+    expect(result).toEqual({ status: "completed" });
+    expect(ensureQueuedDispatch).toHaveBeenCalledWith({
+      manager,
+      conversationId: conv.id,
+      startChatTurn
+    });
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 
   it("rejects a concurrent chat start without persisting another user row", async () => {

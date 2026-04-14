@@ -46,7 +46,11 @@ export type StartChatTurn = (
   conversationId: string,
   content: string,
   attachmentIds: string[],
-  personaId?: string
+  personaId?: string,
+  options?: {
+    source?: "live" | "queue";
+    onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
+  }
 ) => Promise<ChatTurnResult>;
 
 const globalEmitter = createEmitter<{
@@ -123,7 +127,11 @@ async function startAssistantTurn(
   conversationId: string,
   preflight: AssistantTurnStartReady,
   control: ChatTurnControl,
-  personaId?: string
+  personaId?: string,
+  options?: {
+    userMessageId?: string;
+    onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
+  }
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
   let assistantMessageId: string | null = null;
@@ -181,7 +189,12 @@ async function startAssistantTurn(
         flushAnswerBuffer();
       }, 100);
     }
-
+    if (options?.userMessageId && options.onMessagesCreated) {
+      options.onMessagesCreated({
+        userMessageId: options.userMessageId,
+        assistantMessageId: assistantMessage.id
+      });
+    }
     const compacted = await ensureCompactedContext(conversation.id, settings, {
       onCompactionStart() {
         manager.broadcast(conversationId, {
@@ -410,6 +423,17 @@ async function startAssistantTurn(
       );
       globalEmitter.emit("status", conversationId, "completed");
     }
+    void import("@/lib/queued-chat-dispatcher")
+      .then(({ ensureQueuedDispatch }) =>
+        ensureQueuedDispatch({
+          manager,
+          conversationId,
+          startChatTurn
+        })
+      )
+      .catch((error) => {
+        console.error("Queued chat dispatch failed", error);
+      });
   }
 }
 
@@ -465,7 +489,11 @@ export async function startChatTurn(
   conversationId: string,
   content: string,
   attachmentIds: string[],
-  personaId?: string
+  personaId?: string,
+  options?: {
+    source?: "live" | "queue";
+    onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
+  }
 ): Promise<ChatTurnResult> {
   const preflight = getAssistantTurnStartPreflight(conversationId);
   if (!preflight.ok) {
@@ -499,7 +527,10 @@ export async function startChatTurn(
     bindAttachmentsToMessage(conversationId, userMessage.id, attachmentIds);
     void generateConversationTitleFromFirstUserMessage(conversationId, userMessage.id);
 
-    return startAssistantTurn(manager, conversationId, preflight, claimed.control, personaId);
+    return startAssistantTurn(manager, conversationId, preflight, claimed.control, personaId, {
+      userMessageId: userMessage.id,
+      onMessagesCreated: options?.onMessagesCreated
+    });
   } catch (error) {
     releaseChatTurnStart(conversationId, claimed.control);
     throw error;
