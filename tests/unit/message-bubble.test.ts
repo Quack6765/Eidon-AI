@@ -859,6 +859,26 @@ describe("message bubble", () => {
     expect(screen.getByText("c++")).toBeInTheDocument();
   });
 
+  it("preserves explicit assistant fence aliases in the visible label while still highlighting them", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```html", "<div>Hello</div>", "```", "", "```zsh", "echo hello", "```"].join("\n")
+        }
+      })
+    );
+
+    const languageLabels = Array.from(container.querySelectorAll(".assistant-code-block__language")).map(
+      (element) => element.textContent
+    );
+    const codeElements = Array.from(container.querySelectorAll(".assistant-code-block__body code"));
+
+    expect(languageLabels).toEqual(["html", "zsh"]);
+    expect(codeElements[0]).toHaveClass("language-xml");
+    expect(codeElements[1]).toHaveClass("language-bash");
+  });
+
   it("renders single-line untagged fenced assistant code blocks through the dedicated block renderer", () => {
     render(
       React.createElement(MessageBubble, {

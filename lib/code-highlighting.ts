@@ -96,13 +96,14 @@ export function detectCodeLanguage(code: string): string | null {
 
 export function renderHighlightedCode(language: string | null | undefined, code: string): HighlightedCodeResult {
   const normalizedLanguage = normalizeCodeFenceLanguage(language);
+  const explicitDisplayLanguage = getExplicitDisplayLanguage(language);
 
   if (normalizedLanguage) {
     if (!highlighter.getLanguage(normalizedLanguage)) {
-      return createFallbackResult(code, normalizedLanguage);
+      return createFallbackResult(code, explicitDisplayLanguage ?? normalizedLanguage);
     }
 
-    return highlightCode(normalizedLanguage, code, normalizedLanguage);
+    return highlightCode(normalizedLanguage, code, explicitDisplayLanguage ?? normalizedLanguage);
   }
 
   const detectedLanguage = detectCodeLanguage(code);
@@ -158,6 +159,16 @@ function createFallbackResult(code: string, displayLanguage: string | null): Hig
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => HTML_ESCAPE_MAP[character]);
+}
+
+function getExplicitDisplayLanguage(language?: string | null) {
+  if (typeof language !== "string") {
+    return null;
+  }
+
+  const trimmedLanguage = language.trim();
+
+  return trimmedLanguage || null;
 }
 
 function groupAliasesByLanguage() {

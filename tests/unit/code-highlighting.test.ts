@@ -58,6 +58,24 @@ describe("code highlighting helpers", () => {
   });
 
   describe("renderHighlightedCode", () => {
+    it("preserves explicit fence aliases for display while normalizing lookup internally", () => {
+      const htmlResult = renderHighlightedCode("html", "<div>Hello</div>");
+      const zshResult = renderHighlightedCode("zsh", "echo hello");
+      const tsxResult = renderHighlightedCode("tsx", "const view = <div />;");
+
+      expect(htmlResult.language).toBe("xml");
+      expect(htmlResult.displayLanguage).toBe("html");
+      expect(htmlResult.usedFallback).toBe(false);
+
+      expect(zshResult.language).toBe("bash");
+      expect(zshResult.displayLanguage).toBe("zsh");
+      expect(zshResult.usedFallback).toBe(false);
+
+      expect(tsxResult.language).toBe("typescript");
+      expect(tsxResult.displayLanguage).toBe("tsx");
+      expect(tsxResult.usedFallback).toBe(false);
+    });
+
     it("falls back to escaped plain text for unsupported languages", () => {
       const result = renderHighlightedCode("customlang", "hello <world>");
 
