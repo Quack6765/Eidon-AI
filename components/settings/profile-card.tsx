@@ -5,12 +5,14 @@ import type { BadgeVariant } from "./badge";
 export function ProfileCard({
   isActive,
   onClick,
+  isDisabled = false,
   title,
   subtitle,
   badges,
   rightSlot,
 }: {
   isActive: boolean;
+  isDisabled?: boolean;
   onClick: () => void;
   title: string;
   subtitle?: string;
@@ -21,6 +23,8 @@ export function ProfileCard({
     <div
       onClick={onClick}
       className={`rounded-xl px-3 py-3 transition-all duration-200 cursor-pointer ${
+        isDisabled ? "opacity-70" : ""
+      } ${
         isActive
           ? "bg-[rgba(139,92,246,0.08)] border border-[rgba(139,92,246,0.2)]"
           : "border border-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.02)]"
@@ -30,12 +34,20 @@ export function ProfileCard({
         <div className="flex items-center gap-2 min-w-0">
           <div
             className={`h-2 w-2 rounded-full flex-shrink-0 ${
-              isActive ? "bg-[#8b5cf6]" : "bg-[#3b3b3b]"
+              isDisabled
+                ? "bg-[#52525b]"
+                : isActive
+                  ? "bg-[#8b5cf6]"
+                  : "bg-[#3b3b3b]"
             }`}
           />
           <span
             className={`text-[0.82rem] truncate ${
-              isActive ? "text-[#f4f4f5] font-medium" : "text-[#a1a1aa]"
+              isDisabled
+                ? "text-[#6b7280]"
+                : isActive
+                  ? "text-[#f4f4f5] font-medium"
+                  : "text-[#f4f4f5]"
             }`}
           >
             {title}
@@ -49,7 +61,11 @@ export function ProfileCard({
         {rightSlot}
       </div>
       {subtitle ? (
-        <p className="mt-1 truncate text-[0.7rem] text-[#52525b] pl-4">
+        <p
+          className={`mt-1 truncate text-[0.7rem] pl-4 ${
+            isDisabled ? "text-[#4f5868]" : "text-[#d4d4d8]"
+          }`}
+        >
           {subtitle}
         </p>
       ) : null}

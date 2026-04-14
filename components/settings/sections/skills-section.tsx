@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, FileText, Upload } from "lucide-react";
+import { Check, Plus, FileText, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +21,8 @@ export function SkillsSection() {
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
+  const [skillSuccess, setSkillSuccess] = useState("");
+  const [skillEnabledDraft, setSkillEnabledDraft] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -34,19 +36,33 @@ export function SkillsSection() {
 
   async function saveSkill() {
     if (!skillName.trim() || !skillDescription.trim() || !skillContent.trim()) return;
+    setSkillSuccess("");
+
+    let savedId = editingSkillId;
+    const isBuiltin = editingSkillId?.startsWith("builtin-") ?? false;
+    const payload: {
+      name?: string;
+      description?: string;
+      content?: string;
+      enabled: boolean;
+    } = {
+      enabled: skillEnabledDraft
+    };
+
+    if (!isBuiltin) {
+      payload.name = skillName;
+      payload.description = skillDescription;
+      payload.content = skillContent;
+    }
 
     if (editingSkillId) {
       await fetch(`/api/skills/${editingSkillId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: skillName,
-          description: skillDescription,
-          content: skillContent
-        })
+        body: JSON.stringify(payload)
       });
     } else {
-      await fetch("/api/skills", {
+      const createRes = await fetch("/api/skills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -55,30 +71,56 @@ export function SkillsSection() {
           content: skillContent
         })
       });
+      const createdData = (await createRes.json().catch(() => null)) as { skill?: Skill } | null;
+      savedId = createdData?.skill?.id ?? savedId;
+      if (savedId && skillEnabledDraft === false) {
+        await fetch(`/api/skills/${savedId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: false })
+        });
+      }
     }
 
     const res = await fetch("/api/skills");
     const data = (await res.json()) as { skills: Skill[] };
     setSkills(data.skills);
-    resetSkillForm();
+
+    const savedSkill = data.skills.find((skill) => (savedId ? skill.id === savedId : false));
+    if (savedSkill) {
+      setSelectedSkillId(savedSkill.id);
+      setEditingSkillId(savedSkill.id);
+      setSkillName(savedSkill.name);
+      setSkillDescription(savedSkill.description);
+      setSkillContent(savedSkill.content);
+      setSkillEnabledDraft(savedSkill.enabled);
+    } else if (data.skills.length > 0) {
+      const firstMatch = data.skills.find(
+        (skill) => skill.name === skillName && skill.content === skillContent
+      );
+      if (firstMatch) {
+        setSelectedSkillId(firstMatch.id);
+        setEditingSkillId(firstMatch.id);
+        setSkillName(firstMatch.name);
+        setSkillDescription(firstMatch.description);
+        setSkillContent(firstMatch.content);
+        setSkillEnabledDraft(firstMatch.enabled);
+      }
+    }
+
+    setSkillSuccess("Skill saved.");
+    setIsAddingNew(false);
+    setMobileDetailVisible(true);
   }
 
   async function deleteSkill(id: string) {
     await fetch(`/api/skills/${id}`, { method: "DELETE" });
     setSkills((prev) => prev.filter((s) => s.id !== id));
+    setSkillSuccess("");
     if (selectedSkillId === id) {
       setSelectedSkillId(null);
       setMobileDetailVisible(false);
     }
-  }
-
-  async function toggleSkill(id: string, enabled: boolean) {
-    await fetch(`/api/skills/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled })
-    });
-    setSkills((prev) => prev.map((s) => (s.id === id ? { ...s, enabled } : s)));
   }
 
   function handleSelectSkill(skill: Skill) {
@@ -86,6 +128,8 @@ export function SkillsSection() {
     setSkillName(skill.name);
     setSkillDescription(skill.description);
     setSkillContent(skill.content);
+    setSkillEnabledDraft(skill.enabled);
+    setSkillSuccess("");
     setSelectedSkillId(skill.id);
     setIsAddingNew(false);
     setMobileDetailVisible(true);
@@ -96,6 +140,8 @@ export function SkillsSection() {
     setSkillName("");
     setSkillDescription("");
     setSkillContent("");
+    setSkillEnabledDraft(true);
+    setSkillSuccess("");
     setSelectedSkillId(null);
     setIsAddingNew(true);
     setMobileDetailVisible(true);
@@ -125,10 +171,12 @@ export function SkillsSection() {
     setSkillName("");
     setSkillDescription("");
     setSkillContent("");
+    setSkillEnabledDraft(true);
     setEditingSkillId(null);
     setSelectedSkillId(null);
     setIsAddingNew(false);
     setMobileDetailVisible(false);
+    setSkillSuccess("");
   }
 
   const selectedSkill = skills.find((s) => s.id === selectedSkillId);
@@ -182,6 +230,7 @@ export function SkillsSection() {
               <ProfileCard
                 key={skill.id}
                 isActive={skill.id === selectedSkillId}
+                isDisabled={!skill.enabled}
                 onClick={() => handleSelectSkill(skill)}
                 title={skill.name}
                 subtitle={skill.description}
@@ -189,16 +238,6 @@ export function SkillsSection() {
                   skill.id.startsWith("builtin-")
                     ? [{ variant: "builtin" as const, label: "BUILT-IN" }]
                     : undefined
-                }
-                rightSlot={
-                  <label className="flex items-center gap-1 text-[0.7rem] text-[#52525b] cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={skill.enabled}
-                      onChange={(e) => toggleSkill(skill.id, e.target.checked)}
-                      className="rounded"
-                    />
-                  </label>
                 }
               />
             ))}
@@ -237,7 +276,7 @@ export function SkillsSection() {
                 <div className="space-y-5">
                   {selectedSkill && isBuiltin ? (
                     <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-                    <p className="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-amber-200">
+                      <p className="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-amber-200">
                         Built-in skill
                       </p>
                       <p className="mt-1 text-sm text-amber-100">
@@ -277,15 +316,33 @@ export function SkillsSection() {
                   </div>
                 </div>
 
+                {selectedSkill ? (
+                  <div className="flex gap-2 pt-2">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/8 bg-white/[0.04] px-2.5 py-1.5 text-xs text-[#52525b] transition-colors hover:border-white/15">
+                      <input
+                        type="checkbox"
+                        checked={skillEnabledDraft}
+                        onChange={(e) => setSkillEnabledDraft(e.target.checked)}
+                        className="rounded"
+                      />
+                      Enabled
+                    </label>
+                  </div>
+                ) : null}
+
                 <div className="flex gap-2 pt-2">
-                  {!isBuiltin ? (
-                    <Button type="button" onClick={saveSkill}>
-                      {editingSkillId ? "Update" : "Add skill"}
-                    </Button>
-                  ) : null}
+                  <Button type="button" onClick={saveSkill}>
+                    {editingSkillId ? "Update" : "Add skill"}
+                  </Button>
                   <Button type="button" variant="secondary" onClick={resetSkillForm}>
                     {isBuiltin ? "Close" : "Cancel"}
                   </Button>
+                  {skillSuccess ? (
+                    <div className="flex items-center gap-1.5 text-sm text-emerald-400">
+                      <Check className="h-3.5 w-3.5" />
+                      {skillSuccess}
+                    </div>
+                  ) : null}
                 </div>
               </>
             ) : (
