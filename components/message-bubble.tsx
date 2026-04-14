@@ -858,7 +858,14 @@ export function MessageBubble({
   const copyResetHandle = useRef<number | null>(null);
   const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || hasThinking || Boolean(thinkingContent));
   const showUserBubbleActions = Boolean(content) && !awaitingFirstToken;
-  const isAssistantStreaming = message.role === "assistant" && message.status === "streaming";
+  const isAssistantStreaming =
+    message.role === "assistant" &&
+    (
+      message.status === "streaming" ||
+      streamingTimeline !== undefined ||
+      streamingThinking !== undefined ||
+      streamingAnswer !== undefined
+    );
   const showAssistantBubbleActions =
     Boolean(assistantText) &&
     !awaitingFirstToken &&

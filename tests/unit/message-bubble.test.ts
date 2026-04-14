@@ -1086,6 +1086,26 @@ describe("message bubble", () => {
     expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
   });
 
+  it("keeps code-block copy hidden while streamed display text is still animating after the message snapshot is completed", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          status: "completed",
+          content: ["```python", "print('final')", "```"].join("\n")
+        },
+        streamingAnswer: ["```python", "print('still painting')", "```"].join("\n")
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+
+    expect(codeBlock).toHaveAttribute("data-complete", "false");
+    expect(codeBlock).toHaveTextContent("print('still painting')");
+    expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+  });
+
   it("keeps assistant inline code inline instead of rendering the dedicated block component", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
