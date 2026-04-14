@@ -698,6 +698,22 @@ describe("message bubble", () => {
     expect(assistantMarkdown).not.toBeNull();
   });
 
+  it("keeps fenced code inside thinking content on the plain markdown path", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          thinkingContent: ["```python", "print('thought')", "```"].join("\n")
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Thought/i }));
+
+    expect(container.querySelector(".thinking-markdown-body [data-testid='assistant-code-block']")).toBeNull();
+    expect(container.querySelector(".thinking-markdown-body pre code")).not.toBeNull();
+  });
+
   it("keeps persisted thinking content collapsed by default", () => {
     render(
       React.createElement(MessageBubble, {
@@ -816,6 +832,20 @@ describe("message bubble", () => {
     expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
   });
 
+  it("preserves symbol-containing assistant fence labels instead of truncating them", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```c++", "std::cout << 1;", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(screen.getByText("c++")).toBeInTheDocument();
+  });
+
   it("renders single-line untagged fenced assistant code blocks through the dedicated block renderer", () => {
     render(
       React.createElement(MessageBubble, {
@@ -829,6 +859,21 @@ describe("message bubble", () => {
     expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
     expect(screen.getByText("foo")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
+  });
+
+  it("keeps assistant inline code inline instead of rendering the dedicated block component", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Inline `token` should stay inline."
+        }
+      })
+    );
+
+    expect(screen.getByText("token")).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="assistant-code-block"]')).toBeNull();
+    expect(container.querySelector('[data-testid="assistant-message-bubble"] p code')).not.toBeNull();
   });
 
   it("copies only the fenced code payload from the block action", async () => {

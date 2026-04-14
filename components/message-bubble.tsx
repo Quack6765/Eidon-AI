@@ -33,7 +33,12 @@ function renderAssistantMarkdown(content: string) {
         code({ node: _node, className, children, ...props }) {
           const rawValue = String(children);
           const value = rawValue.replace(/\n$/, "");
-          const language = className?.match(/language-([\w-]+)/)?.[1] ?? null;
+          const languageClass = className
+            ?.split(/\s+/)
+            .find((token) => token.startsWith("language-"));
+          const language = languageClass
+            ? languageClass.slice("language-".length)
+            : null;
           const isBlock =
             Boolean(className) ||
             rawValue.endsWith("\n") ||
