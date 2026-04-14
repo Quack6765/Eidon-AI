@@ -3,12 +3,21 @@ import {
   deleteQueuedMessage,
   failQueuedMessage,
   getConversation,
+  listQueuedMessages,
   markOrphanedQueuedMessagesFailed
 } from "@/lib/conversations";
 import type { ConversationManager } from "@/lib/conversation-manager";
 import type { StartChatTurn } from "@/lib/chat-turn";
 
 const dispatchLocks = new Set<string>();
+
+function broadcastQueueUpdated(manager: ConversationManager, conversationId: string) {
+  manager.broadcast(conversationId, {
+    type: "queue_updated",
+    conversationId,
+    queuedMessages: listQueuedMessages(conversationId)
+  });
+}
 
 export async function ensureQueuedDispatch({
   manager,
@@ -38,13 +47,17 @@ export async function ensureQueuedDispatch({
       }
 
       if (!manager.isActive(conversationId)) {
-        markOrphanedQueuedMessagesFailed(conversationId);
+        const recoveredCount = markOrphanedQueuedMessagesFailed(conversationId);
+        if (recoveredCount > 0) {
+          broadcastQueueUpdated(manager, conversationId);
+        }
       }
 
       const queued = claimNextQueuedMessageForDispatch(conversationId);
       if (!queued) {
         return;
       }
+      broadcastQueueUpdated(manager, conversationId);
 
       let messagesCreated = false;
       const result = await startChatTurn(
@@ -61,6 +74,7 @@ export async function ensureQueuedDispatch({
               conversationId,
               queuedMessageId: queued.id
             });
+            broadcastQueueUpdated(manager, conversationId);
           }
         }
       );
@@ -71,6 +85,7 @@ export async function ensureQueuedDispatch({
           queuedMessageId: queued.id,
           failureMessage: result.errorMessage ?? "Unable to dispatch queued follow-up"
         });
+        broadcastQueueUpdated(manager, conversationId);
       }
     }
   } finally {

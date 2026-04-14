@@ -93,6 +93,189 @@ describe("queued-chat-dispatcher", () => {
     expect(listQueuedMessages(conversation.id).some((item) => item.id === first.id)).toBe(false);
   });
 
+  it("broadcasts queue updates when queued items are consumed by automatic dispatch", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { createConversation, createQueuedMessage, listQueuedMessages } =
+      await import("@/lib/conversations");
+    const { ensureQueuedDispatch } = await import("@/lib/queued-chat-dispatcher");
+
+    const manager = createConversationManager();
+    const broadcastSpy = vi.spyOn(manager, "broadcast");
+    const conversation = createConversation();
+    createQueuedMessage({ conversationId: conversation.id, content: "First queued follow-up" });
+    createQueuedMessage({ conversationId: conversation.id, content: "Second queued follow-up" });
+
+    const startChatTurn = vi.fn(
+      async (_manager, _conversationId, content, _attachmentIds, _personaId, options) => {
+        options?.onMessagesCreated?.({
+          userMessageId: `user-${content}`,
+          assistantMessageId: `assistant-${content}`
+        });
+        return { status: "completed" as const };
+      }
+    );
+
+    await ensureQueuedDispatch({
+      manager,
+      conversationId: conversation.id,
+      startChatTurn
+    });
+
+    const queueUpdatedEvents = broadcastSpy.mock.calls
+      .filter(([, event]) => event.type === "queue_updated")
+      .map(([, event]) => event);
+
+    expect(queueUpdatedEvents).toEqual([
+      {
+        type: "queue_updated",
+        conversationId: conversation.id,
+        queuedMessages: [
+          expect.objectContaining({
+            content: "First queued follow-up",
+            status: "processing"
+          }),
+          expect.objectContaining({
+            content: "Second queued follow-up",
+            status: "pending"
+          })
+        ]
+      },
+      {
+        type: "queue_updated",
+        conversationId: conversation.id,
+        queuedMessages: [
+          expect.objectContaining({
+            content: "Second queued follow-up",
+            status: "pending"
+          })
+        ]
+      },
+      {
+        type: "queue_updated",
+        conversationId: conversation.id,
+        queuedMessages: [
+          expect.objectContaining({
+            content: "Second queued follow-up",
+            status: "processing"
+          })
+        ]
+      },
+      {
+        type: "queue_updated",
+        conversationId: conversation.id,
+        queuedMessages: []
+      }
+    ]);
+    expect(listQueuedMessages(conversation.id)).toEqual([]);
+  });
+
+  it("broadcasts queue updates when automatic dispatch fails before creating messages", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { createConversation, createQueuedMessage } = await import("@/lib/conversations");
+    const { ensureQueuedDispatch } = await import("@/lib/queued-chat-dispatcher");
+
+    const manager = createConversationManager();
+    const broadcastSpy = vi.spyOn(manager, "broadcast");
+    const conversation = createConversation();
+    createQueuedMessage({ conversationId: conversation.id, content: "Queued follow-up" });
+
+    const startChatTurn = vi.fn(async () => ({
+      status: "failed" as const,
+      errorMessage: "Provider rejected the queued follow-up"
+    }));
+
+    await ensureQueuedDispatch({
+      manager,
+      conversationId: conversation.id,
+      startChatTurn
+    });
+
+    const queueUpdatedEvents = broadcastSpy.mock.calls
+      .filter(([, event]) => event.type === "queue_updated")
+      .map(([, event]) => event);
+
+    expect(queueUpdatedEvents).toEqual([
+      {
+        type: "queue_updated",
+        conversationId: conversation.id,
+        queuedMessages: [
+          expect.objectContaining({
+            content: "Queued follow-up",
+            status: "processing",
+            failureMessage: null
+          })
+        ]
+      },
+      {
+        type: "queue_updated",
+        conversationId: conversation.id,
+        queuedMessages: [
+          expect.objectContaining({
+            content: "Queued follow-up",
+            status: "failed",
+            failureMessage: "Provider rejected the queued follow-up"
+          })
+        ]
+      }
+    ]);
+  });
+
+  it("broadcasts queue updates when orphaned processing rows are recovered", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { createConversation, createQueuedMessage } = await import("@/lib/conversations");
+    const { ensureQueuedDispatch } = await import("@/lib/queued-chat-dispatcher");
+
+    const manager = createConversationManager();
+    const broadcastSpy = vi.spyOn(manager, "broadcast");
+    const conversation = createConversation();
+
+    createQueuedMessage({ conversationId: conversation.id, content: "Recovered follow-up" });
+
+    const stalledStartChatTurn = vi.fn(async () => ({ status: "completed" as const }));
+    await ensureQueuedDispatch({
+      manager,
+      conversationId: conversation.id,
+      startChatTurn: stalledStartChatTurn
+    });
+
+    const recoveryStartChatTurn = vi.fn(async () => ({ status: "completed" as const }));
+    await ensureQueuedDispatch({
+      manager,
+      conversationId: conversation.id,
+      startChatTurn: recoveryStartChatTurn
+    });
+
+    const queueUpdatedEvents = broadcastSpy.mock.calls
+      .filter(([, event]) => event.type === "queue_updated")
+      .map(([, event]) => event);
+
+    expect(queueUpdatedEvents).toEqual([
+      {
+        type: "queue_updated",
+        conversationId: conversation.id,
+        queuedMessages: [
+          expect.objectContaining({
+            content: "Recovered follow-up",
+            status: "processing",
+            failureMessage: null
+          })
+        ]
+      },
+      {
+        type: "queue_updated",
+        conversationId: conversation.id,
+        queuedMessages: [
+          expect.objectContaining({
+            content: "Recovered follow-up",
+            status: "failed",
+            failureMessage: "Queued follow-up was abandoned before dispatch completed"
+          })
+        ]
+      }
+    ]);
+    expect(recoveryStartChatTurn).not.toHaveBeenCalled();
+  });
+
   it("drains multiple queued items from a single dispatcher kick", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { createConversation, createQueuedMessage, listQueuedMessages } = await import("@/lib/conversations");

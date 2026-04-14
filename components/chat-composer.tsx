@@ -226,18 +226,20 @@ export function ChatComposer({
   const canQueueDraft = queueingEnabled && hasTextDraft;
   const canImmediateDraft = !queueingEnabled && (hasTextDraft || pendingAttachments.length > 0);
   const showStopButton = canStop && !isUploadingAttachments;
-  const showPrimaryStopButton = showStopButton && !canQueueDraft;
+  const busyButtonQueues = showStopButton && canQueueDraft;
+  const busyButtonStops = showStopButton && !canQueueDraft;
   const isSubmitDisabled =
     !mounted ||
     isUploadingAttachments ||
     speechPhase === "listening" ||
     speechPhase === "transcribing" ||
-    (!showPrimaryStopButton && !canQueueDraft && !canImmediateDraft) ||
+    (!showStopButton && !canQueueDraft && !canImmediateDraft) ||
     (!queueingEnabled && isSending);
   const showContextUsage = hasMessages && usedTokens !== null;
   const isSpeechActive = speechPhase === "listening" || speechPhase === "transcribing";
   const speechLevelWidth = Math.max(8, Math.round(speechLevel * 100));
   const speechControlsDisabled = !mounted || isSending || isUploadingAttachments || isSpeechActive;
+  const showBusyQueueHint = showStopButton;
 
   // For the model selector, we want to show the profile name prominently
   const displayModels = providerProfiles.map(p => ({
@@ -321,7 +323,7 @@ export function ChatComposer({
         ) : null}
       </AnimatePresence>
 
-      <div className="flex w-full items-end gap-2 pb-1 pr-1.5">
+      <div className="flex w-full items-center gap-2 pb-1 pr-1.5">
         <div className="flex-1 min-w-0">
           <Textarea
             ref={textareaRef}
@@ -401,41 +403,29 @@ export function ChatComposer({
             )}
           </AnimatePresence>
 
-          {showStopButton && canQueueDraft ? (
-            <button
-              type="button"
-              onClick={() => void onStop()}
-              disabled={isStopPending}
-              className={cn(
-                "flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 shrink-0",
-                isStopPending
-                  ? "bg-white/5 text-white/20"
-                  : "bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]"
-              )}
-              aria-label="Stop response"
-            >
-              <Square className="h-4 w-4 fill-current" />
-            </button>
-          ) : null}
-
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
-            onClick={() => void (showPrimaryStopButton ? onStop() : onSubmit())}
-            disabled={showPrimaryStopButton ? isStopPending : isSubmitDisabled}
+            onClick={() =>
+              void (busyButtonStops ? onStop() : onSubmit())
+            }
+            disabled={busyButtonStops ? isStopPending : isSubmitDisabled}
             className={cn(
-              "flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 shrink-0",
-              showPrimaryStopButton
+              "relative flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 shrink-0",
+              showStopButton
                 ? isStopPending
                   ? "bg-white/5 text-white/20"
-                  : "bg-red-500 text-white shadow-[0_0_15px_rgba(239,68,68,0.4)]"
+                  : "border border-white/12 bg-zinc-900 text-white shadow-[0_0_15px_rgba(167,139,250,0.18)]"
                 : !isSubmitDisabled
                   ? "bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)]"
                   : "bg-white/5 text-white/20"
             )}
-            aria-label={showPrimaryStopButton ? "Stop response" : canQueueDraft ? "Queue follow-up" : "Send message"}
+            aria-label={busyButtonStops ? "Stop response" : canQueueDraft ? "Queue follow-up" : "Send message"}
           >
-            {showPrimaryStopButton ? (
+            {showStopButton && !isStopPending ? (
+              <span className="pointer-events-none absolute inset-[-3px] rounded-full border-2 border-white/10 border-t-violet-400 animate-spin" />
+            ) : null}
+            {showStopButton ? (
               <Square className="h-4 w-4 fill-current" />
             ) : isSending || isUploadingAttachments ? (
               <LoaderCircle className="h-5 w-5 animate-spin" />
@@ -446,6 +436,15 @@ export function ChatComposer({
         </div>
       </div>
 
+      {showBusyQueueHint ? (
+        <motion.div
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="px-4 pb-2 text-[11px] font-medium text-white/45"
+        >
+          Agent working - send still queues
+        </motion.div>
+      ) : null}
 
       {showVisionWarning ? (
         <motion.div 

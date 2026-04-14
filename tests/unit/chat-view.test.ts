@@ -2033,9 +2033,10 @@ describe("chat view", () => {
 
     expect(screen.getByText("Queued message not found")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
+    expect(screen.getByText("Agent working - send still queues")).toBeInTheDocument();
   });
 
-  it("keeps stop control available while drafting a queued follow-up during an active turn", async () => {
+  it("reuses the primary action as queue follow-up while drafting during an active turn", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     await act(async () => {
@@ -2052,8 +2053,23 @@ describe("chat view", () => {
 
     fireEvent.change(textarea, { target: { value: "Queued while streaming" } });
 
-    expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Queue follow-up" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull();
+    expect(screen.getByText("Agent working - send still queues")).toBeInTheDocument();
+  });
+
+  it("centers the composer controls against the textarea body", async () => {
+    await act(async () => {
+      renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    });
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+    const composerRow = textarea.parentElement?.parentElement;
+
+    expect(composerRow).toHaveClass("items-center");
+    expect(composerRow).not.toHaveClass("items-end");
   });
 
   it("updates token usage gauge when usage event arrives", async () => {

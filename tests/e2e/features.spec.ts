@@ -1,3 +1,6 @@
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo, Socket } from "node:net";
+
 import { expect, test } from "@playwright/test";
 
 async function signIn(page: import("@playwright/test").Page) {
@@ -54,7 +57,7 @@ async function mockChatResponse(page: import("@playwright/test").Page) {
 }
 
 async function createNewChat(page: import("@playwright/test").Page) {
-  const newChatButton = page.getByRole("button", { name: "New chat", exact: true });
+  const newChatButton = page.locator('button[aria-label="New chat"]:not([disabled])').first();
   await expect(newChatButton).toBeVisible({ timeout: 10000 });
   await expect(newChatButton).toBeEnabled({ timeout: 10000 });
 
@@ -71,6 +74,348 @@ async function createNewChat(page: import("@playwright/test").Page) {
       await page.waitForTimeout(500);
     }
   }
+}
+
+type MockChatRequest = {
+  stream: boolean;
+  lastUserContent: string;
+  isTitleRequest: boolean;
+};
+
+async function startMockOpenAiCompatibleServer() {
+  const chatRequests: MockChatRequest[] = [];
+  let initialStreamConnections = 0;
+  const openSockets = new Set<Socket>();
+
+  const server = createServer(async (request, response) => {
+    if (request.method !== "POST" || request.url !== "/v1/chat/completions") {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { message: "Not found" } }));
+      return;
+    }
+
+    const body = await readJsonBody(request);
+    const lastUserContent = extractLastUserContent(body);
+    const isStream = body.stream === true;
+    const isTitleRequest = !isStream;
+
+    chatRequests.push({
+      stream: isStream,
+      lastUserContent,
+      isTitleRequest
+    });
+
+    if (!isStream) {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(
+        JSON.stringify({
+          id: "chatcmpl_mock_title",
+          object: "chat.completion",
+          created: Math.floor(Date.now() / 1000),
+          model: body.model ?? "mock-model",
+          choices: [
+            {
+              index: 0,
+              finish_reason: "stop",
+              message: {
+                role: "assistant",
+                content: "Mock title"
+              }
+            }
+          ]
+        })
+      );
+      return;
+    }
+
+    if (lastUserContent === "Initial question") {
+      initialStreamConnections += 1;
+      await streamInitialTurn(response, request, initialStreamConnections);
+      return;
+    }
+
+    await streamQueuedTurn(response, body.model ?? "mock-model", lastUserContent);
+  });
+
+  server.on("connection", (socket) => {
+    openSockets.add(socket);
+    socket.on("close", () => {
+      openSockets.delete(socket);
+    });
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  const address = server.address() as AddressInfo;
+  const origin = `http://127.0.0.1:${address.port}`;
+
+  return {
+    apiBaseUrl: `${origin}/v1`,
+    close: async () => {
+      for (const socket of openSockets) {
+        socket.destroy();
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve();
+        });
+      });
+    },
+    reset() {
+      chatRequests.length = 0;
+      initialStreamConnections = 0;
+    },
+    listChatRequests() {
+      return [...chatRequests];
+    }
+  };
+}
+
+async function readJsonBody(request: IncomingMessage) {
+  const chunks: Buffer[] = [];
+
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+
+  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+}
+
+function extractLastUserContent(body: any) {
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  const lastUserMessage = [...messages].reverse().find((message) => message?.role === "user");
+
+  if (!lastUserMessage) {
+    return "";
+  }
+
+  const { content } = lastUserMessage;
+  if (typeof content === "string") {
+    return content;
+  }
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part;
+        }
+
+        if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+          return part.text;
+        }
+
+        return "";
+      })
+      .join("");
+  }
+
+  return "";
+}
+
+function writeChatCompletionChunk(response: ServerResponse, chunk: Record<string, unknown>) {
+  response.write(`data: ${JSON.stringify(chunk)}\n\n`);
+}
+
+async function streamInitialTurn(
+  response: ServerResponse,
+  request: IncomingMessage,
+  connectionNumber: number
+) {
+  response.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    connection: "keep-alive"
+  });
+
+  writeChatCompletionChunk(response, {
+    id: "chatcmpl_initial",
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model: "mock-model",
+    choices: [
+      {
+        index: 0,
+        delta: {
+          role: "assistant",
+          content: connectionNumber === 1 ? "Working on the first answer..." : "Still working..."
+        },
+        finish_reason: null
+      }
+    ]
+  });
+
+  const keepAlive = setInterval(() => {
+    if (response.destroyed) {
+      clearInterval(keepAlive);
+      return;
+    }
+
+    response.write(": keep-alive\n\n");
+  }, 250);
+
+  await new Promise<void>((resolve) => {
+    request.once("close", () => {
+      clearInterval(keepAlive);
+      resolve();
+    });
+  });
+}
+
+async function streamQueuedTurn(
+  response: ServerResponse,
+  model: string,
+  lastUserContent: string
+) {
+  response.writeHead(200, {
+    "content-type": "text/event-stream; charset=utf-8",
+    "cache-control": "no-cache",
+    connection: "keep-alive"
+  });
+
+  writeChatCompletionChunk(response, {
+    id: `chatcmpl_${lastUserContent}`,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [
+      {
+        index: 0,
+        delta: {
+          role: "assistant",
+          content: `Handled ${lastUserContent}`
+        },
+        finish_reason: null
+      }
+    ]
+  });
+
+  writeChatCompletionChunk(response, {
+    id: `chatcmpl_${lastUserContent}`,
+    object: "chat.completion.chunk",
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [
+      {
+        index: 0,
+        delta: {},
+        finish_reason: "stop"
+      }
+    ]
+  });
+  response.write("data: [DONE]\n\n");
+  response.end();
+}
+
+async function configureMockProvider(
+  page: import("@playwright/test").Page,
+  apiBaseUrl: string
+) {
+  const settingsResponse = await page.request.get("/api/settings");
+  expect(settingsResponse.ok()).toBeTruthy();
+
+  const settingsPayload = (await settingsResponse.json()) as {
+    settings: {
+      defaultProviderProfileId: string;
+      skillsEnabled: boolean;
+      conversationRetention: "forever" | "90d" | "30d" | "7d";
+      memoriesEnabled: boolean;
+      memoriesMaxCount: number;
+      mcpTimeout: number;
+      providerProfiles: Array<Record<string, unknown>>;
+    };
+  };
+
+  const currentProfile = settingsPayload.settings.providerProfiles[0];
+  expect(currentProfile).toBeTruthy();
+  const mockProfileId = `${currentProfile.id as string}_queued_mock`;
+
+  const nextSettings = {
+    defaultProviderProfileId: mockProfileId,
+    skillsEnabled: settingsPayload.settings.skillsEnabled,
+    conversationRetention: settingsPayload.settings.conversationRetention,
+    memoriesEnabled: settingsPayload.settings.memoriesEnabled,
+    memoriesMaxCount: settingsPayload.settings.memoriesMaxCount,
+    mcpTimeout: settingsPayload.settings.mcpTimeout,
+    providerProfiles: [
+      ...settingsPayload.settings.providerProfiles,
+      {
+        ...currentProfile,
+        id: mockProfileId,
+        name: `${String(currentProfile.name ?? "Profile")} (Queued Follow-ups Test)`,
+        providerKind: "openai_compatible",
+        apiBaseUrl,
+        apiKey: "test-api-key",
+        model: "mock-model",
+        apiMode: "chat_completions",
+        systemPrompt:
+          typeof currentProfile.systemPrompt === "string" && currentProfile.systemPrompt.length > 0
+            ? currentProfile.systemPrompt
+            : "You are a concise assistant.",
+        temperature: 0.2,
+        maxOutputTokens: 512,
+        reasoningEffort: "medium",
+        reasoningSummaryEnabled: false,
+        modelContextLimit: 16384,
+        compactionThreshold: 0.8,
+        freshTailCount: 12,
+        tokenizerModel: "gpt-tokenizer",
+        safetyMarginTokens: 1200,
+        leafSourceTokenLimit: 12000,
+        leafMinMessageCount: 6,
+        mergedMinNodeCount: 4,
+        mergedTargetTokens: 1600,
+        visionMode: "native",
+        visionMcpServerId: null
+      }
+    ]
+  };
+
+  const providerResponse = await page.request.put("/api/settings/providers", {
+    data: nextSettings
+  });
+
+  expect(providerResponse.ok()).toBeTruthy();
+
+  return async () => {
+    const restoreResponse = await page.request.put("/api/settings/providers", {
+      data: settingsPayload.settings
+    });
+
+    expect(restoreResponse.ok()).toBeTruthy();
+  };
+}
+
+async function enterComposerText(
+  composer: import("@playwright/test").Locator,
+  text: string
+) {
+  await composer.evaluate((element, nextValue) => {
+    const textarea = element as HTMLTextAreaElement & {
+      _valueTracker?: { setValue: (value: string) => void };
+    };
+    const previousValue = textarea.value;
+    const valueSetter = Object.getOwnPropertyDescriptor(
+      HTMLTextAreaElement.prototype,
+      "value"
+    )?.set;
+
+    valueSetter?.call(textarea, nextValue);
+    textarea._valueTracker?.setValue(previousValue);
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+  }, text);
+  await expect(composer).toHaveValue(text);
 }
 
 const TINY_PNG = Buffer.from(
@@ -640,5 +985,194 @@ test.describe("Feature: Chat attachments", () => {
     await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled({
       timeout: 5000
     });
+  });
+});
+
+test.describe("Feature: Queued chat follow-ups", () => {
+  test("shows queued follow-ups above the composer and keeps them across a reconnect", async ({
+    page
+  }) => {
+    test.setTimeout(60_000);
+    const mockServer = await startMockOpenAiCompatibleServer();
+    let restoreProviderSettings: (() => Promise<void>) | null = null;
+
+    try {
+      await signIn(page);
+      restoreProviderSettings = await configureMockProvider(page, mockServer.apiBaseUrl);
+      mockServer.reset();
+
+      await createNewChat(page);
+      await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+      const initialStreamRequestCount = mockServer
+        .listChatRequests()
+        .filter((request) => request.stream && !request.isTitleRequest).length;
+
+      const composer = page.getByPlaceholder(/Ask, create, or start a task/i);
+      const sendMessageButton = page.getByRole("button", { name: "Send message" });
+      const startVoiceInputButton = page.getByRole("button", { name: "Start voice input" });
+
+      await expect(composer).toBeEditable({ timeout: 10000 });
+      await expect(startVoiceInputButton).toBeEnabled({ timeout: 10000 });
+      await enterComposerText(composer, "Initial question");
+      await expect(sendMessageButton).toBeEnabled({ timeout: 10000 });
+      await sendMessageButton.click();
+      await expect(composer).toHaveValue("");
+
+      await expect.poll(
+        () =>
+          mockServer
+            .listChatRequests()
+            .filter((request) => request.stream && !request.isTitleRequest)
+            .length,
+        { timeout: 10000 }
+      ).toBe(initialStreamRequestCount + 1);
+
+      await expect(page.getByRole("button", { name: "Stop response" }).first()).toBeVisible({
+        timeout: 10000
+      });
+
+      await enterComposerText(composer, "First queued follow-up");
+      await page.getByRole("button", { name: "Queue follow-up" }).click();
+      await expect(composer).toHaveValue("");
+      await enterComposerText(composer, "Second queued follow-up");
+      await page.getByRole("button", { name: "Queue follow-up" }).click();
+      await expect(composer).toHaveValue("");
+      await enterComposerText(composer, "Third queued follow-up");
+      await page.getByRole("button", { name: "Queue follow-up" }).click();
+      await expect(composer).toHaveValue("");
+
+      const queueHeader = page.getByText("3 queued follow-ups");
+      await expect(queueHeader).toBeVisible({ timeout: 10000 });
+      await expect(page.getByText("First queued follow-up", { exact: true })).toBeVisible();
+      await expect(page.getByText("Second queued follow-up", { exact: true })).toBeVisible();
+      await expect(page.getByText("Third queued follow-up", { exact: true })).toBeVisible();
+
+      const queueHeaderBox = await queueHeader.boundingBox();
+      const composerBox = await composer.boundingBox();
+      expect(queueHeaderBox?.y).toBeLessThan(composerBox?.y ?? Number.POSITIVE_INFINITY);
+
+      const reconnectedPage = await page.context().newPage();
+      await reconnectedPage.goto(page.url(), { waitUntil: "domcontentloaded" });
+
+      const reconnectedComposer = reconnectedPage.getByPlaceholder(/Ask, create, or start a task/i);
+      const reconnectedQueueHeader = reconnectedPage.getByText("3 queued follow-ups");
+
+      await expect(reconnectedComposer).toBeEditable({ timeout: 10000 });
+      await expect(reconnectedQueueHeader).toBeVisible({ timeout: 10000 });
+      await expect(reconnectedPage.getByText("First queued follow-up", { exact: true })).toBeVisible();
+      await expect(reconnectedPage.getByText("Second queued follow-up", { exact: true })).toBeVisible();
+      await expect(reconnectedPage.getByText("Third queued follow-up", { exact: true })).toBeVisible();
+      await reconnectedPage.close();
+    } finally {
+      if (restoreProviderSettings) {
+        await restoreProviderSettings();
+      }
+      await mockServer.close();
+    }
+  });
+
+  test("sends the selected queued item next and preserves the remaining FIFO order", async ({
+    page
+  }) => {
+    test.setTimeout(60_000);
+    const mockServer = await startMockOpenAiCompatibleServer();
+    let restoreProviderSettings: (() => Promise<void>) | null = null;
+
+    try {
+      await signIn(page);
+      restoreProviderSettings = await configureMockProvider(page, mockServer.apiBaseUrl);
+      mockServer.reset();
+
+      await createNewChat(page);
+      await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+      const initialStreamRequestCount = mockServer
+        .listChatRequests()
+        .filter((request) => request.stream && !request.isTitleRequest).length;
+
+      const composer = page.getByPlaceholder(/Ask, create, or start a task/i);
+      const sendMessageButton = page.getByRole("button", { name: "Send message" });
+      const startVoiceInputButton = page.getByRole("button", { name: "Start voice input" });
+
+      await expect(composer).toBeEditable({ timeout: 10000 });
+      await expect(startVoiceInputButton).toBeEnabled({ timeout: 10000 });
+      await enterComposerText(composer, "Initial question");
+      await expect(sendMessageButton).toBeEnabled({ timeout: 10000 });
+      await sendMessageButton.click();
+      await expect(composer).toHaveValue("");
+
+      await expect.poll(
+        () =>
+          mockServer
+            .listChatRequests()
+            .filter((request) => request.stream && !request.isTitleRequest)
+            .length,
+        { timeout: 10000 }
+      ).toBe(initialStreamRequestCount + 1);
+
+      await expect(page.getByRole("button", { name: "Stop response" }).first()).toBeVisible({
+        timeout: 10000
+      });
+
+      await enterComposerText(composer, "First queued follow-up");
+      await page.getByRole("button", { name: "Queue follow-up" }).click();
+      await expect(composer).toHaveValue("");
+      await enterComposerText(composer, "Second queued follow-up");
+      await page.getByRole("button", { name: "Queue follow-up" }).click();
+      await expect(composer).toHaveValue("");
+      await enterComposerText(composer, "Third queued follow-up");
+      await page.getByRole("button", { name: "Queue follow-up" }).click();
+      await expect(composer).toHaveValue("");
+
+      const queueHeader = page.getByText("3 queued follow-ups");
+      await expect(queueHeader).toBeVisible({ timeout: 10000 });
+
+      const thirdQueuedRow = page
+        .getByText("Third queued follow-up", { exact: true })
+        .locator("xpath=..");
+      await thirdQueuedRow.getByRole("button", { name: "Delete" }).click();
+      await expect(page.getByText("Third queued follow-up", { exact: true })).toHaveCount(0);
+
+      const secondQueuedRow = page
+        .getByText("Second queued follow-up", { exact: true })
+        .locator("xpath=..");
+      await secondQueuedRow.getByRole("button", { name: "Send now" }).click();
+
+      await expect.poll(
+        () =>
+          mockServer
+            .listChatRequests()
+            .filter((request) => request.stream && !request.isTitleRequest)
+            .length,
+        { timeout: 15000 }
+      ).toBe(initialStreamRequestCount + 3);
+
+      const dispatchedMessages = mockServer
+        .listChatRequests()
+        .filter((request) => request.stream && !request.isTitleRequest)
+        .slice(initialStreamRequestCount)
+        .map((request) => request.lastUserContent);
+
+      expect(dispatchedMessages).toEqual([
+        "Initial question",
+        "Second queued follow-up",
+        "First queued follow-up"
+      ]);
+      expect(dispatchedMessages).not.toContain("Third queued follow-up");
+
+      await expect(page.getByText("Second queued follow-up", { exact: true })).toHaveCount(0, {
+        timeout: 10000
+      });
+      await expect(page.getByText("First queued follow-up", { exact: true })).toHaveCount(0, {
+        timeout: 10000
+      });
+      await expect(page.getByText("Handled Second queued follow-up")).toBeVisible({
+        timeout: 10000
+      });
+    } finally {
+      if (restoreProviderSettings) {
+        await restoreProviderSettings();
+      }
+      await mockServer.close();
+    }
   });
 });
