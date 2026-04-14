@@ -622,7 +622,16 @@ describe("provider integration", () => {
 
     expect(responsesCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        input: [
+        input: expect.arrayContaining([
+          expect.objectContaining({
+            role: "system",
+            content: expect.arrayContaining([
+              expect.objectContaining({
+                type: "input_text",
+                text: expect.stringContaining("Current date and time context")
+              })
+            ])
+          }),
           {
             role: "user",
             content: [
@@ -630,7 +639,7 @@ describe("provider integration", () => {
               { type: "input_image", image_url: "data:image/png;base64,abc123" }
             ]
           }
-        ]
+        ])
       }),
       expect.objectContaining({
         signal: expect.any(AbortSignal)
@@ -721,6 +730,15 @@ describe("provider integration", () => {
     expect(responsesCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         input: [
+          expect.objectContaining({
+            role: "system",
+            content: expect.arrayContaining([
+              expect.objectContaining({
+                type: "input_text",
+                text: expect.stringContaining("Current date and time context")
+              })
+            ])
+          }),
           {
             type: "function_call",
             id: "call_0",
@@ -791,6 +809,10 @@ describe("provider integration", () => {
     expect(chatCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         messages: [
+          expect.objectContaining({
+            role: "system",
+            content: expect.any(String)
+          }),
           {
             role: "user",
             content: [
@@ -858,7 +880,11 @@ describe("provider integration", () => {
     expect(events).toEqual([
       { type: "thinking_delta", text: "Thinking " },
       { type: "answer_delta", text: "Hi there" },
-      { type: "usage", inputTokens: 13, outputTokens: undefined }
+      expect.objectContaining({
+        type: "usage",
+        inputTokens: expect.any(Number),
+        outputTokens: undefined
+      })
     ]);
   });
 
@@ -976,6 +1002,10 @@ describe("provider integration", () => {
           }
         ],
         messages: [
+          expect.objectContaining({
+            role: "system",
+            content: expect.any(String)
+          }),
           {
             role: "assistant",
             content: null,
@@ -1004,7 +1034,7 @@ describe("provider integration", () => {
 
     expect(events).toContainEqual({ type: "thinking_delta", text: "Plan " });
     expect(events).toContainEqual({ type: "answer_delta", text: "Done" });
-    expect(events).toContainEqual({ type: "usage", inputTokens: 7, outputTokens: 3 });
+    expect(events).toContainEqual(expect.objectContaining({ type: "usage", inputTokens: expect.any(Number), outputTokens: 3 }));
   });
 
   it("uses ollama reasoning controls and parses thinking deltas", async () => {
@@ -1057,7 +1087,11 @@ describe("provider integration", () => {
     expect(events).toEqual([
       { type: "thinking_delta", text: "Thinking " },
       { type: "answer_delta", text: "Hi there" },
-      { type: "usage", inputTokens: 13, outputTokens: undefined }
+      expect.objectContaining({
+        type: "usage",
+        inputTokens: expect.any(Number),
+        outputTokens: undefined
+      })
     ]);
   });
 

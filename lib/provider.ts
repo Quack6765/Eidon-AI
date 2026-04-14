@@ -17,6 +17,52 @@ import type {
   ProviderToolCall
 } from "@/lib/types";
 
+function buildDateContextSystemContent() {
+  const now = new Date();
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const localTime = now.toLocaleString("en-US", {
+    timeZone: timezone,
+    dateStyle: "full",
+    timeStyle: "long"
+  });
+
+  return [
+    "Current date and time context for this request (not shown to the user):",
+    `- Local: ${localTime} (${timezone})`,
+    `- UTC: ${now.toISOString()}`
+  ].join("\n");
+}
+
+function withDateContextSystemMessage(messages: PromptMessage[]): PromptMessage[] {
+  const contextMessage: PromptMessage = {
+    role: "system",
+    content: buildDateContextSystemContent()
+  };
+
+  const systemIndex = messages.findIndex((message) => message.role === "system");
+  if (systemIndex === -1) {
+    return [contextMessage, ...messages];
+  }
+
+  const systemMessage = messages[systemIndex];
+  const systemContent = typeof systemMessage.content === "string"
+    ? systemMessage.content
+    : systemMessage.content.map((part) => "text" in part ? part.text : "").join("");
+
+  return messages.map((message, index) => {
+    if (index !== systemIndex) return message;
+    return {
+      ...message,
+      content: `${systemContent}\n\n${contextMessage.content}`
+    };
+  });
+}
+
+function withDateContextSystemPrompt(systemPrompt: string) {
+  const context = buildDateContextSystemContent();
+  return `${systemPrompt.trim()}\n\n${context}`;
+}
+
 function createClient(settings: ProviderProfile, apiKey: string) {
   return new OpenAI({
     apiKey,
@@ -301,11 +347,16 @@ export async function callProviderText(input: {
   conversationId?: string;
 }) {
   const { settings } = input;
+  const contextualPrompt = withDateContextSystemMessage([{
+    role: "user",
+    content: input.prompt
+  }]);
 
   if (settings.providerKind === "github_copilot") {
     const freshSettings = await ensureFreshGithubAccessToken(settings);
     const result = await runGithubCopilotChat({
       ...freshSettings,
+      systemPrompt: withDateContextSystemPrompt(freshSettings.systemPrompt),
       messages: [{ role: "user", content: input.prompt }]
     });
 
@@ -318,7 +369,7 @@ export async function callProviderText(input: {
     const reasoning = buildReasoningConfig(settings);
     const response = await client.responses.create({
       model: settings.model,
-      input: input.prompt,
+      input: buildResponsesInput(contextualPrompt),
       max_output_tokens: Math.min(settings.maxOutputTokens, 4000),
       reasoning
     });
@@ -334,7 +385,7 @@ export async function callProviderText(input: {
 
   const response = await client.chat.completions.create({
     model: settings.model,
-    messages: [{ role: "user", content: input.prompt }],
+    messages: buildChatCompletionMessages(contextualPrompt),
     temperature: settings.temperature,
     max_completion_tokens: Math.min(settings.maxOutputTokens, 4000),
     ...buildChatCompletionsOptions(settings)
@@ -365,6 +416,7 @@ export async function* streamProviderResponse(input: {
   void
 > {
   const { settings, promptMessages } = input;
+  const contextualPromptMessages = withDateContextSystemMessage(promptMessages);
   setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
 
   if (settings.providerKind === "github_copilot") {
@@ -434,6 +486,7 @@ export async function* streamProviderResponse(input: {
 
     const copilotPromise = streamGithubCopilotChat({
       ...freshSettings,
+      systemPrompt: withDateContextSystemPrompt(freshSettings.systemPrompt),
       messages: messageTexts.map((content) => ({ role: "user" as const, content })),
       ...(copilotTools?.length ? { tools: copilotTools } : {}),
       onEvent: (rawEvent: unknown) => {
@@ -537,7 +590,7 @@ export async function* streamProviderResponse(input: {
       item = await dequeue();
     }
 
-    return { answer, thinking, usage: { inputTokens: estimatePromptTokens(promptMessages) } };
+    return { answer, thinking, usage: { inputTokens: estimatePromptTokens(contextualPromptMessages) } };
   }
 
   const client = createClient(settings, settings.apiKey);
@@ -550,7 +603,7 @@ export async function* streamProviderResponse(input: {
     outputTokens?: number;
     reasoningTokens?: number;
   } = {
-    inputTokens: estimatePromptTokens(promptMessages)
+    inputTokens: estimatePromptTokens(contextualPromptMessages)
   };
 
   if (settings.apiMode === "responses") {
@@ -558,7 +611,7 @@ export async function* streamProviderResponse(input: {
 
     const responseCreateParams: Record<string, unknown> = {
       model: settings.model,
-      input: buildResponsesInput(promptMessages),
+      input: buildResponsesInput(contextualPromptMessages),
       stream: true,
       temperature: settings.temperature,
       max_output_tokens: settings.maxOutputTokens,
@@ -800,7 +853,7 @@ export async function* streamProviderResponse(input: {
 
   const chatCreateParams: Record<string, unknown> = {
     model: settings.model,
-    messages: buildChatCompletionMessages(promptMessages),
+    messages: buildChatCompletionMessages(contextualPromptMessages),
     stream: true,
     temperature: settings.temperature,
     max_completion_tokens: settings.maxOutputTokens,
