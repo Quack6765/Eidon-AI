@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Clock3, MessageSquareText } from "lucide-react";
+import { Clock3, MessageSquareText, Settings2 } from "lucide-react";
 
 import type { Automation, AutomationRun } from "@/lib/types";
 
@@ -78,6 +78,13 @@ export function AutomationsWorkspace({
           <p className="mt-3 text-sm leading-6 text-[#71717a]">
             Select an automation from the sidebar to inspect recent runs and open prior run conversations.
           </p>
+          <Link
+            href="/settings/automations"
+            className="mt-5 inline-flex items-center gap-2 rounded-lg border border-white/12 bg-white/[0.02] px-3 py-2 text-sm font-medium text-[#cbd5e1] transition-colors hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
+          >
+            <Settings2 className="h-4 w-4" />
+            Manage automations
+          </Link>
         </div>
       </div>
     );
@@ -132,6 +139,13 @@ export function AutomationsWorkspace({
               <p className="mt-2 text-sm text-[#71717a]">{scheduleSummary(automation)}</p>
             </div>
             <div className="flex items-center gap-3">
+              <Link
+                href="/settings/automations"
+                className="inline-flex items-center gap-2 rounded-lg border border-white/12 bg-white/[0.03] px-3 py-2 text-sm font-medium text-[#cbd5e1] transition-colors hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
+              >
+                <Settings2 className="h-4 w-4" />
+                Manage automations
+              </Link>
               <div className="rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm text-[#d4d4d8]">
                 Next run: {formatTimestamp(automation.nextRunAt)}
               </div>
