@@ -18,19 +18,24 @@ describe("code highlighting helpers", () => {
     it("detects simple shell command chains as bash", () => {
       expect(detectCodeLanguage("curl https://example.com && echo ok")).toBe("bash");
       expect(detectCodeLanguage("git status && npm test")).toBe("bash");
+      expect(detectCodeLanguage("git status")).toBe("bash");
+      expect(detectCodeLanguage("npm install react")).toBe("bash");
     });
 
     it("detects sql from common query syntax", () => {
       expect(detectCodeLanguage("SELECT id, email FROM users WHERE active = 1;")).toBe("sql");
       expect(detectCodeLanguage("UPDATE users SET active = 1")).toBe("sql");
+      expect(detectCodeLanguage("SELECT id FROM users")).toBe("sql");
     });
 
-    it("detects yaml with comments between mappings", () => {
+    it("detects yaml with comments or nesting", () => {
       expect(detectCodeLanguage("foo: bar\n# comment\nbaz: qux")).toBe("yaml");
+      expect(detectCodeLanguage("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo")).toBe("yaml");
     });
 
     it("does not auto-detect plain label/value text as yaml", () => {
       expect(detectCodeLanguage("Name: John\nRole: admin\nStatus: active")).toBeNull();
+      expect(detectCodeLanguage("name: John\nrole: admin\nstatus: active")).toBeNull();
     });
 
     it("does not auto-detect account-like text as sql", () => {

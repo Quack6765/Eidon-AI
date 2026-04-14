@@ -72,9 +72,16 @@ export function normalizeCodeFenceLanguage(language?: string | null): string | n
 }
 
 export function detectCodeLanguage(code: string): string | null {
+  const patternLanguage = detectPatternLanguage(code);
+
+  if (patternLanguage) {
+    return patternLanguage;
+  }
+
   const detection = highlighter.highlightAuto(code, [...REGISTERED_LANGUAGES]);
   const normalizedLanguage = normalizeCodeFenceLanguage(detection.language);
 
+  // highlightAuto is intentionally filtered here because plain prose often scores as a language.
   if (
     !normalizedLanguage ||
     detection.relevance < getAutoDetectMinRelevance(normalizedLanguage) ||
@@ -202,18 +209,54 @@ function isSqlLike(code: string) {
 }
 
 function isYamlLike(code: string) {
-  const lines = code
-    .split("\n")
+  const lines = code.split("\n");
+  const contentLines = lines
     .map((line) => line.trim())
     .filter((line) => line.length > 0 && !line.startsWith("#"));
 
-  if (lines.length < 2) {
+  if (contentLines.length < 2) {
     return false;
   }
 
-  return lines.every((line) => /^(?:-\s+)?[a-z0-9_-]+\s*:/.test(line));
+  if (!contentLines.every((line) => /^(?:-\s+)?[A-Za-z0-9_-]+\s*:/.test(line))) {
+    return false;
+  }
+
+  const hasYamlStructure = lines.some((line) => /^\s+/.test(line)) || lines.some((line) => line.trim().startsWith("#"));
+
+  if (hasYamlStructure) {
+    return true;
+  }
+
+  const keys = contentLines
+    .map((line) => line.match(/^(?:-\s+)?([A-Za-z0-9_-]+)\s*:/)?.[1]?.toLowerCase())
+    .filter((key): key is string => Boolean(key));
+
+  return !keys.every((key) => COMMON_LABEL_LIKE_YAML_KEYS.has(key));
 }
 
 function getAutoDetectMinRelevance(language: string) {
   return AUTO_DETECT_MIN_RELEVANCE[language] ?? 3;
 }
+
+function detectPatternLanguage(code: string) {
+  if (isLikelySqlSnippet(code)) {
+    return "sql";
+  }
+
+  if (isLikelyBashSnippet(code)) {
+    return "bash";
+  }
+
+  return null;
+}
+
+function isLikelySqlSnippet(code: string) {
+  return /^(?:\s*)(select\b.+\bfrom\b|update\b.+\bset\b|delete\b.+\bfrom\b|insert\b.+\binto\b)/i.test(code.trim());
+}
+
+function isLikelyBashSnippet(code: string) {
+  return /^\s*(?:git|npm|pnpm|yarn|curl|wget|node|python|bash|sh|zsh)\b/.test(code.trim());
+}
+
+const COMMON_LABEL_LIKE_YAML_KEYS = new Set(["name", "role", "status", "title", "email", "phone", "user"]);
