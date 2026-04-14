@@ -1145,6 +1145,162 @@ describe("message bubble", () => {
     });
   });
 
+  it("closes the attachment modal when the backdrop is clicked", async () => {
+    installMockImage();
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: "See attached",
+          attachments: [
+            {
+              id: "att_image",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "photo.png",
+              mimeType: "image/png",
+              byteSize: 10,
+              sha256: "hash",
+              relativePath: "conv_test/att_image_photo.png",
+              kind: "image",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview photo.png" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Attachment preview" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("dialog", { name: "Attachment preview" }).parentElement!);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Attachment preview" })).toBeNull();
+    });
+  });
+
+  it("shows the unsupported preview fallback when the route rejects inline text preview", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 415
+    } as Response);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: "See attached",
+          attachments: [
+            {
+              id: "att_binary",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "archive.bin",
+              mimeType: "application/octet-stream",
+              byteSize: 10,
+              sha256: "hash-binary",
+              relativePath: "conv_test/att_binary_archive.bin",
+              kind: "text",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview archive.bin" }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Preview unavailable for this attachment type.")
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("keeps seeded extracted text visible when the refresh route responds with unsupported", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 415
+    } as Response);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: "See attached",
+          attachments: [
+            {
+              id: "att_text",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "notes.txt",
+              mimeType: "text/plain",
+              byteSize: 10,
+              sha256: "hash2",
+              relativePath: "conv_test/att_text_notes.txt",
+              kind: "text",
+              extractedText: "seeded preview content",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview notes.txt" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("seeded preview content")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.queryByText("Preview unavailable for this attachment type.")
+    ).toBeNull();
+  });
+
+  it("uses stored extracted text when refreshing a text preview fails", async () => {
+    global.fetch = vi.fn().mockRejectedValue(new Error("Network down"));
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: "See attached",
+          attachments: [
+            {
+              id: "att_text",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "notes.txt",
+              mimeType: "text/plain",
+              byteSize: 10,
+              sha256: "hash2",
+              relativePath: "conv_test/att_text_notes.txt",
+              kind: "text",
+              extractedText: "hello from extracted text",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview notes.txt" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("hello from extracted text")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText("Network down")).toBeNull();
+  });
+
   it("ignores stale text preview responses when a newer attachment is selected", async () => {
     let resolveFirst:
       | ((value: Response | PromiseLike<Response>) => void)

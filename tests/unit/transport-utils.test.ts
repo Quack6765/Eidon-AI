@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 
 import { badRequest, ok } from "@/lib/http";
 import { encodeSseEvent, encodeSseFlushMarker, encodeSsePrelude } from "@/lib/sse";
-import { cn, formatTimestamp, normalizeLineBreaks, normalizeMarkdownLineBreaks } from "@/lib/utils";
+import { formatTimestamp, normalizeLineBreaks, normalizeMarkdownLineBreaks } from "@/lib/text-utils";
+import { cn } from "@/lib/utils";
 
 describe("transport helpers", () => {
   it("creates json responses for success and failure", async () => {

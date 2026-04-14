@@ -54,12 +54,25 @@ async function mockChatResponse(page: import("@playwright/test").Page) {
 }
 
 async function createNewChat(page: import("@playwright/test").Page) {
-  const newChatButton = page.getByRole("button", { name: "New chat", exact: true });
-  await expect(newChatButton).toBeVisible({ timeout: 10000 });
-  await expect(newChatButton).toBeEnabled({ timeout: 10000 });
+  const newChatButtons = page.getByRole("button", { name: "New chat", exact: true });
+  await expect(newChatButtons.first()).toBeVisible({ timeout: 10000 });
+
+  let newChatButton: import("@playwright/test").Locator | null = null;
+  const buttonCount = await newChatButtons.count();
+
+  for (let index = 0; index < buttonCount; index += 1) {
+    const candidate = newChatButtons.nth(index);
+
+    if ((await candidate.isVisible()) && (await candidate.isEnabled())) {
+      newChatButton = candidate;
+      break;
+    }
+  }
+
+  expect(newChatButton).not.toBeNull();
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    await newChatButton.click();
+    await newChatButton!.click();
 
     try {
       await expect(page).toHaveURL(/\/chat\//, { timeout: 4000 });
@@ -680,6 +693,50 @@ test.describe("Feature: Chat attachments", () => {
     await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled({
       timeout: 5000
     });
+  });
+
+  test("keeps a single user bubble when sending one prompt with two attachments", async ({ page }) => {
+    await signIn(page);
+    await mockChatResponse(page);
+    await mockAttachmentUpload(page, [
+      {
+        id: "att_photo",
+        filename: "photo.png",
+        mimeType: "image/png",
+        kind: "image"
+      },
+      {
+        id: "att_notes",
+        filename: "notes.txt",
+        mimeType: "text/plain",
+        kind: "text"
+      }
+    ]);
+
+    await createNewChat(page);
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+    const chooserPromise = page.waitForEvent("filechooser");
+    const uploadResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/attachments") && response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "Attach files" }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles([
+      { name: "photo.png", mimeType: "image/png", buffer: TINY_PNG },
+      { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello") }
+    ]);
+    await uploadResponsePromise;
+
+    await page.getByPlaceholder(/Ask, create, or start a task/i).fill("hello");
+    await page.getByRole("button", { name: "Send message" }).click();
+
+    await expect(page.getByText("hello", { exact: true })).toHaveCount(1, {
+      timeout: 10000
+    });
+    await expect(page.getByRole("button", { name: "Preview photo.png" })).toHaveCount(1);
+    await expect(page.getByRole("button", { name: "Preview notes.txt" })).toHaveCount(1);
   });
 
   test("opens transcript image attachments in a modal and closes them", async ({ page }) => {

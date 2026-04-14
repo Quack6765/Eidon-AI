@@ -19,7 +19,7 @@ import type {
   MessageAttachment,
   MessageTimelineItem
 } from "@/lib/types";
-import { normalizeMarkdownLineBreaks } from "@/lib/utils";
+import { normalizeMarkdownLineBreaks } from "@/lib/text-utils";
 
 const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
 const COPY_RESET_DELAY_MS = 1600;

@@ -50,13 +50,14 @@ const AUTO_SCROLL_THRESHOLD_PX = 32;
 
 type SnapshotReconciliation = {
   messages: Message[];
-  confirmedLocalMessageIds: string[];
+  pendingLocalSubmissions: PendingLocalSubmission[];
 };
 
 type PendingLocalSubmission = {
   localMessageId: string;
   content: string;
   attachments: MessageAttachment[];
+  serverMessageId: string | null;
 };
 
 function getActionSignature(action: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">) {
@@ -82,6 +83,16 @@ function matchesPendingLocalSubmission(
     message.content === submission.content &&
     getAttachmentIdSignature(message.attachments) ===
       getAttachmentIdSignature(submission.attachments)
+  );
+}
+
+function attachmentsAreSubset(
+  candidateAttachments: MessageAttachment[] | undefined,
+  submissionAttachments: MessageAttachment[]
+) {
+  const submissionAttachmentIds = new Set(submissionAttachments.map((attachment) => attachment.id));
+  return (candidateAttachments ?? []).every((attachment) =>
+    submissionAttachmentIds.has(attachment.id)
   );
 }
 
@@ -172,7 +183,7 @@ function reconcileSnapshotMessages(
   if (sanitizedSnapshot.length === 0) {
     return {
       messages: current.filter((message) => !isLegacyCompactionNotice(message)),
-      confirmedLocalMessageIds: []
+      pendingLocalSubmissions
     };
   }
 
@@ -195,24 +206,55 @@ function reconcileSnapshotMessages(
     current.filter((m) => !m.id.startsWith("local_")).map((m) => m.id)
   );
   const confirmedLocalIds = new Set<string>();
-  const matchedServerUserMessageIds = new Set<string>();
+  const claimedServerUserMessageIds = new Set<string>();
   const newServerUserMessages = sanitizedSnapshot.filter(
     (message) => message.role === "user" && !currentNonLocalIds.has(message.id)
   );
+  const nextPendingLocalSubmissions = pendingLocalSubmissions.map((submission) => ({
+    ...submission
+  }));
 
-  for (const submission of pendingLocalSubmissions) {
-    const matchedServerMessage = newServerUserMessages.find(
-      (message) =>
-        !matchedServerUserMessageIds.has(message.id) &&
-        matchesPendingLocalSubmission(message, submission)
+  for (const submission of nextPendingLocalSubmissions) {
+    if (
+      submission.serverMessageId &&
+      !sanitizedSnapshot.some((message) => message.id === submission.serverMessageId)
+    ) {
+      submission.serverMessageId = null;
+    }
+
+    const candidateServerUserMessages =
+      submission.serverMessageId !== null
+        ? sanitizedSnapshot.filter((message) => message.id === submission.serverMessageId)
+        : newServerUserMessages.filter((message) => !claimedServerUserMessageIds.has(message.id));
+
+    const matchedServerMessage = candidateServerUserMessages.find(
+      (message) => matchesPendingLocalSubmission(message, submission)
     );
 
     if (!matchedServerMessage) {
+      if (submission.attachments.length === 0 || submission.serverMessageId !== null) {
+        continue;
+      }
+
+      const partialServerMessage = newServerUserMessages.find(
+        (message) =>
+          !claimedServerUserMessageIds.has(message.id) &&
+          message.role === "user" &&
+          message.content === submission.content &&
+          attachmentsAreSubset(message.attachments, submission.attachments)
+      );
+
+      if (partialServerMessage) {
+        submission.serverMessageId = partialServerMessage.id;
+        claimedServerUserMessageIds.add(partialServerMessage.id);
+      }
+
       continue;
     }
 
+    submission.serverMessageId = matchedServerMessage.id;
     confirmedLocalIds.add(submission.localMessageId);
-    matchedServerUserMessageIds.add(matchedServerMessage.id);
+    claimedServerUserMessageIds.add(matchedServerMessage.id);
   }
 
   const pendingLocalMessages = current.filter((m) => {
@@ -229,7 +271,9 @@ function reconcileSnapshotMessages(
 
   return {
     messages: [...merged, ...pendingLocalMessages],
-    confirmedLocalMessageIds: [...confirmedLocalIds]
+    pendingLocalSubmissions: nextPendingLocalSubmissions.filter(
+      (submission) => !confirmedLocalIds.has(submission.localMessageId)
+    )
   };
 }
 
@@ -315,6 +359,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
   const { getTokenUsage, setTokenUsage } = useContextTokens();
   const previewController = useAttachmentPreviewController();
+  const activeConversationIdRef = useRef(payload.conversation.id);
   const [messages, setMessages] = useState(() => sanitizeMessages(payload.messages));
   const [conversationTitle, setConversationTitle] = useState(payload.conversation.title);
   const [titleGenerationStatus, setTitleGenerationStatus] = useState(
@@ -344,6 +389,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       }
     }
   }, [payload.conversation.id, getTokenUsage]);
+
+  useEffect(() => {
+    if (activeConversationIdRef.current === payload.conversation.id) {
+      return;
+    }
+
+    activeConversationIdRef.current = payload.conversation.id;
+    previewController.closeAttachmentPreview();
+  }, [payload.conversation.id, previewController.closeAttachmentPreview]);
+
   const compactionInProgressRef = useRef(false);
   const thinkingStartTimeRef = useRef<number | null>(null);
   const [thinkingDuration, setThinkingDuration] = useState<number | undefined>(undefined);
@@ -374,11 +429,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       !(message.timeline?.length ?? 0) &&
       (message.status === "streaming" || message.status === "completed")
   );
-  const needsMessageSync =
-    isSending ||
-    streamMessageId !== null ||
-    messages.some((message) => message.role === "assistant" && message.status === "streaming") ||
-    hasEmptyAssistantShell;
   const queueRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
@@ -403,17 +453,48 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const submitRef = useRef<
     (nextInput?: string, nextPendingAttachments?: MessageAttachment[], nextPersonaId?: string) => Promise<void>
   >(async () => {});
+  const pendingLocalSubmissionsById = new Map(
+    pendingLocalSubmissionsRef.current.map((submission) => [
+      submission.localMessageId,
+      submission
+    ] as const)
+  );
+  const renderableMessages = messages.filter(
+    (message) => {
+      if (!message.id.startsWith("local_")) {
+        return true;
+      }
 
-  function removePendingLocalSubmissions(localMessageIds: string[]) {
-    if (localMessageIds.length === 0) {
-      return;
+      const pendingSubmission = pendingLocalSubmissionsById.get(message.id);
+
+      if (pendingSubmission) {
+        return pendingSubmission.serverMessageId === null;
+      }
+
+      if (message.role !== "user") {
+        return true;
+      }
+
+      return !messages.some(
+        (candidate) =>
+          !candidate.id.startsWith("local_") &&
+          candidate.role === "user" &&
+          candidate.content === message.content &&
+          getAttachmentIdSignature(candidate.attachments) ===
+            getAttachmentIdSignature(message.attachments)
+      );
     }
-
-    const confirmedIds = new Set(localMessageIds);
-    pendingLocalSubmissionsRef.current = pendingLocalSubmissionsRef.current.filter(
-      (submission) => !confirmedIds.has(submission.localMessageId)
-    );
-  }
+  );
+  const hasPendingLocalSubmission = pendingLocalSubmissionsRef.current.length > 0;
+  const hasOptimisticLocalMessage = renderableMessages.some((message) =>
+    message.id.startsWith("local_")
+  );
+  const needsMessageSync =
+    isSending ||
+    hasPendingLocalSubmission ||
+    streamMessageId !== null ||
+    messages.some((message) => message.role === "assistant" && message.status === "streaming") ||
+    hasEmptyAssistantShell;
 
   function updateStreamTimeline(
     nextTimeline:
@@ -758,7 +839,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               streamMessageId,
               pendingLocalSubmissionsRef.current
             );
-            removePendingLocalSubmissions(reconciliation.confirmedLocalMessageIds);
+            pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
             return reconciliation.messages;
           });
           break;
@@ -987,7 +1068,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             activeStreamMessageId,
             pendingLocalSubmissionsRef.current
           );
-          removePendingLocalSubmissions(reconciliation.confirmedLocalMessageIds);
+          pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
           return reconciliation.messages;
         });
         setConversationTitle(result.conversation.title);
@@ -1425,7 +1506,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     pendingLocalSubmissionsRef.current.push({
       localMessageId: optimisticUserMessage.id,
       content: value,
-      attachments: nextPendingAttachments
+      attachments: nextPendingAttachments,
+      serverMessageId: null
     });
     setMessages((current) => [...current, optimisticUserMessage]);
 
@@ -1532,7 +1614,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         }}
       >
         <div className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4 pb-[180px] md:pb-[200px]">
-          {messages.map((message) => (
+          {renderableMessages.map((message) => (
             <div
               key={message.id}
               className="animate-slide-up"

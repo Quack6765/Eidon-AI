@@ -6,7 +6,7 @@ import { MAX_ATTACHMENT_BYTES } from "@/lib/constants";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
-import { normalizeLineBreaks } from "@/lib/utils";
+import { normalizeLineBreaks } from "@/lib/text-utils";
 import type { AttachmentKind, MessageAttachment } from "@/lib/types";
 
 const IMAGE_EXTENSION_TO_MIME = new Map<string, string>([

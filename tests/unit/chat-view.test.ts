@@ -403,6 +403,16 @@ describe("chat view", () => {
     return render(React.createElement(ContextTokensProvider, null, ui));
   }
 
+  function renderWithProviderStrict(ui: React.ReactElement) {
+    return render(
+      React.createElement(
+        React.StrictMode,
+        null,
+        React.createElement(ContextTokensProvider, null, ui)
+      )
+    );
+  }
+
   it("uploads an attachment from the file input and removes it from the pending list", async () => {
     const attachment = createAttachment();
     vi.mocked(global.fetch)
@@ -930,6 +940,182 @@ describe("chat view", () => {
     expect(bootstrapMock.clearChatBootstrap).toHaveBeenCalledWith("conv_1");
   });
 
+  it("reconciles a bootstrapped home submission with attachments from polling", async () => {
+    const imageAttachment = createAttachment({
+      id: "att_image",
+      filename: "photo.png",
+      mimeType: "image/png",
+      kind: "image"
+    });
+    const textAttachment = createAttachment({
+      id: "att_text",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      kind: "text",
+      extractedText: "hello"
+    });
+    let conversationFetchCount = 0;
+
+    bootstrapMock.readChatBootstrap.mockReturnValue({
+      message: "Bootstrapped prompt",
+      attachments: [imageAttachment, textAttachment]
+    });
+
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (input === "/api/personas") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ personas: [] })
+        } as Response);
+      }
+
+      if (input === "/api/conversations/conv_1") {
+        conversationFetchCount += 1;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            conversation: {
+              ...createPayload().conversation,
+              isActive: false
+            },
+            messages: [
+              createMessage({
+                id: "msg_user_server",
+                role: "user",
+                content: "Bootstrapped prompt",
+                attachments: [imageAttachment, textAttachment]
+              }),
+              createMessage({
+                id: "msg_assistant",
+                role: "assistant",
+                content: "Attachment received",
+                status: "completed"
+              })
+            ]
+          })
+        } as Response);
+      }
+
+      return Promise.reject(new Error(`Unexpected fetch: ${String(input)}`));
+    });
+
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "Bootstrapped prompt",
+        attachmentIds: ["att_image", "att_text"]
+      });
+    });
+
+    await waitFor(() => {
+      expect(conversationFetchCount).toBeGreaterThan(0);
+    });
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Bootstrapped prompt")).toHaveLength(1);
+        expect(screen.getAllByRole("button", { name: "Preview photo.png" })).toHaveLength(1);
+        expect(screen.getAllByRole("button", { name: "Preview notes.txt" })).toHaveLength(1);
+      },
+      { timeout: 2500 }
+    );
+  });
+
+  it("removes an orphaned local duplicate when polling confirms the server user message", async () => {
+    const imageAttachment = createAttachment({
+      id: "att_image",
+      filename: "photo.png",
+      mimeType: "image/png",
+      kind: "image"
+    });
+    const textAttachment = createAttachment({
+      id: "att_text",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      kind: "text",
+      extractedText: "hello"
+    });
+    const serverUserMessage = createMessage({
+      id: "msg_user_server",
+      role: "user",
+      content: "Bootstrapped prompt",
+      attachments: [imageAttachment, textAttachment]
+    });
+    const orphanedLocalMessage = createMessage({
+      id: "local_orphan",
+      role: "user",
+      content: "Bootstrapped prompt",
+      attachments: [imageAttachment, textAttachment]
+    });
+    const assistantStreamingMessage = createMessage({
+      id: "msg_assistant",
+      role: "assistant",
+      content: "",
+      status: "streaming"
+    });
+    let conversationFetchCount = 0;
+
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (input === "/api/personas") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ personas: [] })
+        } as Response);
+      }
+
+      if (input === "/api/conversations/conv_1") {
+        conversationFetchCount += 1;
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            conversation: {
+              ...createPayload().conversation,
+              isActive: false
+            },
+            messages: [
+              serverUserMessage,
+              {
+                ...assistantStreamingMessage,
+                content: "Attachment received",
+                status: "completed"
+              }
+            ]
+          })
+        } as Response);
+      }
+
+      return Promise.reject(new Error(`Unexpected fetch: ${String(input)}`));
+    });
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          conversation: {
+            ...createPayload().conversation,
+            isActive: true
+          },
+          messages: [serverUserMessage, assistantStreamingMessage, orphanedLocalMessage]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(conversationFetchCount).toBeGreaterThan(0);
+    });
+
+    await waitFor(
+      () => {
+        expect(screen.getAllByText("Bootstrapped prompt")).toHaveLength(1);
+        expect(screen.getAllByRole("button", { name: "Preview photo.png" })).toHaveLength(1);
+        expect(screen.getAllByRole("button", { name: "Preview notes.txt" })).toHaveLength(1);
+      },
+      { timeout: 2500 }
+    );
+  });
+
   it("deletes an empty conversation when navigating away before sending a message", async () => {
     const { deleteConversationIfStillEmpty } = await import("@/lib/conversation-drafts");
 
@@ -1212,7 +1398,696 @@ describe("chat view", () => {
     });
   });
 
+  it("reconciles a multi-attachment optimistic message after partial then complete server snapshots", async () => {
+    const imageAttachment = createAttachment({
+      id: "att_image",
+      filename: "photo.png",
+      mimeType: "image/png",
+      kind: "image"
+    });
+    const textAttachment = createAttachment({
+      id: "att_text",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      kind: "text",
+      extractedText: "hello"
+    });
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ attachments: [imageAttachment, textAttachment] })
+      } as Response);
+
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(["binary"], "photo.png", { type: "image/png" }),
+          new File(["hello"], "notes.txt", { type: "text/plain" })
+        ]
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Remove photo.png" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove notes.txt" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "hello",
+        attachmentIds: ["att_image", "att_text"]
+      });
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: [
+          createMessage({
+            id: "msg_user_server",
+            role: "user",
+            content: "hello",
+            attachments: [imageAttachment]
+          })
+        ]
+      });
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: [
+          createMessage({
+            id: "msg_user_server",
+            role: "user",
+            content: "hello",
+            attachments: [imageAttachment, textAttachment]
+          })
+        ]
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("hello")).toHaveLength(1);
+      expect(screen.getAllByRole("button", { name: "Preview photo.png" })).toHaveLength(1);
+      expect(screen.getAllByRole("button", { name: "Preview notes.txt" })).toHaveLength(1);
+    });
+  });
+
+  it("reconciles a multi-attachment optimistic message after an empty then complete server snapshot", async () => {
+    const imageAttachment = createAttachment({
+      id: "att_image",
+      filename: "photo.png",
+      mimeType: "image/png",
+      kind: "image"
+    });
+    const textAttachment = createAttachment({
+      id: "att_text",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      kind: "text",
+      extractedText: "hello"
+    });
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ attachments: [imageAttachment, textAttachment] })
+      } as Response);
+
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(["binary"], "photo.png", { type: "image/png" }),
+          new File(["hello"], "notes.txt", { type: "text/plain" })
+        ]
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("photo.png")).toBeInTheDocument();
+      expect(screen.getByText("notes.txt")).toBeInTheDocument();
+    });
+
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "hello",
+        attachmentIds: ["att_image", "att_text"]
+      });
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: [
+          createMessage({
+            id: "msg_user_server",
+            role: "user",
+            content: "hello",
+            attachments: []
+          })
+        ]
+      });
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: [
+          createMessage({
+            id: "msg_user_server",
+            role: "user",
+            content: "hello",
+            attachments: [imageAttachment, textAttachment]
+          })
+        ]
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("hello")).toHaveLength(1);
+      expect(screen.getAllByRole("button", { name: "Preview photo.png" })).toHaveLength(1);
+      expect(screen.getAllByRole("button", { name: "Preview notes.txt" })).toHaveLength(1);
+    });
+  });
+
+  it("keeps polling after assistant done until a pending optimistic user message reconciles", async () => {
+    const imageAttachment = createAttachment({
+      id: "att_image",
+      filename: "photo.png",
+      mimeType: "image/png",
+      kind: "image"
+    });
+    const textAttachment = createAttachment({
+      id: "att_text",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      kind: "text",
+      extractedText: "hello"
+    });
+    const baseConversation = createPayload().conversation;
+    let conversationFetchCount = 0;
+
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (input === "/api/personas") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ personas: [] })
+        } as Response);
+      }
+
+      if (input === "/api/attachments") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ attachments: [imageAttachment, textAttachment] })
+        } as Response);
+      }
+
+      if (input === "/api/conversations/conv_1") {
+        conversationFetchCount += 1;
+
+        if (conversationFetchCount === 1) {
+          return Promise.resolve({
+            ok: true,
+            json: async () => ({
+              conversation: {
+                ...baseConversation,
+                isActive: true
+              },
+              messages: [
+                createMessage({
+                  id: "msg_user_server",
+                  role: "user",
+                  content: "hello",
+                  attachments: []
+                }),
+                createMessage({
+                  id: "msg_assistant",
+                  role: "assistant",
+                  content: "",
+                  status: "streaming"
+                })
+              ]
+            })
+          } as Response);
+        }
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            conversation: {
+              ...baseConversation,
+              isActive: false
+            },
+            messages: [
+              createMessage({
+                id: "msg_user_server",
+                role: "user",
+                content: "hello",
+                attachments: [imageAttachment, textAttachment]
+              }),
+              createMessage({
+                id: "msg_assistant",
+                role: "assistant",
+                content: "Attachment received",
+                status: "completed"
+              })
+            ]
+          })
+        } as Response);
+      }
+
+      return Promise.reject(new Error(`Unexpected fetch: ${String(input)}`));
+    });
+
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(["binary"], "photo.png", { type: "image/png" }),
+          new File(["hello"], "notes.txt", { type: "text/plain" })
+        ]
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("photo.png")).toBeInTheDocument();
+      expect(screen.getByText("notes.txt")).toBeInTheDocument();
+    });
+
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(conversationFetchCount).toBe(1);
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("hello")).toHaveLength(1);
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Attachment received" }
+      });
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant" }
+      });
+    });
+
+    await waitFor(
+      () => {
+        expect(conversationFetchCount).toBe(1);
+        expect(screen.getAllByText("hello")).toHaveLength(1);
+        expect(screen.queryByRole("button", { name: "Preview photo.png" })).toBeNull();
+        expect(screen.queryByRole("button", { name: "Preview notes.txt" })).toBeNull();
+      },
+      { timeout: 2500 }
+    );
+
+    await waitFor(
+      () => {
+        expect(conversationFetchCount).toBe(2);
+        expect(screen.getAllByText("hello")).toHaveLength(1);
+        expect(screen.getAllByRole("button", { name: "Preview photo.png" })).toHaveLength(1);
+        expect(screen.getAllByRole("button", { name: "Preview notes.txt" })).toHaveLength(1);
+      },
+      { timeout: 2500 }
+    );
+  });
+
+  it("does not replay a retired optimistic attachment message in strict mode", async () => {
+    const imageAttachment = createAttachment({
+      id: "att_image",
+      filename: "photo.png",
+      mimeType: "image/png",
+      kind: "image"
+    });
+    const textAttachment = createAttachment({
+      id: "att_text",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      kind: "text",
+      extractedText: "hello"
+    });
+    const baseConversation = createPayload().conversation;
+    let conversationFetchCount = 0;
+
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (input === "/api/personas") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ personas: [] })
+        } as Response);
+      }
+
+      if (input === "/api/attachments") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ attachments: [imageAttachment, textAttachment] })
+        } as Response);
+      }
+
+      if (input === "/api/conversations/conv_1") {
+        conversationFetchCount += 1;
+
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            conversation: {
+              ...baseConversation,
+              isActive: true
+            },
+            messages: [
+              createMessage({
+                id: "msg_user_server",
+                role: "user",
+                content: "hello",
+                attachments: [imageAttachment, textAttachment]
+              }),
+              createMessage({
+                id: "msg_assistant",
+                role: "assistant",
+                content: "",
+                status: "streaming"
+              })
+            ]
+          })
+        } as Response);
+      }
+
+      return Promise.reject(new Error(`Unexpected fetch: ${String(input)}`));
+    });
+
+    const { container } = renderWithProviderStrict(
+      React.createElement(ChatView, { payload: createPayload() })
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(["binary"], "photo.png", { type: "image/png" }),
+          new File(["hello"], "notes.txt", { type: "text/plain" })
+        ]
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("photo.png")).toBeInTheDocument();
+      expect(screen.getByText("notes.txt")).toBeInTheDocument();
+    });
+
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(conversationFetchCount).toBeGreaterThan(0);
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("hello")).toHaveLength(1);
+      expect(screen.getAllByRole("button", { name: "Preview photo.png" })).toHaveLength(1);
+      expect(screen.getAllByRole("button", { name: "Preview notes.txt" })).toHaveLength(1);
+    });
+  });
+
+  it("keeps a later identical submission optimistic until its own server message arrives", async () => {
+    const imageAttachment = createAttachment({
+      id: "att_image",
+      filename: "photo.png",
+      mimeType: "image/png",
+      kind: "image"
+    });
+    const textAttachment = createAttachment({
+      id: "att_text",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      kind: "text",
+      extractedText: "hello"
+    });
+
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (input === "/api/personas") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ personas: [] })
+        } as Response);
+      }
+
+      if (typeof input === "string" && input === "/api/attachments") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ attachments: [imageAttachment, textAttachment] })
+        } as Response);
+      }
+
+      return Promise.reject(new Error(`Unexpected fetch: ${String(input)}`));
+    });
+
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(["binary"], "photo.png", { type: "image/png" }),
+          new File(["hello"], "notes.txt", { type: "text/plain" })
+        ]
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Remove photo.png" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove notes.txt" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "hello",
+        attachmentIds: ["att_image", "att_text"]
+      });
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant_first" }
+      });
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant_first" }
+      });
+    });
+
+    fireEvent.change(input, {
+      target: {
+        files: [
+          new File(["binary"], "photo.png", { type: "image/png" }),
+          new File(["hello"], "notes.txt", { type: "text/plain" })
+        ]
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Remove photo.png" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Remove notes.txt" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenNthCalledWith(2, {
+        type: "message",
+        conversationId: "conv_1",
+        content: "hello",
+        attachmentIds: ["att_image", "att_text"]
+      });
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: [
+          createMessage({
+            id: "msg_user_server_first",
+            role: "user",
+            content: "hello",
+            attachments: [imageAttachment]
+          })
+        ]
+      });
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: [
+          createMessage({
+            id: "msg_user_server_first",
+            role: "user",
+            content: "hello",
+            attachments: [imageAttachment, textAttachment]
+          })
+        ]
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("hello")).toHaveLength(2);
+      expect(screen.getAllByRole("button", { name: "Preview photo.png" })).toHaveLength(2);
+      expect(screen.getAllByRole("button", { name: "Preview notes.txt" })).toHaveLength(2);
+    });
+  });
+
   it("keeps the attachment preview open when a local message is replaced by the persisted server message", async () => {
+    const attachment = createAttachment({
+      id: "att_text",
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      kind: "text",
+      extractedText: "preview content"
+    });
+
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (input === "/api/personas") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ personas: [] })
+        } as Response);
+      }
+
+      if (input === "/api/attachments") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ attachments: [attachment] })
+        } as Response);
+      }
+
+      if (input === "/api/attachments/att_text?format=text") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: "att_text",
+            filename: "notes.txt",
+            mimeType: "text/plain",
+            content: "preview content"
+          })
+        } as Response);
+      }
+
+      return Promise.reject(new Error(`Unexpected fetch: ${String(input)}`));
+    });
+
+    const { container } = renderWithProvider(
+      React.createElement(ChatView, { payload: createPayload() })
+    );
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(input, {
+      target: {
+        files: [new File(["preview content"], "notes.txt", { type: "text/plain" })]
+      }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Remove notes.txt" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(textarea, { target: { value: "Keep these notes" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "Keep these notes",
+        attachmentIds: ["att_text"]
+      });
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview notes.txt" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Attachment preview" })).toBeInTheDocument();
+      expect(screen.getByText("preview content")).toBeInTheDocument();
+    });
+
+    const persistedPayload = createPayload({
+      messages: [
+        createMessage({
+          id: "msg_user",
+          role: "user",
+          content: "Keep these notes",
+          attachments: [attachment]
+        })
+      ]
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: persistedPayload.messages
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: "Attachment preview" })).toBeInTheDocument();
+      expect(screen.getByText("preview content")).toBeInTheDocument();
+    });
+  });
+
+  it("closes the attachment preview when the active conversation changes", async () => {
     vi.mocked(global.fetch).mockImplementation((input) => {
       if (input === "/api/personas") {
         return Promise.resolve({
@@ -1243,26 +2118,8 @@ describe("chat view", () => {
       kind: "text",
       extractedText: "preview content"
     });
-    const localPayload = createPayload({
-      messages: [
-        createMessage({
-          id: "local_1",
-          role: "user",
-          content: "Keep these notes",
-          attachments: [attachment]
-        })
-      ]
-    });
-    const view = renderWithProvider(React.createElement(ChatView, { payload: localPayload }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Preview notes.txt" }));
-
-    await waitFor(() => {
-      expect(screen.getByRole("dialog", { name: "Attachment preview" })).toBeInTheDocument();
-      expect(screen.getByText("preview content")).toBeInTheDocument();
-    });
-
-    const persistedPayload = createPayload({
+    const firstPayload = createPayload({
       messages: [
         createMessage({
           id: "msg_user",
@@ -1273,17 +2130,34 @@ describe("chat view", () => {
       ]
     });
 
-    view.rerender(
-      React.createElement(
-        ContextTokensProvider,
-        null,
-        React.createElement(ChatView, { payload: persistedPayload })
-      )
-    );
+    const view = renderWithProvider(React.createElement(ChatView, { payload: firstPayload }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Preview notes.txt" }));
 
     await waitFor(() => {
       expect(screen.getByRole("dialog", { name: "Attachment preview" })).toBeInTheDocument();
       expect(screen.getByText("preview content")).toBeInTheDocument();
+    });
+
+    const secondPayload = createPayload({
+      conversation: {
+        ...firstPayload.conversation,
+        id: "conv_2",
+        title: "Another conversation"
+      },
+      messages: []
+    });
+
+    view.rerender(
+      React.createElement(
+        ContextTokensProvider,
+        null,
+        React.createElement(ChatView, { payload: secondPayload })
+      )
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Attachment preview" })).toBeNull();
     });
   });
 
