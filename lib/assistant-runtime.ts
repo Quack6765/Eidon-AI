@@ -11,8 +11,10 @@ import { getSettings } from "@/lib/settings";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
+import { searchSearxng } from "@/lib/searxng";
 import { extractEnumHints, coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { streamProviderResponse } from "@/lib/provider";
+import { getWebSearchActionLabel } from "@/lib/web-search";
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
 import type {
   ChatStreamEvent,
@@ -145,6 +147,7 @@ function buildToolDefinitions(input: {
   skills: Skill[];
   loadedSkillIds: Set<string>;
   memoriesEnabled: boolean;
+  searxngBaseUrl?: string | null;
 }): ToolDefinition[] {
   const tools: ToolDefinition[] = [];
 
@@ -199,6 +202,27 @@ function buildToolDefinitions(input: {
       }
     }
   });
+
+  if (input.searxngBaseUrl) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "web_search",
+        description: "Search the web using the configured SearXNG instance.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Search query" },
+            max_results: {
+              type: "number",
+              description: "Maximum number of results to return (default 5, max 10)"
+            }
+          },
+          required: ["query"]
+        }
+      }
+    });
+  }
 
   if (input.memoriesEnabled) {
     tools.push(
@@ -365,6 +389,76 @@ function buildShellResultForPrompt(input: { command: string; resultSummary: stri
   ].join("\n");
 }
 
+async function executeSearxngWebSearch(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      searxngBaseUrl?: string | null;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  let sortOrder = context.timelineSortOrder;
+  const query = String(args.query ?? "").trim();
+  const maxResults =
+    typeof args.max_results === "number" && Number.isFinite(args.max_results)
+      ? Math.max(1, Math.min(10, Math.round(args.max_results)))
+      : undefined;
+
+  if (!context.input.searxngBaseUrl) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: SearXNG is not configured.");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  if (!query) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: query is required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const handle = await context.input.onActionStart?.({
+    kind: "mcp_tool_call",
+    label: getWebSearchActionLabel("builtin_web_search_searxng", "Web search"),
+    detail: query,
+    serverId: "builtin_web_search_searxng",
+    toolName: "web_search",
+    arguments: {
+      query,
+      ...(maxResults !== undefined ? { max_results: maxResults } : {})
+    }
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    const resultSummary = await searchSearxng({
+      baseUrl: context.input.searxngBaseUrl,
+      query,
+      maxResults
+    });
+
+    sortOrder += 1;
+    await context.input.onActionComplete?.(actionHandle, {
+      detail: query,
+      resultSummary
+    });
+
+    const resultMsg = buildToolResultMessage(toolCallId, resultSummary);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "SearXNG search failed";
+    await context.input.onActionError?.(actionHandle, {
+      detail: query,
+      resultSummary: message
+    });
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+}
+
 async function executeMcpToolCall(
   toolCallId: string,
   functionName: string,
@@ -436,7 +530,7 @@ async function executeMcpToolCall(
 
   const handle = await context.input.onActionStart?.({
     kind: "mcp_tool_call",
-    label: getToolLabel(resolvedTool),
+    label: getWebSearchActionLabel(resolvedServer.id, getToolLabel(resolvedTool)),
     detail: buildArgumentsSummary(correctedArgs),
     serverId: resolvedServer.id,
     toolName: resolvedTool.name,
@@ -749,6 +843,7 @@ async function executeToolCall(
     input: {
       skills: Skill[];
       mcpToolSets: ToolSet[];
+      searxngBaseUrl?: string | null;
       memoryUserId?: string;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -789,6 +884,10 @@ async function executeToolCall(
 
   if (name === "delete_memory") {
     return executeDeleteMemory(toolCallId, args, context);
+  }
+
+  if (name === "web_search") {
+    return executeSearxngWebSearch(toolCallId, args, context);
   }
 
   if (name.startsWith("mcp_")) {
@@ -849,6 +948,7 @@ export async function resolveAssistantTurn(input: {
   mcpToolSets: ToolSet[];
   visionMcpServer?: McpServer | null;
   memoriesEnabled?: boolean;
+  searxngBaseUrl?: string | null;
   memoryUserId?: string;
   mcpTimeout?: number;
   abortSignal?: AbortSignal;
@@ -914,7 +1014,8 @@ export async function resolveAssistantTurn(input: {
       mcpToolSets: input.mcpToolSets,
       skills: turnSkills,
       loadedSkillIds,
-      memoriesEnabled: input.memoriesEnabled ?? false
+      memoriesEnabled: input.memoriesEnabled ?? false,
+      searxngBaseUrl: input.searxngBaseUrl
     });
 
     const providerStream = streamProviderResponse({
@@ -927,6 +1028,7 @@ export async function resolveAssistantTurn(input: {
         skills: turnSkills,
         loadedSkillIds,
         memoriesEnabled: input.memoriesEnabled ?? false,
+        searxngBaseUrl: input.searxngBaseUrl,
         memoryUserId: input.memoryUserId,
         onActionStart: input.onActionStart,
         onActionComplete: input.onActionComplete,

@@ -50,6 +50,30 @@ describe("extractEnumHints", () => {
     const schema = { type: "object" as const };
     expect(extractEnumHints(schema)).toBe("");
   });
+
+  it("extracts hints from const and anyOf enum schemas", () => {
+    const schema = {
+      type: "object" as const,
+      properties: {
+        topic: {
+          type: "string" as const,
+          const: "general",
+          description: "Search topic"
+        },
+        time_range: {
+          anyOf: [
+            { type: "string" as const, enum: ["day", "week", "month", "year"] },
+            { type: "null" as const }
+          ],
+          description: "Time range"
+        }
+      }
+    };
+
+    expect(extractEnumHints(schema)).toBe(
+      "Valid values for topic: general. Valid values for time_range: day, week, month, year."
+    );
+  });
 });
 
 describe("coerceEnumValues", () => {
@@ -58,14 +82,14 @@ describe("coerceEnumValues", () => {
     expect(coerceEnumValues({ type: "object" }, { query: "test" })).toEqual({ query: "test" });
   });
 
-  it("auto-corrects invalid enum string value to closest match", () => {
+  it("maps semantic recency aliases to the intended enum value", () => {
     const schema = {
       type: "object" as const,
       properties: {
         freshness: { type: "string" as const, enum: ["24h", "week", "month", "year", "any"] }
       }
     };
-    expect(coerceEnumValues(schema, { freshness: "today" })).toEqual({ freshness: "month" });
+    expect(coerceEnumValues(schema, { freshness: "today" })).toEqual({ freshness: "24h" });
   });
 
   it("passes through valid enum values unchanged", () => {
@@ -128,5 +152,36 @@ describe("coerceEnumValues", () => {
       }
     };
     expect(coerceEnumValues(schema, { freshness: "today", query: "test" })).toEqual({ freshness: "24h", query: "test" });
+  });
+
+  it("maps shorthand time ranges to the canonical enum value", () => {
+    const schema = {
+      type: "object" as const,
+      properties: {
+        time_range: {
+          anyOf: [
+            { type: "string" as const, enum: ["day", "week", "month", "year"] },
+            { type: "null" as const }
+          ]
+        }
+      }
+    };
+
+    expect(coerceEnumValues(schema, { time_range: "1w" })).toEqual({ time_range: "week" });
+    expect(coerceEnumValues(schema, { time_range: "1m" })).toEqual({ time_range: "month" });
+    expect(coerceEnumValues(schema, { time_range: "1y" })).toEqual({ time_range: "year" });
+    expect(coerceEnumValues(schema, { time_range: "24h" })).toEqual({ time_range: "day" });
+    expect(coerceEnumValues(schema, { time_range: "d" })).toEqual({ time_range: "day" });
+  });
+
+  it("maps Tavily topic aliases to the supported general topic", () => {
+    const schema = {
+      type: "object" as const,
+      properties: {
+        topic: { type: "string" as const, const: "general" }
+      }
+    };
+
+    expect(coerceEnumValues(schema, { topic: "news" })).toEqual({ topic: "general" });
   });
 });

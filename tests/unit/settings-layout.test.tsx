@@ -54,6 +54,10 @@ const settings: AppSettings = {
   mcpTimeout: 120_000,
   sttEngine: "browser",
   sttLanguage: "en",
+  webSearchEngine: "exa",
+  exaApiKey: "",
+  tavilyApiKey: "",
+  searxngBaseUrl: "",
   updatedAt: new Date().toISOString()
 };
 

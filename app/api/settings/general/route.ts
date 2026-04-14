@@ -2,27 +2,26 @@ import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import { badRequest, ok } from "@/lib/http";
-import { updateGeneralSettingsForUser } from "@/lib/settings";
-
-const generalSettingsSchema = z
-  .object({
-    conversationRetention: z.enum(["forever", "90d", "30d", "7d"]).optional(),
-    memoriesEnabled: z.coerce.boolean().optional(),
-    memoriesMaxCount: z.coerce.number().int().min(1).max(500).optional(),
-    mcpTimeout: z.coerce.number().int().min(10_000).max(600_000).optional(),
-    sttEngine: z.enum(["browser", "embedded"]).optional(),
-    sttLanguage: z.enum(["auto", "en", "fr", "es"]).optional()
-  })
-  .strip();
+import { getSanitizedSettings, parseGeneralSettingsInput, updateGeneralSettingsForUser } from "@/lib/settings";
 
 export async function PUT(request: Request) {
   const user = await requireUser();
   const body = await request.json().catch(() => ({}));
-  const payload = generalSettingsSchema.safeParse(body);
-
-  if (!payload.success) {
+  let payload;
+  try {
+    payload = parseGeneralSettingsInput(body);
+  } catch {
     return badRequest("Invalid general settings payload");
   }
 
-  return ok({ settings: updateGeneralSettingsForUser(user.id, payload.data) });
+  try {
+    updateGeneralSettingsForUser(user.id, payload);
+    return ok({ settings: getSanitizedSettings(user.id) });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return badRequest("Invalid general settings payload");
+    }
+
+    throw error;
+  }
 }

@@ -21,6 +21,10 @@ vi.mock("@/lib/local-shell", () => ({
   summarizeShellResult: vi.fn().mockReturnValue("ok")
 }));
 
+vi.mock("@/lib/searxng", () => ({
+  searchSearxng: vi.fn().mockResolvedValue("SearXNG result")
+}));
+
 vi.mock("@/lib/memories", () => ({
   getMemory: vi.fn(),
   createMemory: vi.fn(),
@@ -110,6 +114,10 @@ function makeAppSettings(overrides: Partial<import("@/lib/types").AppSettings> =
     mcpTimeout: 30000,
     sttEngine: "browser" as const,
     sttLanguage: "en" as const,
+    webSearchEngine: "exa" as const,
+    exaApiKey: "",
+    tavilyApiKey: "",
+    searxngBaseUrl: "",
     updatedAt: new Date().toISOString(),
     ...overrides
   };
@@ -122,6 +130,7 @@ describe("buildCopilotTools", () => {
     const { callMcpTool, getToolResultText } = await import("@/lib/mcp-client");
     const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
     const { getMemory, getMemoryCount } = await import("@/lib/memories");
+    const { searchSearxng } = await import("@/lib/searxng");
     const { getSettings } = await import("@/lib/settings");
     const { parseSkillContentMetadata } = await import("@/lib/skill-metadata");
     const { coerceEnumValues } = await import("@/lib/tool-schema-helpers");
@@ -147,6 +156,7 @@ describe("buildCopilotTools", () => {
       updatedAt: new Date().toISOString()
     });
     vi.mocked(getMemoryCount).mockReturnValue(0);
+    vi.mocked(searchSearxng).mockResolvedValue("SearXNG result");
     vi.mocked(getSettings).mockReturnValue(makeAppSettings());
     vi.mocked(parseSkillContentMetadata).mockReturnValue({
       name: "",
@@ -174,6 +184,34 @@ describe("buildCopilotTools", () => {
       properties: { path: { type: "string" } },
       required: ["path"]
     });
+  });
+
+  it("labels built-in Exa MCP tools as Web search", async () => {
+    const onActionStart = vi.fn();
+    const ctx = makeCtx({
+      mcpToolSets: [{
+        server: makeMcpServer({
+          id: "builtin_web_search_exa",
+          slug: "builtin_search_exa",
+          name: "Exa"
+        }),
+        tools: [makeMcpTool({ name: "web_search_exa", title: "web_search_exa" })]
+      }],
+      onActionStart
+    });
+
+    const tools = buildCopilotTools(ctx);
+    const exaTool = tools.find((t) => t.name === "mcp_builtin_web_search_exa_web_search_exa")!;
+
+    await exaTool.handler!(
+      { query: "latest AI" },
+      { sessionId: "s1", toolCallId: "tc1", toolName: exaTool.name, arguments: { query: "latest AI" } }
+    );
+
+    expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
+      label: "Web search",
+      serverId: "builtin_web_search_exa"
+    }));
   });
 
   it("creates shell, skill, and memory tools", () => {
@@ -218,6 +256,16 @@ describe("buildCopilotTools", () => {
     const tools = buildCopilotTools(ctx);
 
     expect(tools.find((t) => t.name === "execute_shell_command")).toBeDefined();
+  });
+
+  it("adds a native SearXNG web search tool when configured", () => {
+    const ctx = makeCtx({
+      searxngBaseUrl: "https://search.example.com"
+    });
+
+    const tools = buildCopilotTools(ctx);
+
+    expect(tools.find((tool) => tool.name === "web_search")).toBeDefined();
   });
 
   it("marks built-in name replacements as explicit overrides", () => {

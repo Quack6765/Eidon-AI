@@ -9,8 +9,10 @@ import {
 } from "@/lib/memory-proposals";
 import { getSettings } from "@/lib/settings";
 import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shell";
+import { searchSearxng } from "@/lib/searxng";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
+import { getWebSearchActionLabel } from "@/lib/web-search";
 import type {
   McpServer,
   McpTool,
@@ -44,6 +46,7 @@ export type CopilotToolContext = {
   skills: Skill[];
   loadedSkillIds: Set<string>;
   memoriesEnabled: boolean;
+  searxngBaseUrl?: string | null;
   memoryUserId?: string;
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
   onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -98,7 +101,7 @@ function buildMcpCopilotTool(server: McpServer, mcpTool: McpTool, ctx: CopilotTo
 
       const handle = await ctx.onActionStart?.({
         kind: "mcp_tool_call",
-        label: getToolLabel(mcpTool),
+        label: getWebSearchActionLabel(server.id, getToolLabel(mcpTool)),
         detail: buildArgumentsSummary(correctedArgs),
         serverId: server.id,
         toolName: mcpTool.name,
@@ -166,6 +169,66 @@ function buildShellCopilotTool(ctx: CopilotToolContext): Tool {
       } catch (error) {
         const message = error instanceof Error ? error.message : "Shell command execution failed";
         await ctx.onActionError?.(actionHandle, { detail: command, resultSummary: message });
+        return `Error: ${message}`;
+      }
+    }
+  };
+}
+
+function buildSearxngCopilotTool(ctx: CopilotToolContext): Tool | null {
+  if (!ctx.searxngBaseUrl) {
+    return null;
+  }
+  const baseUrl = ctx.searxngBaseUrl;
+
+  return {
+    name: "web_search",
+    description: "Search the web using the configured SearXNG instance.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "Search query" },
+        max_results: { type: "number", description: "Maximum number of results to return (default 5, max 10)" }
+      },
+      required: ["query"]
+    },
+    skipPermission: true,
+    handler: async (args: unknown) => {
+      const { query, max_results } = (args ?? {}) as { query?: string; max_results?: number };
+      const trimmedQuery = (query ?? "").trim();
+      const maxResults =
+        typeof max_results === "number" && Number.isFinite(max_results)
+          ? Math.max(1, Math.min(10, Math.round(max_results)))
+          : undefined;
+
+      if (!trimmedQuery) {
+        return "Error: query is required";
+      }
+
+      const handle = await ctx.onActionStart?.({
+        kind: "mcp_tool_call",
+        label: getWebSearchActionLabel("builtin_web_search_searxng", "Web search"),
+        detail: trimmedQuery,
+        serverId: "builtin_web_search_searxng",
+        toolName: "web_search",
+        arguments: {
+          query: trimmedQuery,
+          ...(maxResults !== undefined ? { max_results: maxResults } : {})
+        }
+      });
+      const actionHandle = typeof handle === "string" ? handle : undefined;
+
+      try {
+        const resultSummary = await searchSearxng({
+          baseUrl,
+          query: trimmedQuery,
+          maxResults
+        });
+        await ctx.onActionComplete?.(actionHandle, { detail: trimmedQuery, resultSummary });
+        return resultSummary;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "SearXNG search failed";
+        await ctx.onActionError?.(actionHandle, { detail: trimmedQuery, resultSummary: message });
         return `Error: ${message}`;
       }
     }
@@ -357,6 +420,11 @@ export function buildCopilotTools(ctx: CopilotToolContext): Tool[] {
 
   if (ctx.skills.length) {
     tools.push(buildLoadSkillCopilotTool(ctx));
+  }
+
+  const searxngTool = buildSearxngCopilotTool(ctx);
+  if (searxngTool) {
+    tools.push(searxngTool);
   }
 
   tools.push(buildShellCopilotTool(ctx));

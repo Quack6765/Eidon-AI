@@ -109,6 +109,67 @@ const settingsSchema = z
     }
   });
 
+const generalSettingsInputSchema = z.object({
+  conversationRetention: z.enum(["forever", "90d", "30d", "7d"]).optional(),
+  memoriesEnabled: z.coerce.boolean().optional(),
+  memoriesMaxCount: z.coerce.number().int().min(1).max(500).optional(),
+  mcpTimeout: z.coerce.number().int().min(10_000).max(600_000).optional(),
+  sttEngine: z.enum(["browser", "embedded"]).optional(),
+  sttLanguage: z.enum(["auto", "en", "fr", "es"]).optional(),
+  webSearchEngine: z.enum(["exa", "tavily", "searxng", "disabled"]).optional(),
+  exaApiKey: z.string().optional(),
+  tavilyApiKey: z.string().optional(),
+  searxngBaseUrl: z.string().optional(),
+  clearExaApiKey: z.coerce.boolean().optional(),
+  clearTavilyApiKey: z.coerce.boolean().optional()
+});
+
+const generalSettingsSchema = z
+  .object({
+    conversationRetention: z.enum(["forever", "90d", "30d", "7d"]),
+    memoriesEnabled: z.coerce.boolean(),
+    memoriesMaxCount: z.coerce.number().int().min(1).max(500),
+    mcpTimeout: z.coerce.number().int().min(10_000).max(600_000),
+    sttEngine: z.enum(["browser", "embedded"]),
+    sttLanguage: z.enum(["auto", "en", "fr", "es"]),
+    webSearchEngine: z.enum(["exa", "tavily", "searxng", "disabled"]),
+    exaApiKey: z.string(),
+    tavilyApiKey: z.string(),
+    searxngBaseUrl: z.string()
+  })
+  .superRefine((value, context) => {
+    if (value.webSearchEngine === "tavily" && !value.tavilyApiKey.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["tavilyApiKey"],
+        message: "Tavily API key is required"
+      });
+    }
+
+    if (value.webSearchEngine === "searxng") {
+      const baseUrl = value.searxngBaseUrl.trim();
+
+      if (!baseUrl) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["searxngBaseUrl"],
+          message: "SearXNG URL is required"
+        });
+        return;
+      }
+
+      try {
+        new URL(baseUrl);
+      } catch {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["searxngBaseUrl"],
+          message: "SearXNG URL must be valid"
+        });
+      }
+    }
+  });
+
 type AppSettingsRow = {
   default_provider_profile_id: string | null;
   skills_enabled: number;
@@ -119,6 +180,10 @@ type AppSettingsRow = {
   mcp_timeout: number;
   stt_engine?: string;
   stt_language?: string;
+  web_search_engine?: string;
+  exa_api_key_encrypted?: string;
+  tavily_api_key_encrypted?: string;
+  searxng_base_url?: string;
   updated_at: string;
 };
 
@@ -133,6 +198,10 @@ type UserSettingsRow = {
   mcp_timeout: number;
   stt_engine: string;
   stt_language: string;
+  web_search_engine: string;
+  exa_api_key_encrypted: string;
+  tavily_api_key_encrypted: string;
+  searxng_base_url: string;
   updated_at: string;
 };
 
@@ -170,6 +239,88 @@ type ProviderProfileRow = {
   updated_at: string;
 };
 
+function normalizeSearxngBaseUrl(value: string) {
+  return value.trim().replace(/\/+$/, "");
+}
+
+function getGithubConnectionStatus(profile: ProviderProfile): GithubConnectionStatus {
+  if (profile.providerKind !== "github_copilot" || !profile.githubUserAccessTokenEncrypted) {
+    return "disconnected";
+  }
+
+  if (!profile.githubTokenExpiresAt) {
+    return "disconnected";
+  }
+
+  const expiresAt = Date.parse(profile.githubTokenExpiresAt);
+
+  if (!Number.isNaN(expiresAt) && expiresAt <= Date.now()) {
+    return "expired";
+  }
+
+  return Number.isNaN(expiresAt) ? "disconnected" : "connected";
+}
+
+function decryptSearchSetting(userSetting: "exaApiKey" | "tavilyApiKey", encryptedValue?: string) {
+  if (!encryptedValue) {
+    return "";
+  }
+
+  try {
+    return decryptValue(encryptedValue);
+  } catch (e) {
+    console.error(
+      `[settings] Failed to decrypt ${userSetting}:`,
+      e instanceof Error ? e.message : e
+    );
+    return "";
+  }
+}
+
+type GeneralSettingsInput = Partial<
+  Pick<
+    AppSettings,
+    | "conversationRetention"
+    | "memoriesEnabled"
+    | "memoriesMaxCount"
+    | "mcpTimeout"
+    | "sttEngine"
+    | "sttLanguage"
+    | "webSearchEngine"
+    | "exaApiKey"
+    | "tavilyApiKey"
+    | "searxngBaseUrl"
+  >
+> & {
+  clearExaApiKey?: boolean;
+  clearTavilyApiKey?: boolean;
+};
+
+type GeneralSettingsValues = Pick<
+  AppSettings,
+  | "conversationRetention"
+  | "memoriesEnabled"
+  | "memoriesMaxCount"
+  | "mcpTimeout"
+  | "sttEngine"
+  | "sttLanguage"
+  | "webSearchEngine"
+  | "exaApiKey"
+  | "tavilyApiKey"
+  | "searxngBaseUrl"
+>;
+
+function validateGeneralSettings(values: GeneralSettingsValues) {
+  return generalSettingsSchema.parse({
+    ...values,
+    searxngBaseUrl: normalizeSearxngBaseUrl(values.searxngBaseUrl)
+  });
+}
+
+export function parseGeneralSettingsInput(input: unknown) {
+  return generalSettingsInputSchema.parse(input);
+}
+
 function rowToSettings(row: AppSettingsRow | UserSettingsRow): AppSettings {
   return {
     defaultProviderProfileId: row.default_provider_profile_id || null,
@@ -180,6 +331,10 @@ function rowToSettings(row: AppSettingsRow | UserSettingsRow): AppSettings {
     mcpTimeout: row.mcp_timeout,
     sttEngine: (row.stt_engine ?? "browser") as AppSettings["sttEngine"],
     sttLanguage: (row.stt_language ?? "auto") as AppSettings["sttLanguage"],
+    webSearchEngine: (row.web_search_engine ?? "exa") as AppSettings["webSearchEngine"],
+    exaApiKey: decryptSearchSetting("exaApiKey", row.exa_api_key_encrypted),
+    tavilyApiKey: decryptSearchSetting("tavilyApiKey", row.tavily_api_key_encrypted),
+    searxngBaseUrl: normalizeSearxngBaseUrl(row.searxng_base_url ?? ""),
     updatedAt: row.updated_at
   };
 }
@@ -431,8 +586,12 @@ function ensureUserSettingsRow(userId: string) {
         mcp_timeout,
         stt_engine,
         stt_language,
+        web_search_engine,
+        exa_api_key_encrypted,
+        tavily_api_key_encrypted,
+        searxng_base_url,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
@@ -444,7 +603,11 @@ function ensureUserSettingsRow(userId: string) {
       settings.memories_max_count,
       settings.mcp_timeout,
       "browser",
-      "en",
+      "auto",
+      "exa",
+      "",
+      "",
+      "",
       new Date().toISOString()
     );
 }
@@ -465,6 +628,10 @@ function getUserSettingsRow(userId: string) {
         mcp_timeout,
         stt_engine,
         stt_language,
+        web_search_engine,
+        exa_api_key_encrypted,
+        tavily_api_key_encrypted,
+        searxng_base_url,
         updated_at
       FROM user_settings
       WHERE user_id = ?`
@@ -526,39 +693,87 @@ export function getSanitizedSettings(userId?: string) {
       ...sanitizedProfile
     } = profile;
 
-    const githubConnectionStatus: GithubConnectionStatus =
-      profile.providerKind !== "github_copilot" || !profile.githubUserAccessTokenEncrypted
-        ? "disconnected"
-        : "connected";
-
     return {
       ...sanitizedProfile,
       hasApiKey: Boolean(profile.apiKeyEncrypted),
-      githubConnectionStatus
+      githubConnectionStatus: getGithubConnectionStatus(profile)
     };
   });
 
   return {
     ...settings,
+    exaApiKey: "",
+    tavilyApiKey: "",
+    hasExaApiKey: Boolean(settings.exaApiKey),
+    hasTavilyApiKey: Boolean(settings.tavilyApiKey),
     providerProfiles
   };
 }
 
 export function updateGeneralSettingsForUser(
   userId: string,
-  input: Partial<
-    Pick<
-      AppSettings,
-      "conversationRetention" | "memoriesEnabled" | "memoriesMaxCount" | "mcpTimeout" | "sttEngine" | "sttLanguage"
-    >
-  >
+  input: GeneralSettingsInput
 ) {
+  const currentRow = getUserSettingsRow(userId);
   const current = getSettingsForUser(userId);
+  const shouldClearExaApiKey = input.clearExaApiKey === true;
+  const shouldClearTavilyApiKey = input.clearTavilyApiKey === true;
+  const shouldPreserveExaApiKey =
+    input.exaApiKey === "" && !shouldClearExaApiKey && Boolean(currentRow.exa_api_key_encrypted);
+  const shouldPreserveTavilyApiKey =
+    input.tavilyApiKey === "" &&
+    !shouldClearTavilyApiKey &&
+    Boolean(currentRow.tavily_api_key_encrypted);
+  const exaApiKey =
+    shouldClearExaApiKey
+      ? ""
+      : input.exaApiKey === undefined || shouldPreserveExaApiKey
+      ? current.exaApiKey
+      : input.exaApiKey;
+  const tavilyApiKey =
+    shouldClearTavilyApiKey
+      ? ""
+      : input.tavilyApiKey === undefined || shouldPreserveTavilyApiKey
+      ? current.tavilyApiKey
+      : input.tavilyApiKey;
+  const validated = validateGeneralSettings({
+    conversationRetention: input.conversationRetention ?? current.conversationRetention,
+    memoriesEnabled: input.memoriesEnabled ?? current.memoriesEnabled,
+    memoriesMaxCount: input.memoriesMaxCount ?? current.memoriesMaxCount,
+    mcpTimeout: input.mcpTimeout ?? current.mcpTimeout,
+    sttEngine: input.sttEngine ?? current.sttEngine,
+    sttLanguage: input.sttLanguage ?? current.sttLanguage,
+    webSearchEngine: input.webSearchEngine ?? current.webSearchEngine,
+    exaApiKey,
+    tavilyApiKey:
+      shouldPreserveTavilyApiKey && !current.tavilyApiKey
+        ? "__preserved_tavily_api_key__"
+        : tavilyApiKey,
+    searxngBaseUrl: input.searxngBaseUrl ?? current.searxngBaseUrl
+  });
   const next = {
     ...current,
-    ...input,
+    ...validated,
+    exaApiKey,
+    tavilyApiKey,
     updatedAt: new Date().toISOString()
   };
+  const exaApiKeyEncrypted =
+    shouldClearExaApiKey
+      ? ""
+      : input.exaApiKey !== undefined && !shouldPreserveExaApiKey
+      ? next.exaApiKey
+        ? encryptValue(next.exaApiKey)
+        : ""
+      : currentRow.exa_api_key_encrypted;
+  const tavilyApiKeyEncrypted =
+    shouldClearTavilyApiKey
+      ? ""
+      : input.tavilyApiKey !== undefined && !shouldPreserveTavilyApiKey
+      ? next.tavilyApiKey
+        ? encryptValue(next.tavilyApiKey)
+        : ""
+      : currentRow.tavily_api_key_encrypted;
 
   getDb()
     .prepare(
@@ -571,6 +786,10 @@ export function updateGeneralSettingsForUser(
            mcp_timeout = ?,
            stt_engine = ?,
            stt_language = ?,
+           web_search_engine = ?,
+           exa_api_key_encrypted = ?,
+           tavily_api_key_encrypted = ?,
+           searxng_base_url = ?,
            updated_at = ?
        WHERE user_id = ?`
     )
@@ -583,6 +802,10 @@ export function updateGeneralSettingsForUser(
       next.mcpTimeout,
       next.sttEngine,
       next.sttLanguage,
+      next.webSearchEngine,
+      exaApiKeyEncrypted,
+      tavilyApiKeyEncrypted,
+      next.searxngBaseUrl,
       next.updatedAt,
       userId
     );

@@ -7,8 +7,33 @@ type InputSchema = {
 type PropertySchema = {
   type?: string;
   enum?: unknown[];
+  const?: unknown;
+  anyOf?: unknown[];
   description?: string;
 };
+
+const ENUM_ALIAS_GROUPS = [
+  { aliases: ["24h", "1d", "d", "day", "today", "daily"], candidates: ["24h", "day"] },
+  { aliases: ["1w", "7d", "w", "week", "weekly"], candidates: ["week"] },
+  { aliases: ["1m", "30d", "m", "month", "monthly"], candidates: ["month"] },
+  { aliases: ["1y", "365d", "y", "year", "yearly", "annual"], candidates: ["year"] },
+  { aliases: ["all", "any", "anytime", "ever"], candidates: ["any"] },
+  { aliases: ["news", "web", "search"], candidates: ["general"] }
+] as const;
+
+function getEnumAliasMatch(normalizedValue: string, validValues: string[]): string | null {
+  for (const group of ENUM_ALIAS_GROUPS) {
+    if (!(group.aliases as readonly string[]).includes(normalizedValue)) continue;
+    for (const candidate of group.candidates) {
+      const match = validValues.find((value) => value.toLowerCase() === candidate);
+      if (match) {
+        return match;
+      }
+    }
+  }
+
+  return null;
+}
 
 function getStringDistance(a: string, b: string): number {
   if (a === b) return 0;
@@ -34,6 +59,33 @@ function getStringDistance(a: string, b: string): number {
   return matrix[a.length][b.length];
 }
 
+function getAllowedStringValues(prop: PropertySchema): string[] {
+  const values = new Set<string>();
+
+  if (Array.isArray(prop.enum)) {
+    for (const value of prop.enum) {
+      if (typeof value === "string") {
+        values.add(value);
+      }
+    }
+  }
+
+  if (typeof prop.const === "string") {
+    values.add(prop.const);
+  }
+
+  if (Array.isArray(prop.anyOf)) {
+    for (const option of prop.anyOf) {
+      if (!option || typeof option !== "object") continue;
+      for (const value of getAllowedStringValues(option as PropertySchema)) {
+        values.add(value);
+      }
+    }
+  }
+
+  return [...values];
+}
+
 export function extractEnumHints(schema: InputSchema): string {
   const props = schema.properties;
   if (!props) return "";
@@ -41,8 +93,8 @@ export function extractEnumHints(schema: InputSchema): string {
   const hints: string[] = [];
   for (const [name, propSchema] of Object.entries(props)) {
     const prop = propSchema as PropertySchema;
-    if (prop.type === "string" && Array.isArray(prop.enum) && prop.enum.length > 0) {
-      const values = prop.enum.map(String);
+    const values = getAllowedStringValues(prop);
+    if (values.length > 0) {
       hints.push(`Valid values for ${name}: ${values.join(", ")}.`);
     }
   }
@@ -61,15 +113,22 @@ export function coerceEnumValues(
     const propSchema = props[name];
     if (!propSchema) continue;
     const prop = propSchema as PropertySchema;
-    if (prop.type !== "string" || !Array.isArray(prop.enum) || typeof value !== "string") continue;
+    if (typeof value !== "string") continue;
 
-    const validValues = prop.enum.map(String);
+    const validValues = getAllowedStringValues(prop);
+    if (validValues.length === 0) continue;
     if (validValues.includes(value)) continue;
 
     const normalizedValue = value.toLowerCase();
     const exactMatch = validValues.find((v) => v.toLowerCase() === normalizedValue);
     if (exactMatch) {
       corrected[name] = exactMatch;
+      continue;
+    }
+
+    const aliasMatch = getEnumAliasMatch(normalizedValue, validValues);
+    if (aliasMatch) {
+      corrected[name] = aliasMatch;
       continue;
     }
 

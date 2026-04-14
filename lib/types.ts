@@ -6,6 +6,8 @@ export type SttEngine = "browser" | "embedded";
 
 export type SttLanguage = "auto" | "en" | "fr" | "es";
 
+export type WebSearchEngine = "exa" | "tavily" | "searxng" | "disabled";
+
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export type VisionMode = "none" | "native" | "mcp";
@@ -111,6 +113,10 @@ export type AppSettings = {
   mcpTimeout: number;
   sttEngine: SttEngine;
   sttLanguage: SttLanguage;
+  webSearchEngine: WebSearchEngine;
+  exaApiKey: string;
+  tavilyApiKey: string;
+  searxngBaseUrl: string;
   updatedAt: string;
 };
 

@@ -8,13 +8,18 @@ import type { AppSettings } from "@/lib/types";
 
 const mockRefresh = vi.fn();
 
+type GeneralSectionSettings = AppSettings & {
+  hasExaApiKey?: boolean;
+  hasTavilyApiKey?: boolean;
+};
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     refresh: mockRefresh
   })
 }));
 
-function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
+function makeSettings(overrides: Partial<GeneralSectionSettings> = {}): GeneralSectionSettings {
   return {
     defaultProviderProfileId: "profile_default",
     skillsEnabled: true,
@@ -24,6 +29,12 @@ function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     mcpTimeout: 120_000,
     sttEngine: "browser",
     sttLanguage: "auto",
+    webSearchEngine: "exa",
+    exaApiKey: "",
+    tavilyApiKey: "",
+    searxngBaseUrl: "",
+    hasExaApiKey: false,
+    hasTavilyApiKey: false,
     updatedAt: new Date().toISOString(),
     ...overrides
   };
@@ -114,5 +125,191 @@ describe("general section", () => {
     fireEvent.change(screen.getByDisplayValue("Browser"), { target: { value: "embedded" } });
     expect(screen.queryByDisplayValue("Auto-detect")).toBeNull();
     expect(screen.getByDisplayValue("English")).toBeInTheDocument();
+  });
+
+  it("shows Exa by default with an optional API key note", () => {
+    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+
+    expect(screen.getByRole("heading", { name: "Web Search" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Web search engine")).toHaveValue("exa");
+    expect(
+      screen.getByText("Exa API key is optional and the public endpoint works without one.")
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Exa API key")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Tavily API key")).toBeNull();
+    expect(screen.queryByLabelText("SearXNG base URL")).toBeNull();
+  });
+
+  it("preserves search values while switching engines and hides engine-specific fields when disabled", () => {
+    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+
+    fireEvent.change(screen.getByLabelText("Exa API key"), {
+      target: { value: "exa-local-key" }
+    });
+    fireEvent.change(screen.getByLabelText("Web search engine"), {
+      target: { value: "tavily" }
+    });
+    fireEvent.change(screen.getByLabelText("Tavily API key"), {
+      target: { value: "tvly-local-key" }
+    });
+    fireEvent.change(screen.getByLabelText("Web search engine"), {
+      target: { value: "searxng" }
+    });
+    fireEvent.change(screen.getByLabelText("SearXNG base URL"), {
+      target: { value: "https://search.example.com" }
+    });
+
+    fireEvent.change(screen.getByLabelText("Web search engine"), {
+      target: { value: "tavily" }
+    });
+    expect(screen.getByLabelText("Tavily API key")).toHaveValue("tvly-local-key");
+
+    fireEvent.change(screen.getByLabelText("Web search engine"), {
+      target: { value: "exa" }
+    });
+    expect(screen.getByLabelText("Exa API key")).toHaveValue("exa-local-key");
+
+    fireEvent.change(screen.getByLabelText("Web search engine"), {
+      target: { value: "searxng" }
+    });
+    expect(screen.getByLabelText("SearXNG base URL")).toHaveValue("https://search.example.com");
+
+    fireEvent.change(screen.getByLabelText("Web search engine"), {
+      target: { value: "disabled" }
+    });
+    expect(screen.queryByLabelText("Exa API key")).toBeNull();
+    expect(screen.queryByLabelText("Tavily API key")).toBeNull();
+    expect(screen.queryByLabelText("SearXNG base URL")).toBeNull();
+  });
+
+  it("blocks save for Tavily when no key is present", async () => {
+    render(
+      React.createElement(GeneralSection, {
+        settings: makeSettings({
+          webSearchEngine: "tavily"
+        })
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(await screen.findByText("Tavily API key is required.")).toBeInTheDocument();
+  });
+
+  it("blocks save for SearXNG when no base URL is present", async () => {
+    render(
+      React.createElement(GeneralSection, {
+        settings: makeSettings({
+          webSearchEngine: "searxng"
+        })
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(await screen.findByText("SearXNG base URL is required.")).toBeInTheDocument();
+  });
+
+  it("blocks save for SearXNG when the URL is malformed", async () => {
+    render(
+      React.createElement(GeneralSection, {
+        settings: makeSettings({
+          webSearchEngine: "searxng"
+        })
+      })
+    );
+
+    fireEvent.change(screen.getByLabelText("SearXNG base URL"), {
+      target: { value: "not-a-url" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(await screen.findByText("SearXNG base URL must be valid.")).toBeInTheDocument();
+  });
+
+  it("preserves masked Tavily keys by omitting blank values from the save payload", async () => {
+    const settings = makeSettings({
+      webSearchEngine: "tavily",
+      hasTavilyApiKey: true
+    });
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    fireEvent.change(screen.getByDisplayValue("Forever"), { target: { value: "30d" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
+    expect(body).toMatchObject({
+      conversationRetention: "30d",
+      webSearchEngine: "tavily"
+    });
+    expect(body).not.toHaveProperty("tavilyApiKey");
+    expect(body).not.toHaveProperty("clearTavilyApiKey");
+  });
+
+  it("sends an explicit clear flag when a saved Exa key is intentionally cleared", async () => {
+    const settings = makeSettings({
+      webSearchEngine: "exa",
+      hasExaApiKey: true
+    });
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    const exaInput = screen.getByLabelText("Exa API key");
+    fireEvent.change(exaInput, { target: { value: "temporary-value" } });
+    fireEvent.change(exaInput, { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
+    expect(body).toMatchObject({
+      webSearchEngine: "exa",
+      exaApiKey: "",
+      clearExaApiKey: true
+    });
+  });
+
+  it("sends an explicit clear flag when a saved Tavily key is intentionally cleared before switching engines", async () => {
+    const settings = makeSettings({
+      webSearchEngine: "tavily",
+      hasTavilyApiKey: true
+    });
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    const tavilyInput = screen.getByLabelText("Tavily API key");
+    fireEvent.change(tavilyInput, { target: { value: "temporary-value" } });
+    fireEvent.change(tavilyInput, { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Web search engine"), { target: { value: "exa" } });
+    fireEvent.change(screen.getByDisplayValue("Forever"), { target: { value: "30d" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
+    expect(body).toMatchObject({
+      conversationRetention: "30d",
+      webSearchEngine: "exa",
+      tavilyApiKey: "",
+      clearTavilyApiKey: true
+    });
   });
 });

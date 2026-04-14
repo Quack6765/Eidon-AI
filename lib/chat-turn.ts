@@ -24,10 +24,12 @@ import { listEnabledMcpServers, getMcpServer } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
 import {
   getSettings,
+  getSettingsForUser,
   getDefaultProviderProfileWithApiKey,
   getProviderProfileWithApiKey
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
+import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
 import type { ChatStreamEvent } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
@@ -79,7 +81,8 @@ export function getAssistantTurnStartPreflight(conversationId: string) {
     (conversation.providerProfileId
       ? getProviderProfileWithApiKey(conversation.providerProfileId)
       : null) ?? getDefaultProviderProfileWithApiKey();
-  const appSettings = getSettings();
+  const conversationOwnerId = getConversationOwnerId(conversationId);
+  const appSettings = conversationOwnerId ? getSettingsForUser(conversationOwnerId) : getSettings();
 
   if (!settings) {
     return {
@@ -111,7 +114,7 @@ export function getAssistantTurnStartPreflight(conversationId: string) {
   return {
     ok: true as const,
     conversation,
-    conversationOwnerId: getConversationOwnerId(conversationId),
+    conversationOwnerId,
     settings,
     appSettings
   };
@@ -213,7 +216,7 @@ async function startAssistantTurn(
     }, personaId, appSettings.memoriesEnabled);
     let promptMessages = compacted.promptMessages;
     const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
-    const mcpServers = listEnabledMcpServers();
+    const mcpServers = appendInjectedWebSearchMcpServer(listEnabledMcpServers(), appSettings);
 
     let mcpToolSets: Array<{
       server: (typeof mcpServers)[number];
@@ -241,6 +244,8 @@ async function startAssistantTurn(
       mcpToolSets,
       visionMcpServer,
       memoriesEnabled: appSettings.memoriesEnabled,
+      searxngBaseUrl:
+        appSettings.webSearchEngine === "searxng" ? appSettings.searxngBaseUrl : null,
       memoryUserId: conversationOwnerId ?? undefined,
       mcpTimeout: appSettings.mcpTimeout,
       abortSignal: control.abortController.signal,

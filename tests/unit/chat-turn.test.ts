@@ -26,6 +26,7 @@ vi.mock("@/lib/conversation-title-generator", () => ({
 }));
 
 import type { ProviderProfileWithApiKey } from "@/lib/types";
+import { createLocalUser } from "@/lib/users";
 
 function setupProviderProfile(): { profileId: string; profile: ProviderProfileWithApiKey } {
   const profileId = "profile_chat_test";
@@ -199,6 +200,59 @@ describe("chat-turn", () => {
     expect(errorMsg).toBeDefined();
     const { listVisibleMessages } = await import("@/lib/conversations");
     expect(listVisibleMessages(conv.id)).toHaveLength(0);
+  });
+
+  it("injects the selected user's built-in web search MCP server into tool discovery", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { gatherAllMcpTools } = await import("@/lib/mcp-client");
+    const mockedGatherAllMcpTools = vi.mocked(gatherAllMcpTools);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings, updateGeneralSettingsForUser } = await import("@/lib/settings");
+
+    const user = await createLocalUser({
+      username: "web-search-owner",
+      password: "changeme123",
+      role: "user"
+    });
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+    updateGeneralSettingsForUser(user.id, {
+      webSearchEngine: "tavily",
+      tavilyApiKey: "tvly-user-key"
+    });
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null },
+      user.id
+    );
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Hi", []);
+
+    expect(mockedGatherAllMcpTools).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "builtin_web_search_tavily",
+          name: "Tavily"
+        })
+      ])
+    );
   });
 
   it("persists a partial assistant message as stopped when the turn is cancelled", async () => {

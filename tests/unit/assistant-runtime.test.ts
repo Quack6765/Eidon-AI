@@ -11,6 +11,7 @@ const updateMemoryRecord = vi.fn();
 const deleteMemoryRecord = vi.fn();
 const getMemoryCountFn = vi.fn();
 const getSettingsFn = vi.fn();
+const searchSearxng = vi.fn();
 
 vi.mock("@/lib/provider", () => ({
   streamProviderResponse
@@ -36,6 +37,10 @@ vi.mock("@/lib/memories", () => ({
 
 vi.mock("@/lib/settings", () => ({
   getSettings: getSettingsFn
+}));
+
+vi.mock("@/lib/searxng", () => ({
+  searchSearxng
 }));
 
 function createProviderStream(
@@ -126,6 +131,7 @@ describe("assistant runtime", () => {
     getSettingsFn.mockReset();
     getMemoryCountFn.mockReturnValue(0);
     getSettingsFn.mockReturnValue({ memoriesMaxCount: 100 });
+    searchSearxng.mockReset();
     getToolResultText.mockImplementation((result: { content?: Array<{ text?: string }> }) => {
       return result.content?.[0]?.text ?? "done";
     });
@@ -214,6 +220,34 @@ describe("assistant runtime", () => {
     expect(webSearchTool.function.description).toContain("Valid values for freshness: 24h, week, month, year, any.");
   });
 
+  it("registers a native SearXNG web search tool when configured", async () => {
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "Done" }], {
+        answer: "Done",
+        thinking: "",
+        usage: { inputTokens: 10, outputTokens: 1 }
+      })
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Search the web" }],
+      skills: [],
+      mcpToolSets: [],
+      searxngBaseUrl: "https://search.example.com",
+      onEvent: () => {},
+      onActionStart: () => {},
+      onActionComplete: () => {}
+    });
+
+    const toolDefs = streamProviderResponse.mock.calls[0][0].tools!;
+    const webSearchTool = toolDefs.find((tool: any) => tool.function.name === "web_search");
+    expect(webSearchTool).toBeDefined();
+    expect(webSearchTool.function.description).toContain("SearXNG");
+  });
+
   it("executes MCP tool calls via native function calling", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
@@ -253,6 +287,123 @@ describe("assistant runtime", () => {
     expect(callMcpTool).toHaveBeenCalledWith(expect.objectContaining({ id: "mcp_docs" }), "search_docs", { query: "MCP" }, undefined);
     expect(started).toEqual([expect.objectContaining({ label: "Search docs", serverId: "mcp_docs" })]);
     expect(completed).toEqual([{ handle: "act_tool", resultSummary: "Found MCP docs" }]);
+    expect(result.answer).toBe("Final answer");
+  });
+
+  it("executes native SearXNG web search tool calls", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "web_search", arguments: JSON.stringify({ query: "Eidon" }) }],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Final answer" }], {
+          answer: "Final answer",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+    searchSearxng.mockResolvedValue("SearXNG result text");
+
+    const started: Array<{ label: string; detail?: string; serverId?: string | null }> = [];
+    const completed: Array<{ handle?: string; resultSummary?: string }> = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find Eidon" }],
+      skills: [],
+      mcpToolSets: [],
+      searxngBaseUrl: "https://search.example.com",
+      onEvent: () => {},
+      onActionStart: (action) => {
+        started.push(action);
+        return "act_web_search";
+      },
+      onActionComplete: (handle, patch) => {
+        completed.push({ handle, resultSummary: patch.resultSummary });
+      }
+    });
+
+    expect(searchSearxng).toHaveBeenCalledWith({
+      baseUrl: "https://search.example.com",
+      query: "Eidon",
+      maxResults: undefined
+    });
+    expect(started).toEqual([
+      expect.objectContaining({
+        label: "Web search",
+        serverId: "builtin_web_search_searxng"
+      })
+    ]);
+    expect(completed).toEqual([{ handle: "act_web_search", resultSummary: "SearXNG result text" }]);
+    expect(result.answer).toBe("Final answer");
+  });
+
+  it("labels built-in Tavily search actions as Web search", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_1",
+            name: "mcp_builtin_search_tavily_tavily_search",
+            arguments: JSON.stringify({ query: "latest AI", time_range: "week" })
+          }],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Final answer" }], {
+          answer: "Final answer",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+    callMcpTool.mockResolvedValue({ content: [{ type: "text", text: "Found AI news" }] });
+
+    const started: Array<{ label: string; serverId?: string | null }> = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find AI news" }],
+      skills: [],
+      mcpToolSets: [{
+        server: {
+          id: "builtin_web_search_tavily",
+          slug: "builtin_search_tavily",
+          name: "Tavily",
+          url: "https://mcp.tavily.com/mcp/",
+          headers: {},
+          transport: "streamable_http",
+          command: null,
+          args: null,
+          env: null,
+          enabled: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        },
+        tools: [{ name: "tavily_search", title: "tavily_search", description: "Search the web", inputSchema: { type: "object" } }]
+      }],
+      onEvent: () => {},
+      onActionStart: (action) => {
+        started.push(action);
+        return "act_tool";
+      }
+    });
+
+    expect(started).toEqual([
+      expect.objectContaining({
+        label: "Web search",
+        serverId: "builtin_web_search_tavily"
+      })
+    ]);
     expect(result.answer).toBe("Final answer");
   });
 
@@ -865,14 +1016,14 @@ Run browser commands.`
     expect(callMcpTool).toHaveBeenCalledWith(
       expect.objectContaining({ id: "mcp_exa" }),
       "search",
-      { query: "test", freshness: "month" },
+      { query: "test", freshness: "24h" },
       undefined
     );
     expect(started).toEqual([expect.objectContaining({
       detail: "query=test",
       arguments: {
         query: "test",
-        freshness: "month"
+        freshness: "24h"
       }
     })]);
     expect(completed).toEqual([expect.objectContaining({

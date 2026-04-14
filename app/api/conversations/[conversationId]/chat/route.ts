@@ -19,6 +19,7 @@ import { ensureCompactedContext } from "@/lib/compaction";
 import { badRequest } from "@/lib/http";
 import {
   getSettings,
+  getSettingsForUser,
   getDefaultProviderProfileWithApiKey,
   getProviderProfileWithApiKey
 } from "@/lib/settings";
@@ -26,6 +27,7 @@ import { encodeSseEvent, encodeSseFlushMarker, encodeSsePrelude } from "@/lib/ss
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
+import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
 import type { ChatStreamEvent } from "@/lib/types";
 
 const bodySchema = z
@@ -74,7 +76,7 @@ export async function POST(
     (conversation.providerProfileId
       ? getProviderProfileWithApiKey(conversation.providerProfileId)
       : null) ?? getDefaultProviderProfileWithApiKey();
-  const appSettings = getSettings();
+  const appSettings = conversationOwnerId ? getSettingsForUser(conversationOwnerId) : getSettings();
 
   if (!settings) {
     return badRequest("No provider profile configured");
@@ -146,7 +148,7 @@ export async function POST(
         let promptMessages = compacted.promptMessages;
         const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
 
-        const mcpServers = listEnabledMcpServers();
+        const mcpServers = appendInjectedWebSearchMcpServer(listEnabledMcpServers(), appSettings);
         let mcpToolSets: Array<{
           server: (typeof mcpServers)[number];
           tools: Awaited<ReturnType<typeof import("@/lib/mcp-client")["discoverMcpTools"]>>;
@@ -164,6 +166,8 @@ export async function POST(
           skills,
           mcpServers,
           mcpToolSets,
+          searxngBaseUrl:
+            appSettings.webSearchEngine === "searxng" ? appSettings.searxngBaseUrl : null,
           mcpTimeout: appSettings.mcpTimeout,
           memoryUserId: conversationOwnerId ?? undefined,
           abortSignal: control.abortController.signal,
