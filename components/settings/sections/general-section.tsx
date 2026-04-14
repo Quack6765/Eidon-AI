@@ -263,7 +263,7 @@ export function GeneralSection({ settings }: { settings: GeneralSectionSettings 
                     autoComplete="off"
                     value={exaApiKey}
                     placeholder={
-                      hasStoredExaApiKey && !hasEditedExaApiKey ? "Stored API key" : "Optional"
+                      hasStoredExaApiKey && !hasEditedExaApiKey ? "••••••••" : "Optional"
                     }
                     onChange={(event) => {
                       resetMessages();
@@ -281,19 +281,19 @@ export function GeneralSection({ settings }: { settings: GeneralSectionSettings 
                 <label htmlFor="tavily-api-key" className={fieldLabelClassName}>
                   Tavily API key
                 </label>
-                <input
-                  id="tavily-api-key"
-                  aria-label="Tavily API key"
-                  type="password"
-                  autoComplete="off"
-                  value={tavilyApiKey}
-                  placeholder={
-                    hasStoredTavilyApiKey && !hasEditedTavilyApiKey ? "Stored API key" : "Required"
-                  }
-                  onChange={(event) => {
-                    resetMessages();
-                    setHasEditedTavilyApiKey(true);
-                    setTavilyApiKey(event.target.value);
+                  <input
+                    id="tavily-api-key"
+                    aria-label="Tavily API key"
+                    type="password"
+                    autoComplete="off"
+                    value={tavilyApiKey}
+                    placeholder={
+                      hasStoredTavilyApiKey && !hasEditedTavilyApiKey ? "••••••••" : "Required"
+                    }
+                    onChange={(event) => {
+                      resetMessages();
+                      setHasEditedTavilyApiKey(true);
+                      setTavilyApiKey(event.target.value);
                   }}
                   className={inputClassName}
                 />

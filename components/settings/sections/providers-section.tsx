@@ -96,6 +96,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const [showApiKey, setShowApiKey] = useState(false);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [copilotModels, setCopilotModels] = useState<Array<{ id: string; name: string; maxContextWindowTokens: number | null }>>([]);
+  const maskedApiKeyValue = "••••••••";
 
   useEffect(() => {
     fetch("/api/mcp-servers")
@@ -612,7 +613,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             }
                             placeholder={
                               activeProviderProfile.hasApiKey
-                                ? "Stored securely. Leave blank to keep."
+                                ? maskedApiKeyValue
                                 : "sk-..."
                             }
                             className="pr-10"

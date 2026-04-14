@@ -256,6 +256,31 @@ describe("general section", () => {
     expect(body).not.toHaveProperty("clearTavilyApiKey");
   });
 
+  it("renders masked placeholders for stored Exa and Tavily API keys", () => {
+    const { unmount } = render(
+      React.createElement(GeneralSection, {
+        settings: makeSettings({
+          webSearchEngine: "exa",
+          hasExaApiKey: true
+        })
+      })
+    );
+
+    expect(screen.getByLabelText("Exa API key")).toHaveAttribute("placeholder", "••••••••");
+    unmount();
+
+    render(
+      React.createElement(GeneralSection, {
+        settings: makeSettings({
+          webSearchEngine: "tavily",
+          hasTavilyApiKey: true
+        })
+      })
+    );
+
+    expect(screen.getByLabelText("Tavily API key")).toHaveAttribute("placeholder", "••••••••");
+  });
+
   it("sends an explicit clear flag when a saved Exa key is intentionally cleared", async () => {
     const settings = makeSettings({
       webSearchEngine: "exa",
