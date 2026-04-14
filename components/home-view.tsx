@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 
 import { ChatComposer } from "@/components/chat-composer";
 import { storeChatBootstrap } from "@/lib/chat-bootstrap";
-import { supportsImageInput } from "@/lib/model-capabilities";
 import { appendTranscriptToDraft } from "@/lib/speech/append-transcript-to-draft";
 import { useSpeechInput } from "@/lib/speech/use-speech-input";
 import { shouldAutofocusTextInput } from "@/lib/utils";
@@ -85,10 +84,7 @@ export function HomeView({
   const showVisionWarning =
     hasPendingImages &&
     selectedProfile &&
-    !supportsImageInput(
-      selectedProfile.model,
-      selectedProfile.apiMode as "responses" | "chat_completions"
-    );
+    selectedProfile.visionMode === "none";
 
   async function ensureDraftConversation() {
     if (draftConversationId) {
