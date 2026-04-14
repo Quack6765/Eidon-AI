@@ -816,6 +816,21 @@ describe("message bubble", () => {
     expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
   });
 
+  it("renders single-line untagged fenced assistant code blocks through the dedicated block renderer", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```", "foo", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(screen.getByText("foo")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
+  });
+
   it("copies only the fenced code payload from the block action", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
 

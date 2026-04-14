@@ -31,9 +31,13 @@ function renderAssistantMarkdown(content: string) {
       remarkPlugins={MARKDOWN_PLUGINS}
       components={{
         code({ node: _node, className, children, ...props }) {
-          const value = String(children).replace(/\n$/, "");
+          const rawValue = String(children);
+          const value = rawValue.replace(/\n$/, "");
           const language = className?.match(/language-([\w-]+)/)?.[1] ?? null;
-          const isBlock = Boolean(className) || value.includes("\n");
+          const isBlock =
+            Boolean(className) ||
+            rawValue.endsWith("\n") ||
+            value.includes("\n");
 
           if (!isBlock) {
             return (
