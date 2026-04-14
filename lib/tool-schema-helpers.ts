@@ -10,6 +10,28 @@ type PropertySchema = {
   description?: string;
 };
 
+const ENUM_ALIAS_GROUPS = [
+  { aliases: ["24h", "1d", "day", "today", "daily"], candidates: ["24h", "day"] },
+  { aliases: ["1w", "7d", "week", "weekly"], candidates: ["week"] },
+  { aliases: ["1m", "30d", "month", "monthly"], candidates: ["month"] },
+  { aliases: ["1y", "365d", "year", "yearly", "annual"], candidates: ["year"] },
+  { aliases: ["all", "any", "anytime", "ever"], candidates: ["any"] }
+] as const;
+
+function getEnumAliasMatch(normalizedValue: string, validValues: string[]): string | null {
+  for (const group of ENUM_ALIAS_GROUPS) {
+    if (!(group.aliases as readonly string[]).includes(normalizedValue)) continue;
+    for (const candidate of group.candidates) {
+      const match = validValues.find((value) => value.toLowerCase() === candidate);
+      if (match) {
+        return match;
+      }
+    }
+  }
+
+  return null;
+}
+
 function getStringDistance(a: string, b: string): number {
   if (a === b) return 0;
   if (a.length === 0) return b.length;
@@ -70,6 +92,12 @@ export function coerceEnumValues(
     const exactMatch = validValues.find((v) => v.toLowerCase() === normalizedValue);
     if (exactMatch) {
       corrected[name] = exactMatch;
+      continue;
+    }
+
+    const aliasMatch = getEnumAliasMatch(normalizedValue, validValues);
+    if (aliasMatch) {
+      corrected[name] = aliasMatch;
       continue;
     }
 

@@ -953,14 +953,14 @@ Run browser commands.`
     expect(callMcpTool).toHaveBeenCalledWith(
       expect.objectContaining({ id: "mcp_exa" }),
       "search",
-      { query: "test", freshness: "month" },
+      { query: "test", freshness: "24h" },
       undefined
     );
     expect(started).toEqual([expect.objectContaining({
       detail: "query=test",
       arguments: {
         query: "test",
-        freshness: "month"
+        freshness: "24h"
       }
     })]);
     expect(completed).toEqual([expect.objectContaining({

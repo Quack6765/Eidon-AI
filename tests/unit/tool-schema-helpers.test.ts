@@ -58,14 +58,14 @@ describe("coerceEnumValues", () => {
     expect(coerceEnumValues({ type: "object" }, { query: "test" })).toEqual({ query: "test" });
   });
 
-  it("auto-corrects invalid enum string value to closest match", () => {
+  it("maps semantic recency aliases to the intended enum value", () => {
     const schema = {
       type: "object" as const,
       properties: {
         freshness: { type: "string" as const, enum: ["24h", "week", "month", "year", "any"] }
       }
     };
-    expect(coerceEnumValues(schema, { freshness: "today" })).toEqual({ freshness: "month" });
+    expect(coerceEnumValues(schema, { freshness: "today" })).toEqual({ freshness: "24h" });
   });
 
   it("passes through valid enum values unchanged", () => {
@@ -128,5 +128,19 @@ describe("coerceEnumValues", () => {
       }
     };
     expect(coerceEnumValues(schema, { freshness: "today", query: "test" })).toEqual({ freshness: "24h", query: "test" });
+  });
+
+  it("maps shorthand time ranges to the canonical enum value", () => {
+    const schema = {
+      type: "object" as const,
+      properties: {
+        time_range: { type: "string" as const, enum: ["day", "week", "month", "year"] }
+      }
+    };
+
+    expect(coerceEnumValues(schema, { time_range: "1w" })).toEqual({ time_range: "week" });
+    expect(coerceEnumValues(schema, { time_range: "1m" })).toEqual({ time_range: "month" });
+    expect(coerceEnumValues(schema, { time_range: "1y" })).toEqual({ time_range: "year" });
+    expect(coerceEnumValues(schema, { time_range: "24h" })).toEqual({ time_range: "day" });
   });
 });
