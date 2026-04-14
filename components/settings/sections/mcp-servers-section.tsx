@@ -24,6 +24,7 @@ export function McpServersSection() {
   const [mcpDraftTestResult, setMcpDraftTestResult] = useState("");
   const [mcpRowTestResults, setMcpRowTestResults] = useState<Record<string, string>>({});
   const [mcpTestingTarget, setMcpTestingTarget] = useState<string | null>(null);
+  const [mcpEnabledDraft, setMcpEnabledDraft] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -78,7 +79,8 @@ export function McpServersSection() {
 
     const payload: Record<string, unknown> = {
       name: mcpName,
-      transport: mcpTransport
+      transport: mcpTransport,
+      enabled: mcpEnabledDraft
     };
 
     if (mcpTransport === "streamable_http") {
@@ -116,6 +118,14 @@ export function McpServersSection() {
       }
       const created = (await postRes.json()) as { server: McpServer };
       savedId = created.server.id;
+
+      if (savedId && mcpEnabledDraft === false) {
+        await fetch(`/api/mcp-servers/${savedId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabled: false })
+        });
+      }
     }
 
     const res = await fetch("/api/mcp-servers");
@@ -133,6 +143,7 @@ export function McpServersSection() {
       setMcpCommand(savedServer.command ?? "");
       setMcpArgs(savedServer.args ? JSON.stringify(savedServer.args) : "");
       setMcpEnv(savedServer.env ? JSON.stringify(savedServer.env, null, 2) : "");
+      setMcpEnabledDraft(savedServer.enabled);
       setMcpDraftTestResult("");
       setIsAddingNew(false);
       setMobileDetailVisible(true);
@@ -231,15 +242,6 @@ export function McpServersSection() {
     }
   }
 
-  async function toggleMcpServer(id: string, enabled: boolean) {
-    await fetch(`/api/mcp-servers/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ enabled })
-    });
-    setMcpServers((prev) => prev.map((s) => (s.id === id ? { ...s, enabled } : s)));
-  }
-
   function editMcpServer(server: McpServer) {
     setEditingMcpId(server.id);
     setMcpName(server.name);
@@ -250,6 +252,7 @@ export function McpServersSection() {
     setMcpArgs(server.args ? JSON.stringify(server.args) : "");
     setMcpEnv(server.env ? JSON.stringify(server.env, null, 2) : "");
     setMcpDraftTestResult(mcpRowTestResults[server.id] ?? "");
+    setMcpEnabledDraft(server.enabled);
   }
 
   function resetMcpForm() {
@@ -260,6 +263,7 @@ export function McpServersSection() {
     setMcpCommand("");
     setMcpArgs("");
     setMcpEnv("");
+    setMcpEnabledDraft(true);
     setEditingMcpId(null);
     setMcpDraftTestResult("");
     setSelectedServerId(null);
@@ -307,13 +311,14 @@ export function McpServersSection() {
         listPanel={
           <div className="space-y-1">
             {mcpServers.map((server) => (
-              <ProfileCard
-                key={server.id}
-                isActive={server.id === selectedServerId}
-                onClick={() => handleSelectServer(server)}
-                title={server.name}
-                subtitle={
-                  server.transport === "stdio"
+                <ProfileCard
+                  key={server.id}
+                  isActive={server.id === selectedServerId}
+                  isDisabled={!server.enabled}
+                  onClick={() => handleSelectServer(server)}
+                  title={server.name}
+                  subtitle={
+                    server.transport === "stdio"
                     ? `${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`
                     : server.url
                 }
@@ -322,20 +327,6 @@ export function McpServersSection() {
                     ? { variant: "stdio" as const, label: "STDIO" }
                     : { variant: "http" as const, label: "HTTP" }
                 ]}
-                rightSlot={
-                  <label className="flex cursor-pointer items-center gap-1.5 text-xs text-white/40">
-                    <input
-                      type="checkbox"
-                      checked={server.enabled}
-                      onChange={(e) => {
-                        e.stopPropagation();
-                        void toggleMcpServer(server.id, e.target.checked);
-                      }}
-                      className="rounded"
-                    />
-                    On
-                  </label>
-                }
               />
             ))}
             {mcpServers.length === 0 && (
@@ -435,6 +426,20 @@ export function McpServersSection() {
                 )}
               </div>
 
+              {editingMcpId ? (
+                <div className="flex items-center gap-2">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/8 bg-white/[0.04] px-2.5 py-1.5 text-xs text-white/65 transition-colors hover:border-white/15">
+                    <input
+                      type="checkbox"
+                      checked={mcpEnabledDraft}
+                      onChange={(e) => setMcpEnabledDraft(e.target.checked)}
+                      className="rounded"
+                    />
+                    Enabled
+                  </label>
+                </div>
+              ) : null}
+
               <div className="flex items-center gap-2">
                 <Button
                   type="button"
@@ -447,12 +452,6 @@ export function McpServersSection() {
                 <Button type="button" onClick={() => void saveMcpServer()}>
                   {editingMcpId ? "Update" : "Add server"}
                 </Button>
-                {success ? (
-                  <div className="flex items-center gap-1.5 text-sm text-emerald-400">
-                    <Check className="h-3.5 w-3.5" />
-                    {success}
-                  </div>
-                ) : null}
                 {editingMcpId && (
                   <Button
                     type="button"
@@ -462,6 +461,12 @@ export function McpServersSection() {
                     Delete
                   </Button>
                 )}
+                {success ? (
+                  <div className="flex items-center gap-1.5 text-sm text-emerald-400">
+                    <Check className="h-3.5 w-3.5" />
+                    {success}
+                  </div>
+                ) : null}
               </div>
 
               {mcpDraftTestResult && (
