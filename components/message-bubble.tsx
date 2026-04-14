@@ -25,37 +25,55 @@ import { normalizeMarkdownLineBreaks } from "@/lib/text-utils";
 const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
 const COPY_RESET_DELAY_MS = 1600;
 
+function getMarkdownCodeValue(children: React.ReactNode) {
+  return React.Children.toArray(children)
+    .map((child) => {
+      if (typeof child === "string" || typeof child === "number") {
+        return String(child);
+      }
+
+      return "";
+    })
+    .join("");
+}
+
 function renderAssistantMarkdown(content: string) {
   return (
     <ReactMarkdown
       remarkPlugins={MARKDOWN_PLUGINS}
       components={{
         pre({ children }) {
-          return <>{children}</>;
-        },
-        code({ node: _node, className, children, ...props }) {
-          const rawValue = String(children);
-          const value = rawValue.replace(/\n$/, "");
+          const codeChild = React.Children.toArray(children)[0];
+
+          if (!React.isValidElement(codeChild)) {
+            return <pre>{children}</pre>;
+          }
+
+          const typedCodeChild = codeChild as React.ReactElement<{
+            children?: React.ReactNode;
+            className?: string;
+          }>;
+          const className =
+            typeof typedCodeChild.props.className === "string"
+              ? typedCodeChild.props.className
+              : undefined;
           const languageClass = className
             ?.split(/\s+/)
-            .find((token) => token.startsWith("language-"));
+            .find((token: string) => token.startsWith("language-"));
           const language = languageClass
             ? languageClass.slice("language-".length)
             : null;
-          const isBlock =
-            Boolean(className) ||
-            rawValue.endsWith("\n") ||
-            value.includes("\n");
-
-          if (!isBlock) {
-            return (
-              <code className={className} {...props}>
-                {children}
-              </code>
-            );
-          }
+          const value = getMarkdownCodeValue(typedCodeChild.props.children ?? "").replace(/\n$/, "");
 
           return <AssistantCodeBlock code={value} language={language} />;
+        },
+        code({ node: _node, className, children, ...props }) {
+          const { inline: _inline, ...codeProps } = props as { inline?: boolean } & React.ComponentPropsWithoutRef<"code">;
+          return (
+            <code className={className} {...codeProps}>
+              {children}
+            </code>
+          );
         }
       }}
     >

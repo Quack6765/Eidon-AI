@@ -874,6 +874,34 @@ describe("message bubble", () => {
     expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
   });
 
+  it("renders empty tagged fenced assistant blocks without leaking undefined", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```python", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(container).not.toHaveTextContent("undefined");
+  });
+
+  it("renders empty untagged fenced assistant blocks without collapsing to inline code", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="assistant-message-bubble"] p code')).toBeNull();
+  });
+
   it("keeps assistant inline code inline instead of rendering the dedicated block component", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
