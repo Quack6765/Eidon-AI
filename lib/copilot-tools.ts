@@ -12,6 +12,7 @@ import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shel
 import { searchSearxng } from "@/lib/searxng";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
+import { getWebSearchActionLabel } from "@/lib/web-search";
 import type {
   McpServer,
   McpTool,
@@ -100,7 +101,7 @@ function buildMcpCopilotTool(server: McpServer, mcpTool: McpTool, ctx: CopilotTo
 
       const handle = await ctx.onActionStart?.({
         kind: "mcp_tool_call",
-        label: getToolLabel(mcpTool),
+        label: getWebSearchActionLabel(server.id, getToolLabel(mcpTool)),
         detail: buildArgumentsSummary(correctedArgs),
         serverId: server.id,
         toolName: mcpTool.name,
@@ -206,7 +207,7 @@ function buildSearxngCopilotTool(ctx: CopilotToolContext): Tool | null {
 
       const handle = await ctx.onActionStart?.({
         kind: "mcp_tool_call",
-        label: "Web search",
+        label: getWebSearchActionLabel("builtin_web_search_searxng", "Web search"),
         detail: trimmedQuery,
         serverId: "builtin_web_search_searxng",
         toolName: "web_search",

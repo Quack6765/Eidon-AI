@@ -186,6 +186,34 @@ describe("buildCopilotTools", () => {
     });
   });
 
+  it("labels built-in Exa MCP tools as Web search", async () => {
+    const onActionStart = vi.fn();
+    const ctx = makeCtx({
+      mcpToolSets: [{
+        server: makeMcpServer({
+          id: "builtin_web_search_exa",
+          slug: "builtin_search_exa",
+          name: "Exa"
+        }),
+        tools: [makeMcpTool({ name: "web_search_exa", title: "web_search_exa" })]
+      }],
+      onActionStart
+    });
+
+    const tools = buildCopilotTools(ctx);
+    const exaTool = tools.find((t) => t.name === "mcp_builtin_web_search_exa_web_search_exa")!;
+
+    await exaTool.handler!(
+      { query: "latest AI" },
+      { sessionId: "s1", toolCallId: "tc1", toolName: exaTool.name, arguments: { query: "latest AI" } }
+    );
+
+    expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
+      label: "Web search",
+      serverId: "builtin_web_search_exa"
+    }));
+  });
+
   it("creates shell, skill, and memory tools", () => {
     const ctx = makeCtx({
       skills: [makeSkill()],

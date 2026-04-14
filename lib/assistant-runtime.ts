@@ -14,6 +14,7 @@ import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { searchSearxng } from "@/lib/searxng";
 import { extractEnumHints, coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { streamProviderResponse } from "@/lib/provider";
+import { getWebSearchActionLabel } from "@/lib/web-search";
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
 import type {
   ChatStreamEvent,
@@ -421,7 +422,7 @@ async function executeSearxngWebSearch(
 
   const handle = await context.input.onActionStart?.({
     kind: "mcp_tool_call",
-    label: "Web search",
+    label: getWebSearchActionLabel("builtin_web_search_searxng", "Web search"),
     detail: query,
     serverId: "builtin_web_search_searxng",
     toolName: "web_search",
@@ -529,7 +530,7 @@ async function executeMcpToolCall(
 
   const handle = await context.input.onActionStart?.({
     kind: "mcp_tool_call",
-    label: getToolLabel(resolvedTool),
+    label: getWebSearchActionLabel(resolvedServer.id, getToolLabel(resolvedTool)),
     detail: buildArgumentsSummary(correctedArgs),
     serverId: resolvedServer.id,
     toolName: resolvedTool.name,

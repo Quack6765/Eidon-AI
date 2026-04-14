@@ -1,5 +1,11 @@
 import type { AppSettings, McpServer } from "@/lib/types";
 
+const BUILTIN_WEB_SEARCH_SERVER_IDS = new Set([
+  "builtin_web_search_exa",
+  "builtin_web_search_tavily",
+  "builtin_web_search_searxng"
+]);
+
 function buildBuiltinServer(
   input: Pick<McpServer, "id" | "name" | "slug" | "url">
 ): McpServer {
@@ -65,4 +71,8 @@ export function appendInjectedWebSearchMcpServer(
   const injectedServer = getInjectedWebSearchMcpServer(settings);
 
   return injectedServer ? [...servers, injectedServer] : servers;
+}
+
+export function getWebSearchActionLabel(serverId: string | null | undefined, fallbackLabel: string) {
+  return serverId && BUILTIN_WEB_SEARCH_SERVER_IDS.has(serverId) ? "Web search" : fallbackLabel;
 }

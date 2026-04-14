@@ -344,6 +344,69 @@ describe("assistant runtime", () => {
     expect(result.answer).toBe("Final answer");
   });
 
+  it("labels built-in Tavily search actions as Web search", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_1",
+            name: "mcp_builtin_search_tavily_tavily_search",
+            arguments: JSON.stringify({ query: "latest AI", time_range: "week" })
+          }],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Final answer" }], {
+          answer: "Final answer",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+    callMcpTool.mockResolvedValue({ content: [{ type: "text", text: "Found AI news" }] });
+
+    const started: Array<{ label: string; serverId?: string | null }> = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find AI news" }],
+      skills: [],
+      mcpToolSets: [{
+        server: {
+          id: "builtin_web_search_tavily",
+          slug: "builtin_search_tavily",
+          name: "Tavily",
+          url: "https://mcp.tavily.com/mcp/",
+          headers: {},
+          transport: "streamable_http",
+          command: null,
+          args: null,
+          env: null,
+          enabled: true,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        },
+        tools: [{ name: "tavily_search", title: "tavily_search", description: "Search the web", inputSchema: { type: "object" } }]
+      }],
+      onEvent: () => {},
+      onActionStart: (action) => {
+        started.push(action);
+        return "act_tool";
+      }
+    });
+
+    expect(started).toEqual([
+      expect.objectContaining({
+        label: "Web search",
+        serverId: "builtin_web_search_tavily"
+      })
+    ]);
+    expect(result.answer).toBe("Final answer");
+  });
+
   it("executes unrestricted shell commands via native function calling", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
