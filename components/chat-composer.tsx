@@ -432,7 +432,7 @@ export function ChatComposer({
         >
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span>
-            Selected model might not support vision input.
+            Selected model has no vision capabilities enabled.
           </span>
         </motion.div>
       ) : null}

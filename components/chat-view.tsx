@@ -13,7 +13,6 @@ import {
 } from "@/lib/conversation-events";
 import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
-import { supportsImageInput } from "@/lib/model-capabilities";
 import { appendTranscriptToDraft } from "@/lib/speech/append-transcript-to-draft";
 import { useSpeechInput } from "@/lib/speech/use-speech-input";
 import { shouldAutofocusTextInput } from "@/lib/utils";
@@ -1044,7 +1043,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const showVisionWarning =
     hasPendingImages &&
     selectedProfile &&
-    !supportsImageInput(selectedProfile.model, selectedProfile.apiMode as "responses" | "chat_completions");
+    selectedProfile.visionMode === "none";
 
   async function uploadFiles(files: File[]) {
     if (!files.length) {
