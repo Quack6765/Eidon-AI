@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { createId } from "@/lib/ids";
+import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
 import {
   applyProviderPreset,
   getMatchingProviderPresetId,
@@ -197,6 +198,36 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     }
 
     updateActiveProviderProfile(applyProviderPreset(activeProviderProfile, presetId));
+  }
+
+  function resetActiveProviderAdvancedSettings() {
+    if (!activeProviderProfile) {
+      return;
+    }
+
+    const patch: Partial<ProviderProfileDraft> = {
+      reasoningEffort: DEFAULT_PROVIDER_SETTINGS.reasoningEffort,
+      modelContextLimit: DEFAULT_PROVIDER_SETTINGS.modelContextLimit,
+      compactionThreshold: DEFAULT_PROVIDER_SETTINGS.compactionThreshold,
+      freshTailCount: DEFAULT_PROVIDER_SETTINGS.freshTailCount,
+      visionMode: DEFAULT_PROVIDER_SETTINGS.visionMode,
+      visionMcpServerId: DEFAULT_PROVIDER_SETTINGS.visionMcpServerId
+    };
+
+    if (activeProviderProfile.providerKind !== "github_copilot") {
+      patch.temperature = DEFAULT_PROVIDER_SETTINGS.temperature;
+      patch.maxOutputTokens = DEFAULT_PROVIDER_SETTINGS.maxOutputTokens;
+      patch.reasoningSummaryEnabled = DEFAULT_PROVIDER_SETTINGS.reasoningSummaryEnabled;
+      patch.apiMode = DEFAULT_PROVIDER_SETTINGS.apiMode;
+      patch.tokenizerModel = DEFAULT_PROVIDER_SETTINGS.tokenizerModel;
+      patch.safetyMarginTokens = DEFAULT_PROVIDER_SETTINGS.safetyMarginTokens;
+      patch.leafSourceTokenLimit = DEFAULT_PROVIDER_SETTINGS.leafSourceTokenLimit;
+      patch.leafMinMessageCount = DEFAULT_PROVIDER_SETTINGS.leafMinMessageCount;
+      patch.mergedMinNodeCount = DEFAULT_PROVIDER_SETTINGS.mergedMinNodeCount;
+      patch.mergedTargetTokens = DEFAULT_PROVIDER_SETTINGS.mergedTargetTokens;
+    }
+
+    updateActiveProviderProfile(patch);
   }
 
   function removeProviderProfile(profileId: string) {
@@ -639,6 +670,16 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   title="Advanced Settings"
                   icon={<FlaskConical className="h-4 w-4" />}
                 >
+                  <div className="mb-3 flex justify-end">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={resetActiveProviderAdvancedSettings}
+                      className="gap-1.5 px-3 py-1.5 text-xs"
+                    >
+                      Reset advanced defaults
+                    </Button>
+                  </div>
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     {!isCopilot && (
                       <>
