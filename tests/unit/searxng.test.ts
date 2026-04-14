@@ -57,6 +57,38 @@ describe("searxng search", () => {
     ).resolves.toBe('No SearXNG results found for "no matches".');
   });
 
+  it("treats a missing results array as an empty search response", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({})
+    } as Response);
+
+    await expect(
+      searchSearxng({
+        baseUrl: " https://search.example.com/ ",
+        query: "missing results"
+      })
+    ).resolves.toBe('No SearXNG results found for "missing results".');
+  });
+
+  it("formats fallback fields when the instance omits title, URL, or summary", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        results: [{}]
+      })
+    } as Response);
+
+    const result = await searchSearxng({
+      baseUrl: "https://search.example.com",
+      query: "fallbacks"
+    });
+
+    expect(result).toContain("1. Untitled result");
+    expect(result).toContain("No URL provided");
+    expect(result).toContain("No summary available.");
+  });
+
   it("throws a descriptive error when the instance rejects JSON output", async () => {
     vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: false,

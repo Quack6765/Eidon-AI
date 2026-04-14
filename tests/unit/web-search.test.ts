@@ -103,6 +103,17 @@ describe("web search provider injection", () => {
     ).toBeNull();
   });
 
+  it("does not inject Tavily without an API key and leaves the server list untouched", () => {
+    const baseServers = [makeServer()];
+    const settings = makeSettings({
+      webSearchEngine: "tavily",
+      tavilyApiKey: ""
+    });
+
+    expect(getInjectedWebSearchMcpServer(settings)).toBeNull();
+    expect(appendInjectedWebSearchMcpServer(baseServers, settings)).toBe(baseServers);
+  });
+
   it("appends the injected MCP server after persisted MCP servers", () => {
     const baseServers = [makeServer()];
     const servers = appendInjectedWebSearchMcpServer(
