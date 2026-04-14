@@ -21,6 +21,10 @@ vi.mock("@/lib/local-shell", () => ({
   summarizeShellResult: vi.fn().mockReturnValue("ok")
 }));
 
+vi.mock("@/lib/searxng", () => ({
+  searchSearxng: vi.fn().mockResolvedValue("SearXNG result")
+}));
+
 vi.mock("@/lib/memories", () => ({
   getMemory: vi.fn(),
   createMemory: vi.fn(),
@@ -126,6 +130,7 @@ describe("buildCopilotTools", () => {
     const { callMcpTool, getToolResultText } = await import("@/lib/mcp-client");
     const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
     const { getMemory, getMemoryCount } = await import("@/lib/memories");
+    const { searchSearxng } = await import("@/lib/searxng");
     const { getSettings } = await import("@/lib/settings");
     const { parseSkillContentMetadata } = await import("@/lib/skill-metadata");
     const { coerceEnumValues } = await import("@/lib/tool-schema-helpers");
@@ -151,6 +156,7 @@ describe("buildCopilotTools", () => {
       updatedAt: new Date().toISOString()
     });
     vi.mocked(getMemoryCount).mockReturnValue(0);
+    vi.mocked(searchSearxng).mockResolvedValue("SearXNG result");
     vi.mocked(getSettings).mockReturnValue(makeAppSettings());
     vi.mocked(parseSkillContentMetadata).mockReturnValue({
       name: "",
@@ -222,6 +228,16 @@ describe("buildCopilotTools", () => {
     const tools = buildCopilotTools(ctx);
 
     expect(tools.find((t) => t.name === "execute_shell_command")).toBeDefined();
+  });
+
+  it("adds a native SearXNG web search tool when configured", () => {
+    const ctx = makeCtx({
+      searxngBaseUrl: "https://search.example.com"
+    });
+
+    const tools = buildCopilotTools(ctx);
+
+    expect(tools.find((tool) => tool.name === "web_search")).toBeDefined();
   });
 
   it("marks built-in name replacements as explicit overrides", () => {
