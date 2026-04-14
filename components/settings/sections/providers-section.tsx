@@ -220,10 +220,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     }
   }
 
-  async function buildSettingsPayload() {
+  async function buildSettingsPayload(defaultProviderProfileIdOverride?: string) {
+    const nextDefaultProviderProfileId = defaultProviderProfileIdOverride ?? defaultProviderProfileId;
+
     return {
       ...settings,
-      defaultProviderProfileId,
+      defaultProviderProfileId: nextDefaultProviderProfileId,
       skillsEnabled,
       providerProfiles: providerProfiles.map((profile) => ({
         id: profile.id,
@@ -258,10 +260,14 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   }
 
   async function saveSettings() {
+    return saveSettingsWithDefault(defaultProviderProfileId);
+  }
+
+  async function saveSettingsWithDefault(nextDefaultProviderProfileId: string) {
     const response = await fetch("/api/settings/providers", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(await buildSettingsPayload())
+      body: JSON.stringify(await buildSettingsPayload(nextDefaultProviderProfileId))
     });
 
     const result = (await response.json()) as { error?: string };
@@ -383,7 +389,15 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     <Button
                       type="button"
                       variant="secondary"
-                      onClick={() => setDefaultProviderProfileId(activeProviderProfile.id)}
+                      onClick={async () => {
+                        setError("");
+                        setSuccess("");
+                        const nextDefaultProfileId = activeProviderProfile.id;
+
+                        if (await saveSettingsWithDefault(nextDefaultProfileId)) {
+                          setDefaultProviderProfileId(nextDefaultProfileId);
+                        }
+                      }}
                       disabled={activeProviderProfile.id === defaultProviderProfileId}
                       className="gap-1.5 px-3 py-1.5 text-xs"
                     >

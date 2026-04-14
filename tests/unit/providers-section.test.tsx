@@ -419,4 +419,124 @@ describe("providers section", () => {
 
     expect(body.providerProfiles[0].compactionThreshold).toBe(0.76);
   });
+
+  it("persists the default profile when clicking Set Default", async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    const settings = makeSettings({
+      providerProfiles: [
+        {
+          id: "profile_primary",
+          providerKind: "openai_compatible",
+          name: "Primary",
+          apiBaseUrl: "https://api.example.com/v1",
+          model: "gpt-test",
+          apiMode: "responses",
+          systemPrompt: "Be exact.",
+          temperature: 0.4,
+          maxOutputTokens: 512,
+          reasoningEffort: "medium",
+          reasoningSummaryEnabled: true,
+          modelContextLimit: 16384,
+          compactionThreshold: 0.8,
+          freshTailCount: 12,
+          tokenizerModel: "gpt-tokenizer",
+          safetyMarginTokens: 1200,
+          leafSourceTokenLimit: 12000,
+          leafMinMessageCount: 6,
+          mergedMinNodeCount: 4,
+          mergedTargetTokens: 1600,
+          visionMode: "native",
+          visionMcpServerId: null,
+          githubTokenExpiresAt: null,
+          githubRefreshTokenExpiresAt: null,
+          githubAccountLogin: null,
+          githubAccountName: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          hasApiKey: false,
+          githubConnectionStatus: "disconnected"
+        },
+        {
+          id: "profile_backup",
+          providerKind: "openai_compatible",
+          name: "Backup",
+          apiBaseUrl: "https://api.example.com/v1",
+          model: "gpt-backup",
+          apiMode: "responses",
+          systemPrompt: "Be exact.",
+          temperature: 0.4,
+          maxOutputTokens: 512,
+          reasoningEffort: "medium",
+          reasoningSummaryEnabled: true,
+          modelContextLimit: 16384,
+          compactionThreshold: 0.8,
+          freshTailCount: 12,
+          tokenizerModel: "gpt-tokenizer",
+          safetyMarginTokens: 1200,
+          leafSourceTokenLimit: 12000,
+          leafMinMessageCount: 6,
+          mergedMinNodeCount: 4,
+          mergedTargetTokens: 1600,
+          visionMode: "native",
+          visionMcpServerId: null,
+          githubTokenExpiresAt: null,
+          githubRefreshTokenExpiresAt: null,
+          githubAccountLogin: null,
+          githubAccountName: null,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          hasApiKey: false,
+          githubConnectionStatus: "disconnected"
+        }
+      ],
+      defaultProviderProfileId: "profile_primary"
+    });
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+
+      if (url === "/api/mcp-servers") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ servers: [], models: [] })
+        } as Response);
+      }
+
+      if (url === "/api/settings/providers" && init?.method === "PUT") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ settings })
+        } as Response);
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({})
+      } as Response);
+    });
+
+    render(React.createElement(ProvidersSection, { settings }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    fireEvent.click(screen.getByText("Backup"));
+    fireEvent.click(screen.getByRole("button", { name: "Set Default" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/settings/providers",
+        expect.objectContaining({ method: "PUT" })
+      );
+    });
+
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/api/settings/providers" && init?.method === "PUT"
+    );
+    const body = JSON.parse(String(putCall?.[1]?.body));
+
+    expect(body.defaultProviderProfileId).toBe("profile_backup");
+    expect(screen.getByRole("button", { name: "Is Default" })).toBeInTheDocument();
+  });
 });
