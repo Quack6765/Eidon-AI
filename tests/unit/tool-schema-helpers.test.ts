@@ -142,5 +142,17 @@ describe("coerceEnumValues", () => {
     expect(coerceEnumValues(schema, { time_range: "1m" })).toEqual({ time_range: "month" });
     expect(coerceEnumValues(schema, { time_range: "1y" })).toEqual({ time_range: "year" });
     expect(coerceEnumValues(schema, { time_range: "24h" })).toEqual({ time_range: "day" });
+    expect(coerceEnumValues(schema, { time_range: "d" })).toEqual({ time_range: "day" });
+  });
+
+  it("maps Tavily topic aliases to the supported general topic", () => {
+    const schema = {
+      type: "object" as const,
+      properties: {
+        topic: { type: "string" as const, enum: ["general"] }
+      }
+    };
+
+    expect(coerceEnumValues(schema, { topic: "news" })).toEqual({ topic: "general" });
   });
 });

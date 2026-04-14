@@ -11,11 +11,12 @@ type PropertySchema = {
 };
 
 const ENUM_ALIAS_GROUPS = [
-  { aliases: ["24h", "1d", "day", "today", "daily"], candidates: ["24h", "day"] },
-  { aliases: ["1w", "7d", "week", "weekly"], candidates: ["week"] },
-  { aliases: ["1m", "30d", "month", "monthly"], candidates: ["month"] },
-  { aliases: ["1y", "365d", "year", "yearly", "annual"], candidates: ["year"] },
-  { aliases: ["all", "any", "anytime", "ever"], candidates: ["any"] }
+  { aliases: ["24h", "1d", "d", "day", "today", "daily"], candidates: ["24h", "day"] },
+  { aliases: ["1w", "7d", "w", "week", "weekly"], candidates: ["week"] },
+  { aliases: ["1m", "30d", "m", "month", "monthly"], candidates: ["month"] },
+  { aliases: ["1y", "365d", "y", "year", "yearly", "annual"], candidates: ["year"] },
+  { aliases: ["all", "any", "anytime", "ever"], candidates: ["any"] },
+  { aliases: ["news", "web", "search"], candidates: ["general"] }
 ] as const;
 
 function getEnumAliasMatch(normalizedValue: string, validValues: string[]): string | null {
