@@ -235,6 +235,17 @@ export function SkillsSection() {
                 </div>
 
                 <div className="space-y-5">
+                  {selectedSkill && isBuiltin ? (
+                    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
+                    <p className="text-[0.68rem] font-medium uppercase tracking-[0.08em] text-amber-200">
+                        Built-in skill
+                      </p>
+                      <p className="mt-1 text-sm text-amber-100">
+                        This skill is built in and cannot be edited
+                      </p>
+                    </div>
+                  ) : null}
+
                   <div>
                     <label className={labelClass}>Name</label>
                     <Input
@@ -254,7 +265,7 @@ export function SkillsSection() {
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>SKILL.md instructions</label>
+                    <label className={labelClass}>INSTRUCTIONS</label>
                     <Textarea
                       value={skillContent}
                       onChange={(e) => setSkillContent(e.target.value)}
