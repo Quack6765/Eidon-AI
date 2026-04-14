@@ -69,12 +69,18 @@ export function normalizeCodeFenceLanguage(language?: string | null): string | n
 
 export function detectCodeLanguage(code: string): string | null {
   const detection = highlighter.highlightAuto(code, [...REGISTERED_LANGUAGES]);
+  const normalizedLanguage = normalizeCodeFenceLanguage(detection.language);
 
-  if (detection.relevance < AUTO_DETECT_MIN_RELEVANCE) {
+  if (
+    !normalizedLanguage ||
+    detection.relevance < AUTO_DETECT_MIN_RELEVANCE ||
+    isAmbiguousAutoDetection(detection) ||
+    !isSupportedAutoDetection(normalizedLanguage, code)
+  ) {
     return null;
   }
 
-  return normalizeCodeFenceLanguage(detection.language);
+  return normalizedLanguage;
 }
 
 export function renderHighlightedCode(language: string | null | undefined, code: string): HighlightedCodeResult {
@@ -152,4 +158,51 @@ function groupAliasesByLanguage() {
   }
 
   return aliasesByLanguage;
+}
+
+function isAmbiguousAutoDetection(detection: { relevance: number; secondBest?: { relevance: number } | undefined }) {
+  return detection.secondBest?.relevance === detection.relevance;
+}
+
+function isSupportedAutoDetection(language: string, code: string) {
+  switch (language) {
+    case "bash":
+      return isBashLike(code);
+    case "css":
+      return isCssLike(code);
+    case "sql":
+      return isSqlLike(code);
+    case "yaml":
+      return isYamlLike(code);
+    default:
+      return true;
+  }
+}
+
+function isBashLike(code: string) {
+  return /(^|\n)\s*(\$|#!\/|(?:[A-Za-z_][\w-]*=)|(?:echo|cat|grep|curl|wget|npm|pnpm|yarn|git|cd|ls|mkdir|rm|cp|mv|node|python|bash|sh|zsh)\b)/.test(
+    code
+  ) || /(?:\|\||&&|>>?|<<|`)/.test(code);
+}
+
+function isCssLike(code: string) {
+  return /[{}]/.test(code) || /(^|\n)\s*[.#@a-zA-Z][^{}\n]*:\s*[^;\n]+;/.test(code);
+}
+
+function isSqlLike(code: string) {
+  const keywordMatches = code.match(
+    /\b(select|from|where|join|insert|into|values|update|set|delete|create|table|alter|drop|with|group\s+by|order\s+by|having|limit)\b/gi
+  );
+
+  return new Set(keywordMatches?.map((match) => match.toLowerCase()) ?? []).size >= 2;
+}
+
+function isYamlLike(code: string) {
+  const lines = code.split("\n").map((line) => line.trim()).filter(Boolean);
+
+  if (lines.length < 2) {
+    return false;
+  }
+
+  return lines.every((line) => /^(?:-\s+)?[a-z0-9_-]+\s*:/.test(line));
 }
