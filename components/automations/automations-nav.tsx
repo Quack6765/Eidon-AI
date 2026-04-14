@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { ArrowLeft, Bot, Clock3, PlayCircle } from "lucide-react";
 
 import type { Automation } from "@/lib/types";
@@ -26,19 +26,31 @@ export function AutomationsNav({
   onCloseAction: () => void;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+
+  function handleBack() {
+    onCloseAction();
+
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+
+    router.push("/");
+  }
 
   return (
     <aside className="flex h-full flex-col bg-transparent text-gray-300">
       <div className="flex flex-col px-4 py-6">
         <div className="mb-8 flex items-center gap-3 px-2">
-          <Link
-            href="/settings/automations"
-            onClick={onCloseAction}
+          <button
+            type="button"
+            onClick={handleBack}
             className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/5 transition-all duration-300 hover:bg-white/10"
             aria-label="Open automation settings"
           >
             <ArrowLeft className="h-4 w-4 text-white/60" />
-          </Link>
+          </button>
           <div className="min-w-0">
             <span className="block text-[20px] font-bold tracking-tight text-white/90">
               Automations
