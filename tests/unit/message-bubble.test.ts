@@ -832,6 +832,19 @@ describe("message bubble", () => {
     expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
   });
 
+  it("renders assistant fenced code blocks without an extra outer pre wrapper", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```python", "print('hello')", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-code-block").closest("pre")).toBeNull();
+  });
+
   it("preserves symbol-containing assistant fence labels instead of truncating them", () => {
     render(
       React.createElement(MessageBubble, {

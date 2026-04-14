@@ -30,6 +30,9 @@ function renderAssistantMarkdown(content: string) {
     <ReactMarkdown
       remarkPlugins={MARKDOWN_PLUGINS}
       components={{
+        pre({ children }) {
+          return <>{children}</>;
+        },
         code({ node: _node, className, children, ...props }) {
           const rawValue = String(children);
           const value = rawValue.replace(/\n$/, "");
