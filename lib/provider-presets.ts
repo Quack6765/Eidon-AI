@@ -4,6 +4,7 @@ import type { ApiMode, ReasoningEffort } from "@/lib/types";
 export type ProviderPresetId =
   | "ollama_cloud"
   | "glm_coding_plan"
+  | "openrouter"
   | "custom_openai_compatible";
 
 type ProviderPresetValues = {
@@ -57,6 +58,19 @@ export const PROVIDER_PRESETS: ProviderPresetDefinition[] = [
       apiMode: "chat_completions",
       reasoningEffort: "medium",
       reasoningSummaryEnabled: true,
+      modelContextLimit: 200000
+    }
+  },
+  {
+    id: "openrouter",
+    label: "OpenRouter",
+    values: {
+      name: "OpenRouter",
+      apiBaseUrl: "https://openrouter.ai/api/v1",
+      model: "",
+      apiMode: DEFAULT_PROVIDER_SETTINGS.apiMode,
+      reasoningEffort: DEFAULT_PROVIDER_SETTINGS.reasoningEffort,
+      reasoningSummaryEnabled: DEFAULT_PROVIDER_SETTINGS.reasoningSummaryEnabled,
       modelContextLimit: 200000
     }
   },

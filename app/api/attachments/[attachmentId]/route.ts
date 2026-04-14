@@ -1,6 +1,12 @@
 import { z } from "zod";
 
-import { deleteAttachmentById, getAttachment, readAttachmentBuffer } from "@/lib/attachments";
+import {
+  AttachmentTextPreviewUnsupportedError,
+  deleteAttachmentById,
+  getAttachment,
+  readAttachmentBuffer,
+  readAttachmentText
+} from "@/lib/attachments";
 import { requireUser } from "@/lib/auth";
 import { badRequest } from "@/lib/http";
 
@@ -9,7 +15,7 @@ const paramsSchema = z.object({
 });
 
 export async function GET(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ attachmentId: string }> }
 ) {
   const user = await requireUser(false);
@@ -28,6 +34,25 @@ export async function GET(
 
   if (!attachment) {
     return badRequest("Attachment not found", 404);
+  }
+
+  const format = new URL(request.url).searchParams.get("format");
+
+  if (format === "text") {
+    try {
+      return Response.json({
+        id: attachment.id,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        content: readAttachmentText(attachment)
+      });
+    } catch (error) {
+      if (error instanceof AttachmentTextPreviewUnsupportedError) {
+        return badRequest("Attachment cannot be previewed as text", 415);
+      }
+
+      return badRequest("Internal server error", 500);
+    }
   }
 
   try {

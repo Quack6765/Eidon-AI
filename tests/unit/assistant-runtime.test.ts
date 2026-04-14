@@ -727,6 +727,43 @@ Run browser commands.`
     expect(result.answer).toBe("Final answer without more tools");
   });
 
+  it("retries when the provider returns an empty direct answer without tool calls", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "Reasoning only",
+          usage: { inputTokens: 5, reasoningTokens: 4 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Connected" }], {
+          answer: "Connected",
+          thinking: "",
+          usage: { inputTokens: 3, outputTokens: 1 }
+        })
+      );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Reply with connected." }],
+      skills: [],
+      mcpToolSets: [],
+      onEvent: () => {}
+    });
+
+    expect(streamProviderResponse).toHaveBeenCalledTimes(2);
+    expect(streamProviderResponse.mock.calls[1][0].promptMessages[0]).toEqual(
+      expect.objectContaining({
+        role: "system",
+        content: expect.stringContaining("Do not emit an empty response.")
+      })
+    );
+    expect(result.answer).toBe("Connected");
+  });
+
   it("streams thinking and answer deltas before the provider finishes", async () => {
     const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 

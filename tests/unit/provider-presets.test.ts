@@ -1,3 +1,4 @@
+import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
 import {
   applyProviderPreset,
   getMatchingProviderPresetId,
@@ -61,6 +62,20 @@ describe("provider presets", () => {
     expect(profile.modelContextLimit).toBe(128000);
   });
 
+  it("applies the OpenRouter preset values", () => {
+    const profile = applyProviderPreset(createProfile(), "openrouter");
+
+    expect(profile.name).toBe("OpenRouter");
+    expect(profile.apiBaseUrl).toBe("https://openrouter.ai/api/v1");
+    expect(profile.model).toBe("");
+    expect(profile.apiMode).toBe(DEFAULT_PROVIDER_SETTINGS.apiMode);
+    expect(profile.reasoningEffort).toBe(DEFAULT_PROVIDER_SETTINGS.reasoningEffort);
+    expect(profile.reasoningSummaryEnabled).toBe(
+      DEFAULT_PROVIDER_SETTINGS.reasoningSummaryEnabled
+    );
+    expect(profile.modelContextLimit).toBe(200000);
+  });
+
   it("preserves non-provider tuning and secrets when applying a preset", () => {
     const original = createProfile();
     const profile = applyProviderPreset(original, "glm_coding_plan");
@@ -81,6 +96,15 @@ describe("provider presets", () => {
     };
 
     expect(getMatchingProviderPresetId(profile)).toBe("glm_coding_plan");
+  });
+
+  it("matches a profile back to the OpenRouter preset when the provider fields align", () => {
+    const profile = {
+      ...createProfile(),
+      ...getProviderPreset("openrouter").values
+    };
+
+    expect(getMatchingProviderPresetId(profile)).toBe("openrouter");
   });
 
   it("returns null when a profile no longer matches a preset exactly", () => {

@@ -20,6 +20,8 @@ import {
   getMessage,
   isVisibleMessage,
   forkConversationFromMessage,
+  rewriteConversationFromEditedUserMessage,
+  setConversationActive,
   listConversations,
   listConversationsPage,
   listMessages,
@@ -32,6 +34,7 @@ import {
 } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getSettings, listProviderProfiles, updateSettings } from "@/lib/settings";
+import { estimateMessageTokens } from "@/lib/tokenization";
 import { createLocalUser } from "@/lib/users";
 
 const { generateConversationTitle } = vi.hoisted(() => ({
@@ -1143,6 +1146,388 @@ describe("conversation helpers", () => {
     expect(forkAttachment?.extractedText).toBe("source attachment");
     expect(fs.existsSync(forkAttachmentPath)).toBe(true);
     expect(fs.readFileSync(forkAttachmentPath, "utf8")).toBe("source attachment");
+  });
+
+  it("rewrites a user message, deletes later turns, and preserves the edited message attachment", () => {
+    const conversation = createConversation("Rewrite target");
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Original prompt"
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "First answer"
+    });
+    const editedUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Need a deployment checklist"
+    });
+    const trailingAssistant = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Old checklist"
+    });
+    const [tailAttachment] = createAttachments(conversation.id, [
+      {
+        filename: "old-checklist.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("delete this attachment file", "utf8")
+      }
+    ]);
+
+    const [attachment] = createAttachments(conversation.id, [
+      {
+        filename: "context.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("retain this attachment", "utf8")
+      }
+    ]);
+    bindAttachmentsToMessage(conversation.id, editedUser.id, [attachment.id]);
+    bindAttachmentsToMessage(conversation.id, trailingAssistant.id, [tailAttachment.id]);
+    setConversationActive(conversation.id, true);
+
+    const tailAttachmentPath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      tailAttachment.relativePath
+    );
+
+    const rewritten = rewriteConversationFromEditedUserMessage(editedUser.id, {
+      content: "Need a deployment checklist with rollback steps"
+    });
+
+    expect(rewritten.messages.map((message) => message.content)).toEqual([
+      "Original prompt",
+      "First answer",
+      "Need a deployment checklist with rollback steps"
+    ]);
+    expect(rewritten.messages.at(-1)?.attachments?.map((item) => item.filename)).toEqual([
+      "context.txt"
+    ]);
+    expect(rewritten.messages.at(-1)?.estimatedTokens).toBe(
+      estimateMessageTokens(rewritten.messages.at(-1)!)
+    );
+    expect(rewritten.conversation.isActive).toBe(false);
+    expect(
+      rewritten.messages.some((message) => message.id === trailingAssistant.id)
+    ).toBe(false);
+    expect(fs.existsSync(tailAttachmentPath)).toBe(false);
+    expect(getConversationSnapshot(conversation.id)?.messages).toHaveLength(3);
+  });
+
+  it("keeps tail attachment files and rows when rewrite rolls back", () => {
+    const conversation = createConversation("Rewrite rollback");
+    const editedUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Original prompt"
+    });
+    const trailingAssistant = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Tail answer"
+    });
+    const [tailAttachment] = createAttachments(conversation.id, [
+      {
+        filename: "tail.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("rollback-safe file", "utf8")
+      }
+    ]);
+    bindAttachmentsToMessage(conversation.id, trailingAssistant.id, [tailAttachment.id]);
+
+    const tailAttachmentPath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      tailAttachment.relativePath
+    );
+    const db = getDb();
+    const originalPrepare = db.prepare.bind(db);
+    const prepareSpy = vi.spyOn(db, "prepare");
+
+    prepareSpy.mockImplementation(((sql: string) => {
+      if (sql.includes("UPDATE conversations SET is_active =")) {
+        throw new Error("force rollback");
+      }
+
+      return originalPrepare(sql);
+    }) as typeof db.prepare);
+
+    expect(() =>
+      rewriteConversationFromEditedUserMessage(editedUser.id, { content: "Edited prompt" })
+    ).toThrow("force rollback");
+
+    prepareSpy.mockRestore();
+
+    expect(fs.existsSync(tailAttachmentPath)).toBe(true);
+    expect(getMessage(editedUser.id)?.content).toBe("Original prompt");
+    expect(getMessage(trailingAssistant.id)).not.toBeNull();
+    expect(
+      db.prepare("SELECT COUNT(*) as count FROM message_attachments WHERE id = ?").get(tailAttachment.id)
+    ).toEqual({ count: 1 });
+  });
+
+  it("removes compaction artifacts that depend on deleted tail messages", () => {
+    const conversation = createConversation("Compaction cleanup");
+    const firstUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "First request"
+    });
+    const firstAssistant = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "First answer"
+    });
+    const editedUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Second request"
+    });
+    const tailAssistant = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Later answer"
+    });
+
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id, conversation_id, type, depth, content,
+        source_start_message_id, source_end_message_id,
+        source_token_count, summary_token_count, child_node_ids,
+        superseded_by_node_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "mem_tail",
+      conversation.id,
+      "leaf_summary",
+      0,
+      "Summary reaching into deleted history",
+      firstUser.id,
+      tailAssistant.id,
+      90,
+      20,
+      "[]",
+      null,
+      new Date().toISOString()
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id, conversation_id, type, depth, content,
+        source_start_message_id, source_end_message_id,
+        source_token_count, summary_token_count, child_node_ids,
+        superseded_by_node_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "mem_retained",
+      conversation.id,
+      "leaf_summary",
+      0,
+      "Retained summary",
+      firstUser.id,
+      firstAssistant.id,
+      40,
+      10,
+      "[]",
+      "mem_edited",
+      new Date().toISOString()
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id, conversation_id, type, depth, content,
+        source_start_message_id, source_end_message_id,
+        source_token_count, summary_token_count, child_node_ids,
+        superseded_by_node_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "mem_merged_parent",
+      conversation.id,
+      "merged_summary",
+      1,
+      "Merged summary that depends on edited child",
+      firstUser.id,
+      firstAssistant.id,
+      50,
+      12,
+      JSON.stringify(["mem_edited"]),
+      null,
+      new Date().toISOString()
+    );
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id, conversation_id, type, depth, content,
+        source_start_message_id, source_end_message_id,
+        source_token_count, summary_token_count, child_node_ids,
+        superseded_by_node_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "mem_edited",
+      conversation.id,
+      "leaf_summary",
+      0,
+      "Summary ending on edited message",
+      firstUser.id,
+      editedUser.id,
+      60,
+      15,
+      "[]",
+      null,
+      new Date().toISOString()
+    );
+
+    db.prepare(
+      `INSERT INTO compaction_events (
+        id, conversation_id, node_id, source_start_message_id,
+        source_end_message_id, notice_message_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "cmp_tail",
+      conversation.id,
+      "mem_tail",
+      firstUser.id,
+      tailAssistant.id,
+      null,
+      new Date().toISOString()
+    );
+    db.prepare(
+      `INSERT INTO compaction_events (
+        id, conversation_id, node_id, source_start_message_id,
+        source_end_message_id, notice_message_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "cmp_edited",
+      conversation.id,
+      "mem_edited",
+      firstUser.id,
+      editedUser.id,
+      null,
+      new Date().toISOString()
+    );
+    db.prepare(
+      `INSERT INTO compaction_events (
+        id, conversation_id, node_id, source_start_message_id,
+        source_end_message_id, notice_message_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "cmp_merged_parent",
+      conversation.id,
+      "mem_merged_parent",
+      firstUser.id,
+      firstAssistant.id,
+      null,
+      new Date().toISOString()
+    );
+
+    rewriteConversationFromEditedUserMessage(editedUser.id, {
+      content: "Edited second request"
+    });
+
+    expect(
+      db
+        .prepare(
+          "SELECT id, superseded_by_node_id FROM memory_nodes WHERE conversation_id = ? ORDER BY id ASC"
+        )
+        .all(conversation.id)
+    ).toEqual([
+      {
+        id: "mem_retained",
+        superseded_by_node_id: null
+      }
+    ]);
+    expect(
+      db.prepare("SELECT COUNT(*) as count FROM compaction_events WHERE conversation_id = ?").get(conversation.id)
+    ).toEqual({ count: 0 });
+  });
+
+  it("restores compacted retained messages when rewrite invalidates their summaries", () => {
+    const conversation = createConversation("Compacted rewrite");
+    const firstUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "First request"
+    });
+    const firstAssistant = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "First answer"
+    });
+    const editedUser = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Second request"
+    });
+    createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Later answer"
+    });
+
+    markMessagesCompacted([firstUser.id, firstAssistant.id, editedUser.id]);
+
+    const db = getDb();
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id, conversation_id, type, depth, content,
+        source_start_message_id, source_end_message_id,
+        source_token_count, summary_token_count, child_node_ids,
+        superseded_by_node_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "mem_compacted",
+      conversation.id,
+      "leaf_summary",
+      0,
+      "Summary covering retained messages",
+      firstUser.id,
+      editedUser.id,
+      75,
+      20,
+      "[]",
+      null,
+      new Date().toISOString()
+    );
+    db.prepare(
+      `INSERT INTO compaction_events (
+        id, conversation_id, node_id, source_start_message_id,
+        source_end_message_id, notice_message_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      "cmp_compacted",
+      conversation.id,
+      "mem_compacted",
+      firstUser.id,
+      editedUser.id,
+      null,
+      new Date().toISOString()
+    );
+
+    rewriteConversationFromEditedUserMessage(editedUser.id, {
+      content: "Edited second request"
+    });
+
+    expect(getMessage(editedUser.id)?.compactedAt).toBeNull();
+    expect(listMessages(conversation.id).map((message) => message.compactedAt)).toEqual([
+      null,
+      null,
+      null
+    ]);
+  });
+
+  it("rejects rewriting a non-user message", () => {
+    const conversation = createConversation("Assistant immutable");
+    const assistant = createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      content: "Cannot edit me"
+    });
+
+    expect(() =>
+      rewriteConversationFromEditedUserMessage(assistant.id, { content: "changed" })
+    ).toThrow("Only user messages can be edited");
   });
 
   it("rejects forking a missing message", () => {
