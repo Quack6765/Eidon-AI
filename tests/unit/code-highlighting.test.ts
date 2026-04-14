@@ -15,8 +15,18 @@ describe("code highlighting helpers", () => {
   });
 
   describe("detectCodeLanguage", () => {
+    it("detects simple shell command chains as bash", () => {
+      expect(detectCodeLanguage("curl https://example.com && echo ok")).toBe("bash");
+      expect(detectCodeLanguage("git status && npm test")).toBe("bash");
+    });
+
     it("detects sql from common query syntax", () => {
       expect(detectCodeLanguage("SELECT id, email FROM users WHERE active = 1;")).toBe("sql");
+      expect(detectCodeLanguage("UPDATE users SET active = 1")).toBe("sql");
+    });
+
+    it("detects yaml with comments between mappings", () => {
+      expect(detectCodeLanguage("foo: bar\n# comment\nbaz: qux")).toBe("yaml");
     });
 
     it("does not auto-detect plain label/value text as yaml", () => {

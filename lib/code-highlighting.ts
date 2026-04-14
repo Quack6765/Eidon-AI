@@ -42,7 +42,11 @@ const HTML_ESCAPE_MAP: Record<string, string> = {
   "'": "&#39;"
 };
 
-const AUTO_DETECT_MIN_RELEVANCE = 3;
+const AUTO_DETECT_MIN_RELEVANCE: Record<string, number> = {
+  bash: 1,
+  sql: 2,
+  yaml: 3
+};
 
 const highlighter = createHighlighter();
 
@@ -73,7 +77,7 @@ export function detectCodeLanguage(code: string): string | null {
 
   if (
     !normalizedLanguage ||
-    detection.relevance < AUTO_DETECT_MIN_RELEVANCE ||
+    detection.relevance < getAutoDetectMinRelevance(normalizedLanguage) ||
     isAmbiguousAutoDetection(detection) ||
     !isSupportedAutoDetection(normalizedLanguage, code)
   ) {
@@ -198,11 +202,18 @@ function isSqlLike(code: string) {
 }
 
 function isYamlLike(code: string) {
-  const lines = code.split("\n").map((line) => line.trim()).filter(Boolean);
+  const lines = code
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
 
   if (lines.length < 2) {
     return false;
   }
 
   return lines.every((line) => /^(?:-\s+)?[a-z0-9_-]+\s*:/.test(line));
+}
+
+function getAutoDetectMinRelevance(language: string) {
+  return AUTO_DETECT_MIN_RELEVANCE[language] ?? 3;
 }
