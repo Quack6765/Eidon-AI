@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
+import { AssistantCodeBlock } from "@/components/assistant-code-block";
 import {
   AttachmentPreviewModal,
   useAttachmentPreviewController
@@ -23,6 +24,33 @@ import { normalizeMarkdownLineBreaks } from "@/lib/text-utils";
 
 const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
 const COPY_RESET_DELAY_MS = 1600;
+
+function renderAssistantMarkdown(content: string) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={MARKDOWN_PLUGINS}
+      components={{
+        code({ node: _node, className, children, ...props }) {
+          const value = String(children).replace(/\n$/, "");
+          const language = className?.match(/language-([\w-]+)/)?.[1] ?? null;
+          const isBlock = Boolean(className) || value.includes("\n");
+
+          if (!isBlock) {
+            return (
+              <code className={className} {...props}>
+                {children}
+              </code>
+            );
+          }
+
+          return <AssistantCodeBlock code={value} language={language} />;
+        }
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+}
 
 function TypingIndicator({ compact = false }: { compact?: boolean }) {
   return (
@@ -1010,7 +1038,7 @@ export function MessageBubble({
                         data-testid="assistant-message-bubble"
                       >
                         <div className="markdown-body">
-                          <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{item.content}</ReactMarkdown>
+                          {renderAssistantMarkdown(item.content)}
                         </div>
                       </div>
                     );

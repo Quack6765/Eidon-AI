@@ -801,6 +801,54 @@ describe("message bubble", () => {
     expect(container.querySelector("hr")).not.toBeNull();
   });
 
+  it("renders fenced assistant code blocks with a language label and block-local copy action", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```python", "print('hello')", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(screen.getByText("python")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
+  });
+
+  it("copies only the fenced code payload from the block action", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true
+    });
+    vi.stubGlobal("ClipboardItem", undefined);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: [
+            "Before",
+            "",
+            "```python",
+            "print('hello')",
+            "```",
+            "",
+            "After"
+          ].join("\n")
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy code block" }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("print('hello')");
+    });
+  });
+
   it("copies assistant output through the clipboard fallback", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
 
