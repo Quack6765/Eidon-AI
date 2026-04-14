@@ -50,6 +50,30 @@ describe("extractEnumHints", () => {
     const schema = { type: "object" as const };
     expect(extractEnumHints(schema)).toBe("");
   });
+
+  it("extracts hints from const and anyOf enum schemas", () => {
+    const schema = {
+      type: "object" as const,
+      properties: {
+        topic: {
+          type: "string" as const,
+          const: "general",
+          description: "Search topic"
+        },
+        time_range: {
+          anyOf: [
+            { type: "string" as const, enum: ["day", "week", "month", "year"] },
+            { type: "null" as const }
+          ],
+          description: "Time range"
+        }
+      }
+    };
+
+    expect(extractEnumHints(schema)).toBe(
+      "Valid values for topic: general. Valid values for time_range: day, week, month, year."
+    );
+  });
 });
 
 describe("coerceEnumValues", () => {
@@ -134,7 +158,12 @@ describe("coerceEnumValues", () => {
     const schema = {
       type: "object" as const,
       properties: {
-        time_range: { type: "string" as const, enum: ["day", "week", "month", "year"] }
+        time_range: {
+          anyOf: [
+            { type: "string" as const, enum: ["day", "week", "month", "year"] },
+            { type: "null" as const }
+          ]
+        }
       }
     };
 
@@ -149,7 +178,7 @@ describe("coerceEnumValues", () => {
     const schema = {
       type: "object" as const,
       properties: {
-        topic: { type: "string" as const, enum: ["general"] }
+        topic: { type: "string" as const, const: "general" }
       }
     };
 

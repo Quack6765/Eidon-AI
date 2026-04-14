@@ -7,6 +7,8 @@ type InputSchema = {
 type PropertySchema = {
   type?: string;
   enum?: unknown[];
+  const?: unknown;
+  anyOf?: unknown[];
   description?: string;
 };
 
@@ -57,6 +59,33 @@ function getStringDistance(a: string, b: string): number {
   return matrix[a.length][b.length];
 }
 
+function getAllowedStringValues(prop: PropertySchema): string[] {
+  const values = new Set<string>();
+
+  if (Array.isArray(prop.enum)) {
+    for (const value of prop.enum) {
+      if (typeof value === "string") {
+        values.add(value);
+      }
+    }
+  }
+
+  if (typeof prop.const === "string") {
+    values.add(prop.const);
+  }
+
+  if (Array.isArray(prop.anyOf)) {
+    for (const option of prop.anyOf) {
+      if (!option || typeof option !== "object") continue;
+      for (const value of getAllowedStringValues(option as PropertySchema)) {
+        values.add(value);
+      }
+    }
+  }
+
+  return [...values];
+}
+
 export function extractEnumHints(schema: InputSchema): string {
   const props = schema.properties;
   if (!props) return "";
@@ -64,8 +93,8 @@ export function extractEnumHints(schema: InputSchema): string {
   const hints: string[] = [];
   for (const [name, propSchema] of Object.entries(props)) {
     const prop = propSchema as PropertySchema;
-    if (prop.type === "string" && Array.isArray(prop.enum) && prop.enum.length > 0) {
-      const values = prop.enum.map(String);
+    const values = getAllowedStringValues(prop);
+    if (values.length > 0) {
       hints.push(`Valid values for ${name}: ${values.join(", ")}.`);
     }
   }
@@ -84,9 +113,10 @@ export function coerceEnumValues(
     const propSchema = props[name];
     if (!propSchema) continue;
     const prop = propSchema as PropertySchema;
-    if (prop.type !== "string" || !Array.isArray(prop.enum) || typeof value !== "string") continue;
+    if (typeof value !== "string") continue;
 
-    const validValues = prop.enum.map(String);
+    const validValues = getAllowedStringValues(prop);
+    if (validValues.length === 0) continue;
     if (validValues.includes(value)) continue;
 
     const normalizedValue = value.toLowerCase();
