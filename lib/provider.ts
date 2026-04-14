@@ -385,7 +385,7 @@ export async function callProviderText(input: {
 
   const response = await client.chat.completions.create({
     model: settings.model,
-    messages: contextualPrompt,
+    messages: buildChatCompletionMessages(contextualPrompt),
     temperature: settings.temperature,
     max_completion_tokens: Math.min(settings.maxOutputTokens, 4000),
     ...buildChatCompletionsOptions(settings)
