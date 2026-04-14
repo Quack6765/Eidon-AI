@@ -330,6 +330,10 @@ select {
   color: #f87171;
 }
 
+.assistant-code-block[data-complete="false"] .assistant-code-block__copy {
+  display: none;
+}
+
 @media (hover: hover) and (pointer: fine) {
   .assistant-code-block__copy[data-copy-state="idle"] {
     opacity: 0;

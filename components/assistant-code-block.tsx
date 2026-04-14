@@ -59,6 +59,7 @@ export function AssistantCodeBlock({
     <div
       className="assistant-code-block"
       data-testid="assistant-code-block"
+      data-complete={isComplete ? "true" : "false"}
     >
       <div className="assistant-code-block__header">
         <span className="assistant-code-block__language" title={displayLanguage}>

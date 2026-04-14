@@ -37,50 +37,66 @@ function getMarkdownCodeValue(children: React.ReactNode) {
     .join("");
 }
 
-function getFencedCodeBlockCompletionStates(content: string) {
-  const completionStates: boolean[] = [];
+function getFencedCodeBlockCopyReadyStates(content: string, isStreaming: boolean) {
+  const blocks: Array<{ endLineIndex: number | null }> = [];
   const lines = content.split("\n");
   let activeFenceCharacter: "`" | "~" | null = null;
   let activeFenceLength = 0;
 
-  for (const line of lines) {
+  lines.forEach((line, lineIndex) => {
     const trimmedLine = line.trim();
 
     if (!activeFenceCharacter) {
       const openingFence = trimmedLine.match(/^(`{3,}|~{3,})(.*)$/);
 
       if (!openingFence) {
-        continue;
+        return;
       }
 
       activeFenceCharacter = openingFence[1][0] as "`" | "~";
       activeFenceLength = openingFence[1].length;
-      completionStates.push(false);
-      continue;
+      blocks.push({ endLineIndex: null });
+      return;
     }
 
     const closingFence = trimmedLine.match(/^(`{3,}|~{3,})\s*$/);
 
     if (!closingFence) {
-      continue;
+      return;
     }
 
     const fenceToken = closingFence[1];
 
     if (fenceToken[0] !== activeFenceCharacter || fenceToken.length < activeFenceLength) {
-      continue;
+      return;
     }
 
-    completionStates[completionStates.length - 1] = true;
+    blocks[blocks.length - 1].endLineIndex = lineIndex;
     activeFenceCharacter = null;
     activeFenceLength = 0;
-  }
+  });
 
-  return completionStates;
+  return blocks.map((block) => {
+    if (block.endLineIndex === null) {
+      return false;
+    }
+
+    if (!isStreaming) {
+      return true;
+    }
+
+    return lines
+      .slice(block.endLineIndex + 1)
+      .some((line) => line.trim().length > 0);
+  });
 }
 
-function renderAssistantMarkdown(content: string) {
-  const fencedCodeBlockCompletionStates = getFencedCodeBlockCompletionStates(content);
+function hasIncompleteFencedCodeBlock(content: string, isStreaming: boolean) {
+  return getFencedCodeBlockCopyReadyStates(content, isStreaming).some((isReady) => !isReady);
+}
+
+function renderAssistantMarkdown(content: string, isStreaming: boolean) {
+  const fencedCodeBlockCopyReadyStates = getFencedCodeBlockCopyReadyStates(content, isStreaming);
   let fencedCodeBlockIndex = 0;
 
   return (
@@ -109,7 +125,7 @@ function renderAssistantMarkdown(content: string) {
             ? languageClass.slice("language-".length)
             : null;
           const value = getMarkdownCodeValue(typedCodeChild.props.children ?? "").replace(/\n$/, "");
-          const isComplete = fencedCodeBlockCompletionStates[fencedCodeBlockIndex] ?? true;
+          const isComplete = fencedCodeBlockCopyReadyStates[fencedCodeBlockIndex] ?? true;
 
           fencedCodeBlockIndex += 1;
 
@@ -842,7 +858,11 @@ export function MessageBubble({
   const copyResetHandle = useRef<number | null>(null);
   const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || hasThinking || Boolean(thinkingContent));
   const showUserBubbleActions = Boolean(content) && !awaitingFirstToken;
-  const showAssistantBubbleActions = Boolean(assistantText) && !awaitingFirstToken;
+  const isAssistantStreaming = message.role === "assistant" && message.status === "streaming";
+  const showAssistantBubbleActions =
+    Boolean(assistantText) &&
+    !awaitingFirstToken &&
+    !hasIncompleteFencedCodeBlock(assistantText, isAssistantStreaming);
 
   useEffect(() => {
     setDraft(message.content);
@@ -1116,7 +1136,7 @@ export function MessageBubble({
                         data-testid="assistant-message-bubble"
                       >
                         <div className="markdown-body">
-                          {renderAssistantMarkdown(item.content)}
+                          {renderAssistantMarkdown(item.content, isAssistantStreaming)}
                         </div>
                       </div>
                     );

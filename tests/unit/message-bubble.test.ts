@@ -1028,8 +1028,10 @@ describe("message bubble", () => {
     const codeBlock = screen.getByTestId("assistant-code-block");
 
     expect(codeBlock).toBeInTheDocument();
+    expect(codeBlock).toHaveAttribute("data-complete", "false");
     expect(codeBlock).toHaveTextContent("print('still streaming')");
     expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
   });
 
   it("keeps earlier completed assistant code blocks copyable while a later block is still streaming", () => {
@@ -1056,9 +1058,32 @@ describe("message bubble", () => {
     const codeBlocks = screen.getAllByTestId("assistant-code-block");
 
     expect(codeBlocks).toHaveLength(2);
+    expect(codeBlocks[0]).toHaveAttribute("data-complete", "true");
+    expect(codeBlocks[1]).toHaveAttribute("data-complete", "false");
     expect(codeBlocks[0]).toHaveTextContent("print('done')");
     expect(codeBlocks[1]).toHaveTextContent("const pending = true;");
     expect(screen.getAllByRole("button", { name: "Copy code block" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+  });
+
+  it("keeps a trailing closed assistant code block non-copyable until streaming finishes", () => {
+    render(
+      React.createElement(StreamingPlaceholder, {
+        createdAt: new Date().toISOString(),
+        thinking: "",
+        answer: ["```python", "print('closed but still streaming')", "```"].join("\n"),
+        awaitingFirstToken: false,
+        thinkingInProgress: false,
+        timeline: []
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+
+    expect(codeBlock).toHaveAttribute("data-complete", "false");
+    expect(codeBlock).toHaveTextContent("print('closed but still streaming')");
+    expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
   });
 
   it("keeps assistant inline code inline instead of rendering the dedicated block component", () => {
