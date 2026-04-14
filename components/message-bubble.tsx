@@ -63,26 +63,30 @@ function CollapsibleActionRow({
 
   if (action.status === "running") {
     return (
-      <div className="inline-flex items-center gap-1.5 rounded-lg border border-white/6 bg-white/[0.02] px-2.5 py-1.5 text-xs">
+      <div className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-white/6 bg-white/[0.02] px-2.5 py-1.5 text-xs">
         <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
           {isMemoryAction ? <Brain className="h-2.5 w-2.5 text-violet-400" /> : statusIcon}
         </span>
-        <span className="text-[12px] font-medium text-white/55">{action.label}</span>
+        <span className="whitespace-nowrap text-[12px] font-medium text-white/55">{action.label}</span>
       </div>
     );
   }
 
   return (
-    <div className="rounded-lg border border-white/5 bg-white/[0.015] transition-all duration-300">
+    <div
+      className={`inline-flex w-fit max-w-full flex-col rounded-lg border border-white/5 bg-white/[0.015] transition-all duration-300 ${
+        isOpen ? "w-full" : ""
+      }`}
+    >
       <button
         type="button"
         onClick={onToggle}
-        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-left transition hover:opacity-80"
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-left transition hover:opacity-80 ${isOpen ? "w-full" : "w-fit min-w-0"}`}
       >
         <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
           {isMemoryAction ? <Brain className="h-3 w-3 text-violet-400" /> : statusIcon}
         </span>
-        <span className="text-[12px] font-medium text-white/85">{action.label}</span>
+        <span className="whitespace-nowrap text-[12px] font-medium text-white/85">{action.label}</span>
         <span className="ml-auto flex items-center">
           {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-white/30" /> : <ChevronRight className="h-3.5 w-3.5 text-white/30" />}
         </span>
