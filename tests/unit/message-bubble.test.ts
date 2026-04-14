@@ -1013,6 +1013,54 @@ describe("message bubble", () => {
     expect(container.querySelector('[data-testid="assistant-message-bubble"] p code')).toBeNull();
   });
 
+  it("keeps the copy action hidden for a trailing assistant code block while its closing fence is still streaming", () => {
+    render(
+      React.createElement(StreamingPlaceholder, {
+        createdAt: new Date().toISOString(),
+        thinking: "",
+        answer: ["```python", "print('still streaming')"].join("\n"),
+        awaitingFirstToken: false,
+        thinkingInProgress: false,
+        timeline: []
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+
+    expect(codeBlock).toBeInTheDocument();
+    expect(codeBlock).toHaveTextContent("print('still streaming')");
+    expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
+  });
+
+  it("keeps earlier completed assistant code blocks copyable while a later block is still streaming", () => {
+    render(
+      React.createElement(StreamingPlaceholder, {
+        createdAt: new Date().toISOString(),
+        thinking: "",
+        answer: [
+          "```python",
+          "print('done')",
+          "```",
+          "",
+          "Still working on the next snippet.",
+          "",
+          "```javascript",
+          "const pending = true;"
+        ].join("\n"),
+        awaitingFirstToken: false,
+        thinkingInProgress: false,
+        timeline: []
+      })
+    );
+
+    const codeBlocks = screen.getAllByTestId("assistant-code-block");
+
+    expect(codeBlocks).toHaveLength(2);
+    expect(codeBlocks[0]).toHaveTextContent("print('done')");
+    expect(codeBlocks[1]).toHaveTextContent("const pending = true;");
+    expect(screen.getAllByRole("button", { name: "Copy code block" })).toHaveLength(1);
+  });
+
   it("keeps assistant inline code inline instead of rendering the dedicated block component", () => {
     const { container } = render(
       React.createElement(MessageBubble, {

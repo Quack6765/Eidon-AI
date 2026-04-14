@@ -37,7 +37,52 @@ function getMarkdownCodeValue(children: React.ReactNode) {
     .join("");
 }
 
+function getFencedCodeBlockCompletionStates(content: string) {
+  const completionStates: boolean[] = [];
+  const lines = content.split("\n");
+  let activeFenceCharacter: "`" | "~" | null = null;
+  let activeFenceLength = 0;
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+
+    if (!activeFenceCharacter) {
+      const openingFence = trimmedLine.match(/^(`{3,}|~{3,})(.*)$/);
+
+      if (!openingFence) {
+        continue;
+      }
+
+      activeFenceCharacter = openingFence[1][0] as "`" | "~";
+      activeFenceLength = openingFence[1].length;
+      completionStates.push(false);
+      continue;
+    }
+
+    const closingFence = trimmedLine.match(/^(`{3,}|~{3,})\s*$/);
+
+    if (!closingFence) {
+      continue;
+    }
+
+    const fenceToken = closingFence[1];
+
+    if (fenceToken[0] !== activeFenceCharacter || fenceToken.length < activeFenceLength) {
+      continue;
+    }
+
+    completionStates[completionStates.length - 1] = true;
+    activeFenceCharacter = null;
+    activeFenceLength = 0;
+  }
+
+  return completionStates;
+}
+
 function renderAssistantMarkdown(content: string) {
+  const fencedCodeBlockCompletionStates = getFencedCodeBlockCompletionStates(content);
+  let fencedCodeBlockIndex = 0;
+
   return (
     <ReactMarkdown
       remarkPlugins={MARKDOWN_PLUGINS}
@@ -64,8 +109,11 @@ function renderAssistantMarkdown(content: string) {
             ? languageClass.slice("language-".length)
             : null;
           const value = getMarkdownCodeValue(typedCodeChild.props.children ?? "").replace(/\n$/, "");
+          const isComplete = fencedCodeBlockCompletionStates[fencedCodeBlockIndex] ?? true;
 
-          return <AssistantCodeBlock code={value} language={language} />;
+          fencedCodeBlockIndex += 1;
+
+          return <AssistantCodeBlock code={value} language={language} isComplete={isComplete} />;
         },
         code({ node: _node, className, children, ...props }) {
           const { inline: _inline, ...codeProps } = props as { inline?: boolean } & React.ComponentPropsWithoutRef<"code">;

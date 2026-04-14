@@ -9,10 +9,12 @@ const COPY_RESET_DELAY_MS = 1600;
 
 export function AssistantCodeBlock({
   code,
-  language
+  language,
+  isComplete = true
 }: {
   code: string;
   language?: string | null;
+  isComplete?: boolean;
 }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const resetHandle = useRef<number | null>(null);
@@ -62,21 +64,23 @@ export function AssistantCodeBlock({
         <span className="assistant-code-block__language" title={displayLanguage}>
           {displayLanguage}
         </span>
-        <button
-          type="button"
-          aria-label={copyState === "copied" ? "Copied code block" : "Copy code block"}
-          onClick={() => void handleCopy()}
-          className="assistant-code-block__copy"
-          data-copy-state={copyState}
-        >
-          {copyState === "copied" ? (
-            <Check className="h-3.5 w-3.5" />
-          ) : copyState === "error" ? (
-            <X className="h-3.5 w-3.5" />
-          ) : (
-            <Copy className="h-3.5 w-3.5" />
-          )}
-        </button>
+        {isComplete ? (
+          <button
+            type="button"
+            aria-label={copyState === "copied" ? "Copied code block" : "Copy code block"}
+            onClick={() => void handleCopy()}
+            className="assistant-code-block__copy"
+            data-copy-state={copyState}
+          >
+            {copyState === "copied" ? (
+              <Check className="h-3.5 w-3.5" />
+            ) : copyState === "error" ? (
+              <X className="h-3.5 w-3.5" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
+          </button>
+        ) : null}
       </div>
       <pre className="assistant-code-block__body">
         <code
