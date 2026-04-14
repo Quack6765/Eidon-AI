@@ -54,31 +54,32 @@ export function AssistantCodeBlock({
 
   return (
     <div
-      className="overflow-hidden rounded-xl border border-white/8 bg-black/35"
+      className="assistant-code-block"
       data-testid="assistant-code-block"
     >
-      <div className="flex items-center justify-between gap-3 border-b border-white/8 px-3 py-2 text-[11px]">
-        <span className="font-mono text-white/45">
+      <div className="assistant-code-block__header">
+        <span className="assistant-code-block__language">
           {highlighted.displayLanguage ?? "text"}
         </span>
         <button
           type="button"
           aria-label={copyState === "copied" ? "Copied code block" : "Copy code block"}
           onClick={() => void handleCopy()}
-          className="flex h-6 w-6 items-center justify-center rounded-md border border-white/8 bg-white/[0.03] text-white/45 transition hover:border-white/14 hover:text-white/70"
+          className="assistant-code-block__copy"
+          data-copy-state={copyState}
         >
           {copyState === "copied" ? (
-            <Check className="h-3.5 w-3.5 text-emerald-400" />
+            <Check className="h-3.5 w-3.5" />
           ) : copyState === "error" ? (
-            <X className="h-3.5 w-3.5 text-red-400" />
+            <X className="h-3.5 w-3.5" />
           ) : (
             <Copy className="h-3.5 w-3.5" />
           )}
         </button>
       </div>
-      <pre className="overflow-x-auto px-3 py-3 text-[13px] leading-6 text-white/88">
+      <pre className="assistant-code-block__body">
         <code
-          className={`hljs${highlighted.language ? ` language-${highlighted.language}` : ""}`}
+          className={`assistant-code-block__code hljs${highlighted.language ? ` language-${highlighted.language}` : ""}`}
           dangerouslySetInnerHTML={{ __html: highlighted.html }}
         />
       </pre>

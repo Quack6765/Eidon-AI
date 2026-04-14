@@ -874,6 +874,71 @@ describe("message bubble", () => {
     expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
   });
 
+  it("keeps untagged assistant code blocks on the dedicated block path without changing the thinking bubble", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```", "SELECT id,", "  email FROM users;", "```"].join("\n"),
+          thinkingContent: ["```", "SELECT thought FROM steps;", "```"].join("\n")
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Thought/i }));
+
+    const assistantCodeBlock = screen.getByTestId("assistant-code-block");
+
+    expect(assistantCodeBlock).toBeInTheDocument();
+    expect(screen.getByText("text")).toBeInTheDocument();
+    expect(assistantCodeBlock).toHaveTextContent("SELECT id,");
+    expect(container.querySelector(".thinking-markdown-body [data-testid='assistant-code-block']")).toBeNull();
+    expect(container.querySelector(".thinking-markdown-body pre code")).not.toBeNull();
+  });
+
+  it("renders unsupported fenced languages as readable plain code in the dedicated block chrome", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```mermadeidon", "opaque => still visible", "```"].join("\n")
+        }
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+    const codeElement = container.querySelector(".assistant-code-block__body code");
+
+    expect(codeBlock).toBeInTheDocument();
+    expect(screen.getByText("mermadeidon")).toBeInTheDocument();
+    expect(screen.getByText("opaque => still visible")).toBeInTheDocument();
+    expect(codeElement).toHaveClass("hljs");
+    expect(codeElement).not.toHaveClass("language-mermadeidon");
+  });
+
+  it("renders assistant fenced code blocks with scoped structural hooks for styling and copy behavior", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```python", "print('hello')", "```"].join("\n")
+        }
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+    const header = container.querySelector(".assistant-code-block__header");
+    const language = container.querySelector(".assistant-code-block__language");
+    const copyButton = container.querySelector(".assistant-code-block__copy");
+    const body = container.querySelector(".assistant-code-block__body");
+
+    expect(codeBlock).toHaveClass("assistant-code-block");
+    expect(header).not.toBeNull();
+    expect(language).not.toBeNull();
+    expect(copyButton).not.toBeNull();
+    expect(body).not.toBeNull();
+  });
+
   it("renders empty tagged fenced assistant blocks without leaking undefined", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
