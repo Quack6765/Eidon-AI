@@ -413,6 +413,41 @@ describe("db", () => {
     );
   });
 
+  it("adds web search columns to user_settings during migration", async () => {
+    const legacyDb = openLegacyDatabase({
+      userSettingsColumns: [
+        "user_id",
+        "default_provider_profile_id",
+        "skills_enabled",
+        "conversation_retention",
+        "auto_compaction",
+        "memories_enabled",
+        "memories_max_count",
+        "mcp_timeout",
+        "stt_engine",
+        "stt_language",
+        "updated_at"
+      ]
+    });
+    legacyDb.close();
+
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+
+    const userSettingsColumns = (
+      db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+
+    expect(userSettingsColumns).toEqual(
+      expect.arrayContaining([
+        "web_search_engine",
+        "exa_api_key_encrypted",
+        "tavily_api_key_encrypted",
+        "searxng_base_url"
+      ])
+    );
+  });
+
   it("migrates legacy schemas and backfills defaults", async () => {
     prepareLegacyDatabase();
 

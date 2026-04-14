@@ -110,6 +110,10 @@ function makeAppSettings(overrides: Partial<import("@/lib/types").AppSettings> =
     mcpTimeout: 30000,
     sttEngine: "browser" as const,
     sttLanguage: "en" as const,
+    webSearchEngine: "exa" as const,
+    exaApiKey: "",
+    tavilyApiKey: "",
+    searxngBaseUrl: "",
     updatedAt: new Date().toISOString(),
     ...overrides
   };

@@ -362,6 +362,10 @@ function migrate(db: Database.Database) {
       mcp_timeout INTEGER NOT NULL DEFAULT 120000,
       stt_engine TEXT NOT NULL DEFAULT 'browser',
       stt_language TEXT NOT NULL DEFAULT 'auto',
+      web_search_engine TEXT NOT NULL DEFAULT 'exa',
+      exa_api_key_encrypted TEXT NOT NULL DEFAULT '',
+      tavily_api_key_encrypted TEXT NOT NULL DEFAULT '',
+      searxng_base_url TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
@@ -524,6 +528,18 @@ function migrate(db: Database.Database) {
   }
   if (!userSettingsColNames.includes("stt_language")) {
     db.exec("ALTER TABLE user_settings ADD COLUMN stt_language TEXT NOT NULL DEFAULT 'auto'");
+  }
+  if (!userSettingsColNames.includes("web_search_engine")) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN web_search_engine TEXT NOT NULL DEFAULT 'exa'");
+  }
+  if (!userSettingsColNames.includes("exa_api_key_encrypted")) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN exa_api_key_encrypted TEXT NOT NULL DEFAULT ''");
+  }
+  if (!userSettingsColNames.includes("tavily_api_key_encrypted")) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN tavily_api_key_encrypted TEXT NOT NULL DEFAULT ''");
+  }
+  if (!userSettingsColNames.includes("searxng_base_url")) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN searxng_base_url TEXT NOT NULL DEFAULT ''");
   }
 
   const mcpCols = db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;

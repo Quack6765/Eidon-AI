@@ -16,6 +16,12 @@ import {
 } from "@/lib/settings";
 import { createLocalUser } from "@/lib/users";
 
+const requireUserMock = vi.fn();
+
+vi.mock("@/lib/auth", () => ({
+  requireUser: requireUserMock
+}));
+
 function buildProfile(
   overrides: Partial<{
     id: string;
@@ -53,6 +59,10 @@ function buildProfile(
 }
 
 describe("settings storage", () => {
+  beforeEach(() => {
+    requireUserMock.mockReset();
+  });
+
   it("stores multiple provider profiles, encrypts their keys, and switches the default", () => {
     const alpha = buildProfile({
       id: "profile_alpha",
@@ -412,6 +422,369 @@ describe("settings storage", () => {
     });
   });
 
+  it("defaults fresh user settings to Exa without any API keys", async () => {
+    const user = await createLocalUser({
+      username: "search-defaults",
+      password: "changeme123",
+      role: "user"
+    });
+
+    expect(getSettingsForUser(user.id)).toMatchObject({
+      webSearchEngine: "exa",
+      exaApiKey: "",
+      tavilyApiKey: "",
+      searxngBaseUrl: "",
+      sttEngine: "browser",
+      sttLanguage: "auto"
+    });
+
+    const stored = getDb()
+      .prepare("SELECT stt_engine, stt_language FROM user_settings WHERE user_id = ?")
+      .get(user.id) as { stt_engine: string; stt_language: string };
+
+    expect(stored).toMatchObject({
+      stt_engine: "browser",
+      stt_language: "auto"
+    });
+  });
+
+  it("stores web search settings per user", async () => {
+    const userA = await createLocalUser({
+      username: "search-a",
+      password: "changeme123",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "search-b",
+      password: "changeme123",
+      role: "user"
+    });
+
+    updateGeneralSettingsForUser(userA.id, {
+      webSearchEngine: "tavily",
+      tavilyApiKey: "tvly-user-a"
+    });
+    updateGeneralSettingsForUser(userB.id, {
+      webSearchEngine: "searxng",
+      searxngBaseUrl: "https://search.example.com/"
+    });
+
+    expect(getSettingsForUser(userA.id)).toMatchObject({
+      webSearchEngine: "tavily",
+      tavilyApiKey: "tvly-user-a"
+    });
+    expect(getSettingsForUser(userB.id)).toMatchObject({
+      webSearchEngine: "searxng",
+      searxngBaseUrl: "https://search.example.com"
+    });
+  });
+
+  it("does not expose search secrets through sanitized user settings", async () => {
+    const user = await createLocalUser({
+      username: "search-sanitized",
+      password: "changeme123",
+      role: "user"
+    });
+
+    updateGeneralSettingsForUser(user.id, {
+      webSearchEngine: "searxng",
+      exaApiKey: "exa-secret",
+      tavilyApiKey: "tvly-secret",
+      searxngBaseUrl: "https://search.example.com/"
+    });
+
+    const sanitized = getSanitizedSettings(user.id);
+
+    expect(sanitized).toMatchObject({
+      webSearchEngine: "searxng",
+      exaApiKey: "",
+      tavilyApiKey: "",
+      searxngBaseUrl: "https://search.example.com"
+    });
+  });
+
+  it("allows selecting Tavily when the user already has a saved Tavily API key", async () => {
+    vi.resetModules();
+    const { createLocalUser } = await import("@/lib/users");
+    const { updateGeneralSettingsForUser } = await import("@/lib/settings");
+    const { PUT } = await import("@/app/api/settings/general/route");
+
+    const user = await createLocalUser({
+      username: "search-route-tavily",
+      password: "changeme123",
+      role: "user"
+    });
+
+    updateGeneralSettingsForUser(user.id, {
+      webSearchEngine: "disabled",
+      tavilyApiKey: "tvly-existing"
+    });
+
+    requireUserMock.mockResolvedValue(user);
+
+    const response = await PUT(
+      new Request("http://localhost/api/settings/general", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          webSearchEngine: "tavily"
+        })
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          webSearchEngine: "tavily",
+          tavilyApiKey: "",
+          hasTavilyApiKey: true
+        })
+      })
+    );
+  });
+
+  it("allows selecting SearXNG when the user already has a saved SearXNG URL", async () => {
+    vi.resetModules();
+    const { createLocalUser } = await import("@/lib/users");
+    const { updateGeneralSettingsForUser } = await import("@/lib/settings");
+    const { PUT } = await import("@/app/api/settings/general/route");
+
+    const user = await createLocalUser({
+      username: "search-route-searxng",
+      password: "changeme123",
+      role: "user"
+    });
+
+    updateGeneralSettingsForUser(user.id, {
+      webSearchEngine: "disabled",
+      searxngBaseUrl: "https://search.example.com/"
+    });
+
+    requireUserMock.mockResolvedValue(user);
+
+    const response = await PUT(
+      new Request("http://localhost/api/settings/general", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          webSearchEngine: "searxng"
+        })
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          webSearchEngine: "searxng",
+          searxngBaseUrl: "https://search.example.com"
+        })
+      })
+    );
+  });
+
+  it("falls back to empty search keys when stored ciphertext is unreadable", async () => {
+    const user = await createLocalUser({
+      username: "search-corrupt-ciphertext",
+      password: "changeme123",
+      role: "user"
+    });
+
+    updateGeneralSettingsForUser(user.id, {
+      webSearchEngine: "exa",
+      exaApiKey: "exa-secret",
+      tavilyApiKey: "tvly-secret"
+    });
+
+    getDb()
+      .prepare(
+        "UPDATE user_settings SET exa_api_key_encrypted = ?, tavily_api_key_encrypted = ? WHERE user_id = ?"
+      )
+      .run("broken-exa", "broken-tavily", user.id);
+
+    expect(getSettingsForUser(user.id)).toMatchObject({
+      exaApiKey: "",
+      tavilyApiKey: ""
+    });
+    const sanitized = getSanitizedSettings(user.id);
+
+    expect(sanitized).toMatchObject({
+      webSearchEngine: "exa",
+      exaApiKey: "",
+      tavilyApiKey: "",
+      searxngBaseUrl: ""
+    });
+  });
+
+  it("preserves unreadable encrypted search keys on unrelated general settings updates", async () => {
+    const user = await createLocalUser({
+      username: "search-preserve-corrupt-ciphertext",
+      password: "changeme123",
+      role: "user"
+    });
+
+    updateGeneralSettingsForUser(user.id, {
+      webSearchEngine: "exa",
+      exaApiKey: "exa-secret",
+      tavilyApiKey: "tvly-secret"
+    });
+
+    getDb()
+      .prepare(
+        "UPDATE user_settings SET exa_api_key_encrypted = ?, tavily_api_key_encrypted = ? WHERE user_id = ?"
+      )
+      .run("broken-exa", "broken-tavily", user.id);
+
+    updateGeneralSettingsForUser(user.id, {
+      mcpTimeout: 45_000
+    });
+
+    const stored = getDb()
+      .prepare(
+        "SELECT exa_api_key_encrypted, tavily_api_key_encrypted, mcp_timeout FROM user_settings WHERE user_id = ?"
+      )
+      .get(user.id) as {
+      exa_api_key_encrypted: string;
+      tavily_api_key_encrypted: string;
+      mcp_timeout: number;
+    };
+
+    expect(stored).toMatchObject({
+      exa_api_key_encrypted: "broken-exa",
+      tavily_api_key_encrypted: "broken-tavily",
+      mcp_timeout: 45_000
+    });
+  });
+
+  it("preserves saved search secrets when sanitized settings round-trip with blank secret fields", async () => {
+    const user = await createLocalUser({
+      username: "search-sanitized-roundtrip",
+      password: "changeme123",
+      role: "user"
+    });
+
+    updateGeneralSettingsForUser(user.id, {
+      webSearchEngine: "tavily",
+      exaApiKey: "exa-secret",
+      tavilyApiKey: "tvly-secret"
+    });
+
+    const sanitized = getSanitizedSettings(user.id);
+
+    expect(sanitized).toMatchObject({
+      webSearchEngine: "tavily",
+      exaApiKey: "",
+      tavilyApiKey: ""
+    });
+
+    updateGeneralSettingsForUser(user.id, {
+      webSearchEngine: sanitized.webSearchEngine,
+      exaApiKey: sanitized.exaApiKey,
+      tavilyApiKey: sanitized.tavilyApiKey,
+      searxngBaseUrl: sanitized.searxngBaseUrl,
+      mcpTimeout: 45_000
+    });
+
+    expect(getSettingsForUser(user.id)).toMatchObject({
+      webSearchEngine: "tavily",
+      exaApiKey: "exa-secret",
+      tavilyApiKey: "tvly-secret",
+      mcpTimeout: 45_000
+    });
+  });
+
+  it("clears saved search secrets explicitly through the general settings route", async () => {
+    vi.resetModules();
+    const { createLocalUser } = await import("@/lib/users");
+    const { updateGeneralSettingsForUser, getSettingsForUser } = await import("@/lib/settings");
+    const { PUT } = await import("@/app/api/settings/general/route");
+
+    const user = await createLocalUser({
+      username: "search-route-clear",
+      password: "changeme123",
+      role: "user"
+    });
+
+    updateGeneralSettingsForUser(user.id, {
+      webSearchEngine: "disabled",
+      exaApiKey: "exa-secret",
+      tavilyApiKey: "tvly-secret"
+    });
+
+    requireUserMock.mockResolvedValue(user);
+
+    const response = await PUT(
+      new Request("http://localhost/api/settings/general", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          exaApiKey: "",
+          tavilyApiKey: "",
+          clearExaApiKey: true,
+          clearTavilyApiKey: true,
+          mcpTimeout: 45_000
+        })
+      })
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          exaApiKey: "",
+          tavilyApiKey: "",
+          hasExaApiKey: false,
+          hasTavilyApiKey: false,
+          mcpTimeout: 45_000
+        })
+      })
+    );
+    expect(getSettingsForUser(user.id)).toMatchObject({
+      exaApiKey: "",
+      tavilyApiKey: "",
+      mcpTimeout: 45_000
+    });
+  });
+
+  it("rejects invalid merged Tavily settings when updated directly", async () => {
+    const user = await createLocalUser({
+      username: "search-direct-invalid-tavily",
+      password: "changeme123",
+      role: "user"
+    });
+
+    expect(() =>
+      updateGeneralSettingsForUser(user.id, {
+        webSearchEngine: "tavily"
+      })
+    ).toThrow("Tavily API key is required");
+
+    expect(getSettingsForUser(user.id)).toMatchObject({
+      webSearchEngine: "exa",
+      tavilyApiKey: ""
+    });
+  });
+
+  it("rejects invalid merged SearXNG settings when updated directly", async () => {
+    const user = await createLocalUser({
+      username: "search-direct-invalid-searxng",
+      password: "changeme123",
+      role: "user"
+    });
+
+    expect(() =>
+      updateGeneralSettingsForUser(user.id, {
+        webSearchEngine: "searxng"
+      })
+    ).toThrow("SearXNG URL is required");
+
+    expect(getSettingsForUser(user.id)).toMatchObject({
+      webSearchEngine: "exa",
+      searxngBaseUrl: ""
+    });
+  });
+
   it("returns the default MCP timeout from persisted settings", () => {
     const alpha = buildProfile({
       id: "profile_alpha",
@@ -499,8 +872,8 @@ describe("settings storage", () => {
       apiBaseUrl: "",
       githubUserAccessTokenEncrypted: "ciphertext-access",
       githubRefreshTokenEncrypted: "ciphertext-refresh",
-      githubTokenExpiresAt: "2026-04-08T16:00:00.000Z",
-      githubRefreshTokenExpiresAt: "2026-10-08T16:00:00.000Z",
+      githubTokenExpiresAt: "2027-04-08T16:00:00.000Z",
+      githubRefreshTokenExpiresAt: "2027-10-08T16:00:00.000Z",
       githubAccountLogin: "octocat",
       githubAccountName: "The Octocat"
     };
@@ -542,8 +915,8 @@ describe("settings storage", () => {
       apiBaseUrl: "",
       githubUserAccessTokenEncrypted: "ciphertext-access",
       githubRefreshTokenEncrypted: "ciphertext-refresh",
-      githubTokenExpiresAt: "2026-04-08T16:00:00.000Z",
-      githubRefreshTokenExpiresAt: "2026-10-08T16:00:00.000Z",
+      githubTokenExpiresAt: "2027-04-08T16:00:00.000Z",
+      githubRefreshTokenExpiresAt: "2027-10-08T16:00:00.000Z",
       githubAccountLogin: "octocat",
       githubAccountName: "The Octocat"
     };
@@ -565,6 +938,72 @@ describe("settings storage", () => {
     });
     expect("githubUserAccessTokenEncrypted" in (profile ?? {})).toBe(false);
     expect("githubRefreshTokenEncrypted" in (profile ?? {})).toBe(false);
+  });
+
+  it("marks expired github copilot connections as expired in sanitized settings", () => {
+    const copilot = {
+      ...buildProfile({
+        id: "profile_copilot_expired",
+        name: "Copilot Expired"
+      }),
+      providerKind: "github_copilot" as const,
+      apiKey: "",
+      apiBaseUrl: "",
+      githubUserAccessTokenEncrypted: "ciphertext-access",
+      githubRefreshTokenEncrypted: "ciphertext-refresh",
+      githubTokenExpiresAt: "2020-01-01T00:00:00.000Z",
+      githubRefreshTokenExpiresAt: "2026-10-08T16:00:00.000Z",
+      githubAccountLogin: "octocat",
+      githubAccountName: "The Octocat"
+    };
+
+    updateSettings({
+      defaultProviderProfileId: copilot.id,
+      skillsEnabled: true,
+      providerProfiles: [copilot]
+    });
+
+    const settings = getSanitizedSettings();
+    const profile = settings.providerProfiles.find((entry) => entry.id === copilot.id);
+
+    expect(profile).toMatchObject({
+      id: "profile_copilot_expired",
+      providerKind: "github_copilot",
+      githubConnectionStatus: "expired"
+    });
+  });
+
+  it("treats github copilot profiles without an access-token expiry as disconnected in sanitized settings", () => {
+    const copilot = {
+      ...buildProfile({
+        id: "profile_copilot_missing_expiry",
+        name: "Copilot Missing Expiry"
+      }),
+      providerKind: "github_copilot" as const,
+      apiKey: "",
+      apiBaseUrl: "",
+      githubUserAccessTokenEncrypted: "ciphertext-access",
+      githubRefreshTokenEncrypted: "ciphertext-refresh",
+      githubTokenExpiresAt: null,
+      githubRefreshTokenExpiresAt: "2027-10-08T16:00:00.000Z",
+      githubAccountLogin: "octocat",
+      githubAccountName: "The Octocat"
+    };
+
+    updateSettings({
+      defaultProviderProfileId: copilot.id,
+      skillsEnabled: true,
+      providerProfiles: [copilot]
+    });
+
+    const settings = getSanitizedSettings();
+    const profile = settings.providerProfiles.find((entry) => entry.id === copilot.id);
+
+    expect(profile).toMatchObject({
+      id: "profile_copilot_missing_expiry",
+      providerKind: "github_copilot",
+      githubConnectionStatus: "disconnected"
+    });
   });
 
   it("preserves github oauth credentials when saving without sending them back", () => {

@@ -53,6 +53,10 @@ type SettingsFixture = {
   mcpTimeout: number;
   sttEngine: "browser" | "embedded";
   sttLanguage: "auto" | "en" | "fr" | "es";
+  webSearchEngine: "exa" | "tavily" | "searxng" | "disabled";
+  exaApiKey: string;
+  tavilyApiKey: string;
+  searxngBaseUrl: string;
   providerProfiles: ProviderProfileFixture[];
   updatedAt: string;
 };
@@ -67,6 +71,10 @@ function makeSettings(overrides: Partial<SettingsFixture> = {}): SettingsFixture
     mcpTimeout: 120_000,
     sttEngine: "browser",
     sttLanguage: "en",
+    webSearchEngine: "exa",
+    exaApiKey: "",
+    tavilyApiKey: "",
+    searxngBaseUrl: "",
     providerProfiles: [
       {
         id: "profile_default",

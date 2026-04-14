@@ -24,6 +24,10 @@ function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     mcpTimeout: 120_000,
     sttEngine: "browser",
     sttLanguage: "auto",
+    webSearchEngine: "exa",
+    exaApiKey: "",
+    tavilyApiKey: "",
+    searxngBaseUrl: "",
     updatedAt: new Date().toISOString(),
     ...overrides
   };
