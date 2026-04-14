@@ -6,7 +6,7 @@ import { MAX_ATTACHMENT_BYTES } from "@/lib/constants";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
-import { normalizeLineBreaks } from "@/lib/utils";
+import { normalizeLineBreaks } from "@/lib/text-utils";
 import type { AttachmentKind, MessageAttachment } from "@/lib/types";
 
 const IMAGE_EXTENSION_TO_MIME = new Map<string, string>([
@@ -66,6 +66,13 @@ type CreateAttachmentInput = {
   mimeType: string;
   bytes: Buffer;
 };
+
+export class AttachmentTextPreviewUnsupportedError extends Error {
+  constructor() {
+    super("Attachment cannot be previewed as text");
+    this.name = "AttachmentTextPreviewUnsupportedError";
+  }
+}
 
 function nowIso() {
   return new Date().toISOString();
@@ -475,6 +482,38 @@ export function resolveAttachmentPath(attachment: Pick<MessageAttachment, "relat
 
 export function readAttachmentBuffer(attachment: Pick<MessageAttachment, "relativePath">) {
   return fs.readFileSync(resolveAttachmentAbsolutePath(attachment.relativePath));
+}
+
+export function isInlineTextPreviewableAttachment(
+  attachment: Pick<MessageAttachment, "kind" | "mimeType" | "filename">
+) {
+  if (attachment.kind !== "text") {
+    return false;
+  }
+
+  try {
+    return normalizeAttachmentKind(attachment.filename, attachment.mimeType).kind === "text";
+  } catch {
+    return false;
+  }
+}
+
+export function readAttachmentText(
+  attachment: Pick<MessageAttachment, "relativePath" | "kind" | "mimeType" | "filename" | "extractedText">
+) {
+  if (!isInlineTextPreviewableAttachment(attachment)) {
+    throw new AttachmentTextPreviewUnsupportedError();
+  }
+
+  try {
+    return readAttachmentBuffer(attachment).toString("utf8");
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return attachment.extractedText;
+    }
+
+    throw error;
+  }
 }
 
 export function getAttachmentDataUrl(attachment: Pick<MessageAttachment, "relativePath" | "mimeType">) {

@@ -6,6 +6,10 @@ import ReactMarkdown from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 
+import {
+  AttachmentPreviewModal,
+  useAttachmentPreviewController
+} from "@/components/attachment-preview-modal";
 import { CompactionIndicator } from "@/components/compaction-indicator";
 import { Textarea } from "@/components/ui/textarea";
 import type {
@@ -15,7 +19,7 @@ import type {
   MessageAttachment,
   MessageTimelineItem
 } from "@/lib/types";
-import { normalizeMarkdownLineBreaks } from "@/lib/utils";
+import { normalizeMarkdownLineBreaks } from "@/lib/text-utils";
 
 const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
 const COPY_RESET_DELAY_MS = 1600;
@@ -477,31 +481,38 @@ function ActionButton({
   );
 }
 
-function AttachmentTile({ attachment, compact = false }: { attachment: MessageAttachment; compact?: boolean }) {
-  const href = `/api/attachments/${attachment.id}`;
-
+function AttachmentTile({
+  attachment,
+  compact = false,
+  onPreview
+}: {
+  attachment: MessageAttachment;
+  compact?: boolean;
+  onPreview: (attachment: MessageAttachment) => void;
+}) {
   if (attachment.kind === "image") {
     return (
-      <a
-        href={href}
-        target="_blank"
-        rel="noreferrer"
+      <button
+        type="button"
+        aria-label={`Preview ${attachment.filename}`}
+        onClick={() => onPreview(attachment)}
         className={`overflow-hidden rounded-xl border border-white/10 bg-black/20 ${compact ? "w-16" : "w-28"}`}
       >
         <img
-          src={href}
-          alt={attachment.filename}
+          src={`/api/attachments/${attachment.id}`}
+          alt=""
+          aria-hidden="true"
           className={`w-full object-cover ${compact ? "h-16" : "h-28"}`}
         />
-      </a>
+      </button>
     );
   }
 
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
+    <button
+      type="button"
+      aria-label={`Preview ${attachment.filename}`}
+      onClick={() => onPreview(attachment)}
       className="flex min-w-0 items-center gap-2 rounded-xl border border-white/10 bg-black/15 px-3 py-2 text-left"
     >
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-white/75">
@@ -511,16 +522,18 @@ function AttachmentTile({ attachment, compact = false }: { attachment: MessageAt
         <span className="block truncate text-sm font-medium text-white">{attachment.filename}</span>
         <span className="block truncate text-xs text-white/60">{attachment.mimeType}</span>
       </span>
-    </a>
+    </button>
   );
 }
 
 function MessageAttachments({
   attachments,
-  compact = false
+  compact = false,
+  onPreview
 }: {
   attachments: MessageAttachment[];
   compact?: boolean;
+  onPreview: (attachment: MessageAttachment) => void;
 }) {
   if (!attachments.length) {
     return null;
@@ -534,14 +547,24 @@ function MessageAttachments({
       {images.length ? (
         <div className="flex flex-wrap gap-2">
           {images.map((attachment) => (
-            <AttachmentTile key={attachment.id} attachment={attachment} compact={compact} />
+            <AttachmentTile
+              key={attachment.id}
+              attachment={attachment}
+              compact={compact}
+              onPreview={onPreview}
+            />
           ))}
         </div>
       ) : null}
       {files.length ? (
         <div className="space-y-2">
           {files.map((attachment) => (
-            <AttachmentTile key={attachment.id} attachment={attachment} compact={compact} />
+            <AttachmentTile
+              key={attachment.id}
+              attachment={attachment}
+              compact={compact}
+              onPreview={onPreview}
+            />
           ))}
         </div>
       ) : null}
@@ -564,7 +587,8 @@ export function MessageBubble({
   onForkAssistantMessage,
   isForking = false,
   onApproveMemoryProposal,
-  onDismissMemoryProposal
+  onDismissMemoryProposal,
+  onPreviewAttachment
 }: {
   message: Message;
   streamingTimeline?: MessageTimelineItem[];
@@ -584,6 +608,7 @@ export function MessageBubble({
   isUpdating?: boolean;
   onForkAssistantMessage?: (messageId: string) => void;
   isForking?: boolean;
+  onPreviewAttachment?: (attachment: MessageAttachment) => void;
 }) {
   const rawContent = streamingAnswer ?? message.content;
   const rawThinking = streamingThinking ?? message.thinkingContent;
@@ -693,6 +718,7 @@ export function MessageBubble({
     .join("");
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
+  const previewController = useAttachmentPreviewController();
 
   function toggleToolItem(id: string) {
     setToolOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -785,6 +811,8 @@ export function MessageBubble({
     setIsEditing(false);
   }
 
+  const handleAttachmentPreview = onPreviewAttachment ?? previewController.openAttachmentPreview;
+
   if (message.role === "system") {
     return (
       <div className="mx-auto max-w-lg rounded-full border border-white/6 bg-white/[0.03] px-5 py-2 text-center text-[11px] tracking-[0.12em] text-white/40 uppercase">
@@ -795,80 +823,94 @@ export function MessageBubble({
 
   if (message.role === "user") {
     return (
-      <div className="flex w-full justify-end">
-        <div className="group flex max-w-[96%] flex-col items-end md:max-w-[95%]">
-          <div className="w-full rounded-2xl border border-[var(--accent)]/10 bg-[var(--accent-soft)] px-4 py-3 text-[var(--text)]">
-            {isEditing ? (
-              <Textarea
-                ref={editRef}
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                className="min-h-[88px] border-0 bg-transparent px-0 py-0 text-[14.5px] leading-7 text-[var(--text)] focus-visible:ring-0"
-                onKeyDown={(event) => {
-                  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-                    event.preventDefault();
-                    void handleSaveEdit();
-                  }
+      <>
+        <div className="flex w-full justify-end">
+          <div className="group flex max-w-[96%] flex-col items-end md:max-w-[95%]">
+            <div className="w-full rounded-2xl border border-[var(--accent)]/10 bg-[var(--accent-soft)] px-4 py-3 text-[var(--text)]">
+              {isEditing ? (
+                <Textarea
+                  ref={editRef}
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  className="min-h-[88px] border-0 bg-transparent px-0 py-0 text-[14.5px] leading-7 text-[var(--text)] focus-visible:ring-0"
+                  onKeyDown={(event) => {
+                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                      event.preventDefault();
+                      void handleSaveEdit();
+                    }
 
-                  if (event.key === "Escape") {
-                    event.preventDefault();
-                    handleCancelEdit();
-                  }
-                }}
-              />
-            ) : content ? (
-              <div ref={contentRef}>
-                <p className="whitespace-pre-wrap text-[14.5px] leading-7">{content}</p>
-              </div>
-            ) : null}
-            {message.attachments?.length ? (
-              <div className={content || isEditing ? "mt-3" : ""}>
-                <MessageAttachments attachments={message.attachments} compact />
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      handleCancelEdit();
+                    }
+                  }}
+                />
+              ) : content ? (
+                <div ref={contentRef}>
+                  <p className="whitespace-pre-wrap text-[14.5px] leading-7">{content}</p>
+                </div>
+              ) : null}
+              {message.attachments?.length ? (
+                <div className={content || isEditing ? "mt-3" : ""}>
+                  <MessageAttachments
+                    attachments={message.attachments}
+                    compact
+                    onPreview={handleAttachmentPreview}
+                  />
+                </div>
+              ) : null}
+            </div>
+
+            {showUserBubbleActions ? (
+              <div className="mt-2 flex items-center gap-1 opacity-100 transition md:pointer-events-none md:translate-y-1 md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:translate-y-0 md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100">
+                <ActionButton
+                  label={copyState === "copied" ? "Copied" : "Copy message"}
+                  onClick={() => void handleCopy()}
+                >
+                  {copyState === "copied" ? (
+                    <Check className="h-3.5 w-3.5 text-emerald-400" />
+                  ) : copyState === "error" ? (
+                    <X className="h-3.5 w-3.5 text-red-400" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </ActionButton>
+
+                {isEditing ? (
+                  <>
+                    <ActionButton
+                      label="Save edit"
+                      onClick={() => void handleSaveEdit()}
+                      disabled={isUpdating || !draft.trim()}
+                    >
+                      {isUpdating ? (
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Check className="h-3.5 w-3.5" />
+                      )}
+                    </ActionButton>
+                    <ActionButton label="Cancel edit" onClick={handleCancelEdit} disabled={isUpdating}>
+                      <X className="h-3.5 w-3.5" />
+                    </ActionButton>
+                  </>
+                ) : (
+                  <ActionButton label="Edit message" onClick={() => setIsEditing(true)}>
+                    <Pencil className="h-3.5 w-3.5" />
+                  </ActionButton>
+                )}
               </div>
             ) : null}
           </div>
-
-          {showUserBubbleActions ? (
-            <div className="mt-2 flex items-center gap-1 opacity-100 transition md:pointer-events-none md:translate-y-1 md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:translate-y-0 md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100">
-              <ActionButton
-                label={copyState === "copied" ? "Copied" : "Copy message"}
-                onClick={() => void handleCopy()}
-              >
-                {copyState === "copied" ? (
-                  <Check className="h-3.5 w-3.5 text-emerald-400" />
-                ) : copyState === "error" ? (
-                  <X className="h-3.5 w-3.5 text-red-400" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-              </ActionButton>
-
-              {isEditing ? (
-                <>
-                  <ActionButton
-                    label="Save edit"
-                    onClick={() => void handleSaveEdit()}
-                    disabled={isUpdating || !draft.trim()}
-                  >
-                    {isUpdating ? (
-                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Check className="h-3.5 w-3.5" />
-                    )}
-                  </ActionButton>
-                  <ActionButton label="Cancel edit" onClick={handleCancelEdit} disabled={isUpdating}>
-                    <X className="h-3.5 w-3.5" />
-                  </ActionButton>
-                </>
-              ) : (
-                <ActionButton label="Edit message" onClick={() => setIsEditing(true)}>
-                  <Pencil className="h-3.5 w-3.5" />
-                </ActionButton>
-              )}
-            </div>
-          ) : null}
         </div>
-      </div>
+        {!onPreviewAttachment && previewController.previewAttachment ? (
+          <AttachmentPreviewModal
+            attachment={previewController.previewAttachment}
+            state={previewController.previewState}
+            onClose={previewController.closeAttachmentPreview}
+            onRetry={() => void previewController.openAttachmentPreview(previewController.previewAttachment!)}
+          />
+        ) : null}
+      </>
     );
   }
 

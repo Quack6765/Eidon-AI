@@ -5,7 +5,7 @@ import { ensureFreshGithubAccessToken, runGithubCopilotChat, streamGithubCopilot
 import { buildCopilotTools, type CopilotToolContext } from "@/lib/copilot-tools";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
 import { estimatePromptTokens, setActiveTokenizer } from "@/lib/tokenization";
-import { normalizeLineBreaks } from "@/lib/utils";
+import { normalizeLineBreaks } from "@/lib/text-utils";
 import type {
   ChatStreamEvent,
   MessageActionKind,
