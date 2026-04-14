@@ -262,6 +262,8 @@ select {
 
 .assistant-code-block {
   margin: 0.9rem 0;
+  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 0.9rem;
@@ -351,7 +353,10 @@ select {
 
 .markdown-body .assistant-code-block__body {
   margin: 0;
+  max-width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -363,7 +368,8 @@ select {
 
 .assistant-code-block__code {
   display: block;
-  min-width: max-content;
+  width: max-content;
+  min-width: 100%;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
 }
 
@@ -410,6 +416,18 @@ select {
 .assistant-code-block__body .hljs-meta,
 .assistant-code-block__body .hljs-punctuation {
   color: #b1bac4;
+}
+
+@media (max-width: 767px) {
+  .markdown-body .assistant-code-block__body {
+    padding: 0.75rem 0.75rem 0.8rem;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .assistant-code-block__header {
+    padding: 0.5rem 0.65rem;
+  }
 }
 
 .markdown-body table {

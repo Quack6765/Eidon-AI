@@ -13,6 +13,7 @@ import {
 } from "@/components/attachment-preview-modal";
 import { CompactionIndicator } from "@/components/compaction-indicator";
 import { Textarea } from "@/components/ui/textarea";
+import { writeRichTextToClipboard } from "@/lib/clipboard";
 import type {
   MemoryCategory,
   Message,
@@ -24,6 +25,7 @@ import { normalizeMarkdownLineBreaks } from "@/lib/text-utils";
 
 const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
 const COPY_RESET_DELAY_MS = 1600;
+const AssistantMarkdownCopyReadyContext = React.createContext<Map<number, boolean> | null>(null);
 
 function getMarkdownCodeValue(children: React.ReactNode) {
   return React.Children.toArray(children)
@@ -37,14 +39,18 @@ function getMarkdownCodeValue(children: React.ReactNode) {
     .join("");
 }
 
-function getFencedCodeBlockCopyReadyStates(content: string, isStreaming: boolean) {
-  const blocks: Array<{ endLineIndex: number | null }> = [];
+function stripFenceContainerPrefixes(line: string) {
+  return line.replace(/^(?:>\s*)+/, "");
+}
+
+function getFencedCodeBlocks(content: string) {
+  const blocks: Array<{ startLineNumber: number; endLineIndex: number | null }> = [];
   const lines = content.split("\n");
   let activeFenceCharacter: "`" | "~" | null = null;
   let activeFenceLength = 0;
 
   lines.forEach((line, lineIndex) => {
-    const trimmedLine = line.trim();
+    const trimmedLine = stripFenceContainerPrefixes(line.trim());
 
     if (!activeFenceCharacter) {
       const openingFence = trimmedLine.match(/^(`{3,}|~{3,})(.*)$/);
@@ -55,7 +61,7 @@ function getFencedCodeBlockCopyReadyStates(content: string, isStreaming: boolean
 
       activeFenceCharacter = openingFence[1][0] as "`" | "~";
       activeFenceLength = openingFence[1].length;
-      blocks.push({ endLineIndex: null });
+      blocks.push({ startLineNumber: lineIndex + 1, endLineIndex: null });
       return;
     }
 
@@ -76,73 +82,116 @@ function getFencedCodeBlockCopyReadyStates(content: string, isStreaming: boolean
     activeFenceLength = 0;
   });
 
-  return blocks.map((block) => {
-    if (block.endLineIndex === null) {
-      return false;
-    }
+  return blocks;
+}
 
-    if (!isStreaming) {
-      return true;
-    }
+function getFencedCodeBlockCopyReadyByStartLine(content: string, isStreaming: boolean) {
+  const blocks = getFencedCodeBlocks(content);
+  const lines = content.split("\n");
 
-    return lines
-      .slice(block.endLineIndex + 1)
-      .some((line) => line.trim().length > 0);
-  });
+  return new Map(
+    blocks.map((block) => {
+      if (block.endLineIndex === null) {
+        return [block.startLineNumber, false] as const;
+      }
+
+      if (!isStreaming) {
+        return [block.startLineNumber, true] as const;
+      }
+
+      return [
+        block.startLineNumber,
+        lines
+          .slice(block.endLineIndex + 1)
+          .some((line) => line.trim().length > 0)
+      ] as const;
+    })
+  );
 }
 
 function hasIncompleteFencedCodeBlock(content: string, isStreaming: boolean) {
-  return getFencedCodeBlockCopyReadyStates(content, isStreaming).some((isReady) => !isReady);
+  return Array.from(getFencedCodeBlockCopyReadyByStartLine(content, isStreaming).values()).some((isReady) => !isReady);
+}
+
+function AssistantMarkdownPre({
+  node,
+  children
+}: React.ComponentPropsWithoutRef<"pre"> & {
+  node?: {
+    position?: {
+      start?: {
+        line?: number;
+      };
+    };
+  };
+}) {
+  const copyReadyByStartLine = React.useContext(AssistantMarkdownCopyReadyContext);
+  const codeChild = React.Children.toArray(children)[0];
+
+  if (!React.isValidElement(codeChild)) {
+    return <pre>{children}</pre>;
+  }
+
+  const typedCodeChild = codeChild as React.ReactElement<{
+    children?: React.ReactNode;
+    className?: string;
+  }>;
+  const className =
+    typeof typedCodeChild.props.className === "string"
+      ? typedCodeChild.props.className
+      : undefined;
+  const languageClass = className
+    ?.split(/\s+/)
+    .find((token: string) => token.startsWith("language-"));
+  const language = languageClass
+    ? languageClass.slice("language-".length)
+    : null;
+  const value = getMarkdownCodeValue(typedCodeChild.props.children ?? "").replace(/\n$/, "");
+  const startLineNumber = node?.position?.start?.line;
+  const isComplete =
+    typeof startLineNumber === "number"
+      ? copyReadyByStartLine?.get(startLineNumber) ?? true
+      : true;
+
+  return <AssistantCodeBlock code={value} language={language} isComplete={isComplete} />;
+}
+
+function AssistantMarkdownInlineCode({
+  node: _node,
+  className,
+  children,
+  ...props
+}: {
+  node?: unknown;
+  className?: string;
+  children?: React.ReactNode;
+} & React.ComponentPropsWithoutRef<"code"> & {
+  inline?: boolean;
+}) {
+  const { inline: _inline, ...codeProps } = props;
+
+  return (
+    <code className={className} {...codeProps}>
+      {children}
+    </code>
+  );
 }
 
 function renderAssistantMarkdown(content: string, isStreaming: boolean) {
-  const fencedCodeBlockCopyReadyStates = getFencedCodeBlockCopyReadyStates(content, isStreaming);
-  let fencedCodeBlockIndex = 0;
+  const fencedCodeBlockCopyReadyByStartLine = getFencedCodeBlockCopyReadyByStartLine(content, isStreaming);
 
   return (
-    <ReactMarkdown
-      remarkPlugins={MARKDOWN_PLUGINS}
-      components={{
-        pre({ children }) {
-          const codeChild = React.Children.toArray(children)[0];
-
-          if (!React.isValidElement(codeChild)) {
-            return <pre>{children}</pre>;
-          }
-
-          const typedCodeChild = codeChild as React.ReactElement<{
-            children?: React.ReactNode;
-            className?: string;
-          }>;
-          const className =
-            typeof typedCodeChild.props.className === "string"
-              ? typedCodeChild.props.className
-              : undefined;
-          const languageClass = className
-            ?.split(/\s+/)
-            .find((token: string) => token.startsWith("language-"));
-          const language = languageClass
-            ? languageClass.slice("language-".length)
-            : null;
-          const value = getMarkdownCodeValue(typedCodeChild.props.children ?? "").replace(/\n$/, "");
-          const isComplete = fencedCodeBlockCopyReadyStates[fencedCodeBlockIndex] ?? true;
-
-          fencedCodeBlockIndex += 1;
-
-          return <AssistantCodeBlock code={value} language={language} isComplete={isComplete} />;
-        },
-        code({ node: _node, className, children, ...props }) {
-          const { inline: _inline, ...codeProps } = props as { inline?: boolean } & React.ComponentPropsWithoutRef<"code">;
-          return (
-            <code className={className} {...codeProps}>
-              {children}
-            </code>
-          );
-        }
-      }}
-    >
-      {content}
-    </ReactMarkdown>
+    <AssistantMarkdownCopyReadyContext.Provider value={fencedCodeBlockCopyReadyByStartLine}>
+      <ReactMarkdown
+        remarkPlugins={MARKDOWN_PLUGINS}
+        components={{
+          pre: AssistantMarkdownPre,
+          code: AssistantMarkdownInlineCode
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </AssistantMarkdownCopyReadyContext.Provider>
   );
 }
 
@@ -537,7 +586,7 @@ function MemoryProposalCard({
 
 const ASSISTANT_MAX_WIDTH = "max-w-[96%] md:max-w-[95%]";
 const ASSISTANT_BUBBLE =
-  "w-fit rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-2 md:px-4 md:py-3 text-[var(--text)] shadow-[0_8px_24px_rgba(0,0,0,0.28)]";
+  "w-fit max-w-full rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-2 md:px-4 md:py-3 text-[var(--text)] shadow-[0_8px_24px_rgba(0,0,0,0.28)]";
 const ASSISTANT_LOADING_SHELL =
   "mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1";
 
@@ -559,28 +608,6 @@ function formatPlainTextHtml(value: string) {
     .split(/\n{2,}/)
     .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br />")}</p>`)
     .join("");
-}
-
-async function writeMessageToClipboard(input: { html: string; text: string }) {
-  if (typeof navigator === "undefined" || !navigator.clipboard) {
-    throw new Error("Clipboard unavailable");
-  }
-
-  if (
-    typeof ClipboardItem !== "undefined" &&
-    typeof navigator.clipboard.write === "function" &&
-    input.html
-  ) {
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        "text/plain": new Blob([input.text], { type: "text/plain" }),
-        "text/html": new Blob([input.html], { type: "text/html" })
-      })
-    ]);
-    return;
-  }
-
-  await navigator.clipboard.writeText(input.text);
 }
 
 function ActionButton({
@@ -917,7 +944,7 @@ export function MessageBubble({
           ? assistantText
           : message.content;
 
-      await writeMessageToClipboard({ html, text });
+      await writeRichTextToClipboard({ html, text });
       setCopyFeedback("copied");
     } catch {
       setCopyFeedback("error");
@@ -1114,7 +1141,7 @@ export function MessageBubble({
                 </div>
               )
             ) : assistantBlocks.length || content ? (
-              <div className="group flex flex-col items-start">
+              <div className="group flex w-full min-w-0 flex-col items-start">
                 <div ref={contentRef} className={`flex w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
                   {assistantBlocks.map((item) => {
                     if (item.timelineKind === "action") {

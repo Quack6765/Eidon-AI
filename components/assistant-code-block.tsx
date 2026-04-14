@@ -3,6 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Check, Copy, X } from "lucide-react";
 
+import { writeTextToClipboard } from "@/lib/clipboard";
 import { renderHighlightedCode } from "@/lib/code-highlighting";
 
 const COPY_RESET_DELAY_MS = 1600;
@@ -44,11 +45,7 @@ export function AssistantCodeBlock({
 
   async function handleCopy() {
     try {
-      if (typeof navigator === "undefined" || !navigator.clipboard) {
-        throw new Error("Clipboard unavailable");
-      }
-
-      await navigator.clipboard.writeText(code);
+      await writeTextToClipboard(code);
       setCopyFeedback("copied");
     } catch {
       setCopyFeedback("error");

@@ -832,6 +832,21 @@ describe("message bubble", () => {
     expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
   });
 
+  it("caps assistant bubbles at the container width so fenced code blocks can scroll internally on narrow screens", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```python", "print('hello')", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-message-bubble").className).toContain("max-w-full");
+    expect(screen.getByTestId("assistant-message-bubble").parentElement?.parentElement?.className).toContain("w-full");
+    expect(screen.getByTestId("assistant-message-bubble").parentElement?.parentElement?.className).toContain("min-w-0");
+  });
+
   it("renders assistant fenced code blocks without an extra outer pre wrapper", () => {
     render(
       React.createElement(MessageBubble, {
@@ -1086,6 +1101,26 @@ describe("message bubble", () => {
     expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
   });
 
+  it("keeps a trailing closed blockquoted assistant code block non-copyable until streaming finishes", () => {
+    render(
+      React.createElement(StreamingPlaceholder, {
+        createdAt: new Date().toISOString(),
+        thinking: "",
+        answer: ["> ```python", "> print('quoted')", "> ```"].join("\n"),
+        awaitingFirstToken: false,
+        thinkingInProgress: false,
+        timeline: []
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+
+    expect(codeBlock).toHaveAttribute("data-complete", "false");
+    expect(codeBlock).toHaveTextContent("print('quoted')");
+    expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+  });
+
   it("keeps code-block copy hidden while streamed display text is still animating after the message snapshot is completed", () => {
     render(
       React.createElement(MessageBubble, {
@@ -1104,6 +1139,34 @@ describe("message bubble", () => {
     expect(codeBlock).toHaveTextContent("print('still painting')");
     expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+  });
+
+  it("keeps a completed code-block copy button mounted while later streamed prose changes", () => {
+    const { rerender } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          status: "streaming",
+          content: ""
+        },
+        streamingAnswer: ["```python", "print('done')", "```", "", "tail a"].join("\n")
+      })
+    );
+
+    const initialCopyButton = screen.getByRole("button", { name: "Copy code block" });
+
+    rerender(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          status: "streaming",
+          content: ""
+        },
+        streamingAnswer: ["```python", "print('done')", "```", "", "tail ab"].join("\n")
+      })
+    );
+
+    expect(screen.getByRole("button", { name: "Copy code block" })).toBe(initialCopyButton);
   });
 
   it("keeps assistant inline code inline instead of rendering the dedicated block component", () => {
@@ -1152,6 +1215,37 @@ describe("message bubble", () => {
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledWith("print('hello')");
     });
+  });
+
+  it("falls back to legacy copy when the code-block clipboard writeText call rejects", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("clipboard denied"));
+    const execCommand = vi.fn().mockReturnValue(true);
+
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true
+    });
+    Object.defineProperty(document, "execCommand", {
+      value: execCommand,
+      configurable: true
+    });
+    vi.stubGlobal("ClipboardItem", undefined);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```python", "print('hello')", "```"].join("\n")
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy code block" }));
+
+    await waitFor(() => {
+      expect(execCommand).toHaveBeenCalledWith("copy");
+    });
+    expect(screen.getByRole("button", { name: "Copied code block" })).toBeInTheDocument();
   });
 
   it("copies assistant output through the clipboard fallback", async () => {
