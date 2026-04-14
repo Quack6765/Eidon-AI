@@ -17,6 +17,7 @@ export function AssistantCodeBlock({
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const resetHandle = useRef<number | null>(null);
   const highlighted = renderHighlightedCode(language, code);
+  const displayLanguage = highlighted.displayLanguage ?? "text";
 
   useEffect(() => {
     return () => {
@@ -58,8 +59,8 @@ export function AssistantCodeBlock({
       data-testid="assistant-code-block"
     >
       <div className="assistant-code-block__header">
-        <span className="assistant-code-block__language">
-          {highlighted.displayLanguage ?? "text"}
+        <span className="assistant-code-block__language" title={displayLanguage}>
+          {displayLanguage}
         </span>
         <button
           type="button"

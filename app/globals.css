@@ -270,6 +270,7 @@ select {
 
 .assistant-code-block__header {
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
@@ -279,13 +280,15 @@ select {
 }
 
 .assistant-code-block__language {
-  display: inline-flex;
+  display: block;
+  flex: 1 1 auto;
   min-width: 0;
-  align-items: center;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
   font-size: 11px;
   line-height: 1;
   color: rgba(255, 255, 255, 0.56);
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -328,14 +331,14 @@ select {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .assistant-code-block__copy {
+  .assistant-code-block__copy[data-copy-state="idle"] {
     opacity: 0;
     pointer-events: none;
     transform: translateY(4px);
   }
 
-  .assistant-code-block:hover .assistant-code-block__copy,
-  .assistant-code-block:focus-within .assistant-code-block__copy {
+  .assistant-code-block:hover .assistant-code-block__copy[data-copy-state="idle"],
+  .assistant-code-block:focus-within .assistant-code-block__copy[data-copy-state="idle"] {
     opacity: 1;
     pointer-events: auto;
     transform: translateY(0);

@@ -890,8 +890,9 @@ describe("message bubble", () => {
     const assistantCodeBlock = screen.getByTestId("assistant-code-block");
 
     expect(assistantCodeBlock).toBeInTheDocument();
-    expect(screen.getByText("text")).toBeInTheDocument();
     expect(assistantCodeBlock).toHaveTextContent("SELECT id,");
+    expect(assistantCodeBlock.querySelector(".assistant-code-block__header")).not.toBeNull();
+    expect(assistantCodeBlock.querySelector(".assistant-code-block__copy")).not.toBeNull();
     expect(container.querySelector(".thinking-markdown-body [data-testid='assistant-code-block']")).toBeNull();
     expect(container.querySelector(".thinking-markdown-body pre code")).not.toBeNull();
   });
@@ -937,6 +938,31 @@ describe("message bubble", () => {
     expect(language).not.toBeNull();
     expect(copyButton).not.toBeNull();
     expect(body).not.toBeNull();
+  });
+
+  it("keeps long unsupported language labels inside the dedicated header without displacing copy controls", () => {
+    const longLanguage = "unsupported-language-label-with-a-very-long-fallback-name-that-should-not-overflow";
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: [`\`\`\`${longLanguage}`, "opaque => still visible", "```"].join("\n")
+        }
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+    const header = container.querySelector(".assistant-code-block__header");
+    const language = container.querySelector(".assistant-code-block__language");
+    const copyButton = container.querySelector(".assistant-code-block__copy");
+
+    expect(codeBlock).toBeInTheDocument();
+    expect(header).not.toBeNull();
+    expect(language).toHaveTextContent(longLanguage);
+    expect(language).toHaveAttribute("title", longLanguage);
+    expect(copyButton).not.toBeNull();
+    expect(header?.contains(language)).toBe(true);
+    expect(header?.contains(copyButton)).toBe(true);
   });
 
   it("renders empty tagged fenced assistant blocks without leaking undefined", () => {
