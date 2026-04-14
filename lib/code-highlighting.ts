@@ -42,9 +42,12 @@ const HTML_ESCAPE_MAP: Record<string, string> = {
   "'": "&#39;"
 };
 
+const AUTO_DETECT_MIN_RELEVANCE = 3;
+
 const highlighter = createHighlighter();
 
 export type HighlightedCodeResult = {
+  displayLanguage: string | null;
   html: string;
   language: string | null;
   usedFallback: boolean;
@@ -65,9 +68,13 @@ export function normalizeCodeFenceLanguage(language?: string | null): string | n
 }
 
 export function detectCodeLanguage(code: string): string | null {
-  const detectedLanguage = highlighter.highlightAuto(code, [...REGISTERED_LANGUAGES]).language;
+  const detection = highlighter.highlightAuto(code, [...REGISTERED_LANGUAGES]);
 
-  return normalizeCodeFenceLanguage(detectedLanguage);
+  if (detection.relevance < AUTO_DETECT_MIN_RELEVANCE) {
+    return null;
+  }
+
+  return normalizeCodeFenceLanguage(detection.language);
 }
 
 export function renderHighlightedCode(language: string | null | undefined, code: string): HighlightedCodeResult {
@@ -75,19 +82,19 @@ export function renderHighlightedCode(language: string | null | undefined, code:
 
   if (normalizedLanguage) {
     if (!highlighter.getLanguage(normalizedLanguage)) {
-      return createFallbackResult(code);
+      return createFallbackResult(code, normalizedLanguage);
     }
 
-    return highlightCode(normalizedLanguage, code);
+    return highlightCode(normalizedLanguage, code, normalizedLanguage);
   }
 
   const detectedLanguage = detectCodeLanguage(code);
 
   if (!detectedLanguage) {
-    return createFallbackResult(code);
+    return createFallbackResult(code, null);
   }
 
-  return highlightCode(detectedLanguage, code);
+  return highlightCode(detectedLanguage, code, detectedLanguage);
 }
 
 function createHighlighter() {
@@ -103,32 +110,29 @@ function createHighlighter() {
   instance.registerLanguage("xml", xml);
   instance.registerLanguage("yaml", yaml);
 
-  instance.registerAliases(["js"], { languageName: "javascript" });
-  instance.registerAliases(["jsx"], { languageName: "javascript" });
-  instance.registerAliases(["py"], { languageName: "python" });
-  instance.registerAliases(["sh", "shell", "zsh"], { languageName: "bash" });
-  instance.registerAliases(["ts"], { languageName: "typescript" });
-  instance.registerAliases(["tsx"], { languageName: "typescript" });
-  instance.registerAliases(["html"], { languageName: "xml" });
-  instance.registerAliases(["yml"], { languageName: "yaml" });
+  for (const [languageName, aliases] of Object.entries(groupAliasesByLanguage())) {
+    instance.registerAliases(aliases, { languageName });
+  }
 
   return instance;
 }
 
-function highlightCode(language: string, code: string): HighlightedCodeResult {
+function highlightCode(language: string, code: string, displayLanguage: string): HighlightedCodeResult {
   try {
     return {
+      displayLanguage,
       language,
       html: highlighter.highlight(code, { ignoreIllegals: true, language }).value,
       usedFallback: false
     };
   } catch {
-    return createFallbackResult(code);
+    return createFallbackResult(code, displayLanguage);
   }
 }
 
-function createFallbackResult(code: string): HighlightedCodeResult {
+function createFallbackResult(code: string, displayLanguage: string | null): HighlightedCodeResult {
   return {
+    displayLanguage,
     html: escapeHtml(code),
     language: null,
     usedFallback: true
@@ -137,4 +141,15 @@ function createFallbackResult(code: string): HighlightedCodeResult {
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (character) => HTML_ESCAPE_MAP[character]);
+}
+
+function groupAliasesByLanguage() {
+  const aliasesByLanguage: Record<string, string[]> = {};
+
+  for (const [alias, language] of Object.entries(LANGUAGE_ALIASES)) {
+    aliasesByLanguage[language] ??= [];
+    aliasesByLanguage[language].push(alias);
+  }
+
+  return aliasesByLanguage;
 }

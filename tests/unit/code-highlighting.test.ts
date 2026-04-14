@@ -25,7 +25,17 @@ describe("code highlighting helpers", () => {
       const result = renderHighlightedCode("customlang", "hello <world>");
 
       expect(result.language).toBeNull();
+      expect(result.displayLanguage).toBe("customlang");
       expect(result.html).toContain("&lt;world&gt;");
+      expect(result.usedFallback).toBe(true);
+    });
+
+    it("keeps ordinary plain text unhighlighted when auto-detection confidence is weak", () => {
+      const result = renderHighlightedCode(null, "Step 1: click save");
+
+      expect(result.language).toBeNull();
+      expect(result.displayLanguage).toBeNull();
+      expect(result.html).toBe("Step 1: click save");
       expect(result.usedFallback).toBe(true);
     });
   });
