@@ -28,6 +28,12 @@ describe("code highlighting helpers", () => {
       expect(detectCodeLanguage("SELECT id FROM users")).toBe("sql");
     });
 
+    it("does not auto-detect plain english verb phrases as sql", () => {
+      expect(detectCodeLanguage("select the option from the menu")).toBeNull();
+      expect(detectCodeLanguage("delete the file from your desktop")).toBeNull();
+      expect(detectCodeLanguage("for each item, delete it from the list")).toBeNull();
+    });
+
     it("detects yaml with comments or nesting", () => {
       expect(detectCodeLanguage("foo: bar\n# comment\nbaz: qux")).toBe("yaml");
       expect(detectCodeLanguage("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: demo")).toBe("yaml");
@@ -86,6 +92,14 @@ describe("code highlighting helpers", () => {
         expect(result.html).toBe(sample);
         expect(result.usedFallback).toBe(true);
       }
+    });
+
+    it("uses the detected sql path for undeclared sql snippets", () => {
+      const result = renderHighlightedCode(null, "SELECT id FROM users");
+
+      expect(result.language).toBe("sql");
+      expect(result.displayLanguage).toBe("sql");
+      expect(result.usedFallback).toBe(false);
     });
   });
 });

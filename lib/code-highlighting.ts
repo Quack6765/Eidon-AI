@@ -201,11 +201,7 @@ function isCssLike(code: string) {
 }
 
 function isSqlLike(code: string) {
-  const keywordMatches = code.match(
-    /\b(select|from|where|join|insert|into|values|update|set|delete|create|table|alter|drop|with|group\s+by|order\s+by|having|limit)\b/gi
-  );
-
-  return new Set(keywordMatches?.map((match) => match.toLowerCase()) ?? []).size >= 2;
+  return matchesSqlStatement(code.trim());
 }
 
 function isYamlLike(code: string) {
@@ -252,7 +248,7 @@ function detectPatternLanguage(code: string) {
 }
 
 function isLikelySqlSnippet(code: string) {
-  return /^(?:\s*)(select\b.+\bfrom\b|update\b.+\bset\b|delete\b.+\bfrom\b|insert\b.+\binto\b)/i.test(code.trim());
+  return matchesSqlStatement(code.trim());
 }
 
 function isLikelyBashSnippet(code: string) {
@@ -260,3 +256,27 @@ function isLikelyBashSnippet(code: string) {
 }
 
 const COMMON_LABEL_LIKE_YAML_KEYS = new Set(["name", "role", "status", "title", "email", "phone", "user"]);
+
+function matchesSqlStatement(code: string) {
+  return matchesSelectStatement(code) || matchesUpdateStatement(code) || matchesDeleteStatement(code) || matchesInsertStatement(code);
+}
+
+function matchesSelectStatement(code: string) {
+  const match = code.match(
+    /^select\s+([A-Za-z_][\w.]*|\*)(?:\s*,\s*([A-Za-z_][\w.]*|\*))*\s+from\s+([A-Za-z_][\w.]*)(?:\s+(where|join|group\s+by|order\s+by|limit)\b.*)?;?$/i
+  );
+
+  return Boolean(match);
+}
+
+function matchesUpdateStatement(code: string) {
+  return /^update\s+[A-Za-z_][\w.]*\s+set\s+[A-Za-z_][\w.]*\s*=.+$/i.test(code);
+}
+
+function matchesDeleteStatement(code: string) {
+  return /^delete\s+from\s+[A-Za-z_][\w.]*?(?:\s+where\b.+)?;?$/i.test(code);
+}
+
+function matchesInsertStatement(code: string) {
+  return /^insert\s+into\s+[A-Za-z_][\w.]*\s*(?:\([^)]*\))?\s+values\s*\(.+\);?$/i.test(code);
+}
