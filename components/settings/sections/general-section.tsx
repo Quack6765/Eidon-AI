@@ -6,11 +6,12 @@ import { useRouter } from "next/navigation";
 import { SettingsCard } from "@/components/settings/settings-card";
 import { SettingRow } from "@/components/settings/setting-row";
 import { Button } from "@/components/ui/button";
-import type { AppSettings, ConversationRetention } from "@/lib/types";
+import type { AppSettings, ConversationRetention, ImageGenerationBackend } from "@/lib/types";
 
 type GeneralSectionSettings = AppSettings & {
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
+  hasGoogleNanoBananaApiKey?: boolean;
 };
 
 const inputClassName =
@@ -18,7 +19,13 @@ const inputClassName =
 
 const fieldLabelClassName = "mb-1 block text-xs font-medium text-[var(--muted)]";
 
-export function GeneralSection({ settings }: { settings: GeneralSectionSettings }) {
+export function GeneralSection({
+  settings,
+  canManageImageGeneration = false
+}: {
+  settings: GeneralSectionSettings;
+  canManageImageGeneration?: boolean;
+}) {
   const router = useRouter();
   const [conversationRetention, setConversationRetention] = useState<ConversationRetention>(
     settings.conversationRetention
@@ -38,6 +45,35 @@ export function GeneralSection({ settings }: { settings: GeneralSectionSettings 
   const hasStoredExaApiKey = settings.hasExaApiKey ?? Boolean(settings.exaApiKey);
   const hasStoredTavilyApiKey = settings.hasTavilyApiKey ?? Boolean(settings.tavilyApiKey);
 
+  const [imageGenerationBackend, setImageGenerationBackend] = useState<ImageGenerationBackend>(
+    settings.imageGenerationBackend
+  );
+  const [googleNanoBananaModel, setGoogleNanoBananaModel] = useState(
+    settings.googleNanoBananaModel
+  );
+  const [googleNanoBananaApiKey, setGoogleNanoBananaApiKey] = useState(
+    settings.googleNanoBananaApiKey
+  );
+  const [hasEditedGoogleNanoBananaApiKey, setHasEditedGoogleNanoBananaApiKey] = useState(false);
+  const [comfyuiBaseUrl, setComfyuiBaseUrl] = useState(settings.comfyuiBaseUrl);
+  const [comfyuiAuthType, setComfyuiAuthType] = useState(settings.comfyuiAuthType);
+  const [comfyuiBearerToken, setComfyuiBearerToken] = useState(settings.comfyuiBearerToken);
+  const [hasEditedComfyuiBearerToken, setHasEditedComfyuiBearerToken] = useState(false);
+  const [comfyuiWorkflowJson, setComfyuiWorkflowJson] = useState(settings.comfyuiWorkflowJson);
+  const [comfyuiPromptPath, setComfyuiPromptPath] = useState(settings.comfyuiPromptPath);
+  const [comfyuiNegativePromptPath, setComfyuiNegativePromptPath] = useState(
+    settings.comfyuiNegativePromptPath
+  );
+  const [comfyuiWidthPath, setComfyuiWidthPath] = useState(settings.comfyuiWidthPath);
+  const [comfyuiHeightPath, setComfyuiHeightPath] = useState(settings.comfyuiHeightPath);
+  const [comfyuiSeedPath, setComfyuiSeedPath] = useState(settings.comfyuiSeedPath);
+  const [imageError, setImageError] = useState("");
+  const [imageSuccess, setImageSuccess] = useState("");
+  const [isSavingImage, setIsSavingImage] = useState(false);
+  const hasStoredGoogleNanoBananaApiKey =
+    settings.hasGoogleNanoBananaApiKey ?? Boolean(settings.googleNanoBananaApiKey);
+  const hasStoredComfyuiBearerToken = settings.hasComfyuiBearerToken ?? Boolean(settings.comfyuiBearerToken);
+
   const speechLanguageOptions =
     sttEngine === "browser"
       ? [
@@ -55,6 +91,11 @@ export function GeneralSection({ settings }: { settings: GeneralSectionSettings 
   function resetMessages() {
     setError("");
     setSuccess("");
+  }
+
+  function resetImageMessages() {
+    setImageError("");
+    setImageSuccess("");
   }
 
   function handleSpeechEngineChange(nextEngine: AppSettings["sttEngine"]) {
@@ -144,6 +185,64 @@ export function GeneralSection({ settings }: { settings: GeneralSectionSettings 
       router.refresh();
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function saveImageSettings() {
+    resetImageMessages();
+
+    const payload: Record<string, unknown> = {
+      imageGenerationBackend,
+      googleNanoBananaModel
+    };
+
+    if (imageGenerationBackend === "google_nano_banana") {
+      if (
+        hasEditedGoogleNanoBananaApiKey ||
+        (!hasStoredGoogleNanoBananaApiKey && googleNanoBananaApiKey.trim())
+      ) {
+        payload.googleNanoBananaApiKey = googleNanoBananaApiKey.trim();
+      }
+    }
+
+    if (imageGenerationBackend === "comfyui") {
+      payload.comfyuiBaseUrl = comfyuiBaseUrl.trim();
+      payload.comfyuiAuthType = comfyuiAuthType;
+
+      if (
+        hasEditedComfyuiBearerToken ||
+        (!hasStoredComfyuiBearerToken && comfyuiBearerToken.trim())
+      ) {
+        payload.comfyuiBearerToken = comfyuiBearerToken.trim();
+      }
+
+      payload.comfyuiWorkflowJson = comfyuiWorkflowJson;
+      payload.comfyuiPromptPath = comfyuiPromptPath;
+      payload.comfyuiNegativePromptPath = comfyuiNegativePromptPath;
+      payload.comfyuiWidthPath = comfyuiWidthPath;
+      payload.comfyuiHeightPath = comfyuiHeightPath;
+      payload.comfyuiSeedPath = comfyuiSeedPath;
+    }
+
+    setIsSavingImage(true);
+
+    try {
+      const response = await fetch("/api/settings/image-generation", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const result = (await response.json()) as { error?: string };
+
+      if (!response.ok) {
+        setImageError(result.error ?? "Unable to save image generation settings");
+        return;
+      }
+
+      setImageSuccess("Image generation settings saved.");
+      router.refresh();
+    } finally {
+      setIsSavingImage(false);
     }
   }
 
@@ -322,6 +421,297 @@ export function GeneralSection({ settings }: { settings: GeneralSectionSettings 
             ) : null}
           </div>
         </SettingRow>
+      </SettingsCard>
+
+      <SettingsCard title="Image Generation">
+        {!canManageImageGeneration ? (
+          <SettingRow
+            label="Image generation backend"
+            description="Only admins can change image generation settings."
+          >
+            <select
+              aria-label="Image generation backend"
+              value={imageGenerationBackend}
+              disabled
+              className={`${inputClassName} sm:w-auto opacity-60`}
+            >
+              <option value="disabled">Disabled</option>
+              <option value="google_nano_banana">Google Nano Banana</option>
+              <option value="comfyui">ComfyUI</option>
+            </select>
+          </SettingRow>
+        ) : (
+          <>
+            <SettingRow
+              label="Image generation backend"
+              description="Choose the backend used for image generation."
+            >
+              <div className="w-full space-y-3 sm:w-[22rem]">
+                <div>
+                  <label htmlFor="image-generation-backend" className={fieldLabelClassName}>
+                    Image generation backend
+                  </label>
+                  <select
+                    id="image-generation-backend"
+                    aria-label="Image generation backend"
+                    value={imageGenerationBackend}
+                    onChange={(event) => {
+                      resetImageMessages();
+                      setImageGenerationBackend(
+                        event.target.value as ImageGenerationBackend
+                      );
+                    }}
+                    className={inputClassName}
+                  >
+                    <option value="disabled">Disabled</option>
+                    <option value="google_nano_banana">Google Nano Banana</option>
+                    <option value="comfyui">ComfyUI</option>
+                  </select>
+                </div>
+
+                {imageGenerationBackend === "google_nano_banana" ? (
+                  <div className="space-y-3">
+                    <div>
+                      <label htmlFor="google-nano-banana-model" className={fieldLabelClassName}>
+                        Model
+                      </label>
+                      <select
+                        id="google-nano-banana-model"
+                        aria-label="Google Nano Banana model"
+                        value={googleNanoBananaModel}
+                        onChange={(event) => {
+                          resetImageMessages();
+                          setGoogleNanoBananaModel(
+                            event.target.value as AppSettings["googleNanoBananaModel"]
+                          );
+                        }}
+                        className={inputClassName}
+                      >
+                        <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
+                        <option value="gemini-3.1-flash-image-preview">
+                          Gemini 3.1 Flash Image Preview
+                        </option>
+                        <option value="gemini-3-pro-image-preview">
+                          Gemini 3 Pro Image Preview
+                        </option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="google-nano-banana-api-key" className={fieldLabelClassName}>
+                        API key
+                      </label>
+                      <input
+                        id="google-nano-banana-api-key"
+                        aria-label="Google Nano Banana API key"
+                        type="password"
+                        autoComplete="off"
+                        value={googleNanoBananaApiKey}
+                        placeholder={
+                          hasStoredGoogleNanoBananaApiKey && !hasEditedGoogleNanoBananaApiKey
+                            ? "••••••••"
+                            : ""
+                        }
+                        onChange={(event) => {
+                          resetImageMessages();
+                          setHasEditedGoogleNanoBananaApiKey(true);
+                          setGoogleNanoBananaApiKey(event.target.value);
+                        }}
+                        className={inputClassName}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+
+                {imageGenerationBackend === "comfyui" ? (
+                  <div className="space-y-3">
+                    <div>
+                      <label htmlFor="comfyui-base-url" className={fieldLabelClassName}>
+                        Base URL
+                      </label>
+                      <input
+                        id="comfyui-base-url"
+                        aria-label="ComfyUI base URL"
+                        type="url"
+                        autoComplete="off"
+                        value={comfyuiBaseUrl}
+                        placeholder="https://comfy.example.com"
+                        onChange={(event) => {
+                          resetImageMessages();
+                          setComfyuiBaseUrl(event.target.value);
+                        }}
+                        className={inputClassName}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="comfyui-auth-type" className={fieldLabelClassName}>
+                        Auth type
+                      </label>
+                      <select
+                        id="comfyui-auth-type"
+                        aria-label="ComfyUI auth type"
+                        value={comfyuiAuthType}
+                        onChange={(event) => {
+                          resetImageMessages();
+                          setComfyuiAuthType(
+                            event.target.value as AppSettings["comfyuiAuthType"]
+                          );
+                        }}
+                        className={inputClassName}
+                      >
+                        <option value="none">None</option>
+                        <option value="bearer">Bearer token</option>
+                      </select>
+                    </div>
+                    {comfyuiAuthType === "bearer" ? (
+                      <div>
+                        <label htmlFor="comfyui-bearer-token" className={fieldLabelClassName}>
+                          Bearer token
+                        </label>
+                        <input
+                          id="comfyui-bearer-token"
+                          aria-label="ComfyUI bearer token"
+                          type="password"
+                          autoComplete="off"
+                          value={comfyuiBearerToken}
+                          placeholder={
+                            hasStoredComfyuiBearerToken && !hasEditedComfyuiBearerToken
+                              ? "••••••••"
+                              : ""
+                          }
+                          onChange={(event) => {
+                            resetImageMessages();
+                            setHasEditedComfyuiBearerToken(true);
+                            setComfyuiBearerToken(event.target.value);
+                          }}
+                          className={inputClassName}
+                        />
+                      </div>
+                    ) : null}
+                    <div>
+                      <label htmlFor="comfyui-workflow-json" className={fieldLabelClassName}>
+                        Workflow JSON
+                      </label>
+                      <textarea
+                        id="comfyui-workflow-json"
+                        aria-label="ComfyUI workflow JSON"
+                        rows={4}
+                        value={comfyuiWorkflowJson}
+                        placeholder='{"3":{"inputs":{"text":"prompt"}}}'
+                        onChange={(event) => {
+                          resetImageMessages();
+                          setComfyuiWorkflowJson(event.target.value);
+                        }}
+                        className={`${inputClassName} resize-y font-mono`}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="comfyui-prompt-path" className={fieldLabelClassName}>
+                        Prompt path
+                      </label>
+                      <input
+                        id="comfyui-prompt-path"
+                        aria-label="ComfyUI prompt path"
+                        autoComplete="off"
+                        value={comfyuiPromptPath}
+                        placeholder="3.inputs.text"
+                        onChange={(event) => {
+                          resetImageMessages();
+                          setComfyuiPromptPath(event.target.value);
+                        }}
+                        className={inputClassName}
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="comfyui-negative-prompt-path" className={fieldLabelClassName}>
+                        Negative prompt path (optional)
+                      </label>
+                      <input
+                        id="comfyui-negative-prompt-path"
+                        aria-label="ComfyUI negative prompt path"
+                        autoComplete="off"
+                        value={comfyuiNegativePromptPath}
+                        onChange={(event) => {
+                          resetImageMessages();
+                          setComfyuiNegativePromptPath(event.target.value);
+                        }}
+                        className={inputClassName}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label htmlFor="comfyui-width-path" className={fieldLabelClassName}>
+                          Width path (optional)
+                        </label>
+                        <input
+                          id="comfyui-width-path"
+                          aria-label="ComfyUI width path"
+                          autoComplete="off"
+                          value={comfyuiWidthPath}
+                          onChange={(event) => {
+                            resetImageMessages();
+                            setComfyuiWidthPath(event.target.value);
+                          }}
+                          className={inputClassName}
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="comfyui-height-path" className={fieldLabelClassName}>
+                          Height path (optional)
+                        </label>
+                        <input
+                          id="comfyui-height-path"
+                          aria-label="ComfyUI height path"
+                          autoComplete="off"
+                          value={comfyuiHeightPath}
+                          onChange={(event) => {
+                            resetImageMessages();
+                            setComfyuiHeightPath(event.target.value);
+                          }}
+                          className={inputClassName}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label htmlFor="comfyui-seed-path" className={fieldLabelClassName}>
+                        Seed path (optional)
+                      </label>
+                      <input
+                        id="comfyui-seed-path"
+                        aria-label="ComfyUI seed path"
+                        autoComplete="off"
+                        value={comfyuiSeedPath}
+                        onChange={(event) => {
+                          resetImageMessages();
+                          setComfyuiSeedPath(event.target.value);
+                        }}
+                        className={inputClassName}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </SettingRow>
+
+            <div className="flex flex-wrap items-center gap-3 px-4 pb-4">
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => void saveImageSettings()}
+                disabled={isSavingImage}
+              >
+                Save image settings
+              </Button>
+              {imageSuccess ? (
+                <span className="text-sm text-emerald-400">{imageSuccess}</span>
+              ) : null}
+            </div>
+
+            {imageError ? (
+              <div className="mx-4 mb-4 rounded-xl border border-red-400/10 bg-red-500/8 px-4 py-3 text-sm text-red-300">
+                {imageError}
+              </div>
+            ) : null}
+          </>
+        )}
       </SettingsCard>
 
       <div className="flex flex-wrap items-center gap-3">

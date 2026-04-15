@@ -1125,4 +1125,37 @@ describe("settings storage", () => {
       comfyuiWorkflowJson: "{\"3\":{\"inputs\":{\"text\":\"prompt\"}}}"
     });
   });
+
+  it("normalizes ComfyUI base URL by stripping trailing slashes", () => {
+    updateImageGenerationSettings({
+      imageGenerationBackend: "comfyui",
+      comfyuiBaseUrl: "https://comfy.example.com/"
+    });
+
+    expect(getSettings().comfyuiBaseUrl).toBe("https://comfy.example.com");
+  });
+
+  it("rejects image generation updates from non-admin users", async () => {
+    vi.resetModules();
+    const { createLocalUser } = await import("@/lib/users");
+    const { PUT } = await import("@/app/api/settings/image-generation/route");
+
+    const user = await createLocalUser({
+      username: "image-route-user",
+      password: "changeme123",
+      role: "user"
+    });
+
+    requireUserMock.mockResolvedValue(user);
+
+    const response = await PUT(
+      new Request("http://localhost/api/settings/image-generation", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ imageGenerationBackend: "google_nano_banana" })
+      })
+    );
+
+    expect(response.status).toBe(403);
+  });
 });

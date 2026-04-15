@@ -33,6 +33,18 @@ function makeSettings(overrides: Partial<GeneralSectionSettings> = {}): GeneralS
     exaApiKey: "",
     tavilyApiKey: "",
     searxngBaseUrl: "",
+    imageGenerationBackend: "disabled",
+    googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+    googleNanoBananaApiKey: "",
+    comfyuiBaseUrl: "",
+    comfyuiAuthType: "none",
+    comfyuiBearerToken: "",
+    comfyuiWorkflowJson: "",
+    comfyuiPromptPath: "",
+    comfyuiNegativePromptPath: "",
+    comfyuiWidthPath: "",
+    comfyuiHeightPath: "",
+    comfyuiSeedPath: "",
     hasExaApiKey: false,
     hasTavilyApiKey: false,
     updatedAt: new Date().toISOString(),
@@ -336,5 +348,49 @@ describe("general section", () => {
       tavilyApiKey: "",
       clearTavilyApiKey: true
     });
+  });
+
+  it("renders an image generation card under web search and saves through the image settings route", async () => {
+    const settings = makeSettings({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      hasGoogleNanoBananaApiKey: true
+    });
+
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(
+      React.createElement(GeneralSection, {
+        settings,
+        canManageImageGeneration: true
+      })
+    );
+
+    expect(screen.getByRole("heading", { name: "Image Generation" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Image generation backend")).toHaveValue("google_nano_banana");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save image settings" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/settings/image-generation",
+        expect.objectContaining({ method: "PUT" })
+      );
+    });
+  });
+
+  it("renders the image generation card as read-only for non-admin users", () => {
+    render(
+      React.createElement(GeneralSection, {
+        settings: makeSettings(),
+        canManageImageGeneration: false
+      })
+    );
+
+    expect(screen.getByText("Only admins can change image generation settings.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Image generation backend")).toBeDisabled();
   });
 });
