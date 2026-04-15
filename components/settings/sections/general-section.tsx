@@ -12,6 +12,7 @@ type GeneralSectionSettings = AppSettings & {
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
   hasGoogleNanoBananaApiKey?: boolean;
+  hasComfyuiBearerToken?: boolean;
 };
 
 const inputClassName =

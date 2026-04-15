@@ -11,6 +11,8 @@ const mockRefresh = vi.fn();
 type GeneralSectionSettings = AppSettings & {
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
+  hasGoogleNanoBananaApiKey?: boolean;
+  hasComfyuiBearerToken?: boolean;
 };
 
 vi.mock("next/navigation", () => ({
