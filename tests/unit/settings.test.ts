@@ -12,7 +12,8 @@ import {
   getSettings,
   listProviderProfiles,
   updateGeneralSettingsForUser,
-  updateSettings
+  updateSettings,
+  updateImageGenerationSettings
 } from "@/lib/settings";
 import { createLocalUser } from "@/lib/users";
 
@@ -1054,5 +1055,74 @@ describe("settings storage", () => {
     expect(stored?.githubRefreshTokenExpiresAt).toBe("2026-10-08T16:00:00.000Z");
     expect(stored?.githubAccountLogin).toBe("octocat");
     expect(stored?.githubAccountName).toBe("The Octocat");
+  });
+
+  it("stores global image generation settings in app_settings and sanitizes secrets", async () => {
+    const admin = await createLocalUser({
+      username: "image-admin",
+      password: "changeme123",
+      role: "admin"
+    });
+
+    updateImageGenerationSettings({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      googleNanoBananaApiKey: "google-secret",
+      comfyuiBaseUrl: "https://comfy.example.com",
+      comfyuiAuthType: "bearer",
+      comfyuiBearerToken: "comfy-secret",
+      comfyuiWorkflowJson: "{\"3\":{\"inputs\":{\"text\":\"prompt\"}}}",
+      comfyuiPromptPath: "3.inputs.text",
+      comfyuiNegativePromptPath: "",
+      comfyuiWidthPath: "",
+      comfyuiHeightPath: "",
+      comfyuiSeedPath: ""
+    });
+
+    expect(getSettings()).toMatchObject({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      googleNanoBananaApiKey: "google-secret",
+      comfyuiAuthType: "bearer",
+      comfyuiBearerToken: "comfy-secret"
+    });
+
+    expect(getSanitizedSettings(admin.id)).toMatchObject({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      googleNanoBananaApiKey: "",
+      hasGoogleNanoBananaApiKey: true,
+      comfyuiBearerToken: "",
+      hasComfyuiBearerToken: true
+    });
+  });
+
+  it("applies global image generation settings to every user", async () => {
+    const user = await createLocalUser({
+      username: "image-user",
+      password: "changeme123",
+      role: "user"
+    });
+
+    updateImageGenerationSettings({
+      imageGenerationBackend: "comfyui",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      googleNanoBananaApiKey: "",
+      comfyuiBaseUrl: "https://comfy.example.com",
+      comfyuiAuthType: "none",
+      comfyuiBearerToken: "",
+      comfyuiWorkflowJson: "{\"3\":{\"inputs\":{\"text\":\"prompt\"}}}",
+      comfyuiPromptPath: "3.inputs.text",
+      comfyuiNegativePromptPath: "",
+      comfyuiWidthPath: "",
+      comfyuiHeightPath: "",
+      comfyuiSeedPath: ""
+    });
+
+    expect(getSettingsForUser(user.id)).toMatchObject({
+      imageGenerationBackend: "comfyui",
+      comfyuiBaseUrl: "https://comfy.example.com",
+      comfyuiWorkflowJson: "{\"3\":{\"inputs\":{\"text\":\"prompt\"}}}"
+    });
   });
 });

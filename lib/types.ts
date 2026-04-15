@@ -8,6 +8,15 @@ export type SttLanguage = "auto" | "en" | "fr" | "es";
 
 export type WebSearchEngine = "exa" | "tavily" | "searxng" | "disabled";
 
+export type ImageGenerationBackend = "disabled" | "google_nano_banana" | "comfyui";
+
+export type GoogleNanoBananaModel =
+  | "gemini-2.5-flash-image"
+  | "gemini-3.1-flash-image-preview"
+  | "gemini-3-pro-image-preview";
+
+export type ChatInputMode = "chat" | "image";
+
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export type VisionMode = "none" | "native" | "mcp";
@@ -117,6 +126,18 @@ export type AppSettings = {
   exaApiKey: string;
   tavilyApiKey: string;
   searxngBaseUrl: string;
+  imageGenerationBackend: ImageGenerationBackend;
+  googleNanoBananaModel: GoogleNanoBananaModel;
+  googleNanoBananaApiKey: string;
+  comfyuiBaseUrl: string;
+  comfyuiAuthType: "none" | "bearer";
+  comfyuiBearerToken: string;
+  comfyuiWorkflowJson: string;
+  comfyuiPromptPath: string;
+  comfyuiNegativePromptPath: string;
+  comfyuiWidthPath: string;
+  comfyuiHeightPath: string;
+  comfyuiSeedPath: string;
   updatedAt: string;
 };
 
