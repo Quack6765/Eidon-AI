@@ -20,7 +20,7 @@ import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { appendTranscriptToDraft } from "@/lib/speech/append-transcript-to-draft";
 import { useSpeechInput } from "@/lib/speech/use-speech-input";
-import { shouldAutofocusTextInput } from "@/lib/utils";
+import { cn, shouldAutofocusTextInput } from "@/lib/utils";
 import type { AppSettings } from "@/lib/types";
 import type {
   ChatStreamEvent,
@@ -421,6 +421,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
   const [personaId, setPersonaId] = useState<string | null>(null);
+  const [isConversationAtBottom, setIsConversationAtBottom] = useState(true);
+  const queueBannerRef = useRef<HTMLDivElement>(null);
+  const [queueBannerHeight, setQueueBannerHeight] = useState(0);
+
   const {
     speechSnapshot,
     startSpeech,
@@ -451,6 +455,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const titlePollAttemptsRef = useRef(0);
   const messageSyncTimeoutRef = useRef<number | null>(null);
   const pendingLocalSubmissionsRef = useRef<PendingLocalSubmission[]>([]);
+
   const shouldAutoScrollRef = useRef(true);
   const bootstrapPayloadRef = useRef<{
     message: string;
@@ -595,7 +600,34 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   useEffect(() => {
     shouldAutoScrollRef.current = true;
+    requestAnimationFrame(() => {
+      if (!queueRef.current) {
+        return;
+      }
+
+      setIsConversationAtBottom(isNearQueueBottom(queueRef.current));
+    });
   }, [payload.conversation.id]);
+
+  function jumpToBottom() {
+    if (!queueRef.current) {
+      return;
+    }
+
+    shouldAutoScrollRef.current = true;
+    setIsConversationAtBottom(true);
+    queueRef.current.scrollTo({ top: queueRef.current.scrollHeight, behavior: "smooth" });
+  }
+
+  useEffect(() => {
+    const el = queueBannerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      setQueueBannerHeight(el.offsetHeight);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!queueRef.current || !shouldAutoScrollRef.current) {
@@ -604,6 +636,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     requestAnimationFrame(() => {
       if (!queueRef.current || !shouldAutoScrollRef.current) return;
+      setIsConversationAtBottom(true);
       if (queueRef.current.scrollTo) {
         queueRef.current.scrollTo({ top: queueRef.current.scrollHeight, behavior: "instant" });
       } else {
@@ -1736,13 +1769,15 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
       <div
         ref={queueRef}
-        className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 md:px-8"
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 md:px-8 relative z-0 isolate"
         onScroll={() => {
           if (!queueRef.current) {
             return;
           }
 
-          shouldAutoScrollRef.current = isNearQueueBottom(queueRef.current);
+          const nextIsAtBottom = isNearQueueBottom(queueRef.current);
+          setIsConversationAtBottom(nextIsAtBottom);
+          shouldAutoScrollRef.current = nextIsAtBottom;
         }}
       >
         <div className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4 pb-[180px] md:pb-[200px]">
@@ -1792,14 +1827,37 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       </div>
 
-      <div className="fixed inset-x-0 bottom-0 z-10 pointer-events-none">
-        <div className="mx-auto w-full px-4 md:px-8 pointer-events-auto max-w-[980px]">
-          <QueuedMessageBanner
-            items={queuedMessages}
-            onEdit={updateQueuedMessage}
-            onDelete={deleteQueuedMessage}
-            onSendNow={sendQueuedMessageNow}
-          />
+      <div className="fixed inset-x-0 bottom-0 z-50 pointer-events-none">
+        <div className="mx-auto w-full px-4 md:px-8 max-w-[980px] pointer-events-auto relative">
+          <div ref={queueBannerRef}>
+            <QueuedMessageBanner
+              items={queuedMessages}
+              onEdit={updateQueuedMessage}
+              onDelete={deleteQueuedMessage}
+              onSendNow={sendQueuedMessageNow}
+            />
+          </div>
+          {!isConversationAtBottom ? (
+            <div className={cn(
+              "pointer-events-none absolute z-50 flex items-center",
+              "left-3 sm:left-5",
+              queueBannerHeight > 0
+                ? "-top-10 md:left-[-12px] md:-translate-x-full md:-translate-y-1/2 md:bottom-4 md:top-auto"
+                : "bottom-full mb-2 translate-y-0 md:left-[-12px] md:-translate-x-full md:-translate-y-1/2 md:top-1/2 md:bottom-auto md:mb-0"
+            )}>
+              <button
+                type="button"
+                onClick={jumpToBottom}
+                className="pointer-events-auto relative inline-flex h-8 w-8 items-center justify-center gap-2 rounded-full border border-[var(--accent)]/45 bg-[var(--panel)] px-2 text-[var(--accent)] shadow-[0_2px_12px_rgba(0,0,0,0.45)] transition-colors duration-150 before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:bg-[var(--accent)] before:opacity-0 before:transition-opacity before:duration-150 hover:before:opacity-[0.16] active:scale-95 md:w-auto md:min-w-[8rem] md:justify-start"
+                aria-label="Scroll to newest messages"
+                title="Scroll to bottom"
+              >
+                ↓
+                <span className="hidden md:inline text-[11px] font-medium text-[var(--text)]/85">Latest messages</span>
+              </button>
+            </div>
+          ) : null}
+          <div className="relative">
           <ChatComposer
             input={input}
             onInputChange={setInput}
@@ -1842,6 +1900,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               });
             }}
           />
+          </div>
         </div>
       </div>
       {previewController.previewAttachment ? (
