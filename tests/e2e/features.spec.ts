@@ -1166,6 +1166,130 @@ test.describe("Feature: Chat attachments", () => {
   });
 });
 
+test.describe("Feature: Image generation mode", () => {
+  test("shows the image toggle when image generation is enabled and hides it when disabled", async ({ page }) => {
+    await signIn(page);
+
+    const imageToggle = page.getByRole("button", { name: "Toggle image generation mode" });
+
+    await createNewChat(page);
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+    await expect(imageToggle).toHaveCount(0, { timeout: 5000 });
+
+    await page.request.put("/api/settings/image-generation", {
+      data: { imageGenerationBackend: "google_nano_banana" }
+    });
+
+    await page.goto(page.url(), { waitUntil: "domcontentloaded" });
+    await expect(imageToggle).toBeVisible({ timeout: 10000 });
+    await expect(imageToggle).toHaveAttribute("aria-pressed", "false");
+
+    await page.request.put("/api/settings/image-generation", {
+      data: { imageGenerationBackend: "disabled" }
+    });
+
+    await page.goto(page.url(), { waitUntil: "domcontentloaded" });
+    await expect(imageToggle).toHaveCount(0, { timeout: 5000 });
+  });
+
+  test("toggles between chat and image mode and updates the button appearance", async ({ page }) => {
+    await signIn(page);
+
+    await page.request.put("/api/settings/image-generation", {
+      data: { imageGenerationBackend: "google_nano_banana" }
+    });
+
+    await createNewChat(page);
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+    const imageToggle = page.getByRole("button", { name: "Toggle image generation mode" });
+    await expect(imageToggle).toBeVisible({ timeout: 10000 });
+    await expect(imageToggle).toHaveAttribute("aria-pressed", "false");
+
+    await imageToggle.click();
+    await expect(imageToggle).toHaveAttribute("aria-pressed", "true");
+    await expect(imageToggle).toHaveClass(/text-violet-400/);
+
+    await imageToggle.click();
+    await expect(imageToggle).toHaveAttribute("aria-pressed", "false");
+    await expect(imageToggle).not.toHaveClass(/text-violet-400/);
+
+    await page.request.put("/api/settings/image-generation", {
+      data: { imageGenerationBackend: "disabled" }
+    });
+  });
+
+  test("submits an image-mode turn and renders the response in the transcript", async ({ page }) => {
+    await signIn(page);
+    await mockChatResponse(page);
+
+    await page.request.put("/api/settings/image-generation", {
+      data: { imageGenerationBackend: "google_nano_banana" }
+    });
+
+    await createNewChat(page);
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+    const imageToggle = page.getByRole("button", { name: "Toggle image generation mode" });
+    await expect(imageToggle).toBeVisible({ timeout: 10000 });
+    await imageToggle.click();
+    await expect(imageToggle).toHaveAttribute("aria-pressed", "true");
+
+    const composer = page.getByPlaceholder(/Ask, create, or start a task/i);
+    await composer.fill("A sunset over mountains");
+    await page.getByRole("button", { name: "Send message" }).click();
+
+    await expect(page.getByText("Attachment received")).toBeVisible({ timeout: 10000 });
+    await expect(composer).toHaveValue("");
+
+    await page.request.put("/api/settings/image-generation", {
+      data: { imageGenerationBackend: "disabled" }
+    });
+  });
+
+  test("disables the image toggle while a message is being sent", async ({ page }) => {
+    test.setTimeout(60_000);
+    const mockServer = await startMockOpenAiCompatibleServer();
+    let restoreProviderSettings: (() => Promise<void>) | null = null;
+
+    try {
+      await signIn(page);
+      restoreProviderSettings = await configureMockProvider(page, mockServer.apiBaseUrl);
+      mockServer.reset();
+
+      await page.request.put("/api/settings/image-generation", {
+        data: { imageGenerationBackend: "google_nano_banana" }
+      });
+
+      await createNewChat(page);
+      await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+      const imageToggle = page.getByRole("button", { name: "Toggle image generation mode" });
+      await expect(imageToggle).toBeVisible({ timeout: 10000 });
+
+      const composer = page.getByPlaceholder(/Ask, create, or start a task/i);
+      await enterComposerText(composer, "Generate an image");
+      await page.getByRole("button", { name: "Send message" }).click();
+
+      await expect(page.getByRole("button", { name: "Stop response" }).first()).toBeVisible({
+        timeout: 10000
+      });
+
+      await expect(imageToggle).toBeDisabled({ timeout: 5000 });
+
+      await page.request.put("/api/settings/image-generation", {
+        data: { imageGenerationBackend: "disabled" }
+      });
+    } finally {
+      if (restoreProviderSettings) {
+        await restoreProviderSettings();
+      }
+      await mockServer.close();
+    }
+  });
+});
+
 test.describe("Feature: Queued chat follow-ups", () => {
   test("shows queued follow-ups above the composer and keeps them across a reconnect", async ({
     page
