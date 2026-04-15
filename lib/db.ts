@@ -217,6 +217,7 @@ function migrate(db: Database.Database) {
       status TEXT NOT NULL DEFAULT 'pending',
       sort_order INTEGER NOT NULL,
       failure_message TEXT,
+      mode TEXT NOT NULL DEFAULT 'chat',
       processing_started_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -726,6 +727,12 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_folders_sort_order ON folders(sort_order);
     CREATE INDEX IF NOT EXISTS idx_user_memories_category ON user_memories(category);
   `);
+
+  const queuedMessagesCols = db.prepare("PRAGMA table_info(queued_messages)").all() as Array<{ name: string }>;
+  const queuedMessagesColNames = queuedMessagesCols.map((column) => column.name);
+  if (!queuedMessagesColNames.includes("mode")) {
+    db.exec("ALTER TABLE queued_messages ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'");
+  }
 
   const existingSkills = db
     .prepare("SELECT id, name, content, description FROM skills")

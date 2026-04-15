@@ -59,4 +59,44 @@ describe("ws-protocol", () => {
     const parsed = parseClientMessage(raw);
     expect(parsed).toEqual(msg);
   });
+
+  it("round-trips message mode through the websocket protocol", async () => {
+    const { parseClientMessage } = await import("@/lib/ws-protocol");
+
+    const parsed = parseClientMessage(
+      JSON.stringify({
+        type: "message",
+        conversationId: "conv-1",
+        content: "same idea but darker",
+        mode: "image"
+      })
+    );
+
+    expect(parsed).toEqual({
+      type: "message",
+      conversationId: "conv-1",
+      content: "same idea but darker",
+      mode: "image"
+    });
+  });
+
+  it("round-trips queue_message mode through the websocket protocol", async () => {
+    const { parseClientMessage } = await import("@/lib/ws-protocol");
+
+    const parsed = parseClientMessage(
+      JSON.stringify({
+        type: "queue_message",
+        conversationId: "conv-1",
+        content: "make it noir later",
+        mode: "image"
+      })
+    );
+
+    expect(parsed).toEqual({
+      type: "queue_message",
+      conversationId: "conv-1",
+      content: "make it noir later",
+      mode: "image"
+    });
+  });
 });

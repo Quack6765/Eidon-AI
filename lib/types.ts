@@ -207,6 +207,7 @@ export type QueuedMessage = {
   status: QueuedMessageStatus;
   sortOrder: number;
   failureMessage: string | null;
+  mode: ChatInputMode;
   createdAt: string;
   updatedAt: string;
   processingStartedAt: string | null;
@@ -464,7 +465,7 @@ export type ChatStreamEvent =
       outputTokens?: number;
       reasoningTokens?: number;
     }
-  | { type: "done"; messageId: string }
+  | { type: "done"; messageId: string; message?: Message }
   | { type: "error"; message: string };
 
 export type EnsureCompactedContextResult = {

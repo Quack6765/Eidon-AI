@@ -23,6 +23,7 @@ import {
 import { getConversationManager } from "@/lib/ws-singleton";
 import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
+  ChatInputMode,
   Conversation,
   ConversationListPage,
   ConversationOrigin,
@@ -212,6 +213,7 @@ function rowToQueuedMessage(row: {
   status: QueuedMessageStatus;
   sort_order: number;
   failure_message: string | null;
+  mode: ChatInputMode;
   created_at: string;
   updated_at: string;
   processing_started_at: string | null;
@@ -223,6 +225,7 @@ function rowToQueuedMessage(row: {
     status: row.status,
     sortOrder: row.sort_order,
     failureMessage: row.failure_message,
+    mode: row.mode,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     processingStartedAt: row.processing_started_at
@@ -944,6 +947,7 @@ export function listQueuedMessages(conversationId: string) {
         status,
         sort_order,
         failure_message,
+        mode,
         created_at,
         updated_at,
         processing_started_at
@@ -958,6 +962,7 @@ export function listQueuedMessages(conversationId: string) {
     status: QueuedMessageStatus;
     sort_order: number;
     failure_message: string | null;
+    mode: ChatInputMode;
     created_at: string;
     updated_at: string;
     processing_started_at: string | null;
@@ -968,10 +973,12 @@ export function listQueuedMessages(conversationId: string) {
 
 export function createQueuedMessage({
   conversationId,
-  content
+  content,
+  mode = "chat"
 }: {
   conversationId: string;
   content: string;
+  mode?: ChatInputMode;
 }) {
   const db = getDb();
   const selectMaxSortOrder = db.prepare(
@@ -985,13 +992,14 @@ export function createQueuedMessage({
       status,
       sort_order,
       failure_message,
+      mode,
       processing_started_at,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
-  const transaction = db.transaction((targetConversationId: string, queuedContent: string) => {
+  const transaction = db.transaction((targetConversationId: string, queuedContent: string, queuedMode: ChatInputMode) => {
     const timestamp = nowIso();
     const nextSortOrder =
       ((selectMaxSortOrder.get(targetConversationId) as { max_sort_order: number | null }).max_sort_order ?? -1) + 1;
@@ -1003,6 +1011,7 @@ export function createQueuedMessage({
       status: "pending",
       sortOrder: nextSortOrder,
       failureMessage: null,
+      mode: queuedMode,
       createdAt: timestamp,
       updatedAt: timestamp,
       processingStartedAt: null
@@ -1015,6 +1024,7 @@ export function createQueuedMessage({
       queuedMessage.status,
       queuedMessage.sortOrder,
       queuedMessage.failureMessage,
+      queuedMessage.mode,
       queuedMessage.processingStartedAt,
       queuedMessage.createdAt,
       queuedMessage.updatedAt
@@ -1023,7 +1033,7 @@ export function createQueuedMessage({
     return queuedMessage;
   });
 
-  return transaction(conversationId, content);
+  return transaction(conversationId, content, mode);
 }
 
 export function updateQueuedMessage({
@@ -1051,6 +1061,7 @@ export function updateQueuedMessage({
       status,
       sort_order,
       failure_message,
+      mode,
       created_at,
       updated_at,
       processing_started_at
@@ -1075,6 +1086,7 @@ export function updateQueuedMessage({
           status: QueuedMessageStatus;
           sort_order: number;
           failure_message: string | null;
+          mode: ChatInputMode;
           created_at: string;
           updated_at: string;
           processing_started_at: string | null;
@@ -1167,6 +1179,7 @@ export function moveQueuedMessageToFront({
       status,
       sort_order,
       failure_message,
+      mode,
       created_at,
       updated_at,
       processing_started_at
@@ -1186,6 +1199,7 @@ export function moveQueuedMessageToFront({
       status: QueuedMessageStatus;
       sort_order: number;
       failure_message: string | null;
+      mode: ChatInputMode;
       created_at: string;
       updated_at: string;
       processing_started_at: string | null;
@@ -1225,6 +1239,7 @@ export function claimNextQueuedMessageForDispatch(conversationId: string) {
       status,
       sort_order,
       failure_message,
+      mode,
       created_at,
       updated_at,
       processing_started_at
@@ -1259,6 +1274,7 @@ export function claimNextQueuedMessageForDispatch(conversationId: string) {
           status: QueuedMessageStatus;
           sort_order: number;
           failure_message: string | null;
+          mode: ChatInputMode;
           created_at: string;
           updated_at: string;
           processing_started_at: string | null;

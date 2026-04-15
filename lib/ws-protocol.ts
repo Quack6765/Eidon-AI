@@ -1,12 +1,12 @@
-import type { ChatStreamEvent, QueuedMessage } from "@/lib/types";
+import type { ChatInputMode, ChatStreamEvent, QueuedMessage } from "@/lib/types";
 
 export type ClientMessage =
   | { type: "subscribe"; conversationId: string }
   | { type: "unsubscribe"; conversationId: string }
-  | { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string }
+  | { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string; mode?: ChatInputMode }
   | { type: "stop"; conversationId: string }
   | { type: "edit"; messageId: string; content: string }
-  | { type: "queue_message"; conversationId: string; content: string }
+  | { type: "queue_message"; conversationId: string; content: string; mode?: ChatInputMode }
   | { type: "update_queued_message"; conversationId: string; queuedMessageId: string; content: string }
   | { type: "delete_queued_message"; conversationId: string; queuedMessageId: string }
   | { type: "send_queued_message_now"; conversationId: string; queuedMessageId: string };

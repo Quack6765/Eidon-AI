@@ -309,4 +309,35 @@ describe("queued-chat-dispatcher", () => {
     ]);
     expect(listQueuedMessages(conversation.id)).toEqual([]);
   });
+
+  it("dispatches queued image-mode messages with their original mode", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { createConversation, createQueuedMessage } = await import("@/lib/conversations");
+    const { ensureQueuedDispatch } = await import("@/lib/queued-chat-dispatcher");
+
+    const manager = createConversationManager();
+    const conversation = createConversation();
+    createQueuedMessage({
+      conversationId: conversation.id,
+      content: "make it noir",
+      mode: "image"
+    });
+
+    const startChatTurn = vi.fn(async () => ({ status: "completed" as const }));
+
+    await ensureQueuedDispatch({
+      manager,
+      conversationId: conversation.id,
+      startChatTurn
+    });
+
+    expect(startChatTurn).toHaveBeenCalledWith(
+      manager,
+      conversation.id,
+      "make it noir",
+      [],
+      undefined,
+      expect.objectContaining({ mode: "image" })
+    );
+  });
 });
