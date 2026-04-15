@@ -86,6 +86,7 @@ function createSettings(
     mergedTargetTokens: 1600,
     visionMode: "native" as const,
     visionMcpServerId: null,
+    providerPresetId: null,
     githubUserAccessTokenEncrypted: "",
     githubRefreshTokenEncrypted: "",
     githubTokenExpiresAt: null,

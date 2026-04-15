@@ -219,6 +219,7 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
         mergedTargetTokens: 1600,
         visionMode: "native" as const,
         visionMcpServerId: null,
+        providerPresetId: null,
         providerKind: "openai_compatible" as "openai_compatible" | "github_copilot",
         githubTokenExpiresAt: null,
         githubRefreshTokenExpiresAt: null,

@@ -1,11 +1,7 @@
 import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
-import type { ApiMode, ReasoningEffort } from "@/lib/types";
+import type { ApiMode, ProviderPresetId, ReasoningEffort } from "@/lib/types";
 
-export type ProviderPresetId =
-  | "ollama_cloud"
-  | "glm_coding_plan"
-  | "openrouter"
-  | "custom_openai_compatible";
+export type { ProviderPresetId } from "@/lib/types";
 
 type ProviderPresetValues = {
   name: string;

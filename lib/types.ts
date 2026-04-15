@@ -58,6 +58,8 @@ export type MemoryNodeType = "leaf_summary" | "merged_summary";
 
 export type SystemMessageKind = "compaction_notice";
 
+export type ProviderPresetId = "ollama_cloud" | "glm_coding_plan" | "openrouter" | "custom_openai_compatible";
+
 export type ProviderProfile = {
   id: string;
   providerKind: ProviderKind;
@@ -82,6 +84,7 @@ export type ProviderProfile = {
   mergedTargetTokens: number;
   visionMode: VisionMode;
   visionMcpServerId: string | null;
+  providerPresetId: ProviderPresetId | null;
   githubUserAccessTokenEncrypted: string;
   githubRefreshTokenEncrypted: string;
   githubTokenExpiresAt: string | null;

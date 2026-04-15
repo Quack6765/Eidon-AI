@@ -646,6 +646,17 @@ function migrate(db: Database.Database) {
     }
   }
 
+  const presetCols = {
+    provider_preset_id: "TEXT"
+  };
+  const presetProfileCols = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
+  const presetProfileColNames = presetProfileCols.map((c) => c.name);
+  for (const [colName, colDef] of Object.entries(presetCols)) {
+    if (!presetProfileColNames.includes(colName)) {
+      db.exec(`ALTER TABLE provider_profiles ADD COLUMN ${colName} ${colDef}`);
+    }
+  }
+
   try {
     db.exec(`ALTER TABLE compaction_events RENAME TO compaction_events_old`);
     db.exec(`

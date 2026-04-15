@@ -34,6 +34,7 @@ type ProviderProfileFixture = {
   mergedTargetTokens: number;
   visionMode: "none" | "native" | "mcp";
   visionMcpServerId: string | null;
+  providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "custom_openai_compatible" | null;
   githubAccountLogin: string | null;
   githubAccountName: string | null;
   githubTokenExpiresAt: string | null;
@@ -95,6 +96,7 @@ function makeSettings(overrides: Partial<SettingsFixture> = {}): SettingsFixture
         safetyMarginTokens: 1200,
         leafSourceTokenLimit: 12000,
         leafMinMessageCount: 6,
+        providerPresetId: null,
         mergedMinNodeCount: 4,
         mergedTargetTokens: 1600,
         visionMode: "native",
@@ -176,6 +178,7 @@ describe("providers section", () => {
               mergedTargetTokens: 1600,
               visionMode: "native",
               visionMcpServerId: null,
+              providerPresetId: null,
               githubAccountLogin: null,
               githubAccountName: null,
               githubTokenExpiresAt: null,
@@ -252,6 +255,7 @@ describe("providers section", () => {
               mergedTargetTokens: 1600,
               visionMode: "native",
               visionMcpServerId: null,
+              providerPresetId: null,
               githubAccountLogin: "octocat",
               githubAccountName: "The Octocat",
               githubTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
@@ -298,6 +302,40 @@ describe("providers section", () => {
     expect(profileNameInput).toHaveValue("OpenRouter");
     expect(apiBaseUrlInput).toHaveValue("https://openrouter.ai/api/v1");
     expect(modelInput).toHaveValue("");
+  });
+
+  it("keeps the selected preset when the model changes", async () => {
+    const { container } = render(React.createElement(ProvidersSection, { settings: makeSettings() }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    const presetSelect = screen.getByDisplayValue("Manual configuration");
+    const modelInput = container.querySelector<HTMLInputElement>('input[name="provider-model"]');
+
+    fireEvent.change(presetSelect, { target: { value: "openrouter" } });
+    expect(presetSelect).toHaveValue("openrouter");
+
+    fireEvent.change(modelInput!, { target: { value: "custom-model" } });
+    expect(presetSelect).toHaveValue("openrouter");
+  });
+
+  it("switches to Manual configuration when the API base URL changes", async () => {
+    const { container } = render(React.createElement(ProvidersSection, { settings: makeSettings() }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    const presetSelect = screen.getByDisplayValue("Manual configuration");
+    const apiBaseUrlInput = screen.getByDisplayValue("https://api.example.com/v1");
+
+    fireEvent.change(presetSelect, { target: { value: "openrouter" } });
+    expect(presetSelect).toHaveValue("openrouter");
+
+    fireEvent.change(apiBaseUrlInput, { target: { value: "https://custom.api.com/v1" } });
+    expect(presetSelect).toHaveValue("");
   });
 
   it("shows compaction threshold as a percent and preserves top-level settings on save", async () => {
@@ -455,6 +493,7 @@ describe("providers section", () => {
           mergedTargetTokens: 1600,
           visionMode: "native",
           visionMcpServerId: null,
+          providerPresetId: null,
           githubTokenExpiresAt: null,
           githubRefreshTokenExpiresAt: null,
           githubAccountLogin: null,
@@ -487,6 +526,7 @@ describe("providers section", () => {
           mergedTargetTokens: 1600,
           visionMode: "native",
           visionMcpServerId: null,
+          providerPresetId: null,
           githubTokenExpiresAt: null,
           githubRefreshTokenExpiresAt: null,
           githubAccountLogin: null,
