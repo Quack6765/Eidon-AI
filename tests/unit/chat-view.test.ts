@@ -6,7 +6,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { ChatView } from "@/components/chat-view";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
 import type { SpeechSessionSnapshot, SttEngine, SttLanguage } from "@/lib/speech/types";
-import type { Message, MessageAttachment, MessageTimelineItem, QueuedMessage } from "@/lib/types";
+import type { ChatInputMode, Message, MessageAttachment, MessageTimelineItem, QueuedMessage } from "@/lib/types";
 
 const push = vi.fn();
 const refresh = vi.fn();
@@ -195,7 +195,8 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
     queuedMessages: [],
     settings: {
       sttEngine: "browser",
-      sttLanguage: "en"
+      sttLanguage: "en",
+      imageGenerationBackend: "disabled"
     },
     providerProfiles: [
       {
@@ -921,7 +922,8 @@ describe("chat view", () => {
         payload: createPayload({
           settings: {
             sttEngine: "embedded",
-            sttLanguage: "en"
+            sttLanguage: "en",
+            imageGenerationBackend: "disabled"
           }
         })
       })
@@ -954,6 +956,26 @@ describe("chat view", () => {
     });
 
     expect(bootstrapMock.clearChatBootstrap).toHaveBeenCalledWith("conv_1");
+  });
+
+  it("forwards bootstrapped image mode once the websocket is connected", async () => {
+    bootstrapMock.readChatBootstrap.mockReturnValue({
+      message: "Generate a matte painting",
+      attachments: [],
+      mode: "image" as ChatInputMode
+    });
+
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "Generate a matte painting",
+        attachmentIds: [],
+        mode: "image"
+      });
+    });
   });
 
   it("submits the bootstrapped home prompt once under strict mode remounts", async () => {

@@ -1,9 +1,10 @@
-import type { MessageAttachment } from "@/lib/types";
+import type { ChatInputMode, MessageAttachment } from "@/lib/types";
 
 export type ChatBootstrapPayload = {
   message: string;
   attachments: MessageAttachment[];
   personaId?: string;
+  mode?: ChatInputMode;
 };
 
 function getChatBootstrapStorageKey(conversationId: string) {

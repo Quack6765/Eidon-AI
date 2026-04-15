@@ -21,7 +21,7 @@ import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { appendTranscriptToDraft } from "@/lib/speech/append-transcript-to-draft";
 import { useSpeechInput } from "@/lib/speech/use-speech-input";
 import { shouldAutofocusTextInput } from "@/lib/utils";
-import type { AppSettings } from "@/lib/types";
+import type { AppSettings, ChatInputMode } from "@/lib/types";
 import type {
   ChatStreamEvent,
   Conversation,
@@ -38,7 +38,7 @@ type ConversationPayload = {
   conversation: Conversation;
   messages: Message[];
   queuedMessages: QueuedMessage[];
-  settings: Pick<AppSettings, "sttEngine" | "sttLanguage">;
+  settings: Pick<AppSettings, "sttEngine" | "sttLanguage" | "imageGenerationBackend">;
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string | null;
   debug: {
@@ -421,6 +421,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
   const [personaId, setPersonaId] = useState<string | null>(null);
+  const [imageMode, setImageMode] = useState<ChatInputMode>("chat");
   const {
     speechSnapshot,
     startSpeech,
@@ -456,10 +457,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     message: string;
     attachments: MessageAttachment[];
     personaId?: string;
+    mode?: ChatInputMode;
   } | null>(null);
   const bootstrapSubmittedRef = useRef(false);
   const submitRef = useRef<
-    (nextInput?: string, nextPendingAttachments?: MessageAttachment[], nextPersonaId?: string) => Promise<void>
+    (nextInput?: string, nextPendingAttachments?: MessageAttachment[], nextPersonaId?: string, nextMode?: ChatInputMode) => Promise<void>
   >(async () => {});
   const pendingLocalSubmissionsById = new Map(
     pendingLocalSubmissionsRef.current.map((submission) => [
@@ -935,8 +937,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [payload.conversation.id, wsSubscribe, wsUnsubscribe]);
 
   useEffect(() => {
-    bootstrapPayloadRef.current = readChatBootstrap(payload.conversation.id);
+    const bootstrap = readChatBootstrap(payload.conversation.id);
+    bootstrapPayloadRef.current = bootstrap;
     bootstrapSubmittedRef.current = false;
+    if (bootstrap?.mode) {
+      setImageMode(bootstrap.mode);
+    }
   }, [payload.conversation.id]);
 
   useEffect(() => {
@@ -952,7 +958,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     bootstrapSubmittedRef.current = true;
     clearChatBootstrap(payload.conversation.id);
-    void submitRef.current(bootstrapPayload.message, bootstrapPayload.attachments, bootstrapPayload.personaId);
+    void submitRef.current(bootstrapPayload.message, bootstrapPayload.attachments, bootstrapPayload.personaId, bootstrapPayload.mode);
   }, [payload.conversation.id, wsConnected]);
 
   useEffect(() => {
@@ -1508,10 +1514,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   async function submit(
     nextInput = input,
     nextPendingAttachments = pendingAttachments,
-    nextPersonaId?: string
+    nextPersonaId?: string,
+    nextMode?: ChatInputMode
   ) {
     const value = nextInput.trim();
     const effectivePersonaId = nextPersonaId ?? personaId;
+    const effectiveMode = nextMode ?? imageMode;
     const hasActiveTurn =
       isConversationActive ||
       Boolean(streamMessageIdRef.current) ||
@@ -1596,7 +1604,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       conversationId: payload.conversation.id,
       content: value,
       attachmentIds: nextPendingAttachments.map((attachment) => attachment.id),
-      personaId: effectivePersonaId ?? undefined
+      personaId: effectivePersonaId ?? undefined,
+      ...(effectiveMode === "image" ? { mode: "image" as const } : {})
     });
     setIsConversationActive(true);
 
@@ -1841,6 +1850,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 setInput((current) => appendTranscriptToDraft(current, transcript));
               });
             }}
+            imageMode={imageMode}
+            imageModeEnabled={payload.settings.imageGenerationBackend !== "disabled"}
+            onImageModeChange={setImageMode}
           />
         </div>
       </div>
