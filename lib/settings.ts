@@ -38,6 +38,7 @@ const runtimeSettingsSchema = z.object({
   mergedTargetTokens: z.coerce.number().int().min(128).max(16000).default(1600),
   visionMode: z.enum(["none", "native", "mcp"]).default("native"),
   visionMcpServerId: z.string().nullable().default(null),
+  providerPresetId: z.enum(["ollama_cloud", "glm_coding_plan", "openrouter", "custom_openai_compatible"]).nullable().default(null),
   githubUserAccessTokenEncrypted: z.string().default(""),
   githubRefreshTokenEncrypted: z.string().default(""),
   githubAccountLogin: z.string().nullable().default(null),
@@ -229,6 +230,7 @@ type ProviderProfileRow = {
   vision_mode: string;
   vision_mcp_server_id: string | null;
   provider_kind: string;
+  provider_preset_id: string | null;
   github_user_access_token_encrypted: string;
   github_refresh_token_encrypted: string;
   github_token_expires_at: string | null;
@@ -370,6 +372,7 @@ function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
     mergedTargetTokens: row.merged_target_tokens,
     visionMode: row.vision_mode as VisionMode,
     visionMcpServerId: row.vision_mcp_server_id,
+    providerPresetId: row.provider_preset_id as ProviderProfile["providerPresetId"],
     githubUserAccessTokenEncrypted: row.github_user_access_token_encrypted,
     githubRefreshTokenEncrypted: row.github_refresh_token_encrypted,
     githubTokenExpiresAt: row.github_token_expires_at,
@@ -408,6 +411,7 @@ function listProviderProfileRows() {
         vision_mode,
         vision_mcp_server_id,
         provider_kind,
+        provider_preset_id,
         github_user_access_token_encrypted,
         github_refresh_token_encrypted,
         github_token_expires_at,
@@ -449,6 +453,7 @@ function getProviderProfileRow(profileId: string) {
         vision_mode,
         vision_mcp_server_id,
         provider_kind,
+        provider_preset_id,
         github_user_access_token_encrypted,
         github_refresh_token_encrypted,
         github_token_expires_at,
@@ -848,6 +853,7 @@ export function updateSettings(input: unknown) {
         vision_mode,
         vision_mcp_server_id,
         provider_kind,
+        provider_preset_id,
         github_user_access_token_encrypted,
         github_refresh_token_encrypted,
         github_token_expires_at,
@@ -880,6 +886,7 @@ export function updateSettings(input: unknown) {
         @visionMode,
         @visionMcpServerId,
         @providerKind,
+        @providerPresetId,
         @githubUserAccessTokenEncrypted,
         @githubRefreshTokenEncrypted,
         @githubTokenExpiresAt,
@@ -912,6 +919,7 @@ export function updateSettings(input: unknown) {
         vision_mode = excluded.vision_mode,
         vision_mcp_server_id = excluded.vision_mcp_server_id,
         provider_kind = excluded.provider_kind,
+        provider_preset_id = excluded.provider_preset_id,
         github_user_access_token_encrypted = excluded.github_user_access_token_encrypted,
         github_refresh_token_encrypted = excluded.github_refresh_token_encrypted,
         github_token_expires_at = excluded.github_token_expires_at,
@@ -955,6 +963,7 @@ export function updateSettings(input: unknown) {
         visionMode: profile.visionMode ?? "native",
         visionMcpServerId: profile.visionMcpServerId ?? null,
         providerKind: profile.providerKind,
+        providerPresetId: profile.providerPresetId ?? null,
         githubUserAccessTokenEncrypted,
         githubRefreshTokenEncrypted,
         githubTokenExpiresAt,

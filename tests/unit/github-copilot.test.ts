@@ -65,6 +65,7 @@ function createProfile(overrides: Record<string, unknown> = {}) {
     mergedTargetTokens: 1600,
     visionMode: "native" as const,
     visionMcpServerId: null,
+    providerPresetId: null,
     githubUserAccessTokenEncrypted: encryptValue("ghu_access"),
     githubRefreshTokenEncrypted: encryptValue("ghr_refresh"),
     githubTokenExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),

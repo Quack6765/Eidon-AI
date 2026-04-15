@@ -38,6 +38,7 @@ function buildProfile(
     modelContextLimit: number;
     compactionThreshold: number;
     freshTailCount: number;
+    providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "custom_openai_compatible" | null;
   }> = {}
 ) {
   return {
@@ -54,7 +55,8 @@ function buildProfile(
     reasoningSummaryEnabled: overrides.reasoningSummaryEnabled ?? true,
     modelContextLimit: overrides.modelContextLimit ?? 16384,
     compactionThreshold: overrides.compactionThreshold ?? 0.8,
-    freshTailCount: overrides.freshTailCount ?? 12
+    freshTailCount: overrides.freshTailCount ?? 12,
+    providerPresetId: overrides.providerPresetId ?? null
   };
 }
 

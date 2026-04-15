@@ -22,10 +22,9 @@ import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
 import {
   applyProviderPreset,
   getMatchingProviderPresetId,
-  PROVIDER_PRESETS,
-  type ProviderPresetId
+  PROVIDER_PRESETS
 } from "@/lib/provider-presets";
-import type { AppSettings, ApiMode, McpServer, ReasoningEffort, VisionMode } from "@/lib/types";
+import type { AppSettings, ApiMode, McpServer, ProviderPresetId, ReasoningEffort, VisionMode } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
@@ -55,6 +54,7 @@ type SettingsPayload = AppSettings & {
     mergedTargetTokens: number;
     visionMode: VisionMode;
     visionMcpServerId: string | null;
+    providerPresetId: ProviderPresetId | null;
     githubAccountLogin: string | null;
     githubAccountName: string | null;
     githubTokenExpiresAt: string | null;
@@ -112,7 +112,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     [providerProfiles, selectedProviderProfileId]
   );
   const activeProviderPresetId = activeProviderProfile
-    ? getMatchingProviderPresetId(activeProviderProfile)
+    ? activeProviderProfile.providerPresetId ?? getMatchingProviderPresetId(activeProviderProfile)
     : null;
   const isCopilot = activeProviderProfile?.providerKind === "github_copilot";
 
@@ -166,6 +166,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         mergedTargetTokens: 1600,
         visionMode: "native" as VisionMode,
         visionMcpServerId: null,
+        providerPresetId: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         hasApiKey: false,
@@ -198,7 +199,10 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       return;
     }
 
-    updateActiveProviderProfile(applyProviderPreset(activeProviderProfile, presetId));
+    updateActiveProviderProfile({
+      ...applyProviderPreset(activeProviderProfile, presetId),
+      providerPresetId: presetId
+    });
   }
 
   function resetActiveProviderAdvancedSettings() {
@@ -283,6 +287,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         mergedTargetTokens: profile.mergedTargetTokens,
         visionMode: profile.visionMode ?? "native",
         visionMcpServerId: profile.visionMcpServerId ?? null,
+        providerPresetId: profile.providerPresetId ?? null,
         githubAccountLogin: profile.githubAccountLogin ?? null,
         githubAccountName: profile.githubAccountName ?? null,
         githubTokenExpiresAt: profile.githubTokenExpiresAt ?? null,
@@ -468,13 +473,15 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             model: "",
                             apiMode: "responses",
                             systemPrompt: "",
-                            tokenizerModel: "off"
+                            tokenizerModel: "off",
+                            providerPresetId: null
                           });
                         } else {
                           updateActiveProviderProfile({
                             providerKind: "openai_compatible",
                             apiBaseUrl: activeProviderProfile.apiBaseUrl || "https://api.openai.com/v1",
-                            apiKey: ""
+                            apiKey: "",
+                            providerPresetId: null
                           });
                         }
                       }
@@ -576,7 +583,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             autoComplete="url"
                             value={activeProviderProfile.apiBaseUrl}
                             onChange={(event) =>
-                              updateActiveProviderProfile({ apiBaseUrl: event.target.value })
+                              updateActiveProviderProfile({ apiBaseUrl: event.target.value, providerPresetId: null })
                             }
                             required
                           />

@@ -44,6 +44,7 @@ function createProviderProfile(id = "profile_scheduler"): ProviderProfileWithApi
     mergedTargetTokens: 1600,
     visionMode: "none",
     visionMcpServerId: null,
+    providerPresetId: null,
     providerKind: "openai_compatible",
     githubUserAccessTokenEncrypted: "",
     githubRefreshTokenEncrypted: "",
