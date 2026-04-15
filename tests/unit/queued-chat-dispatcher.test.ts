@@ -310,7 +310,7 @@ describe("queued-chat-dispatcher", () => {
     expect(listQueuedMessages(conversation.id)).toEqual([]);
   });
 
-  it("dispatches queued image-mode messages with their original mode", async () => {
+  it("dispatches queued messages from the queue", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { createConversation, createQueuedMessage } = await import("@/lib/conversations");
     const { ensureQueuedDispatch } = await import("@/lib/queued-chat-dispatcher");
@@ -319,8 +319,7 @@ describe("queued-chat-dispatcher", () => {
     const conversation = createConversation();
     createQueuedMessage({
       conversationId: conversation.id,
-      content: "make it noir",
-      mode: "image"
+      content: "make it noir"
     });
 
     const startChatTurn = vi.fn(async () => ({ status: "completed" as const }));
@@ -337,7 +336,7 @@ describe("queued-chat-dispatcher", () => {
       "make it noir",
       [],
       undefined,
-      expect.objectContaining({ mode: "image" })
+      expect.objectContaining({ source: "queue" })
     );
   });
 });

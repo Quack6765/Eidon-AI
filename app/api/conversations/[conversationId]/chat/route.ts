@@ -33,8 +33,7 @@ import type { ChatStreamEvent } from "@/lib/types";
 const bodySchema = z
   .object({
     message: z.string(),
-    attachmentIds: z.array(z.string().min(1)).default([]),
-    mode: z.enum(["chat", "image"]).default("chat")
+    attachmentIds: z.array(z.string().min(1)).default([])
   })
   .refine(
     (value) => value.message.trim().length > 0 || value.attachmentIds.length > 0,

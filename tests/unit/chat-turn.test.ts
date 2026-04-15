@@ -689,7 +689,7 @@ describe("chat-turn", () => {
     await expect(firstStart).resolves.toEqual({ status: "completed" });
   });
 
-  it("completes a turn with image mode through the normal agentic loop", async () => {
+  it("completes a turn that triggers image generation via the agentic tool system", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { updateSettings } = await import("@/lib/settings");
     const { streamProviderResponse } = await import("@/lib/provider");
@@ -714,9 +714,7 @@ describe("chat-turn", () => {
     })());
 
     const { startChatTurn } = await import("@/lib/chat-turn");
-    const result = await startChatTurn(manager, conv.id, "Generate an image of Seoul at dusk", [], undefined, {
-      mode: "image"
-    });
+    const result = await startChatTurn(manager, conv.id, "Generate an image of Seoul at dusk", []);
 
     expect(result).toEqual({ status: "completed" });
   });

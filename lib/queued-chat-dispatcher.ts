@@ -68,7 +68,6 @@ export async function ensureQueuedDispatch({
         undefined,
         {
           source: "queue",
-          mode: queued.mode,
           onMessagesCreated() {
             messagesCreated = true;
             deleteQueuedMessage({

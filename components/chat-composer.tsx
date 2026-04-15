@@ -8,7 +8,6 @@ import {
   Bot,
   ChevronDown,
   FileText,
-  ImagePlus,
   LoaderCircle,
   Mic,
   Paperclip,
@@ -23,7 +22,6 @@ import { Textarea } from "@/components/ui/textarea";
 import type { SpeechPhase } from "@/lib/speech/types";
 import { cn } from "@/lib/utils";
 import type {
-  ChatInputMode,
   MessageAttachment,
   ProviderProfileSummary
 } from "@/lib/types";
@@ -59,10 +57,6 @@ type ChatComposerProps = {
   onStartSpeech: () => void | Promise<void>;
   onStopSpeech: () => void | Promise<void>;
   queueingEnabled?: boolean;
-  imageMode: ChatInputMode;
-  imageModeEnabled: boolean;
-  onImageModeChange: (mode: ChatInputMode) => void;
-  imageModeDisabledReason?: string | null;
 };
 
 function CustomDropdown<T extends { id: string; name: string }>({
@@ -220,10 +214,6 @@ export function ChatComposer({
   onStartSpeech,
   onStopSpeech,
   queueingEnabled = false,
-  imageMode,
-  imageModeEnabled,
-  onImageModeChange,
-  imageModeDisabledReason = null
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -490,26 +480,6 @@ export function ChatComposer({
           >
             <Paperclip className="h-4.5 w-4.5" />
           </button>
-
-          {imageModeEnabled ? (
-            <button
-              type="button"
-              aria-label="Toggle image generation mode"
-              aria-pressed={imageMode === "image"}
-              disabled={!mounted || isSending}
-              onClick={() => onImageModeChange(imageMode === "image" ? "chat" : "image")}
-              className={cn(
-                "p-2 transition-all duration-200 rounded-xl shrink-0",
-                imageMode === "image"
-                  ? "text-violet-400 bg-violet-400/10 hover:bg-violet-400/15"
-                  : "text-white/30 hover:text-white/60 hover:bg-white/5",
-                (!mounted || isSending) && "opacity-50 cursor-not-allowed"
-              )}
-              title={imageModeDisabledReason ?? undefined}
-            >
-              <ImagePlus className="h-4.5 w-4.5" />
-            </button>
-          ) : null}
 
           <div className="h-4 w-px bg-white/5 mx-1" />
 

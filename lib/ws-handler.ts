@@ -1,4 +1,3 @@
-import type { ChatInputMode } from "@/lib/types";
 import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 import { verifySessionToken } from "@/lib/auth";
@@ -151,8 +150,7 @@ function handleMessage(
 
       createQueuedMessage({
         conversationId: msg.conversationId,
-        content: msg.content,
-        mode: msg.mode
+        content: msg.content
       });
       broadcastQueueUpdated(mgr, msg.conversationId);
       break;
@@ -244,7 +242,7 @@ function broadcastQueueUpdated(mgr: ConversationManager, conversationId: string)
 async function handleUserMessage(
   mgr: ConversationManager,
   ws: WebSocket,
-  msg: { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string; mode?: ChatInputMode },
+  msg: { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string },
   currentUserId: string | null
 ) {
   if (currentUserId && !getConversationSnapshot(msg.conversationId, currentUserId)) {
@@ -255,5 +253,5 @@ async function handleUserMessage(
   if (!mgr.hasSubscribers(msg.conversationId)) {
     mgr.subscribe(msg.conversationId, ws);
   }
-  await startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? [], msg.personaId, { mode: msg.mode });
+  await startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? [], msg.personaId);
 }

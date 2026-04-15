@@ -67,8 +67,7 @@ export default async function ConversationPage({
           queuedMessages: listQueuedMessages(conversation.id),
           settings: {
             sttEngine: settings.sttEngine,
-            sttLanguage: settings.sttLanguage,
-            imageGenerationBackend: settings.imageGenerationBackend
+            sttLanguage: settings.sttLanguage
           },
           providerProfiles: settings.providerProfiles,
           defaultProviderProfileId: settings.defaultProviderProfileId,

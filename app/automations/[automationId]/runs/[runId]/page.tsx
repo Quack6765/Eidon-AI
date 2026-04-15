@@ -47,8 +47,7 @@ export default async function AutomationRunPage({
           queuedMessages: listQueuedMessages(conversation.id),
           settings: {
             sttEngine: settings.sttEngine,
-            sttLanguage: settings.sttLanguage,
-            imageGenerationBackend: settings.imageGenerationBackend
+            sttLanguage: settings.sttLanguage
           },
           providerProfiles: settings.providerProfiles,
           defaultProviderProfileId: settings.defaultProviderProfileId,

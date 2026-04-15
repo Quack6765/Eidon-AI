@@ -30,7 +30,7 @@ import {
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
 import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
-import type { ChatInputMode, ChatStreamEvent, Message } from "@/lib/types";
+import type { ChatStreamEvent, Message } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export type ChatEmitter = ReturnType<typeof createEmitter<{
@@ -51,7 +51,6 @@ export type StartChatTurn = (
   personaId?: string,
   options?: {
     source?: "live" | "queue";
-    mode?: ChatInputMode;
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
   }
 ) => Promise<ChatTurnResult>;
@@ -134,7 +133,6 @@ async function startAssistantTurn(
   personaId?: string,
   options?: {
     userMessageId?: string;
-    mode?: ChatInputMode;
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
   }
 ) : Promise<ChatTurnResult> {
@@ -503,7 +501,6 @@ export async function startChatTurn(
   personaId?: string,
   options?: {
     source?: "live" | "queue";
-    mode?: ChatInputMode;
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
   }
 ): Promise<ChatTurnResult> {
@@ -541,7 +538,6 @@ export async function startChatTurn(
 
     return startAssistantTurn(manager, conversationId, preflight, claimed.control, personaId, {
       userMessageId: userMessage.id,
-      mode: options?.mode,
       onMessagesCreated: options?.onMessagesCreated
     });
   } catch (error) {

@@ -4,7 +4,6 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { HomeView } from "@/components/home-view";
-import type { ChatInputMode } from "@/lib/types";
 import type { SpeechSessionSnapshot, SttEngine, SttLanguage } from "@/lib/speech/types";
 
 const push = vi.fn();
@@ -232,8 +231,7 @@ describe("home view", () => {
         defaultProviderProfileId: "profile_default",
         settings: {
           sttEngine: "browser",
-          sttLanguage: "en",
-          imageGenerationBackend: "disabled"
+          sttLanguage: "en"
         }
       })
     );
@@ -282,8 +280,7 @@ describe("home view", () => {
         defaultProviderProfileId: "profile_default",
         settings: {
           sttEngine: "browser",
-          sttLanguage: "en",
-          imageGenerationBackend: "disabled"
+          sttLanguage: "en"
         }
       })
     );
@@ -295,39 +292,6 @@ describe("home view", () => {
     ).not.toHaveFocus();
   });
 
-  it("stores image mode in the bootstrap payload when starting a new conversation", async () => {
-    vi.mocked(global.fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ personas: [] })
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ conversation: { id: "conv_new" } })
-      } as Response);
-
-    render(
-      React.createElement(HomeView, {
-        providerProfiles: [createProviderProfile()],
-        defaultProviderProfileId: "profile_default",
-        settings: {
-          sttEngine: "browser",
-          sttLanguage: "en",
-          imageGenerationBackend: "google_nano_banana"
-        }
-      })
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Toggle image generation mode" }));
-    fireEvent.change(screen.getByPlaceholderText("Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."), {
-      target: { value: "Generate a poster of Seoul at dusk" }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/chat/conv_new"));
-    expect(sessionStorage.getItem("eidon:chat-bootstrap:conv_new")).toContain("\"mode\":\"image\"");
-  });
-
   it("dictates into the home composer draft without auto-sending", async () => {
     render(
       React.createElement(HomeView, {
@@ -335,8 +299,7 @@ describe("home view", () => {
         defaultProviderProfileId: "profile_default",
         settings: {
           sttEngine: "browser",
-          sttLanguage: "en",
-          imageGenerationBackend: "disabled"
+          sttLanguage: "en"
         }
       })
     );

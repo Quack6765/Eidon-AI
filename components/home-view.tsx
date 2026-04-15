@@ -10,7 +10,6 @@ import { useSpeechInput } from "@/lib/speech/use-speech-input";
 import { shouldAutofocusTextInput } from "@/lib/utils";
 import type {
   AppSettings,
-  ChatInputMode,
   Conversation,
   MessageAttachment,
   ProviderProfileSummary
@@ -19,7 +18,7 @@ import type {
 type HomeViewProps = {
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string | null;
-  settings: Pick<AppSettings, "sttEngine" | "sttLanguage" | "imageGenerationBackend">;
+  settings: Pick<AppSettings, "sttEngine" | "sttLanguage">;
 };
 
 export function HomeView({
@@ -39,7 +38,6 @@ export function HomeView({
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
   const [personaId, setPersonaId] = useState<string | null>(null);
-  const [submitMode, setSubmitMode] = useState<ChatInputMode>("chat");
   const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
@@ -259,8 +257,7 @@ export function HomeView({
       storeChatBootstrap(conversationId, {
         message: value,
         attachments: pendingAttachments,
-        personaId: personaId ?? undefined,
-        mode: submitMode === "chat" ? undefined : submitMode
+        personaId: personaId ?? undefined
       });
       router.push(`/chat/${conversationId}`);
     } catch (caughtError) {
@@ -373,9 +370,6 @@ export function HomeView({
               setInput((current) => appendTranscriptToDraft(current, transcript));
             });
           }}
-          imageMode={submitMode}
-          imageModeEnabled={settings.imageGenerationBackend !== "disabled"}
-          onImageModeChange={setSubmitMode}
         />
 
         {error ? (
