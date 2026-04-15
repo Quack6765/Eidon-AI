@@ -71,6 +71,7 @@ export function GeneralSection({
   const [imageError, setImageError] = useState("");
   const [imageSuccess, setImageSuccess] = useState("");
   const [isSavingImage, setIsSavingImage] = useState(false);
+  const [isTestingComfyui, setIsTestingComfyui] = useState(false);
   const hasStoredGoogleNanoBananaApiKey =
     settings.hasGoogleNanoBananaApiKey ?? Boolean(settings.googleNanoBananaApiKey);
   const hasStoredComfyuiBearerToken = settings.hasComfyuiBearerToken ?? Boolean(settings.comfyuiBearerToken);
@@ -244,6 +245,29 @@ export function GeneralSection({
       router.refresh();
     } finally {
       setIsSavingImage(false);
+    }
+  }
+
+  async function testComfyui() {
+    resetImageMessages();
+    setIsTestingComfyui(true);
+
+    try {
+      const response = await fetch("/api/settings/image-generation/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageGenerationBackend: "comfyui" })
+      });
+      const result = (await response.json()) as { error?: string; imageCount?: number };
+
+      if (!response.ok) {
+        setImageError(result.error ?? "ComfyUI test failed");
+        return;
+      }
+
+      setImageSuccess(`ComfyUI test succeeded. Generated ${result.imageCount} image(s).`);
+    } finally {
+      setIsTestingComfyui(false);
     }
   }
 
@@ -688,6 +712,14 @@ export function GeneralSection({
                         className={inputClassName}
                       />
                     </div>
+                    <Button
+                      variant="secondary"
+                      className="w-full sm:w-auto"
+                      onClick={() => void testComfyui()}
+                      disabled={isTestingComfyui}
+                    >
+                      {isTestingComfyui ? "Testing..." : "Test ComfyUI workflow"}
+                    </Button>
                   </div>
                 ) : null}
               </div>
