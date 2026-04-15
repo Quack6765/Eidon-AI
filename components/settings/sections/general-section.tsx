@@ -68,9 +68,6 @@ export function GeneralSection({
   const [comfyuiWidthPath, setComfyuiWidthPath] = useState(settings.comfyuiWidthPath);
   const [comfyuiHeightPath, setComfyuiHeightPath] = useState(settings.comfyuiHeightPath);
   const [comfyuiSeedPath, setComfyuiSeedPath] = useState(settings.comfyuiSeedPath);
-  const [imageError, setImageError] = useState("");
-  const [imageSuccess, setImageSuccess] = useState("");
-  const [isSavingImage, setIsSavingImage] = useState(false);
   const [isTestingComfyui, setIsTestingComfyui] = useState(false);
   const hasStoredGoogleNanoBananaApiKey =
     settings.hasGoogleNanoBananaApiKey ?? Boolean(settings.googleNanoBananaApiKey);
@@ -93,11 +90,6 @@ export function GeneralSection({
   function resetMessages() {
     setError("");
     setSuccess("");
-  }
-
-  function resetImageMessages() {
-    setImageError("");
-    setImageSuccess("");
   }
 
   function handleSpeechEngineChange(nextEngine: AppSettings["sttEngine"]) {
@@ -168,32 +160,7 @@ export function GeneralSection({
       payload.clearTavilyApiKey = true;
     }
 
-    setIsSaving(true);
-
-    try {
-      const response = await fetch("/api/settings/general", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const result = (await response.json()) as { error?: string };
-
-      if (!response.ok) {
-        setError(result.error ?? "Unable to save settings");
-        return;
-      }
-
-      setSuccess("Settings saved.");
-      router.refresh();
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  async function saveImageSettings() {
-    resetImageMessages();
-
-    const payload: Record<string, unknown> = {
+    const imagePayload: Record<string, unknown> = {
       imageGenerationBackend,
       googleNanoBananaModel
     };
@@ -203,53 +170,72 @@ export function GeneralSection({
         hasEditedGoogleNanoBananaApiKey ||
         (!hasStoredGoogleNanoBananaApiKey && googleNanoBananaApiKey.trim())
       ) {
-        payload.googleNanoBananaApiKey = googleNanoBananaApiKey.trim();
+        imagePayload.googleNanoBananaApiKey = googleNanoBananaApiKey.trim();
       }
     }
 
     if (imageGenerationBackend === "comfyui") {
-      payload.comfyuiBaseUrl = comfyuiBaseUrl.trim();
-      payload.comfyuiAuthType = comfyuiAuthType;
+      imagePayload.comfyuiBaseUrl = comfyuiBaseUrl.trim();
+      imagePayload.comfyuiAuthType = comfyuiAuthType;
 
       if (
         hasEditedComfyuiBearerToken ||
         (!hasStoredComfyuiBearerToken && comfyuiBearerToken.trim())
       ) {
-        payload.comfyuiBearerToken = comfyuiBearerToken.trim();
+        imagePayload.comfyuiBearerToken = comfyuiBearerToken.trim();
       }
 
-      payload.comfyuiWorkflowJson = comfyuiWorkflowJson;
-      payload.comfyuiPromptPath = comfyuiPromptPath;
-      payload.comfyuiNegativePromptPath = comfyuiNegativePromptPath;
-      payload.comfyuiWidthPath = comfyuiWidthPath;
-      payload.comfyuiHeightPath = comfyuiHeightPath;
-      payload.comfyuiSeedPath = comfyuiSeedPath;
+      imagePayload.comfyuiWorkflowJson = comfyuiWorkflowJson;
+      imagePayload.comfyuiPromptPath = comfyuiPromptPath;
+      imagePayload.comfyuiNegativePromptPath = comfyuiNegativePromptPath;
+      imagePayload.comfyuiWidthPath = comfyuiWidthPath;
+      imagePayload.comfyuiHeightPath = comfyuiHeightPath;
+      imagePayload.comfyuiSeedPath = comfyuiSeedPath;
     }
 
-    setIsSavingImage(true);
+    setIsSaving(true);
 
     try {
-      const response = await fetch("/api/settings/image-generation", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const result = (await response.json()) as { error?: string };
+      const [generalResponse, imageResponse] = await Promise.all([
+        fetch("/api/settings/general", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }),
+        canManageImageGeneration
+          ? fetch("/api/settings/image-generation", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(imagePayload)
+            })
+          : Promise.resolve(null)
+      ]);
 
-      if (!response.ok) {
-        setImageError(result.error ?? "Unable to save image generation settings");
+      const generalResult = (await generalResponse.json()) as { error?: string };
+
+      if (!generalResponse.ok) {
+        setError(generalResult.error ?? "Unable to save settings");
         return;
       }
 
-      setImageSuccess("Image generation settings saved.");
+      if (imageResponse) {
+        const imageResult = (await imageResponse.json()) as { error?: string };
+
+        if (!imageResponse.ok) {
+          setError(imageResult.error ?? "Unable to save image generation settings");
+          return;
+        }
+      }
+
+      setSuccess("Settings saved.");
       router.refresh();
     } finally {
-      setIsSavingImage(false);
+      setIsSaving(false);
     }
   }
 
   async function testComfyui() {
-    resetImageMessages();
+    resetMessages();
     setIsTestingComfyui(true);
 
     try {
@@ -261,11 +247,11 @@ export function GeneralSection({
       const result = (await response.json()) as { error?: string; imageCount?: number };
 
       if (!response.ok) {
-        setImageError(result.error ?? "ComfyUI test failed");
+        setError(result.error ?? "ComfyUI test failed");
         return;
       }
 
-      setImageSuccess(`ComfyUI test succeeded. Generated ${result.imageCount} image(s).`);
+      setSuccess(`ComfyUI test succeeded. Generated ${result.imageCount} image(s).`);
     } finally {
       setIsTestingComfyui(false);
     }
@@ -481,7 +467,7 @@ export function GeneralSection({
                     aria-label="Image generation backend"
                     value={imageGenerationBackend}
                     onChange={(event) => {
-                      resetImageMessages();
+                      resetMessages();
                       setImageGenerationBackend(
                         event.target.value as ImageGenerationBackend
                       );
@@ -505,7 +491,7 @@ export function GeneralSection({
                         aria-label="Google Nano Banana model"
                         value={googleNanoBananaModel}
                         onChange={(event) => {
-                          resetImageMessages();
+                          resetMessages();
                           setGoogleNanoBananaModel(
                             event.target.value as AppSettings["googleNanoBananaModel"]
                           );
@@ -537,7 +523,7 @@ export function GeneralSection({
                             : ""
                         }
                         onChange={(event) => {
-                          resetImageMessages();
+                          resetMessages();
                           setHasEditedGoogleNanoBananaApiKey(true);
                           setGoogleNanoBananaApiKey(event.target.value);
                         }}
@@ -561,7 +547,7 @@ export function GeneralSection({
                         value={comfyuiBaseUrl}
                         placeholder="https://comfy.example.com"
                         onChange={(event) => {
-                          resetImageMessages();
+                          resetMessages();
                           setComfyuiBaseUrl(event.target.value);
                         }}
                         className={inputClassName}
@@ -576,7 +562,7 @@ export function GeneralSection({
                         aria-label="ComfyUI auth type"
                         value={comfyuiAuthType}
                         onChange={(event) => {
-                          resetImageMessages();
+                          resetMessages();
                           setComfyuiAuthType(
                             event.target.value as AppSettings["comfyuiAuthType"]
                           );
@@ -604,7 +590,7 @@ export function GeneralSection({
                               : ""
                           }
                           onChange={(event) => {
-                            resetImageMessages();
+                            resetMessages();
                             setHasEditedComfyuiBearerToken(true);
                             setComfyuiBearerToken(event.target.value);
                           }}
@@ -623,7 +609,7 @@ export function GeneralSection({
                         value={comfyuiWorkflowJson}
                         placeholder='{"3":{"inputs":{"text":"prompt"}}}'
                         onChange={(event) => {
-                          resetImageMessages();
+                          resetMessages();
                           setComfyuiWorkflowJson(event.target.value);
                         }}
                         className={`${inputClassName} resize-y font-mono`}
@@ -640,7 +626,7 @@ export function GeneralSection({
                         value={comfyuiPromptPath}
                         placeholder="3.inputs.text"
                         onChange={(event) => {
-                          resetImageMessages();
+                          resetMessages();
                           setComfyuiPromptPath(event.target.value);
                         }}
                         className={inputClassName}
@@ -656,7 +642,7 @@ export function GeneralSection({
                         autoComplete="off"
                         value={comfyuiNegativePromptPath}
                         onChange={(event) => {
-                          resetImageMessages();
+                          resetMessages();
                           setComfyuiNegativePromptPath(event.target.value);
                         }}
                         className={inputClassName}
@@ -673,7 +659,7 @@ export function GeneralSection({
                           autoComplete="off"
                           value={comfyuiWidthPath}
                           onChange={(event) => {
-                            resetImageMessages();
+                            resetMessages();
                             setComfyuiWidthPath(event.target.value);
                           }}
                           className={inputClassName}
@@ -689,7 +675,7 @@ export function GeneralSection({
                           autoComplete="off"
                           value={comfyuiHeightPath}
                           onChange={(event) => {
-                            resetImageMessages();
+                            resetMessages();
                             setComfyuiHeightPath(event.target.value);
                           }}
                           className={inputClassName}
@@ -706,7 +692,7 @@ export function GeneralSection({
                         autoComplete="off"
                         value={comfyuiSeedPath}
                         onChange={(event) => {
-                          resetImageMessages();
+                          resetMessages();
                           setComfyuiSeedPath(event.target.value);
                         }}
                         className={inputClassName}
@@ -724,25 +710,6 @@ export function GeneralSection({
                 ) : null}
               </div>
             </SettingRow>
-
-            <div className="flex flex-wrap items-center gap-3 px-4 pb-4">
-              <Button
-                className="w-full sm:w-auto"
-                onClick={() => void saveImageSettings()}
-                disabled={isSavingImage}
-              >
-                Save image settings
-              </Button>
-              {imageSuccess ? (
-                <span className="text-sm text-emerald-400">{imageSuccess}</span>
-              ) : null}
-            </div>
-
-            {imageError ? (
-              <div className="mx-4 mb-4 rounded-xl border border-red-400/10 bg-red-500/8 px-4 py-3 text-sm text-red-300">
-                {imageError}
-              </div>
-            ) : null}
           </>
         )}
       </SettingsCard>

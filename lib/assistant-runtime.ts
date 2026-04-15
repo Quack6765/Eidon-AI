@@ -148,6 +148,7 @@ function buildToolDefinitions(input: {
   loadedSkillIds: Set<string>;
   memoriesEnabled: boolean;
   searxngBaseUrl?: string | null;
+  imageGenerationBackend?: string | null;
 }): ToolDefinition[] {
   const tools: ToolDefinition[] = [];
 
@@ -219,6 +220,30 @@ function buildToolDefinitions(input: {
             }
           },
           required: ["query"]
+        }
+      }
+    });
+  }
+
+  if (input.imageGenerationBackend && input.imageGenerationBackend !== "disabled") {
+    tools.push({
+      type: "function",
+      function: {
+        name: "generate_image",
+        description: "Generate an image from a text prompt. Returns generated images as attachments on the response.",
+        parameters: {
+          type: "object",
+          properties: {
+            prompt: { type: "string", description: "Detailed image generation prompt" },
+            negative_prompt: { type: "string", description: "Things to exclude from the image" },
+            aspect_ratio: {
+              type: "string",
+              enum: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+              description: "Desired aspect ratio (default 1:1)"
+            },
+            count: { type: "number", description: "Number of images to generate (1-4, default 1)" }
+          },
+          required: ["prompt"]
         }
       }
     });
@@ -452,6 +477,124 @@ async function executeSearxngWebSearch(
     const message = error instanceof Error ? error.message : "SearXNG search failed";
     await context.input.onActionError?.(actionHandle, {
       detail: query,
+      resultSummary: message
+    });
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+}
+
+async function executeImageGeneration(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      appSettings?: import("@/lib/types").AppSettings;
+      conversationId?: string;
+      assistantMessageId?: string;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  let sortOrder = context.timelineSortOrder;
+  const prompt = String(args.prompt ?? "").trim();
+
+  if (!prompt) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: prompt is required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const appSettings = context.input.appSettings;
+  const conversationId = context.input.conversationId;
+  const assistantMessageId = context.input.assistantMessageId;
+
+  if (!appSettings || !conversationId || !assistantMessageId) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: image generation is not configured");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const handle = await context.input.onActionStart?.({
+    kind: "image_generation",
+    label: "Generate image",
+    detail: prompt
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    const { generateGoogleNanoBananaImages } = await import("@/lib/image-generation/google-nano-banana");
+    const { generateComfyUiImages } = await import("@/lib/image-generation/comfyui");
+    const { createAttachments } = await import("@/lib/attachments");
+    const { assignAttachmentsToMessage } = await import("@/lib/attachments");
+
+    const argCount = args.count;
+    const argAspectRatio = String(args.aspect_ratio ?? "");
+    const validAspectRatios = ["1:1", "16:9", "9:16", "4:3", "3:4"] as const;
+    type AspectRatio = (typeof validAspectRatios)[number];
+    const instruction = {
+      imagePrompt: prompt,
+      negativePrompt: String(args.negative_prompt ?? ""),
+      assistantText: "",
+      aspectRatio: (validAspectRatios.includes(argAspectRatio as AspectRatio)
+        ? argAspectRatio
+        : "1:1") as AspectRatio,
+      count: typeof argCount === "number" ? Math.max(1, Math.min(4, Math.round(argCount))) : 1
+    };
+
+    const backendResult =
+      appSettings.imageGenerationBackend === "google_nano_banana"
+        ? await generateGoogleNanoBananaImages({ settings: appSettings, instruction })
+        : await generateComfyUiImages({
+            settings: {
+              comfyuiBaseUrl: appSettings.comfyuiBaseUrl,
+              comfyuiAuthType: appSettings.comfyuiAuthType,
+              comfyuiBearerToken: appSettings.comfyuiBearerToken,
+              comfyuiWorkflowJson: appSettings.comfyuiWorkflowJson,
+              comfyuiPromptPath: appSettings.comfyuiPromptPath,
+              comfyuiNegativePromptPath: appSettings.comfyuiNegativePromptPath,
+              comfyuiWidthPath: appSettings.comfyuiWidthPath,
+              comfyuiHeightPath: appSettings.comfyuiHeightPath,
+              comfyuiSeedPath: appSettings.comfyuiSeedPath
+            },
+            instruction,
+            clientId: crypto.randomUUID()
+          });
+
+    const attachments = createAttachments(
+      conversationId,
+      backendResult.images.map((img) => ({
+        filename: img.filename,
+        mimeType: img.mimeType,
+        bytes: img.bytes
+      }))
+    );
+
+    assignAttachmentsToMessage(
+      conversationId,
+      assistantMessageId,
+      attachments.map((a) => a.id)
+    );
+
+    const resultSummary = `Generated ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}: ${attachments.map((a) => a.filename).join(", ")}`;
+
+    sortOrder += 1;
+    await context.input.onActionComplete?.(actionHandle, {
+      detail: prompt,
+      resultSummary
+    });
+
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      `Successfully generated ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}. ${resultSummary}`
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Image generation failed";
+    await context.input.onActionError?.(actionHandle, {
+      detail: prompt,
       resultSummary: message
     });
     const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
@@ -890,6 +1033,10 @@ async function executeToolCall(
     return executeSearxngWebSearch(toolCallId, args, context);
   }
 
+  if (name === "generate_image") {
+    return executeImageGeneration(toolCallId, args, context);
+  }
+
   if (name.startsWith("mcp_")) {
     return executeMcpToolCall(toolCallId, name, args, context);
   }
@@ -964,6 +1111,9 @@ export async function resolveAssistantTurn(input: {
     handle: string | undefined,
     patch: { detail?: string; resultSummary?: string }
   ) => Promise<void> | void;
+  appSettings?: import("@/lib/types").AppSettings;
+  conversationId?: string;
+  assistantMessageId?: string;
 }) {
   const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
 
@@ -1015,7 +1165,8 @@ export async function resolveAssistantTurn(input: {
       skills: turnSkills,
       loadedSkillIds,
       memoriesEnabled: input.memoriesEnabled ?? false,
-      searxngBaseUrl: input.searxngBaseUrl
+      searxngBaseUrl: input.searxngBaseUrl,
+      imageGenerationBackend: input.appSettings?.imageGenerationBackend
     });
 
     const providerStream = streamProviderResponse({

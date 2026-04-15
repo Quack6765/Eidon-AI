@@ -32,7 +32,6 @@ import { createEmitter } from "@/lib/emitter";
 import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
 import type { ChatInputMode, ChatStreamEvent, Message } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
-import type { RunImageTurnFn } from "@/lib/image-generation/run-image-turn";
 
 export type ChatEmitter = ReturnType<typeof createEmitter<{
   delta: [string, unknown];
@@ -53,13 +52,6 @@ export type StartChatTurn = (
   options?: {
     source?: "live" | "queue";
     mode?: ChatInputMode;
-    runImageTurn?: (input: {
-      conversationId: string;
-      settings: import("@/lib/types").ProviderProfileWithApiKey;
-      appSettings: import("@/lib/types").AppSettings;
-      assistantMessageId: string;
-      promptMessages: import("@/lib/types").PromptMessage[];
-    }) => Promise<{ assistantMessage: Message }>;
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
   }
 ) => Promise<ChatTurnResult>;
@@ -143,13 +135,6 @@ async function startAssistantTurn(
   options?: {
     userMessageId?: string;
     mode?: ChatInputMode;
-    runImageTurn?: (input: {
-      conversationId: string;
-      settings: import("@/lib/types").ProviderProfileWithApiKey;
-      appSettings: import("@/lib/types").AppSettings;
-      assistantMessageId: string;
-      promptMessages: import("@/lib/types").PromptMessage[];
-    }) => Promise<{ assistantMessage: Message }>;
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
   }
 ) : Promise<ChatTurnResult> {
@@ -216,44 +201,6 @@ async function startAssistantTurn(
       });
     }
 
-    if (options?.mode === "image" && options.runImageTurn) {
-      const compacted = await ensureCompactedContext(conversation.id, settings, {
-        onCompactionStart() {
-          manager.broadcast(conversationId, {
-            type: "delta",
-            conversationId,
-            event: { type: "compaction_start" }
-          });
-        },
-        onCompactionEnd() {
-          manager.broadcast(conversationId, {
-            type: "delta",
-            conversationId,
-            event: { type: "compaction_end" }
-          });
-        }
-      }, personaId, appSettings.memoriesEnabled);
-
-      const imageResult = await options.runImageTurn({
-        conversationId: conversation.id,
-        settings,
-        appSettings,
-        assistantMessageId: assistantMessage.id,
-        promptMessages: compacted.promptMessages
-      });
-
-      manager.broadcast(conversationId, {
-        type: "delta",
-        conversationId,
-        event: {
-          type: "done",
-          messageId: assistantMessage.id,
-          message: imageResult.assistantMessage
-        }
-      });
-      return { status: "completed" };
-    }
-
     const compacted = await ensureCompactedContext(conversation.id, settings, {
       onCompactionStart() {
         manager.broadcast(conversationId, {
@@ -306,6 +253,9 @@ async function startAssistantTurn(
       mcpTimeout: appSettings.mcpTimeout,
       abortSignal: control.abortController.signal,
       throwIfStopped: control.throwIfStopped,
+      appSettings,
+      conversationId: conversation.id,
+      assistantMessageId: assistantMessage.id,
       onEvent(event: ChatStreamEvent) {
         manager.broadcast(conversationId, {
           type: "delta",
@@ -554,7 +504,6 @@ export async function startChatTurn(
   options?: {
     source?: "live" | "queue";
     mode?: ChatInputMode;
-    runImageTurn?: RunImageTurnFn;
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
   }
 ): Promise<ChatTurnResult> {
@@ -593,7 +542,6 @@ export async function startChatTurn(
     return startAssistantTurn(manager, conversationId, preflight, claimed.control, personaId, {
       userMessageId: userMessage.id,
       mode: options?.mode,
-      runImageTurn: options?.runImageTurn,
       onMessagesCreated: options?.onMessagesCreated
     });
   } catch (error) {

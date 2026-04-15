@@ -173,6 +173,9 @@ export async function POST(
           memoryUserId: conversationOwnerId ?? undefined,
           abortSignal: control.abortController.signal,
           throwIfStopped: control.throwIfStopped,
+          appSettings,
+          conversationId: conversation.id,
+          assistantMessageId: assistantMessage.id,
           onEvent(event: ChatStreamEvent) {
             write(event);
             if (event.type === "answer_delta") {

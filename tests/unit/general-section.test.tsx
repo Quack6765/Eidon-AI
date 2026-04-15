@@ -352,17 +352,22 @@ describe("general section", () => {
     });
   });
 
-  it("renders an image generation card under web search and saves through the image settings route", async () => {
+  it("renders an image generation card under web search and saves through the global save button", async () => {
     const settings = makeSettings({
       imageGenerationBackend: "google_nano_banana",
       googleNanoBananaModel: "gemini-3.1-flash-image-preview",
       hasGoogleNanoBananaApiKey: true
     });
 
-    vi.mocked(global.fetch).mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ settings })
-    } as Response);
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ settings })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ settings })
+      } as Response);
 
     render(
       React.createElement(GeneralSection, {
@@ -374,7 +379,7 @@ describe("general section", () => {
     expect(screen.getByRole("heading", { name: "Image Generation" })).toBeInTheDocument();
     expect(screen.getByLabelText("Image generation backend")).toHaveValue("google_nano_banana");
 
-    fireEvent.click(screen.getByRole("button", { name: "Save image settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(

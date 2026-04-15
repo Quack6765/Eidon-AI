@@ -57,7 +57,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory";
+export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory" | "image_generation";
 
 export type MessageActionStatus = "running" | "pending" | "completed" | "error" | "stopped";
 
