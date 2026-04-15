@@ -688,4 +688,69 @@ describe("chat-turn", () => {
     release();
     await expect(firstStart).resolves.toEqual({ status: "completed" });
   });
+
+  it("creates an assistant message with generated image attachments for image mode", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+    const { listVisibleMessages, bindAttachmentsToMessage, updateMessage, getMessage } = await import("@/lib/conversations");
+    const { createAttachments } = await import("@/lib/attachments");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    const imageRunner = vi.fn().mockImplementation(async (input: {
+      conversationId: string;
+      assistantMessageId: string;
+    }) => {
+      const attachments = createAttachments(input.conversationId, [
+        {
+          filename: "generated-1.png",
+          mimeType: "image/png",
+          bytes: Buffer.from("png")
+        }
+      ]);
+      bindAttachmentsToMessage(
+        input.conversationId,
+        input.assistantMessageId,
+        attachments.map((a) => a.id)
+      );
+      updateMessage(input.assistantMessageId, {
+        content: "Here is a first pass.",
+        thinkingContent: "",
+        status: "completed"
+      });
+      return { assistantMessage: getMessage(input.assistantMessageId)! };
+    });
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const result = await startChatTurn(manager, conv.id, "Make it noir", [], undefined, {
+      mode: "image",
+      runImageTurn: imageRunner
+    });
+
+    expect(result).toEqual({ status: "completed" });
+    expect(imageRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: conv.id
+      })
+    );
+
+    const messages = listVisibleMessages(conv.id);
+    const assistantMsg = messages.find((m) => m.role === "assistant");
+    expect(assistantMsg?.status).toBe("completed");
+    expect(assistantMsg?.content).toBe("Here is a first pass.");
+    expect(assistantMsg?.attachments?.length).toBe(1);
+    expect(assistantMsg?.attachments?.[0].filename).toBe("generated-1.png");
+  });
 });

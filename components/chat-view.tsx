@@ -759,27 +759,38 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       setIsConversationActive(false);
       const wasStopped = isStopPending;
       setIsStopPending(false);
-      const finalAnswer = streamAnswerTargetRef.current;
-      const finalThinking = streamThinkingTargetRef.current;
-      const finalTimeline = streamTimelineRef.current;
       dispatchConversationActivityUpdated({
         conversationId: payload.conversation.id,
         isActive: false
       });
 
-      setMessages((current) =>
-        current.map((m) =>
-          m.id === event.messageId
-            ? {
-                ...m,
-                content: finalAnswer,
-                thinkingContent: finalThinking,
-                status: wasStopped ? ("stopped" as const) : ("completed" as const),
-                timeline: finalTimeline
-              }
-            : m
-        )
-      );
+      if (event.message) {
+        setMessages((current) =>
+          current.map((m) =>
+            m.id === event.messageId
+              ? { ...event.message, status: wasStopped ? ("stopped" as const) : ("completed" as const) } as Message
+              : m
+          )
+        );
+      } else {
+        const finalAnswer = streamAnswerTargetRef.current;
+        const finalThinking = streamThinkingTargetRef.current;
+        const finalTimeline = streamTimelineRef.current;
+
+        setMessages((current) =>
+          current.map((m) =>
+            m.id === event.messageId
+              ? {
+                  ...m,
+                  content: finalAnswer,
+                  thinkingContent: finalThinking,
+                  status: wasStopped ? ("stopped" as const) : ("completed" as const),
+                  timeline: finalTimeline
+                }
+              : m
+          )
+        );
+      }
       setStreamMessageId(null);
       updateStreamTimeline([]);
       setStreamAnswerTarget("");

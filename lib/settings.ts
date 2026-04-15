@@ -232,6 +232,18 @@ type UserSettingsRow = {
   exa_api_key_encrypted: string;
   tavily_api_key_encrypted: string;
   searxng_base_url: string;
+  image_generation_backend?: string;
+  google_nano_banana_model?: string;
+  google_nano_banana_api_key_encrypted?: string;
+  comfyui_base_url?: string;
+  comfyui_auth_type?: string;
+  comfyui_bearer_token_encrypted?: string;
+  comfyui_workflow_json?: string;
+  comfyui_prompt_path?: string;
+  comfyui_negative_prompt_path?: string;
+  comfyui_width_path?: string;
+  comfyui_height_path?: string;
+  comfyui_seed_path?: string;
   updated_at: string;
 };
 
@@ -270,6 +282,10 @@ type ProviderProfileRow = {
 };
 
 function normalizeSearxngBaseUrl(value: string) {
+  return value.trim().replace(/\/+$/, "");
+}
+
+function normalizeComfyUiBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
 }
 
@@ -614,6 +630,7 @@ export function updateImageGenerationSettings(input: unknown) {
   const merged = {
     ...current,
     ...parsed,
+    comfyuiBaseUrl: normalizeComfyUiBaseUrl(parsed.comfyuiBaseUrl),
     updatedAt: new Date().toISOString()
   };
 

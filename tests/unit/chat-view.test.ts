@@ -3287,4 +3287,66 @@ describe("chat view", () => {
     expect(screen.queryByText("Context")).toBeNull();
     expect(screen.queryByRole("progressbar")).toBeNull();
   });
+
+  it("replaces the assistant message with the finalized message from a done event", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant_image" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Generated")).toBeNull();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "done",
+          messageId: "msg_assistant_image",
+          message: {
+            id: "msg_assistant_image",
+            conversationId: "conv_1",
+            role: "assistant",
+            content: "Here is a first pass.",
+            thinkingContent: "",
+            status: "completed",
+            estimatedTokens: 0,
+            systemKind: null,
+            compactedAt: null,
+            createdAt: new Date().toISOString(),
+            attachments: [
+              {
+                id: "att_generated",
+                conversationId: "conv_1",
+                messageId: "msg_assistant_image",
+                filename: "generated-1.png",
+                mimeType: "image/png",
+                byteSize: 3,
+                sha256: "sha",
+                relativePath: "conv_1/generated-1.png",
+                kind: "image" as const,
+                extractedText: "",
+                createdAt: new Date().toISOString()
+              }
+            ]
+          }
+        }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Here is a first pass.")).toBeInTheDocument();
+    });
+
+    expect(wsMock.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "message" })
+    );
+  });
 });

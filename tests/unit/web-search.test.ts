@@ -15,6 +15,18 @@ function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     exaApiKey: "",
     tavilyApiKey: "",
     searxngBaseUrl: "",
+    imageGenerationBackend: "disabled",
+    googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+    googleNanoBananaApiKey: "",
+    comfyuiBaseUrl: "",
+    comfyuiAuthType: "none",
+    comfyuiBearerToken: "",
+    comfyuiWorkflowJson: "",
+    comfyuiPromptPath: "",
+    comfyuiNegativePromptPath: "",
+    comfyuiWidthPath: "",
+    comfyuiHeightPath: "",
+    comfyuiSeedPath: "",
     updatedAt: new Date().toISOString(),
     ...overrides
   };
