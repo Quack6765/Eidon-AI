@@ -28,6 +28,7 @@
     "clsx": "^2.1.1",
     "framer-motion": "^12.38.0",
     "gpt-tokenizer": "^3.4.0",
+    "highlight.js": "^11.11.1",
     "jose": "^6.0.8",
     "lucide-react": "^0.511.0",
     "next": "15.5.14",

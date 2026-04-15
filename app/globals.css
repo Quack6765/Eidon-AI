@@ -260,6 +260,176 @@ select {
   color: rgba(255, 255, 255, 0.88);
 }
 
+.assistant-code-block {
+  margin: 0.9rem 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.9rem;
+  background: rgba(7, 8, 11, 0.92);
+}
+
+.assistant-code-block__header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.5rem 0.75rem;
+}
+
+.assistant-code-block__language {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.56);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-code-block__copy {
+  display: inline-flex;
+  height: 1.75rem;
+  width: 1.75rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.02);
+  color: rgba(255, 255, 255, 0.42);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease,
+    color 120ms ease;
+}
+
+.assistant-code-block__copy:hover,
+.assistant-code-block__copy:focus-visible {
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.assistant-code-block__copy:focus-visible {
+  outline: none;
+}
+
+.assistant-code-block__copy[data-copy-state="copied"] {
+  color: #4ade80;
+}
+
+.assistant-code-block__copy[data-copy-state="error"] {
+  color: #f87171;
+}
+
+.assistant-code-block[data-complete="false"] .assistant-code-block__copy {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .assistant-code-block__copy[data-copy-state="idle"] {
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(4px);
+  }
+
+  .assistant-code-block:hover .assistant-code-block__copy[data-copy-state="idle"],
+  .assistant-code-block:focus-within .assistant-code-block__copy[data-copy-state="idle"] {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+}
+
+.markdown-body .assistant-code-block__body {
+  margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.85rem 1rem;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.assistant-code-block__code {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.assistant-code-block__body .hljs {
+  display: block;
+  overflow-x: auto;
+  background: transparent;
+  color: #e6edf3;
+}
+
+.assistant-code-block__body .hljs-keyword,
+.assistant-code-block__body .hljs-selector-tag,
+.assistant-code-block__body .hljs-built_in,
+.assistant-code-block__body .hljs-type {
+  color: #ff7b72;
+}
+
+.assistant-code-block__body .hljs-string,
+.assistant-code-block__body .hljs-attr,
+.assistant-code-block__body .hljs-template-variable,
+.assistant-code-block__body .hljs-regexp {
+  color: #a5d6ff;
+}
+
+.assistant-code-block__body .hljs-title,
+.assistant-code-block__body .hljs-function,
+.assistant-code-block__body .hljs-section,
+.assistant-code-block__body .hljs-title.function_ {
+  color: #d2a8ff;
+}
+
+.assistant-code-block__body .hljs-number,
+.assistant-code-block__body .hljs-literal,
+.assistant-code-block__body .hljs-variable,
+.assistant-code-block__body .hljs-symbol {
+  color: #79c0ff;
+}
+
+.assistant-code-block__body .hljs-comment,
+.assistant-code-block__body .hljs-quote {
+  color: #8b949e;
+}
+
+.assistant-code-block__body .hljs-meta,
+.assistant-code-block__body .hljs-punctuation {
+  color: #b1bac4;
+}
+
+@media (max-width: 767px) {
+  .markdown-body .assistant-code-block__body {
+    padding: 0.75rem 0.75rem 0.8rem;
+    font-size: 12px;
+    line-height: 1.55;
+  }
+
+  .assistant-code-block__header {
+    padding: 0.5rem 0.65rem;
+  }
+}
+
 .markdown-body table {
   width: 100%;
   margin: 0.9rem 0;

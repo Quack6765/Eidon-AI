@@ -698,6 +698,22 @@ describe("message bubble", () => {
     expect(assistantMarkdown).not.toBeNull();
   });
 
+  it("keeps fenced code inside thinking content on the plain markdown path", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          thinkingContent: ["```python", "print('thought')", "```"].join("\n")
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Thought/i }));
+
+    expect(container.querySelector(".thinking-markdown-body [data-testid='assistant-code-block']")).toBeNull();
+    expect(container.querySelector(".thinking-markdown-body pre code")).not.toBeNull();
+  });
+
   it("keeps persisted thinking content collapsed by default", () => {
     render(
       React.createElement(MessageBubble, {
@@ -799,6 +815,437 @@ describe("message bubble", () => {
     );
     expect(container.querySelector('input[type="checkbox"]')).not.toBeNull();
     expect(container.querySelector("hr")).not.toBeNull();
+  });
+
+  it("renders fenced assistant code blocks with a language label and block-local copy action", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```python", "print('hello')", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(screen.getByText("python")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
+  });
+
+  it("caps assistant bubbles at the container width so fenced code blocks can scroll internally on narrow screens", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```python", "print('hello')", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-message-bubble").className).toContain("max-w-full");
+    expect(screen.getByTestId("assistant-message-bubble").parentElement?.parentElement?.className).toContain("w-full");
+    expect(screen.getByTestId("assistant-message-bubble").parentElement?.parentElement?.className).toContain("min-w-0");
+  });
+
+  it("renders assistant fenced code blocks without an extra outer pre wrapper", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```python", "print('hello')", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-code-block").closest("pre")).toBeNull();
+  });
+
+  it("preserves symbol-containing assistant fence labels instead of truncating them", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```c++", "std::cout << 1;", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(screen.getByText("c++")).toBeInTheDocument();
+  });
+
+  it("preserves explicit assistant fence aliases in the visible label while still highlighting them", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```html", "<div>Hello</div>", "```", "", "```zsh", "echo hello", "```"].join("\n")
+        }
+      })
+    );
+
+    const languageLabels = Array.from(container.querySelectorAll(".assistant-code-block__language")).map(
+      (element) => element.textContent
+    );
+    const codeElements = Array.from(container.querySelectorAll(".assistant-code-block__body code"));
+
+    expect(languageLabels).toEqual(["html", "zsh"]);
+    expect(codeElements[0]).toHaveClass("language-xml");
+    expect(codeElements[1]).toHaveClass("language-bash");
+  });
+
+  it("renders single-line untagged fenced assistant code blocks through the dedicated block renderer", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```", "foo", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(screen.getByText("foo")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
+  });
+
+  it("keeps untagged assistant code blocks on the dedicated block path without changing the thinking bubble", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```", "SELECT id,", "  email FROM users;", "```"].join("\n"),
+          thinkingContent: ["```", "SELECT thought FROM steps;", "```"].join("\n")
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Thought/i }));
+
+    const assistantCodeBlock = screen.getByTestId("assistant-code-block");
+
+    expect(assistantCodeBlock).toBeInTheDocument();
+    expect(assistantCodeBlock).toHaveTextContent("SELECT id,");
+    expect(assistantCodeBlock.querySelector(".assistant-code-block__header")).not.toBeNull();
+    expect(assistantCodeBlock.querySelector(".assistant-code-block__copy")).not.toBeNull();
+    expect(container.querySelector(".thinking-markdown-body [data-testid='assistant-code-block']")).toBeNull();
+    expect(container.querySelector(".thinking-markdown-body pre code")).not.toBeNull();
+  });
+
+  it("renders unsupported fenced languages as readable plain code in the dedicated block chrome", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```mermadeidon", "opaque => still visible", "```"].join("\n")
+        }
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+    const codeElement = container.querySelector(".assistant-code-block__body code");
+
+    expect(codeBlock).toBeInTheDocument();
+    expect(screen.getByText("mermadeidon")).toBeInTheDocument();
+    expect(screen.getByText("opaque => still visible")).toBeInTheDocument();
+    expect(codeElement).toHaveClass("hljs");
+    expect(codeElement).not.toHaveClass("language-mermadeidon");
+  });
+
+  it("renders assistant fenced code blocks with scoped structural hooks for styling and copy behavior", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```python", "print('hello')", "```"].join("\n")
+        }
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+    const header = container.querySelector(".assistant-code-block__header");
+    const language = container.querySelector(".assistant-code-block__language");
+    const copyButton = container.querySelector(".assistant-code-block__copy");
+    const body = container.querySelector(".assistant-code-block__body");
+
+    expect(codeBlock).toHaveClass("assistant-code-block");
+    expect(header).not.toBeNull();
+    expect(language).not.toBeNull();
+    expect(copyButton).not.toBeNull();
+    expect(body).not.toBeNull();
+  });
+
+  it("keeps long unsupported language labels inside the dedicated header without displacing copy controls", () => {
+    const longLanguage = "unsupported-language-label-with-a-very-long-fallback-name-that-should-not-overflow";
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: [`\`\`\`${longLanguage}`, "opaque => still visible", "```"].join("\n")
+        }
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+    const header = container.querySelector(".assistant-code-block__header");
+    const language = container.querySelector(".assistant-code-block__language");
+    const copyButton = container.querySelector(".assistant-code-block__copy");
+
+    expect(codeBlock).toBeInTheDocument();
+    expect(header).not.toBeNull();
+    expect(language).toHaveTextContent(longLanguage);
+    expect(language).toHaveAttribute("title", longLanguage);
+    expect(copyButton).not.toBeNull();
+    expect(header?.contains(language)).toBe(true);
+    expect(header?.contains(copyButton)).toBe(true);
+  });
+
+  it("renders empty tagged fenced assistant blocks without leaking undefined", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```python", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(container).not.toHaveTextContent("undefined");
+  });
+
+  it("renders empty untagged fenced assistant blocks without collapsing to inline code", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```", "```"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="assistant-message-bubble"] p code')).toBeNull();
+  });
+
+  it("keeps the copy action hidden for a trailing assistant code block while its closing fence is still streaming", () => {
+    render(
+      React.createElement(StreamingPlaceholder, {
+        createdAt: new Date().toISOString(),
+        thinking: "",
+        answer: ["```python", "print('still streaming')"].join("\n"),
+        awaitingFirstToken: false,
+        thinkingInProgress: false,
+        timeline: []
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+
+    expect(codeBlock).toBeInTheDocument();
+    expect(codeBlock).toHaveAttribute("data-complete", "false");
+    expect(codeBlock).toHaveTextContent("print('still streaming')");
+    expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+  });
+
+  it("keeps earlier completed assistant code blocks copyable while a later block is still streaming", () => {
+    render(
+      React.createElement(StreamingPlaceholder, {
+        createdAt: new Date().toISOString(),
+        thinking: "",
+        answer: [
+          "```python",
+          "print('done')",
+          "```",
+          "",
+          "Still working on the next snippet.",
+          "",
+          "```javascript",
+          "const pending = true;"
+        ].join("\n"),
+        awaitingFirstToken: false,
+        thinkingInProgress: false,
+        timeline: []
+      })
+    );
+
+    const codeBlocks = screen.getAllByTestId("assistant-code-block");
+
+    expect(codeBlocks).toHaveLength(2);
+    expect(codeBlocks[0]).toHaveAttribute("data-complete", "true");
+    expect(codeBlocks[1]).toHaveAttribute("data-complete", "false");
+    expect(codeBlocks[0]).toHaveTextContent("print('done')");
+    expect(codeBlocks[1]).toHaveTextContent("const pending = true;");
+    expect(screen.getAllByRole("button", { name: "Copy code block" })).toHaveLength(1);
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+  });
+
+  it("keeps a trailing closed assistant code block non-copyable until streaming finishes", () => {
+    render(
+      React.createElement(StreamingPlaceholder, {
+        createdAt: new Date().toISOString(),
+        thinking: "",
+        answer: ["```python", "print('closed but still streaming')", "```"].join("\n"),
+        awaitingFirstToken: false,
+        thinkingInProgress: false,
+        timeline: []
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+
+    expect(codeBlock).toHaveAttribute("data-complete", "false");
+    expect(codeBlock).toHaveTextContent("print('closed but still streaming')");
+    expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+  });
+
+  it("keeps a trailing closed blockquoted assistant code block non-copyable until streaming finishes", () => {
+    render(
+      React.createElement(StreamingPlaceholder, {
+        createdAt: new Date().toISOString(),
+        thinking: "",
+        answer: ["> ```python", "> print('quoted')", "> ```"].join("\n"),
+        awaitingFirstToken: false,
+        thinkingInProgress: false,
+        timeline: []
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+
+    expect(codeBlock).toHaveAttribute("data-complete", "false");
+    expect(codeBlock).toHaveTextContent("print('quoted')");
+    expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+  });
+
+  it("keeps code-block copy hidden while streamed display text is still animating after the message snapshot is completed", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          status: "completed",
+          content: ["```python", "print('final')", "```"].join("\n")
+        },
+        streamingAnswer: ["```python", "print('still painting')", "```"].join("\n")
+      })
+    );
+
+    const codeBlock = screen.getByTestId("assistant-code-block");
+
+    expect(codeBlock).toHaveAttribute("data-complete", "false");
+    expect(codeBlock).toHaveTextContent("print('still painting')");
+    expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
+  });
+
+  it("keeps a completed code-block copy button mounted while later streamed prose changes", () => {
+    const { rerender } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          status: "streaming",
+          content: ""
+        },
+        streamingAnswer: ["```python", "print('done')", "```", "", "tail a"].join("\n")
+      })
+    );
+
+    const initialCopyButton = screen.getByRole("button", { name: "Copy code block" });
+
+    rerender(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          status: "streaming",
+          content: ""
+        },
+        streamingAnswer: ["```python", "print('done')", "```", "", "tail ab"].join("\n")
+      })
+    );
+
+    expect(screen.getByRole("button", { name: "Copy code block" })).toBe(initialCopyButton);
+  });
+
+  it("keeps assistant inline code inline instead of rendering the dedicated block component", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Inline `token` should stay inline."
+        }
+      })
+    );
+
+    expect(screen.getByText("token")).toBeInTheDocument();
+    expect(container.querySelector('[data-testid="assistant-code-block"]')).toBeNull();
+    expect(container.querySelector('[data-testid="assistant-message-bubble"] p code')).not.toBeNull();
+  });
+
+  it("copies only the fenced code payload from the block action", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true
+    });
+    vi.stubGlobal("ClipboardItem", undefined);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: [
+            "Before",
+            "",
+            "```python",
+            "print('hello')",
+            "```",
+            "",
+            "After"
+          ].join("\n")
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy code block" }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("print('hello')");
+    });
+  });
+
+  it("falls back to legacy copy when the code-block clipboard writeText call rejects", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("clipboard denied"));
+    const execCommand = vi.fn().mockReturnValue(true);
+
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true
+    });
+    Object.defineProperty(document, "execCommand", {
+      value: execCommand,
+      configurable: true
+    });
+    vi.stubGlobal("ClipboardItem", undefined);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["```python", "print('hello')", "```"].join("\n")
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy code block" }));
+
+    await waitFor(() => {
+      expect(execCommand).toHaveBeenCalledWith("copy");
+    });
+    expect(screen.getByRole("button", { name: "Copied code block" })).toBeInTheDocument();
   });
 
   it("copies assistant output through the clipboard fallback", async () => {
