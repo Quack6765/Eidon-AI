@@ -11,6 +11,9 @@ ws-handler-compiled.cjs
 .e2e-data/
 .superpowers/
 .worktrees/
+.claude/
+.codex/
+.conductor/
 agent-memory/
 docs/
 tmp/

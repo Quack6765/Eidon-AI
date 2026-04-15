@@ -7,4 +7,13 @@ test-results
 .data
 .test-data
 .e2e-data
+.playwright-cli
+.superpowers
+.worktrees
+.claude
+.codex
+.conductor
+agent-memory
+docs
+tmp
 npm-debug.log
