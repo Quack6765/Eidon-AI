@@ -47,15 +47,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build full production image
-        if: github.event_name == 'pull_request' && steps.changes.outputs.deployment == 'true' || github.event_name == 'release'
+      - name: Build full production image (release)
+        if: github.event_name == 'release' && github.event.release.target_commitish == 'main'
         uses: docker/build-push-action@v6
         with:
           context: .
-          push: ${{ github.event_name == 'release' }}
+          push: true
           tags: |
             ghcr.io/${{ env.REPO_LOWERCASE }}:latest
             ghcr.io/${{ env.REPO_LOWERCASE }}:${{ github.event.release.tag_name }}
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:main
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:main,mode=max
+
+      - name: Build full production image (pull request)
+        if: github.event_name == 'pull_request' && steps.changes.outputs.deployment == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: |
+            ghcr.io/${{ env.REPO_LOWERCASE }}:pr
           cache-from: |
             type=gha
             type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:main
