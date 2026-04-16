@@ -37,6 +37,7 @@ export async function GET(
   }
 
   const format = new URL(request.url).searchParams.get("format");
+  const download = new URL(request.url).searchParams.get("download") === "1";
 
   if (format === "text") {
     try {
@@ -62,7 +63,7 @@ export async function GET(
       headers: {
         "Content-Type": attachment.mimeType,
         "Content-Length": String(buffer.length),
-        "Content-Disposition": `inline; filename="${attachment.filename}"`
+        "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${attachment.filename}"`
       }
     });
   } catch {
