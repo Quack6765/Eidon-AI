@@ -1,183 +1,116 @@
 <div align="center">
+  <img src="./public/eidon-banner.png" alt="Eidon banner" width="100%" />
+  <br />
+  <img src="./.github/readme/eidon-wordmark.svg" alt="Eidon wordmark" width="460" />
 
-# Eidon
+  <p>
+    <strong>Eidon is a self-hosted, single-container, bring-your-own-provider AI assistant for anyone who wants something in the shape of ChatGPT, Gemini, or Claude, but on infrastructure they control.</strong>
+  </p>
 
-<p>
-  <strong>A self-hosted conversational workspace with streaming, visible reasoning, reusable skills, MCP integrations, and long-memory compaction.</strong>
-</p>
+  <p>
+    <a href="#what-is-eidon">What is Eidon?</a>
+    ·
+    <a href="#feature-highlights">Features</a>
+    ·
+    <a href="#supported-providers">Providers</a>
+    ·
+    <a href="#screenshots">Screenshots</a>
+    ·
+    <a href="#quick-start">Quick Start</a>
+    ·
+    <a href="#github-copilot-provider">GitHub Copilot</a>
+    ·
+    <a href="#configuration-essentials">Configuration</a>
+    ·
+    <a href="#local-development">Local Development</a>
+    ·
+    <a href="#security--storage-notes">Security</a>
+  </p>
 
-<p>
-  <a href="#what-is-eidon">What is Eidon?</a>
-  ·
-  <a href="#feature-snapshot">Feature Snapshot</a>
-  ·
-  <a href="#local-development">Local Development</a>
-  ·
-  <a href="#production-with-docker">Production with Docker</a>
-  ·
-  <a href="#configuration">Configuration</a>
-  ·
-  <a href="#security-notes">Security Notes</a>
-</p>
-
-<p>
-  <img src="https://img.shields.io/badge/Next.js-15-black?logo=nextdotjs" alt="Next.js 15" />
-  <img src="https://img.shields.io/badge/React-19-149eca?logo=react&logoColor=white" alt="React 19" />
-  <img src="https://img.shields.io/badge/SQLite-local-003b57?logo=sqlite&logoColor=white" alt="SQLite" />
-  <img src="https://img.shields.io/badge/Docker-ready-2496ed?logo=docker&logoColor=white" alt="Docker ready" />
-  <img src="https://img.shields.io/badge/Auth-single--user-4f46e5" alt="Single-user auth" />
-</p>
-
+  <p>
+    <img src="https://img.shields.io/badge/Single%20Docker-All--in--one-2496ED?logo=docker&logoColor=white" alt="Single Docker" />
+    <img src="https://img.shields.io/badge/BYO%20Provider-OpenAI%20compatible%20%2B%20Copilot-111827" alt="Bring your own provider" />
+    <img src="https://img.shields.io/badge/Multi--user-Admin%20%2B%20User%20roles-0F766E" alt="Multi-user roles" />
+    <img src="https://img.shields.io/badge/MCP%20%2B%20Skills-Built%20in-6D28D9" alt="MCP and skills" />
+    <img src="https://img.shields.io/badge/PWA-Mobile%20ready-334155" alt="PWA mobile ready" />
+  </p>
 </div>
-
-Eidon is a private, self-hosted chat application for people who want a clean ChatGPT-style interface on infrastructure they control. It is designed as a single-user workspace: you bring your own provider API key, configure tools and skills, and keep conversations, settings, and credentials on your own machine or server.
-
-It combines a polished conversational UI with production-minded primitives: streaming responses, provider profiles, local auth, MCP servers, reusable skills, configurable retention, and context compaction that keeps long threads usable without throwing away important state.
 
 ## What is Eidon?
 
-Eidon gives you a local-first assistant workspace with:
+Eidon is an all-in-one assistant workspace you can self-host with a single Docker container. You bring your own model provider, keep your own data, and get a polished chat experience with memory, tools, automations, web search, and multi-user administration in one place.
 
-- Streaming chat with support for visible reasoning and tool call timelines
-- OpenAI-compatible provider profiles, including custom API base URLs
-- GitHub Copilot provider — chat through your own Copilot subscription via OAuth
-- Long-memory compaction to preserve context in lengthy conversations
-- MCP server support for external tools and services
-- Reusable skills, including a built-in browser automation skill in the Docker image
-- Single-user local authentication with a settings UI for account management
-- SQLite-backed persistence for chats, settings, sessions, skills, and memory nodes
+It is designed to feel approachable on day one, whether you want a private assistant for personal use, day-to-day work, or a shared workspace for a group. Instead of stitching together a chat UI, auth, model routing, memory, browser tooling, and scheduling yourself, Eidon ships the whole workspace and lets you plug in the providers and tools you trust.
 
-Eidon is not a multi-tenant SaaS control plane. It is closer to a private operator console for your own assistant workflow.
+## Feature Highlights
 
-## Feature Snapshot
+- Single Docker deployment with SQLite-backed persistence under `/app/data`
+- Multi-user workspace with `admin` and `user` roles
+- Bring-your-own-provider model routing instead of a locked-in hosted backend
+- Multiple provider profiles per workspace, including OpenAI-compatible endpoints and GitHub Copilot
+- Automatic memory system with conversation compaction for long-running threads
+- Chat forking from assistant replies when you want to branch a thread without losing context
+- Previous message editing with restart-from-edit flow for fast iteration
+- Personas you can switch in the composer to change assistant behavior per task
+- Reusable skills stored in-app and available across chats
+- MCP server support over `streamable_http` and `stdio`
+- Docker image already includes both `uvx` and `npx` for `stdio` MCP workflows
+- Built-in web search with Exa, Tavily, or SearXNG
+- Built-in browser automation via the bundled `agent-browser` skill
+- Scheduled automations with run history and transcript views
+- Streaming chat with visible action timelines
+- Browser speech-to-text in the chat composer
+- Image generation support
+- Full mobile PWA support for chat and admin flows
+- Multiple clients stay in sync live through the websocket runtime
 
-| Capability | What it means in practice |
+## Supported Providers
+
+Eidon currently supports these provider options:
+
+- OpenAI-compatible endpoints, including OpenAI and other compatible APIs
+- OpenRouter
+- Ollama Cloud
+- GLM Coding Plan
+- GitHub Copilot
+
+The OpenAI-compatible profile is manually configurable, so any service that exposes an OpenAI-compatible API can be connected through the same provider type.
+
+## Screenshots
+
+![Eidon desktop chat workspace](./.github/readme/desktop-chat.png)
+
+<p align="center">
+  <em>Desktop chat workspace with provider switching, persona selection, queued follow-ups, and visible tool activity.</em>
+</p>
+
+| Desktop providers | Automation transcript |
 | --- | --- |
-| Streaming responses | Assistant output streams into the UI as it is generated |
-| Long-memory compaction | Older messages are compacted into structured memory nodes so long threads remain useful |
-| Provider profiles | Save multiple model/API configurations and switch conversation behavior cleanly |
-| MCP servers | Connect tools over streamable HTTP or `stdio` transports |
-| Skills | Save reusable `SKILL.md` instructions and enable them globally |
-| Local auth | Password login with server-backed sessions and an in-app account screen |
-| Local persistence | Data lives in SQLite plus a writable data directory you can back up or mount |
+| ![Eidon providers desktop screenshot](./.github/readme/desktop-providers.png) | ![Eidon automation transcript screenshot](./.github/readme/desktop-automations.png) |
+| <sub>Multiple saved providers, presets, and admin settings in one workspace.</sub> | <sub>Scheduled automation output captured as a normal transcript you can review like any other chat.</sub> |
 
-## Architecture
-
-```mermaid
-flowchart LR
-  Browser["Browser UI"] --> Eidon["Eidon (Next.js + route handlers)"]
-  Eidon --> SQLite["SQLite database"]
-  Eidon --> Data["/app/data attachments + runtime data"]
-  Eidon --> Provider["OpenAI-compatible provider APIs"]
-  Eidon --> MCP["MCP servers"]
-  Eidon --> Skills["Local skills + browser automation"]
-```
-
-## Local Development
-
-### Prerequisites
-
-- Node.js 22+
-- npm
-- A local toolchain capable of building `better-sqlite3`
-
-### 1. Install dependencies
-
-```bash
-npm install
-```
-
-### 2. Create a local env file
-
-Create `.env` in the repo root:
-
-```bash
-EIDON_PASSWORD_LOGIN_ENABLED=false
-EIDON_ADMIN_USERNAME=admin
-EIDON_ADMIN_PASSWORD=dev-password-change-me
-EIDON_SESSION_SECRET=dev-session-secret-change-me-with-32-plus-chars
-EIDON_ENCRYPTION_SECRET=dev-encryption-secret-change-me-with-32-plus-chars
-```
-
-Notes:
-
-- `EIDON_PASSWORD_LOGIN_ENABLED=false` is the simplest development mode. Eidon boots the admin user directly and bypasses the login screen.
-- If you want to test the password login flow locally, set `EIDON_PASSWORD_LOGIN_ENABLED=true`.
-- In non-production environments, Eidon can fall back to development defaults for the admin password and secrets, but explicitly setting them is cleaner and closer to real deployments.
-
-### 3. Start the app
-
-```bash
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000).
-
-`npm run dev` starts Eidon through the custom websocket server, which is required for the `/ws` realtime chat transport. `npm run dev:next` is available if you explicitly want plain Next.js without the websocket chat runtime.
-
-### 4. Configure your model provider
-
-After the app is running:
-
-1. Open **Settings**
-2. Go to **Providers**
-3. Add your API key and model configuration
-4. Start a new chat
-
-Eidon does not ship with a provider API key.
-
-### Useful development commands
-
-| Command | Purpose |
+| Mobile chat | Mobile providers |
 | --- | --- |
-| `npm run dev` | Start the Eidon dev server with websocket chat support |
-| `npm run dev:next` | Start plain Next.js without the websocket chat server |
-| `npm run lint` | Run ESLint |
-| `npm run typecheck` | Run TypeScript checks |
-| `npm run test` | Run unit tests with coverage |
-| `npm run test:e2e` | Run Playwright smoke and feature tests |
+| ![Eidon mobile chat screenshot](./.github/readme/mobile-chat.png) | ![Eidon mobile provider settings screenshot](./.github/readme/mobile-providers.png) |
+| <sub>Chat, queued work, and provider context on a phone-sized layout.</sub> | <sub>Provider administration still works cleanly on mobile.</sub> |
 
-## Production With Docker
+## Quick Start
 
-The repository includes a production Dockerfile. The image runs Eidon as a non-root user, stores runtime data under `/app/data`, and enables password login by default.
-
-### Production requirements
-
-You must provide all of the following at runtime:
-
-- `EIDON_ADMIN_USERNAME`
-- `EIDON_ADMIN_PASSWORD`
-- `EIDON_SESSION_SECRET`
-- `EIDON_ENCRYPTION_SECRET`
-
-Production startup fails fast if:
-
-- `EIDON_ADMIN_PASSWORD` is missing
-- `EIDON_SESSION_SECRET` is missing
-- `EIDON_ENCRYPTION_SECRET` is missing
-- Any of those values are still set to a published placeholder/default value
-
-Generate the two secrets on macOS or Linux with:
-
-```bash
-openssl rand -hex 32
-openssl rand -hex 32
-```
-
-Or export them directly in your shell:
-
-```bash
-export EIDON_SESSION_SECRET="$(openssl rand -hex 32)"
-export EIDON_ENCRYPTION_SECRET="$(openssl rand -hex 32)"
-```
-
-### Build the image
+### 1. Build the image
 
 ```bash
 docker build -t eidon:latest .
 ```
 
-### Run with `docker run`
+### 2. Generate strong secrets on the host
+
+```bash
+export EIDON_ADMIN_PASSWORD="$(openssl rand -base64 24)"
+export EIDON_SESSION_SECRET="$(openssl rand -hex 32)"
+export EIDON_ENCRYPTION_SECRET="$(openssl rand -hex 32)"
+```
+
+### 3. Run Eidon with `docker run`
 
 ```bash
 docker run -d \
@@ -187,18 +120,13 @@ docker run -d \
   -v eidon-data:/app/data \
   -e EIDON_PASSWORD_LOGIN_ENABLED=true \
   -e EIDON_ADMIN_USERNAME=admin \
-  -e EIDON_ADMIN_PASSWORD='replace-this-with-a-long-random-password' \
-  -e EIDON_SESSION_SECRET='replace-this-with-a-long-random-session-secret' \
-  -e EIDON_ENCRYPTION_SECRET='replace-this-with-a-long-random-encryption-secret' \
-  -e EIDON_GITHUB_APP_CLIENT_ID='Iv1.xxxxxxxx' \
-  -e EIDON_GITHUB_APP_CLIENT_SECRET='xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' \
-  -e EIDON_GITHUB_APP_CALLBACK_URL='https://your-host/api/providers/github/callback' \
+  -e EIDON_ADMIN_PASSWORD="$EIDON_ADMIN_PASSWORD" \
+  -e EIDON_SESSION_SECRET="$EIDON_SESSION_SECRET" \
+  -e EIDON_ENCRYPTION_SECRET="$EIDON_ENCRYPTION_SECRET" \
   eidon:latest
 ```
 
-Then put Eidon behind HTTPS with your reverse proxy of choice.
-
-### Run with Docker Compose
+### 4. Or run it with Docker Compose
 
 ```yaml
 services:
@@ -211,12 +139,9 @@ services:
     environment:
       EIDON_PASSWORD_LOGIN_ENABLED: "true"
       EIDON_ADMIN_USERNAME: "admin"
-      EIDON_ADMIN_PASSWORD: "replace-this-with-a-long-random-password"
-      EIDON_SESSION_SECRET: "replace-this-with-a-long-random-session-secret"
-      EIDON_ENCRYPTION_SECRET: "replace-this-with-a-long-random-encryption-secret"
-      EIDON_GITHUB_APP_CLIENT_ID: "Iv1.xxxxxxxx"
-      EIDON_GITHUB_APP_CLIENT_SECRET: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-      EIDON_GITHUB_APP_CALLBACK_URL: "https://your-host/api/providers/github/callback"
+      EIDON_ADMIN_PASSWORD: "${EIDON_ADMIN_PASSWORD}"
+      EIDON_SESSION_SECRET: "${EIDON_SESSION_SECRET}"
+      EIDON_ENCRYPTION_SECRET: "${EIDON_ENCRYPTION_SECRET}"
     volumes:
       - eidon-data:/app/data
 
@@ -224,59 +149,61 @@ volumes:
   eidon-data:
 ```
 
-Start it with:
+Start it with the exported variables above, or put the same values in a local `.env` file before launching:
 
 ```bash
 docker compose up -d --build
 ```
 
-### First production login
+### 5. First login
 
-1. Visit your Eidon URL
-2. Sign in with `EIDON_ADMIN_USERNAME` and `EIDON_ADMIN_PASSWORD`
-3. Open **Settings → Account**
-4. Rotate the username/password if needed
-5. Open **Settings → Providers** and set your provider API key
+1. Open your Eidon URL.
+2. Sign in with `EIDON_ADMIN_USERNAME` and `EIDON_ADMIN_PASSWORD`.
+3. Go to **Settings → Providers**.
+4. Add your provider API key or connect GitHub Copilot.
+5. Start chatting.
+
+Eidon does not ship with a provider API key. The deployment is ready first; you bring the model access you want to use.
+
+## Why the Docker Image Is Different
+
+The production image is meant to be useful on its own, not just a way to serve the UI.
+
+- It runs as a non-root user
+- Runtime data lives under `/app/data`
+- Password login is supported out of the box
+- The browser automation skill is bundled
+- `uvx`, `npx`, and Chromium are available for MCP and browser-backed workflows
 
 ## GitHub Copilot Provider
 
-Eidon can route chat through your GitHub Copilot subscription instead of a direct API key. This requires registering a GitHub App so Eidon can perform the OAuth flow on your behalf.
-
-### Create the GitHub App
-
-1. Go to **[github.com/settings/developers](https://github.com/settings/developers)** and click **New GitHub App**
-2. Fill in the form:
-   - **GitHub App name** — anything you like (e.g. `Eidon Dev`)
-   - **Homepage URL** — your Eidon instance URL
-   - **Callback URL** — `http://localhost:3000/api/providers/github/callback` for local dev, or `https://<your-host>/api/providers/github/callback` in production
-   - Under **Identifying and authorizing users**, check **Request user authorization (OAuth) during installation**
-   - **Where can this GitHub App be installed?** — choose *Only on this account*
-3. Click **Create GitHub App**
-4. On the app's general settings page, copy the **Client ID** — this is `EIDON_GITHUB_APP_CLIENT_ID`
-5. Click **Generate a new client secret** and copy it — this is `EIDON_GITHUB_APP_CLIENT_SECRET`
-6. The callback URL you set in step 2 is `EIDON_GITHUB_APP_CALLBACK_URL`
-
-### Configure the environment
-
-Add the three variables to `.env` (dev) or your container environment (production):
+Eidon can route chats through your GitHub Copilot subscription instead of a direct provider API key. To enable the OAuth flow, register a GitHub App and set:
 
 ```bash
 EIDON_GITHUB_APP_CLIENT_ID=Iv1.xxxxxxxx
 EIDON_GITHUB_APP_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-EIDON_GITHUB_APP_CALLBACK_URL=http://localhost:3000/api/providers/github/callback
+EIDON_GITHUB_APP_CALLBACK_URL=https://your-host/api/providers/github/callback
 ```
 
-All three are optional — if they are not set, the GitHub Copilot provider type is still visible in settings but the connection flow is disabled.
+### Create the GitHub App
 
-### Connect a profile
+1. Go to [github.com/settings/developers](https://github.com/settings/developers) and create a new GitHub App.
+2. Use your Eidon URL as the homepage.
+3. Set the callback URL to `https://<your-host>/api/providers/github/callback`.
+4. Under user authorization, enable OAuth during installation.
+5. Copy the Client ID and generate a Client Secret.
 
-1. Open **Settings → Providers**
-2. Create a new profile (or edit an existing one) and set **Provider type** to *GitHub Copilot*
-3. Click **Connect GitHub** — you will be redirected to GitHub to authorize
-4. After approving, you'll be returned to settings and the profile will show your GitHub username
-5. Pick a model from the dropdown and start chatting
+### Connect a Copilot profile
 
-## Configuration
+1. Open **Settings → Providers**.
+2. Add a profile and switch **Provider type** to **GitHub Copilot**.
+3. Click **Connect GitHub**.
+4. Approve the authorization flow.
+5. Pick a model and start chatting.
+
+If those three environment variables are not set, the GitHub Copilot profile type is still visible in settings, but the OAuth connection flow will not work. Set all three values before using **Connect GitHub**.
+
+## Configuration Essentials
 
 | Variable | Purpose | Required in production |
 | --- | --- | --- |
@@ -286,36 +213,93 @@ All three are optional — if they are not set, the GitHub Copilot provider type
 | `EIDON_SESSION_SECRET` | Session signing secret | Yes |
 | `EIDON_ENCRYPTION_SECRET` | Encryption seed for stored provider credentials | Yes |
 | `EIDON_DATA_DIR` | Directory for SQLite and runtime data | No |
-| `EIDON_GITHUB_APP_CLIENT_ID` | GitHub App OAuth client ID for the Copilot provider | No |
-| `EIDON_GITHUB_APP_CLIENT_SECRET` | GitHub App OAuth client secret for the Copilot provider | No |
-| `EIDON_GITHUB_APP_CALLBACK_URL` | GitHub App OAuth callback URL (must match the app settings on GitHub) | No |
+| `EIDON_GITHUB_APP_CLIENT_ID` | GitHub App client ID for the Copilot provider | No |
+| `EIDON_GITHUB_APP_CLIENT_SECRET` | GitHub App client secret for the Copilot provider | No |
+| `EIDON_GITHUB_APP_CALLBACK_URL` | OAuth callback URL for Copilot | No |
 
-Runtime defaults:
+Useful defaults:
 
 - Default model: `gpt-5-mini`
 - Default API mode: `responses`
-- Default storage path in the Docker image: `/app/data`
+- Default Docker data path: `/app/data`
 
-## Security Notes
+Generate secrets on macOS or Linux with:
 
-Eidon is single-user, but that user is highly privileged inside the app.
+```bash
+openssl rand -hex 32
+openssl rand -hex 32
+```
 
-- Always terminate TLS before exposing Eidon to the internet
-- Rate-limit `POST /api/auth/login` at the reverse proxy
-- Use long, random values for the admin password and both secrets
-- Persist `/app/data` on a named volume or host mount
-- Treat configured MCP servers and shell-capable skills as trusted/admin-level features
-- Rotate provider API keys and bootstrap secrets during redeploys when needed
+## Local Development
 
-If you are deploying Eidon on a public VPS, the minimum baseline should be:
+### Prerequisites
+
+- Node.js 22+
+- npm
+- A local toolchain capable of building `better-sqlite3`
+
+### Install and start
+
+```bash
+npm install
+```
+
+Create a local `.env`:
+
+```bash
+EIDON_PASSWORD_LOGIN_ENABLED=false
+EIDON_ADMIN_USERNAME=admin
+EIDON_ADMIN_PASSWORD=dev-password-change-me
+EIDON_SESSION_SECRET=dev-session-secret-change-me-with-32-plus-chars
+EIDON_ENCRYPTION_SECRET=dev-encryption-secret-change-me-with-32-plus-chars
+```
+
+Run the app:
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+`npm run dev` uses the custom websocket server, which is required for the realtime chat runtime. `npm run dev:next` is available when you explicitly want plain Next.js without that websocket layer.
+
+### Useful commands
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the websocket-enabled dev server |
+| `npm run dev:next` | Start plain Next.js without the websocket runtime |
+| `npm run lint` | Run ESLint |
+| `npm run typecheck` | Run TypeScript checks |
+| `npm run test` | Run unit tests with coverage |
+| `npm run test:e2e` | Run Playwright smoke and feature tests |
+| `npm run seed:readme-demo` | Create the disposable README screenshot dataset under `.context/readme-demo-data` |
+
+## Security & Storage Notes
+
+Eidon is powerful by design, so treat it like an admin-grade internal tool.
+
+- Always terminate TLS before exposing Eidon publicly.
+- Rate-limit `POST /api/auth/login` at your reverse proxy.
+- Use long, random values for the admin password and both secrets.
+- Persist `/app/data` on a named volume or host mount.
+- Treat MCP servers, browser automation, and shell-capable skills as trusted features.
+- Rotate provider keys and bootstrap secrets during redeploys when needed.
+
+For a public VPS deployment, the minimum baseline should be:
 
 - HTTPS
-- Strong secrets
-- A persistent data volume
-- Login rate limiting
-- A reverse proxy such as Caddy, Nginx, or Traefik
+- strong secrets
+- a persistent data volume
+- login rate limiting
+- a reverse proxy such as Caddy, Nginx, or Traefik
 
-## Project Stack
+## License
+
+Eidon is licensed under the GNU Affero General Public License v3.0 (`AGPL-3.0-only`). See [LICENSE](./LICENSE).
+
+## Stack
 
 - Next.js App Router
 - React 19
