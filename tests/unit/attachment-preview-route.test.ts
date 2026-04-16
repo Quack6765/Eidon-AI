@@ -239,6 +239,35 @@ describe("attachment preview route", () => {
     await expect(response.text()).resolves.toBe("# Notes\nRaw body");
   });
 
+  it("switches the binary response into download mode when requested", async () => {
+    const user = await createLocalUser({
+      username: "attachment-download-response-user",
+      password: "Password123!",
+      role: "user"
+    });
+    const conversation = createConversation("Download attachment response", null, undefined, user.id);
+    const [attachment] = createAttachments(conversation.id, [
+      {
+        filename: "notes.md",
+        mimeType: "text/markdown",
+        bytes: Buffer.from("# Notes\nDownload body", "utf8")
+      }
+    ]);
+
+    requireUserMock.mockResolvedValue(user);
+
+    const { GET } = await import("@/app/api/attachments/[attachmentId]/route");
+    const response = await GET(
+      new Request(`http://localhost/api/attachments/${attachment.id}?download=1`),
+      { params: Promise.resolve({ attachmentId: attachment.id }) }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("text/markdown");
+    expect(response.headers.get("Content-Disposition")).toBe('attachment; filename="notes.md"');
+    await expect(response.text()).resolves.toBe("# Notes\nDownload body");
+  });
+
   it("requires authentication for text preview access", async () => {
     requireUserMock.mockResolvedValue(null);
 

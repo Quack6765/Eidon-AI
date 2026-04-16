@@ -201,14 +201,12 @@ export function AttachmentPreviewModal({
           </div>
 
           <a
-            href={`/api/attachments/${attachment.id}`}
-            target="_blank"
-            rel="noreferrer"
+            href={`/api/attachments/${attachment.id}?download=1`}
             className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70"
-            aria-label="Open raw attachment"
+            aria-label="Download attachment"
           >
             <Download className="h-3.5 w-3.5" />
-            <span>Open raw</span>
+            <span>Download</span>
           </a>
         </div>
 

@@ -1495,9 +1495,9 @@ describe("message bubble", () => {
     });
 
     expect(global.fetch).toHaveBeenCalledWith("/api/attachments/att_text?format=text");
-    expect(screen.getByRole("link", { name: "Open raw attachment" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Download attachment" })).toHaveAttribute(
       "href",
-      "/api/attachments/att_text"
+      "/api/attachments/att_text?download=1"
     );
   });
 
