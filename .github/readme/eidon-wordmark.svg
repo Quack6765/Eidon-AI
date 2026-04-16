@@ -1,0 +1,30 @@
+<svg width="960" height="240" viewBox="0 0 960 240" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="eidon-title eidon-desc">
+  <title id="eidon-title">Eidon wordmark</title>
+  <desc id="eidon-desc">Gradient Eidon wordmark styled to match the in-app brand treatment.</desc>
+  <defs>
+    <linearGradient id="eidon-fill" x1="202" y1="58" x2="761" y2="184" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="0.56" stop-color="#D4C8FF"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <filter id="eidon-glow" x="112" y="4" width="736" height="228" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feColorMatrix in="blur" type="matrix" values="1 0 0 0 0.545 0 1 0 0 0.361 0 0 1 0 0.965 0 0 0 0.42 0"/>
+      <feBlend in="SourceGraphic" mode="screen"/>
+    </filter>
+  </defs>
+  <g filter="url(#eidon-glow)">
+    <text
+      x="480"
+      y="155"
+      text-anchor="middle"
+      font-family="'SF Pro Display', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+      font-size="120"
+      font-weight="700"
+      letter-spacing="0.12em"
+      fill="url(#eidon-fill)"
+    >
+      EIDON
+    </text>
+  </g>
+</svg>
