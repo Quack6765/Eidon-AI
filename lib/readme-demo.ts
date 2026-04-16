@@ -251,7 +251,7 @@ Lead with product value, keep claims accurate, and make install steps feel easy.
       "Review launch docs, provider health, and screenshot coverage. Summarize only the blockers and missing proof.",
     timeOfDay: "23:15"
   }
-} as const;
+};
 
 export type ReadmeDemoSeedResult = {
   localAdminId: string;
@@ -307,7 +307,19 @@ function resetDemoMcpServers() {
   }
 
   for (const fixture of README_DEMO_FIXTURES.mcpServers) {
-    createMcpServer(fixture);
+    const mcpFixture = fixture as {
+      name: string;
+      transport?: "streamable_http" | "stdio";
+      url?: string;
+      headers?: Record<string, string>;
+      command?: string;
+      args?: readonly string[];
+      env?: Record<string, string>;
+    };
+    createMcpServer({
+      ...mcpFixture,
+      args: mcpFixture.args ? [...mcpFixture.args] : undefined
+    });
   }
 }
 
