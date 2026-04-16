@@ -1163,6 +1163,10 @@ test.describe("Feature: Chat attachments", () => {
     await page.getByRole("button", { name: "Preview notes.txt" }).last().click();
     await expect(page.getByRole("dialog", { name: "Attachment preview" })).toBeVisible();
     await expect(page.getByText("hello")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Download attachment" })).toHaveAttribute(
+      "href",
+      /\/api\/attachments\/att_notes\?download=1$/
+    );
   });
 });
 
