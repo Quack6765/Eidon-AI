@@ -1,12 +1,21 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { importAttachmentFromLocalFile } from "@/lib/attachments";
+import { createAttachmentsFromBytes, importAttachmentFromLocalFile } from "@/lib/attachments";
 import { env } from "@/lib/env";
 import type { MessageAttachment } from "@/lib/types";
 
 const CODE_SEGMENT_PATTERN = /```[\s\S]*?```|`[^`\n]+`/g;
 const TMP_ROOT = "/tmp";
+const ASSISTANT_DATA_IMAGE_PREFIX_PATTERN = /^data:image\//i;
+const ASSISTANT_DATA_IMAGE_PATTERN = /^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/i;
+const ASSISTANT_DATA_IMAGE_TYPES = new Map<string, { extension: string; mimeType: string }>([
+  ["image/png", { extension: "png", mimeType: "image/png" }],
+  ["image/jpeg", { extension: "jpeg", mimeType: "image/jpeg" }],
+  ["image/jpg", { extension: "jpg", mimeType: "image/jpeg" }],
+  ["image/webp", { extension: "webp", mimeType: "image/webp" }],
+  ["image/gif", { extension: "gif", mimeType: "image/gif" }]
+]);
 
 type InferAssistantLocalAttachmentsInput = {
   conversationId: string;
@@ -30,7 +39,24 @@ type ParsedMarkdownTarget = {
   start: number;
   end: number;
   target: string;
+  isImage: boolean;
 };
+
+type ParsedAssistantDataImageTarget =
+  | { type: "none" }
+  | {
+      type: "invalid";
+      cacheKey: string;
+      displayName: string;
+    }
+  | {
+      type: "valid";
+      cacheKey: string;
+      displayName: string;
+      filename: string;
+      mimeType: string;
+      bytes: Buffer;
+    };
 
 function isExternalTarget(target: string) {
   return /^[a-z][a-z0-9+.-]*:/i.test(target);
@@ -62,6 +88,57 @@ function collapseWhitespace(content: string) {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function decodeAssistantDataImageBytes(base64Value: string) {
+  if (!base64Value || base64Value.length % 4 !== 0) {
+    return null;
+  }
+
+  const bytes = Buffer.from(base64Value, "base64");
+  if (!bytes.length || bytes.toString("base64") !== base64Value) {
+    return null;
+  }
+
+  return bytes;
+}
+
+function parseAssistantDataImageTarget(target: string): ParsedAssistantDataImageTarget {
+  const trimmedTarget = target.trim();
+  if (!ASSISTANT_DATA_IMAGE_PREFIX_PATTERN.test(trimmedTarget)) {
+    return { type: "none" };
+  }
+
+  const match = ASSISTANT_DATA_IMAGE_PATTERN.exec(trimmedTarget);
+  if (!match) {
+    return {
+      type: "invalid",
+      cacheKey: trimmedTarget,
+      displayName: "generated image"
+    };
+  }
+
+  const normalizedMimeType = match[1].toLowerCase();
+  const base64Value = match[2];
+  const supportedType = ASSISTANT_DATA_IMAGE_TYPES.get(normalizedMimeType);
+  const bytes = decodeAssistantDataImageBytes(base64Value);
+
+  if (!supportedType || !bytes) {
+    return {
+      type: "invalid",
+      cacheKey: trimmedTarget,
+      displayName: "generated image"
+    };
+  }
+
+  return {
+    type: "valid",
+    cacheKey: trimmedTarget,
+    displayName: "generated image",
+    filename: `generated.${supportedType.extension}`,
+    mimeType: supportedType.mimeType,
+    bytes
+  };
 }
 
 function buildFailureNote(deniedNames: Set<string>, failedNames: Set<string>) {
@@ -226,8 +303,8 @@ function findMarkdownTargets(content: string): ParsedMarkdownTarget[] {
 
   for (let index = 0; index < content.length; index += 1) {
     const character = content[index];
-    const labelStart =
-      character === "[" ? index : character === "!" && content[index + 1] === "[" ? index + 1 : -1;
+    const isImage = character === "!" && content[index + 1] === "[";
+    const labelStart = character === "[" ? index : isImage ? index + 1 : -1;
 
     if (labelStart === -1) {
       continue;
@@ -244,9 +321,10 @@ function findMarkdownTargets(content: string): ParsedMarkdownTarget[] {
     }
 
     matches.push({
-      start: character === "!" ? index : labelStart,
+      start: isImage ? index : labelStart,
       end: destination.end,
-      target: destination.target
+      target: destination.target,
+      isImage
     });
     index = destination.end - 1;
   }
@@ -273,8 +351,55 @@ export function inferAssistantLocalAttachments(
   const deniedNames = new Set<string>();
   const failedNames = new Set<string>();
 
-  const resolveTarget = (rawTarget: string): LocalTargetOutcome => {
-    const decodedTarget = decodeTarget(rawTarget.trim());
+  const resolveTarget = (rawTarget: string, isImage: boolean): LocalTargetOutcome => {
+    const trimmedTarget = rawTarget.trim();
+
+    if (isImage) {
+      const parsedDataImage = parseAssistantDataImageTarget(trimmedTarget);
+      if (parsedDataImage.type === "invalid") {
+        const cached = attachmentCache.get(parsedDataImage.cacheKey);
+        if (cached) {
+          return cached;
+        }
+
+        const errorOutcome: LocalTargetOutcome = {
+          type: "error",
+          displayName: parsedDataImage.displayName
+        };
+        attachmentCache.set(parsedDataImage.cacheKey, errorOutcome);
+        return errorOutcome;
+      }
+
+      if (parsedDataImage.type === "valid") {
+        const cached = attachmentCache.get(parsedDataImage.cacheKey);
+        if (cached) {
+          return cached;
+        }
+
+        try {
+          const [attachment] = createAttachmentsFromBytes(input.conversationId, [
+            {
+              filename: parsedDataImage.filename,
+              mimeType: parsedDataImage.mimeType,
+              bytes: parsedDataImage.bytes
+            }
+          ]);
+          const attachOutcome: LocalTargetOutcome = { type: "attach", attachment };
+          attachmentCache.set(parsedDataImage.cacheKey, attachOutcome);
+          attachments.push(attachment);
+          return attachOutcome;
+        } catch {
+          const errorOutcome: LocalTargetOutcome = {
+            type: "error",
+            displayName: parsedDataImage.displayName
+          };
+          attachmentCache.set(parsedDataImage.cacheKey, errorOutcome);
+          return errorOutcome;
+        }
+      }
+    }
+
+    const decodedTarget = decodeTarget(trimmedTarget);
     if (isExternalTarget(decodedTarget) || !path.isAbsolute(decodedTarget)) {
       return { type: "ignore" };
     }
@@ -324,7 +449,7 @@ export function inferAssistantLocalAttachments(
     let cursor = 0;
 
     for (const match of matches) {
-      const outcome = resolveTarget(match.target);
+      const outcome = resolveTarget(match.target, match.isImage);
       if (outcome.type === "ignore") {
         continue;
       }

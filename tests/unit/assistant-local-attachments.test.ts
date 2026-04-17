@@ -2,10 +2,49 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { readAttachmentBuffer } from "@/lib/attachments";
 import { createConversation } from "@/lib/conversations";
 import { inferAssistantLocalAttachments } from "@/lib/assistant-local-attachments";
 
 describe("inferAssistantLocalAttachments", () => {
+  it("salvages assistant-authored data image markdown into a managed attachment", () => {
+    const conversation = createConversation();
+    const imageBytes = Buffer.from("generated-image-bytes", "utf8");
+    const dataTarget = `data:image/png;base64,${imageBytes.toString("base64")}`;
+
+    const result = inferAssistantLocalAttachments({
+      conversationId: conversation.id,
+      content: ["Here is the generated image:", "", `![Generated image](${dataTarget})`].join("\n"),
+      workspaceRoot: process.cwd()
+    });
+
+    expect(result.attachments).toHaveLength(1);
+    expect(result.attachments[0]?.filename).toBe("generated.png");
+    expect(result.attachments[0]?.kind).toBe("image");
+    expect(result.attachments[0]?.mimeType).toBe("image/png");
+    expect(readAttachmentBuffer(result.attachments[0]!)).toEqual(imageBytes);
+    expect(result.content).toBe("Here is the generated image:");
+    expect(result.content).not.toContain(dataTarget);
+    expect(result.failureNote).toBe("");
+  });
+
+  it("strips malformed assistant data image markdown and reports an attachment failure", () => {
+    const conversation = createConversation();
+    const malformedTarget = "data:image/png;base64,%%%";
+
+    const result = inferAssistantLocalAttachments({
+      conversationId: conversation.id,
+      content: ["Here is the generated image:", "", `![Generated image](${malformedTarget})`].join("\n"),
+      workspaceRoot: process.cwd()
+    });
+
+    expect(result.attachments).toHaveLength(0);
+    expect(result.content).toBe("Here is the generated image:");
+    expect(result.content).not.toContain(malformedTarget);
+    expect(result.failureNote).toContain("generated image");
+    expect(result.failureNote).toContain("could not be imported");
+  });
+
   it("imports a /tmp image markdown target and strips it from content", () => {
     const conversation = createConversation();
     const tempDir = fs.mkdtempSync(path.join("/tmp", "eidon-assistant-image-"));

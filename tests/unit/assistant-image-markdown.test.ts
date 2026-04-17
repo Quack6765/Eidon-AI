@@ -62,6 +62,24 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     expect(stripAttachmentStyleImageMarkdown(content, [createImageAttachment()])).toBe(content);
   });
 
+  it("removes assistant-authored data image markdown from rendered prose when an image attachment exists", () => {
+    const content = [
+      "I've generated an image for you.",
+      "",
+      "![Generated Image](data:image/png;base64,Zm9v)",
+      "",
+      "The real attachment preview should render below."
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createImageAttachment()])).toBe(
+      [
+        "I've generated an image for you.",
+        "",
+        "The real attachment preview should render below."
+      ].join("\n")
+    );
+  });
+
   it("removes local markdown file links when the assistant message already has text attachments", () => {
     const content = [
       "Here is the report you asked for.",

@@ -3,12 +3,21 @@ import type { MessageAttachment } from "@/lib/types";
 const MARKDOWN_IMAGE_PATTERN = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const MARKDOWN_LINK_PATTERN = /(?<!\!)\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const CODE_SEGMENT_PATTERN = /```[\s\S]*?```|`[^`\n]+`/g;
+const ASSISTANT_DATA_IMAGE_PATTERN = /^data:image\/[^;,]+;base64,/i;
 
 function isExternalTarget(target: string) {
   return /^[a-z][a-z0-9+.-]*:/i.test(target);
 }
 
+function isAssistantDataImageTarget(target: string) {
+  return ASSISTANT_DATA_IMAGE_PATTERN.test(target.trim());
+}
+
 function shouldStripTarget(target: string, attachments: MessageAttachment[]) {
+  if (isAssistantDataImageTarget(target)) {
+    return attachments.length > 0;
+  }
+
   if (isExternalTarget(target)) {
     return false;
   }
