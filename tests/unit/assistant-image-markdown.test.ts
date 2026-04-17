@@ -20,6 +20,23 @@ function createImageAttachment(overrides: Partial<MessageAttachment> = {}): Mess
   };
 }
 
+function createTextAttachment(overrides: Partial<MessageAttachment> = {}): MessageAttachment {
+  return {
+    id: "att_text",
+    conversationId: "conv_test",
+    messageId: "msg_assistant",
+    filename: "notes.txt",
+    mimeType: "text/plain",
+    byteSize: 42,
+    sha256: "hash",
+    relativePath: "conv_test/notes.txt",
+    kind: "text",
+    extractedText: "",
+    createdAt: new Date().toISOString(),
+    ...overrides
+  };
+}
+
 describe("stripAttachmentStyleImageMarkdown", () => {
   it("removes local markdown image embeds when the assistant message already has image attachments", () => {
     const content = [
@@ -43,5 +60,29 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     const content = "![Placeholder Image](https://example.com/image.png)";
 
     expect(stripAttachmentStyleImageMarkdown(content, [createImageAttachment()])).toBe(content);
+  });
+
+  it("removes local markdown file links when the assistant message already has text attachments", () => {
+    const content = [
+      "Here is the report you asked for.",
+      "",
+      "[Report](notes.txt)",
+      "",
+      "The external reference should remain: [Spec](https://example.com/spec.pdf)"
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
+      [
+        "Here is the report you asked for.",
+        "",
+        "The external reference should remain: [Spec](https://example.com/spec.pdf)"
+      ].join("\n")
+    );
+  });
+
+  it("preserves external markdown file links", () => {
+    const content = "[Spec](https://example.com/spec.pdf)";
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(content);
   });
 });
