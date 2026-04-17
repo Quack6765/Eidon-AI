@@ -358,6 +358,18 @@ function findMatchingBracket(content: string, startIndex: number) {
   return -1;
 }
 
+function isEscapedCharacter(content: string, index: number) {
+  let backslashCount = 0;
+  let cursor = index - 1;
+
+  while (cursor >= 0 && content[cursor] === "\\") {
+    backslashCount += 1;
+    cursor -= 1;
+  }
+
+  return backslashCount % 2 === 1;
+}
+
 function parseMarkdownTitle(content: string, startIndex: number) {
   const opener = content[startIndex];
   const closer = opener === "(" ? ")" : opener;
@@ -530,8 +542,9 @@ export function findMarkdownTargets(content: string): ParsedMarkdownTarget[] {
 
   for (let index = 0; index < content.length; index += 1) {
     const character = content[index];
-    const isImage = character === "!" && content[index + 1] === "[";
-    const labelStart = character === "[" ? index : isImage ? index + 1 : -1;
+    const isImage = character === "!" && content[index + 1] === "[" && !isEscapedCharacter(content, index);
+    const labelStart =
+      character === "[" && !isEscapedCharacter(content, index) ? index : isImage ? index + 1 : -1;
 
     if (labelStart === -1) {
       continue;

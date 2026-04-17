@@ -12,7 +12,7 @@ const ASSISTANT_DATA_IMAGE_PATTERN = /^data:image\/[^;,]+;base64,/i;
 function sanitizeProseSegment(content: string, imageAttachments: MessageAttachment[], textAttachments: MessageAttachment[]) {
   const matches = findMarkdownTargets(content);
   if (matches.length === 0) {
-    return content;
+    return { content, changed: false };
   }
 
   const buildLocalTargetSet = (attachments: MessageAttachment[]) =>
@@ -22,6 +22,7 @@ function sanitizeProseSegment(content: string, imageAttachments: MessageAttachme
   const textAttachmentTargets = buildLocalTargetSet(textAttachments);
   const parts: string[] = [];
   let cursor = 0;
+  let changed = false;
 
   for (const match of matches) {
     const normalizedTarget = decodeMarkdownTarget(match.target.trim());
@@ -37,10 +38,15 @@ function sanitizeProseSegment(content: string, imageAttachments: MessageAttachme
 
     parts.push(content.slice(cursor, match.start));
     cursor = match.end;
+    changed = true;
+  }
+
+  if (!changed) {
+    return { content, changed: false };
   }
 
   parts.push(content.slice(cursor));
-  return parts.join("");
+  return { content: parts.join(""), changed: true };
 }
 
 export function stripAttachmentStyleImageMarkdown(
@@ -53,9 +59,20 @@ export function stripAttachmentStyleImageMarkdown(
     return content;
   }
 
-  const parts = splitByCodeSegments(content).map((segment) =>
-    segment.isCode ? segment.text : sanitizeProseSegment(segment.text, imageAttachments, textAttachments)
-  );
+  let changed = false;
+  const parts = splitByCodeSegments(content).map((segment) => {
+    if (segment.isCode) {
+      return segment.text;
+    }
+
+    const sanitized = sanitizeProseSegment(segment.text, imageAttachments, textAttachments);
+    changed ||= sanitized.changed;
+    return sanitized.content;
+  });
+
+  if (!changed) {
+    return content;
+  }
 
   return normalizeProtectedMarkdownContent(parts.join(""));
 }

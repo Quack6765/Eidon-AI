@@ -293,6 +293,31 @@ describe("inferAssistantLocalAttachments", () => {
     expect(result.failureNote).toBe("");
   });
 
+  it("ignores escaped markdown openers", () => {
+    const conversation = createConversation();
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "report.txt");
+    const content = [String.raw`\[Report](${sourcePath})`, String.raw`\![Generated image](data:image/png;base64,%%%)`].join(
+      "\n"
+    );
+
+    try {
+      fs.writeFileSync(sourcePath, "report", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content,
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(0);
+      expect(result.content).toBe(content);
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   it("ignores relative paths", () => {
     const conversation = createConversation();
     const content = "See [notes](./notes.txt)";

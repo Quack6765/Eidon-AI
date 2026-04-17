@@ -62,6 +62,15 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     expect(stripAttachmentStyleImageMarkdown(content, [createImageAttachment()])).toBe(content);
   });
 
+  it("ignores escaped markdown openers", () => {
+    const content = [
+      String.raw`\[Report](notes.txt)`,
+      String.raw`\![Generated Image](data:image/png;base64,Zm9v)`
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment(), createImageAttachment()])).toBe(content);
+  });
+
   it("removes assistant-authored data image markdown from rendered prose even when attachments are empty", () => {
     const content = [
       "I've generated an image for you.",
@@ -311,5 +320,13 @@ describe("stripAttachmentStyleImageMarkdown", () => {
         "The prose link  should still be stripped."
       ].join("\n")
     );
+  });
+
+  it("preserves untouched formatting when there is nothing to strip", () => {
+    const content = ["Keep hard break here.  ", "And keep this fenced line trailing spaces.", "", "```md", "code line  ", "```"].join(
+      "\n"
+    );
+
+    expect(stripAttachmentStyleImageMarkdown(content, [])).toBe(content);
   });
 });
