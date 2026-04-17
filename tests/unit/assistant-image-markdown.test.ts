@@ -62,6 +62,24 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     expect(stripAttachmentStyleImageMarkdown(content, [createImageAttachment()])).toBe(content);
   });
 
+  it("removes local absolute markdown image embeds when the assistant message already has image attachments", () => {
+    const content = [
+      "I've generated an image for you.",
+      "",
+      "![Generated Image](/tmp/20260416-175044-263a82d0-1.jpeg)",
+      "",
+      "The real attachment preview should render below."
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createImageAttachment()])).toBe(
+      [
+        "I've generated an image for you.",
+        "",
+        "The real attachment preview should render below."
+      ].join("\n")
+    );
+  });
+
   it("ignores escaped markdown openers", () => {
     const content = [
       String.raw`\[Report](notes.txt)`,
@@ -256,6 +274,12 @@ describe("stripAttachmentStyleImageMarkdown", () => {
 
   it("removes reference-style local markdown links when the assistant message already has matching text attachments", () => {
     const content = ["Here is the report:", "", "[Report][report]", "", "[report]: notes.txt"].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe("Here is the report:");
+  });
+
+  it("removes local absolute markdown links when the assistant message already has matching text attachments", () => {
+    const content = ["Here is the report:", "", "[Report](/tmp/notes.txt)"].join("\n");
 
     expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe("Here is the report:");
   });

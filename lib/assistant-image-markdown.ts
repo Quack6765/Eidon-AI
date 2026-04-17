@@ -7,6 +7,24 @@ import {
   parseAssistantDataImageTarget
 } from "@/lib/assistant-markdown-parsing";
 
+function getPosixBasename(target: string) {
+  const normalizedTarget = target.endsWith("/") ? target.slice(0, -1) : target;
+  const lastSlashIndex = normalizedTarget.lastIndexOf("/");
+
+  return lastSlashIndex === -1 ? normalizedTarget : normalizedTarget.slice(lastSlashIndex + 1);
+}
+
+function getPosixDirname(target: string) {
+  const normalizedTarget = target.endsWith("/") ? target.slice(0, -1) : target;
+  const lastSlashIndex = normalizedTarget.lastIndexOf("/");
+
+  if (lastSlashIndex <= 0) {
+    return lastSlashIndex === 0 ? "/" : "";
+  }
+
+  return normalizedTarget.slice(0, lastSlashIndex);
+}
+
 function sanitizeProseSegment(content: string, imageAttachments: MessageAttachment[], textAttachments: MessageAttachment[]) {
   const matches = findMarkdownTargets(content);
   if (matches.length === 0) {
@@ -15,14 +33,23 @@ function sanitizeProseSegment(content: string, imageAttachments: MessageAttachme
 
   const buildLocalTargetSet = (attachments: MessageAttachment[]) =>
     new Set(attachments.flatMap((attachment) => [attachment.filename, attachment.relativePath]));
+  const matchesTmpSourceTarget = (target: string, attachments: MessageAttachment[]) =>
+    target.startsWith("/") &&
+    getPosixDirname(target) === "/tmp" &&
+    attachments.some((attachment) => attachment.filename === getPosixBasename(target));
 
   const imageAttachmentTargets = buildLocalTargetSet(imageAttachments);
   const textAttachmentTargets = buildLocalTargetSet(textAttachments);
   const canStripImageTarget = (target: string) => {
     const parsedDataImage = parseAssistantDataImageTarget(target);
-    return parsedDataImage.type === "valid" || (!isExternalMarkdownTarget(target) && imageAttachmentTargets.has(target));
+    return parsedDataImage.type === "valid" || (
+      !isExternalMarkdownTarget(target) &&
+      (imageAttachmentTargets.has(target) || matchesTmpSourceTarget(target, imageAttachments))
+    );
   };
-  const canStripTextTarget = (target: string) => !isExternalMarkdownTarget(target) && textAttachmentTargets.has(target);
+  const canStripTextTarget = (target: string) =>
+    !isExternalMarkdownTarget(target) &&
+    (textAttachmentTargets.has(target) || matchesTmpSourceTarget(target, textAttachments));
   const parts: string[] = [];
   let cursor = 0;
   let changed = false;
