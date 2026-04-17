@@ -85,4 +85,40 @@ describe("stripAttachmentStyleImageMarkdown", () => {
 
     expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(content);
   });
+
+  it("preserves local markdown links inside inline code", () => {
+    const content = [
+      "Use the literal example `![Diagram](notes.txt)` when documenting the attachment.",
+      "",
+      "The prose link [Report](notes.txt) should still be stripped."
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
+      [
+        "Use the literal example `![Diagram](notes.txt)` when documenting the attachment.",
+        "",
+        "The prose link  should still be stripped."
+      ].join("\n")
+    );
+  });
+
+  it("preserves local markdown links inside fenced code blocks", () => {
+    const content = [
+      "```md",
+      "[Report](notes.txt)",
+      "```",
+      "",
+      "The prose link [Report](notes.txt) should still be stripped."
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
+      [
+        "```md",
+        "[Report](notes.txt)",
+        "```",
+        "",
+        "The prose link  should still be stripped."
+      ].join("\n")
+    );
+  });
 });
