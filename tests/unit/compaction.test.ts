@@ -241,6 +241,152 @@ describe("lossless compaction", () => {
     );
   });
 
+  it("injects the latest assistant-generated image into the newest user turn when the user refers to it", () => {
+    const createdAt = new Date().toISOString();
+    const prompt = buildPromptMessages({
+      systemPrompt: "Stay concise.",
+      activeMemoryNodes: [],
+      messages: [
+        {
+          id: "msg_user_1",
+          conversationId: "conv_1",
+          role: "user",
+          content: "Generate a dramatic castle scene",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 4,
+          systemKind: null,
+          compactedAt: null,
+          createdAt
+        },
+        {
+          id: "msg_assistant_1",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "Generated 1 image.",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 4,
+          systemKind: null,
+          compactedAt: null,
+          createdAt,
+          attachments: [
+            {
+              id: "att_generated_1",
+              conversationId: "conv_1",
+              messageId: "msg_assistant_1",
+              filename: "generated-castle.png",
+              mimeType: "image/png",
+              byteSize: 321,
+              sha256: "hash",
+              relativePath: "conv_1/generated-castle.png",
+              kind: "image",
+              extractedText: "",
+              createdAt
+            }
+          ]
+        },
+        {
+          id: "msg_user_2",
+          conversationId: "conv_1",
+          role: "user",
+          content: "Can you tell me what is the latest image you generated?",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 8,
+          systemKind: null,
+          compactedAt: null,
+          createdAt
+        }
+      ]
+    });
+
+    const latestUserMessage = prompt.at(-1);
+
+    expect(latestUserMessage?.role).toBe("user");
+    expect(typeof latestUserMessage?.content).not.toBe("string");
+    expect(latestUserMessage?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "text",
+          text: "Can you tell me what is the latest image you generated?"
+        }),
+        expect.objectContaining({
+          type: "image",
+          filename: "generated-castle.png"
+        })
+      ])
+    );
+  });
+
+  it("does not inject a previous assistant image for unrelated prompts that merely say latest", () => {
+    const createdAt = new Date().toISOString();
+    const prompt = buildPromptMessages({
+      systemPrompt: "Stay concise.",
+      activeMemoryNodes: [],
+      messages: [
+        {
+          id: "msg_user_1",
+          conversationId: "conv_1",
+          role: "user",
+          content: "Generate a dramatic castle scene",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 4,
+          systemKind: null,
+          compactedAt: null,
+          createdAt
+        },
+        {
+          id: "msg_assistant_1",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "Generated 1 image.",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 4,
+          systemKind: null,
+          compactedAt: null,
+          createdAt,
+          attachments: [
+            {
+              id: "att_generated_1",
+              conversationId: "conv_1",
+              messageId: "msg_assistant_1",
+              filename: "generated-castle.png",
+              mimeType: "image/png",
+              byteSize: 321,
+              sha256: "hash",
+              relativePath: "conv_1/generated-castle.png",
+              kind: "image",
+              extractedText: "",
+              createdAt
+            }
+          ]
+        },
+        {
+          id: "msg_user_2",
+          conversationId: "conv_1",
+          role: "user",
+          content: "What is the latest weather update?",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 6,
+          systemKind: null,
+          compactedAt: null,
+          createdAt
+        }
+      ]
+    });
+
+    const latestUserMessage = prompt.at(-1);
+
+    expect(latestUserMessage).toEqual({
+      role: "user",
+      content: "What is the latest weather update?"
+    });
+  });
+
   it("omits assistant reasoning and empty streaming placeholders from prompt messages", () => {
     const prompt = buildPromptMessages({
       systemPrompt: "Stay concise.",

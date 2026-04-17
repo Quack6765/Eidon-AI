@@ -11,6 +11,7 @@ import {
   getSettingsDefaults,
   getSettings,
   listProviderProfiles,
+  parseImageGenerationSettingsInput,
   updateGeneralSettingsForUser,
   updateSettings,
   updateImageGenerationSettings
@@ -1067,34 +1068,25 @@ describe("settings storage", () => {
     updateImageGenerationSettings({
       imageGenerationBackend: "google_nano_banana",
       googleNanoBananaModel: "gemini-3.1-flash-image-preview",
-      googleNanoBananaApiKey: "google-secret",
-      comfyuiBaseUrl: "https://comfy.example.com",
-      comfyuiAuthType: "bearer",
-      comfyuiBearerToken: "comfy-secret",
-      comfyuiWorkflowJson: "{\"3\":{\"inputs\":{\"text\":\"prompt\"}}}",
-      comfyuiPromptPath: "3.inputs.text",
-      comfyuiNegativePromptPath: "",
-      comfyuiWidthPath: "",
-      comfyuiHeightPath: "",
-      comfyuiSeedPath: ""
+      googleNanoBananaApiKey: "google-secret"
     });
 
     expect(getSettings()).toMatchObject({
       imageGenerationBackend: "google_nano_banana",
       googleNanoBananaModel: "gemini-3.1-flash-image-preview",
-      googleNanoBananaApiKey: "google-secret",
-      comfyuiAuthType: "bearer",
-      comfyuiBearerToken: "comfy-secret"
+      googleNanoBananaApiKey: "google-secret"
     });
 
-    expect(getSanitizedSettings(admin.id)).toMatchObject({
+    const sanitized = getSanitizedSettings(admin.id) as Record<string, unknown>;
+
+    expect(sanitized).toMatchObject({
       imageGenerationBackend: "google_nano_banana",
       googleNanoBananaModel: "gemini-3.1-flash-image-preview",
       googleNanoBananaApiKey: "",
-      hasGoogleNanoBananaApiKey: true,
-      comfyuiBearerToken: "",
-      hasComfyuiBearerToken: true
+      hasGoogleNanoBananaApiKey: true
     });
+    expect(sanitized).not.toHaveProperty("comfyuiBearerToken");
+    expect(sanitized).not.toHaveProperty("hasComfyuiBearerToken");
   });
 
   it("applies global image generation settings to every user", async () => {
@@ -1105,34 +1097,35 @@ describe("settings storage", () => {
     });
 
     updateImageGenerationSettings({
-      imageGenerationBackend: "comfyui",
+      imageGenerationBackend: "google_nano_banana",
       googleNanoBananaModel: "gemini-3.1-flash-image-preview",
-      googleNanoBananaApiKey: "",
-      comfyuiBaseUrl: "https://comfy.example.com",
-      comfyuiAuthType: "none",
-      comfyuiBearerToken: "",
-      comfyuiWorkflowJson: "{\"3\":{\"inputs\":{\"text\":\"prompt\"}}}",
-      comfyuiPromptPath: "3.inputs.text",
-      comfyuiNegativePromptPath: "",
-      comfyuiWidthPath: "",
-      comfyuiHeightPath: "",
-      comfyuiSeedPath: ""
+      googleNanoBananaApiKey: "shared-google-secret"
     });
 
     expect(getSettingsForUser(user.id)).toMatchObject({
-      imageGenerationBackend: "comfyui",
-      comfyuiBaseUrl: "https://comfy.example.com",
-      comfyuiWorkflowJson: "{\"3\":{\"inputs\":{\"text\":\"prompt\"}}}"
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaApiKey: "shared-google-secret"
     });
   });
 
-  it("normalizes ComfyUI base URL by stripping trailing slashes", () => {
-    updateImageGenerationSettings({
-      imageGenerationBackend: "comfyui",
-      comfyuiBaseUrl: "https://comfy.example.com/"
-    });
+  it("rejects the removed comfyui backend in image generation updates", () => {
+    expect(() =>
+      parseImageGenerationSettingsInput({
+        imageGenerationBackend: "comfyui"
+      })
+    ).toThrow();
+  });
 
-    expect(getSettings().comfyuiBaseUrl).toBe("https://comfy.example.com");
+  it("normalizes legacy comfyui rows to a disabled image backend", () => {
+    getDb()
+      .prepare(
+        `UPDATE app_settings
+         SET image_generation_backend = ?
+         WHERE id = 1`
+      )
+      .run("comfyui");
+
+    expect(getSettings().imageGenerationBackend).toBe("disabled");
   });
 
   it("rejects image generation updates from non-admin users", async () => {

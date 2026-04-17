@@ -19,6 +19,7 @@ import {
   updateMessageAction
 } from "@/lib/conversations";
 import { ensureCompactedContext } from "@/lib/compaction";
+import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers, getMcpServer } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
@@ -30,7 +31,7 @@ import {
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
 import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
-import type { ChatStreamEvent, Message } from "@/lib/types";
+import type { ChatStreamEvent } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export type ChatEmitter = ReturnType<typeof createEmitter<{
@@ -176,9 +177,18 @@ async function startAssistantTurn(
 
     function flushAnswerBuffer() {
       if (!assistantMessageId || !answerBuffer) return;
+      const sanitizedBuffer = stripAttachmentStyleImageMarkdown(
+        answerBuffer,
+        getMessage(assistantMessageId)?.attachments ?? []
+      );
+      if (!sanitizedBuffer) {
+        answerBuffer = "";
+        lastFlush = Date.now();
+        return;
+      }
       createMessageTextSegment({
         messageId: assistantMessageId,
-        content: answerBuffer,
+        content: sanitizedBuffer,
         sortOrder: timelineSortOrder++
       });
       answerBuffer = "";
@@ -228,9 +238,10 @@ async function startAssistantTurn(
       mcpToolSets = await gatherAllMcpTools(mcpServers);
     }
 
-    // Resolve vision MCP server if configured
+    // Resolve vision MCP server if configured so runtime can use MCP mode directly
+    // or downgrade unsupported native-vision profiles automatically.
     let visionMcpServer: (typeof mcpServers)[number] | null = null;
-    if (settings.visionMode === "mcp" && settings.visionMcpServerId) {
+    if (settings.visionMcpServerId) {
       const server = getMcpServer(settings.visionMcpServerId);
       if (server && server.enabled) {
         visionMcpServer = server;
@@ -276,9 +287,17 @@ async function startAssistantTurn(
       onAnswerSegment(segment) {
         flushAnswerBuffer();
         if (!sawStreamedAnswerSinceLastSegment && segment && assistantMessageId) {
+          const sanitizedSegment = stripAttachmentStyleImageMarkdown(
+            segment,
+            getMessage(assistantMessageId)?.attachments ?? []
+          );
+          if (!sanitizedSegment) {
+            sawStreamedAnswerSinceLastSegment = false;
+            return;
+          }
           createMessageTextSegment({
             messageId: assistantMessageId,
-            content: segment,
+            content: sanitizedSegment,
             sortOrder: timelineSortOrder++
           });
         }
@@ -353,7 +372,10 @@ async function startAssistantTurn(
     flushAnswerBuffer();
 
     updateMessage(assistantMessageId, {
-      content: providerResult.answer,
+      content: stripAttachmentStyleImageMarkdown(
+        providerResult.answer,
+        getMessage(assistantMessageId)?.attachments ?? []
+      ),
       thinkingContent: providerResult.thinking,
       status: "completed",
       estimatedTokens:
@@ -362,10 +384,11 @@ async function startAssistantTurn(
         (providerResult.usage.reasoningTokens ?? 0)
     });
 
+    const completedMessage = getMessage(assistantMessageId);
     manager.broadcast(conversationId, {
       type: "delta",
       conversationId,
-      event: { type: "done", messageId: assistantMessageId }
+      event: { type: "done", messageId: assistantMessageId, message: completedMessage ?? undefined }
     });
     return { status: "completed" };
   } catch (error) {
@@ -381,7 +404,10 @@ async function startAssistantTurn(
       }
 
       updateMessage(assistantMessageId, {
-        content: latestAnswer,
+        content: stripAttachmentStyleImageMarkdown(
+          latestAnswer,
+          getMessage(assistantMessageId)?.attachments ?? []
+        ),
         thinkingContent: latestThinking,
         status: "stopped",
         estimatedTokens: estimateTextTokens(latestAnswer)
@@ -397,10 +423,18 @@ async function startAssistantTurn(
       manager.broadcast(conversationId, {
         type: "delta",
         conversationId,
-        event: { type: "done", messageId: assistantMessageId }
+        event: { type: "done", messageId: assistantMessageId, message: getMessage(assistantMessageId) ?? undefined }
       });
       return { status: "stopped" };
     } else {
+      for (const handle of runningActionHandles) {
+        updateMessageAction(handle, {
+          status: "error",
+          resultSummary: error instanceof Error ? error.message : "Chat stream failed",
+          completedAt: new Date().toISOString()
+        });
+      }
+
       if (assistantMessageId) {
         updateMessage(assistantMessageId, {
           content: "",

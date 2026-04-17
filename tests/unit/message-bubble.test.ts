@@ -1410,6 +1410,43 @@ describe("message bubble", () => {
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
   });
 
+  it("strips attachment-style local markdown images from assistant text when the real image attachment is present", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: [
+            "I've generated an image for you.",
+            "",
+            "![Generated Image](20260416-175044-263a82d0-1.jpeg)",
+            "",
+            "The real attachment preview should render below."
+          ].join("\n"),
+          attachments: [
+            {
+              id: "att_image",
+              conversationId: "conv_test",
+              messageId: "msg_assistant",
+              filename: "20260416-175044-263a82d0-1.jpeg",
+              mimeType: "image/jpeg",
+              byteSize: 10,
+              sha256: "hash",
+              relativePath: "conv_test/20260416-175044-263a82d0-1.jpeg",
+              kind: "image",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    expect(screen.getByText("I've generated an image for you.")).toBeInTheDocument();
+    expect(screen.getByText("The real attachment preview should render below.")).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: "Generated Image" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Preview 20260416-175044-263a82d0-1.jpeg" })).toBeInTheDocument();
+  });
+
   it("opens image attachments in a centered modal and closes with the X button", async () => {
     installMockImage();
 

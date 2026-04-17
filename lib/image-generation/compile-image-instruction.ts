@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { ProviderProfileWithApiKey, PromptMessage } from "@/lib/types";
 import { callProviderText as callProviderTextDefault } from "@/lib/provider";
 import type { CompiledImageInstruction } from "./types";
+import { referencesEarlierImagePromptContext } from "./follow-up-context";
 
 const compiledInstructionSchema = z.object({
   imagePrompt: z.string().min(1),
@@ -13,7 +14,6 @@ const compiledInstructionSchema = z.object({
   seed: z.number().int().nonnegative().optional(),
   count: z.number().int().min(1).max(4).default(1)
 });
-
 export function extractJsonObject(raw: string) {
   const fenced = raw.match(/```json\s*([\s\S]*?)```/i)?.[1];
   const candidate = (fenced ?? raw).trim();
@@ -27,11 +27,64 @@ export function extractJsonObject(raw: string) {
   return JSON.parse(candidate.slice(firstBrace, lastBrace + 1));
 }
 
-function buildImageInstructionPrompt(messages: PromptMessage[]): string {
-  const conversationContext = messages
-    .map((m) => `${m.role}: ${m.content}`)
+function stringifyPromptContent(content: PromptMessage["content"]) {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  return content
+    .map((part) => {
+      if (part.type === "text") {
+        return part.text;
+      }
+
+      return `[Attached image: ${part.filename}]`;
+    })
+    .filter(Boolean)
     .join("\n");
-  return `You are an image generation instruction compiler. Based on the conversation below, produce a JSON object with these fields:
+}
+
+function getLatestUserImageRequest(messages: PromptMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "user") {
+      return stringifyPromptContent(message.content).trim();
+    }
+  }
+
+  return "";
+}
+
+function getLatestUserIndex(messages: PromptMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user") {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function getRelevantPriorUserRequests(messages: PromptMessage[], latestUserIndex: number) {
+  if (latestUserIndex <= 0) {
+    return "";
+  }
+
+  return messages
+    .slice(0, latestUserIndex)
+    .filter((message) => message.role === "user")
+    .slice(-3)
+    .map((message) => `user: ${stringifyPromptContent(message.content)}`)
+    .join("\n");
+}
+
+function buildImageInstructionPrompt(messages: PromptMessage[]): string {
+  const latestUserIndex = getLatestUserIndex(messages);
+  const latestUserRequest = getLatestUserImageRequest(messages);
+  const priorUserRequests = getRelevantPriorUserRequests(messages, latestUserIndex);
+  const includePriorContext = referencesEarlierImagePromptContext(latestUserRequest);
+
+  return `You are an image generation instruction compiler. Base the prompt and count on only the latest user image request by default. Use earlier image requests only when the latest request explicitly asks to modify or combine prior results. Produce a JSON object with these fields:
 - imagePrompt: string (required, the detailed image generation prompt)
 - negativePrompt: string (optional, things to exclude)
 - assistantText: string (optional, brief message to show the user)
@@ -40,8 +93,11 @@ function buildImageInstructionPrompt(messages: PromptMessage[]): string {
 
 Return ONLY the JSON object wrapped in a \`\`\`json code block.
 
-Conversation:
-${conversationContext}`;
+${includePriorContext ? `Relevant earlier user image requests:
+${priorUserRequests || "(none)"}
+
+` : ""}Latest user request:
+user: ${latestUserRequest}`;
 }
 
 export async function compileImageInstruction(input: {

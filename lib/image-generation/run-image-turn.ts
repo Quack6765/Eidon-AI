@@ -4,7 +4,6 @@ import type { AppSettings, Message, ProviderProfileWithApiKey, PromptMessage } f
 import type { CompiledImageInstruction, GenerateImageResult } from "./types";
 import { compileImageInstruction } from "./compile-image-instruction";
 import { generateGoogleNanoBananaImages } from "./google-nano-banana";
-import { generateComfyUiImages } from "./comfyui";
 
 export type RunImageTurnInput = {
   conversationId: string;
@@ -22,24 +21,10 @@ export async function runImageTurn(input: RunImageTurnInput): Promise<{ assistan
     promptMessages: input.promptMessages
   });
 
-  const backendResult: GenerateImageResult =
-    input.appSettings.imageGenerationBackend === "google_nano_banana"
-      ? await generateGoogleNanoBananaImages({ settings: input.appSettings, instruction: compiled })
-      : await generateComfyUiImages({
-          settings: {
-            comfyuiBaseUrl: input.appSettings.comfyuiBaseUrl,
-            comfyuiAuthType: input.appSettings.comfyuiAuthType,
-            comfyuiBearerToken: input.appSettings.comfyuiBearerToken,
-            comfyuiWorkflowJson: input.appSettings.comfyuiWorkflowJson,
-            comfyuiPromptPath: input.appSettings.comfyuiPromptPath,
-            comfyuiNegativePromptPath: input.appSettings.comfyuiNegativePromptPath,
-            comfyuiWidthPath: input.appSettings.comfyuiWidthPath,
-            comfyuiHeightPath: input.appSettings.comfyuiHeightPath,
-            comfyuiSeedPath: input.appSettings.comfyuiSeedPath
-          },
-          instruction: compiled,
-          clientId: crypto.randomUUID()
-        });
+  const backendResult: GenerateImageResult = await generateGoogleNanoBananaImages({
+    settings: input.appSettings,
+    instruction: compiled
+  });
 
   const attachments = createAttachments(
     input.conversationId,

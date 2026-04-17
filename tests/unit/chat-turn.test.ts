@@ -164,6 +164,67 @@ describe("chat-turn", () => {
     expect(assistantMsg?.status).toBe("error");
   });
 
+  it("marks started actions as error when the runtime fails after starting them", async () => {
+    const resolveAssistantTurn = vi.fn().mockImplementation(async (input: {
+      onActionStart?: (action: {
+        kind: "image_generation";
+        label: string;
+        detail?: string;
+      }) => Promise<string | void> | string | void;
+    }) => {
+      await input.onActionStart?.({
+        kind: "image_generation",
+        label: "Generate image",
+        detail: "Generate an image of a red square"
+      });
+      throw new Error("runtime failed");
+    });
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn
+    }));
+    try {
+      const { createConversationManager } = await import("@/lib/conversation-manager");
+      const { updateSettings } = await import("@/lib/settings");
+
+      const manager = createConversationManager();
+
+      const { profileId, profile } = setupProviderProfile();
+      updateSettings({
+        defaultProviderProfileId: profileId,
+        skillsEnabled: false,
+        providerProfiles: [profile]
+      });
+
+      const conv = (await import("@/lib/conversations")).createConversation(
+        undefined,
+        undefined,
+        { providerProfileId: null }
+      );
+
+      const { startChatTurn } = await import("@/lib/chat-turn");
+      const result = await startChatTurn(manager, conv.id, "Generate an image of a red square", []);
+
+      expect(result).toEqual({
+        status: "failed",
+        errorMessage: "runtime failed"
+      });
+
+      const { listVisibleMessages } = await import("@/lib/conversations");
+      const assistantMsg = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+      expect(assistantMsg?.status).toBe("error");
+      expect(assistantMsg?.actions).toEqual([
+        expect.objectContaining({
+          label: "Generate image",
+          status: "error",
+          resultSummary: "runtime failed"
+        })
+      ]);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+      vi.resetModules();
+    }
+  });
+
   it("does nothing if conversation not found", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const manager = createConversationManager();
@@ -342,6 +403,140 @@ describe("chat-turn", () => {
     ).toBe("Hello world");
 
     vi.useRealTimers();
+  });
+
+  it("drops streamed attachment-style markdown image deltas once a real image attachment exists", async () => {
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        conversationId?: string;
+        assistantMessageId?: string;
+        onEvent?: (event: { type: string; text: string }) => void;
+      }) => {
+        const { createAttachments, assignAttachmentsToMessage } = await import("@/lib/attachments");
+        const attachments = createAttachments(input.conversationId!, [
+          {
+            filename: "generated-inline.jpeg",
+            mimeType: "image/jpeg",
+            bytes: Buffer.from([1, 2, 3])
+          }
+        ]);
+        assignAttachmentsToMessage(
+          input.conversationId!,
+          input.assistantMessageId!,
+          attachments.map((attachment) => attachment.id)
+        );
+
+        input.onEvent?.({
+          type: "answer_delta",
+          text: "![Generated Image](generated-inline.jpeg)"
+        });
+
+        return {
+          answer: "![Generated Image](generated-inline.jpeg)",
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { createConversationManager } = await import("@/lib/conversation-manager");
+      const { updateSettings } = await import("@/lib/settings");
+      const { listVisibleMessages } = await import("@/lib/conversations");
+      const { startChatTurn } = await import("@/lib/chat-turn");
+
+      const manager = createConversationManager();
+      const { profileId, profile } = setupProviderProfile();
+      updateSettings({
+        defaultProviderProfileId: profileId,
+        skillsEnabled: false,
+        providerProfiles: [profile]
+      });
+
+      const conv = (await import("@/lib/conversations")).createConversation(
+        undefined,
+        undefined,
+        { providerProfileId: null }
+      );
+
+      await expect(startChatTurn(manager, conv.id, "Generate an image", [])).resolves.toEqual({
+        status: "completed"
+      });
+
+      const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+      expect(assistant?.content).toBe("");
+      expect(assistant?.textSegments ?? []).toHaveLength(0);
+      expect(assistant?.attachments).toHaveLength(1);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+    }
+  });
+
+  it("drops assistant text segments that are only local markdown image embeds after image attachment assignment", async () => {
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        conversationId?: string;
+        assistantMessageId?: string;
+        onAnswerSegment?: (segment: string) => void;
+      }) => {
+        const { createAttachments, assignAttachmentsToMessage } = await import("@/lib/attachments");
+        const attachments = createAttachments(input.conversationId!, [
+          {
+            filename: "generated-segment.jpeg",
+            mimeType: "image/jpeg",
+            bytes: Buffer.from([1, 2, 3])
+          }
+        ]);
+        assignAttachmentsToMessage(
+          input.conversationId!,
+          input.assistantMessageId!,
+          attachments.map((attachment) => attachment.id)
+        );
+
+        input.onAnswerSegment?.("![Generated Image](generated-segment.jpeg)");
+
+        return {
+          answer: "![Generated Image](generated-segment.jpeg)",
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { createConversationManager } = await import("@/lib/conversation-manager");
+      const { updateSettings } = await import("@/lib/settings");
+      const { getConversationSnapshot, listVisibleMessages } = await import("@/lib/conversations");
+      const { startChatTurn } = await import("@/lib/chat-turn");
+
+      const manager = createConversationManager();
+      const { profileId, profile } = setupProviderProfile();
+      updateSettings({
+        defaultProviderProfileId: profileId,
+        skillsEnabled: false,
+        providerProfiles: [profile]
+      });
+
+      const conv = (await import("@/lib/conversations")).createConversation(
+        undefined,
+        undefined,
+        { providerProfileId: null }
+      );
+
+      await expect(startChatTurn(manager, conv.id, "Generate an image", [])).resolves.toEqual({
+        status: "completed"
+      });
+
+      const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+      const snapshot = getConversationSnapshot(conv.id);
+      const assistantSnapshot = snapshot?.messages.find((message) => message.role === "assistant");
+
+      expect(assistant?.content).toBe("");
+      expect(assistantSnapshot?.textSegments ?? []).toHaveLength(0);
+      expect(assistant?.attachments).toHaveLength(1);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+    }
   });
 
   it("persists pending memory proposal metadata on assistant actions", async () => {
@@ -718,4 +913,5 @@ describe("chat-turn", () => {
 
     expect(result).toEqual({ status: "completed" });
   });
+
 });

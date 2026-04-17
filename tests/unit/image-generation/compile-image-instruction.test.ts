@@ -53,6 +53,52 @@ describe("compileImageInstruction", () => {
     callProviderText.mockReset();
   });
 
+  it("builds image instructions from the latest user message only", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"generate a picture of a cat","assistantText":"","count":1}
+\`\`\`
+`);
+
+    await compileImageInstruction({
+      settings: profile,
+      promptMessages: [
+        { role: "user", content: "generate a picture of a mage" },
+        { role: "assistant", content: "Generated 1 image." },
+        { role: "user", content: "generate a picture of a cat" }
+      ],
+      callProviderText
+    });
+
+    const prompt = callProviderText.mock.calls[0][0].prompt;
+    expect(prompt).toContain("user: generate a picture of a cat");
+    expect(prompt).not.toContain("generate a picture of a mage");
+    expect(prompt).not.toContain("Generated 1 image.");
+  });
+
+  it("includes recent user image context when the latest request explicitly refers to prior results", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"imagePrompt":"make the previous mage noir","assistantText":"","count":1}
+\`\`\`
+`);
+
+    await compileImageInstruction({
+      settings: profile,
+      promptMessages: [
+        { role: "user", content: "generate a picture of a mage" },
+        { role: "assistant", content: "Generated 1 image." },
+        { role: "user", content: "make the previous mage noir" }
+      ],
+      callProviderText
+    });
+
+    const prompt = callProviderText.mock.calls[0][0].prompt;
+    expect(prompt).toContain("Relevant earlier user image requests:");
+    expect(prompt).toContain("user: generate a picture of a mage");
+    expect(prompt).toContain("Latest user request:\nuser: make the previous mage noir");
+  });
+
   it("extracts fenced JSON and defaults optional fields", async () => {
     callProviderText.mockResolvedValue(`
 \`\`\`json

@@ -126,20 +126,11 @@ const generalSettingsInputSchema = z.object({
 });
 
 const imageGenerationSettingsInputSchema = z.object({
-  imageGenerationBackend: z.enum(["disabled", "google_nano_banana", "comfyui"]),
+  imageGenerationBackend: z.enum(["disabled", "google_nano_banana"]),
   googleNanoBananaModel: z
     .enum(["gemini-2.5-flash-image", "gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview"])
     .default("gemini-3.1-flash-image-preview"),
-  googleNanoBananaApiKey: z.string().default(""),
-  comfyuiBaseUrl: z.string().default(""),
-  comfyuiAuthType: z.enum(["none", "bearer"]).default("none"),
-  comfyuiBearerToken: z.string().default(""),
-  comfyuiWorkflowJson: z.string().default(""),
-  comfyuiPromptPath: z.string().default(""),
-  comfyuiNegativePromptPath: z.string().default(""),
-  comfyuiWidthPath: z.string().default(""),
-  comfyuiHeightPath: z.string().default(""),
-  comfyuiSeedPath: z.string().default("")
+  googleNanoBananaApiKey: z.string().default("")
 });
 
 const generalSettingsSchema = z
@@ -285,10 +276,6 @@ function normalizeSearxngBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "");
 }
 
-function normalizeComfyUiBaseUrl(value: string) {
-  return value.trim().replace(/\/+$/, "");
-}
-
 function getGithubConnectionStatus(profile: ProviderProfile): GithubConnectionStatus {
   if (profile.providerKind !== "github_copilot" || !profile.githubUserAccessTokenEncrypted) {
     return "disconnected";
@@ -382,6 +369,10 @@ function validateGeneralSettings(values: GeneralSettingsValues) {
   });
 }
 
+function normalizeImageGenerationBackend(value: string | null | undefined): ImageGenerationBackend {
+  return value === "google_nano_banana" ? value : "disabled";
+}
+
 export function parseGeneralSettingsInput(input: unknown) {
   return generalSettingsInputSchema.parse(input);
 }
@@ -400,25 +391,13 @@ function rowToSettings(row: AppSettingsRow | UserSettingsRow): AppSettings {
     exaApiKey: decryptSearchSetting("exaApiKey", row.exa_api_key_encrypted),
     tavilyApiKey: decryptSearchSetting("tavilyApiKey", row.tavily_api_key_encrypted),
     searxngBaseUrl: normalizeSearxngBaseUrl(row.searxng_base_url ?? ""),
-    imageGenerationBackend: (row.image_generation_backend ?? "disabled") as ImageGenerationBackend,
+    imageGenerationBackend: normalizeImageGenerationBackend(row.image_generation_backend),
     googleNanoBananaModel:
       (row.google_nano_banana_model ?? "gemini-3.1-flash-image-preview") as AppSettings["googleNanoBananaModel"],
     googleNanoBananaApiKey: decryptImageGenerationSecret(
       "googleNanoBananaApiKey",
       row.google_nano_banana_api_key_encrypted
     ),
-    comfyuiBaseUrl: row.comfyui_base_url ?? "",
-    comfyuiAuthType: (row.comfyui_auth_type ?? "none") as AppSettings["comfyuiAuthType"],
-    comfyuiBearerToken: decryptImageGenerationSecret(
-      "comfyuiBearerToken",
-      row.comfyui_bearer_token_encrypted
-    ),
-    comfyuiWorkflowJson: row.comfyui_workflow_json ?? "",
-    comfyuiPromptPath: row.comfyui_prompt_path ?? "",
-    comfyuiNegativePromptPath: row.comfyui_negative_prompt_path ?? "",
-    comfyuiWidthPath: row.comfyui_width_path ?? "",
-    comfyuiHeightPath: row.comfyui_height_path ?? "",
-    comfyuiSeedPath: row.comfyui_seed_path ?? "",
     updatedAt: row.updated_at
   };
 }
@@ -630,7 +609,6 @@ export function updateImageGenerationSettings(input: unknown) {
   const merged = {
     ...current,
     ...parsed,
-    comfyuiBaseUrl: normalizeComfyUiBaseUrl(parsed.comfyuiBaseUrl),
     updatedAt: new Date().toISOString()
   };
 
@@ -640,15 +618,6 @@ export function updateImageGenerationSettings(input: unknown) {
        SET image_generation_backend = ?,
            google_nano_banana_model = ?,
            google_nano_banana_api_key_encrypted = ?,
-           comfyui_base_url = ?,
-           comfyui_auth_type = ?,
-           comfyui_bearer_token_encrypted = ?,
-           comfyui_workflow_json = ?,
-           comfyui_prompt_path = ?,
-           comfyui_negative_prompt_path = ?,
-           comfyui_width_path = ?,
-           comfyui_height_path = ?,
-           comfyui_seed_path = ?,
            updated_at = ?
        WHERE id = ?`
     )
@@ -656,15 +625,6 @@ export function updateImageGenerationSettings(input: unknown) {
       merged.imageGenerationBackend,
       merged.googleNanoBananaModel,
       parsed.googleNanoBananaApiKey ? encryptValue(parsed.googleNanoBananaApiKey) : "",
-      merged.comfyuiBaseUrl,
-      merged.comfyuiAuthType,
-      parsed.comfyuiBearerToken ? encryptValue(parsed.comfyuiBearerToken) : "",
-      merged.comfyuiWorkflowJson,
-      merged.comfyuiPromptPath,
-      merged.comfyuiNegativePromptPath,
-      merged.comfyuiWidthPath,
-      merged.comfyuiHeightPath,
-      merged.comfyuiSeedPath,
       merged.updatedAt,
       SETTINGS_ROW_ID
     );
@@ -799,15 +759,7 @@ export function getSettingsForUser(userId: string): AppSettings {
     imageGenerationBackend: globalSettings.imageGenerationBackend,
     googleNanoBananaModel: globalSettings.googleNanoBananaModel,
     googleNanoBananaApiKey: globalSettings.googleNanoBananaApiKey,
-    comfyuiBaseUrl: globalSettings.comfyuiBaseUrl,
-    comfyuiAuthType: globalSettings.comfyuiAuthType,
-    comfyuiBearerToken: globalSettings.comfyuiBearerToken,
-    comfyuiWorkflowJson: globalSettings.comfyuiWorkflowJson,
-    comfyuiPromptPath: globalSettings.comfyuiPromptPath,
-    comfyuiNegativePromptPath: globalSettings.comfyuiNegativePromptPath,
-    comfyuiWidthPath: globalSettings.comfyuiWidthPath,
-    comfyuiHeightPath: globalSettings.comfyuiHeightPath,
-    comfyuiSeedPath: globalSettings.comfyuiSeedPath
+    updatedAt: globalSettings.updatedAt
   };
 }
 
@@ -868,8 +820,6 @@ export function getSanitizedSettings(userId?: string) {
     hasTavilyApiKey: Boolean(settings.tavilyApiKey),
     googleNanoBananaApiKey: "",
     hasGoogleNanoBananaApiKey: Boolean(settings.googleNanoBananaApiKey),
-    comfyuiBearerToken: "",
-    hasComfyuiBearerToken: Boolean(settings.comfyuiBearerToken),
     providerProfiles
   };
 }

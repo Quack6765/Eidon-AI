@@ -12,7 +12,6 @@ type GeneralSectionSettings = AppSettings & {
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
   hasGoogleNanoBananaApiKey?: boolean;
-  hasComfyuiBearerToken?: boolean;
 };
 
 vi.mock("next/navigation", () => ({
@@ -38,15 +37,6 @@ function makeSettings(overrides: Partial<GeneralSectionSettings> = {}): GeneralS
     imageGenerationBackend: "disabled",
     googleNanoBananaModel: "gemini-3.1-flash-image-preview",
     googleNanoBananaApiKey: "",
-    comfyuiBaseUrl: "",
-    comfyuiAuthType: "none",
-    comfyuiBearerToken: "",
-    comfyuiWorkflowJson: "",
-    comfyuiPromptPath: "",
-    comfyuiNegativePromptPath: "",
-    comfyuiWidthPath: "",
-    comfyuiHeightPath: "",
-    comfyuiSeedPath: "",
     hasExaApiKey: false,
     hasTavilyApiKey: false,
     updatedAt: new Date().toISOString(),
@@ -378,6 +368,8 @@ describe("general section", () => {
 
     expect(screen.getByRole("heading", { name: "Image Generation" })).toBeInTheDocument();
     expect(screen.getByLabelText("Image generation backend")).toHaveValue("google_nano_banana");
+    expect(screen.queryByRole("option", { name: "ComfyUI" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Test ComfyUI workflow" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
 
@@ -386,6 +378,16 @@ describe("general section", () => {
         "/api/settings/image-generation",
         expect.objectContaining({ method: "PUT" })
       );
+    });
+
+    const imageSettingsCall = vi
+      .mocked(global.fetch)
+      .mock.calls.find(([url]) => url === "/api/settings/image-generation");
+    const imageSettingsBody = JSON.parse(String(imageSettingsCall?.[1]?.body));
+
+    expect(imageSettingsBody).toEqual({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview"
     });
   });
 
@@ -399,5 +401,6 @@ describe("general section", () => {
 
     expect(screen.getByText("Only admins can change image generation settings.")).toBeInTheDocument();
     expect(screen.getByLabelText("Image generation backend")).toBeDisabled();
+    expect(screen.queryByRole("option", { name: "ComfyUI" })).toBeNull();
   });
 });

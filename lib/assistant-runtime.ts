@@ -16,6 +16,8 @@ import { extractEnumHints, coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { streamProviderResponse } from "@/lib/provider";
 import { getWebSearchActionLabel } from "@/lib/web-search";
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
+import { isFreshImageGenerationRequest } from "@/lib/image-generation/follow-up-context";
+import { supportsImageInput } from "@/lib/model-capabilities";
 import type {
   ChatStreamEvent,
   McpServer,
@@ -28,7 +30,8 @@ import type {
   ProviderToolCall,
   PromptMessage,
   Skill,
-  ToolDefinition
+  ToolDefinition,
+  VisionMode
 } from "@/lib/types";
 
 type Usage = {
@@ -64,6 +67,14 @@ const SHELL_SKILL_INTENT_PATTERN =
 const URLISH_PATTERN = /\b(?:https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,})(?:\/\S*)?/i;
 const MEMORY_INTENT_WITHOUT_TOOL_PATTERN =
   /\b(?:let me|i(?:'ll| will| can| should|(?: am|'m) going to))\s+(?:save|remember|store|update|delete|remove)\b|\b(?:remember|save|store|update|delete|remove)\s+(?:that|this|it)\s+(?:for later|in memory|as memory)\b|\b(?:i(?:'ve| have)|we(?:'ve| have))\s+proposed\s+to\s+(?:add|save|store|update|delete|remove)\b.*\bmemory\b|\bit(?:'ll| will)\s+be\s+saved\s+once\s+you\s+approve\s+it\b/i;
+const IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE =
+  "When calling generate_image, Base the prompt and count on only the latest user image request. Treat each new image request as independent by default. Do not combine earlier image requests or count them again unless the latest user message explicitly asks to modify, continue, or combine prior results.";
+const IMAGE_TOOL_POST_SUCCESS_DIRECTIVE =
+  "Image generation is available in this environment and a generated image is already attached in this turn. Do not claim that image generation is unavailable. Refer to the generated image result directly, do not call generate_image again in this turn, and do not embed markdown image tags or local file links in your response.";
+const IMAGE_TOOL_REQUIRED_DIRECTIVE =
+  "The latest user request requires generating a new image. Do not claim that an image was generated unless you call generate_image in this response. Call generate_image now.";
+const NON_NATIVE_VISION_DIRECTIVE =
+  "The current model configuration cannot inspect attached images directly in this turn. Attached images were provided only as text placeholders. Do not claim to have viewed image contents directly. If image analysis is required, explain the limitation or use the configured vision MCP server when available.";
 
 function mcpToolFunctionName(serverSlug: string, toolName: string) {
   return `mcp_${serverSlug}_${toolName}`;
@@ -85,12 +96,57 @@ function getLatestUserPromptContent(promptMessages: PromptMessage[]) {
   for (let index = promptMessages.length - 1; index >= 0; index -= 1) {
     const message = promptMessages[index];
 
-    if (message.role === "user" && typeof message.content === "string") {
-      return message.content.trim();
+    if (message.role === "user") {
+      if (typeof message.content === "string") {
+        return message.content.trim();
+      }
+
+      return message.content
+        .filter((part) => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+        .trim();
     }
   }
 
   return "";
+}
+
+function getLatestUserPromptIndex(promptMessages: PromptMessage[]) {
+  for (let index = promptMessages.length - 1; index >= 0; index -= 1) {
+    if (promptMessages[index]?.role === "user") {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function hasRecentAssistantImageContext(promptMessages: PromptMessage[]) {
+  const latestUserIndex = getLatestUserPromptIndex(promptMessages);
+  if (latestUserIndex <= 0) {
+    return false;
+  }
+
+  for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
+    const message = promptMessages[index];
+    if (!message || (message.role !== "assistant" && message.role !== "tool")) {
+      continue;
+    }
+
+    const content = typeof message.content === "string"
+      ? message.content
+      : message.content
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("\n");
+
+    if (/\b(generated|created|made|rendered)\b[\s\S]{0,40}\b(image|images|picture|pictures|photo|photos|render|renders)\b|\b(image|images|picture|pictures|photo|photos|render|renders)\b[\s\S]{0,40}\b(generated|created|made|rendered)\b|\bshould appear above\b/i.test(content)) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function filterSkillsForTurn(skills: Skill[], promptMessages: PromptMessage[]) {
@@ -149,7 +205,40 @@ function buildToolDefinitions(input: {
   memoriesEnabled: boolean;
   searxngBaseUrl?: string | null;
   imageGenerationBackend?: string | null;
+  imageGenerationToolEnabled?: boolean;
+  restrictToGenerateImage?: boolean;
 }): ToolDefinition[] {
+  const imageTool =
+    input.imageGenerationToolEnabled !== false &&
+    input.imageGenerationBackend &&
+    input.imageGenerationBackend !== "disabled"
+      ? {
+          type: "function" as const,
+          function: {
+            name: "generate_image",
+            description: "Generate an image from a text prompt. Base the prompt and count on only the latest user image request unless the user explicitly asks to modify or combine earlier results. Returns generated images as attachments on the response.",
+            parameters: {
+              type: "object" as const,
+              properties: {
+                prompt: { type: "string", description: "Detailed image generation prompt for the latest user request only" },
+                negative_prompt: { type: "string", description: "Things to exclude from the image" },
+                aspect_ratio: {
+                  type: "string",
+                  enum: ["1:1", "16:9", "9:16", "4:3", "3:4"],
+                  description: "Desired aspect ratio (default 1:1)"
+                },
+                count: { type: "number", description: "Number of images to generate (1-4, default 1)" }
+              },
+              required: ["prompt"]
+            }
+          }
+        }
+      : null;
+
+  if (input.restrictToGenerateImage) {
+    return imageTool ? [imageTool] : [];
+  }
+
   const tools: ToolDefinition[] = [];
 
   for (const { server, tools: mcpTools } of input.mcpToolSets) {
@@ -225,28 +314,8 @@ function buildToolDefinitions(input: {
     });
   }
 
-  if (input.imageGenerationBackend && input.imageGenerationBackend !== "disabled") {
-    tools.push({
-      type: "function",
-      function: {
-        name: "generate_image",
-        description: "Generate an image from a text prompt. Returns generated images as attachments on the response.",
-        parameters: {
-          type: "object",
-          properties: {
-            prompt: { type: "string", description: "Detailed image generation prompt" },
-            negative_prompt: { type: "string", description: "Things to exclude from the image" },
-            aspect_ratio: {
-              type: "string",
-              enum: ["1:1", "16:9", "9:16", "4:3", "3:4"],
-              description: "Desired aspect ratio (default 1:1)"
-            },
-            count: { type: "number", description: "Number of images to generate (1-4, default 1)" }
-          },
-          required: ["prompt"]
-        }
-      }
-    });
+  if (imageTool) {
+    tools.push(imageTool);
   }
 
   if (input.memoriesEnabled) {
@@ -364,21 +433,25 @@ function extractImageAttachments(promptMessages: PromptMessage[]): Array<{ id: s
   return attachments;
 }
 
-function stripImagesFromMessages(promptMessages: PromptMessage[]): PromptMessage[] {
+function replaceImagesWithTextPlaceholders(promptMessages: PromptMessage[]): PromptMessage[] {
   return promptMessages.map((message) => {
-    if (typeof message.content === "string") return message;
-
-    const textParts = message.content.filter((part) => part.type === "text");
-
-    if (textParts.length === 0) {
-      return { ...message, content: "" };
-    }
-
-    if (textParts.length === message.content.length) {
+    if (typeof message.content === "string") {
       return message;
     }
 
-    return { ...message, content: textParts };
+    return {
+      ...message,
+      content: message.content.map((part) => {
+        if (part.type === "text") {
+          return part;
+        }
+
+        return {
+          type: "text" as const,
+          text: `Attached image: ${part.filename}`
+        };
+      })
+    };
   });
 }
 
@@ -386,6 +459,51 @@ function mergeSystemMessage(promptMessages: PromptMessage[], content: string): P
   const systemIndex = promptMessages.findIndex((m) => m.role === "system");
   if (systemIndex === -1) return [{ role: "system", content }, ...promptMessages];
   return promptMessages.map((m, i) => i === systemIndex ? { ...m, content: `${m.content}\n\n${content}` } : m);
+}
+
+function getEffectiveVisionMode(
+  settings: ProviderProfileWithApiKey,
+  visionMcpServer?: McpServer | null
+): VisionMode {
+  if (settings.visionMode === "native" && supportsImageInput(settings.model, settings.apiMode)) {
+    return "native";
+  }
+
+  if (
+    (settings.visionMode === "mcp" || settings.visionMode === "native") &&
+    visionMcpServer
+  ) {
+    return "mcp";
+  }
+
+  return "none";
+}
+
+function prepareProviderPromptMessages(input: {
+  promptMessages: PromptMessage[];
+  settings: ProviderProfileWithApiKey;
+  visionMcpServer?: McpServer | null;
+}) {
+  const imageAttachments = extractImageAttachments(input.promptMessages);
+  if (imageAttachments.length === 0) {
+    return input.promptMessages;
+  }
+
+  const effectiveVisionMode = getEffectiveVisionMode(input.settings, input.visionMcpServer);
+  if (effectiveVisionMode === "native") {
+    return input.promptMessages;
+  }
+
+  const providerPromptMessages = replaceImagesWithTextPlaceholders(input.promptMessages);
+
+  if (effectiveVisionMode === "mcp" && input.visionMcpServer) {
+    return mergeSystemMessage(
+      providerPromptMessages,
+      buildVisionMcpDirective(input.visionMcpServer, imageAttachments)
+    );
+  }
+
+  return mergeSystemMessage(providerPromptMessages, NON_NATIVE_VISION_DIRECTIVE);
 }
 
 function buildToolResultMessage(toolCallId: string, content: string): PromptMessage {
@@ -402,6 +520,15 @@ function isMemoryProposalToolCall(name: string) {
 
 function hasUnfulfilledMemoryIntent(answer: string) {
   return MEMORY_INTENT_WITHOUT_TOOL_PATTERN.test(answer);
+}
+
+function hasUnfulfilledImageGenerationIntent(promptMessages: PromptMessage[]) {
+  const latestUserContent = getLatestUserPromptContent(promptMessages);
+  if (!latestUserContent) {
+    return false;
+  }
+
+  return isFreshImageGenerationRequest(latestUserContent, hasRecentAssistantImageContext(promptMessages));
 }
 
 function buildShellResultForPrompt(input: { command: string; resultSummary: string; isError: boolean }) {
@@ -489,12 +616,15 @@ async function executeImageGeneration(
   args: Record<string, unknown>,
   context: {
     input: {
+      settings: ProviderProfileWithApiKey;
       appSettings?: import("@/lib/types").AppSettings;
       conversationId?: string;
       assistantMessageId?: string;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      imageGenerationActionHandle?: string;
+      hasVisibleImageGenerationAction?: boolean;
     };
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
@@ -502,66 +632,42 @@ async function executeImageGeneration(
 ) {
   let sortOrder = context.timelineSortOrder;
   const prompt = String(args.prompt ?? "").trim();
-
-  if (!prompt) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: prompt is required");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
-  }
-
+  let actionHandle: string | undefined;
   const appSettings = context.input.appSettings;
   const conversationId = context.input.conversationId;
   const assistantMessageId = context.input.assistantMessageId;
 
   if (!appSettings || !conversationId || !assistantMessageId) {
     const resultMsg = buildToolResultMessage(toolCallId, "Error: image generation is not configured");
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
   }
 
-  const handle = await context.input.onActionStart?.({
-    kind: "image_generation",
-    label: "Generate image",
-    detail: prompt
-  });
-  const actionHandle = typeof handle === "string" ? handle : undefined;
-
   try {
+    const initialDetail = prompt || getLatestUserPromptContent(context.promptMessages) || "Generate image";
+    if (context.input.hasVisibleImageGenerationAction) {
+      actionHandle = context.input.imageGenerationActionHandle;
+    } else {
+      const handle = await context.input.onActionStart?.({
+        kind: "image_generation",
+        label: "Generate image",
+        detail: initialDetail
+      });
+      actionHandle = typeof handle === "string" ? handle : undefined;
+    }
+
+    const { compileImageInstruction } = await import("@/lib/image-generation/compile-image-instruction");
     const { generateGoogleNanoBananaImages } = await import("@/lib/image-generation/google-nano-banana");
-    const { generateComfyUiImages } = await import("@/lib/image-generation/comfyui");
     const { createAttachments } = await import("@/lib/attachments");
     const { assignAttachmentsToMessage } = await import("@/lib/attachments");
+    const instruction = await compileImageInstruction({
+      settings: context.input.settings,
+      promptMessages: context.promptMessages
+    });
 
-    const argCount = args.count;
-    const argAspectRatio = String(args.aspect_ratio ?? "");
-    const validAspectRatios = ["1:1", "16:9", "9:16", "4:3", "3:4"] as const;
-    type AspectRatio = (typeof validAspectRatios)[number];
-    const instruction = {
-      imagePrompt: prompt,
-      negativePrompt: String(args.negative_prompt ?? ""),
-      assistantText: "",
-      aspectRatio: (validAspectRatios.includes(argAspectRatio as AspectRatio)
-        ? argAspectRatio
-        : "1:1") as AspectRatio,
-      count: typeof argCount === "number" ? Math.max(1, Math.min(4, Math.round(argCount))) : 1
-    };
-
-    const backendResult =
-      appSettings.imageGenerationBackend === "google_nano_banana"
-        ? await generateGoogleNanoBananaImages({ settings: appSettings, instruction })
-        : await generateComfyUiImages({
-            settings: {
-              comfyuiBaseUrl: appSettings.comfyuiBaseUrl,
-              comfyuiAuthType: appSettings.comfyuiAuthType,
-              comfyuiBearerToken: appSettings.comfyuiBearerToken,
-              comfyuiWorkflowJson: appSettings.comfyuiWorkflowJson,
-              comfyuiPromptPath: appSettings.comfyuiPromptPath,
-              comfyuiNegativePromptPath: appSettings.comfyuiNegativePromptPath,
-              comfyuiWidthPath: appSettings.comfyuiWidthPath,
-              comfyuiHeightPath: appSettings.comfyuiHeightPath,
-              comfyuiSeedPath: appSettings.comfyuiSeedPath
-            },
-            instruction,
-            clientId: crypto.randomUUID()
-          });
+    const backendResult = await generateGoogleNanoBananaImages({
+      settings: appSettings,
+      instruction
+    });
 
     const attachments = createAttachments(
       conversationId,
@@ -582,7 +688,7 @@ async function executeImageGeneration(
 
     sortOrder += 1;
     await context.input.onActionComplete?.(actionHandle, {
-      detail: prompt,
+      detail: instruction.imagePrompt || prompt,
       resultSummary
     });
 
@@ -590,7 +696,7 @@ async function executeImageGeneration(
       toolCallId,
       `Successfully generated ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}. ${resultSummary}`
     );
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: true };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Image generation failed";
     await context.input.onActionError?.(actionHandle, {
@@ -598,7 +704,7 @@ async function executeImageGeneration(
       resultSummary: message
     });
     const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
   }
 }
 
@@ -984,6 +1090,7 @@ async function executeToolCall(
   toolCall: ProviderToolCall,
   context: {
     input: {
+      settings: ProviderProfileWithApiKey;
       skills: Skill[];
       mcpToolSets: ToolSet[];
       searxngBaseUrl?: string | null;
@@ -991,6 +1098,8 @@ async function executeToolCall(
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      imageGenerationActionHandle?: string;
+      hasVisibleImageGenerationAction?: boolean;
     };
     mcpServers: McpServer[];
     loadedSkillIds: Set<string>;
@@ -999,7 +1108,11 @@ async function executeToolCall(
     promptMessages: PromptMessage[];
     memoryUserId?: string;
   }
-) {
+): Promise<{
+  nextSortOrder: number;
+  promptMessages: PromptMessage[];
+  toolSucceeded?: boolean;
+}> {
   const { id: toolCallId, name, arguments: argsJson } = toolCall;
   let args: Record<string, unknown>;
   try {
@@ -1048,15 +1161,22 @@ async function executeToolCall(
 async function forceDirectAnswerAfterToolLoop(input: {
   settings: ProviderProfileWithApiKey;
   promptMessages: PromptMessage[];
+  visionMcpServer?: McpServer | null;
   onEvent?: (event: ChatStreamEvent) => void;
   onAnswerSegment?: (segment: string) => Promise<void> | void;
 }) {
-  const providerStream = streamProviderResponse({
-    settings: input.settings,
+  const providerPromptMessages = prepareProviderPromptMessages({
     promptMessages: mergeSystemMessage(
       input.promptMessages,
       "Stop using tools now. Answer the user directly from the information already gathered. Do not call any more tools."
-    )
+    ),
+    settings: input.settings,
+    visionMcpServer: input.visionMcpServer
+  });
+
+  const providerStream = streamProviderResponse({
+    settings: input.settings,
+    promptMessages: providerPromptMessages
   });
 
   let answer = "";
@@ -1124,16 +1244,7 @@ export async function resolveAssistantTurn(input: {
     }
   };
 
-  // Handle vision MCP mode - strip images and inject directive
   let promptMessages = input.promptMessages;
-  if (input.settings.visionMode === "mcp" && input.visionMcpServer) {
-    const imageAttachments = extractImageAttachments(input.promptMessages);
-    if (imageAttachments.length > 0) {
-      promptMessages = stripImagesFromMessages(input.promptMessages);
-      const visionDirective = buildVisionMcpDirective(input.visionMcpServer, imageAttachments);
-      promptMessages = mergeSystemMessage(promptMessages, visionDirective);
-    }
-  }
 
   const turnSkills = filterSkillsForTurn(input.skills, promptMessages);
   const toolRuntimeInput = {
@@ -1143,10 +1254,17 @@ export async function resolveAssistantTurn(input: {
   const loadedSkillIds = new Set<string>();
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
   let totalUsage: Usage = {};
+  let imageGenerationToolConsumed = false;
+  let visibleImageActionStarted = false;
+  let visibleImageActionHandle: string | undefined;
 
   promptMessages = turnSkills.length || mcpServers.length || input.mcpToolSets.length
     ? mergeSystemMessage(promptMessages, buildCapabilitiesSystemMessage(turnSkills, mcpServers))
     : promptMessages;
+
+  if (input.appSettings?.imageGenerationBackend && input.appSettings.imageGenerationBackend !== "disabled") {
+    promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE);
+  }
 
   let timelineSortOrder = 0;
 
@@ -1160,18 +1278,42 @@ export async function resolveAssistantTurn(input: {
   for (let step = 0; step < MAX_ASSISTANT_CONTROL_STEPS; step += 1) {
     assertRunning();
 
+    const restrictToGenerateImage =
+      !imageGenerationToolConsumed &&
+      !!input.appSettings?.imageGenerationBackend &&
+      input.appSettings.imageGenerationBackend !== "disabled" &&
+      hasUnfulfilledImageGenerationIntent(promptMessages);
+
+    if (restrictToGenerateImage && !visibleImageActionStarted) {
+      const handle = await input.onActionStart?.({
+        kind: "image_generation",
+        label: "Generate image",
+        detail: getLatestUserPromptContent(promptMessages) || "Generate image"
+      });
+      visibleImageActionStarted = true;
+      visibleImageActionHandle = typeof handle === "string" ? handle : undefined;
+    }
+
     const tools = buildToolDefinitions({
       mcpToolSets: input.mcpToolSets,
       skills: turnSkills,
       loadedSkillIds,
       memoriesEnabled: input.memoriesEnabled ?? false,
       searxngBaseUrl: input.searxngBaseUrl,
-      imageGenerationBackend: input.appSettings?.imageGenerationBackend
+      imageGenerationBackend: input.appSettings?.imageGenerationBackend,
+      imageGenerationToolEnabled: !imageGenerationToolConsumed,
+      restrictToGenerateImage
+    });
+
+    const providerPromptMessages = prepareProviderPromptMessages({
+      promptMessages,
+      settings: input.settings,
+      visionMcpServer: input.visionMcpServer
     });
 
     const providerStream = streamProviderResponse({
       settings: input.settings,
-      promptMessages,
+      promptMessages: providerPromptMessages,
       tools: tools.length ? tools : undefined,
       abortSignal: input.abortSignal,
       copilotToolContext: input.settings.providerKind === "github_copilot" ? {
@@ -1209,6 +1351,16 @@ export async function resolveAssistantTurn(input: {
     assertRunning();
 
     if (!toolCalls.length) {
+      if (
+        !imageGenerationToolConsumed &&
+        input.appSettings?.imageGenerationBackend &&
+        input.appSettings.imageGenerationBackend !== "disabled" &&
+        hasUnfulfilledImageGenerationIntent(promptMessages)
+      ) {
+        promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_REQUIRED_DIRECTIVE);
+        continue;
+      }
+
       if ((input.memoriesEnabled ?? false) && hasUnfulfilledMemoryIntent(answer)) {
         promptMessages = mergeSystemMessage(
           promptMessages,
@@ -1236,6 +1388,7 @@ export async function resolveAssistantTurn(input: {
       const forcedResult = await forceDirectAnswerAfterToolLoop({
         settings: input.settings,
         promptMessages,
+        visionMcpServer: input.visionMcpServer,
         onEvent: input.onEvent,
         onAnswerSegment: input.onAnswerSegment
       });
@@ -1244,11 +1397,32 @@ export async function resolveAssistantTurn(input: {
       return { answer: forcedResult.answer, thinking: forcedResult.thinking, usage: totalUsage };
     }
 
+    let imageGenerationToolAttemptedThisStep = false;
+
     for (const toolCall of toolCalls) {
       assertRunning();
 
+      if (toolCall.name === "generate_image") {
+        if (imageGenerationToolConsumed || imageGenerationToolAttemptedThisStep) {
+          promptMessages = [
+            ...promptMessages,
+            buildToolResultMessage(
+              toolCall.id,
+              "Error: generate_image can only be called once per assistant turn. Respond to the user with the generated result instead."
+            )
+          ];
+          continue;
+        }
+
+        imageGenerationToolAttemptedThisStep = true;
+      }
+
       const result = await executeToolCall(toolCall, {
-        input: toolRuntimeInput,
+        input: {
+          ...toolRuntimeInput,
+          imageGenerationActionHandle: visibleImageActionHandle,
+          hasVisibleImageGenerationAction: visibleImageActionStarted
+        },
         mcpServers,
         loadedSkillIds,
         successfulReadOnlyToolResults,
@@ -1259,6 +1433,16 @@ export async function resolveAssistantTurn(input: {
 
       timelineSortOrder = result.nextSortOrder;
       promptMessages = result.promptMessages;
+
+      if (toolCall.name === "generate_image" && result.toolSucceeded) {
+        imageGenerationToolConsumed = true;
+        visibleImageActionStarted = false;
+        visibleImageActionHandle = undefined;
+        promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_POST_SUCCESS_DIRECTIVE);
+      } else if (toolCall.name === "generate_image") {
+        visibleImageActionStarted = false;
+        visibleImageActionHandle = undefined;
+      }
     }
 
     if (answer.trim() && toolCalls.every((toolCall) => isMemoryProposalToolCall(toolCall.name))) {

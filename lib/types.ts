@@ -8,7 +8,7 @@ export type SttLanguage = "auto" | "en" | "fr" | "es";
 
 export type WebSearchEngine = "exa" | "tavily" | "searxng" | "disabled";
 
-export type ImageGenerationBackend = "disabled" | "google_nano_banana" | "comfyui";
+export type ImageGenerationBackend = "disabled" | "google_nano_banana";
 
 export type GoogleNanoBananaModel =
   | "gemini-2.5-flash-image"
@@ -129,15 +129,6 @@ export type AppSettings = {
   imageGenerationBackend: ImageGenerationBackend;
   googleNanoBananaModel: GoogleNanoBananaModel;
   googleNanoBananaApiKey: string;
-  comfyuiBaseUrl: string;
-  comfyuiAuthType: "none" | "bearer";
-  comfyuiBearerToken: string;
-  comfyuiWorkflowJson: string;
-  comfyuiPromptPath: string;
-  comfyuiNegativePromptPath: string;
-  comfyuiWidthPath: string;
-  comfyuiHeightPath: string;
-  comfyuiSeedPath: string;
   updatedAt: string;
 };
 

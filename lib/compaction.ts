@@ -23,6 +23,7 @@ import {
   isEmptyStreamingAssistantPlaceholder,
   renderCompletedTurns
 } from "@/lib/compaction-turns";
+import { referencesEarlierImageInChat } from "@/lib/image-generation/follow-up-context";
 import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
   EnsureCompactedContextResult,
@@ -331,7 +332,8 @@ function buildTextAttachmentPart(
 
 function buildUserPromptContent(
   message: Pick<Message, "content" | "attachments">,
-  remainingAttachmentTextTokens: { value: number }
+  remainingAttachmentTextTokens: { value: number },
+  referencedAssistantImages: MessageAttachment[] = []
 ): PromptMessage["content"] {
   const parts: PromptContentPart[] = [];
 
@@ -341,6 +343,20 @@ function buildUserPromptContent(
       text: message.content
     });
   }
+
+  referencedAssistantImages.forEach((attachment) => {
+    parts.push({
+      type: "text",
+      text: `Previous image reference: ${attachment.filename}`
+    });
+    parts.push({
+      type: "image",
+      attachmentId: attachment.id,
+      filename: attachment.filename,
+      mimeType: attachment.mimeType,
+      relativePath: attachment.relativePath
+    });
+  });
 
   (message.attachments ?? []).forEach((attachment) => {
     if (attachment.kind === "image") {
@@ -370,6 +386,36 @@ function buildUserPromptContent(
   }
 
   return parts;
+}
+
+function getLatestUserMessageIndex(messages: Message[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index]?.role === "user") {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
+function getMostRecentAssistantImageAttachments(messages: Message[], latestUserIndex: number) {
+  if (latestUserIndex <= 0) {
+    return [];
+  }
+
+  for (let index = latestUserIndex - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "assistant") {
+      continue;
+    }
+
+    const imageAttachments = (message.attachments ?? []).filter((attachment) => attachment.kind === "image");
+    if (imageAttachments.length > 0) {
+      return imageAttachments;
+    }
+  }
+
+  return [];
 }
 
 async function compactLeafMessages(
@@ -591,9 +637,16 @@ export function buildPromptMessages(input: {
   const promptMessages: PromptMessage[] = [
     { role: "system", content: systemParts.join("\n\n") }
   ];
+  const latestUserMessageIndex = getLatestUserMessageIndex(input.messages);
+  const latestUserMessage = latestUserMessageIndex >= 0 ? input.messages[latestUserMessageIndex] : null;
+  const referencedAssistantImages = latestUserMessage &&
+    latestUserMessage.role === "user" &&
+    referencesEarlierImageInChat(latestUserMessage.content)
+    ? getMostRecentAssistantImageAttachments(input.messages, latestUserMessageIndex)
+    : [];
 
   // Non-system messages
-  input.messages.forEach((message) => {
+  input.messages.forEach((message, index) => {
     if (message.role === "system") return;
 
     if (message.role === "assistant") {
@@ -610,7 +663,11 @@ export function buildPromptMessages(input: {
 
     promptMessages.push({
       role: "user",
-      content: buildUserPromptContent(message, remainingAttachmentTextTokens)
+      content: buildUserPromptContent(
+        message,
+        remainingAttachmentTextTokens,
+        index === latestUserMessageIndex ? referencedAssistantImages : []
+      )
     });
   });
 

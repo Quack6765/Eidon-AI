@@ -12,7 +12,6 @@ type GeneralSectionSettings = AppSettings & {
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
   hasGoogleNanoBananaApiKey?: boolean;
-  hasComfyuiBearerToken?: boolean;
 };
 
 const inputClassName =
@@ -56,22 +55,8 @@ export function GeneralSection({
     settings.googleNanoBananaApiKey
   );
   const [hasEditedGoogleNanoBananaApiKey, setHasEditedGoogleNanoBananaApiKey] = useState(false);
-  const [comfyuiBaseUrl, setComfyuiBaseUrl] = useState(settings.comfyuiBaseUrl);
-  const [comfyuiAuthType, setComfyuiAuthType] = useState(settings.comfyuiAuthType);
-  const [comfyuiBearerToken, setComfyuiBearerToken] = useState(settings.comfyuiBearerToken);
-  const [hasEditedComfyuiBearerToken, setHasEditedComfyuiBearerToken] = useState(false);
-  const [comfyuiWorkflowJson, setComfyuiWorkflowJson] = useState(settings.comfyuiWorkflowJson);
-  const [comfyuiPromptPath, setComfyuiPromptPath] = useState(settings.comfyuiPromptPath);
-  const [comfyuiNegativePromptPath, setComfyuiNegativePromptPath] = useState(
-    settings.comfyuiNegativePromptPath
-  );
-  const [comfyuiWidthPath, setComfyuiWidthPath] = useState(settings.comfyuiWidthPath);
-  const [comfyuiHeightPath, setComfyuiHeightPath] = useState(settings.comfyuiHeightPath);
-  const [comfyuiSeedPath, setComfyuiSeedPath] = useState(settings.comfyuiSeedPath);
-  const [isTestingComfyui, setIsTestingComfyui] = useState(false);
   const hasStoredGoogleNanoBananaApiKey =
     settings.hasGoogleNanoBananaApiKey ?? Boolean(settings.googleNanoBananaApiKey);
-  const hasStoredComfyuiBearerToken = settings.hasComfyuiBearerToken ?? Boolean(settings.comfyuiBearerToken);
 
   const speechLanguageOptions =
     sttEngine === "browser"
@@ -174,25 +159,6 @@ export function GeneralSection({
       }
     }
 
-    if (imageGenerationBackend === "comfyui") {
-      imagePayload.comfyuiBaseUrl = comfyuiBaseUrl.trim();
-      imagePayload.comfyuiAuthType = comfyuiAuthType;
-
-      if (
-        hasEditedComfyuiBearerToken ||
-        (!hasStoredComfyuiBearerToken && comfyuiBearerToken.trim())
-      ) {
-        imagePayload.comfyuiBearerToken = comfyuiBearerToken.trim();
-      }
-
-      imagePayload.comfyuiWorkflowJson = comfyuiWorkflowJson;
-      imagePayload.comfyuiPromptPath = comfyuiPromptPath;
-      imagePayload.comfyuiNegativePromptPath = comfyuiNegativePromptPath;
-      imagePayload.comfyuiWidthPath = comfyuiWidthPath;
-      imagePayload.comfyuiHeightPath = comfyuiHeightPath;
-      imagePayload.comfyuiSeedPath = comfyuiSeedPath;
-    }
-
     setIsSaving(true);
 
     try {
@@ -231,29 +197,6 @@ export function GeneralSection({
       router.refresh();
     } finally {
       setIsSaving(false);
-    }
-  }
-
-  async function testComfyui() {
-    resetMessages();
-    setIsTestingComfyui(true);
-
-    try {
-      const response = await fetch("/api/settings/image-generation/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageGenerationBackend: "comfyui" })
-      });
-      const result = (await response.json()) as { error?: string; imageCount?: number };
-
-      if (!response.ok) {
-        setError(result.error ?? "ComfyUI test failed");
-        return;
-      }
-
-      setSuccess(`ComfyUI test succeeded. Generated ${result.imageCount} image(s).`);
-    } finally {
-      setIsTestingComfyui(false);
     }
   }
 
@@ -448,7 +391,6 @@ export function GeneralSection({
             >
               <option value="disabled">Disabled</option>
               <option value="google_nano_banana">Google Nano Banana</option>
-              <option value="comfyui">ComfyUI</option>
             </select>
           </SettingRow>
         ) : (
@@ -476,7 +418,6 @@ export function GeneralSection({
                   >
                     <option value="disabled">Disabled</option>
                     <option value="google_nano_banana">Google Nano Banana</option>
-                    <option value="comfyui">ComfyUI</option>
                   </select>
                 </div>
 
@@ -530,182 +471,6 @@ export function GeneralSection({
                         className={inputClassName}
                       />
                     </div>
-                  </div>
-                ) : null}
-
-                {imageGenerationBackend === "comfyui" ? (
-                  <div className="space-y-3">
-                    <div>
-                      <label htmlFor="comfyui-base-url" className={fieldLabelClassName}>
-                        Base URL
-                      </label>
-                      <input
-                        id="comfyui-base-url"
-                        aria-label="ComfyUI base URL"
-                        type="url"
-                        autoComplete="off"
-                        value={comfyuiBaseUrl}
-                        placeholder="https://comfy.example.com"
-                        onChange={(event) => {
-                          resetMessages();
-                          setComfyuiBaseUrl(event.target.value);
-                        }}
-                        className={inputClassName}
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="comfyui-auth-type" className={fieldLabelClassName}>
-                        Auth type
-                      </label>
-                      <select
-                        id="comfyui-auth-type"
-                        aria-label="ComfyUI auth type"
-                        value={comfyuiAuthType}
-                        onChange={(event) => {
-                          resetMessages();
-                          setComfyuiAuthType(
-                            event.target.value as AppSettings["comfyuiAuthType"]
-                          );
-                        }}
-                        className={inputClassName}
-                      >
-                        <option value="none">None</option>
-                        <option value="bearer">Bearer token</option>
-                      </select>
-                    </div>
-                    {comfyuiAuthType === "bearer" ? (
-                      <div>
-                        <label htmlFor="comfyui-bearer-token" className={fieldLabelClassName}>
-                          Bearer token
-                        </label>
-                        <input
-                          id="comfyui-bearer-token"
-                          aria-label="ComfyUI bearer token"
-                          type="password"
-                          autoComplete="off"
-                          value={comfyuiBearerToken}
-                          placeholder={
-                            hasStoredComfyuiBearerToken && !hasEditedComfyuiBearerToken
-                              ? "••••••••"
-                              : ""
-                          }
-                          onChange={(event) => {
-                            resetMessages();
-                            setHasEditedComfyuiBearerToken(true);
-                            setComfyuiBearerToken(event.target.value);
-                          }}
-                          className={inputClassName}
-                        />
-                      </div>
-                    ) : null}
-                    <div>
-                      <label htmlFor="comfyui-workflow-json" className={fieldLabelClassName}>
-                        Workflow JSON
-                      </label>
-                      <textarea
-                        id="comfyui-workflow-json"
-                        aria-label="ComfyUI workflow JSON"
-                        rows={4}
-                        value={comfyuiWorkflowJson}
-                        placeholder='{"3":{"inputs":{"text":"prompt"}}}'
-                        onChange={(event) => {
-                          resetMessages();
-                          setComfyuiWorkflowJson(event.target.value);
-                        }}
-                        className={`${inputClassName} resize-y font-mono`}
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="comfyui-prompt-path" className={fieldLabelClassName}>
-                        Prompt path
-                      </label>
-                      <input
-                        id="comfyui-prompt-path"
-                        aria-label="ComfyUI prompt path"
-                        autoComplete="off"
-                        value={comfyuiPromptPath}
-                        placeholder="3.inputs.text"
-                        onChange={(event) => {
-                          resetMessages();
-                          setComfyuiPromptPath(event.target.value);
-                        }}
-                        className={inputClassName}
-                      />
-                    </div>
-                    <div>
-                      <label htmlFor="comfyui-negative-prompt-path" className={fieldLabelClassName}>
-                        Negative prompt path (optional)
-                      </label>
-                      <input
-                        id="comfyui-negative-prompt-path"
-                        aria-label="ComfyUI negative prompt path"
-                        autoComplete="off"
-                        value={comfyuiNegativePromptPath}
-                        onChange={(event) => {
-                          resetMessages();
-                          setComfyuiNegativePromptPath(event.target.value);
-                        }}
-                        className={inputClassName}
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label htmlFor="comfyui-width-path" className={fieldLabelClassName}>
-                          Width path (optional)
-                        </label>
-                        <input
-                          id="comfyui-width-path"
-                          aria-label="ComfyUI width path"
-                          autoComplete="off"
-                          value={comfyuiWidthPath}
-                          onChange={(event) => {
-                            resetMessages();
-                            setComfyuiWidthPath(event.target.value);
-                          }}
-                          className={inputClassName}
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor="comfyui-height-path" className={fieldLabelClassName}>
-                          Height path (optional)
-                        </label>
-                        <input
-                          id="comfyui-height-path"
-                          aria-label="ComfyUI height path"
-                          autoComplete="off"
-                          value={comfyuiHeightPath}
-                          onChange={(event) => {
-                            resetMessages();
-                            setComfyuiHeightPath(event.target.value);
-                          }}
-                          className={inputClassName}
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label htmlFor="comfyui-seed-path" className={fieldLabelClassName}>
-                        Seed path (optional)
-                      </label>
-                      <input
-                        id="comfyui-seed-path"
-                        aria-label="ComfyUI seed path"
-                        autoComplete="off"
-                        value={comfyuiSeedPath}
-                        onChange={(event) => {
-                          resetMessages();
-                          setComfyuiSeedPath(event.target.value);
-                        }}
-                        className={inputClassName}
-                      />
-                    </div>
-                    <Button
-                      variant="secondary"
-                      className="w-full sm:w-auto"
-                      onClick={() => void testComfyui()}
-                      disabled={isTestingComfyui}
-                    >
-                      {isTestingComfyui ? "Testing..." : "Test ComfyUI workflow"}
-                    </Button>
                   </div>
                 ) : null}
               </div>
