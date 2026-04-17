@@ -1,91 +1,43 @@
 import type { MessageAttachment } from "@/lib/types";
+import {
+  findMarkdownTargets,
+  getMarkdownTargetFilename,
+  isExternalMarkdownTarget,
+  splitByCodeSegments
+} from "@/lib/assistant-markdown-parsing";
 
-const MARKDOWN_IMAGE_PATTERN = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
-const MARKDOWN_LINK_PATTERN = /(?<!\!)\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const ASSISTANT_DATA_IMAGE_PATTERN = /^data:image\/[^;,]+;base64,/i;
 
-function isExternalTarget(target: string) {
-  return /^[a-z][a-z0-9+.-]*:/i.test(target);
-}
-
-function isAssistantDataImageTarget(target: string) {
-  return ASSISTANT_DATA_IMAGE_PATTERN.test(target.trim());
-}
-
-function shouldStripTarget(target: string, attachments: MessageAttachment[]) {
-  if (isAssistantDataImageTarget(target)) {
-    return true;
-  }
-
-  if (isExternalTarget(target)) {
-    return false;
-  }
-
-  return attachments.some((attachment) => attachment.relativePath.endsWith(target));
-}
-
 function sanitizeProseSegment(content: string, imageAttachments: MessageAttachment[], textAttachments: MessageAttachment[]) {
-  const sanitizedImages = content.replace(MARKDOWN_IMAGE_PATTERN, (match, rawTarget: string) => {
-    const target = rawTarget.trim();
-    if (!shouldStripTarget(target, imageAttachments)) {
-      return match;
-    }
+  const matches = findMarkdownTargets(content);
+  if (matches.length === 0) {
+    return content;
+  }
 
-    return "";
-  });
-
-  return sanitizedImages.replace(MARKDOWN_LINK_PATTERN, (match, rawTarget: string) => {
-    const target = rawTarget.trim();
-    if (!shouldStripTarget(target, textAttachments)) {
-      return match;
-    }
-
-    return "";
-  });
-}
-
-function splitByCodeSegments(content: string) {
-  const segments: Array<{ isCode: boolean; text: string }> = [];
-  let proseStart = 0;
+  const imageAttachmentNames = new Set(imageAttachments.map((attachment) => attachment.filename));
+  const textAttachmentNames = new Set(textAttachments.map((attachment) => attachment.filename));
+  const parts: string[] = [];
   let cursor = 0;
 
-  while (cursor < content.length) {
-    if (content.startsWith("```", cursor)) {
-      if (cursor > proseStart) {
-        segments.push({ isCode: false, text: content.slice(proseStart, cursor) });
-      }
+  for (const match of matches) {
+    const normalizedTarget = match.target.trim();
+    const shouldStrip = match.isImage
+      ? ASSISTANT_DATA_IMAGE_PATTERN.test(normalizedTarget) ||
+        (!isExternalMarkdownTarget(normalizedTarget) &&
+          imageAttachmentNames.has(getMarkdownTargetFilename(normalizedTarget)))
+      : !isExternalMarkdownTarget(normalizedTarget) &&
+        textAttachmentNames.has(getMarkdownTargetFilename(normalizedTarget));
 
-      const closingFenceIndex = content.indexOf("```", cursor + 3);
-      const segmentEnd = closingFenceIndex === -1 ? content.length : closingFenceIndex + 3;
-      segments.push({ isCode: true, text: content.slice(cursor, segmentEnd) });
-      cursor = segmentEnd;
-      proseStart = cursor;
+    if (!shouldStrip) {
       continue;
     }
 
-    if (content[cursor] === "`") {
-      const closingTickIndex = content.indexOf("`", cursor + 1);
-      const newlineIndex = content.indexOf("\n", cursor + 1);
-      if (closingTickIndex !== -1 && (newlineIndex === -1 || closingTickIndex < newlineIndex)) {
-        if (cursor > proseStart) {
-          segments.push({ isCode: false, text: content.slice(proseStart, cursor) });
-        }
-
-        segments.push({ isCode: true, text: content.slice(cursor, closingTickIndex + 1) });
-        cursor = closingTickIndex + 1;
-        proseStart = cursor;
-        continue;
-      }
-    }
-
-    cursor += 1;
+    parts.push(content.slice(cursor, match.start));
+    cursor = match.end;
   }
 
-  if (proseStart < content.length) {
-    segments.push({ isCode: false, text: content.slice(proseStart) });
-  }
-
-  return segments;
+  parts.push(content.slice(cursor));
+  return parts.join("");
 }
 
 export function stripAttachmentStyleImageMarkdown(

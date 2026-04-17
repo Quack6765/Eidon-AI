@@ -127,6 +127,30 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     );
   });
 
+  it("strips parsed markdown targets with parentheses, angle brackets, and escaped closers when attachments match", () => {
+    const content = [
+      "Matched links:",
+      "",
+      "[Paren](file(1).txt)",
+      "[Spaces](<notes with space.txt>)",
+      "[Escaped](file\\)name.txt)"
+    ].join("\n");
+
+    expect(
+      stripAttachmentStyleImageMarkdown(content, [
+        createTextAttachment({ filename: "file(1).txt" }),
+        createTextAttachment({ filename: "notes with space.txt" }),
+        createTextAttachment({ filename: "file)name.txt" })
+      ])
+    ).toBe("Matched links:");
+  });
+
+  it("does not over-strip unrelated link suffixes", () => {
+    const content = "[Maybe](es.txt)";
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment({ filename: "notes.txt" })])).toBe(content);
+  });
+
   it("preserves external markdown file links", () => {
     const content = "[Spec](https://example.com/spec.pdf)";
 
@@ -143,6 +167,22 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
       [
         "Use the literal example `![Diagram](notes.txt)` when documenting the attachment.",
+        "",
+        "The prose link  should still be stripped."
+      ].join("\n")
+    );
+  });
+
+  it("preserves local markdown links inside multi-backtick inline code spans", () => {
+    const content = [
+      "Use the literal example ``[Report](notes.txt)`` when documenting the attachment.",
+      "",
+      "The prose link [Report](notes.txt) should still be stripped."
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
+      [
+        "Use the literal example ``[Report](notes.txt)`` when documenting the attachment.",
         "",
         "The prose link  should still be stripped."
       ].join("\n")

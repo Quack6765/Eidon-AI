@@ -2,6 +2,12 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { createAttachmentsFromBytes, importAttachmentFromLocalFile } from "@/lib/attachments";
+import {
+  decodeMarkdownTarget,
+  findMarkdownTargets,
+  isExternalMarkdownTarget,
+  splitByCodeSegments
+} from "@/lib/assistant-markdown-parsing";
 import { env } from "@/lib/env";
 import type { MessageAttachment } from "@/lib/types";
 
@@ -34,13 +40,6 @@ type LocalTargetOutcome =
   | { type: "deny"; displayName: string }
   | { type: "error"; displayName: string };
 
-type ParsedMarkdownTarget = {
-  start: number;
-  end: number;
-  target: string;
-  isImage: boolean;
-};
-
 type ParsedAssistantDataImageTarget =
   | { type: "none" }
   | {
@@ -56,18 +55,6 @@ type ParsedAssistantDataImageTarget =
       mimeType: string;
       bytes: Buffer;
     };
-
-function isExternalTarget(target: string) {
-  return /^[a-z][a-z0-9+.-]*:/i.test(target);
-}
-
-function decodeTarget(target: string) {
-  try {
-    return decodeURIComponent(target);
-  } catch {
-    return target;
-  }
-}
 
 function normalizeRoot(rootPath: string) {
   try {
@@ -87,50 +74,6 @@ function collapseWhitespace(content: string) {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-}
-
-function splitByCodeSegments(content: string) {
-  const segments: Array<{ isCode: boolean; text: string }> = [];
-  let proseStart = 0;
-  let cursor = 0;
-
-  while (cursor < content.length) {
-    if (content.startsWith("```", cursor)) {
-      if (cursor > proseStart) {
-        segments.push({ isCode: false, text: content.slice(proseStart, cursor) });
-      }
-
-      const closingFenceIndex = content.indexOf("```", cursor + 3);
-      const segmentEnd = closingFenceIndex === -1 ? content.length : closingFenceIndex + 3;
-      segments.push({ isCode: true, text: content.slice(cursor, segmentEnd) });
-      cursor = segmentEnd;
-      proseStart = cursor;
-      continue;
-    }
-
-    if (content[cursor] === "`") {
-      const closingTickIndex = content.indexOf("`", cursor + 1);
-      const newlineIndex = content.indexOf("\n", cursor + 1);
-      if (closingTickIndex !== -1 && (newlineIndex === -1 || closingTickIndex < newlineIndex)) {
-        if (cursor > proseStart) {
-          segments.push({ isCode: false, text: content.slice(proseStart, cursor) });
-        }
-
-        segments.push({ isCode: true, text: content.slice(cursor, closingTickIndex + 1) });
-        cursor = closingTickIndex + 1;
-        proseStart = cursor;
-        continue;
-      }
-    }
-
-    cursor += 1;
-  }
-
-  if (proseStart < content.length) {
-    segments.push({ isCode: false, text: content.slice(proseStart) });
-  }
-
-  return segments;
 }
 
 function decodeAssistantDataImageBytes(base64Value: string) {
@@ -204,177 +147,6 @@ function buildFailureNote(deniedNames: Set<string>, failedNames: Set<string>) {
   return `Note: ${parts.join(" ")}`;
 }
 
-function findMatchingBracket(content: string, startIndex: number) {
-  let depth = 0;
-
-  for (let index = startIndex; index < content.length; index += 1) {
-    const character = content[index];
-
-    if (character === "\\") {
-      index += 1;
-      continue;
-    }
-
-    if (character === "[") {
-      depth += 1;
-      continue;
-    }
-
-    if (character === "]") {
-      depth -= 1;
-      if (depth === 0) {
-        return index;
-      }
-    }
-  }
-
-  return -1;
-}
-
-function parseMarkdownDestination(content: string, openParenIndex: number) {
-  let cursor = openParenIndex + 1;
-
-  while (cursor < content.length && (content[cursor] === " " || content[cursor] === "\t")) {
-    cursor += 1;
-  }
-
-  if (cursor >= content.length) {
-    return null;
-  }
-
-  if (content[cursor] === "<") {
-    const targetParts: string[] = [];
-    cursor += 1;
-
-    while (cursor < content.length) {
-      const character = content[cursor];
-
-      if (character === "\\") {
-        if (cursor + 1 < content.length) {
-          targetParts.push(content[cursor + 1]);
-          cursor += 2;
-          continue;
-        }
-
-        targetParts.push(character);
-        cursor += 1;
-        continue;
-      }
-
-      if (character === ">") {
-        const target = targetParts.join("");
-        cursor += 1;
-
-        while (cursor < content.length && (content[cursor] === " " || content[cursor] === "\t")) {
-          cursor += 1;
-        }
-
-        if (content[cursor] !== ")") {
-          return null;
-        }
-
-        return {
-          target,
-          end: cursor + 1
-        };
-      }
-
-      targetParts.push(character);
-      cursor += 1;
-    }
-
-    return null;
-  }
-
-  const targetParts: string[] = [];
-  let parenDepth = 0;
-
-  while (cursor < content.length) {
-    const character = content[cursor];
-
-    if (character === "\\") {
-      if (cursor + 1 < content.length) {
-        targetParts.push(content[cursor + 1]);
-        cursor += 2;
-        continue;
-      }
-
-      targetParts.push(character);
-      cursor += 1;
-      continue;
-    }
-
-    if (character === "(") {
-      parenDepth += 1;
-      targetParts.push(character);
-      cursor += 1;
-      continue;
-    }
-
-    if (character === ")") {
-      if (parenDepth === 0) {
-        const target = targetParts.join("").trim();
-        if (!target || /\s/.test(target)) {
-          return null;
-        }
-
-        return {
-          target,
-          end: cursor + 1
-        };
-      }
-
-      parenDepth -= 1;
-      targetParts.push(character);
-      cursor += 1;
-      continue;
-    }
-
-    if (/\s/.test(character)) {
-      return null;
-    }
-
-    targetParts.push(character);
-    cursor += 1;
-  }
-
-  return null;
-}
-
-function findMarkdownTargets(content: string): ParsedMarkdownTarget[] {
-  const matches: ParsedMarkdownTarget[] = [];
-
-  for (let index = 0; index < content.length; index += 1) {
-    const character = content[index];
-    const isImage = character === "!" && content[index + 1] === "[";
-    const labelStart = character === "[" ? index : isImage ? index + 1 : -1;
-
-    if (labelStart === -1) {
-      continue;
-    }
-
-    const labelEnd = findMatchingBracket(content, labelStart);
-    if (labelEnd === -1 || content[labelEnd + 1] !== "(") {
-      continue;
-    }
-
-    const destination = parseMarkdownDestination(content, labelEnd + 1);
-    if (!destination) {
-      continue;
-    }
-
-    matches.push({
-      start: isImage ? index : labelStart,
-      end: destination.end,
-      target: destination.target,
-      isImage
-    });
-    index = destination.end - 1;
-  }
-
-  return matches;
-}
-
 export function inferAssistantLocalAttachments(
   input: InferAssistantLocalAttachmentsInput
 ): InferAssistantLocalAttachmentsResult {
@@ -442,8 +214,8 @@ export function inferAssistantLocalAttachments(
       }
     }
 
-    const decodedTarget = decodeTarget(trimmedTarget);
-    if (isExternalTarget(decodedTarget) || !path.isAbsolute(decodedTarget)) {
+    const decodedTarget = decodeMarkdownTarget(trimmedTarget);
+    if (isExternalMarkdownTarget(decodedTarget) || !path.isAbsolute(decodedTarget)) {
       return { type: "ignore" };
     }
 

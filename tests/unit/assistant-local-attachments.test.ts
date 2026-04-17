@@ -234,6 +234,29 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
+  it("preserves local markdown targets inside multi-backtick inline code spans", () => {
+    const conversation = createConversation();
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "report.txt");
+    const content = `Use \`\`[Report](${sourcePath})\`\` literally`;
+
+    try {
+      fs.writeFileSync(sourcePath, "keep literal", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content,
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(0);
+      expect(result.content).toBe(content);
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   it("imports an angle-bracket local path with an escaped closing angle bracket", () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
