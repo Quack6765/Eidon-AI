@@ -3,6 +3,9 @@ import { accessSync, constants as fsConstants } from "node:fs";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_CHARS = 8_000;
+const SHELL_SEGMENT_SEPARATOR_PATTERN = /&&|\|\||[;|\n]/;
+const WEB_BROWSER_COMMAND_SEGMENT_PATTERN =
+  /^(?:(?:env)\s+)?(?:(?:[A-Z_][A-Z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]+))\s+)*(?:(?:npx|bunx)\s+|pnpm\s+(?:exec|dlx)\s+|yarn\s+dlx\s+)?(?:(?:\.{1,2}\/|\/)?(?:[^\s/]+\/)*agent-browser)(?:\s|$)/i;
 
 export type ShellCallPayload = {
   command: string;
@@ -116,6 +119,15 @@ export async function executeLocalShellCommand(input: {
       });
     });
   });
+}
+
+export function getShellCommandLabel(command: string) {
+  const invokesWebBrowser = command
+    .split(SHELL_SEGMENT_SEPARATOR_PATTERN)
+    .map((segment) => segment.trim())
+    .some((segment) => WEB_BROWSER_COMMAND_SEGMENT_PATTERN.test(segment));
+
+  return invokesWebBrowser ? "Web browser" : "Local command";
 }
 
 export function summarizeShellResult(result: ShellExecutionResult) {

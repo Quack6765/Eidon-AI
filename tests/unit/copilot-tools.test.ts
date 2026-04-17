@@ -2,15 +2,7 @@ import { beforeEach, describe, it, expect, vi } from "vitest";
 import { buildCopilotTools } from "@/lib/copilot-tools";
 import type { McpServer, McpTool, Skill } from "@/lib/types";
 
-vi.mock("@/lib/mcp-client", () => ({
-  callMcpTool: vi.fn().mockResolvedValue({
-    content: [{ type: "text", text: "mock result" }],
-    isError: false
-  }),
-  getToolResultText: vi.fn().mockReturnValue("mock result")
-}));
-
-vi.mock("@/lib/local-shell", () => ({
+const localShellMocks = vi.hoisted(() => ({
   executeLocalShellCommand: vi.fn().mockResolvedValue({
     exitCode: 0,
     stdout: "ok",
@@ -20,6 +12,23 @@ vi.mock("@/lib/local-shell", () => ({
   }),
   summarizeShellResult: vi.fn().mockReturnValue("ok")
 }));
+
+vi.mock("@/lib/mcp-client", () => ({
+  callMcpTool: vi.fn().mockResolvedValue({
+    content: [{ type: "text", text: "mock result" }],
+    isError: false
+  }),
+  getToolResultText: vi.fn().mockReturnValue("mock result")
+}));
+
+vi.mock("@/lib/local-shell", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/local-shell")>();
+  return {
+    ...actual,
+    executeLocalShellCommand: localShellMocks.executeLocalShellCommand,
+    summarizeShellResult: localShellMocks.summarizeShellResult
+  };
+});
 
 vi.mock("@/lib/searxng", () => ({
   searchSearxng: vi.fn().mockResolvedValue("SearXNG result")
@@ -467,6 +476,35 @@ describe("buildCopilotTools", () => {
       detail: "echo ready",
       resultSummary: "ready"
     });
+  });
+
+  it("labels agent-browser shell commands as Web browser", async () => {
+    const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
+    vi.mocked(executeLocalShellCommand).mockResolvedValueOnce({
+      exitCode: 0,
+      stdout: "page loaded",
+      stderr: "",
+      timedOut: false,
+      isError: false
+    });
+    vi.mocked(summarizeShellResult).mockReturnValueOnce("page loaded");
+
+    const onActionStart = vi.fn().mockResolvedValue("shell_1");
+    const ctx = makeCtx({ onActionStart });
+
+    const tools = buildCopilotTools(ctx);
+    const shellTool = tools.find((t) => t.name === "execute_shell_command")!;
+
+    await shellTool.handler!(
+      { command: "agent-browser open https://example.com" },
+      { sessionId: "s1", toolCallId: "tc1", toolName: "execute_shell_command", arguments: {} }
+    );
+
+    expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
+      kind: "shell_command",
+      label: "Web browser",
+      detail: "agent-browser open https://example.com"
+    }));
   });
 
   it("records shell command error results", async () => {

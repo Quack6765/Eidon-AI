@@ -13,6 +13,7 @@ import {
 } from "@/components/attachment-preview-modal";
 import { CompactionIndicator } from "@/components/compaction-indicator";
 import { Textarea } from "@/components/ui/textarea";
+import { parseAnsiText } from "@/lib/ansi";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import { writeRichTextToClipboard } from "@/lib/clipboard";
 import type {
@@ -27,6 +28,58 @@ import { normalizeMarkdownLineBreaks } from "@/lib/text-utils";
 const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
 const COPY_RESET_DELAY_MS = 1600;
 const AssistantMarkdownCopyReadyContext = React.createContext<Map<number, boolean> | null>(null);
+
+function getAnsiForegroundClassName(foregroundColor: ReturnType<typeof parseAnsiText>[number]["foregroundColor"]) {
+  switch (foregroundColor) {
+    case "black":
+      return "text-white/55";
+    case "red":
+      return "text-red-300";
+    case "green":
+      return "text-emerald-300";
+    case "yellow":
+      return "text-amber-300";
+    case "blue":
+      return "text-sky-300";
+    case "magenta":
+      return "text-fuchsia-300";
+    case "cyan":
+      return "text-cyan-300";
+    case "white":
+      return "text-white/90";
+    default:
+      return null;
+  }
+}
+
+function AnsiText({
+  text,
+  defaultTextClassName
+}: {
+  text: string;
+  defaultTextClassName: string;
+}) {
+  const segments = parseAnsiText(text);
+
+  return (
+    <>
+      {segments.map((segment, index) => {
+        const segmentClassName = [
+          getAnsiForegroundClassName(segment.foregroundColor) ?? defaultTextClassName,
+          segment.bold ? "font-semibold" : null
+        ]
+          .filter(Boolean)
+          .join(" ");
+
+        return (
+          <span key={`${index}:${segment.text.length}`} className={segmentClassName}>
+            {segment.text}
+          </span>
+        );
+      })}
+    </>
+  );
+}
 
 function getMarkdownCodeValue(children: React.ReactNode) {
   return React.Children.toArray(children)
@@ -266,10 +319,14 @@ function CollapsibleActionRow({
       {isOpen && (action.detail || action.resultSummary) ? (
         <div className="px-2.5 pb-2">
           {action.detail ? (
-            <pre className="overflow-x-auto rounded-md bg-black/30 p-2 text-[11px] leading-5 text-white/45 whitespace-pre-wrap break-words font-mono">{action.detail}</pre>
+            <pre className="overflow-x-auto rounded-md bg-black/30 p-2 text-[11px] leading-5 whitespace-pre-wrap break-words font-mono">
+              <AnsiText text={action.detail} defaultTextClassName="text-white/45" />
+            </pre>
           ) : null}
           {action.resultSummary ? (
-            <p className="mt-1.5 text-[11px] text-white/35 break-words">{action.resultSummary}</p>
+            <div className="mt-1.5 text-[11px] break-words whitespace-pre-wrap font-mono">
+              <AnsiText text={action.resultSummary} defaultTextClassName="text-white/35" />
+            </div>
           ) : null}
         </div>
       ) : null}
