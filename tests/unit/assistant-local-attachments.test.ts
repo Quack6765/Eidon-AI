@@ -107,6 +107,36 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
+  it("denies default app-data paths even when EIDON_DATA_DIR is unset", () => {
+    const conversation = createConversation();
+    const previousDataDir = process.env.EIDON_DATA_DIR;
+    const defaultAppDataDir = path.resolve(".data");
+    const sourcePath = path.join(defaultAppDataDir, "assistant-private.txt");
+
+    try {
+      delete process.env.EIDON_DATA_DIR;
+      fs.mkdirSync(defaultAppDataDir, { recursive: true });
+      fs.writeFileSync(sourcePath, "private app data", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: `[private](${sourcePath})`,
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(0);
+      expect(result.content).toBe("");
+      expect(result.failureNote).toContain("only workspace files and /tmp are allowed");
+    } finally {
+      if (previousDataDir === undefined) {
+        delete process.env.EIDON_DATA_DIR;
+      } else {
+        process.env.EIDON_DATA_DIR = previousDataDir;
+      }
+      fs.rmSync(defaultAppDataDir, { recursive: true, force: true });
+    }
+  });
+
   it("deduplicates duplicate references to the same local file", () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));

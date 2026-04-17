@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { importAttachmentFromLocalFile } from "@/lib/attachments";
+import { env } from "@/lib/env";
 import type { MessageAttachment } from "@/lib/types";
 
 const MARKDOWN_IMAGE_PATTERN = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
@@ -92,7 +93,7 @@ export function inferAssistantLocalAttachments(
 
   const workspaceRoot = normalizeRoot(input.workspaceRoot);
   const tmpRoot = normalizeRoot(TMP_ROOT);
-  const appDataRoot = process.env.EIDON_DATA_DIR ? normalizeRoot(process.env.EIDON_DATA_DIR) : null;
+  const appDataRoot = normalizeRoot(env.EIDON_DATA_DIR);
   const attachmentCache = new Map<string, LocalTargetOutcome>();
   const attachments: MessageAttachment[] = [];
   const deniedNames = new Set<string>();
