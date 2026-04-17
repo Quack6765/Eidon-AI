@@ -67,6 +67,12 @@ const SHELL_SKILL_INTENT_PATTERN =
 const URLISH_PATTERN = /\b(?:https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,})(?:\/\S*)?/i;
 const MEMORY_INTENT_WITHOUT_TOOL_PATTERN =
   /\b(?:let me|i(?:'ll| will| can| should|(?: am|'m) going to))\s+(?:save|remember|store|update|delete|remove)\b|\b(?:remember|save|store|update|delete|remove)\s+(?:that|this|it)\s+(?:for later|in memory|as memory)\b|\b(?:i(?:'ve| have)|we(?:'ve| have))\s+proposed\s+to\s+(?:add|save|store|update|delete|remove)\b.*\bmemory\b|\bit(?:'ll| will)\s+be\s+saved\s+once\s+you\s+approve\s+it\b/i;
+const IMAGE_BYTE_OUTPUT_PATTERN =
+  /\b(?:base64|data\s*:?\s*url|data:image\/|image\s+bytes|raw\s+bytes)\b/i;
+const NEGATED_IMAGE_BYTE_OUTPUT_PATTERN =
+  /\b(?:do\s+not|don't|dont|avoid)\b[\s\S]{0,24}\b(?:base64|data\s*:?\s*url|data:image\/|image\s+bytes|raw\s+bytes)\b|\bwithout\b[\s\S]{0,12}\b(?:base64|data\s*:?\s*url|data:image\/|image\s+bytes|raw\s+bytes)\b|\bno\s+(?:base64|data\s*:?\s*url|data:image\/|image\s+bytes|raw\s+bytes)\b/i;
+const POSITIVE_IMAGE_BYTE_OUTPUT_REQUEST_PATTERN =
+  /\b(?:give|send|return|provide|output|reply|respond|share|embed|inline|format)\b[\s\S]{0,40}\b(?:base64|data\s*:?\s*url|data:image\/|image\s+bytes|raw\s+bytes)\b|\b(?:as|in)\s+(?:a\s+)?(?:base64|data\s*:?\s*url|data:image\/|image\s+bytes|raw\s+bytes)\b/i;
 const IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE =
   "When calling generate_image, Base the prompt and count on only the latest user image request. Treat each new image request as independent by default. Do not combine earlier image requests or count them again unless the latest user message explicitly asks to modify, continue, or combine prior results.";
 const IMAGE_TOOL_POST_SUCCESS_DIRECTIVE =
@@ -122,6 +128,23 @@ function getLatestUserPromptIndex(promptMessages: PromptMessage[]) {
   }
 
   return -1;
+}
+
+function shouldAddInlineAttachmentDirective(promptMessages: PromptMessage[]) {
+  const latestUserContent = getLatestUserPromptContent(promptMessages);
+  if (!latestUserContent) {
+    return false;
+  }
+
+  if (!IMAGE_BYTE_OUTPUT_PATTERN.test(latestUserContent)) {
+    return true;
+  }
+
+  if (NEGATED_IMAGE_BYTE_OUTPUT_PATTERN.test(latestUserContent)) {
+    return true;
+  }
+
+  return !POSITIVE_IMAGE_BYTE_OUTPUT_REQUEST_PATTERN.test(latestUserContent);
 }
 
 function hasRecentAssistantImageContext(promptMessages: PromptMessage[]) {
@@ -1263,7 +1286,9 @@ export async function resolveAssistantTurn(input: {
   promptMessages = turnSkills.length || mcpServers.length || input.mcpToolSets.length
     ? mergeSystemMessage(promptMessages, buildCapabilitiesSystemMessage(turnSkills, mcpServers))
     : promptMessages;
-  promptMessages = mergeSystemMessage(promptMessages, INLINE_ATTACHMENT_DIRECTIVE);
+  if (shouldAddInlineAttachmentDirective(promptMessages)) {
+    promptMessages = mergeSystemMessage(promptMessages, INLINE_ATTACHMENT_DIRECTIVE);
+  }
 
   if (input.appSettings?.imageGenerationBackend && input.appSettings.imageGenerationBackend !== "disabled") {
     promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE);

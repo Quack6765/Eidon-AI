@@ -653,22 +653,7 @@ describe("chat-turn", () => {
   it("adds runtime guidance not to base64 screenshot files or embed data image URLs", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
-    const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
-
-    const manager = createConversationManager();
-    const { profileId, profile } = setupProviderProfile();
-    updateSettings({
-      defaultProviderProfileId: profileId,
-      skillsEnabled: false,
-      providerProfiles: [profile]
-    });
-
-    const conv = (await import("@/lib/conversations")).createConversation(
-      undefined,
-      undefined,
-      { providerProfileId: null }
-    );
+    const { profile } = setupProviderProfile();
 
     mockedStreamProviderResponse.mockReturnValueOnce(
       (async function* () {
@@ -681,9 +666,17 @@ describe("chat-turn", () => {
       })()
     );
 
-    const { startChatTurn } = await import("@/lib/chat-turn");
-    await expect(startChatTurn(manager, conv.id, "Take a screenshot and share it", [])).resolves.toEqual({
-      status: "completed"
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    await expect(
+      resolveAssistantTurn({
+        settings: profile,
+        promptMessages: [{ role: "user", content: "Take a screenshot and share it" }],
+        skills: [],
+        mcpServers: [],
+        mcpToolSets: []
+      })
+    ).resolves.toMatchObject({
+      answer: "Acknowledged."
     });
 
     const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
@@ -694,6 +687,128 @@ describe("chat-turn", () => {
     expect(systemPrompt).toEqual(expect.any(String));
     expect(systemPrompt).toContain("Do not run base64 on screenshot/image files");
     expect(systemPrompt).toContain("Do not embed data: image URLs");
+  });
+
+  it("does not add the inline attachment directive when the user explicitly asks for base64 image output", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { profile } = setupProviderProfile();
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Acknowledged." };
+        return {
+          answer: "Acknowledged.",
+          thinking: "",
+          usage: { outputTokens: 1 }
+        };
+      })()
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    await expect(
+      resolveAssistantTurn({
+        settings: profile,
+        promptMessages: [{ role: "user", content: "Give me the screenshot as a data:image/png;base64 URL" }],
+        skills: [],
+        mcpServers: [],
+        mcpToolSets: []
+      })
+    ).resolves.toMatchObject({
+      answer: "Acknowledged.",
+      thinking: "",
+      usage: {
+        outputTokens: 1
+      }
+    });
+
+    const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
+    const systemPrompt = providerCall?.promptMessages.find(
+      (message: { role: string; content: unknown }) => message.role === "system"
+    )?.content;
+
+    expect(systemPrompt).toBeUndefined();
+  });
+
+  it("keeps the inline attachment directive when the user explicitly says not to send base64 or a data URL", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { profile } = setupProviderProfile();
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Acknowledged." };
+        return {
+          answer: "Acknowledged.",
+          thinking: "",
+          usage: { outputTokens: 1 }
+        };
+      })()
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    await expect(
+      resolveAssistantTurn({
+        settings: profile,
+        promptMessages: [
+          {
+            role: "user",
+            content: "Take a screenshot and attach it normally. Do not send base64 or a data URL."
+          }
+        ],
+        skills: [],
+        mcpServers: [],
+        mcpToolSets: []
+      })
+    ).resolves.toMatchObject({
+      answer: "Acknowledged."
+    });
+
+    const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
+    const systemPrompt = providerCall?.promptMessages.find(
+      (message: { role: string; content: unknown }) => message.role === "system"
+    )?.content;
+
+    expect(systemPrompt).toEqual(expect.any(String));
+    expect(systemPrompt).toContain("Do not run base64 on screenshot/image files");
+    expect(systemPrompt).toContain("Do not embed data: image URLs");
+  });
+
+  it("does not add the inline attachment directive when the user wants only image bytes without markdown", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { profile } = setupProviderProfile();
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Acknowledged." };
+        return {
+          answer: "Acknowledged.",
+          thinking: "",
+          usage: { outputTokens: 1 }
+        };
+      })()
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    await expect(
+      resolveAssistantTurn({
+        settings: profile,
+        promptMessages: [{ role: "user", content: "Give me no markdown, just the image bytes." }],
+        skills: [],
+        mcpServers: [],
+        mcpToolSets: []
+      })
+    ).resolves.toMatchObject({
+      answer: "Acknowledged."
+    });
+
+    const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
+    const systemPrompt = providerCall?.promptMessages.find(
+      (message: { role: string; content: unknown }) => message.role === "system"
+    )?.content;
+
+    expect(systemPrompt).toBeUndefined();
   });
 
   it("persists pending memory proposal metadata on assistant actions", async () => {
