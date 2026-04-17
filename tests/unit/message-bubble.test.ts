@@ -200,6 +200,34 @@ describe("message bubble", () => {
     expect(screen.getByText("Found MCP documentation")).toBeInTheDocument();
   });
 
+  it("renders ANSI-colored tool logs without showing raw escape codes", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          actions: [
+            createToolAction({
+              id: "act_ansi",
+              messageId: "msg_assistant",
+              kind: "shell_command",
+              label: "Web browser",
+              detail: "agent-browser screenshot /tmp/example.png",
+              resultSummary:
+                "\u001b[32m✓\u001b[0m Screenshot saved to \u001b[32m/tmp/example.png\u001b[0m"
+            })
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Web browser" }));
+
+    expect(screen.getByText("✓")).toBeInTheDocument();
+    expect(screen.getByText("/tmp/example.png")).toBeInTheDocument();
+    expect(container.textContent).not.toContain("[32m");
+    expect(container.querySelector(".text-emerald-300")).not.toBeNull();
+  });
+
   it("renders pending create proposals with operation-specific copy", () => {
     render(
       React.createElement(MessageBubble, {

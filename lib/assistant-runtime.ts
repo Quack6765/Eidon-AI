@@ -9,7 +9,7 @@ import {
 } from "@/lib/memory-proposals";
 import { getSettings } from "@/lib/settings";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
-import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shell";
+import { executeLocalShellCommand, getShellCommandLabel, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { searchSearxng } from "@/lib/searxng";
 import { extractEnumHints, coerceEnumValues } from "@/lib/tool-schema-helpers";
@@ -653,7 +653,7 @@ async function executeShellCommand(
 
   const handle = await context.input.onActionStart?.({
     kind: "shell_command",
-    label: "Local command",
+    label: getShellCommandLabel(command),
     detail: buildShellDetail(command),
     arguments: { command, timeoutMs }
   });

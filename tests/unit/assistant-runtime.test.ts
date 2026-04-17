@@ -3,8 +3,10 @@ import type { ChatStreamEvent, ProviderProfileWithApiKey, Skill } from "@/lib/ty
 const streamProviderResponse = vi.fn();
 const callMcpTool = vi.fn();
 const getToolResultText = vi.fn();
-const executeLocalShellCommand = vi.fn();
-const summarizeShellResult = vi.fn();
+const localShellMocks = vi.hoisted(() => ({
+  executeLocalShellCommand: vi.fn(),
+  summarizeShellResult: vi.fn()
+}));
 const getMemoryRecord = vi.fn();
 const createMemoryFn = vi.fn();
 const updateMemoryRecord = vi.fn();
@@ -22,10 +24,14 @@ vi.mock("@/lib/mcp-client", () => ({
   getToolResultText
 }));
 
-vi.mock("@/lib/local-shell", () => ({
-  executeLocalShellCommand,
-  summarizeShellResult
-}));
+vi.mock("@/lib/local-shell", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/local-shell")>();
+  return {
+    ...actual,
+    executeLocalShellCommand: localShellMocks.executeLocalShellCommand,
+    summarizeShellResult: localShellMocks.summarizeShellResult
+  };
+});
 
 vi.mock("@/lib/memories", () => ({
   getMemory: getMemoryRecord,
@@ -122,8 +128,8 @@ describe("assistant runtime", () => {
     streamProviderResponse.mockReset();
     callMcpTool.mockReset();
     getToolResultText.mockReset();
-    executeLocalShellCommand.mockReset();
-    summarizeShellResult.mockReset();
+    localShellMocks.executeLocalShellCommand.mockReset();
+    localShellMocks.summarizeShellResult.mockReset();
     getMemoryRecord.mockReset();
     createMemoryFn.mockReset();
     updateMemoryRecord.mockReset();
@@ -136,7 +142,7 @@ describe("assistant runtime", () => {
     getToolResultText.mockImplementation((result: { content?: Array<{ text?: string }> }) => {
       return result.content?.[0]?.text ?? "done";
     });
-    summarizeShellResult.mockImplementation((result: { stdout?: string; stderr?: string }) => {
+    localShellMocks.summarizeShellResult.mockImplementation((result: { stdout?: string; stderr?: string }) => {
       return result.stdout || result.stderr || "done";
     });
   });
@@ -425,7 +431,7 @@ describe("assistant runtime", () => {
           usage: { inputTokens: 8, outputTokens: 2 }
         })
       );
-    executeLocalShellCommand.mockResolvedValue({
+    localShellMocks.executeLocalShellCommand.mockResolvedValue({
       stdout: "HTTP/2 200",
       stderr: "",
       exitCode: 0,
@@ -448,11 +454,62 @@ describe("assistant runtime", () => {
     expect(started).toEqual([
       expect.objectContaining({ kind: "shell_command", label: "Local command", detail: "curl -I https://example.com" })
     ]);
-    expect(executeLocalShellCommand).toHaveBeenCalledWith({
+    expect(localShellMocks.executeLocalShellCommand).toHaveBeenCalledWith({
       command: "curl -I https://example.com",
       timeoutMs: undefined
     });
     expect(result.answer).toBe("Probed the endpoint.");
+  });
+
+  it("labels agent-browser shell commands as Web browser", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_1",
+            name: "execute_shell_command",
+            arguments: JSON.stringify({ command: "agent-browser open https://example.com" })
+          }],
+          usage: { inputTokens: 7 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Opened the page." }], {
+          answer: "Opened the page.",
+          thinking: "",
+          usage: { inputTokens: 8, outputTokens: 2 }
+        })
+      );
+    localShellMocks.executeLocalShellCommand.mockResolvedValue({
+      stdout: "Page opened",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+      isError: false
+    });
+
+    const started: Array<{ kind: string; label: string; detail?: string }> = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Open example.com in the browser" }],
+      skills: [],
+      mcpToolSets: [],
+      onActionStart: (action) => { started.push(action); return "act_shell"; },
+      onActionComplete: () => undefined
+    });
+
+    expect(started).toEqual([
+      expect.objectContaining({
+        kind: "shell_command",
+        label: "Web browser",
+        detail: "agent-browser open https://example.com"
+      })
+    ]);
+    expect(result.answer).toBe("Opened the page.");
   });
 
   it("keeps load_skill hidden for ordinary factual chat turns while shell remains available", async () => {
@@ -804,7 +861,7 @@ Run browser commands.`
       onActionStart: () => "act_shell"
     });
 
-    expect(executeLocalShellCommand).not.toHaveBeenCalled();
+    expect(localShellMocks.executeLocalShellCommand).not.toHaveBeenCalled();
     expect(result.answer).toBe("Need a command.");
   });
 

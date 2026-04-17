@@ -191,6 +191,26 @@ describe("local shell", () => {
     });
   });
 
+  it("labels direct and wrapped agent-browser commands as Web browser", async () => {
+    const { getShellCommandLabel } = await import("@/lib/local-shell");
+
+    expect(getShellCommandLabel("agent-browser open https://example.com")).toBe("Web browser");
+    expect(getShellCommandLabel("npx agent-browser open https://example.com")).toBe("Web browser");
+    expect(getShellCommandLabel("pnpm exec agent-browser open https://example.com")).toBe("Web browser");
+    expect(getShellCommandLabel('FOO="a b" agent-browser open https://example.com')).toBe("Web browser");
+    expect(getShellCommandLabel("env FOO=1 agent-browser open https://example.com")).toBe("Web browser");
+    expect(getShellCommandLabel("/usr/local/bin/agent-browser open https://example.com")).toBe("Web browser");
+    expect(getShellCommandLabel("sleep 3 && agent-browser snapshot")).toBe("Web browser");
+    expect(getShellCommandLabel("sleep 3 && ./agent-browser snapshot")).toBe("Web browser");
+  });
+
+  it("keeps non-invocation agent-browser text labeled as Local command", async () => {
+    const { getShellCommandLabel } = await import("@/lib/local-shell");
+
+    expect(getShellCommandLabel("echo agent-browser open https://example.com")).toBe("Local command");
+    expect(getShellCommandLabel("printf 'agent-browser snapshot'")).toBe("Local command");
+  });
+
   it("returns a structured error when spawn fails before close", async () => {
     const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
     const child = new MockChild();

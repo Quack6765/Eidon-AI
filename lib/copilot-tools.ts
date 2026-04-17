@@ -8,7 +8,7 @@ import {
   normalizeMemoryCategory
 } from "@/lib/memory-proposals";
 import { getSettings } from "@/lib/settings";
-import { executeLocalShellCommand, summarizeShellResult } from "@/lib/local-shell";
+import { executeLocalShellCommand, getShellCommandLabel, summarizeShellResult } from "@/lib/local-shell";
 import { searchSearxng } from "@/lib/searxng";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
@@ -143,7 +143,7 @@ function buildShellCopilotTool(ctx: CopilotToolContext): Tool {
 
       const handle = await ctx.onActionStart?.({
         kind: "shell_command",
-        label: "Local command",
+        label: getShellCommandLabel(command),
         detail: command.length > 140 ? `${command.slice(0, 137)}...` : command,
         arguments: { command, timeoutMs: timeout_ms }
       });
