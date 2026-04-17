@@ -15,7 +15,7 @@ function isAssistantDataImageTarget(target: string) {
 
 function shouldStripTarget(target: string, attachments: MessageAttachment[]) {
   if (isAssistantDataImageTarget(target)) {
-    return attachments.length > 0;
+    return true;
   }
 
   if (isExternalTarget(target)) {
@@ -51,7 +51,7 @@ export function stripAttachmentStyleImageMarkdown(
 ) {
   const imageAttachments = attachments.filter((attachment) => attachment.kind === "image");
   const textAttachments = attachments.filter((attachment) => attachment.kind === "text");
-  if (!content || (imageAttachments.length === 0 && textAttachments.length === 0)) {
+  if (!content) {
     return content;
   }
 

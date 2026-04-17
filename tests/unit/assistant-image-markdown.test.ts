@@ -62,7 +62,7 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     expect(stripAttachmentStyleImageMarkdown(content, [createImageAttachment()])).toBe(content);
   });
 
-  it("removes assistant-authored data image markdown from rendered prose when an image attachment exists", () => {
+  it("removes assistant-authored data image markdown from rendered prose even when attachments are empty", () => {
     const content = [
       "I've generated an image for you.",
       "",
@@ -71,11 +71,29 @@ describe("stripAttachmentStyleImageMarkdown", () => {
       "The real attachment preview should render below."
     ].join("\n");
 
-    expect(stripAttachmentStyleImageMarkdown(content, [createImageAttachment()])).toBe(
+    expect(stripAttachmentStyleImageMarkdown(content, [])).toBe(
       [
         "I've generated an image for you.",
         "",
         "The real attachment preview should render below."
+      ].join("\n")
+    );
+  });
+
+  it("preserves assistant-authored data image markdown inside fenced code blocks", () => {
+    const content = [
+      "```md",
+      "![Generated Image](data:image/png;base64,Zm9v)",
+      "```",
+      "",
+      "![Generated Image](data:image/png;base64,Zm9v)"
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [])).toBe(
+      [
+        "```md",
+        "![Generated Image](data:image/png;base64,Zm9v)",
+        "```"
       ].join("\n")
     );
   });
