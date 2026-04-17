@@ -121,4 +121,20 @@ describe("stripAttachmentStyleImageMarkdown", () => {
       ].join("\n")
     );
   });
+
+  it("does not remove literal placeholder-like tokens in normal prose", () => {
+    const content = [
+      "The assistant can mention @@ASSISTANT_CODE_SEGMENT_0@@ literally.",
+      "",
+      "The prose link [Report](notes.txt) should still be stripped."
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
+      [
+        "The assistant can mention @@ASSISTANT_CODE_SEGMENT_0@@ literally.",
+        "",
+        "The prose link  should still be stripped."
+      ].join("\n")
+    );
+  });
 });

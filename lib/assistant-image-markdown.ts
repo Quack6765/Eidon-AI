@@ -2,9 +2,7 @@ import type { MessageAttachment } from "@/lib/types";
 
 const MARKDOWN_IMAGE_PATTERN = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const MARKDOWN_LINK_PATTERN = /(?<!\!)\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
-const FENCED_CODE_PATTERN = /```[\s\S]*?```/g;
-const INLINE_CODE_PATTERN = /`[^`\n]+`/g;
-const CODE_SEGMENT_PATTERN = /@@ASSISTANT_CODE_SEGMENT_(\d+)@@/g;
+const CODE_SEGMENT_PATTERN = /```[\s\S]*?```|`[^`\n]+`/g;
 
 function isExternalTarget(target: string) {
   return /^[a-z][a-z0-9+.-]*:/i.test(target);
@@ -18,26 +16,23 @@ function shouldStripTarget(target: string, attachments: MessageAttachment[]) {
   return attachments.some((attachment) => attachment.relativePath.endsWith(target));
 }
 
-function maskCodeSegments(content: string) {
-  const segments: string[] = [];
+function sanitizeProseSegment(content: string, imageAttachments: MessageAttachment[], textAttachments: MessageAttachment[]) {
+  const sanitizedImages = content.replace(MARKDOWN_IMAGE_PATTERN, (match, rawTarget: string) => {
+    const target = rawTarget.trim();
+    if (!shouldStripTarget(target, imageAttachments)) {
+      return match;
+    }
 
-  const maskedFences = content.replace(FENCED_CODE_PATTERN, (match) => {
-    const index = segments.push(match) - 1;
-    return `@@ASSISTANT_CODE_SEGMENT_${index}@@`;
+    return "";
   });
 
-  const masked = maskedFences.replace(INLINE_CODE_PATTERN, (match) => {
-    const index = segments.push(match) - 1;
-    return `@@ASSISTANT_CODE_SEGMENT_${index}@@`;
-  });
+  return sanitizedImages.replace(MARKDOWN_LINK_PATTERN, (match, rawTarget: string) => {
+    const target = rawTarget.trim();
+    if (!shouldStripTarget(target, textAttachments)) {
+      return match;
+    }
 
-  return { masked, segments };
-}
-
-function unmaskCodeSegments(content: string, segments: string[]) {
-  return content.replace(CODE_SEGMENT_PATTERN, (_match, rawIndex: string) => {
-    const index = Number(rawIndex);
-    return segments[index] ?? "";
+    return "";
   });
 }
 
@@ -51,27 +46,24 @@ export function stripAttachmentStyleImageMarkdown(
     return content;
   }
 
-  const { masked, segments } = maskCodeSegments(content);
+  const parts: string[] = [];
+  let lastIndex = 0;
 
-  const sanitizedImages = masked.replace(MARKDOWN_IMAGE_PATTERN, (match, rawTarget: string) => {
-    const target = rawTarget.trim();
-    if (!shouldStripTarget(target, imageAttachments)) {
-      return match;
+  for (const match of content.matchAll(CODE_SEGMENT_PATTERN)) {
+    const start = match.index ?? 0;
+    if (start > lastIndex) {
+      parts.push(sanitizeProseSegment(content.slice(lastIndex, start), imageAttachments, textAttachments));
     }
 
-    return "";
-  });
+    parts.push(match[0]);
+    lastIndex = start + match[0].length;
+  }
 
-  const sanitized = sanitizedImages.replace(MARKDOWN_LINK_PATTERN, (match, rawTarget: string) => {
-    const target = rawTarget.trim();
-    if (!shouldStripTarget(target, textAttachments)) {
-      return match;
-    }
+  if (lastIndex < content.length) {
+    parts.push(sanitizeProseSegment(content.slice(lastIndex), imageAttachments, textAttachments));
+  }
 
-    return "";
-  });
-
-  return unmaskCodeSegments(sanitized, segments)
+  return parts.join("")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
