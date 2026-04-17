@@ -783,6 +783,38 @@ function MessageAttachments({
   );
 }
 
+function AssistantInlineImageAttachments({
+  attachments,
+  onPreview
+}: {
+  attachments: MessageAttachment[];
+  onPreview: (attachment: MessageAttachment) => void;
+}) {
+  if (!attachments.length) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-wrap gap-2.5">
+      {attachments.map((attachment) => (
+        <button
+          key={attachment.id}
+          type="button"
+          aria-label={`Preview ${attachment.filename}`}
+          onClick={() => onPreview(attachment)}
+          className="max-w-full overflow-hidden rounded-xl border border-white/10 bg-black/20"
+        >
+          <img
+            src={`/api/attachments/${attachment.id}`}
+            alt={attachment.filename}
+            className="block max-h-[28rem] w-auto max-w-full object-contain"
+          />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function MessageBubble({
   message,
   streamingTimeline,
@@ -945,6 +977,35 @@ export function MessageBubble({
   const contentRef = useRef<HTMLDivElement | null>(null);
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   const copyResetHandle = useRef<number | null>(null);
+  const assistantAttachments = message.role === "assistant" ? message.attachments ?? [] : [];
+  const assistantImageAttachments = assistantAttachments.filter((attachment) => attachment.kind === "image");
+  const assistantFileAttachments = assistantAttachments.filter((attachment) => attachment.kind === "text");
+  const renderedAssistantBlockContentById = new Map<string, string>();
+  let lastRenderableAssistantTextId: string | null = null;
+
+  if (message.role === "assistant") {
+    assistantBlocks.forEach((item) => {
+      if (item.timelineKind !== "text") {
+        return;
+      }
+
+      const renderedContent = stripAttachmentStyleImageMarkdown(
+        item.content,
+        message.attachments ?? []
+      );
+
+      renderedAssistantBlockContentById.set(item.id, renderedContent);
+
+      if (renderedContent) {
+        lastRenderableAssistantTextId = item.id;
+      }
+    });
+  }
+
+  const showStandaloneAssistantImageBubble =
+    message.role === "assistant" &&
+    assistantImageAttachments.length > 0 &&
+    lastRenderableAssistantTextId === null;
   const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || hasThinking || Boolean(thinkingContent));
   const showUserBubbleActions = Boolean(content) && !awaitingFirstToken;
   const isAssistantStreaming =
@@ -1202,7 +1263,7 @@ export function MessageBubble({
                   <TypingIndicator compact />
                 </div>
               )
-            ) : assistantBlocks.length || content ? (
+            ) : assistantBlocks.length || content || assistantImageAttachments.length || assistantFileAttachments.length ? (
               <div className="group flex w-full min-w-0 flex-col items-start">
                 <div ref={contentRef} className={`flex w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
                   {assistantBlocks.map((item) => {
@@ -1225,10 +1286,9 @@ export function MessageBubble({
                         </div>
                       );
                     }
-                    const renderedContent = stripAttachmentStyleImageMarkdown(
-                      item.content,
-                      message.attachments ?? []
-                    );
+                    const renderedContent =
+                      renderedAssistantBlockContentById.get(item.id) ?? item.content;
+
                     if (!renderedContent) {
                       return null;
                     }
@@ -1241,19 +1301,38 @@ export function MessageBubble({
                         <div className="markdown-body">
                           {renderAssistantMarkdown(renderedContent, isAssistantStreaming)}
                         </div>
+                        {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
+                          <div className="mt-3">
+                            <AssistantInlineImageAttachments
+                              attachments={assistantImageAttachments}
+                              onPreview={handleAttachmentPreview}
+                            />
+                          </div>
+                        ) : null}
                       </div>
                     );
                   })}
+                  {showStandaloneAssistantImageBubble ? (
+                    <div
+                      className={ASSISTANT_BUBBLE}
+                      data-testid="assistant-message-bubble"
+                    >
+                      <AssistantInlineImageAttachments
+                        attachments={assistantImageAttachments}
+                        onPreview={handleAttachmentPreview}
+                      />
+                    </div>
+                  ) : null}
                   {message.status === "stopped" ? (
                     <div className="inline-flex items-center gap-1.5 rounded-md border border-red-400/12 bg-red-400/8 px-2 py-1 text-[11px] text-red-200/85">
                       <Square className="h-2.5 w-2.5 fill-current" />
                       <span>Stopped</span>
                     </div>
                   ) : null}
-                  {message.attachments?.length ? (
+                  {assistantFileAttachments.length ? (
                     <div>
                       <MessageAttachments
-                        attachments={message.attachments}
+                        attachments={assistantFileAttachments}
                         onPreview={handleAttachmentPreview}
                       />
                     </div>
