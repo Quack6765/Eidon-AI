@@ -161,6 +161,51 @@ describe("attachment helpers", () => {
     }
   });
 
+  it("caps local file reads at the attachment byte limit", () => {
+    const conversation = createConversation();
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-import-"));
+    const sourcePath = path.join(sourceDir, "growing.txt");
+    fs.writeFileSync(sourcePath, "tiny", "utf8");
+    const baseStats = fs.lstatSync(sourcePath);
+    const lstatSpy = vi.spyOn(fs, "lstatSync");
+    const fstatSpy = vi.spyOn(fs, "fstatSync");
+    const readSpy = vi.spyOn(fs, "readSync");
+    let servedBytes = 0;
+
+    try {
+      lstatSpy.mockReturnValue({
+        ...baseStats,
+        isFile: () => true,
+        size: 1
+      } as fs.Stats);
+      fstatSpy.mockReturnValue({
+        ...baseStats,
+        isFile: () => true,
+        size: 1
+      } as fs.Stats);
+      readSpy.mockImplementation((fd, buffer, offset, length) => {
+        const remainingBytes = MAX_ATTACHMENT_BYTES + 1 - servedBytes;
+
+        if (remainingBytes <= 0) {
+          return 0;
+        }
+
+        const bytesToServe = Math.min(length, remainingBytes);
+        Buffer.alloc(bytesToServe, 0x61).copy(buffer as Buffer, offset, 0, bytesToServe);
+        servedBytes += bytesToServe;
+        return bytesToServe;
+      });
+
+      expect(() => importAttachmentFromLocalFile(conversation.id, sourcePath)).toThrow(
+        `Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: growing.txt`
+      );
+      expect(servedBytes).toBe(MAX_ATTACHMENT_BYTES + 1);
+    } finally {
+      vi.restoreAllMocks();
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects unsupported local file types", () => {
     const conversation = createConversation();
     const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-import-"));
