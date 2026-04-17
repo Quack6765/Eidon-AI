@@ -323,4 +323,28 @@ describe("local shell", () => {
       })
     ).toBe("Command failed with no output");
   });
+
+  it("gives agent-browser commands a longer default timeout", async () => {
+    vi.useFakeTimers();
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "agent-browser screenshot /tmp/example.png --full"
+    });
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(child.kill).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(90_000);
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+
+    child.emit("close", null);
+
+    await expect(resultPromise).resolves.toMatchObject({
+      timedOut: true,
+      isError: true
+    });
+  });
 });

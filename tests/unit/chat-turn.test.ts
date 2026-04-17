@@ -1,8 +1,18 @@
+import fs from "node:fs";
+import path from "node:path";
 import type WebSocket from "ws";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const { requireUserMock } = vi.hoisted(() => ({
+  requireUserMock: vi.fn()
+}));
+
 vi.mock("@/lib/provider", () => ({
   streamProviderResponse: vi.fn()
+}));
+
+vi.mock("@/lib/auth", () => ({
+  requireUser: requireUserMock
 }));
 
 vi.mock("@/lib/mcp-client", () => ({
@@ -79,6 +89,7 @@ function createMockSocket(send = vi.fn()) {
 describe("chat-turn", () => {
   beforeEach(async () => {
     vi.resetModules();
+    requireUserMock.mockReset();
   });
 
   it("creates user and assistant messages, broadcasts deltas via manager", async () => {
@@ -353,6 +364,59 @@ describe("chat-turn", () => {
     vi.useRealTimers();
   });
 
+  it("sanitizes buffered local-file markdown before persisting stopped text segments", async () => {
+    vi.useFakeTimers();
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+    const { requestStop } = await import("@/lib/chat-turn-control");
+    const { listVisibleMessages } = await import("@/lib/conversations");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    const conversation = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
+
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-turn-stop-local-file-"));
+    const reportPath = path.join(tempDir, "report.txt");
+    fs.writeFileSync(reportPath, "report body", "utf8");
+
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+
+    try {
+      mockedStreamProviderResponse.mockReturnValueOnce((async function* () {
+        yield { type: "answer_delta", text: `Saved the output.\n\n[report](${reportPath})` };
+        await gate;
+        return { answer: `Saved the output.\n\n[report](${reportPath})`, thinking: "", usage: { outputTokens: 2 } };
+      })());
+
+      const { startChatTurn } = await import("@/lib/chat-turn");
+      const run = startChatTurn(manager, conversation.id, "Save the report", []);
+
+      await vi.advanceTimersByTimeAsync(120);
+      requestStop(conversation.id);
+      release();
+      await run;
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      expect(assistant?.status).toBe("stopped");
+      expect(assistant?.content).toBe("Saved the output.");
+      expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output."]);
+      expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
+      expect(assistant?.attachments).toEqual([
+        expect.objectContaining({
+          filename: "report.txt",
+          messageId: assistant?.id
+        })
+      ]);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      vi.useRealTimers();
+    }
+  });
+
   it("flushes answer text to DB periodically during streaming", async () => {
     vi.useFakeTimers();
     const { streamProviderResponse } = await import("@/lib/provider");
@@ -538,6 +602,362 @@ describe("chat-turn", () => {
     } finally {
       vi.doUnmock("@/lib/assistant-runtime");
     }
+  });
+
+  it("persists salvaged data images as attachments and strips raw base64 from final assistant content", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        return {
+          answer:
+            "Here is the capture:\n\n![Inline](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2p8L8AAAAASUVORK5CYII=)",
+          thinking: "",
+          usage: { outputTokens: 1 }
+        };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await expect(startChatTurn(manager, conv.id, "Show me the capture", [])).resolves.toEqual({
+      status: "completed"
+    });
+
+    const { listVisibleMessages } = await import("@/lib/conversations");
+    const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+
+    expect(assistant?.content).toBe("Here is the capture:");
+    expect(assistant?.attachments).toHaveLength(1);
+    expect(assistant?.attachments?.[0]?.kind).toBe("image");
+    expect(assistant?.content).not.toContain("data:image/png;base64");
+    expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Here is the capture:"]);
+  });
+
+  it("binds successful agent-browser screenshots as assistant attachments even when the answer only mentions them in prose", async () => {
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-turn-browser-screenshot-"));
+    const screenshotPath = path.join(tempDir, "atlantis_ninja.png");
+    fs.writeFileSync(screenshotPath, Buffer.from([137, 80, 78, 71]));
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        onActionStart?: (action: {
+          kind: "shell_command";
+          label: string;
+          detail?: string;
+          arguments?: Record<string, unknown>;
+        }) => Promise<string | void> | string | void;
+        onActionComplete?: (
+          handle: string | undefined,
+          patch: { detail?: string; resultSummary?: string }
+        ) => Promise<void> | void;
+      }) => {
+        const command = `agent-browser screenshot ${screenshotPath} --full`;
+        const handle = await input.onActionStart?.({
+          kind: "shell_command",
+          label: "Web browser",
+          detail: command,
+          arguments: { command }
+        });
+        await input.onActionComplete?.(typeof handle === "string" ? handle : undefined, {
+          detail: command,
+          resultSummary: `Screenshot saved to ${screenshotPath}`
+        });
+
+        return {
+          answer: "I've captured the full-page screenshot and attached it for you.",
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { createConversationManager } = await import("@/lib/conversation-manager");
+      const { updateSettings } = await import("@/lib/settings");
+      const { listVisibleMessages } = await import("@/lib/conversations");
+      const { startChatTurn } = await import("@/lib/chat-turn");
+
+      const manager = createConversationManager();
+      const { profileId, profile } = setupProviderProfile();
+      updateSettings({
+        defaultProviderProfileId: profileId,
+        skillsEnabled: false,
+        providerProfiles: [profile]
+      });
+
+      const conversation = (await import("@/lib/conversations")).createConversation(
+        undefined,
+        undefined,
+        { providerProfileId: null }
+      );
+
+      await expect(startChatTurn(manager, conversation.id, "Capture the site", [])).resolves.toEqual({
+        status: "completed"
+      });
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      expect(assistant?.content).toBe("I've captured the full-page screenshot and attached it for you.");
+      expect(assistant?.attachments).toEqual([
+        expect.objectContaining({
+          filename: "atlantis_ninja.png",
+          kind: "image",
+          messageId: assistant?.id
+        })
+      ]);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not duplicate agent-browser screenshot attachments when the assistant also references the same local image in markdown", async () => {
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-turn-browser-screenshot-dedupe-"));
+    const screenshotPath = path.join(tempDir, "atlantis_ninja.png");
+    fs.writeFileSync(screenshotPath, Buffer.from([137, 80, 78, 71]));
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        onActionStart?: (action: {
+          kind: "shell_command";
+          label: string;
+          detail?: string;
+          arguments?: Record<string, unknown>;
+        }) => Promise<string | void> | string | void;
+        onActionComplete?: (
+          handle: string | undefined,
+          patch: { detail?: string; resultSummary?: string }
+        ) => Promise<void> | void;
+      }) => {
+        const command = `agent-browser screenshot ${screenshotPath} --full`;
+        const handle = await input.onActionStart?.({
+          kind: "shell_command",
+          label: "Web browser",
+          detail: command,
+          arguments: { command }
+        });
+        await input.onActionComplete?.(typeof handle === "string" ? handle : undefined, {
+          detail: command,
+          resultSummary: `Screenshot saved to ${screenshotPath}`
+        });
+
+        return {
+          answer: `Here is the screenshot:\n\n![Atlantis Ninja Screenshot](${screenshotPath})`,
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { createConversationManager } = await import("@/lib/conversation-manager");
+      const { updateSettings } = await import("@/lib/settings");
+      const { listVisibleMessages } = await import("@/lib/conversations");
+      const { startChatTurn } = await import("@/lib/chat-turn");
+
+      const manager = createConversationManager();
+      const { profileId, profile } = setupProviderProfile();
+      updateSettings({
+        defaultProviderProfileId: profileId,
+        skillsEnabled: false,
+        providerProfiles: [profile]
+      });
+
+      const conversation = (await import("@/lib/conversations")).createConversation(
+        undefined,
+        undefined,
+        { providerProfileId: null }
+      );
+
+      await expect(startChatTurn(manager, conversation.id, "Capture the site", [])).resolves.toEqual({
+        status: "completed"
+      });
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      expect(assistant?.content).toBe("Here is the screenshot:");
+      expect(assistant?.attachments).toHaveLength(1);
+      expect(assistant?.attachments?.[0]?.filename).toBe("atlantis_ninja.png");
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("adds runtime guidance not to base64 screenshot files or embed data image URLs", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { profile } = setupProviderProfile();
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Acknowledged." };
+        return {
+          answer: "Acknowledged.",
+          thinking: "",
+          usage: { outputTokens: 1 }
+        };
+      })()
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    await expect(
+      resolveAssistantTurn({
+        settings: profile,
+        promptMessages: [{ role: "user", content: "Take a screenshot and share it" }],
+        skills: [],
+        mcpServers: [],
+        mcpToolSets: []
+      })
+    ).resolves.toMatchObject({
+      answer: "Acknowledged."
+    });
+
+    const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
+    const systemPrompt = providerCall?.promptMessages.find(
+      (message: { role: string; content: unknown }) => message.role === "system"
+    )?.content;
+
+    expect(systemPrompt).toEqual(expect.any(String));
+    expect(systemPrompt).toContain("Do not run base64 on screenshot/image files");
+    expect(systemPrompt).toContain("Do not embed data: image URLs");
+  });
+
+  it("does not add the inline attachment directive when the user explicitly asks for base64 image output", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { profile } = setupProviderProfile();
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Acknowledged." };
+        return {
+          answer: "Acknowledged.",
+          thinking: "",
+          usage: { outputTokens: 1 }
+        };
+      })()
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    await expect(
+      resolveAssistantTurn({
+        settings: profile,
+        promptMessages: [{ role: "user", content: "Give me the screenshot as a data:image/png;base64 URL" }],
+        skills: [],
+        mcpServers: [],
+        mcpToolSets: []
+      })
+    ).resolves.toMatchObject({
+      answer: "Acknowledged.",
+      thinking: "",
+      usage: {
+        outputTokens: 1
+      }
+    });
+
+    const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
+    const systemPrompt = providerCall?.promptMessages.find(
+      (message: { role: string; content: unknown }) => message.role === "system"
+    )?.content;
+
+    expect(systemPrompt).toBeUndefined();
+  });
+
+  it("keeps the inline attachment directive when the user explicitly says not to send base64 or a data URL", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { profile } = setupProviderProfile();
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Acknowledged." };
+        return {
+          answer: "Acknowledged.",
+          thinking: "",
+          usage: { outputTokens: 1 }
+        };
+      })()
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    await expect(
+      resolveAssistantTurn({
+        settings: profile,
+        promptMessages: [
+          {
+            role: "user",
+            content: "Take a screenshot and attach it normally. Do not send base64 or a data URL."
+          }
+        ],
+        skills: [],
+        mcpServers: [],
+        mcpToolSets: []
+      })
+    ).resolves.toMatchObject({
+      answer: "Acknowledged."
+    });
+
+    const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
+    const systemPrompt = providerCall?.promptMessages.find(
+      (message: { role: string; content: unknown }) => message.role === "system"
+    )?.content;
+
+    expect(systemPrompt).toEqual(expect.any(String));
+    expect(systemPrompt).toContain("Do not run base64 on screenshot/image files");
+    expect(systemPrompt).toContain("Do not embed data: image URLs");
+  });
+
+  it("does not add the inline attachment directive when the user wants only image bytes without markdown", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { profile } = setupProviderProfile();
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Acknowledged." };
+        return {
+          answer: "Acknowledged.",
+          thinking: "",
+          usage: { outputTokens: 1 }
+        };
+      })()
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    await expect(
+      resolveAssistantTurn({
+        settings: profile,
+        promptMessages: [{ role: "user", content: "Give me no markdown, just the image bytes." }],
+        skills: [],
+        mcpServers: [],
+        mcpToolSets: []
+      })
+    ).resolves.toMatchObject({
+      answer: "Acknowledged."
+    });
+
+    const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
+    const systemPrompt = providerCall?.promptMessages.find(
+      (message: { role: string; content: unknown }) => message.role === "system"
+    )?.content;
+
+    expect(systemPrompt).toBeUndefined();
   });
 
   it("persists pending memory proposal metadata on assistant actions", async () => {
@@ -913,6 +1333,235 @@ describe("chat-turn", () => {
     const result = await startChatTurn(manager, conv.id, "Generate an image of Seoul at dusk", []);
 
     expect(result).toEqual({ status: "completed" });
+  });
+
+  it("binds inferred local attachments to the completed assistant message and sanitizes persisted content", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Assistant attachments");
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-turn-attachments-"));
+    const reportPath = path.join(tempDir, "report.txt");
+    fs.writeFileSync(reportPath, "report body", "utf8");
+
+    try {
+      mockedStreamProviderResponse.mockReturnValueOnce(
+        (async function* () {
+          yield { type: "answer_delta", text: "Saved the output to a local file." };
+          return {
+            answer: `Saved the output to a local file.\n\n[report](${reportPath})`,
+            thinking: "",
+            usage: { outputTokens: 8 }
+          };
+        })()
+      );
+
+      const { startChatTurn } = await import("@/lib/chat-turn");
+      await expect(startChatTurn(manager, conversation.id, "Save a report", [])).resolves.toEqual({
+        status: "completed"
+      });
+
+      const assistantMessage = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      expect(assistantMessage?.status).toBe("completed");
+      expect(assistantMessage?.content).toBe("Saved the output to a local file.");
+      expect(assistantMessage?.attachments).toEqual([
+        expect.objectContaining({
+          filename: "report.txt",
+          messageId: assistantMessage?.id
+        })
+      ]);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("appends assistant local attachment failure notes without aborting the turn", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Assistant attachment failures");
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "I saved the file locally." };
+        return {
+          answer: "I saved the file locally.\n\n[hosts](/etc/hosts)",
+          thinking: "",
+          usage: { outputTokens: 6 }
+        };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await expect(startChatTurn(manager, conversation.id, "Save a restricted file", [])).resolves.toEqual({
+      status: "completed"
+    });
+
+    const assistantMessage = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+    expect(assistantMessage?.status).toBe("completed");
+    expect(assistantMessage?.attachments).toEqual([]);
+    expect(assistantMessage?.content).toBe(
+      "I saved the file locally.\n\nNote: I couldn't attach `hosts` because only workspace files and /tmp are allowed."
+    );
+  });
+
+  it("sanitizes local-file markdown segments in the SSE route before persistence", async () => {
+    const { createLocalUser: createRouteUser } = await import("@/lib/users");
+    const user = await createRouteUser({
+      username: "route-user",
+      password: "route-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { updateSettings } = await import("@/lib/settings");
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Route local attachments", null, { providerProfileId: null }, user.id);
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-route-local-file-"));
+    const reportPath = path.join(tempDir, "route-report.txt");
+    fs.writeFileSync(reportPath, "report body", "utf8");
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: { onAnswerSegment?: (segment: string) => void }) => {
+        input.onAnswerSegment?.(`Saved the output.\n\n[report](${reportPath})`);
+        return {
+          answer: `Saved the output.\n\n[report](${reportPath})`,
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+      const response = await POST(
+        new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Save the report", attachmentIds: [] })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+
+      expect(response.status).toBe(200);
+      await response.text();
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      expect(assistant?.status).toBe("completed");
+      expect(assistant?.content).toBe("Saved the output.");
+      expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output."]);
+      expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
+      expect(assistant?.attachments).toEqual([
+        expect.objectContaining({
+          filename: "route-report.txt",
+          messageId: assistant?.id
+        })
+      ]);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not double-count route final content when a stopped turn flushes segmented text after a tool step", async () => {
+    const { createLocalUser: createRouteUser } = await import("@/lib/users");
+    const user = await createRouteUser({
+      username: "route-stop-user",
+      password: "route-stop-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { updateSettings } = await import("@/lib/settings");
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Route stop dedupe", null, { providerProfileId: null }, user.id);
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        onEvent?: (event: { type: string; text: string }) => void;
+        onAnswerSegment?: (segment: string) => void;
+        onActionStart?: (action: {
+          kind: "skill_load";
+          label: string;
+          detail?: string;
+        }) => string | void;
+      }) => {
+        input.onActionStart?.({
+          kind: "skill_load",
+          label: "Load skill",
+          detail: "Preparing route response"
+        });
+        input.onEvent?.({ type: "answer_delta", text: "Saved the output." });
+        input.onAnswerSegment?.("Saved the output.");
+        const { ChatTurnStoppedError } = await import("@/lib/chat-turn-control");
+        throw new ChatTurnStoppedError();
+      })
+    }));
+
+    try {
+      const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+      const response = await POST(
+        new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Save the report", attachmentIds: [] })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+
+      expect(response.status).toBe(200);
+      await response.text();
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      expect(assistant?.status).toBe("stopped");
+      expect(assistant?.content).toBe("Saved the output.");
+      expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output."]);
+      expect(assistant?.actions).toEqual([
+        expect.objectContaining({
+          kind: "skill_load",
+          label: "Load skill",
+          status: "stopped"
+        })
+      ]);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+    }
   });
 
 });

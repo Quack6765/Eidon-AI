@@ -20,6 +20,7 @@ import {
 } from "@/lib/conversations";
 import { ensureCompactedContext } from "@/lib/compaction";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
+import { inferAssistantLocalAttachments, importAssistantLocalFileAttachment } from "@/lib/assistant-local-attachments";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers, getMcpServer } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
@@ -31,7 +32,7 @@ import {
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
 import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
-import type { ChatStreamEvent } from "@/lib/types";
+import type { ChatStreamEvent, MessageAction } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export type ChatEmitter = ReturnType<typeof createEmitter<{
@@ -62,6 +63,265 @@ const globalEmitter = createEmitter<{
 }>();
 
 const ACTIVE_TURN_ERROR_MESSAGE = "Conversation already has an active assistant turn";
+
+function appendFailureNotes(content: string, failureNotes: string[]) {
+  if (failureNotes.length === 0) {
+    return content;
+  }
+
+  const appendedNotes = failureNotes.join("\n\n");
+  return content ? `${content}\n\n${appendedNotes}` : appendedNotes;
+}
+
+function sanitizeAssistantContent(
+  conversationId: string,
+  messageId: string,
+  content: string
+) {
+  const inferred = inferAssistantLocalAttachments({
+    conversationId,
+    content,
+    workspaceRoot: process.cwd(),
+    existingAttachments: getMessage(messageId)?.attachments ?? []
+  });
+
+  if (inferred.attachments.length > 0) {
+    bindAttachmentsToMessage(
+      conversationId,
+      messageId,
+      inferred.attachments.map((attachment) => attachment.id)
+    );
+  }
+
+  const sanitizedContent = stripAttachmentStyleImageMarkdown(
+    inferred.content,
+    getMessage(messageId)?.attachments ?? []
+  );
+
+  return {
+    content: sanitizedContent,
+    failureNote: inferred.failureNote
+  };
+}
+
+function tokenizeShellCommand(command: string) {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  const pushCurrent = () => {
+    if (!current) {
+      return;
+    }
+
+    tokens.push(current);
+    current = "";
+  };
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+
+    if (quote) {
+      if (character === quote) {
+        quote = null;
+        continue;
+      }
+
+      if (character === "\\" && quote === '"') {
+        escaped = true;
+        continue;
+      }
+
+      current += character;
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (/\s/.test(character)) {
+      pushCurrent();
+      continue;
+    }
+
+    if (character === ";" || character === "|" || character === "&") {
+      pushCurrent();
+      const nextCharacter = command[index + 1];
+      if ((character === "|" || character === "&") && nextCharacter === character) {
+        tokens.push(character + nextCharacter);
+        index += 1;
+      } else {
+        tokens.push(character);
+      }
+      continue;
+    }
+
+    current += character;
+  }
+
+  pushCurrent();
+  return tokens;
+}
+
+function isAgentBrowserToken(token: string) {
+  const normalized = token.trim().replace(/\\/g, "/");
+  const basename = normalized.split("/").at(-1)?.toLowerCase();
+  return basename === "agent-browser";
+}
+
+function extractAgentBrowserScreenshotPaths(command: string) {
+  const tokens = tokenizeShellCommand(command);
+  const screenshotPaths = new Set<string>();
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (!isAgentBrowserToken(tokens[index] ?? "")) {
+      continue;
+    }
+
+    if ((tokens[index + 1] ?? "").toLowerCase() !== "screenshot") {
+      continue;
+    }
+
+    for (let candidateIndex = index + 2; candidateIndex < tokens.length; candidateIndex += 1) {
+      const candidate = tokens[candidateIndex] ?? "";
+      if (
+        !candidate ||
+        candidate === ";" ||
+        candidate === "|" ||
+        candidate === "||" ||
+        candidate === "&" ||
+        candidate === "&&"
+      ) {
+        break;
+      }
+
+      if (candidate.startsWith("-")) {
+        continue;
+      }
+
+      screenshotPaths.add(candidate);
+      break;
+    }
+  }
+
+  return [...screenshotPaths];
+}
+
+export function attachAssistantFilesFromCompletedAction(conversationId: string, messageId: string, action: MessageAction) {
+  if (action.kind !== "shell_command") {
+    return;
+  }
+
+  const command =
+    typeof action.arguments?.command === "string"
+      ? action.arguments.command.trim()
+      : action.detail.trim();
+
+  if (!command) {
+    return;
+  }
+
+  const screenshotPaths = extractAgentBrowserScreenshotPaths(command);
+  if (!screenshotPaths.length) {
+    return;
+  }
+
+  const attachmentIds: string[] = [];
+  const existingAttachments = [...(getMessage(messageId)?.attachments ?? [])];
+
+  for (const screenshotPath of screenshotPaths) {
+    const outcome = importAssistantLocalFileAttachment({
+      conversationId,
+      sourcePath: screenshotPath,
+      workspaceRoot: process.cwd(),
+      existingAttachments
+    });
+
+    if (outcome.type !== "attach") {
+      continue;
+    }
+
+    attachmentIds.push(outcome.attachment.id);
+    existingAttachments.push(outcome.attachment);
+  }
+
+  if (attachmentIds.length > 0) {
+    bindAttachmentsToMessage(conversationId, messageId, attachmentIds);
+  }
+}
+
+export function createAssistantContentPersistenceTracker(
+  conversationId: string,
+  messageId: string
+) {
+  let persistedRawContent = "";
+  let persistedSanitizedContent = "";
+  const failureNotes: string[] = [];
+  const failureNoteSet = new Set<string>();
+
+  const recordFailureNote = (failureNote: string) => {
+    if (!failureNote || failureNoteSet.has(failureNote)) {
+      return;
+    }
+
+    failureNoteSet.add(failureNote);
+    failureNotes.push(failureNote);
+  };
+
+  return {
+    appendSegment(content: string) {
+      if (!content) {
+        return "";
+      }
+
+      const sanitized = sanitizeAssistantContent(conversationId, messageId, content);
+      persistedRawContent += content;
+      persistedSanitizedContent += sanitized.content;
+      recordFailureNote(sanitized.failureNote);
+      return sanitized.content;
+    },
+    finalize(content: string) {
+      if (!content) {
+        return appendFailureNotes(persistedSanitizedContent, failureNotes);
+      }
+
+      if (content.startsWith(persistedRawContent)) {
+        const remainder = content.slice(persistedRawContent.length);
+        if (remainder) {
+          const sanitized = sanitizeAssistantContent(conversationId, messageId, remainder);
+          persistedRawContent += remainder;
+          persistedSanitizedContent += sanitized.content;
+          recordFailureNote(sanitized.failureNote);
+        }
+
+        return appendFailureNotes(persistedSanitizedContent, failureNotes);
+      }
+
+      if (!persistedRawContent) {
+        const sanitized = sanitizeAssistantContent(conversationId, messageId, content);
+        persistedRawContent = content;
+        persistedSanitizedContent = sanitized.content;
+        recordFailureNote(sanitized.failureNote);
+      }
+
+      return appendFailureNotes(persistedSanitizedContent, failureNotes);
+    }
+  };
+}
 
 export function getChatEmitter(): ChatEmitter {
   return globalEmitter;
@@ -139,6 +399,7 @@ async function startAssistantTurn(
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
   let assistantMessageId: string | null = null;
+  let contentPersistence: ReturnType<typeof createAssistantContentPersistenceTracker> | null = null;
   let started = false;
   let timelineSortOrder = 0;
   let answerBuffer = "";
@@ -159,6 +420,7 @@ async function startAssistantTurn(
       estimatedTokens: 0
     });
     assistantMessageId = assistantMessage.id;
+    contentPersistence = createAssistantContentPersistenceTracker(conversationId, assistantMessageId);
 
     manager.broadcast(conversationId, {
       type: "delta",
@@ -176,11 +438,8 @@ async function startAssistantTurn(
     started = true;
 
     function flushAnswerBuffer() {
-      if (!assistantMessageId || !answerBuffer) return;
-      const sanitizedBuffer = stripAttachmentStyleImageMarkdown(
-        answerBuffer,
-        getMessage(assistantMessageId)?.attachments ?? []
-      );
+      if (!assistantMessageId || !answerBuffer || !contentPersistence) return;
+      const sanitizedBuffer = contentPersistence.appendSegment(answerBuffer);
       if (!sanitizedBuffer) {
         answerBuffer = "";
         lastFlush = Date.now();
@@ -286,11 +545,9 @@ async function startAssistantTurn(
       },
       onAnswerSegment(segment) {
         flushAnswerBuffer();
-        if (!sawStreamedAnswerSinceLastSegment && segment && assistantMessageId) {
-          const sanitizedSegment = stripAttachmentStyleImageMarkdown(
-            segment,
-            getMessage(assistantMessageId)?.attachments ?? []
-          );
+        if (!sawStreamedAnswerSinceLastSegment && segment && assistantMessageId && contentPersistence) {
+          latestAnswer += segment;
+          const sanitizedSegment = contentPersistence.appendSegment(segment);
           if (!sanitizedSegment) {
             sawStreamedAnswerSinceLastSegment = false;
             return;
@@ -340,6 +597,7 @@ async function startAssistantTurn(
           completedAt: new Date().toISOString()
         });
         if (updated) {
+          attachAssistantFilesFromCompletedAction(conversationId, assistantMessage.id, updated);
           manager.broadcast(conversationId, {
             type: "delta",
             conversationId,
@@ -372,10 +630,7 @@ async function startAssistantTurn(
     flushAnswerBuffer();
 
     updateMessage(assistantMessageId, {
-      content: stripAttachmentStyleImageMarkdown(
-        providerResult.answer,
-        getMessage(assistantMessageId)?.attachments ?? []
-      ),
+      content: contentPersistence?.finalize(providerResult.answer) ?? "",
       thinkingContent: providerResult.thinking,
       status: "completed",
       estimatedTokens:
@@ -394,7 +649,17 @@ async function startAssistantTurn(
   } catch (error) {
     if (error instanceof ChatTurnStoppedError && assistantMessageId) {
       if (flushTimer) clearTimeout(flushTimer);
-      if (answerBuffer) {
+      if (answerBuffer && contentPersistence) {
+        const sanitizedBuffer = contentPersistence.appendSegment(answerBuffer);
+        answerBuffer = "";
+        if (sanitizedBuffer) {
+          createMessageTextSegment({
+            messageId: assistantMessageId,
+            content: sanitizedBuffer,
+            sortOrder: timelineSortOrder++
+          });
+        }
+      } else if (answerBuffer) {
         createMessageTextSegment({
           messageId: assistantMessageId,
           content: answerBuffer,
@@ -404,10 +669,7 @@ async function startAssistantTurn(
       }
 
       updateMessage(assistantMessageId, {
-        content: stripAttachmentStyleImageMarkdown(
-          latestAnswer,
-          getMessage(assistantMessageId)?.attachments ?? []
-        ),
+        content: contentPersistence?.finalize(latestAnswer) ?? "",
         thinkingContent: latestThinking,
         status: "stopped",
         estimatedTokens: estimateTextTokens(latestAnswer)

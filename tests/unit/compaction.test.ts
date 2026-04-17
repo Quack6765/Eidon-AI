@@ -270,6 +270,27 @@ describe("lossless compaction", () => {
           systemKind: null,
           compactedAt: null,
           createdAt,
+          actions: [
+            {
+              id: "act_generated_1",
+              messageId: "msg_assistant_1",
+              kind: "image_generation",
+              status: "completed",
+              serverId: null,
+              skillId: null,
+              toolName: null,
+              label: "Generate image",
+              detail: "castle scene",
+              arguments: null,
+              resultSummary: "Generated 1 image",
+              sortOrder: 0,
+              startedAt: createdAt,
+              completedAt: createdAt,
+              proposalState: null,
+              proposalPayload: null,
+              proposalUpdatedAt: null
+            }
+          ],
           attachments: [
             {
               id: "att_generated_1",
@@ -317,6 +338,95 @@ describe("lossless compaction", () => {
         })
       ])
     );
+  });
+
+  it("does not inject assistant screenshot attachments into follow-up user turns", () => {
+    const createdAt = new Date().toISOString();
+    const prompt = buildPromptMessages({
+      systemPrompt: "Stay concise.",
+      activeMemoryNodes: [],
+      messages: [
+        {
+          id: "msg_user_1",
+          conversationId: "conv_1",
+          role: "user",
+          content: "Take a screenshot of atlantis.ninja",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 4,
+          systemKind: null,
+          compactedAt: null,
+          createdAt
+        },
+        {
+          id: "msg_assistant_1",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "I've attached the screenshot.",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 4,
+          systemKind: null,
+          compactedAt: null,
+          createdAt,
+          actions: [
+            {
+              id: "act_screenshot_1",
+              messageId: "msg_assistant_1",
+              kind: "shell_command",
+              status: "completed",
+              serverId: null,
+              skillId: null,
+              toolName: null,
+              label: "Web browser",
+              detail: "agent-browser screenshot /tmp/atlantis.png --full",
+              arguments: { command: "agent-browser screenshot /tmp/atlantis.png --full" },
+              resultSummary: "Screenshot saved",
+              sortOrder: 0,
+              startedAt: createdAt,
+              completedAt: createdAt,
+              proposalState: null,
+              proposalPayload: null,
+              proposalUpdatedAt: null
+            }
+          ],
+          attachments: [
+            {
+              id: "att_generated_1",
+              conversationId: "conv_1",
+              messageId: "msg_assistant_1",
+              filename: "atlantis.png",
+              mimeType: "image/png",
+              byteSize: 321,
+              sha256: "hash",
+              relativePath: "conv_1/atlantis.png",
+              kind: "image",
+              extractedText: "",
+              createdAt
+            }
+          ]
+        },
+        {
+          id: "msg_user_2",
+          conversationId: "conv_1",
+          role: "user",
+          content: "Can you tell me what is the latest image you generated?",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 8,
+          systemKind: null,
+          compactedAt: null,
+          createdAt
+        }
+      ]
+    });
+
+    const latestUserMessage = prompt.at(-1);
+
+    expect(latestUserMessage).toEqual({
+      role: "user",
+      content: "Can you tell me what is the latest image you generated?"
+    });
   });
 
   it("does not inject a previous assistant image for unrelated prompts that merely say latest", () => {

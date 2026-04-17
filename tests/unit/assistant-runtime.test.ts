@@ -643,6 +643,73 @@ ${JSON.stringify({
     expect(assignAttachmentsToMessage).toHaveBeenCalledWith("conv_image", "msg_assistant_image", ["att_1"]);
   });
 
+  it("binds every generated assistant attachment to the provided assistant message id", async () => {
+    let providerCallCount = 0;
+    streamProviderResponse.mockImplementation(() => {
+      providerCallCount += 1;
+
+      if (providerCallCount === 1) {
+        return createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_image_multi",
+            name: "generate_image",
+            arguments: JSON.stringify({ prompt: "two blue squares", count: 2 })
+          }],
+          usage: { inputTokens: 8 }
+        });
+      }
+
+      return createProviderStream([{ type: "answer_delta", text: "Attached two images." }], {
+        answer: "Attached two images.",
+        thinking: "",
+        usage: { outputTokens: 4 }
+      });
+    });
+
+    generateGoogleNanoBananaImages.mockResolvedValue({
+      assistantText: "",
+      images: [
+        {
+          bytes: Buffer.from("png-one"),
+          mimeType: "image/png",
+          filename: "generated-1.png"
+        },
+        {
+          bytes: Buffer.from("png-two"),
+          mimeType: "image/png",
+          filename: "generated-2.png"
+        }
+      ]
+    });
+    createAttachments.mockImplementation((_conversationId: string, files: Array<{ filename: string }>) =>
+      files.map((file, index) => ({
+        id: `att_${index + 1}`,
+        filename: file.filename
+      }))
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Generate two blue squares" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image"
+    });
+
+    expect(result.answer).toBe("Attached two images.");
+    expect(assignAttachmentsToMessage).toHaveBeenCalledWith(
+      "conv_image",
+      "msg_assistant_image",
+      ["att_1", "att_2"]
+    );
+  });
+
   it("recompiles image generation from the latest user request even if the model combines earlier prompts", async () => {
     let providerCallCount = 0;
     streamProviderResponse.mockImplementation(() => {

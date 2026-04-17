@@ -1,9 +1,83 @@
 import type { MessageAttachment } from "@/lib/types";
+import {
+  decodeMarkdownTarget,
+  findMarkdownTargets,
+  isExternalMarkdownTarget,
+  normalizeProtectedMarkdownContent,
+  parseAssistantDataImageTarget
+} from "@/lib/assistant-markdown-parsing";
 
-const MARKDOWN_IMAGE_PATTERN = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+function getPosixBasename(target: string) {
+  const normalizedTarget = target.endsWith("/") ? target.slice(0, -1) : target;
+  const lastSlashIndex = normalizedTarget.lastIndexOf("/");
 
-function isExternalImageTarget(target: string) {
-  return /^(?:https?:\/\/|data:|blob:)/i.test(target);
+  return lastSlashIndex === -1 ? normalizedTarget : normalizedTarget.slice(lastSlashIndex + 1);
+}
+
+function getPosixDirname(target: string) {
+  const normalizedTarget = target.endsWith("/") ? target.slice(0, -1) : target;
+  const lastSlashIndex = normalizedTarget.lastIndexOf("/");
+
+  if (lastSlashIndex <= 0) {
+    return lastSlashIndex === 0 ? "/" : "";
+  }
+
+  return normalizedTarget.slice(0, lastSlashIndex);
+}
+
+function sanitizeProseSegment(content: string, imageAttachments: MessageAttachment[], textAttachments: MessageAttachment[]) {
+  const matches = findMarkdownTargets(content);
+  if (matches.length === 0) {
+    return { content, changed: false };
+  }
+
+  const buildLocalTargetSet = (attachments: MessageAttachment[]) =>
+    new Set(attachments.flatMap((attachment) => [attachment.filename, attachment.relativePath]));
+  const matchesTmpSourceTarget = (target: string, attachments: MessageAttachment[]) =>
+    target.startsWith("/") &&
+    getPosixDirname(target) === "/tmp" &&
+    attachments.some((attachment) => attachment.filename === getPosixBasename(target));
+
+  const imageAttachmentTargets = buildLocalTargetSet(imageAttachments);
+  const textAttachmentTargets = buildLocalTargetSet(textAttachments);
+  const canStripImageTarget = (target: string) => {
+    const parsedDataImage = parseAssistantDataImageTarget(target);
+    return parsedDataImage.type === "valid" || (
+      !isExternalMarkdownTarget(target) &&
+      (imageAttachmentTargets.has(target) || matchesTmpSourceTarget(target, imageAttachments))
+    );
+  };
+  const canStripTextTarget = (target: string) =>
+    !isExternalMarkdownTarget(target) &&
+    (textAttachmentTargets.has(target) || matchesTmpSourceTarget(target, textAttachments));
+  const parts: string[] = [];
+  let cursor = 0;
+  let changed = false;
+
+  for (const match of matches) {
+    const normalizedTarget = decodeMarkdownTarget(match.target.trim());
+    const shouldStrip = match.definitionUsage
+      ? (!match.definitionUsage.link || canStripTextTarget(normalizedTarget)) &&
+        (!match.definitionUsage.image || canStripImageTarget(normalizedTarget))
+      : match.isImage
+        ? canStripImageTarget(normalizedTarget)
+        : canStripTextTarget(normalizedTarget);
+
+    if (!shouldStrip) {
+      continue;
+    }
+
+    parts.push(content.slice(cursor, match.start));
+    cursor = match.end;
+    changed = true;
+  }
+
+  if (!changed) {
+    return { content, changed: false };
+  }
+
+  parts.push(content.slice(cursor));
+  return { content: parts.join(""), changed: true };
 }
 
 export function stripAttachmentStyleImageMarkdown(
@@ -11,21 +85,16 @@ export function stripAttachmentStyleImageMarkdown(
   attachments: MessageAttachment[] = []
 ) {
   const imageAttachments = attachments.filter((attachment) => attachment.kind === "image");
-  if (!content || imageAttachments.length === 0) {
+  const textAttachments = attachments.filter((attachment) => attachment.kind === "text");
+  if (!content) {
     return content;
   }
 
-  const sanitized = content.replace(MARKDOWN_IMAGE_PATTERN, (match, rawTarget: string) => {
-    const target = rawTarget.trim();
-    if (isExternalImageTarget(target)) {
-      return match;
-    }
+  const sanitized = sanitizeProseSegment(content, imageAttachments, textAttachments);
 
-    return "";
-  });
+  if (!sanitized.changed) {
+    return content;
+  }
 
-  return sanitized
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return normalizeProtectedMarkdownContent(sanitized.content);
 }

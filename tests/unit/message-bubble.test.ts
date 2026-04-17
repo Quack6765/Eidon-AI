@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
 import type { Message, MessageAction, MessageTimelineItem } from "@/lib/types";
@@ -1473,6 +1473,100 @@ describe("message bubble", () => {
     expect(screen.getByText("The real attachment preview should render below.")).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "Generated Image" })).toBeNull();
     expect(screen.getByRole("button", { name: "Preview 20260416-175044-263a82d0-1.jpeg" })).toBeInTheDocument();
+  });
+
+  it("renders assistant image attachments inline without a duplicate preview tile", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "I've attached the generated image and notes below.",
+          attachments: [
+            {
+              id: "att_image",
+              conversationId: "conv_test",
+              messageId: "msg_assistant",
+              filename: "photo.png",
+              mimeType: "image/png",
+              byteSize: 10,
+              sha256: "hash",
+              relativePath: "conv_test/att_image_photo.png",
+              kind: "image",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            },
+            {
+              id: "att_text",
+              conversationId: "conv_test",
+              messageId: "msg_assistant",
+              filename: "notes.txt",
+              mimeType: "text/plain",
+              byteSize: 10,
+              sha256: "hash2",
+              relativePath: "conv_test/att_text_notes.txt",
+              kind: "text",
+              extractedText: "hello",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    const bubble = screen.getByTestId("assistant-message-bubble");
+
+    expect(within(bubble).getByText("I've attached the generated image and notes below.")).toBeInTheDocument();
+    expect(within(bubble).getByRole("button", { name: "Preview photo.png" })).toBeInTheDocument();
+    expect(within(bubble).queryByRole("img", { name: "photo.png" })).toBeNull();
+    expect(screen.getByText("notes.txt")).toBeInTheDocument();
+
+    const imagePreviewButtonsOutsideBubble = Array.from(
+      container.querySelectorAll('button[aria-label="Preview photo.png"]')
+    ).filter((button) => !bubble.contains(button));
+
+    expect(imagePreviewButtonsOutsideBubble).toHaveLength(0);
+  });
+
+  it("opens the existing attachment preview modal when clicking an inline assistant image", async () => {
+    installMockImage();
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Here is the generated image.",
+          attachments: [
+            {
+              id: "att_image",
+              conversationId: "conv_test",
+              messageId: "msg_assistant",
+              filename: "photo.png",
+              mimeType: "image/png",
+              byteSize: 10,
+              sha256: "hash",
+              relativePath: "conv_test/att_image_photo.png",
+              kind: "image",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(
+      within(screen.getByTestId("assistant-message-bubble")).getByRole("button", {
+        name: "Preview photo.png"
+      })
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Attachment preview" });
+    expect(dialog).toBeInTheDocument();
+    expect(screen.getByText("Loading preview…")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(within(dialog).getByRole("img", { name: "photo.png" })).toBeInTheDocument();
+    });
   });
 
   it("opens image attachments in a centered modal and closes with the X button", async () => {

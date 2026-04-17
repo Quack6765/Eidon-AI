@@ -70,7 +70,7 @@ describe("readme demo seed", () => {
     expect(snapshot?.queuedMessages).toHaveLength(2);
 
     const assistantReply = snapshot?.messages.find((message) => message.role === "assistant");
-    expect(assistantReply?.textSegments.length).toBeGreaterThan(0);
+    expect(assistantReply?.textSegments?.length).toBeGreaterThan(0);
     expect(assistantReply?.actions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ kind: "skill_load", status: "completed" }),

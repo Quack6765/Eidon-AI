@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { accessSync, constants as fsConstants } from "node:fs";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const WEB_BROWSER_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_CHARS = 8_000;
 const SHELL_SEGMENT_SEPARATOR_PATTERN = /&&|\|\||[;|\n]/;
 const WEB_BROWSER_COMMAND_SEGMENT_PATTERN =
@@ -19,6 +20,10 @@ export type ShellExecutionResult = {
   timedOut: boolean;
   isError: boolean;
 };
+
+function getDefaultTimeoutMs(command: string) {
+  return getShellCommandLabel(command) === "Web browser" ? WEB_BROWSER_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+}
 
 function truncateOutput(value: string) {
   if (value.length <= MAX_OUTPUT_CHARS) {
@@ -63,7 +68,7 @@ export async function executeLocalShellCommand(input: {
   timeoutMs?: number;
 }) {
   const command = validateCommand(input.command);
-  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timeoutMs = input.timeoutMs ?? getDefaultTimeoutMs(command);
 
   return await new Promise<ShellExecutionResult>((resolve) => {
     const child = spawn(resolveShellPath(), ["-lc", command], {

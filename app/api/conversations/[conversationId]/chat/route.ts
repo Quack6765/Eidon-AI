@@ -16,8 +16,8 @@ import {
   updateMessage,
   updateMessageAction,
 } from "@/lib/conversations";
+import { attachAssistantFilesFromCompletedAction, createAssistantContentPersistenceTracker } from "@/lib/chat-turn";
 import { ensureCompactedContext } from "@/lib/compaction";
-import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import { badRequest } from "@/lib/http";
 import {
   getSettings,
@@ -133,8 +133,10 @@ export async function POST(
 
       setConversationActive(conversation.id, true);
       const control = registerChatTurn(conversation.id);
+      const contentPersistence = createAssistantContentPersistenceTracker(conversation.id, assistantMessage.id);
       let latestAnswer = "";
       let latestThinking = "";
+      let sawStreamedAnswerSinceLastSegment = false;
       const runningActionHandles = new Set<string>();
 
       try {
@@ -190,15 +192,17 @@ export async function POST(
             write(event);
             if (event.type === "answer_delta") {
               latestAnswer += event.text;
+              sawStreamedAnswerSinceLastSegment = true;
             } else if (event.type === "thinking_delta") {
               latestThinking += event.text;
             }
           },
           onAnswerSegment(segment) {
-            const sanitizedSegment = stripAttachmentStyleImageMarkdown(
-              segment,
-              getMessage(assistantMessage.id)?.attachments ?? []
-            );
+            if (!sawStreamedAnswerSinceLastSegment) {
+              latestAnswer += segment;
+            }
+            sawStreamedAnswerSinceLastSegment = false;
+            const sanitizedSegment = contentPersistence.appendSegment(segment);
             if (!sanitizedSegment) {
               return;
             }
@@ -245,6 +249,7 @@ export async function POST(
             });
 
             if (updated) {
+              attachAssistantFilesFromCompletedAction(conversation.id, assistantMessage.id, updated);
               write({
                 type: "action_complete",
                 action: updated
@@ -274,10 +279,7 @@ export async function POST(
         });
 
         updateMessage(assistantMessage.id, {
-          content: stripAttachmentStyleImageMarkdown(
-            providerResult.answer,
-            getMessage(assistantMessage.id)?.attachments ?? []
-          ),
+          content: contentPersistence.finalize(providerResult.answer),
           thinkingContent: providerResult.thinking,
           status: "completed",
           estimatedTokens:
@@ -296,10 +298,7 @@ export async function POST(
       } catch (error) {
         if (error instanceof ChatTurnStoppedError) {
           updateMessage(assistantMessage.id, {
-            content: stripAttachmentStyleImageMarkdown(
-              latestAnswer,
-              getMessage(assistantMessage.id)?.attachments ?? []
-            ),
+            content: contentPersistence.finalize(latestAnswer),
             thinkingContent: latestThinking,
             status: "stopped",
             estimatedTokens: estimateTextTokens(latestAnswer)

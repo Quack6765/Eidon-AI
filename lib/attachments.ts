@@ -191,6 +191,33 @@ function removeAttachmentFile(relativePath: string) {
   }
 }
 
+function readAttachmentBytesFromFileDescriptor(sourceFd: number, sourcePath: string) {
+  const maxBytesToRead = MAX_ATTACHMENT_BYTES + 1;
+  const chunks: Buffer[] = [];
+  let totalBytesRead = 0;
+
+  while (totalBytesRead < maxBytesToRead) {
+    const bytesToRead = Math.min(64 * 1024, maxBytesToRead - totalBytesRead);
+    const chunk = Buffer.allocUnsafe(bytesToRead);
+    const bytesRead = fs.readSync(sourceFd, chunk, 0, bytesToRead, null);
+
+    if (bytesRead === 0) {
+      break;
+    }
+
+    chunks.push(bytesRead === chunk.length ? chunk : chunk.subarray(0, bytesRead));
+    totalBytesRead += bytesRead;
+
+    if (totalBytesRead > MAX_ATTACHMENT_BYTES) {
+      throw new Error(
+        `Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: ${path.basename(sourcePath)}`
+      );
+    }
+  }
+
+  return Buffer.concat(chunks, totalBytesRead);
+}
+
 export function getAttachment(attachmentId: string, userId?: string) {
   const row = (userId
     ? getDb()
@@ -389,6 +416,47 @@ export function createAttachments(conversationId: string, files: CreateAttachmen
     });
     removeConversationAttachmentDirIfEmpty(conversationId);
     throw error;
+  }
+}
+
+export function createAttachmentsFromBytes(conversationId: string, files: CreateAttachmentInput[]) {
+  return createAttachments(conversationId, files);
+}
+
+export function importAttachmentFromLocalFile(conversationId: string, sourcePath: string) {
+  const sourceStats = fs.lstatSync(sourcePath);
+
+  if (!sourceStats.isFile()) {
+    throw new Error(`Source path is not a regular file: ${sourcePath}`);
+  }
+
+  const sourceFd = fs.openSync(sourcePath, "r");
+
+  try {
+    const fileStats = fs.fstatSync(sourceFd);
+
+    if (!fileStats.isFile()) {
+      throw new Error(`Source path is not a regular file: ${sourcePath}`);
+    }
+
+    if (fileStats.size > MAX_ATTACHMENT_BYTES) {
+      throw new Error(
+        `Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: ${path.basename(sourcePath)}`
+      );
+    }
+
+    const bytes = readAttachmentBytesFromFileDescriptor(sourceFd, sourcePath);
+    const [attachment] = createAttachments(conversationId, [
+      {
+        filename: path.basename(sourcePath),
+        mimeType: "",
+        bytes
+      }
+    ]);
+
+    return attachment;
+  } finally {
+    fs.closeSync(sourceFd);
   }
 }
 

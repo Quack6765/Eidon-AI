@@ -1,0 +1,257 @@
+import fs from "node:fs";
+import path from "node:path";
+
+import { createAttachmentsFromBytes, importAttachmentFromLocalFile } from "@/lib/attachments";
+import {
+  decodeMarkdownTarget,
+  findMarkdownTargets,
+  isExternalMarkdownTarget,
+  normalizeProtectedMarkdownContent,
+  parseAssistantDataImageTarget
+} from "@/lib/assistant-markdown-parsing";
+import { env } from "@/lib/env";
+import type { MessageAttachment } from "@/lib/types";
+
+const TMP_ROOT = "/tmp";
+const GENERATED_IMAGE_DISPLAY_NAME = "generated image";
+
+type InferAssistantLocalAttachmentsInput = {
+  conversationId: string;
+  content: string;
+  workspaceRoot: string;
+  existingAttachments?: MessageAttachment[];
+};
+
+type InferAssistantLocalAttachmentsResult = {
+  content: string;
+  attachments: MessageAttachment[];
+  failureNote: string;
+};
+
+type LocalTargetOutcome =
+  | { type: "ignore" }
+  | { type: "attach"; attachment: MessageAttachment }
+  | { type: "already_attached"; displayName: string }
+  | { type: "deny"; displayName: string }
+  | { type: "error"; displayName: string };
+
+function normalizeRoot(rootPath: string) {
+  try {
+    return fs.realpathSync(rootPath);
+  } catch {
+    return path.resolve(rootPath);
+  }
+}
+
+function isPathInsideRoot(candidatePath: string, rootPath: string) {
+  const relativePath = path.relative(rootPath, candidatePath);
+  return relativePath === "" || (!relativePath.startsWith("..") && !path.isAbsolute(relativePath));
+}
+
+function collapseWhitespace(content: string) {
+  return normalizeProtectedMarkdownContent(content);
+}
+
+function buildFailureNote(deniedNames: Set<string>, failedNames: Set<string>) {
+  const parts: string[] = [];
+
+  if (deniedNames.size > 0) {
+    const deniedList = [...deniedNames].map((name) => `\`${name}\``).join(", ");
+    parts.push(`I couldn't attach ${deniedList} because only workspace files and /tmp are allowed.`);
+  }
+
+  if (failedNames.size > 0) {
+    const failedList = [...failedNames].map((name) => `\`${name}\``).join(", ");
+    parts.push(`I couldn't attach ${failedList} because the file could not be imported.`);
+  }
+
+  if (parts.length === 0) {
+    return "";
+  }
+
+  return `Note: ${parts.join(" ")}`;
+}
+
+export function importAssistantLocalFileAttachment(input: {
+  conversationId: string;
+  sourcePath: string;
+  workspaceRoot: string;
+  existingAttachments?: MessageAttachment[];
+}): LocalTargetOutcome {
+  if (isExternalMarkdownTarget(input.sourcePath) || !path.isAbsolute(input.sourcePath)) {
+    return { type: "ignore" };
+  }
+
+  let canonicalPath: string;
+  try {
+    canonicalPath = fs.realpathSync(input.sourcePath);
+  } catch {
+    return { type: "error", displayName: path.basename(input.sourcePath) || input.sourcePath };
+  }
+
+  const displayName = path.basename(input.sourcePath) || input.sourcePath;
+  if ((input.existingAttachments ?? []).some((attachment) => attachment.filename === displayName)) {
+    return { type: "already_attached", displayName };
+  }
+
+  const workspaceRoot = normalizeRoot(input.workspaceRoot);
+  const tmpRoot = normalizeRoot(TMP_ROOT);
+  const appDataRoot = normalizeRoot(env.EIDON_DATA_DIR);
+  const allowedByRoot = isPathInsideRoot(canonicalPath, workspaceRoot) || isPathInsideRoot(canonicalPath, tmpRoot);
+  const blockedByAppData = appDataRoot ? isPathInsideRoot(canonicalPath, appDataRoot) : false;
+
+  if (!allowedByRoot || blockedByAppData) {
+    return { type: "deny", displayName };
+  }
+
+  try {
+    const attachment = importAttachmentFromLocalFile(input.conversationId, canonicalPath);
+    return { type: "attach", attachment };
+  } catch {
+    return { type: "error", displayName };
+  }
+}
+
+export function inferAssistantLocalAttachments(
+  input: InferAssistantLocalAttachmentsInput
+): InferAssistantLocalAttachmentsResult {
+  if (!input.content) {
+    return {
+      content: input.content,
+      attachments: [],
+      failureNote: ""
+    };
+  }
+
+  const attachmentCache = new Map<string, LocalTargetOutcome>();
+  const attachments: MessageAttachment[] = [];
+  const deniedNames = new Set<string>();
+  const failedNames = new Set<string>();
+
+  const resolveTarget = (rawTarget: string, isImage: boolean): LocalTargetOutcome => {
+    const trimmedTarget = rawTarget.trim();
+
+    if (isImage) {
+      const parsedDataImage = parseAssistantDataImageTarget(trimmedTarget);
+      if (parsedDataImage.type === "invalid" || parsedDataImage.type === "unsupported") {
+        const cached = attachmentCache.get(parsedDataImage.cacheKey);
+        if (cached) {
+          return cached;
+        }
+
+        const errorOutcome: LocalTargetOutcome = {
+          type: "error",
+          displayName: GENERATED_IMAGE_DISPLAY_NAME
+        };
+        attachmentCache.set(parsedDataImage.cacheKey, errorOutcome);
+        return errorOutcome;
+      }
+
+      if (parsedDataImage.type === "valid") {
+        const cached = attachmentCache.get(parsedDataImage.cacheKey);
+        if (cached) {
+          return cached;
+        }
+
+        try {
+          const [attachment] = createAttachmentsFromBytes(input.conversationId, [
+            {
+              filename: parsedDataImage.filename,
+              mimeType: parsedDataImage.mimeType,
+              bytes: parsedDataImage.bytes
+            }
+          ]);
+          const attachOutcome: LocalTargetOutcome = { type: "attach", attachment };
+          attachmentCache.set(parsedDataImage.cacheKey, attachOutcome);
+          attachments.push(attachment);
+          return attachOutcome;
+        } catch {
+          const errorOutcome: LocalTargetOutcome = {
+            type: "error",
+            displayName: GENERATED_IMAGE_DISPLAY_NAME
+          };
+          attachmentCache.set(parsedDataImage.cacheKey, errorOutcome);
+          return errorOutcome;
+        }
+      }
+    }
+
+    const decodedTarget = decodeMarkdownTarget(trimmedTarget);
+    if (isExternalMarkdownTarget(decodedTarget) || !path.isAbsolute(decodedTarget)) {
+      return { type: "ignore" };
+    }
+
+    let canonicalPath: string;
+    try {
+      canonicalPath = fs.realpathSync(decodedTarget);
+    } catch {
+      return { type: "error", displayName: path.basename(decodedTarget) || decodedTarget };
+    }
+
+    const cached = attachmentCache.get(canonicalPath);
+    if (cached) {
+      return cached;
+    }
+
+    const outcome = importAssistantLocalFileAttachment({
+      conversationId: input.conversationId,
+      sourcePath: decodedTarget,
+      workspaceRoot: input.workspaceRoot,
+      existingAttachments: [...(input.existingAttachments ?? []), ...attachments]
+    });
+
+    attachmentCache.set(canonicalPath, outcome);
+    if (outcome.type === "attach") {
+      attachments.push(outcome.attachment);
+    }
+
+    return outcome;
+  };
+
+  const sanitizeProseSegment = (segment: string) => {
+    const matches = findMarkdownTargets(segment);
+    if (matches.length === 0) {
+      return segment;
+    }
+
+    const parts: string[] = [];
+    let cursor = 0;
+
+    for (const match of matches) {
+      const outcomes = match.definitionUsage
+        ? [
+            ...(match.definitionUsage.link ? [resolveTarget(match.target, false)] : []),
+            ...(match.definitionUsage.image ? [resolveTarget(match.target, true)] : [])
+          ]
+        : [resolveTarget(match.target, match.isImage)];
+
+      const shouldStrip = outcomes.every((outcome) => outcome.type !== "ignore");
+      if (!shouldStrip) {
+        continue;
+      }
+
+      parts.push(segment.slice(cursor, match.start));
+
+      for (const outcome of outcomes) {
+        if (outcome.type === "deny") {
+          deniedNames.add(outcome.displayName);
+        } else if (outcome.type === "error") {
+          failedNames.add(outcome.displayName);
+        }
+      }
+
+      cursor = match.end;
+    }
+
+    parts.push(segment.slice(cursor));
+    return parts.join("");
+  };
+
+  const sanitizedContent = sanitizeProseSegment(input.content);
+
+  return {
+    content: collapseWhitespace(sanitizedContent),
+    attachments,
+    failureNote: buildFailureNote(deniedNames, failedNames)
+  };
+}

@@ -1,5 +1,7 @@
+import fs from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
+import path from "node:path";
 
 import { expect, test } from "@playwright/test";
 
@@ -39,7 +41,10 @@ async function signIn(page: import("@playwright/test").Page) {
   await page.waitForURL(/localhost:3117\/$/, { timeout: 15000 });
 }
 
-async function mockChatResponse(page: import("@playwright/test").Page) {
+async function mockChatResponse(
+  page: import("@playwright/test").Page,
+  assistantAnswer = "Attachment received"
+) {
   await page.route("**/api/conversations/*/chat", async (route) => {
     await route.fulfill({
       status: 200,
@@ -47,7 +52,7 @@ async function mockChatResponse(page: import("@playwright/test").Page) {
       body: [
         'data: {"type":"message_start","messageId":"msg_assistant"}',
         "",
-        'data: {"type":"answer_delta","text":"Attachment received"}',
+        `data: {"type":"answer_delta","text":${JSON.stringify(assistantAnswer)}}`,
         "",
         'data: {"type":"done","messageId":"msg_assistant"}',
         "",
@@ -95,7 +100,11 @@ type MockChatRequest = {
   isTitleRequest: boolean;
 };
 
-async function startMockOpenAiCompatibleServer() {
+type MockProviderOptions = {
+  queuedAnswer?: string | ((lastUserContent: string) => string);
+};
+
+async function startMockOpenAiCompatibleServer(options: MockProviderOptions = {}) {
   const chatRequests: MockChatRequest[] = [];
   let initialStreamConnections = 0;
   const openSockets = new Set<Socket>();
@@ -147,7 +156,12 @@ async function startMockOpenAiCompatibleServer() {
       return;
     }
 
-    await streamQueuedTurn(response, body.model ?? "mock-model", lastUserContent);
+    const queuedAnswer =
+      typeof options.queuedAnswer === "function"
+        ? options.queuedAnswer(lastUserContent)
+        : options.queuedAnswer ?? `Handled ${lastUserContent}`;
+
+    await streamQueuedTurn(response, body.model ?? "mock-model", queuedAnswer);
   });
 
   server.on("connection", (socket) => {
@@ -289,7 +303,7 @@ async function streamInitialTurn(
 async function streamQueuedTurn(
   response: ServerResponse,
   model: string,
-  lastUserContent: string
+  assistantText: string
 ) {
   response.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
@@ -298,7 +312,7 @@ async function streamQueuedTurn(
   });
 
   writeChatCompletionChunk(response, {
-    id: `chatcmpl_${lastUserContent}`,
+    id: "chatcmpl_queued_turn",
     object: "chat.completion.chunk",
     created: Math.floor(Date.now() / 1000),
     model,
@@ -307,7 +321,7 @@ async function streamQueuedTurn(
         index: 0,
         delta: {
           role: "assistant",
-          content: `Handled ${lastUserContent}`
+          content: assistantText
         },
         finish_reason: null
       }
@@ -315,7 +329,7 @@ async function streamQueuedTurn(
   });
 
   writeChatCompletionChunk(response, {
-    id: `chatcmpl_${lastUserContent}`,
+    id: "chatcmpl_queued_turn",
     object: "chat.completion.chunk",
     created: Math.floor(Date.now() / 1000),
     model,
@@ -402,11 +416,16 @@ async function configureMockProvider(
   expect(providerResponse.ok()).toBeTruthy();
 
   return async () => {
-    const restoreResponse = await page.request.put("/api/settings/providers", {
-      data: settingsPayload.settings
-    });
+    try {
+      const restoreResponse = await page.request.put("/api/settings/providers", {
+        data: settingsPayload.settings,
+        timeout: 5000
+      });
 
-    expect(restoreResponse.ok()).toBeTruthy();
+      expect(restoreResponse.ok()).toBeTruthy();
+    } catch {
+      // Best-effort cleanup. The test should not hang on provider restore.
+    }
   };
 }
 
@@ -1187,6 +1206,157 @@ test.describe("Feature: Chat attachments", () => {
       "href",
       /\/api\/attachments\/att_notes\?download=1$/
     );
+  });
+
+  test("renders assistant inline image attachments from data-image markdown without duplicate tiles", async ({
+    page
+  }) => {
+    test.setTimeout(120_000);
+    const inlineDataImage = `data:image/png;base64,${TINY_PNG.toString("base64")}`;
+    const assistantAnswer = [
+      "Here is the generated image.",
+      "",
+      `![Inline](${inlineDataImage})`,
+      "",
+      "The real attachment preview should render below."
+    ].join("\n");
+
+    const mockServer = await startMockOpenAiCompatibleServer({
+      queuedAnswer: () => assistantAnswer
+    });
+    let restoreProviderSettings: (() => Promise<void>) | null = null;
+
+    try {
+      await signIn(page);
+      restoreProviderSettings = await configureMockProvider(page, mockServer.apiBaseUrl);
+      mockServer.reset();
+
+      await createNewChat(page);
+      await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+      const composer = page.getByPlaceholder(/Ask, create, or start a task/i);
+      const sendMessageButtons = page.getByRole("button", { name: "Send message" });
+      const startVoiceInputButton = page.getByRole("button", { name: "Start voice input" });
+
+      await expect(composer).toBeEditable({ timeout: 10000 });
+      await expect(startVoiceInputButton).toBeEnabled({ timeout: 10000 });
+      await composer.fill("Show me the generated image");
+      await expect(composer).toHaveValue("Show me the generated image");
+      const sendMessageButton = sendMessageButtons.last();
+      await expect(sendMessageButton).toBeEnabled({ timeout: 10000 });
+      await sendMessageButton.click();
+
+      const assistantBubble = page.locator('[data-testid="assistant-message-bubble"]').last();
+      await expect(assistantBubble.getByText("Here is the generated image.")).toBeVisible({
+        timeout: 10000
+      });
+      await expect(
+        assistantBubble.getByText("The real attachment preview should render below.")
+      ).toBeVisible({ timeout: 10000 });
+      await expect(assistantBubble.getByText(/data:image\/png;base64/i)).toHaveCount(0);
+      await expect(page.getByText(/data:image\/png;base64/i)).toHaveCount(0);
+
+      const inlinePreviewButton = assistantBubble.getByRole("button", {
+        name: /^Preview .+\.png$/
+      });
+      await expect(inlinePreviewButton).toHaveCount(1);
+      await expect(inlinePreviewButton).toBeVisible();
+      await expect(page.getByRole("button", { name: /^Preview .+\.png$/ })).toHaveCount(1);
+
+      const inlineImage = inlinePreviewButton.locator('img[src^="/api/attachments/"]');
+      await expect(inlineImage).toHaveCount(1);
+
+      const inlineImageSrc = await inlineImage.getAttribute("src");
+      expect(inlineImageSrc).toMatch(/^\/api\/attachments\/[^/]+$/);
+
+      await inlinePreviewButton.click();
+      await expect(page.getByRole("dialog", { name: "Attachment preview" })).toBeVisible();
+      await expect(
+        page.getByRole("link", { name: "Download attachment" })
+      ).toHaveAttribute("href", `${inlineImageSrc}?download=1`);
+      await expect(page.getByRole("dialog", { name: "Attachment preview" }).getByRole("img")).toBeVisible();
+      await page.getByRole("button", { name: "Close attachment preview" }).click();
+      await expect(page.getByRole("dialog", { name: "Attachment preview" })).toBeHidden();
+    } finally {
+      if (restoreProviderSettings) {
+        await restoreProviderSettings();
+      }
+      await mockServer.close();
+    }
+  });
+
+  test("renders assistant-imported local screenshots and files as transcript tiles", async ({
+    page
+  }) => {
+    test.setTimeout(120_000);
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "eidon-assistant-local-attachments-"));
+    const screenshotPath = path.join(tempDir, "screenshot.png");
+    const reportPath = path.join(tempDir, "report.txt");
+    const assistantAnswer = [
+      "Here are the local files you asked for.",
+      "",
+      `![Screenshot](${screenshotPath})`,
+      "",
+      `[Report](${reportPath})`
+    ].join("\n");
+
+    fs.writeFileSync(screenshotPath, TINY_PNG);
+    fs.writeFileSync(reportPath, "report body", "utf8");
+
+    const mockServer = await startMockOpenAiCompatibleServer({
+      queuedAnswer: () => assistantAnswer
+    });
+    let restoreProviderSettings: (() => Promise<void>) | null = null;
+
+    try {
+      await signIn(page);
+      restoreProviderSettings = await configureMockProvider(page, mockServer.apiBaseUrl);
+      mockServer.reset();
+
+      await createNewChat(page);
+      await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+      const composer = page.getByPlaceholder(/Ask, create, or start a task/i);
+      const sendMessageButton = page.getByRole("button", { name: "Send message" });
+      const startVoiceInputButton = page.getByRole("button", { name: "Start voice input" });
+      await expect(composer).toBeEditable({ timeout: 10000 });
+      await expect(startVoiceInputButton).toBeEnabled({ timeout: 10000 });
+      await enterComposerText(composer, "Please review these");
+      await expect(sendMessageButton).toBeEnabled({ timeout: 10000 });
+      await sendMessageButton.click();
+
+      await page.waitForTimeout(250);
+      await expect(page.getByRole("button", { name: "Preview screenshot.png" })).toHaveCount(1);
+      await expect(page.getByRole("button", { name: "Preview report.txt" })).toHaveCount(1);
+      await expect(page.getByRole("link", { name: "Report" })).toHaveCount(0);
+      await expect(page.getByRole("img", { name: "Screenshot" })).toHaveCount(0);
+      await expect(page.locator(`a[href="${reportPath}"]`)).toHaveCount(0);
+      await expect(page.locator(`img[src="${screenshotPath}"]`)).toHaveCount(0);
+
+      await page.getByRole("button", { name: "Preview screenshot.png" }).last().click();
+      await expect(page.getByRole("dialog", { name: "Attachment preview" })).toBeVisible();
+      await expect(page.getByRole("img", { name: "Screenshot" })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "Download attachment" })).toHaveAttribute(
+        "href",
+        /\/api\/attachments\/[^/]+\?download=1$/
+      );
+      await page.getByRole("button", { name: "Close attachment preview" }).click();
+
+      await expect(page.getByRole("button", { name: "Preview screenshot.png" }).last()).toBeVisible({
+        timeout: 10000
+      });
+      await expect(page.getByRole("button", { name: "Preview report.txt" }).last()).toBeVisible({
+        timeout: 10000
+      });
+      await expect(page.getByText(screenshotPath)).toHaveCount(0);
+      await expect(page.getByText(reportPath)).toHaveCount(0);
+    } finally {
+      if (restoreProviderSettings) {
+        await restoreProviderSettings();
+      }
+      await mockServer.close();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 
