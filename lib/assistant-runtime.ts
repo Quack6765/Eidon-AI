@@ -73,6 +73,8 @@ const IMAGE_TOOL_POST_SUCCESS_DIRECTIVE =
   "Image generation is available in this environment and a generated image is already attached in this turn. Do not claim that image generation is unavailable. Refer to the generated image result directly, do not call generate_image again in this turn, and do not embed markdown image tags or local file links in your response.";
 const IMAGE_TOOL_REQUIRED_DIRECTIVE =
   "The latest user request requires generating a new image. Do not claim that an image was generated unless you call generate_image in this response. Call generate_image now.";
+const INLINE_ATTACHMENT_DIRECTIVE =
+  "When you create or capture an image file, rely on the runtime attachment flow. Do not run base64 on screenshot/image files. Do not embed data: image URLs in your visible response.";
 const NON_NATIVE_VISION_DIRECTIVE =
   "The current model configuration cannot inspect attached images directly in this turn. Attached images were provided only as text placeholders. Do not claim to have viewed image contents directly. If image analysis is required, explain the limitation or use the configured vision MCP server when available.";
 
@@ -1261,6 +1263,7 @@ export async function resolveAssistantTurn(input: {
   promptMessages = turnSkills.length || mcpServers.length || input.mcpToolSets.length
     ? mergeSystemMessage(promptMessages, buildCapabilitiesSystemMessage(turnSkills, mcpServers))
     : promptMessages;
+  promptMessages = mergeSystemMessage(promptMessages, INLINE_ATTACHMENT_DIRECTIVE);
 
   if (input.appSettings?.imageGenerationBackend && input.appSettings.imageGenerationBackend !== "disabled") {
     promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE);

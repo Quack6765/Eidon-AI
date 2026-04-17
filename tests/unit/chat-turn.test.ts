@@ -604,6 +604,98 @@ describe("chat-turn", () => {
     }
   });
 
+  it("persists salvaged data images as attachments and strips raw base64 from final assistant content", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        return {
+          answer:
+            "Here is the capture:\n\n![Inline](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO2p8L8AAAAASUVORK5CYII=)",
+          thinking: "",
+          usage: { outputTokens: 1 }
+        };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await expect(startChatTurn(manager, conv.id, "Show me the capture", [])).resolves.toEqual({
+      status: "completed"
+    });
+
+    const { listVisibleMessages } = await import("@/lib/conversations");
+    const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+
+    expect(assistant?.content).toBe("Here is the capture:");
+    expect(assistant?.attachments).toHaveLength(1);
+    expect(assistant?.attachments?.[0]?.kind).toBe("image");
+    expect(assistant?.content).not.toContain("data:image/png;base64");
+    expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Here is the capture:"]);
+  });
+
+  it("adds runtime guidance not to base64 screenshot files or embed data image URLs", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Acknowledged." };
+        return {
+          answer: "Acknowledged.",
+          thinking: "",
+          usage: { outputTokens: 1 }
+        };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await expect(startChatTurn(manager, conv.id, "Take a screenshot and share it", [])).resolves.toEqual({
+      status: "completed"
+    });
+
+    const providerCall = mockedStreamProviderResponse.mock.calls.at(-1)?.[0];
+    const systemPrompt = providerCall?.promptMessages.find(
+      (message: { role: string; content: unknown }) => message.role === "system"
+    )?.content;
+
+    expect(systemPrompt).toEqual(expect.any(String));
+    expect(systemPrompt).toContain("Do not run base64 on screenshot/image files");
+    expect(systemPrompt).toContain("Do not embed data: image URLs");
+  });
+
   it("persists pending memory proposal metadata on assistant actions", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
