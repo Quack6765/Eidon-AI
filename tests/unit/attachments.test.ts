@@ -5,6 +5,7 @@ import { vi } from "vitest";
 
 import {
   createAttachments,
+  createImageAttachmentsFromBytes,
   deleteAttachmentById,
   getAttachment,
   getAttachmentDataUrl,
@@ -71,6 +72,40 @@ describe("attachment helpers", () => {
     expect(getAttachmentDataUrl(attachment)).toBe(
       `data:image/png;base64,${Buffer.from("png-binary", "utf8").toString("base64")}`
     );
+  });
+
+  it("creates an image attachment from decoded in-memory bytes", () => {
+    const conversation = createConversation();
+    const imageBytes = Buffer.from("decoded-image-bytes", "utf8");
+    const [attachment] = createImageAttachmentsFromBytes(conversation.id, [
+      {
+        filename: "generated.png",
+        mimeType: "image/png",
+        bytes: imageBytes
+      }
+    ]);
+
+    expect(attachment.filename).toBe("generated.png");
+    expect(attachment.kind).toBe("image");
+    expect(attachment.mimeType).toBe("image/png");
+    expect(attachment.extractedText).toBe("");
+    expect(
+      fs.readFileSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath))
+    ).toEqual(imageBytes);
+  });
+
+  it("rejects oversized in-memory attachments", () => {
+    const conversation = createConversation();
+
+    expect(() =>
+      createImageAttachmentsFromBytes(conversation.id, [
+        {
+          filename: "generated.png",
+          mimeType: "image/png",
+          bytes: Buffer.alloc(MAX_ATTACHMENT_BYTES + 1, 0x61)
+        }
+      ])
+    ).toThrow(`Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: generated.png`);
   });
 
   it("deletes attachments even when the backing file is already missing", () => {

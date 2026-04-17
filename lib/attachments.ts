@@ -419,6 +419,10 @@ export function createAttachments(conversationId: string, files: CreateAttachmen
   }
 }
 
+export function createImageAttachmentsFromBytes(conversationId: string, files: CreateAttachmentInput[]) {
+  return createAttachments(conversationId, files);
+}
+
 export function importAttachmentFromLocalFile(conversationId: string, sourcePath: string) {
   const sourceStats = fs.lstatSync(sourcePath);
 
