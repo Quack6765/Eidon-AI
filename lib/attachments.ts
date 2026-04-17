@@ -419,7 +419,7 @@ export function createAttachments(conversationId: string, files: CreateAttachmen
   }
 }
 
-export function createImageAttachmentsFromBytes(conversationId: string, files: CreateAttachmentInput[]) {
+export function createAttachmentsFromBytes(conversationId: string, files: CreateAttachmentInput[]) {
   return createAttachments(conversationId, files);
 }
 

@@ -5,7 +5,7 @@ import { vi } from "vitest";
 
 import {
   createAttachments,
-  createImageAttachmentsFromBytes,
+  createAttachmentsFromBytes,
   deleteAttachmentById,
   getAttachment,
   getAttachmentDataUrl,
@@ -74,10 +74,10 @@ describe("attachment helpers", () => {
     );
   });
 
-  it("creates an image attachment from decoded in-memory bytes", () => {
+  it("creates an attachment from decoded in-memory bytes", () => {
     const conversation = createConversation();
     const imageBytes = Buffer.from("decoded-image-bytes", "utf8");
-    const [attachment] = createImageAttachmentsFromBytes(conversation.id, [
+    const [attachment] = createAttachmentsFromBytes(conversation.id, [
       {
         filename: "generated.png",
         mimeType: "image/png",
@@ -98,7 +98,7 @@ describe("attachment helpers", () => {
     const conversation = createConversation();
 
     expect(() =>
-      createImageAttachmentsFromBytes(conversation.id, [
+      createAttachmentsFromBytes(conversation.id, [
         {
           filename: "generated.png",
           mimeType: "image/png",
