@@ -6,6 +6,30 @@ import { createConversation } from "@/lib/conversations";
 import { inferAssistantLocalAttachments } from "@/lib/assistant-local-attachments";
 
 describe("inferAssistantLocalAttachments", () => {
+  it("imports a /tmp image markdown target and strips it from content", () => {
+    const conversation = createConversation();
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "eidon-assistant-image-"));
+    const sourcePath = path.join(tempDir, "preview.png");
+
+    try {
+      fs.writeFileSync(sourcePath, "png-binary", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: ["Preview:", "", `![preview](${sourcePath})`].join("\n"),
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      expect(result.attachments[0]?.filename).toBe("preview.png");
+      expect(result.attachments[0]?.kind).toBe("image");
+      expect(result.content).toBe("Preview:");
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("imports a workspace markdown link and strips it from content", () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
@@ -79,6 +103,52 @@ describe("inferAssistantLocalAttachments", () => {
     expect(result.attachments).toHaveLength(0);
     expect(result.content).toBe(content);
     expect(result.failureNote).toBe("");
+  });
+
+  it("imports an angle-bracket local path with spaces", () => {
+    const conversation = createConversation();
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "notes with space.txt");
+
+    try {
+      fs.writeFileSync(sourcePath, "spacey", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: ["Attached:", "", `[notes](<${sourcePath}>)`].join("\n"),
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      expect(result.attachments[0]?.kind).toBe("text");
+      expect(result.content).toBe("Attached:");
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("imports a local path containing parentheses", () => {
+    const conversation = createConversation();
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "file(1).txt");
+
+    try {
+      fs.writeFileSync(sourcePath, "paren", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: ["Attached:", "", `[file](${sourcePath})`].join("\n"),
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      expect(result.attachments[0]?.kind).toBe("text");
+      expect(result.content).toBe("Attached:");
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
   });
 
   it("rejects symlink escapes after canonicalization", () => {

@@ -5,8 +5,6 @@ import { importAttachmentFromLocalFile } from "@/lib/attachments";
 import { env } from "@/lib/env";
 import type { MessageAttachment } from "@/lib/types";
 
-const MARKDOWN_IMAGE_PATTERN = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
-const MARKDOWN_LINK_PATTERN = /(?<!\!)\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const CODE_SEGMENT_PATTERN = /```[\s\S]*?```|`[^`\n]+`/g;
 const TMP_ROOT = "/tmp";
 
@@ -27,6 +25,12 @@ type LocalTargetOutcome =
   | { type: "attach"; attachment: MessageAttachment }
   | { type: "deny"; displayName: string }
   | { type: "error"; displayName: string };
+
+type ParsedMarkdownTarget = {
+  start: number;
+  end: number;
+  target: string;
+};
 
 function isExternalTarget(target: string) {
   return /^[a-z][a-z0-9+.-]*:/i.test(target);
@@ -78,6 +82,158 @@ function buildFailureNote(deniedNames: Set<string>, failedNames: Set<string>) {
   }
 
   return `Note: ${parts.join(" ")}`;
+}
+
+function findMatchingBracket(content: string, startIndex: number) {
+  let depth = 0;
+
+  for (let index = startIndex; index < content.length; index += 1) {
+    const character = content[index];
+
+    if (character === "\\") {
+      index += 1;
+      continue;
+    }
+
+    if (character === "[") {
+      depth += 1;
+      continue;
+    }
+
+    if (character === "]") {
+      depth -= 1;
+      if (depth === 0) {
+        return index;
+      }
+    }
+  }
+
+  return -1;
+}
+
+function parseMarkdownDestination(content: string, openParenIndex: number) {
+  let cursor = openParenIndex + 1;
+
+  while (cursor < content.length && (content[cursor] === " " || content[cursor] === "\t")) {
+    cursor += 1;
+  }
+
+  if (cursor >= content.length) {
+    return null;
+  }
+
+  if (content[cursor] === "<") {
+    const targetStart = cursor + 1;
+    cursor += 1;
+
+    while (cursor < content.length) {
+      const character = content[cursor];
+
+      if (character === "\\") {
+        cursor += 2;
+        continue;
+      }
+
+      if (character === ">") {
+        const target = content.slice(targetStart, cursor);
+        cursor += 1;
+
+        while (cursor < content.length && (content[cursor] === " " || content[cursor] === "\t")) {
+          cursor += 1;
+        }
+
+        if (content[cursor] !== ")") {
+          return null;
+        }
+
+        return {
+          target,
+          end: cursor + 1
+        };
+      }
+
+      cursor += 1;
+    }
+
+    return null;
+  }
+
+  const targetStart = cursor;
+  let parenDepth = 0;
+
+  while (cursor < content.length) {
+    const character = content[cursor];
+
+    if (character === "\\") {
+      cursor += 2;
+      continue;
+    }
+
+    if (character === "(") {
+      parenDepth += 1;
+      cursor += 1;
+      continue;
+    }
+
+    if (character === ")") {
+      if (parenDepth === 0) {
+        const target = content.slice(targetStart, cursor).trim();
+        if (!target || /\s/.test(target)) {
+          return null;
+        }
+
+        return {
+          target,
+          end: cursor + 1
+        };
+      }
+
+      parenDepth -= 1;
+      cursor += 1;
+      continue;
+    }
+
+    if (/\s/.test(character)) {
+      return null;
+    }
+
+    cursor += 1;
+  }
+
+  return null;
+}
+
+function findMarkdownTargets(content: string): ParsedMarkdownTarget[] {
+  const matches: ParsedMarkdownTarget[] = [];
+
+  for (let index = 0; index < content.length; index += 1) {
+    const character = content[index];
+    const labelStart =
+      character === "[" ? index : character === "!" && content[index + 1] === "[" ? index + 1 : -1;
+
+    if (labelStart === -1) {
+      continue;
+    }
+
+    const labelEnd = findMatchingBracket(content, labelStart);
+    if (labelEnd === -1 || content[labelEnd + 1] !== "(") {
+      continue;
+    }
+
+    const destination = parseMarkdownDestination(content, labelEnd + 1);
+    if (!destination) {
+      continue;
+    }
+
+    matches.push({
+      start: character === "!" ? index : labelStart,
+      end: destination.end,
+      target: destination.target
+    });
+    index = destination.end - 1;
+  }
+
+  return matches;
 }
 
 export function inferAssistantLocalAttachments(
@@ -141,28 +297,33 @@ export function inferAssistantLocalAttachments(
   };
 
   const sanitizeProseSegment = (segment: string) => {
-    const replaceTarget = (match: string, rawTarget: string) => {
-      const outcome = resolveTarget(rawTarget);
+    const matches = findMarkdownTargets(segment);
+    if (matches.length === 0) {
+      return segment;
+    }
 
+    const parts: string[] = [];
+    let cursor = 0;
+
+    for (const match of matches) {
+      const outcome = resolveTarget(match.target);
       if (outcome.type === "ignore") {
-        return match;
+        continue;
       }
+
+      parts.push(segment.slice(cursor, match.start));
 
       if (outcome.type === "deny") {
         deniedNames.add(outcome.displayName);
-        return "";
-      }
-
-      if (outcome.type === "error") {
+      } else if (outcome.type === "error") {
         failedNames.add(outcome.displayName);
-        return "";
       }
 
-      return "";
-    };
+      cursor = match.end;
+    }
 
-    const withoutImages = segment.replace(MARKDOWN_IMAGE_PATTERN, replaceTarget);
-    return withoutImages.replace(MARKDOWN_LINK_PATTERN, replaceTarget);
+    parts.push(segment.slice(cursor));
+    return parts.join("");
   };
 
   const parts: string[] = [];
