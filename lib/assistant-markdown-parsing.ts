@@ -160,8 +160,64 @@ function isBlankLine(content: string, lineStart: number, lineEnd: number) {
   return true;
 }
 
-function isIndentedCodeLine(content: string, lineStart: number, lineEnd: number) {
+function previousLineIsBlankOrDocumentStart(content: string, lineStart: number) {
+  if (lineStart === 0) {
+    return true;
+  }
+
+  const previousLineEnd = lineStart - 1;
+  const previousLineStart = content.lastIndexOf("\n", lineStart - 2) + 1;
+  return isBlankLine(content, previousLineStart, previousLineEnd);
+}
+
+function getBlockquoteContentStart(content: string, lineStart: number, lineEnd: number) {
+  let cursor = lineStart;
+  let sawQuote = false;
+
+  while (cursor < lineEnd) {
+    const quoteStart = cursor;
+    let probe = cursor;
+    let indent = 0;
+
+    while (probe < lineEnd && content[probe] === " " && indent < 3) {
+      probe += 1;
+      indent += 1;
+    }
+
+    if (probe >= lineEnd || content[probe] !== ">") {
+      cursor = sawQuote ? quoteStart : probe;
+      break;
+    }
+
+    sawQuote = true;
+    cursor = probe + 1;
+    if (cursor < lineEnd && content[cursor] === " ") {
+      cursor += 1;
+    }
+  }
+
+  return sawQuote ? cursor : null;
+}
+
+function isQuotedIndentedCodeLine(content: string, lineStart: number, lineEnd: number) {
+  const quoteContentStart = getBlockquoteContentStart(content, lineStart, lineEnd);
+  if (quoteContentStart === null || quoteContentStart >= lineEnd) {
+    return false;
+  }
+
+  if (content[quoteContentStart] === "\t") {
+    return true;
+  }
+
+  return content.startsWith("    ", quoteContentStart);
+}
+
+function isTopLevelIndentedCodeLine(content: string, lineStart: number, lineEnd: number) {
   if (lineStart >= lineEnd) {
+    return false;
+  }
+
+  if (!previousLineIsBlankOrDocumentStart(content, lineStart)) {
     return false;
   }
 
@@ -206,7 +262,7 @@ export function splitByCodeSegments(content: string) {
       continue;
     }
 
-    if (isIndentedCodeLine(content, lineStart, lineEnd)) {
+    if (isQuotedIndentedCodeLine(content, lineStart, lineEnd)) {
       if (lineStart > proseStart) {
         blockSegments.push({ isCode: false, text: content.slice(proseStart, lineStart) });
       }
@@ -217,7 +273,32 @@ export function splitByCodeSegments(content: string) {
       while (searchLineStart < content.length) {
         const searchLineEnd = findLineEnd(content, searchLineStart);
         if (!isBlankLine(content, searchLineStart, searchLineEnd) &&
-            !isIndentedCodeLine(content, searchLineStart, searchLineEnd)) {
+            !isQuotedIndentedCodeLine(content, searchLineStart, searchLineEnd)) {
+          break;
+        }
+
+        searchLineStart = nextLineStart(content, searchLineStart);
+        blockEnd = searchLineStart;
+      }
+
+      blockSegments.push({ isCode: true, text: content.slice(lineStart, blockEnd) });
+      proseStart = blockEnd;
+      lineStart = blockEnd;
+      continue;
+    }
+
+    if (isTopLevelIndentedCodeLine(content, lineStart, lineEnd)) {
+      if (lineStart > proseStart) {
+        blockSegments.push({ isCode: false, text: content.slice(proseStart, lineStart) });
+      }
+
+      let blockEnd = nextLineStart(content, lineStart);
+      let searchLineStart = blockEnd;
+
+      while (searchLineStart < content.length) {
+        const searchLineEnd = findLineEnd(content, searchLineStart);
+        if (!isBlankLine(content, searchLineStart, searchLineEnd) &&
+            !isTopLevelIndentedCodeLine(content, searchLineStart, searchLineEnd)) {
           break;
         }
 

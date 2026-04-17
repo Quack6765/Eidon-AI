@@ -165,6 +165,12 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     );
   });
 
+  it("does not treat list continuation lines as indented code blocks", () => {
+    const content = ["- item", "    [Report](notes.txt)"].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe("- item");
+  });
+
   it("removes local markdown file links when the assistant message already has text attachments", () => {
     const content = [
       "Here is the report you asked for.",

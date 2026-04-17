@@ -157,6 +157,29 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
+  it("preserves quoted code examples instead of importing their local links", () => {
+    const conversation = createConversation();
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "report.txt");
+    const content = `>     [Report](${sourcePath})`;
+
+    try {
+      fs.writeFileSync(sourcePath, "report", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content,
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(0);
+      expect(result.content).toBe(content);
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   it("imports a /tmp image markdown target and strips it from content", () => {
     const conversation = createConversation();
     const tempDir = fs.mkdtempSync(path.join("/tmp", "eidon-assistant-image-"));
