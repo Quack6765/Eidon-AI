@@ -151,6 +151,52 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
+  it("imports a local path with an escaped closing parenthesis", () => {
+    const conversation = createConversation();
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "file)name.txt");
+
+    try {
+      fs.writeFileSync(sourcePath, "escaped paren", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: ["Attached:", "", `[file](${sourcePath.replace(")", "\\)")})`].join("\n"),
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      expect(result.attachments[0]?.kind).toBe("text");
+      expect(result.content).toBe("Attached:");
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("imports an angle-bracket local path with an escaped closing angle bracket", () => {
+    const conversation = createConversation();
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "file>name.txt");
+
+    try {
+      fs.writeFileSync(sourcePath, "escaped angle", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: ["Attached:", "", `[file](<${sourcePath.replace(">", "\\>")}>)`].join("\n"),
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      expect(result.attachments[0]?.kind).toBe("text");
+      expect(result.content).toBe("Attached:");
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   it("rejects symlink escapes after canonicalization", () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));

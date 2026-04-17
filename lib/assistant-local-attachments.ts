@@ -123,19 +123,26 @@ function parseMarkdownDestination(content: string, openParenIndex: number) {
   }
 
   if (content[cursor] === "<") {
-    const targetStart = cursor + 1;
+    const targetParts: string[] = [];
     cursor += 1;
 
     while (cursor < content.length) {
       const character = content[cursor];
 
       if (character === "\\") {
-        cursor += 2;
+        if (cursor + 1 < content.length) {
+          targetParts.push(content[cursor + 1]);
+          cursor += 2;
+          continue;
+        }
+
+        targetParts.push(character);
+        cursor += 1;
         continue;
       }
 
       if (character === ">") {
-        const target = content.slice(targetStart, cursor);
+        const target = targetParts.join("");
         cursor += 1;
 
         while (cursor < content.length && (content[cursor] === " " || content[cursor] === "\t")) {
@@ -152,32 +159,41 @@ function parseMarkdownDestination(content: string, openParenIndex: number) {
         };
       }
 
+      targetParts.push(character);
       cursor += 1;
     }
 
     return null;
   }
 
-  const targetStart = cursor;
+  const targetParts: string[] = [];
   let parenDepth = 0;
 
   while (cursor < content.length) {
     const character = content[cursor];
 
     if (character === "\\") {
-      cursor += 2;
+      if (cursor + 1 < content.length) {
+        targetParts.push(content[cursor + 1]);
+        cursor += 2;
+        continue;
+      }
+
+      targetParts.push(character);
+      cursor += 1;
       continue;
     }
 
     if (character === "(") {
       parenDepth += 1;
+      targetParts.push(character);
       cursor += 1;
       continue;
     }
 
     if (character === ")") {
       if (parenDepth === 0) {
-        const target = content.slice(targetStart, cursor).trim();
+        const target = targetParts.join("").trim();
         if (!target || /\s/.test(target)) {
           return null;
         }
@@ -189,6 +205,7 @@ function parseMarkdownDestination(content: string, openParenIndex: number) {
       }
 
       parenDepth -= 1;
+      targetParts.push(character);
       cursor += 1;
       continue;
     }
@@ -197,6 +214,7 @@ function parseMarkdownDestination(content: string, openParenIndex: number) {
       return null;
     }
 
+    targetParts.push(character);
     cursor += 1;
   }
 
