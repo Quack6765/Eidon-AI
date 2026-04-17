@@ -183,7 +183,17 @@ describe("attachment helpers", () => {
         isFile: () => true,
         size: 1
       } as fs.Stats);
-      readSpy.mockImplementation((fd, buffer, offset, length) => {
+      readSpy.mockImplementation(((
+        fd: number,
+        buffer: ArrayBufferView,
+        offsetOrOptions?: number | object | null,
+        length?: number,
+        position?: number | bigint | null
+      ) => {
+        if (typeof offsetOrOptions !== "number" || typeof length !== "number") {
+          throw new Error("Unexpected fs.readSync options overload");
+        }
+
         const remainingBytes = MAX_ATTACHMENT_BYTES + 1 - servedBytes;
 
         if (remainingBytes <= 0) {
@@ -191,10 +201,13 @@ describe("attachment helpers", () => {
         }
 
         const bytesToServe = Math.min(length, remainingBytes);
-        Buffer.alloc(bytesToServe, 0x61).copy(buffer as Buffer, offset, 0, bytesToServe);
+        const targetBuffer = Buffer.isBuffer(buffer)
+          ? buffer
+          : Buffer.from(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+        Buffer.alloc(bytesToServe, 0x61).copy(targetBuffer, offsetOrOptions, 0, bytesToServe);
         servedBytes += bytesToServe;
         return bytesToServe;
-      });
+      }) as typeof fs.readSync);
 
       expect(() => importAttachmentFromLocalFile(conversation.id, sourcePath)).toThrow(
         `Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: growing.txt`
