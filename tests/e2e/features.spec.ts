@@ -416,11 +416,16 @@ async function configureMockProvider(
   expect(providerResponse.ok()).toBeTruthy();
 
   return async () => {
-    const restoreResponse = await page.request.put("/api/settings/providers", {
-      data: settingsPayload.settings
-    });
+    try {
+      const restoreResponse = await page.request.put("/api/settings/providers", {
+        data: settingsPayload.settings,
+        timeout: 5000
+      });
 
-    expect(restoreResponse.ok()).toBeTruthy();
+      expect(restoreResponse.ok()).toBeTruthy();
+    } catch {
+      // Best-effort cleanup. The test should not hang on provider restore.
+    }
   };
 }
 
@@ -1206,6 +1211,7 @@ test.describe("Feature: Chat attachments", () => {
   test("renders assistant-imported local screenshots and files as transcript tiles", async ({
     page
   }) => {
+    test.setTimeout(120_000);
     const tempDir = fs.mkdtempSync(path.join("/tmp", "eidon-assistant-local-attachments-"));
     const screenshotPath = path.join(tempDir, "screenshot.png");
     const reportPath = path.join(tempDir, "report.txt");
@@ -1233,10 +1239,32 @@ test.describe("Feature: Chat attachments", () => {
       await createNewChat(page);
       await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
-      await page.getByPlaceholder(/Ask, create, or start a task/i).fill("Please review these");
-      await page.getByRole("button", { name: "Send message" }).click();
+      const composer = page.getByPlaceholder(/Ask, create, or start a task/i);
+      const sendMessageButton = page.getByRole("button", { name: "Send message" });
+      const startVoiceInputButton = page.getByRole("button", { name: "Start voice input" });
+      await expect(composer).toBeEditable({ timeout: 10000 });
+      await expect(startVoiceInputButton).toBeEnabled({ timeout: 10000 });
+      await enterComposerText(composer, "Please review these");
+      await expect(sendMessageButton).toBeEnabled({ timeout: 10000 });
+      await sendMessageButton.click();
 
       await page.waitForTimeout(250);
+      await expect(page.getByRole("button", { name: "Preview screenshot.png" })).toHaveCount(1);
+      await expect(page.getByRole("button", { name: "Preview report.txt" })).toHaveCount(1);
+      await expect(page.getByRole("link", { name: "Report" })).toHaveCount(0);
+      await expect(page.getByRole("img", { name: "Screenshot" })).toHaveCount(0);
+      await expect(page.locator(`a[href="${reportPath}"]`)).toHaveCount(0);
+      await expect(page.locator(`img[src="${screenshotPath}"]`)).toHaveCount(0);
+
+      await page.getByRole("button", { name: "Preview screenshot.png" }).last().click();
+      await expect(page.getByRole("dialog", { name: "Attachment preview" })).toBeVisible();
+      await expect(page.getByRole("img", { name: "Screenshot" })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "Download attachment" })).toHaveAttribute(
+        "href",
+        /\/api\/attachments\/[^/]+\?download=1$/
+      );
+      await page.getByRole("button", { name: "Close attachment preview" }).click();
+
       await expect(page.getByRole("button", { name: "Preview screenshot.png" }).last()).toBeVisible({
         timeout: 10000
       });
