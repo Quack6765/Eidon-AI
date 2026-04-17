@@ -19,6 +19,7 @@ type InferAssistantLocalAttachmentsInput = {
   conversationId: string;
   content: string;
   workspaceRoot: string;
+  existingAttachments?: MessageAttachment[];
 };
 
 type InferAssistantLocalAttachmentsResult = {
@@ -30,6 +31,7 @@ type InferAssistantLocalAttachmentsResult = {
 type LocalTargetOutcome =
   | { type: "ignore" }
   | { type: "attach"; attachment: MessageAttachment }
+  | { type: "already_attached"; displayName: string }
   | { type: "deny"; displayName: string }
   | { type: "error"; displayName: string };
 
@@ -70,6 +72,46 @@ function buildFailureNote(deniedNames: Set<string>, failedNames: Set<string>) {
   return `Note: ${parts.join(" ")}`;
 }
 
+export function importAssistantLocalFileAttachment(input: {
+  conversationId: string;
+  sourcePath: string;
+  workspaceRoot: string;
+  existingAttachments?: MessageAttachment[];
+}): LocalTargetOutcome {
+  if (isExternalMarkdownTarget(input.sourcePath) || !path.isAbsolute(input.sourcePath)) {
+    return { type: "ignore" };
+  }
+
+  let canonicalPath: string;
+  try {
+    canonicalPath = fs.realpathSync(input.sourcePath);
+  } catch {
+    return { type: "error", displayName: path.basename(input.sourcePath) || input.sourcePath };
+  }
+
+  const displayName = path.basename(input.sourcePath) || input.sourcePath;
+  if ((input.existingAttachments ?? []).some((attachment) => attachment.filename === displayName)) {
+    return { type: "already_attached", displayName };
+  }
+
+  const workspaceRoot = normalizeRoot(input.workspaceRoot);
+  const tmpRoot = normalizeRoot(TMP_ROOT);
+  const appDataRoot = normalizeRoot(env.EIDON_DATA_DIR);
+  const allowedByRoot = isPathInsideRoot(canonicalPath, workspaceRoot) || isPathInsideRoot(canonicalPath, tmpRoot);
+  const blockedByAppData = appDataRoot ? isPathInsideRoot(canonicalPath, appDataRoot) : false;
+
+  if (!allowedByRoot || blockedByAppData) {
+    return { type: "deny", displayName };
+  }
+
+  try {
+    const attachment = importAttachmentFromLocalFile(input.conversationId, canonicalPath);
+    return { type: "attach", attachment };
+  } catch {
+    return { type: "error", displayName };
+  }
+}
+
 export function inferAssistantLocalAttachments(
   input: InferAssistantLocalAttachmentsInput
 ): InferAssistantLocalAttachmentsResult {
@@ -81,9 +123,6 @@ export function inferAssistantLocalAttachments(
     };
   }
 
-  const workspaceRoot = normalizeRoot(input.workspaceRoot);
-  const tmpRoot = normalizeRoot(TMP_ROOT);
-  const appDataRoot = normalizeRoot(env.EIDON_DATA_DIR);
   const attachmentCache = new Map<string, LocalTargetOutcome>();
   const attachments: MessageAttachment[] = [];
   const deniedNames = new Set<string>();
@@ -154,27 +193,19 @@ export function inferAssistantLocalAttachments(
       return cached;
     }
 
-    const displayName = path.basename(decodedTarget) || decodedTarget;
-    const allowedByRoot = isPathInsideRoot(canonicalPath, workspaceRoot) || isPathInsideRoot(canonicalPath, tmpRoot);
-    const blockedByAppData = appDataRoot ? isPathInsideRoot(canonicalPath, appDataRoot) : false;
+    const outcome = importAssistantLocalFileAttachment({
+      conversationId: input.conversationId,
+      sourcePath: decodedTarget,
+      workspaceRoot: input.workspaceRoot,
+      existingAttachments: [...(input.existingAttachments ?? []), ...attachments]
+    });
 
-    if (!allowedByRoot || blockedByAppData) {
-      const deniedOutcome: LocalTargetOutcome = { type: "deny", displayName };
-      attachmentCache.set(canonicalPath, deniedOutcome);
-      return deniedOutcome;
+    attachmentCache.set(canonicalPath, outcome);
+    if (outcome.type === "attach") {
+      attachments.push(outcome.attachment);
     }
 
-    try {
-      const attachment = importAttachmentFromLocalFile(input.conversationId, canonicalPath);
-      const attachOutcome: LocalTargetOutcome = { type: "attach", attachment };
-      attachmentCache.set(canonicalPath, attachOutcome);
-      attachments.push(attachment);
-      return attachOutcome;
-    } catch {
-      const errorOutcome: LocalTargetOutcome = { type: "error", displayName };
-      attachmentCache.set(canonicalPath, errorOutcome);
-      return errorOutcome;
-    }
+    return outcome;
   };
 
   const sanitizeProseSegment = (segment: string) => {

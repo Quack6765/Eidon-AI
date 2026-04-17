@@ -20,7 +20,7 @@ import {
 } from "@/lib/conversations";
 import { ensureCompactedContext } from "@/lib/compaction";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
-import { inferAssistantLocalAttachments } from "@/lib/assistant-local-attachments";
+import { inferAssistantLocalAttachments, importAssistantLocalFileAttachment } from "@/lib/assistant-local-attachments";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers, getMcpServer } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
@@ -32,7 +32,7 @@ import {
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
 import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
-import type { ChatStreamEvent } from "@/lib/types";
+import type { ChatStreamEvent, MessageAction } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export type ChatEmitter = ReturnType<typeof createEmitter<{
@@ -81,7 +81,8 @@ function sanitizeAssistantContent(
   const inferred = inferAssistantLocalAttachments({
     conversationId,
     content,
-    workspaceRoot: process.cwd()
+    workspaceRoot: process.cwd(),
+    existingAttachments: getMessage(messageId)?.attachments ?? []
   });
 
   if (inferred.attachments.length > 0) {
@@ -101,6 +102,166 @@ function sanitizeAssistantContent(
     content: sanitizedContent,
     failureNote: inferred.failureNote
   };
+}
+
+function tokenizeShellCommand(command: string) {
+  const tokens: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+  let escaped = false;
+
+  const pushCurrent = () => {
+    if (!current) {
+      return;
+    }
+
+    tokens.push(current);
+    current = "";
+  };
+
+  for (let index = 0; index < command.length; index += 1) {
+    const character = command[index];
+
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+
+    if (quote) {
+      if (character === quote) {
+        quote = null;
+        continue;
+      }
+
+      if (character === "\\" && quote === '"') {
+        escaped = true;
+        continue;
+      }
+
+      current += character;
+      continue;
+    }
+
+    if (character === "'" || character === '"') {
+      quote = character;
+      continue;
+    }
+
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (/\s/.test(character)) {
+      pushCurrent();
+      continue;
+    }
+
+    if (character === ";" || character === "|" || character === "&") {
+      pushCurrent();
+      const nextCharacter = command[index + 1];
+      if ((character === "|" || character === "&") && nextCharacter === character) {
+        tokens.push(character + nextCharacter);
+        index += 1;
+      } else {
+        tokens.push(character);
+      }
+      continue;
+    }
+
+    current += character;
+  }
+
+  pushCurrent();
+  return tokens;
+}
+
+function isAgentBrowserToken(token: string) {
+  const normalized = token.trim().replace(/\\/g, "/");
+  const basename = normalized.split("/").at(-1)?.toLowerCase();
+  return basename === "agent-browser";
+}
+
+function extractAgentBrowserScreenshotPaths(command: string) {
+  const tokens = tokenizeShellCommand(command);
+  const screenshotPaths = new Set<string>();
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    if (!isAgentBrowserToken(tokens[index] ?? "")) {
+      continue;
+    }
+
+    if ((tokens[index + 1] ?? "").toLowerCase() !== "screenshot") {
+      continue;
+    }
+
+    for (let candidateIndex = index + 2; candidateIndex < tokens.length; candidateIndex += 1) {
+      const candidate = tokens[candidateIndex] ?? "";
+      if (
+        !candidate ||
+        candidate === ";" ||
+        candidate === "|" ||
+        candidate === "||" ||
+        candidate === "&" ||
+        candidate === "&&"
+      ) {
+        break;
+      }
+
+      if (candidate.startsWith("-")) {
+        continue;
+      }
+
+      screenshotPaths.add(candidate);
+      break;
+    }
+  }
+
+  return [...screenshotPaths];
+}
+
+export function attachAssistantFilesFromCompletedAction(conversationId: string, messageId: string, action: MessageAction) {
+  if (action.kind !== "shell_command") {
+    return;
+  }
+
+  const command =
+    typeof action.arguments?.command === "string"
+      ? action.arguments.command.trim()
+      : action.detail.trim();
+
+  if (!command) {
+    return;
+  }
+
+  const screenshotPaths = extractAgentBrowserScreenshotPaths(command);
+  if (!screenshotPaths.length) {
+    return;
+  }
+
+  const attachmentIds: string[] = [];
+  const existingAttachments = [...(getMessage(messageId)?.attachments ?? [])];
+
+  for (const screenshotPath of screenshotPaths) {
+    const outcome = importAssistantLocalFileAttachment({
+      conversationId,
+      sourcePath: screenshotPath,
+      workspaceRoot: process.cwd(),
+      existingAttachments
+    });
+
+    if (outcome.type !== "attach") {
+      continue;
+    }
+
+    attachmentIds.push(outcome.attachment.id);
+    existingAttachments.push(outcome.attachment);
+  }
+
+  if (attachmentIds.length > 0) {
+    bindAttachmentsToMessage(conversationId, messageId, attachmentIds);
+  }
 }
 
 export function createAssistantContentPersistenceTracker(
@@ -436,6 +597,7 @@ async function startAssistantTurn(
           completedAt: new Date().toISOString()
         });
         if (updated) {
+          attachAssistantFilesFromCompletedAction(conversationId, assistantMessage.id, updated);
           manager.broadcast(conversationId, {
             type: "delta",
             conversationId,

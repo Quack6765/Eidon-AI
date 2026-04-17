@@ -16,7 +16,7 @@ import {
   updateMessage,
   updateMessageAction,
 } from "@/lib/conversations";
-import { createAssistantContentPersistenceTracker } from "@/lib/chat-turn";
+import { attachAssistantFilesFromCompletedAction, createAssistantContentPersistenceTracker } from "@/lib/chat-turn";
 import { ensureCompactedContext } from "@/lib/compaction";
 import { badRequest } from "@/lib/http";
 import {
@@ -249,6 +249,7 @@ export async function POST(
             });
 
             if (updated) {
+              attachAssistantFilesFromCompletedAction(conversation.id, assistantMessage.id, updated);
               write({
                 type: "action_complete",
                 action: updated

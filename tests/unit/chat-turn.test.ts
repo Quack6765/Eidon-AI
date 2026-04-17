@@ -650,6 +650,155 @@ describe("chat-turn", () => {
     expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Here is the capture:"]);
   });
 
+  it("binds successful agent-browser screenshots as assistant attachments even when the answer only mentions them in prose", async () => {
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-turn-browser-screenshot-"));
+    const screenshotPath = path.join(tempDir, "atlantis_ninja.png");
+    fs.writeFileSync(screenshotPath, Buffer.from([137, 80, 78, 71]));
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        onActionStart?: (action: {
+          kind: "shell_command";
+          label: string;
+          detail?: string;
+          arguments?: Record<string, unknown>;
+        }) => Promise<string | void> | string | void;
+        onActionComplete?: (
+          handle: string | undefined,
+          patch: { detail?: string; resultSummary?: string }
+        ) => Promise<void> | void;
+      }) => {
+        const command = `agent-browser screenshot ${screenshotPath} --full`;
+        const handle = await input.onActionStart?.({
+          kind: "shell_command",
+          label: "Web browser",
+          detail: command,
+          arguments: { command }
+        });
+        await input.onActionComplete?.(typeof handle === "string" ? handle : undefined, {
+          detail: command,
+          resultSummary: `Screenshot saved to ${screenshotPath}`
+        });
+
+        return {
+          answer: "I've captured the full-page screenshot and attached it for you.",
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { createConversationManager } = await import("@/lib/conversation-manager");
+      const { updateSettings } = await import("@/lib/settings");
+      const { listVisibleMessages } = await import("@/lib/conversations");
+      const { startChatTurn } = await import("@/lib/chat-turn");
+
+      const manager = createConversationManager();
+      const { profileId, profile } = setupProviderProfile();
+      updateSettings({
+        defaultProviderProfileId: profileId,
+        skillsEnabled: false,
+        providerProfiles: [profile]
+      });
+
+      const conversation = (await import("@/lib/conversations")).createConversation(
+        undefined,
+        undefined,
+        { providerProfileId: null }
+      );
+
+      await expect(startChatTurn(manager, conversation.id, "Capture the site", [])).resolves.toEqual({
+        status: "completed"
+      });
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      expect(assistant?.content).toBe("I've captured the full-page screenshot and attached it for you.");
+      expect(assistant?.attachments).toEqual([
+        expect.objectContaining({
+          filename: "atlantis_ninja.png",
+          kind: "image",
+          messageId: assistant?.id
+        })
+      ]);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not duplicate agent-browser screenshot attachments when the assistant also references the same local image in markdown", async () => {
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-turn-browser-screenshot-dedupe-"));
+    const screenshotPath = path.join(tempDir, "atlantis_ninja.png");
+    fs.writeFileSync(screenshotPath, Buffer.from([137, 80, 78, 71]));
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        onActionStart?: (action: {
+          kind: "shell_command";
+          label: string;
+          detail?: string;
+          arguments?: Record<string, unknown>;
+        }) => Promise<string | void> | string | void;
+        onActionComplete?: (
+          handle: string | undefined,
+          patch: { detail?: string; resultSummary?: string }
+        ) => Promise<void> | void;
+      }) => {
+        const command = `agent-browser screenshot ${screenshotPath} --full`;
+        const handle = await input.onActionStart?.({
+          kind: "shell_command",
+          label: "Web browser",
+          detail: command,
+          arguments: { command }
+        });
+        await input.onActionComplete?.(typeof handle === "string" ? handle : undefined, {
+          detail: command,
+          resultSummary: `Screenshot saved to ${screenshotPath}`
+        });
+
+        return {
+          answer: `Here is the screenshot:\n\n![Atlantis Ninja Screenshot](${screenshotPath})`,
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { createConversationManager } = await import("@/lib/conversation-manager");
+      const { updateSettings } = await import("@/lib/settings");
+      const { listVisibleMessages } = await import("@/lib/conversations");
+      const { startChatTurn } = await import("@/lib/chat-turn");
+
+      const manager = createConversationManager();
+      const { profileId, profile } = setupProviderProfile();
+      updateSettings({
+        defaultProviderProfileId: profileId,
+        skillsEnabled: false,
+        providerProfiles: [profile]
+      });
+
+      const conversation = (await import("@/lib/conversations")).createConversation(
+        undefined,
+        undefined,
+        { providerProfileId: null }
+      );
+
+      await expect(startChatTurn(manager, conversation.id, "Capture the site", [])).resolves.toEqual({
+        status: "completed"
+      });
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      expect(assistant?.content).toBe("Here is the screenshot:");
+      expect(assistant?.attachments).toHaveLength(1);
+      expect(assistant?.attachments?.[0]?.filename).toBe("atlantis_ninja.png");
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("adds runtime guidance not to base64 screenshot files or embed data image URLs", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
