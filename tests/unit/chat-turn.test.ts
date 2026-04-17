@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import type WebSocket from "ws";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
@@ -913,6 +915,98 @@ describe("chat-turn", () => {
     const result = await startChatTurn(manager, conv.id, "Generate an image of Seoul at dusk", []);
 
     expect(result).toEqual({ status: "completed" });
+  });
+
+  it("binds inferred local attachments to the completed assistant message and sanitizes persisted content", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Assistant attachments");
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-turn-attachments-"));
+    const reportPath = path.join(tempDir, "report.txt");
+    fs.writeFileSync(reportPath, "report body", "utf8");
+
+    try {
+      mockedStreamProviderResponse.mockReturnValueOnce(
+        (async function* () {
+          yield { type: "answer_delta", text: "Saved the output to a local file." };
+          return {
+            answer: `Saved the output to a local file.\n\n[report](${reportPath})`,
+            thinking: "",
+            usage: { outputTokens: 8 }
+          };
+        })()
+      );
+
+      const { startChatTurn } = await import("@/lib/chat-turn");
+      await expect(startChatTurn(manager, conversation.id, "Save a report", [])).resolves.toEqual({
+        status: "completed"
+      });
+
+      const assistantMessage = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      expect(assistantMessage?.status).toBe("completed");
+      expect(assistantMessage?.content).toBe("Saved the output to a local file.");
+      expect(assistantMessage?.attachments).toEqual([
+        expect.objectContaining({
+          filename: "report.txt",
+          messageId: assistantMessage?.id
+        })
+      ]);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("appends assistant local attachment failure notes without aborting the turn", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Assistant attachment failures");
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "I saved the file locally." };
+        return {
+          answer: "I saved the file locally.\n\n[hosts](/etc/hosts)",
+          thinking: "",
+          usage: { outputTokens: 6 }
+        };
+      })()
+    );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await expect(startChatTurn(manager, conversation.id, "Save a restricted file", [])).resolves.toEqual({
+      status: "completed"
+    });
+
+    const assistantMessage = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+    expect(assistantMessage?.status).toBe("completed");
+    expect(assistantMessage?.attachments).toEqual([]);
+    expect(assistantMessage?.content).toBe(
+      "I saved the file locally.\n\nNote: I couldn't attach `hosts` because only workspace files and /tmp are allowed."
+    );
   });
 
 });

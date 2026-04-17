@@ -18,6 +18,7 @@ import {
 } from "@/lib/conversations";
 import { ensureCompactedContext } from "@/lib/compaction";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
+import { inferAssistantLocalAttachments } from "@/lib/assistant-local-attachments";
 import { badRequest } from "@/lib/http";
 import {
   getSettings,
@@ -45,6 +46,37 @@ const bodySchema = z
 const paramsSchema = z.object({
   conversationId: z.string().min(1)
 });
+
+function buildFinalAssistantContent(
+  conversationId: string,
+  messageId: string,
+  content: string
+) {
+  const inferred = inferAssistantLocalAttachments({
+    conversationId,
+    content,
+    workspaceRoot: process.cwd()
+  });
+
+  if (inferred.attachments.length > 0) {
+    bindAttachmentsToMessage(
+      conversationId,
+      messageId,
+      inferred.attachments.map((attachment) => attachment.id)
+    );
+  }
+
+  const sanitizedContent = stripAttachmentStyleImageMarkdown(
+    inferred.content,
+    getMessage(messageId)?.attachments ?? []
+  );
+
+  if (!inferred.failureNote) {
+    return sanitizedContent;
+  }
+
+  return sanitizedContent ? `${sanitizedContent}\n\n${inferred.failureNote}` : inferred.failureNote;
+}
 
 export async function POST(
   request: Request,
@@ -274,10 +306,7 @@ export async function POST(
         });
 
         updateMessage(assistantMessage.id, {
-          content: stripAttachmentStyleImageMarkdown(
-            providerResult.answer,
-            getMessage(assistantMessage.id)?.attachments ?? []
-          ),
+          content: buildFinalAssistantContent(conversation.id, assistantMessage.id, providerResult.answer),
           thinkingContent: providerResult.thinking,
           status: "completed",
           estimatedTokens:
@@ -296,10 +325,7 @@ export async function POST(
       } catch (error) {
         if (error instanceof ChatTurnStoppedError) {
           updateMessage(assistantMessage.id, {
-            content: stripAttachmentStyleImageMarkdown(
-              latestAnswer,
-              getMessage(assistantMessage.id)?.attachments ?? []
-            ),
+            content: buildFinalAssistantContent(conversation.id, assistantMessage.id, latestAnswer),
             thinkingContent: latestThinking,
             status: "stopped",
             estimatedTokens: estimateTextTokens(latestAnswer)

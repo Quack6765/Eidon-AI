@@ -20,6 +20,7 @@ import {
 } from "@/lib/conversations";
 import { ensureCompactedContext } from "@/lib/compaction";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
+import { inferAssistantLocalAttachments } from "@/lib/assistant-local-attachments";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers, getMcpServer } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
@@ -62,6 +63,37 @@ const globalEmitter = createEmitter<{
 }>();
 
 const ACTIVE_TURN_ERROR_MESSAGE = "Conversation already has an active assistant turn";
+
+function buildFinalAssistantContent(
+  conversationId: string,
+  messageId: string,
+  content: string
+) {
+  const inferred = inferAssistantLocalAttachments({
+    conversationId,
+    content,
+    workspaceRoot: process.cwd()
+  });
+
+  if (inferred.attachments.length > 0) {
+    bindAttachmentsToMessage(
+      conversationId,
+      messageId,
+      inferred.attachments.map((attachment) => attachment.id)
+    );
+  }
+
+  const sanitizedContent = stripAttachmentStyleImageMarkdown(
+    inferred.content,
+    getMessage(messageId)?.attachments ?? []
+  );
+
+  if (!inferred.failureNote) {
+    return sanitizedContent;
+  }
+
+  return sanitizedContent ? `${sanitizedContent}\n\n${inferred.failureNote}` : inferred.failureNote;
+}
 
 export function getChatEmitter(): ChatEmitter {
   return globalEmitter;
@@ -372,10 +404,7 @@ async function startAssistantTurn(
     flushAnswerBuffer();
 
     updateMessage(assistantMessageId, {
-      content: stripAttachmentStyleImageMarkdown(
-        providerResult.answer,
-        getMessage(assistantMessageId)?.attachments ?? []
-      ),
+      content: buildFinalAssistantContent(conversationId, assistantMessageId, providerResult.answer),
       thinkingContent: providerResult.thinking,
       status: "completed",
       estimatedTokens:
@@ -404,10 +433,7 @@ async function startAssistantTurn(
       }
 
       updateMessage(assistantMessageId, {
-        content: stripAttachmentStyleImageMarkdown(
-          latestAnswer,
-          getMessage(assistantMessageId)?.attachments ?? []
-        ),
+        content: buildFinalAssistantContent(conversationId, assistantMessageId, latestAnswer),
         thinkingContent: latestThinking,
         status: "stopped",
         estimatedTokens: estimateTextTokens(latestAnswer)
