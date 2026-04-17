@@ -59,4 +59,24 @@ describe("ws-protocol", () => {
     const parsed = parseClientMessage(raw);
     expect(parsed).toEqual(msg);
   });
+
+  it("round-trips message with personaId through the websocket protocol", async () => {
+    const { parseClientMessage } = await import("@/lib/ws-protocol");
+
+    const parsed = parseClientMessage(
+      JSON.stringify({
+        type: "message",
+        conversationId: "conv-1",
+        content: "same idea but darker",
+        personaId: "persona-1"
+      })
+    );
+
+    expect(parsed).toEqual({
+      type: "message",
+      conversationId: "conv-1",
+      content: "same idea but darker",
+      personaId: "persona-1"
+    });
+  });
 });

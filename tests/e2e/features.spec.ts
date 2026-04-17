@@ -410,6 +410,26 @@ async function configureMockProvider(
   };
 }
 
+async function updateImageGenerationSettings(
+  page: import("@playwright/test").Page,
+  overrides: Partial<{
+    imageGenerationBackend: "disabled" | "google_nano_banana";
+    googleNanoBananaModel: string;
+    googleNanoBananaApiKey: string;
+  }>
+) {
+  const response = await page.request.put("/api/settings/image-generation", {
+    data: {
+      imageGenerationBackend: "disabled",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      googleNanoBananaApiKey: "",
+      ...overrides
+    }
+  });
+
+  expect(response.ok()).toBeTruthy();
+}
+
 async function enterComposerText(
   composer: import("@playwright/test").Locator,
   text: string
@@ -560,7 +580,7 @@ test.describe("Feature: Create and delete conversations", () => {
 
   test("removes an empty chat after leaving it for another conversation", async ({ page }) => {
     await signIn(page);
-    await createNewChat(page);
+    await page.getByRole("button", { name: /New chat/i }).first().click();
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
     const emptyConversationPath = new URL(page.url()).pathname;
@@ -680,7 +700,7 @@ test.describe("Feature: Create and delete conversations", () => {
     });
 
     await signIn(page);
-    await createNewChat(page);
+    await page.getByRole("button", { name: /New chat/i }).first().click();
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
     await expect
       .poll(
@@ -1167,6 +1187,25 @@ test.describe("Feature: Chat attachments", () => {
       "href",
       /\/api\/attachments\/att_notes\?download=1$/
     );
+  });
+});
+
+test.describe("Feature: Image generation", () => {
+  test("keeps the composer free of an image-mode toggle even when image generation is enabled", async ({ page }) => {
+    await signIn(page);
+    await updateImageGenerationSettings(page, {
+      imageGenerationBackend: "google_nano_banana"
+    });
+
+    await createNewChat(page);
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+    await expect(
+      page.getByRole("button", { name: "Toggle image generation mode" })
+    ).toHaveCount(0, { timeout: 5000 });
+
+    await updateImageGenerationSettings(page, {
+      imageGenerationBackend: "disabled"
+    });
   });
 });
 

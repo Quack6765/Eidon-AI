@@ -14,6 +14,7 @@ import {
 import { CompactionIndicator } from "@/components/compaction-indicator";
 import { Textarea } from "@/components/ui/textarea";
 import { parseAnsiText } from "@/lib/ansi";
+import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import { writeRichTextToClipboard } from "@/lib/clipboard";
 import type {
   MemoryCategory,
@@ -926,6 +927,10 @@ export function MessageBubble({
     )
     .map((item) => item.content)
     .join("");
+  const renderedAssistantText =
+    message.role === "assistant"
+      ? stripAttachmentStyleImageMarkdown(assistantText, message.attachments ?? [])
+      : assistantText;
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
   const previewController = useAttachmentPreviewController();
@@ -951,9 +956,9 @@ export function MessageBubble({
       streamingAnswer !== undefined
     );
   const showAssistantBubbleActions =
-    Boolean(assistantText) &&
+    Boolean(renderedAssistantText) &&
     !awaitingFirstToken &&
-    !hasIncompleteFencedCodeBlock(assistantText, isAssistantStreaming);
+    !hasIncompleteFencedCodeBlock(renderedAssistantText, isAssistantStreaming);
 
   useEffect(() => {
     setDraft(message.content);
@@ -994,11 +999,11 @@ export function MessageBubble({
     try {
       const html =
         message.role === "assistant"
-          ? formatPlainTextHtml(assistantText)
+          ? formatPlainTextHtml(renderedAssistantText)
           : formatPlainTextHtml(message.content);
       const text =
         message.role === "assistant"
-          ? assistantText
+          ? renderedAssistantText
           : message.content;
 
       await writeRichTextToClipboard({ html, text });
@@ -1220,6 +1225,13 @@ export function MessageBubble({
                         </div>
                       );
                     }
+                    const renderedContent = stripAttachmentStyleImageMarkdown(
+                      item.content,
+                      message.attachments ?? []
+                    );
+                    if (!renderedContent) {
+                      return null;
+                    }
                     return (
                       <div
                         key={item.id}
@@ -1227,7 +1239,7 @@ export function MessageBubble({
                         data-testid="assistant-message-bubble"
                       >
                         <div className="markdown-body">
-                          {renderAssistantMarkdown(item.content, isAssistantStreaming)}
+                          {renderAssistantMarkdown(renderedContent, isAssistantStreaming)}
                         </div>
                       </div>
                     );
@@ -1236,6 +1248,14 @@ export function MessageBubble({
                     <div className="inline-flex items-center gap-1.5 rounded-md border border-red-400/12 bg-red-400/8 px-2 py-1 text-[11px] text-red-200/85">
                       <Square className="h-2.5 w-2.5 fill-current" />
                       <span>Stopped</span>
+                    </div>
+                  ) : null}
+                  {message.attachments?.length ? (
+                    <div>
+                      <MessageAttachments
+                        attachments={message.attachments}
+                        onPreview={handleAttachmentPreview}
+                      />
                     </div>
                   ) : null}
                 </div>
@@ -1274,6 +1294,14 @@ export function MessageBubble({
           </div>
         </div>
       </div>
+      {!onPreviewAttachment && previewController.previewAttachment ? (
+        <AttachmentPreviewModal
+          attachment={previewController.previewAttachment}
+          state={previewController.previewState}
+          onClose={previewController.closeAttachmentPreview}
+          onRetry={() => void previewController.openAttachmentPreview(previewController.previewAttachment!)}
+        />
+      ) : null}
     </div>
   );
 }

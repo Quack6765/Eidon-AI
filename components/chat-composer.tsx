@@ -213,7 +213,7 @@ export function ChatComposer({
   speechError,
   onStartSpeech,
   onStopSpeech,
-  queueingEnabled = false
+  queueingEnabled = false,
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [mounted, setMounted] = useState(false);
