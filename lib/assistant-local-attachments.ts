@@ -6,21 +6,13 @@ import {
   decodeMarkdownTarget,
   findMarkdownTargets,
   isExternalMarkdownTarget,
-  normalizeProtectedMarkdownContent
+  normalizeProtectedMarkdownContent,
+  parseAssistantDataImageTarget
 } from "@/lib/assistant-markdown-parsing";
 import { env } from "@/lib/env";
 import type { MessageAttachment } from "@/lib/types";
 
 const TMP_ROOT = "/tmp";
-const ASSISTANT_DATA_IMAGE_PREFIX_PATTERN = /^data:image\//i;
-const ASSISTANT_DATA_IMAGE_PATTERN = /^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/i;
-const ASSISTANT_DATA_IMAGE_TYPES = new Map<string, { extension: string; mimeType: string }>([
-  ["image/png", { extension: "png", mimeType: "image/png" }],
-  ["image/jpeg", { extension: "jpeg", mimeType: "image/jpeg" }],
-  ["image/jpg", { extension: "jpg", mimeType: "image/jpeg" }],
-  ["image/webp", { extension: "webp", mimeType: "image/webp" }],
-  ["image/gif", { extension: "gif", mimeType: "image/gif" }]
-]);
 
 type InferAssistantLocalAttachmentsInput = {
   conversationId: string;
@@ -40,22 +32,6 @@ type LocalTargetOutcome =
   | { type: "deny"; displayName: string }
   | { type: "error"; displayName: string };
 
-type ParsedAssistantDataImageTarget =
-  | { type: "none" }
-  | {
-      type: "invalid";
-      cacheKey: string;
-      displayName: string;
-    }
-  | {
-      type: "valid";
-      cacheKey: string;
-      displayName: string;
-      filename: string;
-      mimeType: string;
-      bytes: Buffer;
-    };
-
 function normalizeRoot(rootPath: string) {
   try {
     return fs.realpathSync(rootPath);
@@ -71,57 +47,6 @@ function isPathInsideRoot(candidatePath: string, rootPath: string) {
 
 function collapseWhitespace(content: string) {
   return normalizeProtectedMarkdownContent(content);
-}
-
-function decodeAssistantDataImageBytes(base64Value: string) {
-  if (!base64Value || base64Value.length % 4 !== 0) {
-    return null;
-  }
-
-  const bytes = Buffer.from(base64Value, "base64");
-  if (!bytes.length || bytes.toString("base64") !== base64Value) {
-    return null;
-  }
-
-  return bytes;
-}
-
-function parseAssistantDataImageTarget(target: string): ParsedAssistantDataImageTarget {
-  const trimmedTarget = target.trim();
-  if (!ASSISTANT_DATA_IMAGE_PREFIX_PATTERN.test(trimmedTarget)) {
-    return { type: "none" };
-  }
-
-  const match = ASSISTANT_DATA_IMAGE_PATTERN.exec(trimmedTarget);
-  if (!match) {
-    return {
-      type: "invalid",
-      cacheKey: trimmedTarget,
-      displayName: "generated image"
-    };
-  }
-
-  const normalizedMimeType = match[1].toLowerCase();
-  const base64Value = match[2];
-  const supportedType = ASSISTANT_DATA_IMAGE_TYPES.get(normalizedMimeType);
-  const bytes = decodeAssistantDataImageBytes(base64Value);
-
-  if (!supportedType || !bytes) {
-    return {
-      type: "invalid",
-      cacheKey: trimmedTarget,
-      displayName: "generated image"
-    };
-  }
-
-  return {
-    type: "valid",
-    cacheKey: trimmedTarget,
-    displayName: "generated image",
-    filename: `generated.${supportedType.extension}`,
-    mimeType: supportedType.mimeType,
-    bytes
-  };
 }
 
 function buildFailureNote(deniedNames: Set<string>, failedNames: Set<string>) {
@@ -168,7 +93,7 @@ export function inferAssistantLocalAttachments(
 
     if (isImage) {
       const parsedDataImage = parseAssistantDataImageTarget(trimmedTarget);
-      if (parsedDataImage.type === "invalid") {
+      if (parsedDataImage.type === "invalid" || parsedDataImage.type === "unsupported") {
         const cached = attachmentCache.get(parsedDataImage.cacheKey);
         if (cached) {
           return cached;
@@ -176,7 +101,7 @@ export function inferAssistantLocalAttachments(
 
         const errorOutcome: LocalTargetOutcome = {
           type: "error",
-          displayName: parsedDataImage.displayName
+          displayName: "generated image"
         };
         attachmentCache.set(parsedDataImage.cacheKey, errorOutcome);
         return errorOutcome;

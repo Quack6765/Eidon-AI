@@ -314,6 +314,51 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
+  it("imports reference-style workspace markdown links and strips their definitions from content", () => {
+    const conversation = createConversation();
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "workspace-log.txt");
+
+    try {
+      fs.writeFileSync(sourcePath, "hello from workspace", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: ["Attached log:", "", "[log][workspace-log]", "", `[workspace-log]: ${sourcePath}`].join("\n"),
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      expect(result.attachments[0]?.filename).toBe("workspace-log.txt");
+      expect(result.content).toBe("Attached log:");
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("salvages reference-style assistant data images into managed attachments", () => {
+    const conversation = createConversation();
+    const imageBytes = Buffer.from("generated-image-bytes", "utf8");
+    const dataTarget = `data:image/png;base64,${imageBytes.toString("base64")}`;
+
+    const result = inferAssistantLocalAttachments({
+      conversationId: conversation.id,
+      content: ["Here is the generated image:", "", "![Generated image][generated]", "", `[generated]: ${dataTarget}`].join(
+        "\n"
+      ),
+      workspaceRoot: process.cwd()
+    });
+
+    expect(result.attachments).toHaveLength(1);
+    expect(result.attachments[0]?.filename).toBe("generated.png");
+    expect(result.attachments[0]?.kind).toBe("image");
+    expect(result.attachments[0]?.mimeType).toBe("image/png");
+    expect(readAttachmentBuffer(result.attachments[0]!)).toEqual(imageBytes);
+    expect(result.content).toBe("Here is the generated image:");
+    expect(result.failureNote).toBe("");
+  });
+
   it("denies out-of-bounds local paths with a user-facing note", () => {
     const conversation = createConversation();
     const outsideDir = fs.mkdtempSync(path.join(os.homedir(), ".eidon-out-of-bounds-"));

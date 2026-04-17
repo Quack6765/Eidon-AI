@@ -254,6 +254,12 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     ).toBe("Here are the reports you asked for.");
   });
 
+  it("removes reference-style local markdown links when the assistant message already has matching text attachments", () => {
+    const content = ["Here is the report:", "", "[Report][report]", "", "[report]: notes.txt"].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe("Here is the report:");
+  });
+
   it("strips parsed markdown targets with parentheses, angle brackets, and escaped closers when attachments match", () => {
     const content = [
       "Matched links:",
@@ -362,6 +368,12 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     const content = ["Keep hard break here.  ", "And keep this fenced line trailing spaces.", "", "```md", "code line  ", "```"].join(
       "\n"
     );
+
+    expect(stripAttachmentStyleImageMarkdown(content, [])).toBe(content);
+  });
+
+  it("preserves unsupported but valid assistant data image markdown when no attachment can replace it", () => {
+    const content = "![Vector](data:image/svg+xml;base64,PHN2Zy8+)";
 
     expect(stripAttachmentStyleImageMarkdown(content, [])).toBe(content);
   });

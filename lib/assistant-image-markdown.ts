@@ -3,10 +3,9 @@ import {
   decodeMarkdownTarget,
   findMarkdownTargets,
   isExternalMarkdownTarget,
-  normalizeProtectedMarkdownContent
+  normalizeProtectedMarkdownContent,
+  parseAssistantDataImageTarget
 } from "@/lib/assistant-markdown-parsing";
-
-const ASSISTANT_DATA_IMAGE_PATTERN = /^data:image\/[^;,]+;base64,/i;
 
 function sanitizeProseSegment(content: string, imageAttachments: MessageAttachment[], textAttachments: MessageAttachment[]) {
   const matches = findMarkdownTargets(content);
@@ -25,8 +24,9 @@ function sanitizeProseSegment(content: string, imageAttachments: MessageAttachme
 
   for (const match of matches) {
     const normalizedTarget = decodeMarkdownTarget(match.target.trim());
+    const parsedDataImage = match.isImage ? parseAssistantDataImageTarget(normalizedTarget) : { type: "none" as const };
     const shouldStrip = match.isImage
-      ? ASSISTANT_DATA_IMAGE_PATTERN.test(normalizedTarget) ||
+      ? parsedDataImage.type === "valid" ||
         (!isExternalMarkdownTarget(normalizedTarget) && imageAttachmentTargets.has(normalizedTarget))
       : !isExternalMarkdownTarget(normalizedTarget) &&
         textAttachmentTargets.has(normalizedTarget);
