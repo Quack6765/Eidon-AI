@@ -1208,6 +1208,83 @@ test.describe("Feature: Chat attachments", () => {
     );
   });
 
+  test("renders assistant inline image attachments from data-image markdown without duplicate tiles", async ({
+    page
+  }) => {
+    test.setTimeout(120_000);
+    const inlineDataImage = `data:image/png;base64,${TINY_PNG.toString("base64")}`;
+    const assistantAnswer = [
+      "Here is the generated image.",
+      "",
+      `![Inline](${inlineDataImage})`,
+      "",
+      "The real attachment preview should render below."
+    ].join("\n");
+
+    const mockServer = await startMockOpenAiCompatibleServer({
+      queuedAnswer: () => assistantAnswer
+    });
+    let restoreProviderSettings: (() => Promise<void>) | null = null;
+
+    try {
+      await signIn(page);
+      restoreProviderSettings = await configureMockProvider(page, mockServer.apiBaseUrl);
+      mockServer.reset();
+
+      await createNewChat(page);
+      await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+      const composer = page.getByPlaceholder(/Ask, create, or start a task/i);
+      const sendMessageButtons = page.getByRole("button", { name: "Send message" });
+      const startVoiceInputButton = page.getByRole("button", { name: "Start voice input" });
+
+      await expect(composer).toBeEditable({ timeout: 10000 });
+      await expect(startVoiceInputButton).toBeEnabled({ timeout: 10000 });
+      await composer.fill("Show me the generated image");
+      await expect(composer).toHaveValue("Show me the generated image");
+      const sendMessageButton = sendMessageButtons.last();
+      await expect(sendMessageButton).toBeEnabled({ timeout: 10000 });
+      await sendMessageButton.click();
+
+      const assistantBubble = page.locator('[data-testid="assistant-message-bubble"]').last();
+      await expect(assistantBubble.getByText("Here is the generated image.")).toBeVisible({
+        timeout: 10000
+      });
+      await expect(
+        assistantBubble.getByText("The real attachment preview should render below.")
+      ).toBeVisible({ timeout: 10000 });
+      await expect(assistantBubble.getByText(/data:image\/png;base64/i)).toHaveCount(0);
+      await expect(page.getByText(/data:image\/png;base64/i)).toHaveCount(0);
+
+      const inlinePreviewButton = assistantBubble.getByRole("button", {
+        name: /^Preview .+\.png$/
+      });
+      await expect(inlinePreviewButton).toHaveCount(1);
+      await expect(inlinePreviewButton).toBeVisible();
+      await expect(page.getByRole("button", { name: /^Preview .+\.png$/ })).toHaveCount(1);
+
+      const inlineImage = inlinePreviewButton.locator('img[src^="/api/attachments/"]');
+      await expect(inlineImage).toHaveCount(1);
+
+      const inlineImageSrc = await inlineImage.getAttribute("src");
+      expect(inlineImageSrc).toMatch(/^\/api\/attachments\/[^/]+$/);
+
+      await inlinePreviewButton.click();
+      await expect(page.getByRole("dialog", { name: "Attachment preview" })).toBeVisible();
+      await expect(
+        page.getByRole("link", { name: "Download attachment" })
+      ).toHaveAttribute("href", `${inlineImageSrc}?download=1`);
+      await expect(page.getByRole("dialog", { name: "Attachment preview" }).getByRole("img")).toBeVisible();
+      await page.getByRole("button", { name: "Close attachment preview" }).click();
+      await expect(page.getByRole("dialog", { name: "Attachment preview" })).toBeHidden();
+    } finally {
+      if (restoreProviderSettings) {
+        await restoreProviderSettings();
+      }
+      await mockServer.close();
+    }
+  });
+
   test("renders assistant-imported local screenshots and files as transcript tiles", async ({
     page
   }) => {
