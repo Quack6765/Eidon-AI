@@ -1,11 +1,13 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 import {
   createAttachments,
   deleteAttachmentById,
   getAttachment,
-  getAttachmentDataUrl
+  getAttachmentDataUrl,
+  importAttachmentFromLocalFile
 } from "@/lib/attachments";
 import { bindAttachmentsToMessage, createConversation, createMessage } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
@@ -98,6 +100,58 @@ describe("attachment helpers", () => {
         }
       ])
     ).toThrow("Unsupported attachment type: archive.zip");
+  });
+
+  it("imports a local text file into managed attachment storage", () => {
+    const conversation = createConversation();
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-import-"));
+    const sourcePath = path.join(sourceDir, "local-notes.md");
+    const content = "# Notes\nHello from local storage";
+
+    try {
+      fs.writeFileSync(sourcePath, content, "utf8");
+
+      const attachment = importAttachmentFromLocalFile(conversation.id, sourcePath);
+
+      expect(attachment.filename).toBe("local-notes.md");
+      expect(attachment.kind).toBe("text");
+      expect(attachment.extractedText).toContain("Hello from local storage");
+      expect(fs.readFileSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath), "utf8")).toBe(
+        content
+      );
+      expect(getAttachment(attachment.id)?.filename).toBe("local-notes.md");
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects unsupported local file types", () => {
+    const conversation = createConversation();
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-import-"));
+    const sourcePath = path.join(sourceDir, "archive.zip");
+
+    try {
+      fs.writeFileSync(sourcePath, Buffer.from("zip", "utf8"));
+
+      expect(() => importAttachmentFromLocalFile(conversation.id, sourcePath)).toThrow(
+        "Unsupported attachment type: archive.zip"
+      );
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects non-regular local file paths", () => {
+    const conversation = createConversation();
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-import-"));
+
+    try {
+      expect(() => importAttachmentFromLocalFile(conversation.id, sourceDir)).toThrow(
+        `Source path is not a regular file: ${sourceDir}`
+      );
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
   });
 
   it("refuses to delete attachments that are already bound to a message", () => {

@@ -392,6 +392,25 @@ export function createAttachments(conversationId: string, files: CreateAttachmen
   }
 }
 
+export function importAttachmentFromLocalFile(conversationId: string, sourcePath: string) {
+  const sourceStats = fs.lstatSync(sourcePath);
+
+  if (!sourceStats.isFile()) {
+    throw new Error(`Source path is not a regular file: ${sourcePath}`);
+  }
+
+  const bytes = fs.readFileSync(sourcePath);
+  const [attachment] = createAttachments(conversationId, [
+    {
+      filename: path.basename(sourcePath),
+      mimeType: "",
+      bytes
+    }
+  ]);
+
+  return attachment;
+}
+
 export function assignAttachmentsToMessage(conversationId: string, messageId: string, attachmentIds: string[]) {
   if (!attachmentIds.length) {
     return [];
