@@ -1516,7 +1516,8 @@ describe("message bubble", () => {
     const bubble = screen.getByTestId("assistant-message-bubble");
 
     expect(within(bubble).getByText("I've attached the generated image and notes below.")).toBeInTheDocument();
-    expect(within(bubble).getByRole("img", { name: "photo.png" })).toBeInTheDocument();
+    expect(within(bubble).getByRole("button", { name: "Preview photo.png" })).toBeInTheDocument();
+    expect(within(bubble).queryByRole("img", { name: "photo.png" })).toBeNull();
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
 
     const imagePreviewButtonsOutsideBubble = Array.from(
@@ -1554,8 +1555,8 @@ describe("message bubble", () => {
     );
 
     fireEvent.click(
-      within(screen.getByTestId("assistant-message-bubble")).getByRole("img", {
-        name: "photo.png"
+      within(screen.getByTestId("assistant-message-bubble")).getByRole("button", {
+        name: "Preview photo.png"
       })
     );
 

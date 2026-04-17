@@ -806,7 +806,8 @@ function AssistantInlineImageAttachments({
         >
           <img
             src={`/api/attachments/${attachment.id}`}
-            alt={attachment.filename}
+            alt=""
+            aria-hidden="true"
             className="block max-h-[28rem] w-auto max-w-full object-contain"
           />
         </button>
