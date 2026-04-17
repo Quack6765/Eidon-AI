@@ -3,8 +3,16 @@ import path from "node:path";
 import type WebSocket from "ws";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
+const { requireUserMock } = vi.hoisted(() => ({
+  requireUserMock: vi.fn()
+}));
+
 vi.mock("@/lib/provider", () => ({
   streamProviderResponse: vi.fn()
+}));
+
+vi.mock("@/lib/auth", () => ({
+  requireUser: requireUserMock
 }));
 
 vi.mock("@/lib/mcp-client", () => ({
@@ -81,6 +89,7 @@ function createMockSocket(send = vi.fn()) {
 describe("chat-turn", () => {
   beforeEach(async () => {
     vi.resetModules();
+    requireUserMock.mockReset();
   });
 
   it("creates user and assistant messages, broadcasts deltas via manager", async () => {
@@ -353,6 +362,59 @@ describe("chat-turn", () => {
     expect(assistant?.status).toBe("stopped");
     expect(assistant?.content).toContain("Partial");
     vi.useRealTimers();
+  });
+
+  it("sanitizes buffered local-file markdown before persisting stopped text segments", async () => {
+    vi.useFakeTimers();
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+    const { requestStop } = await import("@/lib/chat-turn-control");
+    const { listVisibleMessages } = await import("@/lib/conversations");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    const conversation = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
+
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-turn-stop-local-file-"));
+    const reportPath = path.join(tempDir, "report.txt");
+    fs.writeFileSync(reportPath, "report body", "utf8");
+
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+
+    try {
+      mockedStreamProviderResponse.mockReturnValueOnce((async function* () {
+        yield { type: "answer_delta", text: `Saved the output.\n\n[report](${reportPath})` };
+        await gate;
+        return { answer: `Saved the output.\n\n[report](${reportPath})`, thinking: "", usage: { outputTokens: 2 } };
+      })());
+
+      const { startChatTurn } = await import("@/lib/chat-turn");
+      const run = startChatTurn(manager, conversation.id, "Save the report", []);
+
+      await vi.advanceTimersByTimeAsync(120);
+      requestStop(conversation.id);
+      release();
+      await run;
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      expect(assistant?.status).toBe("stopped");
+      expect(assistant?.content).toBe("Saved the output.");
+      expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output."]);
+      expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
+      expect(assistant?.attachments).toEqual([
+        expect.objectContaining({
+          filename: "report.txt",
+          messageId: assistant?.id
+        })
+      ]);
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      vi.useRealTimers();
+    }
   });
 
   it("flushes answer text to DB periodically during streaming", async () => {
@@ -1007,6 +1069,71 @@ describe("chat-turn", () => {
     expect(assistantMessage?.content).toBe(
       "I saved the file locally.\n\nNote: I couldn't attach `hosts` because only workspace files and /tmp are allowed."
     );
+  });
+
+  it("sanitizes local-file markdown segments in the SSE route before persistence", async () => {
+    const { createLocalUser: createRouteUser } = await import("@/lib/users");
+    const user = await createRouteUser({
+      username: "route-user",
+      password: "route-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { updateSettings } = await import("@/lib/settings");
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Route local attachments", null, { providerProfileId: null }, user.id);
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-route-local-file-"));
+    const reportPath = path.join(tempDir, "route-report.txt");
+    fs.writeFileSync(reportPath, "report body", "utf8");
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: { onAnswerSegment?: (segment: string) => void }) => {
+        input.onAnswerSegment?.(`Saved the output.\n\n[report](${reportPath})`);
+        return {
+          answer: `Saved the output.\n\n[report](${reportPath})`,
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+      const response = await POST(
+        new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Save the report", attachmentIds: [] })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+
+      expect(response.status).toBe(200);
+      await response.text();
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      expect(assistant?.status).toBe("completed");
+      expect(assistant?.content).toBe("Saved the output.");
+      expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output."]);
+      expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
+      expect(assistant?.attachments).toEqual([
+        expect.objectContaining({
+          filename: "route-report.txt",
+          messageId: assistant?.id
+        })
+      ]);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
 });

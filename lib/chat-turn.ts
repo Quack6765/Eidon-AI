@@ -64,7 +64,16 @@ const globalEmitter = createEmitter<{
 
 const ACTIVE_TURN_ERROR_MESSAGE = "Conversation already has an active assistant turn";
 
-function buildFinalAssistantContent(
+function appendFailureNotes(content: string, failureNotes: string[]) {
+  if (failureNotes.length === 0) {
+    return content;
+  }
+
+  const appendedNotes = failureNotes.join("\n\n");
+  return content ? `${content}\n\n${appendedNotes}` : appendedNotes;
+}
+
+function sanitizeAssistantContent(
   conversationId: string,
   messageId: string,
   content: string
@@ -88,11 +97,69 @@ function buildFinalAssistantContent(
     getMessage(messageId)?.attachments ?? []
   );
 
-  if (!inferred.failureNote) {
-    return sanitizedContent;
-  }
+  return {
+    content: sanitizedContent,
+    failureNote: inferred.failureNote
+  };
+}
 
-  return sanitizedContent ? `${sanitizedContent}\n\n${inferred.failureNote}` : inferred.failureNote;
+export function createAssistantContentPersistenceTracker(
+  conversationId: string,
+  messageId: string
+) {
+  let persistedRawContent = "";
+  let persistedSanitizedContent = "";
+  const failureNotes: string[] = [];
+  const failureNoteSet = new Set<string>();
+
+  const recordFailureNote = (failureNote: string) => {
+    if (!failureNote || failureNoteSet.has(failureNote)) {
+      return;
+    }
+
+    failureNoteSet.add(failureNote);
+    failureNotes.push(failureNote);
+  };
+
+  return {
+    appendSegment(content: string) {
+      if (!content) {
+        return "";
+      }
+
+      const sanitized = sanitizeAssistantContent(conversationId, messageId, content);
+      persistedRawContent += content;
+      persistedSanitizedContent += sanitized.content;
+      recordFailureNote(sanitized.failureNote);
+      return sanitized.content;
+    },
+    finalize(content: string) {
+      if (!content) {
+        return appendFailureNotes(persistedSanitizedContent, failureNotes);
+      }
+
+      if (content.startsWith(persistedRawContent)) {
+        const remainder = content.slice(persistedRawContent.length);
+        if (remainder) {
+          const sanitized = sanitizeAssistantContent(conversationId, messageId, remainder);
+          persistedRawContent += remainder;
+          persistedSanitizedContent += sanitized.content;
+          recordFailureNote(sanitized.failureNote);
+        }
+
+        return appendFailureNotes(persistedSanitizedContent, failureNotes);
+      }
+
+      if (!persistedRawContent) {
+        const sanitized = sanitizeAssistantContent(conversationId, messageId, content);
+        persistedRawContent = content;
+        persistedSanitizedContent = sanitized.content;
+        recordFailureNote(sanitized.failureNote);
+      }
+
+      return appendFailureNotes(persistedSanitizedContent, failureNotes);
+    }
+  };
 }
 
 export function getChatEmitter(): ChatEmitter {
@@ -171,6 +238,7 @@ async function startAssistantTurn(
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
   let assistantMessageId: string | null = null;
+  let contentPersistence: ReturnType<typeof createAssistantContentPersistenceTracker> | null = null;
   let started = false;
   let timelineSortOrder = 0;
   let answerBuffer = "";
@@ -191,6 +259,7 @@ async function startAssistantTurn(
       estimatedTokens: 0
     });
     assistantMessageId = assistantMessage.id;
+    contentPersistence = createAssistantContentPersistenceTracker(conversationId, assistantMessageId);
 
     manager.broadcast(conversationId, {
       type: "delta",
@@ -208,11 +277,8 @@ async function startAssistantTurn(
     started = true;
 
     function flushAnswerBuffer() {
-      if (!assistantMessageId || !answerBuffer) return;
-      const sanitizedBuffer = stripAttachmentStyleImageMarkdown(
-        answerBuffer,
-        getMessage(assistantMessageId)?.attachments ?? []
-      );
+      if (!assistantMessageId || !answerBuffer || !contentPersistence) return;
+      const sanitizedBuffer = contentPersistence.appendSegment(answerBuffer);
       if (!sanitizedBuffer) {
         answerBuffer = "";
         lastFlush = Date.now();
@@ -318,11 +384,9 @@ async function startAssistantTurn(
       },
       onAnswerSegment(segment) {
         flushAnswerBuffer();
-        if (!sawStreamedAnswerSinceLastSegment && segment && assistantMessageId) {
-          const sanitizedSegment = stripAttachmentStyleImageMarkdown(
-            segment,
-            getMessage(assistantMessageId)?.attachments ?? []
-          );
+        if (!sawStreamedAnswerSinceLastSegment && segment && assistantMessageId && contentPersistence) {
+          latestAnswer += segment;
+          const sanitizedSegment = contentPersistence.appendSegment(segment);
           if (!sanitizedSegment) {
             sawStreamedAnswerSinceLastSegment = false;
             return;
@@ -404,7 +468,7 @@ async function startAssistantTurn(
     flushAnswerBuffer();
 
     updateMessage(assistantMessageId, {
-      content: buildFinalAssistantContent(conversationId, assistantMessageId, providerResult.answer),
+      content: contentPersistence?.finalize(providerResult.answer) ?? "",
       thinkingContent: providerResult.thinking,
       status: "completed",
       estimatedTokens:
@@ -423,7 +487,17 @@ async function startAssistantTurn(
   } catch (error) {
     if (error instanceof ChatTurnStoppedError && assistantMessageId) {
       if (flushTimer) clearTimeout(flushTimer);
-      if (answerBuffer) {
+      if (answerBuffer && contentPersistence) {
+        const sanitizedBuffer = contentPersistence.appendSegment(answerBuffer);
+        answerBuffer = "";
+        if (sanitizedBuffer) {
+          createMessageTextSegment({
+            messageId: assistantMessageId,
+            content: sanitizedBuffer,
+            sortOrder: timelineSortOrder++
+          });
+        }
+      } else if (answerBuffer) {
         createMessageTextSegment({
           messageId: assistantMessageId,
           content: answerBuffer,
@@ -433,7 +507,7 @@ async function startAssistantTurn(
       }
 
       updateMessage(assistantMessageId, {
-        content: buildFinalAssistantContent(conversationId, assistantMessageId, latestAnswer),
+        content: contentPersistence?.finalize(latestAnswer) ?? "",
         thinkingContent: latestThinking,
         status: "stopped",
         estimatedTokens: estimateTextTokens(latestAnswer)
