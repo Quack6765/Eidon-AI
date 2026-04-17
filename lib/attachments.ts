@@ -399,16 +399,34 @@ export function importAttachmentFromLocalFile(conversationId: string, sourcePath
     throw new Error(`Source path is not a regular file: ${sourcePath}`);
   }
 
-  const bytes = fs.readFileSync(sourcePath);
-  const [attachment] = createAttachments(conversationId, [
-    {
-      filename: path.basename(sourcePath),
-      mimeType: "",
-      bytes
-    }
-  ]);
+  const sourceFd = fs.openSync(sourcePath, "r");
 
-  return attachment;
+  try {
+    const fileStats = fs.fstatSync(sourceFd);
+
+    if (!fileStats.isFile()) {
+      throw new Error(`Source path is not a regular file: ${sourcePath}`);
+    }
+
+    if (fileStats.size > MAX_ATTACHMENT_BYTES) {
+      throw new Error(
+        `Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: ${path.basename(sourcePath)}`
+      );
+    }
+
+    const bytes = fs.readFileSync(sourceFd);
+    const [attachment] = createAttachments(conversationId, [
+      {
+        filename: path.basename(sourcePath),
+        mimeType: "",
+        bytes
+      }
+    ]);
+
+    return attachment;
+  } finally {
+    fs.closeSync(sourceFd);
+  }
 }
 
 export function assignAttachmentsToMessage(conversationId: string, messageId: string, attachmentIds: string[]) {

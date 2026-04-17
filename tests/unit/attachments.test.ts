@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { vi } from "vitest";
 
 import {
   createAttachments,
@@ -9,6 +10,7 @@ import {
   getAttachmentDataUrl,
   importAttachmentFromLocalFile
 } from "@/lib/attachments";
+import { MAX_ATTACHMENT_BYTES } from "@/lib/constants";
 import { bindAttachmentsToMessage, createConversation, createMessage } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
 
@@ -121,6 +123,40 @@ describe("attachment helpers", () => {
       );
       expect(getAttachment(attachment.id)?.filename).toBe("local-notes.md");
     } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects oversized local files before loading bytes", () => {
+    const conversation = createConversation();
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-import-"));
+    const sourcePath = path.join(sourceDir, "huge.txt");
+    fs.writeFileSync(sourcePath, "tiny", "utf8");
+    const baseStats = fs.lstatSync(sourcePath);
+    const lstatSpy = vi.spyOn(fs, "lstatSync");
+    const fstatSpy = vi.spyOn(fs, "fstatSync");
+    const readSpy = vi.spyOn(fs, "readFileSync").mockImplementation(() => {
+      throw new Error("readFileSync should not be called for oversized files");
+    });
+
+    try {
+      lstatSpy.mockReturnValue({
+        ...baseStats,
+        isFile: () => true,
+        size: MAX_ATTACHMENT_BYTES + 1
+      } as fs.Stats);
+      fstatSpy.mockReturnValue({
+        ...baseStats,
+        isFile: () => true,
+        size: MAX_ATTACHMENT_BYTES + 1
+      } as fs.Stats);
+
+      expect(() => importAttachmentFromLocalFile(conversation.id, sourcePath)).toThrow(
+        `Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: huge.txt`
+      );
+      expect(readSpy).not.toHaveBeenCalled();
+    } finally {
+      vi.restoreAllMocks();
       fs.rmSync(sourceDir, { recursive: true, force: true });
     }
   });
