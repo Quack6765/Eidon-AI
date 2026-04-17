@@ -6,8 +6,7 @@ import {
   decodeMarkdownTarget,
   findMarkdownTargets,
   isExternalMarkdownTarget,
-  normalizeProtectedMarkdownContent,
-  splitByCodeSegments
+  normalizeProtectedMarkdownContent
 } from "@/lib/assistant-markdown-parsing";
 import { env } from "@/lib/env";
 import type { MessageAttachment } from "@/lib/types";
@@ -282,12 +281,10 @@ export function inferAssistantLocalAttachments(
     return parts.join("");
   };
 
-  const parts = splitByCodeSegments(input.content).map((segment) =>
-    segment.isCode ? segment.text : sanitizeProseSegment(segment.text)
-  );
+  const sanitizedContent = sanitizeProseSegment(input.content);
 
   return {
-    content: collapseWhitespace(parts.join("")),
+    content: collapseWhitespace(sanitizedContent),
     attachments,
     failureNote: buildFailureNote(deniedNames, failedNames)
   };

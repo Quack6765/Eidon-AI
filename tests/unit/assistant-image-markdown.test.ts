@@ -118,6 +118,42 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     expect(stripAttachmentStyleImageMarkdown(content, [])).toBe(content);
   });
 
+  it("preserves assistant-authored data image markdown inside a list-indented fenced code block", () => {
+    const content = [
+      "- item",
+      "",
+      "  ```md",
+      "  ![Generated Image](data:image/png;base64,Zm9v)",
+      "  ```",
+      "",
+      "[Report](notes.txt)"
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
+      [
+        "- item",
+        "",
+        "  ```md",
+        "  ![Generated Image](data:image/png;base64,Zm9v)",
+        "  ```"
+      ].join("\n")
+    );
+  });
+
+  it("preserves assistant-authored data image markdown inside an unterminated blockquoted fenced code block", () => {
+    const content = [
+      "> ```md",
+      "> ![Generated Image](data:image/png;base64,Zm9v)",
+      "> still code",
+      "",
+      "[Report](notes.txt)"
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
+      ["> ```md", "> ![Generated Image](data:image/png;base64,Zm9v)", "> still code"].join("\n")
+    );
+  });
+
   it("does not treat a fenced line with trailing text as a closing fence", () => {
     const content = [
       "```md",

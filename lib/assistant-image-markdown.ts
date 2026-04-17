@@ -3,8 +3,7 @@ import {
   decodeMarkdownTarget,
   findMarkdownTargets,
   isExternalMarkdownTarget,
-  normalizeProtectedMarkdownContent,
-  splitByCodeSegments
+  normalizeProtectedMarkdownContent
 } from "@/lib/assistant-markdown-parsing";
 
 const ASSISTANT_DATA_IMAGE_PATTERN = /^data:image\/[^;,]+;base64,/i;
@@ -59,20 +58,11 @@ export function stripAttachmentStyleImageMarkdown(
     return content;
   }
 
-  let changed = false;
-  const parts = splitByCodeSegments(content).map((segment) => {
-    if (segment.isCode) {
-      return segment.text;
-    }
+  const sanitized = sanitizeProseSegment(content, imageAttachments, textAttachments);
 
-    const sanitized = sanitizeProseSegment(segment.text, imageAttachments, textAttachments);
-    changed ||= sanitized.changed;
-    return sanitized.content;
-  });
-
-  if (!changed) {
+  if (!sanitized.changed) {
     return content;
   }
 
-  return normalizeProtectedMarkdownContent(parts.join(""));
+  return normalizeProtectedMarkdownContent(sanitized.content);
 }
