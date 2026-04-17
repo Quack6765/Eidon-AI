@@ -5,50 +5,38 @@ export type ParsedMarkdownTarget = {
   isImage: boolean;
 };
 
-function readBacktickRun(content: string, startIndex: number) {
+function readRepeatedRun(content: string, startIndex: number, marker: string) {
   let cursor = startIndex;
 
-  while (cursor < content.length && content[cursor] === "`") {
+  while (cursor < content.length && content[cursor] === marker) {
     cursor += 1;
   }
 
   return cursor - startIndex;
 }
 
-function hasExactBacktickRun(content: string, startIndex: number, runLength: number) {
+function hasExactRun(content: string, startIndex: number, marker: string, runLength: number) {
   if (startIndex < 0 || startIndex + runLength > content.length) {
     return false;
   }
 
   for (let index = 0; index < runLength; index += 1) {
-    if (content[startIndex + index] !== "`") {
+    if (content[startIndex + index] !== marker) {
       return false;
     }
   }
 
-  return content[startIndex + runLength] !== "`";
+  return content[startIndex + runLength] !== marker;
 }
 
-function isFenceStart(content: string, startIndex: number, runLength: number) {
-  return runLength >= 3 && (startIndex === 0 || content[startIndex - 1] === "\n");
+function findLineEnd(content: string, lineStart: number) {
+  const newlineIndex = content.indexOf("\n", lineStart);
+  return newlineIndex === -1 ? content.length : newlineIndex;
 }
 
-function findClosingFence(content: string, searchStart: number, runLength: number) {
-  for (let cursor = searchStart; cursor < content.length; cursor += 1) {
-    if (content[cursor] !== "`") {
-      continue;
-    }
-
-    if (!isFenceStart(content, cursor, runLength)) {
-      continue;
-    }
-
-    if (hasExactBacktickRun(content, cursor, runLength)) {
-      return cursor;
-    }
-  }
-
-  return -1;
+function nextLineStart(content: string, lineStart: number) {
+  const lineEnd = findLineEnd(content, lineStart);
+  return lineEnd < content.length ? lineEnd + 1 : content.length;
 }
 
 function findClosingInlineCodeSpan(content: string, searchStart: number, runLength: number) {
@@ -57,7 +45,7 @@ function findClosingInlineCodeSpan(content: string, searchStart: number, runLeng
       continue;
     }
 
-    if (hasExactBacktickRun(content, cursor, runLength)) {
+    if (hasExactRun(content, cursor, "`", runLength)) {
       return cursor;
     }
   }
@@ -65,7 +53,7 @@ function findClosingInlineCodeSpan(content: string, searchStart: number, runLeng
   return -1;
 }
 
-export function splitByCodeSegments(content: string) {
+function splitInlineCodeSegments(content: string) {
   const segments: Array<{ isCode: boolean; text: string }> = [];
   let proseStart = 0;
   let cursor = 0;
@@ -76,22 +64,9 @@ export function splitByCodeSegments(content: string) {
       continue;
     }
 
-    const runLength = readBacktickRun(content, cursor);
+    const runLength = readRepeatedRun(content, cursor, "`");
     if (runLength === 0) {
       cursor += 1;
-      continue;
-    }
-
-    if (isFenceStart(content, cursor, runLength)) {
-      if (cursor > proseStart) {
-        segments.push({ isCode: false, text: content.slice(proseStart, cursor) });
-      }
-
-      const closingFenceIndex = findClosingFence(content, cursor + runLength, runLength);
-      const segmentEnd = closingFenceIndex === -1 ? content.length : closingFenceIndex + runLength;
-      segments.push({ isCode: true, text: content.slice(cursor, segmentEnd) });
-      cursor = segmentEnd;
-      proseStart = cursor;
       continue;
     }
 
@@ -116,6 +91,163 @@ export function splitByCodeSegments(content: string) {
   }
 
   return segments;
+}
+
+function countFenceIndent(content: string, lineStart: number, lineEnd: number) {
+  let cursor = lineStart;
+  let indent = 0;
+
+  while (cursor < lineEnd && content[cursor] === " " && indent < 3) {
+    cursor += 1;
+    indent += 1;
+  }
+
+  return cursor;
+}
+
+function parseFenceStart(content: string, lineStart: number, lineEnd: number) {
+  const markerStart = countFenceIndent(content, lineStart, lineEnd);
+  if (markerStart >= lineEnd) {
+    return null;
+  }
+
+  const marker = content[markerStart];
+  if (marker !== "`" && marker !== "~") {
+    return null;
+  }
+
+  const runLength = readRepeatedRun(content, markerStart, marker);
+  if (runLength < 3) {
+    return null;
+  }
+
+  return { marker, runLength };
+}
+
+function isClosingFenceLine(
+  content: string,
+  lineStart: number,
+  lineEnd: number,
+  marker: string,
+  minimumRunLength: number
+) {
+  const markerStart = countFenceIndent(content, lineStart, lineEnd);
+  if (markerStart >= lineEnd || content[markerStart] !== marker) {
+    return false;
+  }
+
+  const runLength = readRepeatedRun(content, markerStart, marker);
+  if (runLength < minimumRunLength) {
+    return false;
+  }
+
+  for (let cursor = markerStart + runLength; cursor < lineEnd; cursor += 1) {
+    if (content[cursor] !== " " && content[cursor] !== "\t") {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function isBlankLine(content: string, lineStart: number, lineEnd: number) {
+  for (let cursor = lineStart; cursor < lineEnd; cursor += 1) {
+    if (content[cursor] !== " " && content[cursor] !== "\t") {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function isIndentedCodeLine(content: string, lineStart: number, lineEnd: number) {
+  if (lineStart >= lineEnd) {
+    return false;
+  }
+
+  if (content[lineStart] === "\t") {
+    return true;
+  }
+
+  return content.startsWith("    ", lineStart);
+}
+
+export function splitByCodeSegments(content: string) {
+  const blockSegments: Array<{ isCode: boolean; text: string }> = [];
+  let proseStart = 0;
+  let lineStart = 0;
+
+  while (lineStart < content.length) {
+    const lineEnd = findLineEnd(content, lineStart);
+    const fence = parseFenceStart(content, lineStart, lineEnd);
+
+    if (fence) {
+      if (lineStart > proseStart) {
+        blockSegments.push({ isCode: false, text: content.slice(proseStart, lineStart) });
+      }
+
+      let blockEnd = nextLineStart(content, lineStart);
+      let searchLineStart = blockEnd;
+
+      while (searchLineStart < content.length) {
+        const searchLineEnd = findLineEnd(content, searchLineStart);
+        if (isClosingFenceLine(content, searchLineStart, searchLineEnd, fence.marker, fence.runLength)) {
+          blockEnd = nextLineStart(content, searchLineStart);
+          break;
+        }
+
+        searchLineStart = nextLineStart(content, searchLineStart);
+        blockEnd = searchLineStart;
+      }
+
+      blockSegments.push({ isCode: true, text: content.slice(lineStart, blockEnd) });
+      proseStart = blockEnd;
+      lineStart = blockEnd;
+      continue;
+    }
+
+    if (isIndentedCodeLine(content, lineStart, lineEnd)) {
+      if (lineStart > proseStart) {
+        blockSegments.push({ isCode: false, text: content.slice(proseStart, lineStart) });
+      }
+
+      let blockEnd = nextLineStart(content, lineStart);
+      let searchLineStart = blockEnd;
+
+      while (searchLineStart < content.length) {
+        const searchLineEnd = findLineEnd(content, searchLineStart);
+        if (!isBlankLine(content, searchLineStart, searchLineEnd) &&
+            !isIndentedCodeLine(content, searchLineStart, searchLineEnd)) {
+          break;
+        }
+
+        searchLineStart = nextLineStart(content, searchLineStart);
+        blockEnd = searchLineStart;
+      }
+
+      blockSegments.push({ isCode: true, text: content.slice(lineStart, blockEnd) });
+      proseStart = blockEnd;
+      lineStart = blockEnd;
+      continue;
+    }
+
+    lineStart = nextLineStart(content, lineStart);
+  }
+
+  if (proseStart < content.length) {
+    blockSegments.push({ isCode: false, text: content.slice(proseStart) });
+  }
+
+  return blockSegments.flatMap((segment) => (segment.isCode ? [segment] : splitInlineCodeSegments(segment.text)));
+}
+
+export function normalizeProtectedMarkdownContent(content: string) {
+  return content
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/^(?:[ \t]*\n)+/, "")
+    .replace(/(?:\n[ \t]*)+$/, "")
+    .replace(/[ \t]+$/, "");
 }
 
 function findMatchingBracket(content: string, startIndex: number) {

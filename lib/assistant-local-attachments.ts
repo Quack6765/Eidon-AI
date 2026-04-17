@@ -6,6 +6,7 @@ import {
   decodeMarkdownTarget,
   findMarkdownTargets,
   isExternalMarkdownTarget,
+  normalizeProtectedMarkdownContent,
   splitByCodeSegments
 } from "@/lib/assistant-markdown-parsing";
 import { env } from "@/lib/env";
@@ -70,10 +71,7 @@ function isPathInsideRoot(candidatePath: string, rootPath: string) {
 }
 
 function collapseWhitespace(content: string) {
-  return content
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return normalizeProtectedMarkdownContent(content);
 }
 
 function decodeAssistantDataImageBytes(base64Value: string) {

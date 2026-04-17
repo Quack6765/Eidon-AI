@@ -66,6 +66,97 @@ describe("inferAssistantLocalAttachments", () => {
     expect(result.failureNote).toBe("");
   });
 
+  it("does not treat a fenced line with trailing text as a closing fence", () => {
+    const conversation = createConversation();
+    const malformedTarget = "data:image/png;base64,%%%";
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "report.txt");
+
+    try {
+      fs.writeFileSync(sourcePath, "report", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: [
+          "```md",
+          `![Generated image](${malformedTarget})`,
+          "```notclose",
+          "still code",
+          "```",
+          "",
+          `[report](${sourcePath})`
+        ].join("\n"),
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      expect(result.attachments[0]?.filename).toBe("report.txt");
+      expect(result.content).toBe("```md\n![Generated image](data:image/png;base64,%%%)\n```notclose\nstill code\n```");
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves assistant data image markdown inside tilde fences", () => {
+    const conversation = createConversation();
+    const malformedTarget = "data:image/png;base64,%%%";
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "report.txt");
+
+    try {
+      fs.writeFileSync(sourcePath, "report", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: [
+          "~~~md",
+          `![Generated image](${malformedTarget})`,
+          "~~~",
+          "",
+          `[report](${sourcePath})`
+        ].join("\n"),
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      expect(result.attachments[0]?.filename).toBe("report.txt");
+      expect(result.content).toBe("~~~md\n![Generated image](data:image/png;base64,%%%)\n~~~");
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves assistant data image markdown inside indented code blocks", () => {
+    const conversation = createConversation();
+    const malformedTarget = "data:image/png;base64,%%%";
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "report.txt");
+
+    try {
+      fs.writeFileSync(sourcePath, "report", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: [
+          `    ![Generated image](${malformedTarget})`,
+          "    still code",
+          "",
+          `[report](${sourcePath})`
+        ].join("\n"),
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      expect(result.attachments[0]?.filename).toBe("report.txt");
+      expect(result.content).toBe("    ![Generated image](data:image/png;base64,%%%)\n    still code");
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   it("imports a /tmp image markdown target and strips it from content", () => {
     const conversation = createConversation();
     const tempDir = fs.mkdtempSync(path.join("/tmp", "eidon-assistant-image-"));

@@ -109,6 +109,62 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     expect(stripAttachmentStyleImageMarkdown(content, [])).toBe(content);
   });
 
+  it("does not treat a fenced line with trailing text as a closing fence", () => {
+    const content = [
+      "```md",
+      "![Generated Image](data:image/png;base64,Zm9v)",
+      "```notclose",
+      "still code",
+      "```",
+      "",
+      "[Report](notes.txt)"
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
+      [
+        "```md",
+        "![Generated Image](data:image/png;base64,Zm9v)",
+        "```notclose",
+        "still code",
+        "```"
+      ].join("\n")
+    );
+  });
+
+  it("preserves assistant-authored data image markdown inside tilde fences", () => {
+    const content = [
+      "~~~md",
+      "![Generated Image](data:image/png;base64,Zm9v)",
+      "~~~",
+      "",
+      "[Report](notes.txt)"
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
+      [
+        "~~~md",
+        "![Generated Image](data:image/png;base64,Zm9v)",
+        "~~~"
+      ].join("\n")
+    );
+  });
+
+  it("preserves assistant-authored data image markdown inside indented code blocks", () => {
+    const content = [
+      "    ![Generated Image](data:image/png;base64,Zm9v)",
+      "    still code",
+      "",
+      "[Report](notes.txt)"
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
+      [
+        "    ![Generated Image](data:image/png;base64,Zm9v)",
+        "    still code"
+      ].join("\n")
+    );
+  });
+
   it("removes local markdown file links when the assistant message already has text attachments", () => {
     const content = [
       "Here is the report you asked for.",

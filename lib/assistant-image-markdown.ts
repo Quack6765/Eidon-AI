@@ -3,6 +3,7 @@ import {
   decodeMarkdownTarget,
   findMarkdownTargets,
   isExternalMarkdownTarget,
+  normalizeProtectedMarkdownContent,
   splitByCodeSegments
 } from "@/lib/assistant-markdown-parsing";
 
@@ -56,8 +57,5 @@ export function stripAttachmentStyleImageMarkdown(
     segment.isCode ? segment.text : sanitizeProseSegment(segment.text, imageAttachments, textAttachments)
   );
 
-  return parts.join("")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
+  return normalizeProtectedMarkdownContent(parts.join(""));
 }
