@@ -113,6 +113,35 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
+  it("imports titled workspace markdown links and strips them from content", () => {
+    const conversation = createConversation();
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "workspace-log.txt");
+    const spacedPath = path.join(workspaceDir, "notes with space.txt");
+
+    try {
+      fs.writeFileSync(sourcePath, "hello from workspace", "utf8");
+      fs.writeFileSync(spacedPath, "hello with title", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: [
+          "Attached logs:",
+          "",
+          `[log](${sourcePath} "log title")`,
+          `[notes](<${spacedPath}> "space title")`
+        ].join("\n"),
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(2);
+      expect(result.content).toBe("Attached logs:");
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
   it("denies out-of-bounds local paths with a user-facing note", () => {
     const conversation = createConversation();
     const outsideDir = fs.mkdtempSync(path.join(os.homedir(), ".eidon-out-of-bounds-"));

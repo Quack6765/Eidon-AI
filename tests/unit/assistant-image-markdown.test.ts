@@ -127,6 +127,26 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     );
   });
 
+  it("removes titled local markdown file links when the assistant message already has matching text attachments", () => {
+    const content = [
+      "Here are the reports you asked for.",
+      "",
+      "[Report](notes.txt \"title\")",
+      "[Spaced](<notes with space.txt> \"title\")"
+    ].join("\n");
+
+    expect(
+      stripAttachmentStyleImageMarkdown(content, [
+        createTextAttachment(),
+        createTextAttachment({
+          id: "att_spaced",
+          filename: "notes with space.txt",
+          relativePath: "conv_test/notes with space.txt"
+        })
+      ])
+    ).toBe("Here are the reports you asked for.");
+  });
+
   it("strips parsed markdown targets with parentheses, angle brackets, and escaped closers when attachments match", () => {
     const content = [
       "Matched links:",
@@ -149,6 +169,12 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     const content = "[Maybe](es.txt)";
 
     expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment({ filename: "notes.txt" })])).toBe(content);
+  });
+
+  it("does not strip unrelated absolute paths that only share the same basename", () => {
+    const content = "[Other](/tmp/other/notes.txt)";
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(content);
   });
 
   it("preserves external markdown file links", () => {

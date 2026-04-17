@@ -1,7 +1,7 @@
 import type { MessageAttachment } from "@/lib/types";
 import {
+  decodeMarkdownTarget,
   findMarkdownTargets,
-  getMarkdownTargetFilename,
   isExternalMarkdownTarget,
   splitByCodeSegments
 } from "@/lib/assistant-markdown-parsing";
@@ -14,19 +14,21 @@ function sanitizeProseSegment(content: string, imageAttachments: MessageAttachme
     return content;
   }
 
-  const imageAttachmentNames = new Set(imageAttachments.map((attachment) => attachment.filename));
-  const textAttachmentNames = new Set(textAttachments.map((attachment) => attachment.filename));
+  const buildLocalTargetSet = (attachments: MessageAttachment[]) =>
+    new Set(attachments.flatMap((attachment) => [attachment.filename, attachment.relativePath]));
+
+  const imageAttachmentTargets = buildLocalTargetSet(imageAttachments);
+  const textAttachmentTargets = buildLocalTargetSet(textAttachments);
   const parts: string[] = [];
   let cursor = 0;
 
   for (const match of matches) {
-    const normalizedTarget = match.target.trim();
+    const normalizedTarget = decodeMarkdownTarget(match.target.trim());
     const shouldStrip = match.isImage
       ? ASSISTANT_DATA_IMAGE_PATTERN.test(normalizedTarget) ||
-        (!isExternalMarkdownTarget(normalizedTarget) &&
-          imageAttachmentNames.has(getMarkdownTargetFilename(normalizedTarget)))
+        (!isExternalMarkdownTarget(normalizedTarget) && imageAttachmentTargets.has(normalizedTarget))
       : !isExternalMarkdownTarget(normalizedTarget) &&
-        textAttachmentNames.has(getMarkdownTargetFilename(normalizedTarget));
+        textAttachmentTargets.has(normalizedTarget);
 
     if (!shouldStrip) {
       continue;

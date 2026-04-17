@@ -145,6 +145,71 @@ function findMatchingBracket(content: string, startIndex: number) {
   return -1;
 }
 
+function parseMarkdownTitle(content: string, startIndex: number) {
+  const opener = content[startIndex];
+  const closer = opener === "(" ? ")" : opener;
+  if (opener !== `"` && opener !== `'` && opener !== "(") {
+    return null;
+  }
+
+  let cursor = startIndex + 1;
+
+  while (cursor < content.length) {
+    const character = content[cursor];
+
+    if (character === "\\") {
+      cursor += 2;
+      continue;
+    }
+
+    if (character === closer) {
+      return cursor + 1;
+    }
+
+    cursor += 1;
+  }
+
+  return null;
+}
+
+function finalizeMarkdownDestination(content: string, startIndex: number, target: string) {
+  let cursor = startIndex;
+
+  while (cursor < content.length && (content[cursor] === " " || content[cursor] === "\t")) {
+    cursor += 1;
+  }
+
+  if (cursor >= content.length) {
+    return null;
+  }
+
+  if (content[cursor] === ")") {
+    return {
+      target,
+      end: cursor + 1
+    };
+  }
+
+  const afterTitle = parseMarkdownTitle(content, cursor);
+  if (afterTitle === null) {
+    return null;
+  }
+
+  cursor = afterTitle;
+  while (cursor < content.length && (content[cursor] === " " || content[cursor] === "\t")) {
+    cursor += 1;
+  }
+
+  if (content[cursor] !== ")") {
+    return null;
+  }
+
+  return {
+    target,
+    end: cursor + 1
+  };
+}
+
 function parseMarkdownDestination(content: string, openParenIndex: number) {
   let cursor = openParenIndex + 1;
 
@@ -177,20 +242,7 @@ function parseMarkdownDestination(content: string, openParenIndex: number) {
 
       if (character === ">") {
         const target = targetParts.join("");
-        cursor += 1;
-
-        while (cursor < content.length && (content[cursor] === " " || content[cursor] === "\t")) {
-          cursor += 1;
-        }
-
-        if (content[cursor] !== ")") {
-          return null;
-        }
-
-        return {
-          target,
-          end: cursor + 1
-        };
+        return finalizeMarkdownDestination(content, cursor + 1, target);
       }
 
       targetParts.push(character);
@@ -228,7 +280,7 @@ function parseMarkdownDestination(content: string, openParenIndex: number) {
     if (character === ")") {
       if (parenDepth === 0) {
         const target = targetParts.join("").trim();
-        if (!target || /\s/.test(target)) {
+        if (!target) {
           return null;
         }
 
@@ -245,7 +297,12 @@ function parseMarkdownDestination(content: string, openParenIndex: number) {
     }
 
     if (/\s/.test(character)) {
-      return null;
+      const target = targetParts.join("").trim();
+      if (!target) {
+        return null;
+      }
+
+      return finalizeMarkdownDestination(content, cursor, target);
     }
 
     targetParts.push(character);
@@ -299,11 +356,4 @@ export function decodeMarkdownTarget(target: string) {
 
 export function isExternalMarkdownTarget(target: string) {
   return /^[a-z][a-z0-9+.-]*:/i.test(target);
-}
-
-export function getMarkdownTargetFilename(target: string) {
-  const decodedTarget = decodeMarkdownTarget(target.trim());
-  const normalizedTarget = decodedTarget.replace(/\\/g, "/");
-  const lastSlashIndex = normalizedTarget.lastIndexOf("/");
-  return lastSlashIndex === -1 ? normalizedTarget : normalizedTarget.slice(lastSlashIndex + 1);
 }
