@@ -260,6 +260,24 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe("Here is the report:");
   });
 
+  it("keeps shared reference definitions when only the image reference is stripped", () => {
+    const content = [
+      "Keep the text reference:",
+      "",
+      "[Report][shared]",
+      "![Diagram][shared]",
+      "",
+      "[shared]: generated.png"
+    ].join("\n");
+
+    expect(
+      stripAttachmentStyleImageMarkdown(
+        content,
+        [createImageAttachment({ filename: "generated.png", relativePath: "conv_test/generated.png" })]
+      )
+    ).toBe(["Keep the text reference:", "", "[Report][shared]", "", "[shared]: generated.png"].join("\n"));
+  });
+
   it("strips parsed markdown targets with parentheses, angle brackets, and escaped closers when attachments match", () => {
     const content = [
       "Matched links:",

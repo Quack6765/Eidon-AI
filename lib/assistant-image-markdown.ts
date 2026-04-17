@@ -18,18 +18,23 @@ function sanitizeProseSegment(content: string, imageAttachments: MessageAttachme
 
   const imageAttachmentTargets = buildLocalTargetSet(imageAttachments);
   const textAttachmentTargets = buildLocalTargetSet(textAttachments);
+  const canStripImageTarget = (target: string) => {
+    const parsedDataImage = parseAssistantDataImageTarget(target);
+    return parsedDataImage.type === "valid" || (!isExternalMarkdownTarget(target) && imageAttachmentTargets.has(target));
+  };
+  const canStripTextTarget = (target: string) => !isExternalMarkdownTarget(target) && textAttachmentTargets.has(target);
   const parts: string[] = [];
   let cursor = 0;
   let changed = false;
 
   for (const match of matches) {
     const normalizedTarget = decodeMarkdownTarget(match.target.trim());
-    const parsedDataImage = match.isImage ? parseAssistantDataImageTarget(normalizedTarget) : { type: "none" as const };
-    const shouldStrip = match.isImage
-      ? parsedDataImage.type === "valid" ||
-        (!isExternalMarkdownTarget(normalizedTarget) && imageAttachmentTargets.has(normalizedTarget))
-      : !isExternalMarkdownTarget(normalizedTarget) &&
-        textAttachmentTargets.has(normalizedTarget);
+    const shouldStrip = match.definitionUsage
+      ? (!match.definitionUsage.link || canStripTextTarget(normalizedTarget)) &&
+        (!match.definitionUsage.image || canStripImageTarget(normalizedTarget))
+      : match.isImage
+        ? canStripImageTarget(normalizedTarget)
+        : canStripTextTarget(normalizedTarget);
 
     if (!shouldStrip) {
       continue;

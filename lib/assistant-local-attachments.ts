@@ -13,6 +13,7 @@ import { env } from "@/lib/env";
 import type { MessageAttachment } from "@/lib/types";
 
 const TMP_ROOT = "/tmp";
+const GENERATED_IMAGE_DISPLAY_NAME = "generated image";
 
 type InferAssistantLocalAttachmentsInput = {
   conversationId: string;
@@ -101,7 +102,7 @@ export function inferAssistantLocalAttachments(
 
         const errorOutcome: LocalTargetOutcome = {
           type: "error",
-          displayName: "generated image"
+          displayName: GENERATED_IMAGE_DISPLAY_NAME
         };
         attachmentCache.set(parsedDataImage.cacheKey, errorOutcome);
         return errorOutcome;
@@ -128,7 +129,7 @@ export function inferAssistantLocalAttachments(
         } catch {
           const errorOutcome: LocalTargetOutcome = {
             type: "error",
-            displayName: parsedDataImage.displayName
+            displayName: GENERATED_IMAGE_DISPLAY_NAME
           };
           attachmentCache.set(parsedDataImage.cacheKey, errorOutcome);
           return errorOutcome;
@@ -186,17 +187,26 @@ export function inferAssistantLocalAttachments(
     let cursor = 0;
 
     for (const match of matches) {
-      const outcome = resolveTarget(match.target, match.isImage);
-      if (outcome.type === "ignore") {
+      const outcomes = match.definitionUsage
+        ? [
+            ...(match.definitionUsage.link ? [resolveTarget(match.target, false)] : []),
+            ...(match.definitionUsage.image ? [resolveTarget(match.target, true)] : [])
+          ]
+        : [resolveTarget(match.target, match.isImage)];
+
+      const shouldStrip = outcomes.every((outcome) => outcome.type !== "ignore");
+      if (!shouldStrip) {
         continue;
       }
 
       parts.push(segment.slice(cursor, match.start));
 
-      if (outcome.type === "deny") {
-        deniedNames.add(outcome.displayName);
-      } else if (outcome.type === "error") {
-        failedNames.add(outcome.displayName);
+      for (const outcome of outcomes) {
+        if (outcome.type === "deny") {
+          deniedNames.add(outcome.displayName);
+        } else if (outcome.type === "error") {
+          failedNames.add(outcome.displayName);
+        }
       }
 
       cursor = match.end;

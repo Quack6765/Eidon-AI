@@ -7,6 +7,10 @@ export type ParsedMarkdownTarget = {
   end: number;
   target: string;
   isImage: boolean;
+  definitionUsage?: {
+    link: boolean;
+    image: boolean;
+  };
 };
 
 export type ParsedAssistantDataImageTarget =
@@ -114,7 +118,7 @@ function collectMarkdownTargets(
   node: MarkdownNode,
   content: string,
   definitions: Map<string, MarkdownDefinition>,
-  usedDefinitions: Map<string, boolean>,
+  usedDefinitions: Map<string, { link: boolean; image: boolean }>,
   matches: ParsedMarkdownTarget[]
 ) {
   if ((node.type === "link" || node.type === "image") && typeof node.url === "string") {
@@ -140,11 +144,13 @@ function collectMarkdownTargets(
         isImage: node.type === "imageReference"
       });
 
+      const usage = usedDefinitions.get(node.identifier) ?? { link: false, image: false };
       if (node.type === "imageReference") {
-        usedDefinitions.set(node.identifier, true);
-      } else if (!usedDefinitions.has(node.identifier)) {
-        usedDefinitions.set(node.identifier, false);
+        usage.image = true;
+      } else {
+        usage.link = true;
       }
+      usedDefinitions.set(node.identifier, usage);
     }
   }
 
@@ -162,11 +168,11 @@ export function findMarkdownTargets(content: string): ParsedMarkdownTarget[] {
   const definitions = new Map<string, MarkdownDefinition>();
   collectDefinitionNodes(tree, definitions);
 
-  const usedDefinitions = new Map<string, boolean>();
+  const usedDefinitions = new Map<string, { link: boolean; image: boolean }>();
   const matches: ParsedMarkdownTarget[] = [];
   collectMarkdownTargets(tree, content, definitions, usedDefinitions, matches);
 
-  for (const [identifier, isImage] of usedDefinitions) {
+  for (const [identifier, definitionUsage] of usedDefinitions) {
     const definition = definitions.get(identifier);
     if (!definition) {
       continue;
@@ -176,7 +182,8 @@ export function findMarkdownTargets(content: string): ParsedMarkdownTarget[] {
       start: definition.start,
       end: definition.end,
       target: definition.target,
-      isImage
+      isImage: definitionUsage.image && !definitionUsage.link,
+      definitionUsage
     });
   }
 

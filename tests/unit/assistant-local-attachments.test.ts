@@ -359,6 +359,32 @@ describe("inferAssistantLocalAttachments", () => {
     expect(result.failureNote).toBe("");
   });
 
+  it("keeps shared reference definitions when only the image reference is salvaged", () => {
+    const conversation = createConversation();
+    const imageBytes = Buffer.from("generated-image-bytes", "utf8");
+    const dataTarget = `data:image/png;base64,${imageBytes.toString("base64")}`;
+
+    const result = inferAssistantLocalAttachments({
+      conversationId: conversation.id,
+      content: [
+        "Keep the text reference:",
+        "",
+        "[Report][shared]",
+        "![Generated image][shared]",
+        "",
+        `[shared]: ${dataTarget}`
+      ].join("\n"),
+      workspaceRoot: process.cwd()
+    });
+
+    expect(result.attachments).toHaveLength(1);
+    expect(result.attachments[0]?.filename).toBe("generated.png");
+    expect(result.content).toBe(
+      ["Keep the text reference:", "", "[Report][shared]", "", `[shared]: ${dataTarget}`].join("\n")
+    );
+    expect(result.failureNote).toBe("");
+  });
+
   it("denies out-of-bounds local paths with a user-facing note", () => {
     const conversation = createConversation();
     const outsideDir = fs.mkdtempSync(path.join(os.homedir(), ".eidon-out-of-bounds-"));
