@@ -67,4 +67,36 @@ describe("message bubble avatar", () => {
 
     expect(screen.queryByRole("button", { name: "Edit message" })).toBeNull();
   });
+
+  it("renders assistant-imported file attachments as preview tiles without exposing the local path", () => {
+    const localPath = "/tmp/eidon-assistant-local-attachments/report.txt";
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: ["Here is the exported report.", "", `[report](${localPath})`].join("\n"),
+          attachments: [
+            {
+              id: "att_report",
+              conversationId: "conv_test",
+              messageId: "msg_assistant",
+              filename: "report.txt",
+              mimeType: "text/plain",
+              byteSize: 10,
+              sha256: "hash-report",
+              relativePath: "conv_test/att_report_report.txt",
+              kind: "text",
+              extractedText: "report body",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    expect(screen.getByText("Here is the exported report.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview report.txt" })).toBeInTheDocument();
+    expect(screen.queryByText(localPath)).toBeNull();
+  });
 });

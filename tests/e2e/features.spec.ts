@@ -1,5 +1,7 @@
+import fs from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo, Socket } from "node:net";
+import path from "node:path";
 
 import { expect, test } from "@playwright/test";
 
@@ -39,7 +41,10 @@ async function signIn(page: import("@playwright/test").Page) {
   await page.waitForURL(/localhost:3117\/$/, { timeout: 15000 });
 }
 
-async function mockChatResponse(page: import("@playwright/test").Page) {
+async function mockChatResponse(
+  page: import("@playwright/test").Page,
+  assistantAnswer = "Attachment received"
+) {
   await page.route("**/api/conversations/*/chat", async (route) => {
     await route.fulfill({
       status: 200,
@@ -47,7 +52,7 @@ async function mockChatResponse(page: import("@playwright/test").Page) {
       body: [
         'data: {"type":"message_start","messageId":"msg_assistant"}',
         "",
-        'data: {"type":"answer_delta","text":"Attachment received"}',
+        `data: {"type":"answer_delta","text":${JSON.stringify(assistantAnswer)}}`,
         "",
         'data: {"type":"done","messageId":"msg_assistant"}',
         "",
@@ -95,7 +100,11 @@ type MockChatRequest = {
   isTitleRequest: boolean;
 };
 
-async function startMockOpenAiCompatibleServer() {
+type MockProviderOptions = {
+  queuedAnswer?: string | ((lastUserContent: string) => string);
+};
+
+async function startMockOpenAiCompatibleServer(options: MockProviderOptions = {}) {
   const chatRequests: MockChatRequest[] = [];
   let initialStreamConnections = 0;
   const openSockets = new Set<Socket>();
@@ -147,7 +156,12 @@ async function startMockOpenAiCompatibleServer() {
       return;
     }
 
-    await streamQueuedTurn(response, body.model ?? "mock-model", lastUserContent);
+    const queuedAnswer =
+      typeof options.queuedAnswer === "function"
+        ? options.queuedAnswer(lastUserContent)
+        : options.queuedAnswer ?? `Handled ${lastUserContent}`;
+
+    await streamQueuedTurn(response, body.model ?? "mock-model", queuedAnswer);
   });
 
   server.on("connection", (socket) => {
@@ -289,7 +303,7 @@ async function streamInitialTurn(
 async function streamQueuedTurn(
   response: ServerResponse,
   model: string,
-  lastUserContent: string
+  assistantText: string
 ) {
   response.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
@@ -298,7 +312,7 @@ async function streamQueuedTurn(
   });
 
   writeChatCompletionChunk(response, {
-    id: `chatcmpl_${lastUserContent}`,
+    id: "chatcmpl_queued_turn",
     object: "chat.completion.chunk",
     created: Math.floor(Date.now() / 1000),
     model,
@@ -307,7 +321,7 @@ async function streamQueuedTurn(
         index: 0,
         delta: {
           role: "assistant",
-          content: `Handled ${lastUserContent}`
+          content: assistantText
         },
         finish_reason: null
       }
@@ -315,7 +329,7 @@ async function streamQueuedTurn(
   });
 
   writeChatCompletionChunk(response, {
-    id: `chatcmpl_${lastUserContent}`,
+    id: "chatcmpl_queued_turn",
     object: "chat.completion.chunk",
     created: Math.floor(Date.now() / 1000),
     model,
@@ -1187,6 +1201,57 @@ test.describe("Feature: Chat attachments", () => {
       "href",
       /\/api\/attachments\/att_notes\?download=1$/
     );
+  });
+
+  test("renders assistant-imported local screenshots and files as transcript tiles", async ({
+    page
+  }) => {
+    const tempDir = fs.mkdtempSync(path.join("/tmp", "eidon-assistant-local-attachments-"));
+    const screenshotPath = path.join(tempDir, "screenshot.png");
+    const reportPath = path.join(tempDir, "report.txt");
+    const assistantAnswer = [
+      "Here are the local files you asked for.",
+      "",
+      `![Screenshot](${screenshotPath})`,
+      "",
+      `[Report](${reportPath})`
+    ].join("\n");
+
+    fs.writeFileSync(screenshotPath, TINY_PNG);
+    fs.writeFileSync(reportPath, "report body", "utf8");
+
+    const mockServer = await startMockOpenAiCompatibleServer({
+      queuedAnswer: () => assistantAnswer
+    });
+    let restoreProviderSettings: (() => Promise<void>) | null = null;
+
+    try {
+      await signIn(page);
+      restoreProviderSettings = await configureMockProvider(page, mockServer.apiBaseUrl);
+      mockServer.reset();
+
+      await createNewChat(page);
+      await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+      await page.getByPlaceholder(/Ask, create, or start a task/i).fill("Please review these");
+      await page.getByRole("button", { name: "Send message" }).click();
+
+      await page.waitForTimeout(250);
+      await expect(page.getByRole("button", { name: "Preview screenshot.png" }).last()).toBeVisible({
+        timeout: 10000
+      });
+      await expect(page.getByRole("button", { name: "Preview report.txt" }).last()).toBeVisible({
+        timeout: 10000
+      });
+      await expect(page.getByText(screenshotPath)).toHaveCount(0);
+      await expect(page.getByText(reportPath)).toHaveCount(0);
+    } finally {
+      if (restoreProviderSettings) {
+        await restoreProviderSettings();
+      }
+      await mockServer.close();
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 
