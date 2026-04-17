@@ -45,6 +45,27 @@ describe("inferAssistantLocalAttachments", () => {
     expect(result.failureNote).toContain("could not be imported");
   });
 
+  it("preserves assistant data image markdown inside an unterminated fenced code block", () => {
+    const conversation = createConversation();
+    const malformedTarget = "data:image/png;base64,%%%";
+    const content = [
+      "```md",
+      `![Generated image](${malformedTarget})`,
+      "",
+      "Still part of the unfinished fence"
+    ].join("\n");
+
+    const result = inferAssistantLocalAttachments({
+      conversationId: conversation.id,
+      content,
+      workspaceRoot: process.cwd()
+    });
+
+    expect(result.attachments).toHaveLength(0);
+    expect(result.content).toBe(content);
+    expect(result.failureNote).toBe("");
+  });
+
   it("imports a /tmp image markdown target and strips it from content", () => {
     const conversation = createConversation();
     const tempDir = fs.mkdtempSync(path.join("/tmp", "eidon-assistant-image-"));

@@ -5,7 +5,6 @@ import { createAttachmentsFromBytes, importAttachmentFromLocalFile } from "@/lib
 import { env } from "@/lib/env";
 import type { MessageAttachment } from "@/lib/types";
 
-const CODE_SEGMENT_PATTERN = /```[\s\S]*?```|`[^`\n]+`/g;
 const TMP_ROOT = "/tmp";
 const ASSISTANT_DATA_IMAGE_PREFIX_PATTERN = /^data:image\//i;
 const ASSISTANT_DATA_IMAGE_PATTERN = /^data:(image\/(?:png|jpeg|jpg|webp|gif));base64,([A-Za-z0-9+/]+={0,2})$/i;
@@ -88,6 +87,50 @@ function collapseWhitespace(content: string) {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+function splitByCodeSegments(content: string) {
+  const segments: Array<{ isCode: boolean; text: string }> = [];
+  let proseStart = 0;
+  let cursor = 0;
+
+  while (cursor < content.length) {
+    if (content.startsWith("```", cursor)) {
+      if (cursor > proseStart) {
+        segments.push({ isCode: false, text: content.slice(proseStart, cursor) });
+      }
+
+      const closingFenceIndex = content.indexOf("```", cursor + 3);
+      const segmentEnd = closingFenceIndex === -1 ? content.length : closingFenceIndex + 3;
+      segments.push({ isCode: true, text: content.slice(cursor, segmentEnd) });
+      cursor = segmentEnd;
+      proseStart = cursor;
+      continue;
+    }
+
+    if (content[cursor] === "`") {
+      const closingTickIndex = content.indexOf("`", cursor + 1);
+      const newlineIndex = content.indexOf("\n", cursor + 1);
+      if (closingTickIndex !== -1 && (newlineIndex === -1 || closingTickIndex < newlineIndex)) {
+        if (cursor > proseStart) {
+          segments.push({ isCode: false, text: content.slice(proseStart, cursor) });
+        }
+
+        segments.push({ isCode: true, text: content.slice(cursor, closingTickIndex + 1) });
+        cursor = closingTickIndex + 1;
+        proseStart = cursor;
+        continue;
+      }
+    }
+
+    cursor += 1;
+  }
+
+  if (proseStart < content.length) {
+    segments.push({ isCode: false, text: content.slice(proseStart) });
+  }
+
+  return segments;
 }
 
 function decodeAssistantDataImageBytes(base64Value: string) {
@@ -469,22 +512,9 @@ export function inferAssistantLocalAttachments(
     return parts.join("");
   };
 
-  const parts: string[] = [];
-  let lastIndex = 0;
-
-  for (const match of input.content.matchAll(CODE_SEGMENT_PATTERN)) {
-    const start = match.index ?? 0;
-    if (start > lastIndex) {
-      parts.push(sanitizeProseSegment(input.content.slice(lastIndex, start)));
-    }
-
-    parts.push(match[0]);
-    lastIndex = start + match[0].length;
-  }
-
-  if (lastIndex < input.content.length) {
-    parts.push(sanitizeProseSegment(input.content.slice(lastIndex)));
-  }
+  const parts = splitByCodeSegments(input.content).map((segment) =>
+    segment.isCode ? segment.text : sanitizeProseSegment(segment.text)
+  );
 
   return {
     content: collapseWhitespace(parts.join("")),

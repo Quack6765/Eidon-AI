@@ -98,6 +98,17 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     );
   });
 
+  it("preserves assistant-authored data image markdown inside an unterminated fenced code block", () => {
+    const content = [
+      "```md",
+      "![Generated Image](data:image/png;base64,Zm9v)",
+      "",
+      "Still part of the unfinished fence"
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [])).toBe(content);
+  });
+
   it("removes local markdown file links when the assistant message already has text attachments", () => {
     const content = [
       "Here is the report you asked for.",

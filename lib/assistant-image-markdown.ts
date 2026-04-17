@@ -2,7 +2,6 @@ import type { MessageAttachment } from "@/lib/types";
 
 const MARKDOWN_IMAGE_PATTERN = /!\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
 const MARKDOWN_LINK_PATTERN = /(?<!\!)\[[^\]]*]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
-const CODE_SEGMENT_PATTERN = /```[\s\S]*?```|`[^`\n]+`/g;
 const ASSISTANT_DATA_IMAGE_PATTERN = /^data:image\/[^;,]+;base64,/i;
 
 function isExternalTarget(target: string) {
@@ -45,6 +44,50 @@ function sanitizeProseSegment(content: string, imageAttachments: MessageAttachme
   });
 }
 
+function splitByCodeSegments(content: string) {
+  const segments: Array<{ isCode: boolean; text: string }> = [];
+  let proseStart = 0;
+  let cursor = 0;
+
+  while (cursor < content.length) {
+    if (content.startsWith("```", cursor)) {
+      if (cursor > proseStart) {
+        segments.push({ isCode: false, text: content.slice(proseStart, cursor) });
+      }
+
+      const closingFenceIndex = content.indexOf("```", cursor + 3);
+      const segmentEnd = closingFenceIndex === -1 ? content.length : closingFenceIndex + 3;
+      segments.push({ isCode: true, text: content.slice(cursor, segmentEnd) });
+      cursor = segmentEnd;
+      proseStart = cursor;
+      continue;
+    }
+
+    if (content[cursor] === "`") {
+      const closingTickIndex = content.indexOf("`", cursor + 1);
+      const newlineIndex = content.indexOf("\n", cursor + 1);
+      if (closingTickIndex !== -1 && (newlineIndex === -1 || closingTickIndex < newlineIndex)) {
+        if (cursor > proseStart) {
+          segments.push({ isCode: false, text: content.slice(proseStart, cursor) });
+        }
+
+        segments.push({ isCode: true, text: content.slice(cursor, closingTickIndex + 1) });
+        cursor = closingTickIndex + 1;
+        proseStart = cursor;
+        continue;
+      }
+    }
+
+    cursor += 1;
+  }
+
+  if (proseStart < content.length) {
+    segments.push({ isCode: false, text: content.slice(proseStart) });
+  }
+
+  return segments;
+}
+
 export function stripAttachmentStyleImageMarkdown(
   content: string,
   attachments: MessageAttachment[] = []
@@ -55,22 +98,9 @@ export function stripAttachmentStyleImageMarkdown(
     return content;
   }
 
-  const parts: string[] = [];
-  let lastIndex = 0;
-
-  for (const match of content.matchAll(CODE_SEGMENT_PATTERN)) {
-    const start = match.index ?? 0;
-    if (start > lastIndex) {
-      parts.push(sanitizeProseSegment(content.slice(lastIndex, start), imageAttachments, textAttachments));
-    }
-
-    parts.push(match[0]);
-    lastIndex = start + match[0].length;
-  }
-
-  if (lastIndex < content.length) {
-    parts.push(sanitizeProseSegment(content.slice(lastIndex), imageAttachments, textAttachments));
-  }
+  const parts = splitByCodeSegments(content).map((segment) =>
+    segment.isCode ? segment.text : sanitizeProseSegment(segment.text, imageAttachments, textAttachments)
+  );
 
   return parts.join("")
     .replace(/[ \t]+\n/g, "\n")
