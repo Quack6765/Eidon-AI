@@ -6,11 +6,12 @@ import { useRouter } from "next/navigation";
 import { SettingsCard } from "@/components/settings/settings-card";
 import { SettingRow } from "@/components/settings/setting-row";
 import { Button } from "@/components/ui/button";
-import type { AppSettings, ConversationRetention } from "@/lib/types";
+import type { AppSettings, ConversationRetention, ImageGenerationBackend } from "@/lib/types";
 
 type GeneralSectionSettings = AppSettings & {
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
+  hasGoogleNanoBananaApiKey?: boolean;
 };
 
 const inputClassName =
@@ -18,7 +19,13 @@ const inputClassName =
 
 const fieldLabelClassName = "mb-1 block text-xs font-medium text-[var(--muted)]";
 
-export function GeneralSection({ settings }: { settings: GeneralSectionSettings }) {
+export function GeneralSection({
+  settings,
+  canManageImageGeneration = false
+}: {
+  settings: GeneralSectionSettings;
+  canManageImageGeneration?: boolean;
+}) {
   const router = useRouter();
   const [conversationRetention, setConversationRetention] = useState<ConversationRetention>(
     settings.conversationRetention
@@ -37,6 +44,19 @@ export function GeneralSection({ settings }: { settings: GeneralSectionSettings 
   const [error, setError] = useState("");
   const hasStoredExaApiKey = settings.hasExaApiKey ?? Boolean(settings.exaApiKey);
   const hasStoredTavilyApiKey = settings.hasTavilyApiKey ?? Boolean(settings.tavilyApiKey);
+
+  const [imageGenerationBackend, setImageGenerationBackend] = useState<ImageGenerationBackend>(
+    settings.imageGenerationBackend
+  );
+  const [googleNanoBananaModel, setGoogleNanoBananaModel] = useState(
+    settings.googleNanoBananaModel
+  );
+  const [googleNanoBananaApiKey, setGoogleNanoBananaApiKey] = useState(
+    settings.googleNanoBananaApiKey
+  );
+  const [hasEditedGoogleNanoBananaApiKey, setHasEditedGoogleNanoBananaApiKey] = useState(false);
+  const hasStoredGoogleNanoBananaApiKey =
+    settings.hasGoogleNanoBananaApiKey ?? Boolean(settings.googleNanoBananaApiKey);
 
   const speechLanguageOptions =
     sttEngine === "browser"
@@ -125,19 +145,52 @@ export function GeneralSection({ settings }: { settings: GeneralSectionSettings 
       payload.clearTavilyApiKey = true;
     }
 
+    const imagePayload: Record<string, unknown> = {
+      imageGenerationBackend,
+      googleNanoBananaModel
+    };
+
+    if (imageGenerationBackend === "google_nano_banana") {
+      if (
+        hasEditedGoogleNanoBananaApiKey ||
+        (!hasStoredGoogleNanoBananaApiKey && googleNanoBananaApiKey.trim())
+      ) {
+        imagePayload.googleNanoBananaApiKey = googleNanoBananaApiKey.trim();
+      }
+    }
+
     setIsSaving(true);
 
     try {
-      const response = await fetch("/api/settings/general", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const result = (await response.json()) as { error?: string };
+      const [generalResponse, imageResponse] = await Promise.all([
+        fetch("/api/settings/general", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        }),
+        canManageImageGeneration
+          ? fetch("/api/settings/image-generation", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(imagePayload)
+            })
+          : Promise.resolve(null)
+      ]);
 
-      if (!response.ok) {
-        setError(result.error ?? "Unable to save settings");
+      const generalResult = (await generalResponse.json()) as { error?: string };
+
+      if (!generalResponse.ok) {
+        setError(generalResult.error ?? "Unable to save settings");
         return;
+      }
+
+      if (imageResponse) {
+        const imageResult = (await imageResponse.json()) as { error?: string };
+
+        if (!imageResponse.ok) {
+          setError(imageResult.error ?? "Unable to save image generation settings");
+          return;
+        }
       }
 
       setSuccess("Settings saved.");
@@ -322,6 +375,108 @@ export function GeneralSection({ settings }: { settings: GeneralSectionSettings 
             ) : null}
           </div>
         </SettingRow>
+      </SettingsCard>
+
+      <SettingsCard title="Image Generation">
+        {!canManageImageGeneration ? (
+          <SettingRow
+            label="Image generation backend"
+            description="Only admins can change image generation settings."
+          >
+            <select
+              aria-label="Image generation backend"
+              value={imageGenerationBackend}
+              disabled
+              className={`${inputClassName} sm:w-auto opacity-60`}
+            >
+              <option value="disabled">Disabled</option>
+              <option value="google_nano_banana">Google Nano Banana</option>
+            </select>
+          </SettingRow>
+        ) : (
+          <>
+            <SettingRow
+              label="Image generation backend"
+              description="Choose the backend used for image generation."
+            >
+              <div className="w-full space-y-3 sm:w-[22rem]">
+                <div>
+                  <label htmlFor="image-generation-backend" className={fieldLabelClassName}>
+                    Image generation backend
+                  </label>
+                  <select
+                    id="image-generation-backend"
+                    aria-label="Image generation backend"
+                    value={imageGenerationBackend}
+                    onChange={(event) => {
+                      resetMessages();
+                      setImageGenerationBackend(
+                        event.target.value as ImageGenerationBackend
+                      );
+                    }}
+                    className={inputClassName}
+                  >
+                    <option value="disabled">Disabled</option>
+                    <option value="google_nano_banana">Google Nano Banana</option>
+                  </select>
+                </div>
+
+                {imageGenerationBackend === "google_nano_banana" ? (
+                  <div className="space-y-3">
+                    <div>
+                      <label htmlFor="google-nano-banana-model" className={fieldLabelClassName}>
+                        Model
+                      </label>
+                      <select
+                        id="google-nano-banana-model"
+                        aria-label="Google Nano Banana model"
+                        value={googleNanoBananaModel}
+                        onChange={(event) => {
+                          resetMessages();
+                          setGoogleNanoBananaModel(
+                            event.target.value as AppSettings["googleNanoBananaModel"]
+                          );
+                        }}
+                        className={inputClassName}
+                      >
+                        <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
+                        <option value="gemini-3.1-flash-image-preview">
+                          Gemini 3.1 Flash Image Preview
+                        </option>
+                        <option value="gemini-3-pro-image-preview">
+                          Gemini 3 Pro Image Preview
+                        </option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="google-nano-banana-api-key" className={fieldLabelClassName}>
+                        API key
+                      </label>
+                      <input
+                        id="google-nano-banana-api-key"
+                        aria-label="Google Nano Banana API key"
+                        type="password"
+                        autoComplete="off"
+                        value={googleNanoBananaApiKey}
+                        placeholder={
+                          hasStoredGoogleNanoBananaApiKey && !hasEditedGoogleNanoBananaApiKey
+                            ? "••••••••"
+                            : ""
+                        }
+                        onChange={(event) => {
+                          resetMessages();
+                          setHasEditedGoogleNanoBananaApiKey(true);
+                          setGoogleNanoBananaApiKey(event.target.value);
+                        }}
+                        className={inputClassName}
+                      />
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </SettingRow>
+          </>
+        )}
       </SettingsCard>
 
       <div className="flex flex-wrap items-center gap-3">

@@ -343,7 +343,7 @@ function mergeRecoveredStreamText(current: string, recovered: string) {
 export async function callProviderText(input: {
   settings: ProviderProfileWithApiKey;
   prompt: string;
-  purpose: "compaction" | "test" | "title";
+  purpose: "compaction" | "test" | "title" | "image_instruction";
   conversationId?: string;
 }) {
   const { settings } = input;

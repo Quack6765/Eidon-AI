@@ -11,8 +11,10 @@ import {
   getSettingsDefaults,
   getSettings,
   listProviderProfiles,
+  parseImageGenerationSettingsInput,
   updateGeneralSettingsForUser,
-  updateSettings
+  updateSettings,
+  updateImageGenerationSettings
 } from "@/lib/settings";
 import { createLocalUser } from "@/lib/users";
 
@@ -1056,5 +1058,99 @@ describe("settings storage", () => {
     expect(stored?.githubRefreshTokenExpiresAt).toBe("2026-10-08T16:00:00.000Z");
     expect(stored?.githubAccountLogin).toBe("octocat");
     expect(stored?.githubAccountName).toBe("The Octocat");
+  });
+
+  it("stores global image generation settings in app_settings and sanitizes secrets", async () => {
+    const admin = await createLocalUser({
+      username: "image-admin",
+      password: "changeme123",
+      role: "admin"
+    });
+
+    updateImageGenerationSettings({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      googleNanoBananaApiKey: "google-secret"
+    });
+
+    expect(getSettings()).toMatchObject({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      googleNanoBananaApiKey: "google-secret"
+    });
+
+    const sanitized = getSanitizedSettings(admin.id) as Record<string, unknown>;
+
+    expect(sanitized).toMatchObject({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      googleNanoBananaApiKey: "",
+      hasGoogleNanoBananaApiKey: true
+    });
+    expect(sanitized).not.toHaveProperty("comfyuiBearerToken");
+    expect(sanitized).not.toHaveProperty("hasComfyuiBearerToken");
+  });
+
+  it("applies global image generation settings to every user", async () => {
+    const user = await createLocalUser({
+      username: "image-user",
+      password: "changeme123",
+      role: "user"
+    });
+
+    updateImageGenerationSettings({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      googleNanoBananaApiKey: "shared-google-secret"
+    });
+
+    expect(getSettingsForUser(user.id)).toMatchObject({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaApiKey: "shared-google-secret"
+    });
+  });
+
+  it("rejects the removed comfyui backend in image generation updates", () => {
+    expect(() =>
+      parseImageGenerationSettingsInput({
+        imageGenerationBackend: "comfyui"
+      })
+    ).toThrow();
+  });
+
+  it("normalizes legacy comfyui rows to a disabled image backend", () => {
+    getDb()
+      .prepare(
+        `UPDATE app_settings
+         SET image_generation_backend = ?
+         WHERE id = 1`
+      )
+      .run("comfyui");
+
+    expect(getSettings().imageGenerationBackend).toBe("disabled");
+  });
+
+  it("rejects image generation updates from non-admin users", async () => {
+    vi.resetModules();
+    const { createLocalUser } = await import("@/lib/users");
+    const { PUT } = await import("@/app/api/settings/image-generation/route");
+
+    const user = await createLocalUser({
+      username: "image-route-user",
+      password: "changeme123",
+      role: "user"
+    });
+
+    requireUserMock.mockResolvedValue(user);
+
+    const response = await PUT(
+      new Request("http://localhost/api/settings/image-generation", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ imageGenerationBackend: "google_nano_banana" })
+      })
+    );
+
+    expect(response.status).toBe(403);
   });
 });

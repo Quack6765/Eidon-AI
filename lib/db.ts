@@ -217,6 +217,7 @@ function migrate(db: Database.Database) {
       status TEXT NOT NULL DEFAULT 'pending',
       sort_order INTEGER NOT NULL,
       failure_message TEXT,
+      mode TEXT NOT NULL DEFAULT 'chat',
       processing_started_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -520,6 +521,44 @@ function migrate(db: Database.Database) {
   if (!settingsColNames.includes("mcp_timeout")) {
     db.exec("ALTER TABLE app_settings ADD COLUMN mcp_timeout INTEGER NOT NULL DEFAULT 120000");
   }
+  if (!settingsColNames.includes("image_generation_backend")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN image_generation_backend TEXT NOT NULL DEFAULT 'disabled'");
+  }
+  if (!settingsColNames.includes("google_nano_banana_model")) {
+    db.exec(
+      "ALTER TABLE app_settings ADD COLUMN google_nano_banana_model TEXT NOT NULL DEFAULT 'gemini-3.1-flash-image-preview'"
+    );
+  }
+  if (!settingsColNames.includes("google_nano_banana_api_key_encrypted")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN google_nano_banana_api_key_encrypted TEXT NOT NULL DEFAULT ''");
+  }
+  if (!settingsColNames.includes("comfyui_base_url")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_base_url TEXT NOT NULL DEFAULT ''");
+  }
+  if (!settingsColNames.includes("comfyui_auth_type")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_auth_type TEXT NOT NULL DEFAULT 'none'");
+  }
+  if (!settingsColNames.includes("comfyui_bearer_token_encrypted")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_bearer_token_encrypted TEXT NOT NULL DEFAULT ''");
+  }
+  if (!settingsColNames.includes("comfyui_workflow_json")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_workflow_json TEXT NOT NULL DEFAULT ''");
+  }
+  if (!settingsColNames.includes("comfyui_prompt_path")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_prompt_path TEXT NOT NULL DEFAULT ''");
+  }
+  if (!settingsColNames.includes("comfyui_negative_prompt_path")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_negative_prompt_path TEXT NOT NULL DEFAULT ''");
+  }
+  if (!settingsColNames.includes("comfyui_width_path")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_width_path TEXT NOT NULL DEFAULT ''");
+  }
+  if (!settingsColNames.includes("comfyui_height_path")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_height_path TEXT NOT NULL DEFAULT ''");
+  }
+  if (!settingsColNames.includes("comfyui_seed_path")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_seed_path TEXT NOT NULL DEFAULT ''");
+  }
 
   const userSettingsCols = db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>;
   const userSettingsColNames = userSettingsCols.map((column) => column.name);
@@ -699,6 +738,12 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_folders_sort_order ON folders(sort_order);
     CREATE INDEX IF NOT EXISTS idx_user_memories_category ON user_memories(category);
   `);
+
+  const queuedMessagesCols = db.prepare("PRAGMA table_info(queued_messages)").all() as Array<{ name: string }>;
+  const queuedMessagesColNames = queuedMessagesCols.map((column) => column.name);
+  if (!queuedMessagesColNames.includes("mode")) {
+    db.exec("ALTER TABLE queued_messages ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'");
+  }
 
   const existingSkills = db
     .prepare("SELECT id, name, content, description FROM skills")

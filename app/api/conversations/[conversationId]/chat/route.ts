@@ -11,11 +11,13 @@ import {
   generateConversationTitleFromFirstUserMessage,
   getConversation,
   getConversationOwnerId,
+  getMessage,
   setConversationActive,
   updateMessage,
   updateMessageAction,
 } from "@/lib/conversations";
 import { ensureCompactedContext } from "@/lib/compaction";
+import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import { badRequest } from "@/lib/http";
 import {
   getSettings,
@@ -25,7 +27,7 @@ import {
 } from "@/lib/settings";
 import { encodeSseEvent, encodeSseFlushMarker, encodeSsePrelude } from "@/lib/sse";
 import { estimateTextTokens } from "@/lib/tokenization";
-import { listEnabledMcpServers } from "@/lib/mcp-servers";
+import { listEnabledMcpServers, getMcpServer } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
 import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
 import type { ChatStreamEvent } from "@/lib/types";
@@ -158,6 +160,14 @@ export async function POST(
           mcpToolSets = await gatherAllMcpTools(mcpServers);
         }
 
+        let visionMcpServer: (typeof mcpServers)[number] | null = null;
+        if (settings.visionMcpServerId) {
+          const server = getMcpServer(settings.visionMcpServerId);
+          if (server && server.enabled) {
+            visionMcpServer = server;
+          }
+        }
+
         let timelineSortOrder = 0;
 
         const providerResult = await resolveAssistantTurn({
@@ -166,12 +176,16 @@ export async function POST(
           skills,
           mcpServers,
           mcpToolSets,
+          visionMcpServer,
           searxngBaseUrl:
             appSettings.webSearchEngine === "searxng" ? appSettings.searxngBaseUrl : null,
           mcpTimeout: appSettings.mcpTimeout,
           memoryUserId: conversationOwnerId ?? undefined,
           abortSignal: control.abortController.signal,
           throwIfStopped: control.throwIfStopped,
+          appSettings,
+          conversationId: conversation.id,
+          assistantMessageId: assistantMessage.id,
           onEvent(event: ChatStreamEvent) {
             write(event);
             if (event.type === "answer_delta") {
@@ -181,9 +195,16 @@ export async function POST(
             }
           },
           onAnswerSegment(segment) {
+            const sanitizedSegment = stripAttachmentStyleImageMarkdown(
+              segment,
+              getMessage(assistantMessage.id)?.attachments ?? []
+            );
+            if (!sanitizedSegment) {
+              return;
+            }
             createMessageTextSegment({
               messageId: assistantMessage.id,
-              content: segment,
+              content: sanitizedSegment,
               sortOrder: timelineSortOrder++
             });
           },
@@ -253,7 +274,10 @@ export async function POST(
         });
 
         updateMessage(assistantMessage.id, {
-          content: providerResult.answer,
+          content: stripAttachmentStyleImageMarkdown(
+            providerResult.answer,
+            getMessage(assistantMessage.id)?.attachments ?? []
+          ),
           thinkingContent: providerResult.thinking,
           status: "completed",
           estimatedTokens:
@@ -264,14 +288,18 @@ export async function POST(
 
         write({
           type: "done",
-          messageId: assistantMessage.id
+          messageId: assistantMessage.id,
+          message: getMessage(assistantMessage.id) ?? undefined
         });
         setConversationActive(conversation.id, false);
         controller.close();
       } catch (error) {
         if (error instanceof ChatTurnStoppedError) {
           updateMessage(assistantMessage.id, {
-            content: latestAnswer,
+            content: stripAttachmentStyleImageMarkdown(
+              latestAnswer,
+              getMessage(assistantMessage.id)?.attachments ?? []
+            ),
             thinkingContent: latestThinking,
             status: "stopped",
             estimatedTokens: estimateTextTokens(latestAnswer)
@@ -286,9 +314,18 @@ export async function POST(
 
           write({
             type: "done",
-            messageId: assistantMessage.id
+            messageId: assistantMessage.id,
+            message: getMessage(assistantMessage.id) ?? undefined
           });
         } else {
+          for (const handle of runningActionHandles) {
+            updateMessageAction(handle, {
+              status: "error",
+              resultSummary: error instanceof Error ? error.message : "Chat stream failed",
+              completedAt: new Date().toISOString()
+            });
+          }
+
           updateMessage(assistantMessage.id, {
             content: "",
             thinkingContent: "",

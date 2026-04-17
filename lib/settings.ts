@@ -10,6 +10,7 @@ import { getDb } from "@/lib/db";
 import type {
   AppSettings,
   GithubConnectionStatus,
+  ImageGenerationBackend,
   ProviderProfile,
   ProviderProfileWithApiKey,
   ReasoningEffort,
@@ -125,6 +126,14 @@ const generalSettingsInputSchema = z.object({
   clearTavilyApiKey: z.coerce.boolean().optional()
 });
 
+const imageGenerationSettingsInputSchema = z.object({
+  imageGenerationBackend: z.enum(["disabled", "google_nano_banana"]),
+  googleNanoBananaModel: z
+    .enum(["gemini-2.5-flash-image", "gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview"])
+    .default("gemini-3.1-flash-image-preview"),
+  googleNanoBananaApiKey: z.string().default("")
+});
+
 const generalSettingsSchema = z
   .object({
     conversationRetention: z.enum(["forever", "90d", "30d", "7d"]),
@@ -185,6 +194,18 @@ type AppSettingsRow = {
   exa_api_key_encrypted?: string;
   tavily_api_key_encrypted?: string;
   searxng_base_url?: string;
+  image_generation_backend?: string;
+  google_nano_banana_model?: string;
+  google_nano_banana_api_key_encrypted?: string;
+  comfyui_base_url?: string;
+  comfyui_auth_type?: string;
+  comfyui_bearer_token_encrypted?: string;
+  comfyui_workflow_json?: string;
+  comfyui_prompt_path?: string;
+  comfyui_negative_prompt_path?: string;
+  comfyui_width_path?: string;
+  comfyui_height_path?: string;
+  comfyui_seed_path?: string;
   updated_at: string;
 };
 
@@ -203,6 +224,18 @@ type UserSettingsRow = {
   exa_api_key_encrypted: string;
   tavily_api_key_encrypted: string;
   searxng_base_url: string;
+  image_generation_backend?: string;
+  google_nano_banana_model?: string;
+  google_nano_banana_api_key_encrypted?: string;
+  comfyui_base_url?: string;
+  comfyui_auth_type?: string;
+  comfyui_bearer_token_encrypted?: string;
+  comfyui_workflow_json?: string;
+  comfyui_prompt_path?: string;
+  comfyui_negative_prompt_path?: string;
+  comfyui_width_path?: string;
+  comfyui_height_path?: string;
+  comfyui_seed_path?: string;
   updated_at: string;
 };
 
@@ -279,6 +312,25 @@ function decryptSearchSetting(userSetting: "exaApiKey" | "tavilyApiKey", encrypt
   }
 }
 
+function decryptImageGenerationSecret(
+  settingName: string,
+  encryptedValue?: string
+) {
+  if (!encryptedValue) {
+    return "";
+  }
+
+  try {
+    return decryptValue(encryptedValue);
+  } catch (e) {
+    console.error(
+      `[settings] Failed to decrypt ${settingName}:`,
+      e instanceof Error ? e.message : e
+    );
+    return "";
+  }
+}
+
 type GeneralSettingsInput = Partial<
   Pick<
     AppSettings,
@@ -319,6 +371,10 @@ function validateGeneralSettings(values: GeneralSettingsValues) {
   });
 }
 
+function normalizeImageGenerationBackend(value: string | null | undefined): ImageGenerationBackend {
+  return value === "google_nano_banana" ? value : "disabled";
+}
+
 export function parseGeneralSettingsInput(input: unknown) {
   return generalSettingsInputSchema.parse(input);
 }
@@ -337,6 +393,13 @@ function rowToSettings(row: AppSettingsRow | UserSettingsRow): AppSettings {
     exaApiKey: decryptSearchSetting("exaApiKey", row.exa_api_key_encrypted),
     tavilyApiKey: decryptSearchSetting("tavilyApiKey", row.tavily_api_key_encrypted),
     searxngBaseUrl: normalizeSearxngBaseUrl(row.searxng_base_url ?? ""),
+    imageGenerationBackend: normalizeImageGenerationBackend(row.image_generation_backend),
+    googleNanoBananaModel:
+      (row.google_nano_banana_model ?? "gemini-3.1-flash-image-preview") as AppSettings["googleNanoBananaModel"],
+    googleNanoBananaApiKey: decryptImageGenerationSecret(
+      "googleNanoBananaApiKey",
+      row.google_nano_banana_api_key_encrypted
+    ),
     updatedAt: row.updated_at
   };
 }
@@ -541,6 +604,39 @@ export function clearGithubCopilotCredentials(profileId: string) {
     .run(timestamp, profileId);
 }
 
+export function parseImageGenerationSettingsInput(input: unknown) {
+  return imageGenerationSettingsInputSchema.parse(input);
+}
+
+export function updateImageGenerationSettings(input: unknown) {
+  const parsed = imageGenerationSettingsInputSchema.parse(input);
+  const current = getSettings();
+  const merged = {
+    ...current,
+    ...parsed,
+    updatedAt: new Date().toISOString()
+  };
+
+  getDb()
+    .prepare(
+      `UPDATE app_settings
+       SET image_generation_backend = ?,
+           google_nano_banana_model = ?,
+           google_nano_banana_api_key_encrypted = ?,
+           updated_at = ?
+       WHERE id = ?`
+    )
+    .run(
+      merged.imageGenerationBackend,
+      merged.googleNanoBananaModel,
+      parsed.googleNanoBananaApiKey ? encryptValue(parsed.googleNanoBananaApiKey) : "",
+      merged.updatedAt,
+      SETTINGS_ROW_ID
+    );
+
+  return getSettings();
+}
+
 export function getSettings() {
   const row = getDb()
     .prepare(
@@ -552,6 +648,18 @@ export function getSettings() {
         memories_enabled,
         memories_max_count,
         mcp_timeout,
+        image_generation_backend,
+        google_nano_banana_model,
+        google_nano_banana_api_key_encrypted,
+        comfyui_base_url,
+        comfyui_auth_type,
+        comfyui_bearer_token_encrypted,
+        comfyui_workflow_json,
+        comfyui_prompt_path,
+        comfyui_negative_prompt_path,
+        comfyui_width_path,
+        comfyui_height_path,
+        comfyui_seed_path,
         updated_at
       FROM app_settings
       WHERE id = ?`
@@ -652,7 +760,11 @@ export function getSettingsForUser(userId: string): AppSettings {
   return {
     ...userSettings,
     defaultProviderProfileId: globalSettings.defaultProviderProfileId,
-    skillsEnabled: globalSettings.skillsEnabled
+    skillsEnabled: globalSettings.skillsEnabled,
+    imageGenerationBackend: globalSettings.imageGenerationBackend,
+    googleNanoBananaModel: globalSettings.googleNanoBananaModel,
+    googleNanoBananaApiKey: globalSettings.googleNanoBananaApiKey,
+    updatedAt: globalSettings.updatedAt
   };
 }
 
@@ -711,6 +823,8 @@ export function getSanitizedSettings(userId?: string) {
     tavilyApiKey: "",
     hasExaApiKey: Boolean(settings.exaApiKey),
     hasTavilyApiKey: Boolean(settings.tavilyApiKey),
+    googleNanoBananaApiKey: "",
+    hasGoogleNanoBananaApiKey: Boolean(settings.googleNanoBananaApiKey),
     providerProfiles
   };
 }

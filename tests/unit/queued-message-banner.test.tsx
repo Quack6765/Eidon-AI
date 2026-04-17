@@ -14,6 +14,7 @@ function createQueuedMessage(overrides: Partial<QueuedMessage> = {}): QueuedMess
     status: "pending",
     sortOrder: 0,
     failureMessage: null,
+    mode: "chat",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     processingStartedAt: null,

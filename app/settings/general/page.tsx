@@ -6,5 +6,10 @@ export default async function GeneralPage() {
   const user = await requireUser();
   const settings = getSanitizedSettings(user.id);
 
-  return <GeneralSection settings={settings} />;
+  return (
+    <GeneralSection
+      settings={settings}
+      canManageImageGeneration={user.role === "admin"}
+    />
+  );
 }

@@ -118,6 +118,9 @@ function makeAppSettings(overrides: Partial<import("@/lib/types").AppSettings> =
     exaApiKey: "",
     tavilyApiKey: "",
     searxngBaseUrl: "",
+    imageGenerationBackend: "disabled" as const,
+    googleNanoBananaModel: "gemini-3.1-flash-image-preview" as const,
+    googleNanoBananaApiKey: "",
     updatedAt: new Date().toISOString(),
     ...overrides
   };

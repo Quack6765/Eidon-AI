@@ -8,6 +8,15 @@ export type SttLanguage = "auto" | "en" | "fr" | "es";
 
 export type WebSearchEngine = "exa" | "tavily" | "searxng" | "disabled";
 
+export type ImageGenerationBackend = "disabled" | "google_nano_banana";
+
+export type GoogleNanoBananaModel =
+  | "gemini-2.5-flash-image"
+  | "gemini-3.1-flash-image-preview"
+  | "gemini-3-pro-image-preview";
+
+export type ChatInputMode = "chat" | "image";
+
 export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
 export type VisionMode = "none" | "native" | "mcp";
@@ -48,7 +57,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory";
+export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory" | "image_generation";
 
 export type MessageActionStatus = "running" | "pending" | "completed" | "error" | "stopped";
 
@@ -120,6 +129,9 @@ export type AppSettings = {
   exaApiKey: string;
   tavilyApiKey: string;
   searxngBaseUrl: string;
+  imageGenerationBackend: ImageGenerationBackend;
+  googleNanoBananaModel: GoogleNanoBananaModel;
+  googleNanoBananaApiKey: string;
   updatedAt: string;
 };
 
@@ -189,6 +201,7 @@ export type QueuedMessage = {
   status: QueuedMessageStatus;
   sortOrder: number;
   failureMessage: string | null;
+  mode: ChatInputMode;
   createdAt: string;
   updatedAt: string;
   processingStartedAt: string | null;
@@ -446,7 +459,7 @@ export type ChatStreamEvent =
       outputTokens?: number;
       reasoningTokens?: number;
     }
-  | { type: "done"; messageId: string }
+  | { type: "done"; messageId: string; message?: Message }
   | { type: "error"; message: string };
 
 export type EnsureCompactedContextResult = {

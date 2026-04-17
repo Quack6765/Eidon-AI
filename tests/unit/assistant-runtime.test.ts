@@ -1,6 +1,7 @@
 import type { ChatStreamEvent, ProviderProfileWithApiKey, Skill } from "@/lib/types";
 
 const streamProviderResponse = vi.fn();
+const callProviderText = vi.fn();
 const callMcpTool = vi.fn();
 const getToolResultText = vi.fn();
 const executeLocalShellCommand = vi.fn();
@@ -12,9 +13,14 @@ const deleteMemoryRecord = vi.fn();
 const getMemoryCountFn = vi.fn();
 const getSettingsFn = vi.fn();
 const searchSearxng = vi.fn();
+const generateGoogleNanoBananaImages = vi.fn();
+const createAttachments = vi.fn();
+const assignAttachmentsToMessage = vi.fn();
+const resolveAttachmentPath = vi.fn();
 
 vi.mock("@/lib/provider", () => ({
-  streamProviderResponse
+  streamProviderResponse,
+  callProviderText
 }));
 
 vi.mock("@/lib/mcp-client", () => ({
@@ -41,6 +47,16 @@ vi.mock("@/lib/settings", () => ({
 
 vi.mock("@/lib/searxng", () => ({
   searchSearxng
+}));
+
+vi.mock("@/lib/image-generation/google-nano-banana", () => ({
+  generateGoogleNanoBananaImages
+}));
+
+vi.mock("@/lib/attachments", () => ({
+  createAttachments,
+  assignAttachmentsToMessage,
+  resolveAttachmentPath
 }));
 
 function createProviderStream(
@@ -103,6 +119,27 @@ function createSettings(): ProviderProfileWithApiKey {
   };
 }
 
+function createAppSettings() {
+  return {
+    defaultProviderProfileId: "profile_test",
+    skillsEnabled: false,
+    conversationRetention: "30d" as const,
+    memoriesEnabled: false,
+    memoriesMaxCount: 100,
+    mcpTimeout: 30000,
+    sttEngine: "browser" as const,
+    sttLanguage: "auto" as const,
+    webSearchEngine: "disabled" as const,
+    exaApiKey: "",
+    tavilyApiKey: "",
+    searxngBaseUrl: "",
+    imageGenerationBackend: "google_nano_banana" as const,
+    googleNanoBananaModel: "gemini-3.1-flash-image-preview" as const,
+    googleNanoBananaApiKey: "google-secret",
+    updatedAt: new Date().toISOString()
+  };
+}
+
 function createSkill(overrides: Partial<Skill> = {}): Skill {
   return {
     id: "skill_release_notes",
@@ -120,6 +157,7 @@ describe("assistant runtime", () => {
   beforeEach(() => {
     vi.resetModules();
     streamProviderResponse.mockReset();
+    callProviderText.mockReset();
     callMcpTool.mockReset();
     getToolResultText.mockReset();
     executeLocalShellCommand.mockReset();
@@ -133,12 +171,33 @@ describe("assistant runtime", () => {
     getMemoryCountFn.mockReturnValue(0);
     getSettingsFn.mockReturnValue({ memoriesMaxCount: 100 });
     searchSearxng.mockReset();
+    generateGoogleNanoBananaImages.mockReset();
+    createAttachments.mockReset();
+    assignAttachmentsToMessage.mockReset();
+    resolveAttachmentPath.mockReset();
+    resolveAttachmentPath.mockImplementation(({ relativePath }: { relativePath: string }) => `/tmp/${relativePath}`);
+    callProviderText.mockImplementation(({ prompt }: { prompt: string }) => {
+      const latestUserLine = prompt.match(/Latest user request:\s*user:\s*([\s\S]*)$/)?.[1]?.trim() ?? "";
+      return `\`\`\`json
+${JSON.stringify({
+  imagePrompt: latestUserLine || "compiled image",
+  negativePrompt: "",
+  assistantText: "",
+  aspectRatio: "1:1",
+  count: 1
+})}
+\`\`\``;
+    });
     getToolResultText.mockImplementation((result: { content?: Array<{ text?: string }> }) => {
       return result.content?.[0]?.text ?? "done";
     });
     summarizeShellResult.mockImplementation((result: { stdout?: string; stderr?: string }) => {
       return result.stdout || result.stderr || "done";
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("loads skills via native function calling before returning the final answer", async () => {
@@ -453,6 +512,690 @@ describe("assistant runtime", () => {
       timeoutMs: undefined
     });
     expect(result.answer).toBe("Probed the endpoint.");
+  });
+
+  it("allows generate_image only once per turn", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-16T12:34:56Z"));
+
+    let providerCallCount = 0;
+    streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
+      providerCallCount += 1;
+      const toolNames = tools?.map((tool) => tool.function.name) ?? [];
+
+      if (providerCallCount === 1) {
+        expect(toolNames).toContain("generate_image");
+        return createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_image_1",
+            name: "generate_image",
+            arguments: JSON.stringify({ prompt: "a simple blue square" })
+          }],
+          usage: { inputTokens: 9 }
+        });
+      }
+
+      if (providerCallCount === 2) {
+        expect(toolNames).not.toContain("generate_image");
+        const systemPrompt = String(streamProviderResponse.mock.calls[1]?.[0]?.promptMessages?.[0]?.content ?? "");
+        expect(systemPrompt).toContain("Image generation is available in this environment");
+        expect(systemPrompt).toContain("Do not claim that image generation is unavailable");
+        return createProviderStream([{ type: "answer_delta", text: "Here is the generated image." }], {
+          answer: "Here is the generated image.",
+          thinking: "",
+          usage: { outputTokens: 5 }
+        });
+      }
+
+      throw new Error(`Unexpected provider invocation ${providerCallCount}`);
+    });
+
+    generateGoogleNanoBananaImages.mockResolvedValue({
+      assistantText: "",
+      images: [{
+        bytes: Buffer.from("png-bytes"),
+        mimeType: "image/png",
+        filename: "generated-1.png"
+      }]
+    });
+    createAttachments.mockImplementation((_conversationId: string, files: Array<{ filename: string }>) =>
+      files.map((file, index) => ({
+        id: `att_${index + 1}`,
+        filename: file.filename
+      }))
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Generate a simple blue square" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image"
+    });
+
+    expect(result.answer).toBe("Here is the generated image.");
+    expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
+    expect(createAttachments).toHaveBeenCalledTimes(1);
+    expect(assignAttachmentsToMessage).toHaveBeenCalledWith("conv_image", "msg_assistant_image", ["att_1"]);
+  });
+
+  it("recompiles image generation from the latest user request even if the model combines earlier prompts", async () => {
+    let providerCallCount = 0;
+    streamProviderResponse.mockImplementation(() => {
+      providerCallCount += 1;
+
+      if (providerCallCount === 1) {
+        return createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_image_latest_only",
+            name: "generate_image",
+            arguments: JSON.stringify({ prompt: "generate a picture of a mage and generate a picture of a cat", count: 2 })
+          }],
+          usage: { inputTokens: 7 }
+        });
+      }
+
+      return createProviderStream([{ type: "answer_delta", text: "Here is the cat." }], {
+        answer: "Here is the cat.",
+        thinking: "",
+        usage: { outputTokens: 4 }
+      });
+    });
+
+    generateGoogleNanoBananaImages.mockResolvedValue({
+      assistantText: "",
+      images: [{
+        bytes: Buffer.from("png-bytes"),
+        mimeType: "image/png",
+        filename: "generated-1.png"
+      }]
+    });
+    createAttachments.mockImplementation((_conversationId: string, files: Array<{ filename: string }>) =>
+      files.map((file, index) => ({
+        id: `att_${index + 1}`,
+        filename: file.filename
+      }))
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [
+        { role: "user", content: "generate a picture of a mage" },
+        { role: "assistant", content: "Generated 1 image." },
+        { role: "user", content: "generate a picture of a cat" }
+      ],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image"
+    });
+
+    expect(generateGoogleNanoBananaImages).toHaveBeenCalledWith(expect.objectContaining({
+      instruction: expect.objectContaining({
+        imagePrompt: "generate a picture of a cat",
+        count: 1
+      })
+    }));
+  });
+
+  it("rejects repeated generate_image tool calls in the same model response", async () => {
+    let providerCallCount = 0;
+    streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
+      providerCallCount += 1;
+      const toolNames = tools?.map((tool) => tool.function.name) ?? [];
+
+      if (providerCallCount === 1) {
+        expect(toolNames).toContain("generate_image");
+        return createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [
+            {
+              id: "call_image_1",
+              name: "generate_image",
+              arguments: JSON.stringify({ prompt: "a simple blue square" })
+            },
+            {
+              id: "call_image_2",
+              name: "generate_image",
+              arguments: JSON.stringify({ prompt: "a second blue square" })
+            }
+          ],
+          usage: { inputTokens: 12 }
+        });
+      }
+
+      expect(toolNames).not.toContain("generate_image");
+      return createProviderStream([{ type: "answer_delta", text: "Image already generated." }], {
+        answer: "Image already generated.",
+        thinking: "",
+        usage: { outputTokens: 4 }
+      });
+    });
+
+    generateGoogleNanoBananaImages.mockResolvedValue({
+      assistantText: "",
+      images: [{
+        bytes: Buffer.from("png-bytes"),
+        mimeType: "image/png",
+        filename: "generated-1.png"
+      }]
+    });
+    createAttachments.mockImplementation((_conversationId: string, files: Array<{ filename: string }>) =>
+      files.map((file, index) => ({
+        id: `att_${index + 1}`,
+        filename: file.filename
+      }))
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Generate the same square twice" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image"
+    });
+
+    expect(result.answer).toBe("Image already generated.");
+    expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
+    expect(createAttachments).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps generate_image available after a failed image generation attempt", async () => {
+    let providerCallCount = 0;
+    streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
+      providerCallCount += 1;
+      const toolNames = tools?.map((tool) => tool.function.name) ?? [];
+
+      if (providerCallCount === 1) {
+        expect(toolNames).toContain("generate_image");
+        return createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_image_failed",
+            name: "generate_image",
+            arguments: JSON.stringify({ prompt: "a simple blue square" })
+          }],
+          usage: { inputTokens: 6 }
+        });
+      }
+
+      expect(toolNames).toContain("generate_image");
+      const systemPrompt = String(streamProviderResponse.mock.calls[1]?.[0]?.promptMessages?.[0]?.content ?? "");
+      expect(systemPrompt).not.toContain("a generated image is already attached in this turn");
+      return createProviderStream([{ type: "answer_delta", text: "Image generation failed." }], {
+        answer: "Image generation failed.",
+        thinking: "",
+        usage: { outputTokens: 4 }
+      });
+    });
+
+    generateGoogleNanoBananaImages.mockRejectedValue(new Error("backend failed"));
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Generate a simple blue square" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image"
+    });
+
+    expect(result.answer).toBe("Image generation failed.");
+    expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires generate_image for another-one follow-up requests instead of accepting a hallucinated success message", async () => {
+    let providerCallCount = 0;
+    streamProviderResponse.mockImplementation(({ tools, promptMessages }: {
+      tools?: Array<{ function: { name: string } }>;
+      promptMessages?: Array<{ content: string | Array<{ type: string; text?: string }> }>;
+    }) => {
+      providerCallCount += 1;
+      const toolNames = tools?.map((tool) => tool.function.name) ?? [];
+      const systemPrompt = String(promptMessages?.[0]?.content ?? "");
+
+      if (providerCallCount === 1) {
+        expect(toolNames).toContain("generate_image");
+        return createProviderStream([], {
+          answer: "I've generated another image for you. It should appear above.",
+          thinking: "",
+          usage: { inputTokens: 8 }
+        });
+      }
+
+      if (providerCallCount === 2) {
+        expect(toolNames).toContain("generate_image");
+        expect(systemPrompt).toContain("The latest user request requires generating a new image");
+        return createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_image_followup",
+            name: "generate_image",
+            arguments: JSON.stringify({ prompt: "another dreamy forest scene" })
+          }],
+          usage: { inputTokens: 6 }
+        });
+      }
+
+      return createProviderStream([{ type: "answer_delta", text: "Here is another image." }], {
+        answer: "Here is another image.",
+        thinking: "",
+        usage: { outputTokens: 4 }
+      });
+    });
+
+    generateGoogleNanoBananaImages.mockResolvedValue({
+      assistantText: "",
+      images: [{
+        bytes: Buffer.from("png-bytes"),
+        mimeType: "image/png",
+        filename: "generated-1.png"
+      }]
+    });
+    createAttachments.mockImplementation((_conversationId: string, files: Array<{ filename: string }>) =>
+      files.map((file, index) => ({
+        id: `att_${index + 1}`,
+        filename: file.filename
+      }))
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [
+        { role: "user", content: "Generate an image of a Japanese garden at sunset" },
+        { role: "assistant", content: "I've generated an image for you." },
+        { role: "user", content: "Nice! Create another one" }
+      ],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image"
+    });
+
+    expect(result.answer).toBe("Here is another image.");
+    expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not force generate_image for follow-up questions about a previous image", async () => {
+    streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
+      const toolNames = tools?.map((tool) => tool.function.name) ?? [];
+      expect(toolNames).toContain("generate_image");
+      return createProviderStream([{ type: "answer_delta", text: "The latest image was a Japanese garden at sunset." }], {
+        answer: "The latest image was a Japanese garden at sunset.",
+        thinking: "",
+        usage: { inputTokens: 5, outputTokens: 6 }
+      });
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [
+        { role: "user", content: "Generate an image of a Japanese garden at sunset" },
+        { role: "assistant", content: "I've generated an image for you." },
+        { role: "user", content: "What is the latest image you generated?" }
+      ],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image"
+    });
+
+    expect(result.answer).toBe("The latest image was a Japanese garden at sunset.");
+    expect(generateGoogleNanoBananaImages).not.toHaveBeenCalled();
+  });
+
+  it("restricts fresh image requests to the generate_image tool until generation succeeds", async () => {
+    let providerCallCount = 0;
+    streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
+      providerCallCount += 1;
+      const toolNames = tools?.map((tool) => tool.function.name) ?? [];
+
+      if (providerCallCount === 1) {
+        expect(toolNames).toEqual(["generate_image"]);
+        return createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_image_restricted",
+            name: "generate_image",
+            arguments: JSON.stringify({ prompt: "a red square" })
+          }],
+          usage: { inputTokens: 5 }
+        });
+      }
+
+      expect(toolNames).toContain("execute_shell_command");
+      expect(toolNames).not.toContain("generate_image");
+      return createProviderStream([{ type: "answer_delta", text: "Here is the image." }], {
+        answer: "Here is the image.",
+        thinking: "",
+        usage: { outputTokens: 4 }
+      });
+    });
+
+    generateGoogleNanoBananaImages.mockResolvedValue({
+      assistantText: "",
+      images: [{
+        bytes: Buffer.from("png-bytes"),
+        mimeType: "image/png",
+        filename: "generated-1.png"
+      }]
+    });
+    createAttachments.mockImplementation((_conversationId: string, files: Array<{ filename: string }>) =>
+      files.map((file, index) => ({
+        id: `att_${index + 1}`,
+        filename: file.filename
+      }))
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Generate an image of a red square" }],
+      skills: [createSkill()],
+      mcpToolSets: [],
+      searxngBaseUrl: "https://search.example.com",
+      memoriesEnabled: true,
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image"
+    });
+
+    expect(result.answer).toBe("Here is the image.");
+    expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
+  });
+
+  it("starts a visible image action before the model returns its generate_image tool call and reuses the same handle", async () => {
+    const started: Array<{ kind: string; label: string; detail?: string }> = [];
+    const completed: Array<{ handle?: string; detail?: string; resultSummary?: string }> = [];
+    let providerCallCount = 0;
+
+    streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
+      providerCallCount += 1;
+      const toolNames = tools?.map((tool) => tool.function.name) ?? [];
+
+      expect(started).toHaveLength(1);
+      expect(started[0]).toEqual(expect.objectContaining({
+        kind: "image_generation",
+        label: "Generate image"
+      }));
+
+      if (providerCallCount === 1) {
+        expect(toolNames).toEqual(["generate_image"]);
+        return createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_image_visible",
+            name: "generate_image",
+            arguments: JSON.stringify({ prompt: "a red square" })
+          }],
+          usage: { inputTokens: 6 }
+        });
+      }
+
+      return createProviderStream([{ type: "answer_delta", text: "Here is the image." }], {
+        answer: "Here is the image.",
+        thinking: "",
+        usage: { outputTokens: 4 }
+      });
+    });
+
+    generateGoogleNanoBananaImages.mockResolvedValue({
+      assistantText: "",
+      images: [{
+        bytes: Buffer.from("png-bytes"),
+        mimeType: "image/png",
+        filename: "generated-1.png"
+      }]
+    });
+    createAttachments.mockImplementation((_conversationId: string, files: Array<{ filename: string }>) =>
+      files.map((file, index) => ({
+        id: `att_${index + 1}`,
+        filename: file.filename
+      }))
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Generate an image of a red square" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image",
+      onActionStart: (action) => {
+        started.push(action);
+        return "act_image_visible";
+      },
+      onActionComplete: (handle, patch) => {
+        completed.push({ handle, detail: patch.detail, resultSummary: patch.resultSummary });
+      }
+    });
+
+    expect(result.answer).toBe("Here is the image.");
+    expect(started).toHaveLength(1);
+    expect(completed).toEqual([
+      expect.objectContaining({
+        handle: "act_image_visible",
+        detail: "Generate an image of a red square"
+      })
+    ]);
+  });
+
+  it("rewrites image prompts for vision MCP mode before calling the provider", async () => {
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "I inspected the image." }], {
+        answer: "I inspected the image.",
+        thinking: "",
+        usage: { inputTokens: 4, outputTokens: 2 }
+      })
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const mcpVisionSettings = {
+      ...createSettings(),
+      visionMode: "mcp" as const
+    };
+
+    await resolveAssistantTurn({
+      settings: mcpVisionSettings,
+      promptMessages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Describe this image." },
+            {
+              type: "image",
+              attachmentId: "att_image",
+              filename: "photo.png",
+              mimeType: "image/png",
+              relativePath: "conv_image/photo.png"
+            }
+          ]
+        }
+      ],
+      skills: [],
+      mcpToolSets: [],
+      visionMcpServer: {
+        id: "vision_server",
+        slug: "vision",
+        name: "Vision MCP",
+        url: "https://vision.example.com",
+        headers: {},
+        transport: "streamable_http",
+        command: null,
+        args: null,
+        env: null,
+        enabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    });
+
+    const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
+    expect(firstCall.promptMessages[0]).toEqual(
+      expect.objectContaining({
+        role: "system",
+        content: expect.stringContaining("Vision MCP server: Vision MCP")
+      })
+    );
+    expect(firstCall.promptMessages[1]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "Describe this image." },
+        { type: "text", text: "Attached image: photo.png" }
+      ]
+    });
+  });
+
+  it("falls back to vision MCP placeholders when native vision is configured on a non-vision model", async () => {
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "Use the vision MCP server." }], {
+        answer: "Use the vision MCP server.",
+        thinking: "",
+        usage: { inputTokens: 4, outputTokens: 4 }
+      })
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: {
+        ...createSettings(),
+        model: "gpt-3.5-turbo",
+        visionMode: "native" as const
+      },
+      promptMessages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Describe this image." },
+            {
+              type: "image",
+              attachmentId: "att_image",
+              filename: "photo.png",
+              mimeType: "image/png",
+              relativePath: "conv_image/photo.png"
+            }
+          ]
+        }
+      ],
+      skills: [],
+      mcpToolSets: [],
+      visionMcpServer: {
+        id: "vision_server",
+        slug: "vision",
+        name: "Vision MCP",
+        url: "https://vision.example.com",
+        headers: {},
+        transport: "streamable_http",
+        command: null,
+        args: null,
+        env: null,
+        enabled: true,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }
+    });
+
+    const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
+    expect(firstCall.promptMessages[0]).toEqual(
+      expect.objectContaining({
+        role: "system",
+        content: expect.stringContaining("Vision MCP server: Vision MCP")
+      })
+    );
+    expect(firstCall.promptMessages[1]).toEqual({
+      role: "user",
+      content: [
+        { type: "text", text: "Describe this image." },
+        { type: "text", text: "Attached image: photo.png" }
+      ]
+    });
+  });
+
+  it("passes copilot tool context only for github copilot profiles", async () => {
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "Done" }], {
+        answer: "Done",
+        thinking: "",
+        usage: { inputTokens: 3, outputTokens: 1 }
+      })
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: {
+        ...createSettings(),
+        providerKind: "github_copilot"
+      },
+      promptMessages: [{ role: "user", content: "Use the configured tools." }],
+      skills: [],
+      mcpToolSets: [],
+      mcpTimeout: 12345,
+      onActionStart: () => undefined,
+      onActionComplete: () => undefined,
+      onActionError: () => undefined
+    });
+
+    expect(streamProviderResponse.mock.calls.at(-1)?.[0].copilotToolContext).toEqual(
+      expect.objectContaining({
+        mcpToolSets: [],
+        mcpTimeout: 12345
+      })
+    );
+  });
+
+  it("stops immediately when the abort signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await expect(
+      resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Stop before starting." }],
+        skills: [],
+        mcpToolSets: [],
+        abortSignal: controller.signal
+      })
+    ).rejects.toThrow();
+
+    expect(streamProviderResponse).not.toHaveBeenCalled();
   });
 
   it("keeps load_skill hidden for ordinary factual chat turns while shell remains available", async () => {
@@ -842,6 +1585,7 @@ Run browser commands.`
 
   it("forces a final direct answer when the tool loop would otherwise exhaust the step budget", async () => {
     const { MAX_ASSISTANT_CONTROL_STEPS } = await import("@/lib/constants");
+    const onAnswerSegment = vi.fn();
 
     streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
       if (!tools?.length) {
@@ -869,6 +1613,7 @@ Run browser commands.`
       settings: createSettings(),
       promptMessages: [{ role: "user", content: "Loop forever" }],
       skills: [],
+      onAnswerSegment,
       mcpToolSets: [{
         server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" } }]
@@ -877,6 +1622,7 @@ Run browser commands.`
 
     expect(streamProviderResponse).toHaveBeenCalledTimes(MAX_ASSISTANT_CONTROL_STEPS + 1);
     expect(result.answer).toBe("Final answer without more tools");
+    expect(onAnswerSegment).toHaveBeenCalledWith("Final answer without more tools");
   });
 
   it("retries when the provider returns an empty direct answer without tool calls", async () => {

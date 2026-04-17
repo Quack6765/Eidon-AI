@@ -165,6 +165,7 @@ function createQueuedMessage(overrides: Partial<QueuedMessage> = {}): QueuedMess
     status: "pending",
     sortOrder: 0,
     failureMessage: null,
+    mode: "chat",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     processingStartedAt: null,
@@ -956,6 +957,26 @@ describe("chat view", () => {
     expect(bootstrapMock.clearChatBootstrap).toHaveBeenCalledWith("conv_1");
   });
 
+  it("forwards bootstrapped message with persona once the websocket is connected", async () => {
+    bootstrapMock.readChatBootstrap.mockReturnValue({
+      message: "Generate a matte painting",
+      attachments: [],
+      personaId: "persona_1"
+    });
+
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "Generate a matte painting",
+        attachmentIds: [],
+        personaId: "persona_1"
+      });
+    });
+  });
+
   it("submits the bootstrapped home prompt once under strict mode remounts", async () => {
     let storedBootstrapPayload: { message: string; attachments: MessageAttachment[] } | null = {
       message: "Strict prompt",
@@ -1228,6 +1249,102 @@ describe("chat view", () => {
       expect(screen.getByText("Hello")).toBeInTheDocument();
       expect(screen.getByText("Hi there!")).toBeInTheDocument();
     });
+  });
+
+  it("hydrates running action rows for an active streaming message from snapshot state", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_streaming_image" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "thinking_delta", text: "Preparing image prompt" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Thinking ..." })).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "snapshot",
+        conversationId: "conv_1",
+        messages: [
+          createMessage({
+            id: "msg_streaming_image",
+            role: "assistant",
+            content: "",
+            thinkingContent: "Preparing image prompt",
+            status: "streaming",
+            estimatedTokens: 0,
+            timeline: [
+              {
+                id: "act_streaming_image",
+                messageId: "msg_streaming_image",
+                timelineKind: "action",
+                kind: "image_generation",
+                status: "running",
+                serverId: null,
+                skillId: null,
+                toolName: null,
+                label: "Generate image",
+                detail: "Generate an image of a blue circle",
+                arguments: null,
+                resultSummary: "",
+                sortOrder: 0,
+                startedAt: new Date().toISOString(),
+                completedAt: null,
+                proposalState: null,
+                proposalPayload: null,
+                proposalUpdatedAt: null
+              }
+            ]
+          })
+        ]
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Generate image")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "Thought" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Thinking ..." })).toBeNull();
+  });
+
+  it("shows a provisional generate image row immediately after message_start for image requests", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    fireEvent.change(textarea, { target: { value: "Generate an image of a yellow star" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Generate an image of a yellow star")).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_streaming_image_local" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Generate image")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("button", { name: "Thinking ..." })).toBeNull();
   });
 
   it("hydrates queued messages from a WebSocket snapshot", async () => {
@@ -2501,6 +2618,11 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
+      expect(screen.getByRole("button", { name: /Thought/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("button", { name: /^Thinking$/i })).toBeNull();
+
+    await waitFor(() => {
       expect(screen.getByText("Working on it")).toBeInTheDocument();
     });
   });
@@ -3264,5 +3386,71 @@ describe("chat view", () => {
 
     expect(screen.queryByText("Context")).toBeNull();
     expect(screen.queryByRole("progressbar")).toBeNull();
+  });
+
+  it("replaces the assistant message with the finalized message from a done event", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant_image" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Generated")).toBeNull();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "done",
+          messageId: "msg_assistant_image",
+          message: {
+            id: "msg_assistant_image",
+            conversationId: "conv_1",
+            role: "assistant",
+            content: "Here is a first pass.",
+            thinkingContent: "",
+            status: "completed",
+            estimatedTokens: 0,
+            systemKind: null,
+            compactedAt: null,
+            createdAt: new Date().toISOString(),
+            attachments: [
+              {
+                id: "att_generated",
+                conversationId: "conv_1",
+                messageId: "msg_assistant_image",
+                filename: "generated-1.png",
+                mimeType: "image/png",
+                byteSize: 3,
+                sha256: "sha",
+                relativePath: "conv_1/generated-1.png",
+                kind: "image" as const,
+                extractedText: "",
+                createdAt: new Date().toISOString()
+              }
+            ]
+          }
+        }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Here is a first pass.")).toBeInTheDocument();
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Preview generated-1.png" })
+    ).toBeInTheDocument();
+
+    expect(wsMock.send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "message" })
+    );
   });
 });

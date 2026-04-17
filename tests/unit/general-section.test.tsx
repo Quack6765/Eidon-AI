@@ -11,6 +11,7 @@ const mockRefresh = vi.fn();
 type GeneralSectionSettings = AppSettings & {
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
+  hasGoogleNanoBananaApiKey?: boolean;
 };
 
 vi.mock("next/navigation", () => ({
@@ -33,6 +34,9 @@ function makeSettings(overrides: Partial<GeneralSectionSettings> = {}): GeneralS
     exaApiKey: "",
     tavilyApiKey: "",
     searxngBaseUrl: "",
+    imageGenerationBackend: "disabled",
+    googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+    googleNanoBananaApiKey: "",
     hasExaApiKey: false,
     hasTavilyApiKey: false,
     updatedAt: new Date().toISOString(),
@@ -336,5 +340,67 @@ describe("general section", () => {
       tavilyApiKey: "",
       clearTavilyApiKey: true
     });
+  });
+
+  it("renders an image generation card under web search and saves through the global save button", async () => {
+    const settings = makeSettings({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      hasGoogleNanoBananaApiKey: true
+    });
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ settings })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ settings })
+      } as Response);
+
+    render(
+      React.createElement(GeneralSection, {
+        settings,
+        canManageImageGeneration: true
+      })
+    );
+
+    expect(screen.getByRole("heading", { name: "Image Generation" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Image generation backend")).toHaveValue("google_nano_banana");
+    expect(screen.queryByRole("option", { name: "ComfyUI" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Test ComfyUI workflow" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/settings/image-generation",
+        expect.objectContaining({ method: "PUT" })
+      );
+    });
+
+    const imageSettingsCall = vi
+      .mocked(global.fetch)
+      .mock.calls.find(([url]) => url === "/api/settings/image-generation");
+    const imageSettingsBody = JSON.parse(String(imageSettingsCall?.[1]?.body));
+
+    expect(imageSettingsBody).toEqual({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview"
+    });
+  });
+
+  it("renders the image generation card as read-only for non-admin users", () => {
+    render(
+      React.createElement(GeneralSection, {
+        settings: makeSettings(),
+        canManageImageGeneration: false
+      })
+    );
+
+    expect(screen.getByText("Only admins can change image generation settings.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Image generation backend")).toBeDisabled();
+    expect(screen.queryByRole("option", { name: "ComfyUI" })).toBeNull();
   });
 });

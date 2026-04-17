@@ -58,6 +58,9 @@ const settings: AppSettings = {
   exaApiKey: "",
   tavilyApiKey: "",
   searxngBaseUrl: "",
+  imageGenerationBackend: "disabled",
+  googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+  googleNanoBananaApiKey: "",
   updatedAt: new Date().toISOString()
 };
 
