@@ -1,0 +1,131 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+import { createConversation } from "@/lib/conversations";
+import { inferAssistantLocalAttachments } from "@/lib/assistant-local-attachments";
+
+describe("inferAssistantLocalAttachments", () => {
+  it("imports a workspace markdown link and strips it from content", () => {
+    const conversation = createConversation();
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "workspace-log.txt");
+
+    try {
+      fs.writeFileSync(sourcePath, "hello from workspace", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: ["Attached log:", "", `[log](${sourcePath})`].join("\n"),
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      expect(result.attachments[0]?.filename).toBe("workspace-log.txt");
+      expect(result.content).toBe("Attached log:");
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+
+  it("denies out-of-bounds local paths with a user-facing note", () => {
+    const conversation = createConversation();
+    const outsideDir = fs.mkdtempSync(path.join(os.homedir(), ".eidon-out-of-bounds-"));
+    const outsidePath = path.join(outsideDir, "secret.txt");
+
+    try {
+      fs.writeFileSync(outsidePath, "top secret", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: `[secret](${outsidePath})`,
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(0);
+      expect(result.content).toBe("");
+      expect(result.failureNote).toContain("only workspace files and /tmp are allowed");
+    } finally {
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores external URLs", () => {
+    const conversation = createConversation();
+    const content = "See [docs](https://example.com/spec.pdf)";
+
+    const result = inferAssistantLocalAttachments({
+      conversationId: conversation.id,
+      content,
+      workspaceRoot: process.cwd()
+    });
+
+    expect(result.attachments).toHaveLength(0);
+    expect(result.content).toBe(content);
+    expect(result.failureNote).toBe("");
+  });
+
+  it("ignores relative paths", () => {
+    const conversation = createConversation();
+    const content = "See [notes](./notes.txt)";
+
+    const result = inferAssistantLocalAttachments({
+      conversationId: conversation.id,
+      content,
+      workspaceRoot: process.cwd()
+    });
+
+    expect(result.attachments).toHaveLength(0);
+    expect(result.content).toBe(content);
+    expect(result.failureNote).toBe("");
+  });
+
+  it("rejects symlink escapes after canonicalization", () => {
+    const conversation = createConversation();
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const outsideDir = fs.mkdtempSync(path.join(os.homedir(), ".eidon-symlink-escape-"));
+    const outsidePath = path.join(outsideDir, "private.txt");
+    const symlinkPath = path.join(workspaceDir, "private-link.txt");
+
+    try {
+      fs.writeFileSync(outsidePath, "private", "utf8");
+      fs.symlinkSync(outsidePath, symlinkPath);
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: `[private](${symlinkPath})`,
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(0);
+      expect(result.content).toBe("");
+      expect(result.failureNote).toContain("only workspace files and /tmp are allowed");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("deduplicates duplicate references to the same local file", () => {
+    const conversation = createConversation();
+    const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
+    const sourcePath = path.join(workspaceDir, "duplicate.txt");
+
+    try {
+      fs.writeFileSync(sourcePath, "duplicate", "utf8");
+
+      const result = inferAssistantLocalAttachments({
+        conversationId: conversation.id,
+        content: ["First [copy](" + sourcePath + ")", "", "Second [copy](" + sourcePath + ")"].join("\n"),
+        workspaceRoot: process.cwd()
+      });
+
+      expect(result.attachments).toHaveLength(1);
+      expect(result.content).toBe("First\n\nSecond");
+      expect(result.failureNote).toBe("");
+    } finally {
+      fs.rmSync(workspaceDir, { recursive: true, force: true });
+    }
+  });
+});
