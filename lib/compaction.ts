@@ -409,6 +409,11 @@ function getMostRecentAssistantImageAttachments(messages: Message[], latestUserI
       continue;
     }
 
+    const wasImageGenerationTurn = (message.actions ?? []).some((action) => action.kind === "image_generation");
+    if (!wasImageGenerationTurn) {
+      continue;
+    }
+
     const imageAttachments = (message.attachments ?? []).filter((attachment) => attachment.kind === "image");
     if (imageAttachments.length > 0) {
       return imageAttachments;
