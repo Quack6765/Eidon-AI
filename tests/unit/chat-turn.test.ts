@@ -1136,4 +1136,76 @@ describe("chat-turn", () => {
     }
   });
 
+  it("does not double-count route final content when a stopped turn flushes segmented text after a tool step", async () => {
+    const { createLocalUser: createRouteUser } = await import("@/lib/users");
+    const user = await createRouteUser({
+      username: "route-stop-user",
+      password: "route-stop-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { updateSettings } = await import("@/lib/settings");
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Route stop dedupe", null, { providerProfileId: null }, user.id);
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        onEvent?: (event: { type: string; text: string }) => void;
+        onAnswerSegment?: (segment: string) => void;
+        onActionStart?: (action: {
+          kind: "skill_load";
+          label: string;
+          detail?: string;
+        }) => string | void;
+      }) => {
+        input.onActionStart?.({
+          kind: "skill_load",
+          label: "Load skill",
+          detail: "Preparing route response"
+        });
+        input.onEvent?.({ type: "answer_delta", text: "Saved the output." });
+        input.onAnswerSegment?.("Saved the output.");
+        const { ChatTurnStoppedError } = await import("@/lib/chat-turn-control");
+        throw new ChatTurnStoppedError();
+      })
+    }));
+
+    try {
+      const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+      const response = await POST(
+        new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Save the report", attachmentIds: [] })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+
+      expect(response.status).toBe(200);
+      await response.text();
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      expect(assistant?.status).toBe("stopped");
+      expect(assistant?.content).toBe("Saved the output.");
+      expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output."]);
+      expect(assistant?.actions).toEqual([
+        expect.objectContaining({
+          kind: "skill_load",
+          label: "Load skill",
+          status: "stopped"
+        })
+      ]);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+    }
+  });
+
 });

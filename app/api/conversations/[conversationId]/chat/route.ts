@@ -136,6 +136,7 @@ export async function POST(
       const contentPersistence = createAssistantContentPersistenceTracker(conversation.id, assistantMessage.id);
       let latestAnswer = "";
       let latestThinking = "";
+      let sawStreamedAnswerSinceLastSegment = false;
       const runningActionHandles = new Set<string>();
 
       try {
@@ -191,12 +192,16 @@ export async function POST(
             write(event);
             if (event.type === "answer_delta") {
               latestAnswer += event.text;
+              sawStreamedAnswerSinceLastSegment = true;
             } else if (event.type === "thinking_delta") {
               latestThinking += event.text;
             }
           },
           onAnswerSegment(segment) {
-            latestAnswer += segment;
+            if (!sawStreamedAnswerSinceLastSegment) {
+              latestAnswer += segment;
+            }
+            sawStreamedAnswerSinceLastSegment = false;
             const sanitizedSegment = contentPersistence.appendSegment(segment);
             if (!sanitizedSegment) {
               return;
