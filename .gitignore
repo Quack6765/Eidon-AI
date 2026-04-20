@@ -6,6 +6,7 @@ test-results
 ws-handler-compiled.cjs
 
 .playwright-cli/
+.context/
 .data
 .test-data
 .e2e-data/

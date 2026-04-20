@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { generateWarriorIconAssets } from "@/lib/warrior-icon-assets";
 
 describe("generateWarriorIconAssets", () => {
-  it("creates warrior icon assets from the banner source", async () => {
+  it("creates only the live icon assets from the banner source", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "warrior-icons-"));
     const sourcePath = path.resolve(process.cwd(), "public/eidon-banner.png");
     const expectedCrop = {
@@ -24,12 +24,12 @@ describe("generateWarriorIconAssets", () => {
         outputDir: tempDir
       });
 
-      await expect(
-        sharp(path.join(tempDir, "warrior-portrait.png")).metadata()
-      ).resolves.toMatchObject({
-        width: 512,
-        height: 512
-      });
+      await expect(fs.readdir(tempDir)).resolves.toEqual([
+        "agent-icon.png",
+        "apple-touch-icon.png",
+        "icon-192.png",
+        "icon-512.png"
+      ]);
       await expect(sharp(path.join(tempDir, "agent-icon.png")).metadata()).resolves.toMatchObject({
         width: 128,
         height: 128
@@ -49,18 +49,18 @@ describe("generateWarriorIconAssets", () => {
         height: 180
       });
 
-      const expectedPortrait = await sharp(sourcePath)
+      const expectedAgentIcon = await sharp(sourcePath)
         .extract(expectedCrop)
-        .resize(512, 512, { fit: "fill" })
+        .resize(128, 128, { fit: "fill" })
         .png()
         .raw()
         .toBuffer();
-      const actualPortrait = await sharp(path.join(tempDir, "warrior-portrait.png"))
+      const actualAgentIcon = await sharp(path.join(tempDir, "agent-icon.png"))
         .png()
         .raw()
         .toBuffer();
 
-      expect(actualPortrait.equals(expectedPortrait)).toBe(true);
+      expect(actualAgentIcon.equals(expectedAgentIcon)).toBe(true);
     } finally {
       await fs.rm(tempDir, { recursive: true, force: true });
     }
