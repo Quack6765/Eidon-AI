@@ -9,7 +9,6 @@ export type WarriorIconAssetInput = {
 };
 
 const ASSET_SPECS = [
-  { filename: "warrior-portrait.png", size: 512 },
   { filename: "agent-icon.png", size: 128 },
   { filename: "icon-192.png", size: 192 },
   { filename: "icon-512.png", size: 512 },
