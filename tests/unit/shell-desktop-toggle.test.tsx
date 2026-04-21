@@ -70,8 +70,8 @@ describe("Desktop Sidebar Toggle", () => {
     render(<Shell {...mockProps} />);
     const toggle = screen.getByRole("button", { name: /collapse sidebar|expand sidebar/i });
     expect(toggle).toBeInTheDocument();
-    expect(toggle.parentElement).toHaveClass("hidden");
-    expect(toggle.parentElement).toHaveClass("md:flex");
+    expect(toggle).toHaveClass("hidden");
+    expect(toggle).toHaveClass("md:flex");
   });
 
   it("shows aria-label 'Collapse sidebar' when sidebar is open by default", () => {

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, type PropsWithChildren } from "react";
+import { useEffect, useState, type PropsWithChildren } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Menu, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Menu, Plus } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AutomationsNav } from "@/components/automations/automations-nav";
 import { Sidebar } from "@/components/sidebar";
@@ -27,6 +27,13 @@ export function Shell({
   automations?: Automation[];
 }>) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth >= 768) {
+      setIsSidebarOpen(true);
+    }
+  }, []);
+
   const pathname = usePathname();
   const router = useRouter();
   useGlobalWebSocket();
@@ -54,8 +61,8 @@ export function Shell({
       </AnimatePresence>
 
       <div
-        className={`fixed inset-y-0 left-0 z-50 w-[280px] transform transition-transform duration-300 ease-out md:relative md:z-0 md:translate-x-0 border-r border-white/5 ${
-          isSidebarOpen ? "translate-x-0" : "-translate-x-full"
+        className={`fixed inset-y-0 left-0 z-50 w-[280px] transform transition-transform duration-300 ease-out border-r border-white/5 ${
+          isSidebarOpen ? "translate-x-0 md:translate-x-0" : "-translate-x-full md:-translate-x-full"
         }`}
       >
         {isSettingsPage ? (
@@ -71,7 +78,24 @@ export function Shell({
         )}
       </div>
 
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col w-full overflow-hidden pt-14 md:pt-0">
+      <button
+        type="button"
+        onClick={() => setIsSidebarOpen((prev) => !prev)}
+        className={`hidden md:flex fixed top-1/2 -translate-y-1/2 z-50 w-6 h-12 items-center justify-center rounded-full bg-[var(--background)] border border-white/10 hover:border-white/20 hover:bg-white/5 transition-all duration-300 ease-out ${
+          isSidebarOpen ? "left-[280px]" : "left-0"
+        }`}
+        aria-label={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+      >
+        {isSidebarOpen ? (
+          <ChevronLeft className="h-4 w-4 text-[var(--text-muted)]" />
+        ) : (
+          <ChevronRight className="h-4 w-4 text-[var(--text-muted)]" />
+        )}
+      </button>
+
+      <div className={`relative flex min-h-0 min-w-0 flex-1 flex-col w-full overflow-hidden pt-14 md:pt-0 transition-all duration-300 ease-out ${
+        isSidebarOpen ? "md:pl-[280px]" : "md:pl-0"
+      }`}>
         <div className="fixed top-0 left-0 right-0 z-30 flex h-14 items-center justify-between px-4 md:hidden bg-[var(--background)]/80 backdrop-blur-xl border-b border-white/4">
           <button
             type="button"
