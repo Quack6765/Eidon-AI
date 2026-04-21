@@ -937,6 +937,31 @@ test.describe("Feature: Mobile settings navigation", () => {
   });
 });
 
+test.describe("Feature: Desktop sidebar toggle", () => {
+  test("collapses and expands sidebar on desktop", async ({ page }) => {
+    await signIn(page);
+    await page.setViewportSize({ width: 1280, height: 844 });
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+
+    // Sidebar should be visible by default
+    await expect(page.locator("aside")).toBeVisible();
+
+    // Toggle button should be visible
+    const toggleButton = page.getByRole("button", { name: "Collapse sidebar" });
+    await expect(toggleButton).toBeVisible();
+
+    // Click to collapse
+    await toggleButton.click();
+    await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
+
+    // Click to expand back
+    await page.getByRole("button", { name: "Expand sidebar" }).click();
+    await expect(page.locator("aside")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Collapse sidebar" })).toBeVisible();
+  });
+});
+
 test.describe("Feature: Skills in settings", () => {
   test("adds and removes a skill", async ({ page }) => {
     await signIn(page);
