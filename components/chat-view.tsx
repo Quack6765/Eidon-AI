@@ -722,14 +722,29 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     });
   }, [payload.conversation.id]);
 
-  function jumpToBottom() {
+  function scrollQueueToBottom(behavior: ScrollBehavior = "smooth") {
     if (!queueRef.current) {
       return;
     }
 
     shouldAutoScrollRef.current = true;
     setIsConversationAtBottom(true);
-    queueRef.current.scrollTo({ top: queueRef.current.scrollHeight, behavior: "smooth" });
+    if (queueRef.current.scrollTo) {
+      queueRef.current.scrollTo({ top: queueRef.current.scrollHeight, behavior });
+    } else {
+      queueRef.current.scrollTop = queueRef.current.scrollHeight;
+    }
+  }
+
+  function jumpToBottom() {
+    scrollQueueToBottom("smooth");
+  }
+
+  function ensureQueueAtBottomAfterSubmit() {
+    scrollQueueToBottom("auto");
+    requestAnimationFrame(() => {
+      scrollQueueToBottom("auto");
+    });
   }
 
   useEffect(() => {
@@ -751,7 +766,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       if (!queueRef.current || !shouldAutoScrollRef.current) return;
       setIsConversationAtBottom(true);
       if (queueRef.current.scrollTo) {
-        queueRef.current.scrollTo({ top: queueRef.current.scrollHeight, behavior: "instant" });
+        queueRef.current.scrollTo({ top: queueRef.current.scrollHeight, behavior: "auto" });
       } else {
         queueRef.current.scrollTop = queueRef.current.scrollHeight;
       }
@@ -1737,6 +1752,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         return;
       }
 
+      ensureQueueAtBottomAfterSubmit();
       setError("");
       setInput("");
       wsSend({
@@ -1751,6 +1767,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       return;
     }
 
+    ensureQueueAtBottomAfterSubmit();
     setError("");
     setInput("");
     setPendingAttachments([]);

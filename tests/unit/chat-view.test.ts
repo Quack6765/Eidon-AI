@@ -2511,6 +2511,78 @@ describe("chat view", () => {
     });
   });
 
+  it("jumps back to the latest messages when a scrolled-up user queues another prompt", async () => {
+    const { container } = renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          conversation: {
+            ...createPayload().conversation,
+            isActive: true
+          }
+        })
+      })
+    );
+    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    let scrollTop = 700;
+    const scrollTo = vi.fn(({ top }: { top?: number }) => {
+      if (typeof top === "number") {
+        scrollTop = top;
+      }
+    });
+
+    Object.defineProperty(queue, "clientHeight", {
+      configurable: true,
+      get: () => 300
+    });
+    Object.defineProperty(queue, "scrollHeight", {
+      configurable: true,
+      get: () => 1000
+    });
+    Object.defineProperty(queue, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      }
+    });
+    Object.defineProperty(queue, "scrollTo", {
+      configurable: true,
+      value: scrollTo
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+    });
+
+    await flushAnimationFrame();
+
+    scrollTop = 120;
+    fireEvent.scroll(queue);
+    scrollTo.mockClear();
+
+    fireEvent.change(textarea, { target: { value: "Queued follow-up" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "queue_message",
+        conversationId: "conv_1",
+        content: "Queued follow-up"
+      });
+    });
+
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 1000 }));
+    expect(scrollTop).toBe(1000);
+  });
+
   it("does not force-scroll streaming updates when the user has scrolled away from the bottom", async () => {
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
@@ -2566,6 +2638,65 @@ describe("chat view", () => {
 
     expect(scrollTo).not.toHaveBeenCalled();
     expect(scrollTop).toBe(120);
+  });
+
+  it("hides the scroll-to-newest pill when the user sends from a scrolled-up conversation", async () => {
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    let scrollTop = 700;
+    const scrollTo = vi.fn(({ top }: { top?: number }) => {
+      if (typeof top === "number") {
+        scrollTop = top;
+      }
+    });
+
+    Object.defineProperty(queue, "clientHeight", {
+      configurable: true,
+      get: () => 300
+    });
+    Object.defineProperty(queue, "scrollHeight", {
+      configurable: true,
+      get: () => 1000
+    });
+    Object.defineProperty(queue, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      }
+    });
+    Object.defineProperty(queue, "scrollTo", {
+      configurable: true,
+      value: scrollTo
+    });
+
+    await flushAnimationFrame();
+
+    scrollTop = 120;
+    fireEvent.scroll(queue);
+    scrollTo.mockClear();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Scroll to newest messages" })).toBeInTheDocument();
+    });
+
+    fireEvent.change(textarea, { target: { value: "Follow the latest reply" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await flushAnimationFrame();
+
+    expect(wsMock.send).toHaveBeenCalledWith({
+      type: "message",
+      conversationId: "conv_1",
+      content: "Follow the latest reply",
+      attachmentIds: [],
+      personaId: undefined
+    });
+    expect(screen.queryByRole("button", { name: "Scroll to newest messages" })).toBeNull();
   });
 
   it("renders tool actions and answer text while streaming", async () => {
