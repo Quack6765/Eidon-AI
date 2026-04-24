@@ -53,6 +53,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            CHROMIUM_PACKAGE
           tags: |
             ghcr.io/${{ env.REPO_LOWERCASE }}:latest
             ghcr.io/${{ env.REPO_LOWERCASE }}:${{ github.event.release.tag_name }}
@@ -69,6 +71,8 @@ jobs:
         with:
           context: .
           push: false
+          build-args: |
+            CHROMIUM_PACKAGE
           tags: |
             ghcr.io/${{ env.REPO_LOWERCASE }}:pr
           cache-from: |
@@ -91,3 +95,27 @@ jobs:
           cache-to: |
             type=gha,mode=max
             type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:main,mode=max
+
+      - name: Smoke test production image
+        if: github.event_name == 'pull_request' && steps.changes.outputs.deployment == 'true'
+        run: |
+          CONTAINER_ID=$(docker run -d \
+            -e NODE_ENV=production \
+            -e EIDON_DATA_DIR=/app/data \
+            -p 3000:3000 \
+            ghcr.io/${{ env.REPO_LOWERCASE }}:pr)
+          echo "Container started: $CONTAINER_ID"
+          # Wait for container to become healthy
+          for i in $(seq 1 15); do
+            HEALTH=$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER_ID" 2>/dev/null)
+            if [ "$HEALTH" = "healthy" ]; then
+              echo "Container is healthy"
+              docker stop "$CONTAINER_ID" > /dev/null
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Container failed to become healthy within 30s"
+          docker logs "$CONTAINER_ID"
+          docker stop "$CONTAINER_ID" > /dev/null
+          exit 1

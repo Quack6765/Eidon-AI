@@ -17,3 +17,10 @@ agent-memory
 docs
 tmp
 npm-debug.log
+.env
+.env.local
+.env.production
+.env.development
+.env.*.local
+*.md
+*.log

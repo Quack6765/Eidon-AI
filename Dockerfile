@@ -30,7 +30,8 @@ ENV AGENT_BROWSER_SOCKET_DIR=/app/data/runtime/agent-browser
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 # Install chromium and agent-browser
-RUN apt-get update && apt-get install -y --no-install-recommends chromium \
+ARG CHROMIUM_PACKAGE=chromium
+RUN apt-get update && apt-get install -y --no-install-recommends ${CHROMIUM_PACKAGE} \
     && rm -rf /var/lib/apt/lists/*
 RUN npm install -g agent-browser \
     && mv /usr/local/bin/agent-browser /usr/local/bin/agent-browser-core \
@@ -49,4 +50,6 @@ RUN install -d -m 700 /app/data /app/data/home /app/data/tmp /app/data/runtime /
 USER eidon
 EXPOSE 3000
 VOLUME ["/app/data"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000', r => process.exit(r.statusCode >= 200 && r.statusCode < 400 ? 0 : 1)).on('error', () => process.exit(1))"
 CMD ["node", "server.cjs"]
