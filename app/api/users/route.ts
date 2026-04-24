@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireAdminUser } from "@/lib/auth";
+import { requireAdminUser, auditLog } from "@/lib/auth";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { badRequest, forbidden, notFoundResponse, ok } from "@/lib/http";
 import { createLocalUser, listUsers } from "@/lib/users";
@@ -50,6 +50,12 @@ export async function POST(request: Request) {
 
   try {
     const user = await createLocalUser(body.data);
+    auditLog({
+      eventType: "user_created",
+      userId: user.id,
+      username: user.username,
+      detail: `User created with role "${user.role}"`
+    });
     return ok({ user }, { status: 201 });
   } catch (error) {
     return badRequest(error instanceof Error ? error.message : "Unable to create user");

@@ -105,7 +105,19 @@ function migrate(db: Database.Database) {
       auth_source TEXT NOT NULL,
       password_hash TEXT,
       created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
+      updated_at TEXT NOT NULL,
+      failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+      locked_until TEXT
+    );
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id TEXT PRIMARY KEY,
+      event_type TEXT NOT NULL,
+      user_id TEXT,
+      username TEXT,
+      ip_address TEXT,
+      user_agent TEXT,
+      detail TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS admin_users (
       id TEXT PRIMARY KEY,
@@ -467,6 +479,15 @@ function migrate(db: Database.Database) {
     db.exec("ALTER TABLE automations ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
   }
 
+  const userCols = db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>;
+  const userColNames = userCols.map((c) => c.name);
+  if (!userColNames.includes("failed_login_attempts")) {
+    db.exec("ALTER TABLE users ADD COLUMN failed_login_attempts INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!userColNames.includes("locked_until")) {
+    db.exec("ALTER TABLE users ADD COLUMN locked_until TEXT");
+  }
+
   db.exec(`
     INSERT OR IGNORE INTO users (id, username, role, auth_source, password_hash, created_at, updated_at)
     SELECT id, username, 'admin', 'env_super_admin', NULL, created_at, updated_at
@@ -737,6 +758,8 @@ function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_memory_nodes_superseded ON memory_nodes(conversation_id, superseded_by_node_id);
     CREATE INDEX IF NOT EXISTS idx_folders_sort_order ON folders(sort_order);
     CREATE INDEX IF NOT EXISTS idx_user_memories_category ON user_memories(category);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_log_event_type ON audit_log(event_type);
   `);
 
   const queuedMessagesCols = db.prepare("PRAGMA table_info(queued_messages)").all() as Array<{ name: string }>;

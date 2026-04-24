@@ -7,7 +7,8 @@ const { requireAdminUserMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth", () => ({
-  requireAdminUser: requireAdminUserMock
+  requireAdminUser: requireAdminUserMock,
+  auditLog: vi.fn()
 }));
 
 function buildAdminUser() {

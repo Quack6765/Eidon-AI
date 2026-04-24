@@ -1,10 +1,11 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 import argon2 from "argon2";
 import { SignJWT, jwtVerify } from "jose";
 
-import { SESSION_COOKIE_NAME } from "@/lib/constants";
+import { SESSION_COOKIE_NAME, SESSION_DURATION_DAYS, LOCKOUT_THRESHOLD, LOCKOUT_DURATION_MS } from "@/lib/constants";
 import { getDb } from "@/lib/db";
 import { env, isPasswordLoginEnabled, isProduction } from "@/lib/env";
 import { createId } from "@/lib/ids";
@@ -17,7 +18,7 @@ import {
 import type { AuthSession, AuthUser } from "@/lib/types";
 
 const encoder = new TextEncoder();
-const sessionDurationMs = 1000 * 60 * 60 * 24 * 30;
+const sessionDurationMs = 1000 * 60 * 60 * 24 * SESSION_DURATION_DAYS;
 
 function getSessionSecret() {
   return encoder.encode(env.EIDON_SESSION_SECRET);
@@ -90,17 +91,147 @@ export async function findUserByUsername(username: string) {
   };
 }
 
-export async function authenticateUser(username: string, password: string) {
+export function auditLog(event: {
+  eventType: string;
+  userId?: string | null;
+  username?: string | null;
+  ipAddress?: string;
+  userAgent?: string;
+  detail?: string;
+}) {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO audit_log (id, event_type, user_id, username, ip_address, user_agent, detail, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    createId("audit"),
+    event.eventType,
+    event.userId ?? null,
+    event.username ?? null,
+    event.ipAddress ?? null,
+    event.userAgent ?? null,
+    event.detail ?? "",
+    new Date().toISOString()
+  );
+}
+
+export async function authenticateUser(
+  username: string,
+  password: string,
+  options?: { ipAddress?: string; userAgent?: string }
+) {
   await ensureAdminBootstrap();
   const record = await findUserByUsername(username);
-  if (!record) return null;
 
-  if (record.user.authSource === "env_super_admin") {
-    return password === env.EIDON_ADMIN_PASSWORD ? record.user : null;
+  if (record) {
+    const db = getDb();
+
+    if (record.user.authSource !== "env_super_admin") {
+      const userRow = db.prepare(
+        `SELECT failed_login_attempts, locked_until FROM users WHERE id = ?`
+      ).get(record.user.id) as { failed_login_attempts: number; locked_until: string | null } | undefined;
+
+      if (userRow?.locked_until) {
+        const lockedUntil = new Date(userRow.locked_until).getTime();
+        if (Date.now() < lockedUntil) {
+          auditLog({
+            eventType: "login_blocked_locked",
+            userId: record.user.id,
+            username,
+            ipAddress: options?.ipAddress,
+            userAgent: options?.userAgent,
+            detail: `Account locked until ${userRow.locked_until}`
+          });
+          return null;
+        }
+        db.prepare("UPDATE users SET locked_until = NULL, failed_login_attempts = 0 WHERE id = ?").run(record.user.id);
+      }
+    }
   }
 
-  if (!record.passwordHash) return null;
-  return (await verifyPassword(password, record.passwordHash)) ? record.user : null;
+  if (!record) {
+    auditLog({
+      eventType: "login_failed",
+      username,
+      ipAddress: options?.ipAddress,
+      userAgent: options?.userAgent,
+      detail: "User not found"
+    });
+    return null;
+  }
+
+  if (record.user.authSource === "env_super_admin") {
+    const adminHash = createHash("sha256").update(env.EIDON_ADMIN_PASSWORD).digest();
+    const inputHash = createHash("sha256").update(password).digest();
+    const valid = timingSafeEqual(inputHash, adminHash);
+    auditLog({
+      eventType: valid ? "login_success" : "login_failed",
+      userId: record.user.id,
+      username,
+      ipAddress: options?.ipAddress,
+      userAgent: options?.userAgent,
+      detail: valid ? "env_super_admin login" : "Invalid password for env_super_admin"
+    });
+    return valid ? record.user : null;
+  }
+
+  if (!record.passwordHash) {
+    auditLog({
+      eventType: "login_failed",
+      userId: record.user.id,
+      username,
+      ipAddress: options?.ipAddress,
+      userAgent: options?.userAgent,
+      detail: "No password hash set for local user"
+    });
+    return null;
+  }
+
+  const valid = await verifyPassword(password, record.passwordHash);
+  const db = getDb();
+
+  if (!valid) {
+    const newAttempts = db.prepare(
+      `UPDATE users SET failed_login_attempts = failed_login_attempts + 1 WHERE id = ? RETURNING failed_login_attempts`
+    ).get(record.user.id) as { failed_login_attempts: number } | undefined;
+
+    if (newAttempts && newAttempts.failed_login_attempts >= LOCKOUT_THRESHOLD) {
+      const lockedUntil = new Date(Date.now() + LOCKOUT_DURATION_MS).toISOString();
+      db.prepare("UPDATE users SET locked_until = ? WHERE id = ? AND locked_until IS NULL").run(lockedUntil, record.user.id);
+      auditLog({
+        eventType: "account_locked",
+        userId: record.user.id,
+        username,
+        ipAddress: options?.ipAddress,
+        userAgent: options?.userAgent,
+        detail: `Account locked after ${newAttempts.failed_login_attempts} failed attempts until ${lockedUntil}`
+      });
+    } else {
+      auditLog({
+        eventType: "login_failed",
+        userId: record.user.id,
+        username,
+        ipAddress: options?.ipAddress,
+        userAgent: options?.userAgent,
+        detail: "Invalid password for local user"
+      });
+    }
+
+    return null;
+  }
+
+  db.prepare("UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = ?").run(record.user.id);
+
+  auditLog({
+    eventType: "login_success",
+    userId: record.user.id,
+    username,
+    ipAddress: options?.ipAddress,
+    userAgent: options?.userAgent,
+    detail: "local user login"
+  });
+
+  return record.user;
 }
 
 export async function createSession(userId: string) {

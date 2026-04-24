@@ -2,6 +2,9 @@ import type { ConversationRetention } from "@/lib/types";
 
 export const APP_NAME = "Eidon";
 export const SESSION_COOKIE_NAME = "eidon_session";
+export const SESSION_DURATION_DAYS = 7;
+export const LOCKOUT_THRESHOLD = 10;
+export const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 export const SETTINGS_ROW_ID = 1;
 export const DEFAULT_PROVIDER_PROFILE_NAME = "Default profile";
 export const DEFAULT_SKILLS_ENABLED = true;

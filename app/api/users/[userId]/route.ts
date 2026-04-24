@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireAdminUser } from "@/lib/auth";
+import { requireAdminUser, auditLog } from "@/lib/auth";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { badRequest, forbidden, notFoundResponse, ok } from "@/lib/http";
 import type { AuthUser } from "@/lib/types";
@@ -13,7 +13,7 @@ const paramsSchema = z.object({
 const updateUserSchema = z
   .object({
     username: z.string().trim().min(3).max(32).optional(),
-    password: z.string().min(8).optional().or(z.literal("")),
+    password: z.string().min(8).optional(),
     role: z.enum(["admin", "user"]).optional()
   })
   .refine(
@@ -62,6 +62,13 @@ export async function PATCH(
       return notFoundResponse("User not found");
     }
 
+    auditLog({
+      eventType: "user_updated",
+      userId: updated.id,
+      username: updated.username,
+      detail: `User updated: ${Object.entries(body.data).filter(([k, v]) => v !== undefined && k !== "password").map(([k]) => k).join(", ")}${body.data.password ? ", password_changed" : ""}`
+    });
+
     return ok({ user: updated });
   } catch (error) {
     return badRequest(error instanceof Error ? error.message : "Unable to update user");
@@ -102,6 +109,12 @@ export async function DELETE(
     if (!deleted) {
       return notFoundResponse("User not found");
     }
+
+    auditLog({
+      eventType: "user_deleted",
+      userId: params.data.userId,
+      detail: `User deleted by admin "${adminUser.username}"`
+    });
 
     return ok({ success: true });
   } catch (error) {

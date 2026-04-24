@@ -15,3 +15,11 @@ export function forbidden(message = "Forbidden") {
 export function notFoundResponse(message = "Not found") {
   return badRequest(message, 404);
 }
+
+export function tooManyRequests(message = "Too many requests", resetAt?: number) {
+  const headers: Record<string, string> = {};
+  if (resetAt) {
+    headers["Retry-After"] = String(Math.ceil((resetAt - Date.now()) / 1000));
+  }
+  return NextResponse.json({ error: message }, { status: 429, headers });
+}

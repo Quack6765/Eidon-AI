@@ -1,4 +1,4 @@
-import { clearSessionCookie, getSessionPayload, invalidateSession } from "@/lib/auth";
+import { auditLog, clearSessionCookie, getSessionPayload, invalidateSession } from "@/lib/auth";
 import { ok } from "@/lib/http";
 
 export async function POST() {
@@ -6,6 +6,11 @@ export async function POST() {
 
   if (session) {
     await invalidateSession(session.sessionId);
+    auditLog({
+      eventType: "logout",
+      userId: session.userId,
+      detail: "Session terminated via logout"
+    });
   }
 
   await clearSessionCookie();
