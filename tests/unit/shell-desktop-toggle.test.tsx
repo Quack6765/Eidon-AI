@@ -1,13 +1,15 @@
 // @vitest-environment jsdom
 
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { StrictMode } from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Shell } from "@/components/shell";
 
 const mockPush = vi.fn();
+let mockPathname = "/";
 
 vi.mock("next/navigation", () => ({
-  usePathname: () => "/",
+  usePathname: () => mockPathname,
   useRouter: () => ({ push: mockPush }),
 }));
 
@@ -61,9 +63,20 @@ const mockProps = {
   children: <div data-testid="main">Main Content</div>,
 };
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", {
+    configurable: true,
+    writable: true,
+    value: width,
+  });
+}
+
 describe("Desktop Sidebar Toggle", () => {
   beforeEach(() => {
     mockPush.mockReset();
+    mockPathname = "/";
+    sessionStorage.clear();
+    setViewportWidth(1024);
   });
 
   it("renders toggle button on desktop viewport", () => {
@@ -103,5 +116,94 @@ describe("Desktop Sidebar Toggle", () => {
     const sidebar = screen.getByRole("complementary");
     expect(sidebar.parentElement).toHaveClass("md:translate-x-0");
     expect(sidebar.parentElement).not.toHaveClass("md:-translate-x-full");
+  });
+
+  it("does not render the desktop sidebar toggle on settings routes", () => {
+    mockPathname = "/settings/general";
+
+    render(<Shell {...mockProps} />);
+
+    expect(screen.getByTestId("settings-nav")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /collapse sidebar|expand sidebar/i })
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("settings-nav").parentElement).toHaveClass("md:translate-x-0");
+  });
+
+  it("opens the automations nav by default on direct desktop automations routes", () => {
+    mockPathname = "/automations";
+
+    render(<Shell {...mockProps} />);
+
+    expect(screen.getByTestId("automations-nav")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeInTheDocument();
+    expect(screen.getByTestId("automations-nav").parentElement).toHaveClass("md:translate-x-0");
+  });
+
+  it("keeps the chat sidebar collapsed after visiting desktop settings", () => {
+    mockPathname = "/chat/conv_existing";
+    const { rerender } = render(<Shell {...mockProps} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar").parentElement).toHaveClass("md:-translate-x-full");
+
+    mockPathname = "/settings/general";
+    rerender(<Shell {...mockProps} />);
+
+    expect(screen.getByTestId("settings-nav")).toBeInTheDocument();
+    expect(screen.getByTestId("settings-nav").parentElement).toHaveClass("md:translate-x-0");
+    expect(
+      screen.queryByRole("button", { name: /collapse sidebar|expand sidebar/i })
+    ).not.toBeInTheDocument();
+
+    mockPathname = "/chat/conv_existing";
+    rerender(<Shell {...mockProps} />);
+
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar").parentElement).toHaveClass("md:-translate-x-full");
+  });
+
+  it("auto-hides the desktop sidebar once after home submits the first message", () => {
+    mockPathname = "/chat/conv_new";
+    sessionStorage.setItem("eidon:shell:auto-hide-sidebar-conversation", "conv_new");
+
+    render(<Shell {...mockProps} />);
+
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar").parentElement).toHaveClass("md:-translate-x-full");
+    expect(sessionStorage.getItem("eidon:shell:auto-hide-sidebar-conversation")).toBeNull();
+  });
+
+  it("keeps the home-submit auto-hide after StrictMode replays mount effects", () => {
+    mockPathname = "/chat/conv_new";
+    sessionStorage.setItem("eidon:shell:auto-hide-sidebar-conversation", "conv_new");
+
+    render(
+      <StrictMode>
+        <Shell {...mockProps} />
+      </StrictMode>
+    );
+
+    expect(screen.getByRole("button", { name: "Expand sidebar" })).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar").parentElement).toHaveClass("md:-translate-x-full");
+    expect(sessionStorage.getItem("eidon:shell:auto-hide-sidebar-conversation")).toBeNull();
+  });
+
+  it("consumes the home-submit auto-hide marker on narrow viewports without leaving stale desktop state", () => {
+    mockPathname = "/chat/conv_new";
+    setViewportWidth(390);
+    sessionStorage.setItem("eidon:shell:auto-hide-sidebar-conversation", "conv_new");
+
+    const { unmount } = render(<Shell {...mockProps} />);
+
+    expect(sessionStorage.getItem("eidon:shell:auto-hide-sidebar-conversation")).toBeNull();
+
+    unmount();
+    setViewportWidth(1024);
+    render(<Shell {...mockProps} />);
+
+    expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeInTheDocument();
+    expect(screen.getByTestId("sidebar").parentElement).toHaveClass("md:translate-x-0");
   });
 });

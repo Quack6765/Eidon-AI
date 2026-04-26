@@ -266,6 +266,9 @@ describe("home view", () => {
     expect(sessionStorage.getItem("eidon:chat-bootstrap:conv_new")).toContain(
       "Start this thread"
     );
+    expect(sessionStorage.getItem("eidon:shell:auto-hide-sidebar-conversation")).toBe(
+      "conv_new"
+    );
     expect(screen.queryByText("Help me brainstorm ideas")).toBeNull();
   });
 

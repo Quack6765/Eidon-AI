@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ChatComposer } from "@/components/chat-composer";
-import { storeChatBootstrap } from "@/lib/chat-bootstrap";
+import { markHomeSubmitSidebarAutoHide, storeChatBootstrap } from "@/lib/chat-bootstrap";
 import { appendTranscriptToDraft } from "@/lib/speech/append-transcript-to-draft";
 import { useSpeechInput } from "@/lib/speech/use-speech-input";
 import { shouldAutofocusTextInput } from "@/lib/utils";
@@ -259,6 +259,7 @@ export function HomeView({
         attachments: pendingAttachments,
         personaId: personaId ?? undefined
       });
+      markHomeSubmitSidebarAutoHide(conversationId);
       router.push(`/chat/${conversationId}`);
     } catch (caughtError) {
       setError(
