@@ -79,8 +79,8 @@ copy_data_dir() {
     local dest_dir="$2"
 
     if [ ! -e "$src_dir" ]; then
-        echo "error: source data directory $src_dir does not exist; refusing to launch with seeded default providers only" >&2
-        return 1
+        echo "warning: $src_dir does not exist; launching with seeded default providers" >&2
+        return 0
     fi
 
     if [ -e "$dest_dir" ]; then
@@ -100,13 +100,10 @@ copy_data_dir() {
     echo "copied: $dest_dir <- $src_dir"
 }
 
-SOURCE_DATA_DIR="$SOURCE_WT/.data"
-DEST_DATA_DIR="$WORKTREE_DIR/.data"
-
 echo "Setting up worktree from $SOURCE_LABEL: $SOURCE_WT"
 
 copy_file_replace "$SOURCE_WT/.env" "$WORKTREE_DIR/.env"
-copy_data_dir "$SOURCE_DATA_DIR" "$DEST_DATA_DIR"
+copy_data_dir "$MAIN_WT/.data" "$WORKTREE_DIR/.data"
 
 if [ ! -e "$WORKTREE_DIR/node_modules" ]; then
     echo "Installing npm dependencies..."

@@ -17,16 +17,6 @@ function run(command: string, args: string[], cwd: string, env: NodeJS.ProcessEn
   });
 }
 
-function runSetupExpectFailure(cwd: string, env: NodeJS.ProcessEnv = {}) {
-  try {
-    run("./scripts/setup-worktree.sh", [], cwd, env);
-  } catch (error) {
-    return error as { status: number; stderr?: Buffer | string; stdout?: Buffer | string };
-  }
-
-  throw new Error("Expected setup-worktree.sh to fail");
-}
-
 function createSqliteDatabase(dbPath: string, label: string) {
   run(
     "sqlite3",
@@ -134,7 +124,7 @@ describe("scripts/setup-worktree.sh", () => {
     expect(fs.existsSync(path.join(worktreeDir, ".data/destination-only.txt"))).toBe(false);
   });
 
-  it("copies env and data from EIDON_SETUP_SOURCE_DIR when provided", () => {
+  it("copies env from EIDON_SETUP_SOURCE_DIR but data always from main", () => {
     const { worktreeDir } = createWorktreeFixture();
     const sourceDir = createSourceCheckoutFixture(path.dirname(worktreeDir));
 
@@ -143,33 +133,31 @@ describe("scripts/setup-worktree.sh", () => {
     expect(fs.readFileSync(path.join(worktreeDir, ".env"), "utf8")).toBe(
       "EIDON_DATA_DIR=.data\nSOURCE_CHECKOUT=true\n"
     );
-    expect(readSqliteLabel(path.join(worktreeDir, ".data/eidon.db"))).toBe("source-checkout");
-    expect(fs.readFileSync(path.join(worktreeDir, ".data/attachments/source-checkout.txt"), "utf8")).toBe(
-      "source checkout"
+    expect(readSqliteLabel(path.join(worktreeDir, ".data/eidon.db"))).toBe("source");
+    expect(fs.readFileSync(path.join(worktreeDir, ".data/attachments/source.txt"), "utf8")).toBe(
+      "source attachment"
     );
   });
 
-  it("fails explicitly when the selected source checkout has no data directory", () => {
-    const { worktreeDir } = createWorktreeFixture();
-    const sourceDir = path.join(path.dirname(worktreeDir), "empty-source");
-    fs.mkdirSync(sourceDir, { recursive: true });
-    fs.writeFileSync(path.join(sourceDir, ".env"), "EIDON_DATA_DIR=.data\n");
+  it("succeeds when main has no .data directory", () => {
+    const { mainDir, worktreeDir } = createWorktreeFixture();
+    fs.rmSync(path.join(mainDir, ".data"), { recursive: true, force: true });
 
-    const error = runSetupExpectFailure(worktreeDir, { EIDON_SETUP_SOURCE_DIR: sourceDir });
+    run("./scripts/setup-worktree.sh", [], worktreeDir);
 
-    expect(error.status).not.toBe(0);
-    expect(String(error.stderr)).toContain("error:");
-    expect(String(error.stderr)).toContain(".data");
+    expect(fs.existsSync(path.join(worktreeDir, ".data"))).toBe(false);
   });
 
-  it("does not delete source data when source and destination .data are the same", () => {
-    const { worktreeDir } = createWorktreeFixture();
+  it("does not delete source data when main and worktree .data are the same", () => {
+    const { mainDir, worktreeDir } = createWorktreeFixture();
     fs.writeFileSync(path.join(worktreeDir, ".env"), "EIDON_DATA_DIR=.data\n");
     fs.mkdirSync(path.join(worktreeDir, ".data", "attachments"), { recursive: true });
     createSqliteDatabase(path.join(worktreeDir, ".data/eidon.db"), "same-source");
     fs.writeFileSync(path.join(worktreeDir, ".data/attachments/source.txt"), "same source");
+    fs.rmSync(path.join(mainDir, ".data"), { recursive: true, force: true });
+    fs.symlinkSync(path.join(worktreeDir, ".data"), path.join(mainDir, ".data"));
 
-    const output = run("./scripts/setup-worktree.sh", [], worktreeDir, { EIDON_SETUP_SOURCE_DIR: worktreeDir });
+    const output = run("./scripts/setup-worktree.sh", [], worktreeDir);
 
     expect(output).toContain("source and destination data directories are the same");
     expect(readSqliteLabel(path.join(worktreeDir, ".data/eidon.db"))).toBe("same-source");
