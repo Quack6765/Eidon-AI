@@ -9,7 +9,7 @@ import {
 } from "@/components/attachment-preview-modal";
 import { ChatComposer } from "@/components/chat-composer";
 import { QueuedMessageBanner } from "@/components/queued-message-banner";
-import { MessageBubble } from "@/components/message-bubble";
+import { MessageBubble, TypingIndicator } from "@/components/message-bubble";
 import { clearChatBootstrap, readChatBootstrap } from "@/lib/chat-bootstrap";
 import { useContextTokens } from "@/lib/context-tokens-context";
 import {
@@ -2045,6 +2045,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                     onForkAssistantMessage={forkAssistantMessage}
                     isForking={forkingMessageId === message.id}
                   />
+                  {isStreamingMessage && isAgentIdle && hasReceivedFirstToken && (
+                    <div className="animate-fade-in pl-4 pt-1">
+                      <TypingIndicator compact />
+                    </div>
+                  )}
                 </div>
               );
             })()
