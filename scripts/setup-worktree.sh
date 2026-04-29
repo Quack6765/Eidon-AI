@@ -27,6 +27,14 @@ if [ -z "$MAIN_WT" ]; then
     MAIN_WT="$REPO_ROOT"
 fi
 
+if [ -n "${EIDON_SETUP_SOURCE_DIR:-}" ]; then
+    SOURCE_WT="$(cd "$EIDON_SETUP_SOURCE_DIR" && pwd)"
+    SOURCE_LABEL="EIDON_SETUP_SOURCE_DIR"
+else
+    SOURCE_WT="$MAIN_WT"
+    SOURCE_LABEL="main"
+fi
+
 copy_file_replace() {
     local src="$1"
     local dest="$2"
@@ -36,8 +44,34 @@ copy_file_replace() {
         return 1
     fi
 
+    if [ -e "$dest" ]; then
+        local canonical_src
+        local canonical_dest
+        canonical_src="$(canonical_existing_file "$src")"
+        canonical_dest="$(canonical_existing_file "$dest")"
+
+        if [ "$canonical_src" = "$canonical_dest" ]; then
+            echo "source and destination env files are the same; skipping env copy: $src"
+            return 0
+        fi
+    fi
+
     cp "$src" "$dest"
     echo "copied: $dest <- $src"
+}
+
+canonical_existing_path() {
+    local path_to_resolve="$1"
+
+    cd "$path_to_resolve" && pwd -P
+}
+
+canonical_existing_file() {
+    local path_to_resolve="$1"
+    local dir
+    dir="$(cd "$(dirname "$path_to_resolve")" && pwd -P)"
+
+    echo "$dir/$(basename "$path_to_resolve")"
 }
 
 copy_data_dir() {
@@ -45,8 +79,20 @@ copy_data_dir() {
     local dest_dir="$2"
 
     if [ ! -e "$src_dir" ]; then
-        echo "warning: $src_dir does not exist, skipping"
+        echo "error: source data directory $src_dir does not exist; refusing to launch with seeded default providers only" >&2
         return 1
+    fi
+
+    if [ -e "$dest_dir" ]; then
+        local canonical_src
+        local canonical_dest
+        canonical_src="$(canonical_existing_path "$src_dir")"
+        canonical_dest="$(canonical_existing_path "$dest_dir")"
+
+        if [ "$canonical_src" = "$canonical_dest" ]; then
+            echo "source and destination data directories are the same; skipping data copy: $src_dir"
+            return 0
+        fi
     fi
 
     rm -rf "$dest_dir"
@@ -54,10 +100,13 @@ copy_data_dir() {
     echo "copied: $dest_dir <- $src_dir"
 }
 
-echo "Setting up worktree from main: $MAIN_WT"
+SOURCE_DATA_DIR="$SOURCE_WT/.data"
+DEST_DATA_DIR="$WORKTREE_DIR/.data"
 
-copy_file_replace "$MAIN_WT/.env" "$WORKTREE_DIR/.env"
-copy_data_dir "$MAIN_WT/.data" "$WORKTREE_DIR/.data"
+echo "Setting up worktree from $SOURCE_LABEL: $SOURCE_WT"
+
+copy_file_replace "$SOURCE_WT/.env" "$WORKTREE_DIR/.env"
+copy_data_dir "$SOURCE_DATA_DIR" "$DEST_DATA_DIR"
 
 if [ ! -e "$WORKTREE_DIR/node_modules" ]; then
     echo "Installing npm dependencies..."
