@@ -507,6 +507,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isConversationAtBottom, setIsConversationAtBottom] = useState(true);
   const queueBannerRef = useRef<HTMLDivElement>(null);
   const [queueBannerHeight, setQueueBannerHeight] = useState(0);
+  const [isAgentIdle, setIsAgentIdle] = useState(false);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const {
     speechSnapshot,
@@ -787,14 +789,24 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     return () => window.cancelAnimationFrame(handle);
   }, [payload.conversation.id]);
 
+  useEffect(() => {
+    return () => {
+      if (idleTimerRef.current !== null) {
+        clearTimeout(idleTimerRef.current);
+      }
+    };
+  }, []);
+
   function handleDelta(event: ChatStreamEvent) {
     if (event.type === "compaction_start") {
       setCompactionInProgress(true);
+      resetIdleTimer();
       return;
     }
 
     if (event.type === "compaction_end") {
       setCompactionInProgress(false);
+      resetIdleTimer();
       return;
     }
 
@@ -802,6 +814,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       setIsConversationActive(true);
       setStreamMessageId(event.messageId);
       setHasReceivedFirstToken(false);
+      resetIdleTimer();
       setStreamAnswerTarget("");
       setStreamAnswerDisplay("");
       setStreamThinkingTarget("");
@@ -874,6 +887,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (event.type === "thinking_delta") {
       clearCompactionIndicator();
       setHasReceivedFirstToken(true);
+      resetIdleTimer();
       const nextThinking = `${streamThinkingTargetRef.current}${event.text}`;
       streamThinkingTargetRef.current = nextThinking;
       setStreamThinkingTarget(nextThinking);
@@ -885,6 +899,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (event.type === "answer_delta") {
       clearCompactionIndicator();
       setHasReceivedFirstToken(true);
+      resetIdleTimer();
       const nextAnswer = `${streamAnswerTargetRef.current}${event.text}`;
       streamAnswerTargetRef.current = nextAnswer;
       setStreamAnswerTarget(nextAnswer);
@@ -914,6 +929,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "action_start") {
       clearCompactionIndicator();
+      resetIdleTimer();
       updateStreamTimeline((prev) => {
         const isExisting = prev.some((item) => item.timelineKind === "action" && item.id === event.action.id);
         if (isExisting) {
@@ -943,11 +959,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "action_complete" || event.type === "action_error") {
       clearCompactionIndicator();
+      resetIdleTimer();
       updateStreamTimeline((prev) => updateStreamingAction(prev, event.action));
     }
 
     if (event.type === "done") {
       clearCompactionIndicator();
+      clearIdleTimer();
       setIsConversationActive(false);
       const wasStopped = isStopPending;
       setIsStopPending(false);
@@ -996,6 +1014,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "error") {
       clearCompactionIndicator();
+      clearIdleTimer();
       setIsConversationActive(false);
       setIsStopPending(false);
       const activeStreamMessageId = streamMessageIdRef.current;
@@ -1013,6 +1032,24 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       updateStreamTimeline([]);
       setIsSending(false);
     }
+  }
+
+  function resetIdleTimer() {
+    if (idleTimerRef.current !== null) {
+      clearTimeout(idleTimerRef.current);
+    }
+    setIsAgentIdle(false);
+    idleTimerRef.current = setTimeout(() => {
+      setIsAgentIdle(true);
+    }, 300);
+  }
+
+  function clearIdleTimer() {
+    if (idleTimerRef.current !== null) {
+      clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = null;
+    }
+    setIsAgentIdle(false);
   }
 
   const {
