@@ -910,6 +910,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "system_notice") {
+      resetIdleTimer();
       setMessages((current) => [
         ...current,
         {
