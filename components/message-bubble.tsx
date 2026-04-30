@@ -1104,7 +1104,7 @@ export function MessageBubble({
 
   if (message.role === "system") {
     return (
-      <div className="mx-auto max-w-lg rounded-full border border-white/6 bg-white/[0.03] px-5 py-2 text-center text-[11px] tracking-[0.12em] text-white/40 uppercase">
+      <div data-message-id={message.id} className="mx-auto max-w-lg rounded-full border border-white/6 bg-white/[0.03] px-5 py-2 text-center text-[11px] tracking-[0.12em] text-white/40 uppercase">
         {message.content}
       </div>
     );
@@ -1113,7 +1113,7 @@ export function MessageBubble({
   if (message.role === "user") {
     return (
       <>
-        <div className="flex w-full justify-end">
+        <div data-message-id={message.id} className="flex w-full justify-end">
           <div className="group flex max-w-[96%] flex-col items-end md:max-w-[95%]">
             <div className="w-full rounded-2xl border border-[var(--accent)]/10 bg-[var(--accent-soft)] px-4 py-3 text-[var(--text)]">
               {isEditing ? (
@@ -1204,7 +1204,7 @@ export function MessageBubble({
   }
 
   return (
-    <div className="w-full">
+    <div data-message-id={message.id} className="w-full">
       <div className="flex gap-3.5">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] border border-white/6 text-[10px] font-bold text-white/60 overflow-hidden mt-1">
           <img src="/agent-icon.png" alt="" width={28} height={28} className="h-full w-full object-cover" />
