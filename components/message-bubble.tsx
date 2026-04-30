@@ -1020,6 +1020,7 @@ export function MessageBubble({
   const showAssistantBubbleActions =
     Boolean(renderedAssistantText) &&
     !awaitingFirstToken &&
+    !isAssistantStreaming &&
     !hasIncompleteFencedCodeBlock(renderedAssistantText, isAssistantStreaming);
 
   useEffect(() => {
