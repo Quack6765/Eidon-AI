@@ -1042,7 +1042,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     setIsAgentIdle(false);
     idleTimerRef.current = setTimeout(() => {
       setIsAgentIdle(true);
-    }, 300);
+    }, 1200);
   }
 
   function clearIdleTimer() {
