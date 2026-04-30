@@ -757,31 +757,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     });
   }
 
-  function anchorToUserMessage(messageId: string) {
-    scrollModeRef.current = "anchored";
-    shouldAutoScrollRef.current = false;
-    pendingAnchorMessageIdRef.current = messageId;
-
-    requestAnimationFrame(() => {
-      if (!queueRef.current || !pendingAnchorMessageIdRef.current) return;
-      const mid = pendingAnchorMessageIdRef.current;
-      const messageEl = queueRef.current.querySelector(`[data-message-id="${mid}"]`);
-      if (!messageEl) {
-        requestAnimationFrame(() => {
-          if (!queueRef.current || !pendingAnchorMessageIdRef.current) return;
-          const mid2 = pendingAnchorMessageIdRef.current;
-          const el = queueRef.current.querySelector(`[data-message-id="${mid2}"]`);
-          if (!el) return;
-          pendingAnchorMessageIdRef.current = null;
-          performAnchorScroll(el);
-        });
-        return;
-      }
-      pendingAnchorMessageIdRef.current = null;
-      performAnchorScroll(messageEl);
-    });
-  }
-
   function performAnchorScroll(messageEl: Element) {
     if (!queueRef.current) return;
     const containerRect = queueRef.current.getBoundingClientRect();
