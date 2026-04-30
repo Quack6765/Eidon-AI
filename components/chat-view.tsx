@@ -2046,7 +2046,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                     isForking={forkingMessageId === message.id}
                   />
                   {isStreamingMessage && isAgentIdle && hasReceivedFirstToken && (
-                    <div className="animate-fade-in pl-4 pt-1">
+                    <div className="animate-fade-in mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1">
                       <TypingIndicator compact />
                     </div>
                   )}
