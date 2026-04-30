@@ -721,6 +721,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, []);
 
   useEffect(() => {
+    scrollModeRef.current = "idle";
     shouldAutoScrollRef.current = true;
     requestAnimationFrame(() => {
       if (!queueRef.current) {
@@ -837,6 +838,28 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       performAnchorScroll(el);
     });
   }, [messages]);
+
+  useEffect(() => {
+    if (!streamMessageId) {
+      if (scrollModeRef.current === "following" || scrollModeRef.current === "anchored") {
+        scrollModeRef.current = "idle";
+      }
+      return;
+    }
+
+    if (scrollModeRef.current !== "anchored" || !queueRef.current) return;
+
+    requestAnimationFrame(() => {
+      if (scrollModeRef.current !== "anchored" || !queueRef.current) return;
+
+      const contentHeight = queueRef.current.scrollHeight - SCROLL_BOTTOM_PADDING;
+      if (contentHeight - anchorScrollTopRef.current > queueRef.current.clientHeight) {
+        scrollModeRef.current = "following";
+        shouldAutoScrollRef.current = true;
+        scrollQueueToBottom("auto");
+      }
+    });
+  }, [streamAnswerDisplay, streamTimeline, streamThinkingDisplay, streamMessageId]);
 
   useEffect(() => {
     if (!shouldAutofocusTextInput()) {
@@ -2063,8 +2086,18 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             return;
           }
 
+          if (suppressNextScrollEventRef.current) {
+            suppressNextScrollEventRef.current = false;
+            return;
+          }
+
           const nextIsAtBottom = isNearQueueBottom(queueRef.current);
           setIsConversationAtBottom(nextIsAtBottom);
+
+          if (!nextIsAtBottom && scrollModeRef.current !== "idle") {
+            scrollModeRef.current = "idle";
+          }
+
           shouldAutoScrollRef.current = nextIsAtBottom;
         }}
       >
