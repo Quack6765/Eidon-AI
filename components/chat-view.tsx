@@ -49,7 +49,7 @@ type ConversationPayload = {
   };
 };
 
-const AUTO_SCROLL_THRESHOLD_PX = 32;
+const AUTO_SCROLL_THRESHOLD_PX = 64;
 
 type SnapshotReconciliation = {
   messages: Message[];
@@ -1999,7 +1999,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           shouldAutoScrollRef.current = nextIsAtBottom;
         }}
       >
-        <div className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4 pb-[180px] md:pb-[200px]">
+        <div className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4 pb-[240px] md:pb-[260px]">
           {renderableMessages.map((message) => (
             (() => {
               const isStreamingMessage = message.id === streamMessageId;
