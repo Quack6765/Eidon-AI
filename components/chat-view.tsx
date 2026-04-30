@@ -51,6 +51,9 @@ type ConversationPayload = {
 
 const AUTO_SCROLL_THRESHOLD_PX = 64;
 
+type ScrollMode = "idle" | "anchored" | "following";
+const SCROLL_BOTTOM_PADDING = 260;
+
 type SnapshotReconciliation = {
   messages: Message[];
   pendingLocalSubmissions: PendingLocalSubmission[];
@@ -542,6 +545,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const pendingLocalSubmissionsRef = useRef<PendingLocalSubmission[]>([]);
 
   const shouldAutoScrollRef = useRef(true);
+  const scrollModeRef = useRef<ScrollMode>("idle");
+  const pendingAnchorMessageIdRef = useRef<string | null>(null);
+  const anchorScrollTopRef = useRef(0);
+  const suppressNextScrollEventRef = useRef(false);
   const bootstrapPayloadRef = useRef<{
     message: string;
     attachments: MessageAttachment[];
@@ -749,6 +756,47 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     });
   }
 
+  function anchorToUserMessage(messageId: string) {
+    scrollModeRef.current = "anchored";
+    shouldAutoScrollRef.current = false;
+    pendingAnchorMessageIdRef.current = messageId;
+
+    requestAnimationFrame(() => {
+      if (!queueRef.current || !pendingAnchorMessageIdRef.current) return;
+      const mid = pendingAnchorMessageIdRef.current;
+      const messageEl = queueRef.current.querySelector(`[data-message-id="${mid}"]`);
+      if (!messageEl) {
+        requestAnimationFrame(() => {
+          if (!queueRef.current || !pendingAnchorMessageIdRef.current) return;
+          const mid2 = pendingAnchorMessageIdRef.current;
+          const el = queueRef.current.querySelector(`[data-message-id="${mid2}"]`);
+          if (!el) return;
+          pendingAnchorMessageIdRef.current = null;
+          performAnchorScroll(el);
+        });
+        return;
+      }
+      pendingAnchorMessageIdRef.current = null;
+      performAnchorScroll(messageEl);
+    });
+  }
+
+  function performAnchorScroll(messageEl: Element) {
+    if (!queueRef.current) return;
+    const containerRect = queueRef.current.getBoundingClientRect();
+    const messageRect = messageEl.getBoundingClientRect();
+    const scrollOffset = messageRect.top - containerRect.top + queueRef.current.scrollTop;
+
+    suppressNextScrollEventRef.current = true;
+    if (queueRef.current.scrollTo) {
+      queueRef.current.scrollTo({ top: Math.max(0, scrollOffset), behavior: "auto" });
+    } else {
+      queueRef.current.scrollTop = Math.max(0, scrollOffset);
+    }
+    setIsConversationAtBottom(true);
+    anchorScrollTopRef.current = Math.max(0, scrollOffset);
+  }
+
   useEffect(() => {
     const el = queueBannerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
@@ -774,6 +822,21 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       }
     });
   }, [messages, streamThinkingDisplay, streamAnswerDisplay, streamTimeline]);
+
+  useEffect(() => {
+    if (!pendingAnchorMessageIdRef.current || !queueRef.current) return;
+    const messageId = pendingAnchorMessageIdRef.current;
+    const messageEl = queueRef.current.querySelector(`[data-message-id="${messageId}"]`);
+    if (!messageEl) return;
+
+    requestAnimationFrame(() => {
+      if (!queueRef.current) return;
+      const el = queueRef.current.querySelector(`[data-message-id="${messageId}"]`);
+      if (!el) return;
+      pendingAnchorMessageIdRef.current = null;
+      performAnchorScroll(el);
+    });
+  }, [messages]);
 
   useEffect(() => {
     if (!shouldAutofocusTextInput()) {
@@ -1557,6 +1620,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       return;
     }
 
+    scrollModeRef.current = "anchored";
+    shouldAutoScrollRef.current = false;
+    pendingAnchorMessageIdRef.current = messageId;
+
     setError("");
     setUpdatingMessageId(messageId);
 
@@ -1805,7 +1872,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       return;
     }
 
-    ensureQueueAtBottomAfterSubmit();
+    scrollModeRef.current = "anchored";
+    shouldAutoScrollRef.current = false;
     setError("");
     setInput("");
     setPendingAttachments([]);
@@ -1842,6 +1910,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       serverMessageId: null
     });
     setMessages((current) => [...current, optimisticUserMessage]);
+    pendingAnchorMessageIdRef.current = optimisticUserMessage.id;
 
     wsSend({
       type: "message",
