@@ -1318,7 +1318,7 @@ describe("message bubble", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps the copy action visible for non-completed assistant messages while hiding fork", () => {
+  it("hides copy and fork actions for streaming assistant messages", () => {
     render(
       React.createElement(MessageBubble as React.ComponentType<any>, {
         message: {
@@ -1330,7 +1330,9 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByRole("button", { name: "Copy message" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Copy message" })
+    ).toBeNull();
     expect(
       screen.queryByRole("button", { name: "Fork conversation from message" })
     ).toBeNull();

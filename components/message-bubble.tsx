@@ -249,7 +249,7 @@ function renderAssistantMarkdown(content: string, isStreaming: boolean) {
   );
 }
 
-function TypingIndicator({ compact = false }: { compact?: boolean }) {
+export function TypingIndicator({ compact = false }: { compact?: boolean }) {
   return (
     <div className={compact ? "flex items-center gap-1" : "flex items-center gap-1.5 px-1 py-2"}>
       {[0, 1, 2].map((i) => (
@@ -1020,6 +1020,7 @@ export function MessageBubble({
   const showAssistantBubbleActions =
     Boolean(renderedAssistantText) &&
     !awaitingFirstToken &&
+    !isAssistantStreaming &&
     !hasIncompleteFencedCodeBlock(renderedAssistantText, isAssistantStreaming);
 
   useEffect(() => {
