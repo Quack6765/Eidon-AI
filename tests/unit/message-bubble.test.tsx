@@ -125,3 +125,29 @@ describe("message bubble avatar", () => {
     expect(screen.queryByRole("img", { name: "Screenshot" })).toBeNull();
   });
 });
+
+describe("data-message-id attribute", () => {
+  it("renders data-message-id on user message root element", () => {
+    const message = {
+      ...createUserMessage(),
+      id: "msg_user_1"
+    };
+    const { container } = render(
+      React.createElement(MessageBubble, { message })
+    );
+    const userBubble = container.querySelector('[data-message-id="msg_user_1"]');
+    expect(userBubble).toBeInTheDocument();
+  });
+
+  it("renders data-message-id on assistant message root element", () => {
+    const message = {
+      ...createAssistantMessage(),
+      id: "msg_asst_1"
+    };
+    const { container } = render(
+      React.createElement(MessageBubble, { message })
+    );
+    const asstBubble = container.querySelector('[data-message-id="msg_asst_1"]');
+    expect(asstBubble).toBeInTheDocument();
+  });
+});
