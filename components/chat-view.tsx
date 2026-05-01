@@ -50,6 +50,12 @@ type ConversationPayload = {
 };
 
 const AUTO_SCROLL_THRESHOLD_PX = 64;
+const ANCHOR_SCROLL_TOLERANCE_PX = 4;
+const ANCHOR_VISIBLE_TOP_GAP_PX = 16;
+const MESSAGE_SLIDE_UP_OFFSET_PX = 12;
+const ANCHOR_SCROLL_TOP_INSET_PX = ANCHOR_VISIBLE_TOP_GAP_PX + MESSAGE_SLIDE_UP_OFFSET_PX;
+const ANCHOR_LAYOUT_SCROLL_GRACE_MS = 300;
+const ANCHOR_PROGRAMMATIC_SCROLL_GRACE_MS = 900;
 
 type ScrollMode = "idle" | "anchored" | "following";
 const SCROLL_BOTTOM_PADDING = 260;
@@ -57,6 +63,7 @@ const SCROLL_BOTTOM_PADDING = 260;
 type SnapshotReconciliation = {
   messages: Message[];
   pendingLocalSubmissions: PendingLocalSubmission[];
+  anchorMessageIdRemap: Map<string, string>;
 };
 
 type PendingLocalSubmission = {
@@ -83,9 +90,23 @@ function isLooseImageActionMatch(
   );
 }
 
-function isNearQueueBottom(element: HTMLDivElement) {
-  const distanceFromBottom =
-    element.scrollHeight - element.clientHeight - element.scrollTop;
+function getComposerSafeVisibleHeight(element: HTMLDivElement) {
+  return Math.max(0, element.clientHeight - SCROLL_BOTTOM_PADDING);
+}
+
+function getQueueContentBottom(element: HTMLDivElement, scrollPadding: number) {
+  return Math.max(0, element.scrollHeight - scrollPadding);
+}
+
+function getComposerAwareBottomTarget(element: HTMLDivElement, scrollPadding: number) {
+  return Math.max(
+    0,
+    getQueueContentBottom(element, scrollPadding) - getComposerSafeVisibleHeight(element)
+  );
+}
+
+function isNearQueueBottom(element: HTMLDivElement, scrollPadding: number) {
+  const distanceFromBottom = getComposerAwareBottomTarget(element, scrollPadding) - element.scrollTop;
   return distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX;
 }
 
@@ -253,7 +274,8 @@ function reconcileSnapshotMessages(
   if (sanitizedSnapshot.length === 0) {
     return {
       messages: current.filter((message) => !isLegacyCompactionNotice(message)),
-      pendingLocalSubmissions
+      pendingLocalSubmissions,
+      anchorMessageIdRemap: new Map()
     };
   }
 
@@ -283,6 +305,7 @@ function reconcileSnapshotMessages(
   const nextPendingLocalSubmissions = pendingLocalSubmissions.map((submission) => ({
     ...submission
   }));
+  const anchorMessageIdRemap = new Map<string, string>();
 
   for (const submission of nextPendingLocalSubmissions) {
     if (
@@ -316,6 +339,7 @@ function reconcileSnapshotMessages(
 
       if (partialServerMessage) {
         submission.serverMessageId = partialServerMessage.id;
+        anchorMessageIdRemap.set(submission.localMessageId, partialServerMessage.id);
         claimedServerUserMessageIds.add(partialServerMessage.id);
       }
 
@@ -323,6 +347,7 @@ function reconcileSnapshotMessages(
     }
 
     submission.serverMessageId = matchedServerMessage.id;
+    anchorMessageIdRemap.set(submission.localMessageId, matchedServerMessage.id);
     confirmedLocalIds.add(submission.localMessageId);
     claimedServerUserMessageIds.add(matchedServerMessage.id);
   }
@@ -343,7 +368,8 @@ function reconcileSnapshotMessages(
     messages: [...merged, ...pendingLocalMessages],
     pendingLocalSubmissions: nextPendingLocalSubmissions.filter(
       (submission) => !confirmedLocalIds.has(submission.localMessageId)
-    )
+    ),
+    anchorMessageIdRemap
   };
 }
 
@@ -510,6 +536,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isConversationAtBottom, setIsConversationAtBottom] = useState(true);
   const queueBannerRef = useRef<HTMLDivElement>(null);
   const [queueBannerHeight, setQueueBannerHeight] = useState(0);
+  const [scrollPadding, setScrollPadding] = useState(SCROLL_BOTTOM_PADDING);
   const [isAgentIdle, setIsAgentIdle] = useState(false);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -548,7 +575,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const scrollModeRef = useRef<ScrollMode>("idle");
   const pendingAnchorMessageIdRef = useRef<string | null>(null);
   const anchorScrollTopRef = useRef(0);
+  const anchorLayoutScrollGraceUntilRef = useRef(0);
+  const anchorProgrammaticScrollUntilRef = useRef(0);
   const suppressNextScrollEventRef = useRef(false);
+  const userScrollIntentRef = useRef(false);
+  const anchorInterruptedRef = useRef(false);
+  const wasStreamingRef = useRef(false);
   const bootstrapPayloadRef = useRef<{
     message: string;
     attachments: MessageAttachment[];
@@ -728,25 +760,43 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         return;
       }
 
-      setIsConversationAtBottom(isNearQueueBottom(queueRef.current));
+      setIsConversationAtBottom(isNearQueueBottom(queueRef.current, scrollPadding));
     });
+  }, [payload.conversation.id, scrollPadding]);
+
+  useEffect(() => {
+    const el = queueRef.current;
+    if (!el) return;
+
+    const updateScrollPadding = () => {
+      setScrollPadding(Math.max(SCROLL_BOTTOM_PADDING, el.clientHeight));
+    };
+
+    updateScrollPadding();
+
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateScrollPadding);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [payload.conversation.id]);
 
-  function scrollQueueToBottom(behavior: ScrollBehavior = "smooth") {
+  const scrollQueueToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     if (!queueRef.current) {
       return;
     }
 
     shouldAutoScrollRef.current = true;
     setIsConversationAtBottom(true);
+    const top = getComposerAwareBottomTarget(queueRef.current, scrollPadding);
     if (queueRef.current.scrollTo) {
-      queueRef.current.scrollTo({ top: queueRef.current.scrollHeight, behavior });
+      queueRef.current.scrollTo({ top, behavior });
     } else {
-      queueRef.current.scrollTop = queueRef.current.scrollHeight;
+      queueRef.current.scrollTop = top;
     }
-  }
+  }, [scrollPadding]);
 
   function jumpToBottom() {
+    scrollModeRef.current = streamMessageIdRef.current ? "following" : "idle";
     scrollQueueToBottom("smooth");
   }
 
@@ -762,16 +812,60 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     const containerRect = queueRef.current.getBoundingClientRect();
     const messageRect = messageEl.getBoundingClientRect();
     const scrollOffset = messageRect.top - containerRect.top + queueRef.current.scrollTop;
+    const scrollTarget = Math.max(0, scrollOffset - ANCHOR_SCROLL_TOP_INSET_PX);
 
     suppressNextScrollEventRef.current = true;
     if (queueRef.current.scrollTo) {
-      queueRef.current.scrollTo({ top: Math.max(0, scrollOffset), behavior: "auto" });
+      queueRef.current.scrollTo({ top: scrollTarget, behavior: "smooth" });
     } else {
-      queueRef.current.scrollTop = Math.max(0, scrollOffset);
+      queueRef.current.scrollTop = scrollTarget;
     }
     setIsConversationAtBottom(true);
-    anchorScrollTopRef.current = Math.max(0, scrollOffset);
+    anchorScrollTopRef.current = scrollTarget;
+    anchorLayoutScrollGraceUntilRef.current = Date.now() + ANCHOR_LAYOUT_SCROLL_GRACE_MS;
+    anchorProgrammaticScrollUntilRef.current = Date.now() + ANCHOR_PROGRAMMATIC_SCROLL_GRACE_MS;
+    anchorInterruptedRef.current = false;
+    requestAnimationFrame(() => {
+      suppressNextScrollEventRef.current = false;
+    });
   }
+
+  function cancelAutoScrollForUserIntent() {
+    userScrollIntentRef.current = true;
+    anchorProgrammaticScrollUntilRef.current = 0;
+
+    if (scrollModeRef.current === "idle" && !shouldAutoScrollRef.current) {
+      return;
+    }
+
+    scrollModeRef.current = "idle";
+    shouldAutoScrollRef.current = false;
+    anchorInterruptedRef.current = true;
+    suppressNextScrollEventRef.current = false;
+  }
+
+  const followAnchoredOverflowIfNeeded = useCallback(() => {
+    const canFollowAnchor =
+      scrollModeRef.current === "anchored" ||
+      (wasStreamingRef.current && !anchorInterruptedRef.current);
+
+    if (!canFollowAnchor || !queueRef.current) {
+      return false;
+    }
+
+    const contentBottom = getQueueContentBottom(queueRef.current, scrollPadding);
+    if (
+      contentBottom - anchorScrollTopRef.current <=
+      getComposerSafeVisibleHeight(queueRef.current)
+    ) {
+      return false;
+    }
+
+    scrollModeRef.current = "following";
+    shouldAutoScrollRef.current = true;
+    scrollQueueToBottom("auto");
+    return true;
+  }, [scrollPadding, scrollQueueToBottom]);
 
   useEffect(() => {
     const el = queueBannerRef.current;
@@ -791,13 +885,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     requestAnimationFrame(() => {
       if (!queueRef.current || !shouldAutoScrollRef.current) return;
       setIsConversationAtBottom(true);
+      const top = getComposerAwareBottomTarget(queueRef.current, scrollPadding);
       if (queueRef.current.scrollTo) {
-        queueRef.current.scrollTo({ top: queueRef.current.scrollHeight, behavior: "auto" });
+        queueRef.current.scrollTo({ top, behavior: "auto" });
       } else {
-        queueRef.current.scrollTop = queueRef.current.scrollHeight;
+        queueRef.current.scrollTop = top;
       }
     });
-  }, [messages, streamThinkingDisplay, streamAnswerDisplay, streamTimeline]);
+  }, [messages, streamThinkingDisplay, streamAnswerDisplay, streamTimeline, scrollPadding]);
 
   useEffect(() => {
     if (!pendingAnchorMessageIdRef.current || !queueRef.current) return;
@@ -816,25 +911,37 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   useEffect(() => {
     if (!streamMessageId) {
-      if (scrollModeRef.current === "following" || scrollModeRef.current === "anchored") {
-        scrollModeRef.current = "idle";
+      if (wasStreamingRef.current) {
+        requestAnimationFrame(() => {
+          const didFollow = followAnchoredOverflowIfNeeded();
+          if (!didFollow && scrollModeRef.current === "anchored") {
+            scrollModeRef.current = "idle";
+          } else if (scrollModeRef.current === "following") {
+            scrollModeRef.current = "idle";
+          }
+          wasStreamingRef.current = false;
+        });
       }
       return;
     }
+
+    wasStreamingRef.current = true;
 
     if (scrollModeRef.current !== "anchored" || !queueRef.current) return;
 
     requestAnimationFrame(() => {
       if (scrollModeRef.current !== "anchored" || !queueRef.current) return;
 
-      const contentHeight = queueRef.current.scrollHeight - SCROLL_BOTTOM_PADDING;
-      if (contentHeight - anchorScrollTopRef.current > queueRef.current.clientHeight) {
-        scrollModeRef.current = "following";
-        shouldAutoScrollRef.current = true;
-        scrollQueueToBottom("auto");
-      }
+      followAnchoredOverflowIfNeeded();
     });
-  }, [streamAnswerDisplay, streamTimeline, streamThinkingDisplay, streamMessageId]);
+  }, [
+    streamAnswerDisplay,
+    streamTimeline,
+    streamThinkingDisplay,
+    streamMessageId,
+    scrollPadding,
+    followAnchoredOverflowIfNeeded
+  ]);
 
   useEffect(() => {
     if (!shouldAutofocusTextInput()) {
@@ -872,6 +979,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "message_start") {
+      wasStreamingRef.current = true;
       setIsConversationActive(true);
       setStreamMessageId(event.messageId);
       setHasReceivedFirstToken(false);
@@ -1072,6 +1180,15 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       streamAnswerTargetRef.current = "";
       streamThinkingTargetRef.current = "";
       setIsSending(false);
+      requestAnimationFrame(() => {
+        const didFollow = followAnchoredOverflowIfNeeded();
+        if (!didFollow && scrollModeRef.current === "anchored") {
+          scrollModeRef.current = "idle";
+        } else if (scrollModeRef.current === "following") {
+          scrollModeRef.current = "idle";
+        }
+        wasStreamingRef.current = false;
+      });
     }
 
     if (event.type === "error") {
@@ -1193,6 +1310,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               streamMessageId,
               pendingLocalSubmissionsRef.current
             );
+            const remappedAnchorMessageId = pendingAnchorMessageIdRef.current
+              ? reconciliation.anchorMessageIdRemap.get(pendingAnchorMessageIdRef.current)
+              : undefined;
+            if (remappedAnchorMessageId) {
+              pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
+            }
             pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
             return reconciliation.messages;
           });
@@ -1432,6 +1555,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             activeStreamMessageId,
             pendingLocalSubmissionsRef.current
           );
+          const remappedAnchorMessageId = pendingAnchorMessageIdRef.current
+            ? reconciliation.anchorMessageIdRemap.get(pendingAnchorMessageIdRef.current)
+            : undefined;
+          if (remappedAnchorMessageId) {
+            pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
+          }
           pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
           return reconciliation.messages;
         });
@@ -1619,6 +1748,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     scrollModeRef.current = "anchored";
+    anchorInterruptedRef.current = false;
     shouldAutoScrollRef.current = false;
     pendingAnchorMessageIdRef.current = messageId;
 
@@ -1871,6 +2001,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     scrollModeRef.current = "anchored";
+    anchorInterruptedRef.current = false;
     shouldAutoScrollRef.current = false;
     setError("");
     setInput("");
@@ -2066,17 +2197,86 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             return;
           }
 
-          const nextIsAtBottom = isNearQueueBottom(queueRef.current);
+          const bottomTarget = getComposerAwareBottomTarget(queueRef.current, scrollPadding);
+          if (
+            scrollModeRef.current === "idle" &&
+            !isConversationActive &&
+            !streamMessageIdRef.current &&
+            queueRef.current.scrollTop > bottomTarget + ANCHOR_SCROLL_TOLERANCE_PX
+          ) {
+            suppressNextScrollEventRef.current = true;
+            queueRef.current.scrollTo?.({ top: bottomTarget, behavior: "auto" });
+            queueRef.current.scrollTop = bottomTarget;
+            setIsConversationAtBottom(true);
+            shouldAutoScrollRef.current = false;
+            userScrollIntentRef.current = false;
+            requestAnimationFrame(() => {
+              suppressNextScrollEventRef.current = false;
+            });
+            return;
+          }
+
+          const nextIsAtBottom = isNearQueueBottom(queueRef.current, scrollPadding);
           setIsConversationAtBottom(nextIsAtBottom);
+
+          if (scrollModeRef.current === "anchored") {
+            const movedAboveAnchor =
+              queueRef.current.scrollTop <
+              anchorScrollTopRef.current - ANCHOR_SCROLL_TOLERANCE_PX;
+            if (
+              movedAboveAnchor &&
+              !userScrollIntentRef.current &&
+              Date.now() <= anchorProgrammaticScrollUntilRef.current
+            ) {
+              return;
+            }
+            if (
+              movedAboveAnchor &&
+              (userScrollIntentRef.current || Date.now() > anchorLayoutScrollGraceUntilRef.current)
+            ) {
+              scrollModeRef.current = "idle";
+              shouldAutoScrollRef.current = false;
+              anchorInterruptedRef.current = true;
+            }
+            userScrollIntentRef.current = false;
+            return;
+          }
 
           if (!nextIsAtBottom && scrollModeRef.current !== "idle") {
             scrollModeRef.current = "idle";
+            shouldAutoScrollRef.current = false;
+            anchorInterruptedRef.current = true;
+            userScrollIntentRef.current = false;
+            return;
           }
 
           shouldAutoScrollRef.current = nextIsAtBottom;
+          userScrollIntentRef.current = false;
+        }}
+        onWheel={() => {
+          cancelAutoScrollForUserIntent();
+        }}
+        onTouchMove={() => {
+          cancelAutoScrollForUserIntent();
+        }}
+        onPointerDown={() => {
+          cancelAutoScrollForUserIntent();
+        }}
+        onKeyDown={(event) => {
+          if (
+            event.key === "ArrowUp" ||
+            event.key === "PageUp" ||
+            event.key === "Home" ||
+            event.key === " "
+          ) {
+            cancelAutoScrollForUserIntent();
+          }
         }}
       >
-        <div className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4 pb-[240px] md:pb-[260px]">
+        <div
+          className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4"
+          style={{ paddingBottom: scrollPadding }}
+        >
           {renderableMessages.map((message) => (
             (() => {
               const isStreamingMessage = message.id === streamMessageId;

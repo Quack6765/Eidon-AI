@@ -9,7 +9,7 @@ const scriptSource = fs.readFileSync(path.join(process.cwd(), "scripts/setup-wor
 
 const tempDirs: string[] = [];
 
-function run(command: string, args: string[], cwd: string, env: NodeJS.ProcessEnv = {}) {
+function run(command: string, args: string[], cwd: string, env: Partial<NodeJS.ProcessEnv> = {}) {
   return execFileSync(command, args, {
     cwd,
     env: { ...process.env, ...env },
