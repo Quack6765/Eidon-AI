@@ -39,7 +39,7 @@ const runtimeSettingsSchema = z.object({
   mergedTargetTokens: z.coerce.number().int().min(128).max(16000).default(1600),
   visionMode: z.enum(["none", "native", "mcp"]).default("native"),
   visionMcpServerId: z.string().nullable().default(null),
-  providerPresetId: z.enum(["ollama_cloud", "glm_coding_plan", "openrouter", "custom_openai_compatible"]).nullable().default(null),
+  providerPresetId: z.enum(["ollama_cloud", "glm_coding_plan", "openrouter", "opencode_go", "custom_openai_compatible"]).nullable().default(null),
   githubUserAccessTokenEncrypted: z.string().default(""),
   githubRefreshTokenEncrypted: z.string().default(""),
   githubAccountLogin: z.string().nullable().default(null),
