@@ -59,7 +59,7 @@ describe("provider presets", () => {
     expect(profile.apiMode).toBe("responses");
     expect(profile.reasoningEffort).toBe("medium");
     expect(profile.reasoningSummaryEnabled).toBe(true);
-    expect(profile.modelContextLimit).toBe(128000);
+    expect(profile.modelContextLimit).toBe(200000);
   });
 
   it("applies the OpenRouter preset values", () => {
@@ -74,6 +74,27 @@ describe("provider presets", () => {
       DEFAULT_PROVIDER_SETTINGS.reasoningSummaryEnabled
     );
     expect(profile.modelContextLimit).toBe(200000);
+  });
+
+  it("applies the OpenCode Go preset values", () => {
+    const profile = applyProviderPreset(createProfile(), "opencode_go");
+
+    expect(profile.name).toBe("OpenCode Go");
+    expect(profile.apiBaseUrl).toBe("https://opencode.ai/zen/go/v1");
+    expect(profile.model).toBe("kimi-k2.6");
+    expect(profile.apiMode).toBe("chat_completions");
+    expect(profile.reasoningEffort).toBe("medium");
+    expect(profile.reasoningSummaryEnabled).toBe(true);
+    expect(profile.modelContextLimit).toBe(200000);
+  });
+
+  it("matches a profile back to the OpenCode Go preset when the provider fields align", () => {
+    const profile = {
+      ...createProfile(),
+      ...getProviderPreset("opencode_go").values
+    };
+
+    expect(getMatchingProviderPresetId(profile)).toBe("opencode_go");
   });
 
   it("preserves non-provider tuning and secrets when applying a preset", () => {

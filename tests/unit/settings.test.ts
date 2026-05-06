@@ -40,7 +40,7 @@ function buildProfile(
     modelContextLimit: number;
     compactionThreshold: number;
     freshTailCount: number;
-    providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "custom_openai_compatible" | null;
+    providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "opencode_go" | "custom_openai_compatible" | null;
   }> = {}
 ) {
   return {

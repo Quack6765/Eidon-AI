@@ -52,7 +52,7 @@ function buildProviderProfile(
     mergedTargetTokens: number;
     visionMode: "none" | "native" | "mcp";
     visionMcpServerId: string | null;
-    providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "custom_openai_compatible" | null;
+    providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "opencode_go" | "custom_openai_compatible" | null;
     githubUserAccessTokenEncrypted: string;
     githubRefreshTokenEncrypted: string;
     githubTokenExpiresAt: string | null;

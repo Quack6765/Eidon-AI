@@ -71,6 +71,19 @@ export const PROVIDER_PRESETS: ProviderPresetDefinition[] = [
     }
   },
   {
+    id: "opencode_go",
+    label: "OpenCode Go",
+    values: {
+      name: "OpenCode Go",
+      apiBaseUrl: "https://opencode.ai/zen/go/v1",
+      model: "kimi-k2.6",
+      apiMode: "chat_completions",
+      reasoningEffort: "medium",
+      reasoningSummaryEnabled: true,
+      modelContextLimit: 200000
+    }
+  },
+  {
     id: "custom_openai_compatible",
     label: "Custom OpenAI compatible",
     values: {
