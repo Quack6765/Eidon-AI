@@ -1,0 +1,273 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-06T19:37:05Z",
+  "title": "Design System: Eidon",
+  "extensions": {
+    "colorMeta": {
+      "abyss-background": {
+        "role": "neutral",
+        "displayName": "Abyss Background",
+        "canonical": "#0a0a0a",
+        "tonalRamp": ["oklch(15% 0.006 285)", "oklch(24% 0.006 285)", "oklch(34% 0.006 285)", "oklch(44% 0.006 285)", "oklch(56% 0.006 285)", "oklch(68% 0.006 285)", "oklch(82% 0.006 285)", "oklch(95% 0.006 285)"]
+      },
+      "sidebar-charcoal": {
+        "role": "neutral",
+        "displayName": "Sidebar Charcoal",
+        "canonical": "#0f0f0f",
+        "tonalRamp": ["oklch(16% 0.006 285)", "oklch(25% 0.006 285)", "oklch(35% 0.006 285)", "oklch(45% 0.006 285)", "oklch(57% 0.006 285)", "oklch(69% 0.006 285)", "oklch(83% 0.006 285)", "oklch(96% 0.006 285)"]
+      },
+      "panel-zinc": {
+        "role": "neutral",
+        "displayName": "Panel Zinc",
+        "canonical": "#18181b",
+        "tonalRamp": ["oklch(17% 0.01 285)", "oklch(26% 0.01 285)", "oklch(36% 0.01 285)", "oklch(46% 0.01 285)", "oklch(58% 0.01 285)", "oklch(70% 0.01 285)", "oklch(84% 0.01 285)", "oklch(96% 0.01 285)"]
+      },
+      "eidon-violet": {
+        "role": "primary",
+        "displayName": "Eidon Violet",
+        "canonical": "#8b5cf6",
+        "tonalRamp": ["oklch(18% 0.06 295)", "oklch(28% 0.09 295)", "oklch(38% 0.12 295)", "oklch(50% 0.16 295)", "oklch(62% 0.19 295)", "oklch(74% 0.15 295)", "oklch(86% 0.09 295)", "oklch(95% 0.04 295)"]
+      },
+      "provider-cyan": {
+        "role": "secondary",
+        "displayName": "Provider Cyan",
+        "canonical": "#22d3ee",
+        "tonalRamp": ["oklch(18% 0.04 220)", "oklch(28% 0.06 220)", "oklch(40% 0.08 220)", "oklch(54% 0.1 220)", "oklch(68% 0.11 220)", "oklch(79% 0.08 220)", "oklch(89% 0.05 220)", "oklch(96% 0.025 220)"]
+      },
+      "persona-violet": {
+        "role": "secondary",
+        "displayName": "Persona Violet",
+        "canonical": "#a78bfa",
+        "tonalRamp": ["oklch(18% 0.05 295)", "oklch(29% 0.07 295)", "oklch(41% 0.09 295)", "oklch(55% 0.12 295)", "oklch(70% 0.13 295)", "oklch(80% 0.1 295)", "oklch(90% 0.06 295)", "oklch(96% 0.03 295)"]
+      },
+      "success-green": {
+        "role": "status",
+        "displayName": "Success Green",
+        "canonical": "#22c55e",
+        "tonalRamp": ["oklch(18% 0.05 150)", "oklch(28% 0.07 150)", "oklch(40% 0.09 150)", "oklch(54% 0.11 150)", "oklch(66% 0.13 150)", "oklch(78% 0.1 150)", "oklch(89% 0.06 150)", "oklch(96% 0.03 150)"]
+      },
+      "warning-amber": {
+        "role": "status",
+        "displayName": "Warning Amber",
+        "canonical": "#eab308",
+        "tonalRamp": ["oklch(18% 0.04 80)", "oklch(30% 0.06 80)", "oklch(43% 0.09 80)", "oklch(58% 0.12 80)", "oklch(74% 0.14 80)", "oklch(84% 0.1 80)", "oklch(92% 0.06 80)", "oklch(97% 0.03 80)"]
+      },
+      "danger-red": {
+        "role": "status",
+        "displayName": "Danger Red",
+        "canonical": "#ef4444",
+        "tonalRamp": ["oklch(18% 0.05 25)", "oklch(29% 0.08 25)", "oklch(41% 0.11 25)", "oklch(55% 0.15 25)", "oklch(68% 0.17 25)", "oklch(80% 0.12 25)", "oklch(90% 0.07 25)", "oklch(96% 0.035 25)"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Rare editorial or brand moments only."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Operational product UI and assistant prose."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Metadata, compact controls, and small status labels."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Code, identifiers, command output, and machine-readable values."
+      },
+      "wordmark": {
+        "displayName": "Wordmark",
+        "purpose": "Eidon brand mark only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "workspace-shadow",
+        "value": "0 8px 32px rgba(0, 0, 0, 0.5)",
+        "purpose": "Login form and substantial floating panels."
+      },
+      {
+        "name": "composer-shadow",
+        "value": "0 0 40px rgba(0,0,0,0.5)",
+        "purpose": "Chat composer shell at rest."
+      },
+      {
+        "name": "composer-focus-glow",
+        "value": "0 0 50px rgba(0,0,0,0.6), 0 0 20px var(--accent-soft)",
+        "purpose": "Composer focus state only."
+      },
+      {
+        "name": "primary-action-glow",
+        "value": "0 0 20px var(--accent-glow)",
+        "purpose": "Send and primary action buttons."
+      }
+    ],
+    "motion": [
+      {
+        "name": "fade-in",
+        "value": "0.3s ease-out",
+        "purpose": "Small reveal states."
+      },
+      {
+        "name": "slide-up",
+        "value": "0.4s ease-out from translateY(12px)",
+        "purpose": "Panels and login form entry."
+      },
+      {
+        "name": "compact-control-transition",
+        "value": "120ms to 300ms ease-out",
+        "purpose": "Hover, focus, and icon control states."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "mobile",
+        "value": "< 768px"
+      },
+      {
+        "name": "desktop-sidebar",
+        "value": "768px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Compact violet command for save, send, and decisive actions.",
+      "html": "<button class=\"ds-btn-primary\">Save changes</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; border: 0; border-radius: 999px; background: var(--accent, #8b5cf6); color: var(--text, #f4f4f5); padding: 8px 16px; font: 600 14px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; box-shadow: 0 0 20px var(--accent-glow, rgba(139,92,246,0.25)); transition: transform 200ms ease-out, filter 200ms ease-out, box-shadow 200ms ease-out; } .ds-btn-primary:hover { filter: brightness(1.1); } .ds-btn-primary:active { transform: scale(0.97); } .ds-btn-primary:focus-visible { outline: 2px solid rgba(244,244,245,0.22); outline-offset: 2px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Quiet command button for secondary settings and modal actions.",
+      "html": "<button class=\"ds-btn-secondary\">Cancel</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; border: 1px solid rgba(255,255,255,0.08); border-radius: 999px; background: rgba(255,255,255,0.05); color: var(--text, #f4f4f5); padding: 8px 16px; font: 500 14px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; transition: background-color 200ms ease-out, border-color 200ms ease-out, transform 200ms ease-out; } .ds-btn-secondary:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.14); } .ds-btn-secondary:active { transform: scale(0.97); } .ds-btn-secondary:focus-visible { outline: 2px solid rgba(139,92,246,0.35); outline-offset: 2px; }"
+    },
+    {
+      "name": "Ghost Icon Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Small tool button for attach, menu, settings, copy, and navigation controls.",
+      "html": "<button class=\"ds-icon-button\" aria-label=\"Attach files\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M21.4 11.6 12 21a6 6 0 0 1-8.5-8.5l9.8-9.8a4 4 0 0 1 5.7 5.7L9.2 18.2a2 2 0 1 1-2.8-2.8l9.2-9.2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></button>",
+      "css": ".ds-icon-button { display: inline-flex; align-items: center; justify-content: center; height: 36px; width: 36px; border: 0; border-radius: 12px; background: transparent; color: rgba(244,244,245,0.35); transition: background-color 200ms ease-out, color 200ms ease-out, transform 200ms ease-out; } .ds-icon-button svg { height: 18px; width: 18px; } .ds-icon-button:hover { background: rgba(255,255,255,0.05); color: rgba(244,244,245,0.7); } .ds-icon-button:active { transform: scale(0.97); } .ds-icon-button:focus-visible { outline: 2px solid rgba(139,92,246,0.35); outline-offset: 2px; }"
+    },
+    {
+      "name": "Input Field",
+      "kind": "input",
+      "refersTo": "input-field",
+      "description": "Integrated dark field with a soft violet focus state.",
+      "html": "<label class=\"ds-field\"><span>Provider name</span><input value=\"OpenAI\" /></label>",
+      "css": ".ds-field { display: grid; gap: 6px; color: var(--text, #f4f4f5); font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-field span { color: rgba(244,244,245,0.64); font-size: 12px; font-weight: 600; } .ds-field input { width: 100%; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; background: rgba(255,255,255,0.04); color: var(--text, #f4f4f5); padding: 12px 16px; font: 400 14px/1.4 Inter, ui-sans-serif, system-ui, sans-serif; outline: none; transition: background-color 200ms ease-out, border-color 200ms ease-out, box-shadow 200ms ease-out; } .ds-field input:focus { border-color: rgba(139,92,246,0.4); background: rgba(255,255,255,0.06); box-shadow: 0 0 0 3px var(--accent-soft, rgba(139,92,246,0.1)); }"
+    },
+    {
+      "name": "Settings Card",
+      "kind": "card",
+      "refersTo": "settings-card",
+      "description": "Flat grouped setting surface for related controls.",
+      "html": "<section class=\"ds-settings-card\"><div><h3>Providers</h3><p>Connect the model access you want to use.</p></div><div class=\"ds-row\"><span>Default provider</span><strong>OpenAI</strong></div></section>",
+      "css": ".ds-settings-card { display: grid; gap: 20px; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; background: rgba(255,255,255,0.02); color: var(--text, #f4f4f5); padding: 24px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; } .ds-settings-card h3 { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.3; } .ds-settings-card p { margin: 4px 0 0; color: var(--muted, #71717a); font-size: 12px; line-height: 1.5; } .ds-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; color: rgba(244,244,245,0.72); font-size: 13px; } .ds-row strong { color: var(--text, #f4f4f5); font-size: 13px; font-weight: 600; }"
+    },
+    {
+      "name": "Active Profile Row",
+      "kind": "custom",
+      "refersTo": "profile-card-active",
+      "description": "Selectable settings row with a quiet violet active state.",
+      "html": "<button class=\"ds-profile-row\"><span class=\"ds-dot\"></span><span class=\"ds-profile-main\"><strong>OpenAI</strong><small>gpt-5-mini</small></span><span class=\"ds-badge\">Default</span></button>",
+      "css": ".ds-profile-row { display: flex; width: 100%; align-items: center; gap: 8px; border: 1px solid rgba(139,92,246,0.2); border-radius: 12px; background: rgba(139,92,246,0.08); color: var(--text, #f4f4f5); padding: 12px; text-align: left; font-family: Inter, ui-sans-serif, system-ui, sans-serif; transition: background-color 200ms ease-out, border-color 200ms ease-out; } .ds-profile-row:hover { background: rgba(139,92,246,0.11); border-color: rgba(139,92,246,0.28); } .ds-dot { height: 8px; width: 8px; flex: none; border-radius: 999px; background: var(--accent, #8b5cf6); } .ds-profile-main { display: grid; min-width: 0; gap: 2px; flex: 1; } .ds-profile-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; } .ds-profile-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(244,244,245,0.62); font-size: 11px; } .ds-badge { border-radius: 6px; background: rgba(167,139,250,0.1); color: #a78bfa; padding: 2px 6px; font-size: 10px; font-weight: 700; }"
+    },
+    {
+      "name": "Sidebar Footer Link",
+      "kind": "nav",
+      "refersTo": "sidebar-link",
+      "description": "Persistent navigation row for automations and settings.",
+      "html": "<a class=\"ds-sidebar-link\" href=\"#\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 8v5l3 2\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"/><circle cx=\"12\" cy=\"12\" r=\"9\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"/></svg><span>Automations</span></a>",
+      "css": ".ds-sidebar-link { display: flex; width: 100%; align-items: center; gap: 12px; border-radius: 16px; color: rgba(244,244,245,0.3); padding: 12px 16px; text-decoration: none; font: 500 14px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; transition: background-color 300ms ease-out, color 300ms ease-out; } .ds-sidebar-link svg { height: 18px; width: 18px; opacity: 0.6; } .ds-sidebar-link:hover { background: rgba(255,255,255,0.03); color: rgba(244,244,245,0.6); } .ds-sidebar-link:focus-visible { outline: 2px solid rgba(139,92,246,0.35); outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "Tiny semibold state marker for transport, built-in, key, and provider state.",
+      "html": "<span class=\"ds-badge-success\">stdio</span>",
+      "css": ".ds-badge-success { display: inline-flex; align-items: center; border-radius: 6px; background: rgba(34,197,94,0.1); color: #22c55e; padding: 2px 6px; font: 700 10px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; }"
+    },
+    {
+      "name": "Chat Composer Shell",
+      "kind": "custom",
+      "refersTo": "chat-composer",
+      "description": "Signature input surface that holds drafting, attachments, provider context, and send state.",
+      "html": "<div class=\"ds-composer\"><textarea placeholder=\"Ask, create, or start a task\"></textarea><div class=\"ds-composer-bar\"><button>Attach</button><span>Provider</span><button class=\"ds-send\" aria-label=\"Send\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 19V5m0 0-6 6m6-6 6 6\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg></button></div></div>",
+      "css": ".ds-composer { display: grid; gap: 8px; border: 1px solid rgba(255,255,255,0.1); border-radius: 26px; background: rgba(24,24,27,0.7); color: var(--text, #f4f4f5); padding: 8px; box-shadow: 0 0 40px rgba(0,0,0,0.5); backdrop-filter: blur(32px); transition: border-color 300ms ease-out, box-shadow 300ms ease-out; } .ds-composer:focus-within { border-color: rgba(139,92,246,0.3); box-shadow: 0 0 50px rgba(0,0,0,0.6), 0 0 20px var(--accent-soft, rgba(139,92,246,0.1)); } .ds-composer textarea { min-height: 52px; max-height: 300px; resize: none; border: 0; background: transparent; color: var(--text, #f4f4f5); padding: 14px 16px; font: 400 15px/1.5 Inter, ui-sans-serif, system-ui, sans-serif; outline: none; } .ds-composer textarea::placeholder { color: rgba(255,255,255,0.2); } .ds-composer-bar { display: flex; align-items: center; gap: 8px; border-top: 1px solid rgba(255,255,255,0.05); padding: 6px; color: rgba(244,244,245,0.45); font: 600 11px/1.2 Inter, ui-sans-serif, system-ui, sans-serif; } .ds-composer-bar button { border: 0; border-radius: 12px; background: transparent; color: rgba(244,244,245,0.35); padding: 8px; transition: background-color 200ms ease-out, color 200ms ease-out; } .ds-composer-bar button:hover { background: rgba(255,255,255,0.05); color: rgba(244,244,245,0.7); } .ds-send { margin-left: auto; display: inline-flex; height: 40px; width: 40px; align-items: center; justify-content: center; border-radius: 999px !important; background: var(--accent, #8b5cf6) !important; color: var(--text, #f4f4f5) !important; box-shadow: 0 0 20px var(--accent-glow, rgba(139,92,246,0.25)); } .ds-send svg { height: 20px; width: 20px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Private Control Room",
+    "overview": "Eidon's interface should feel like a focused control room for an AI workspace the user owns. It is dark because the product is used for long-running text work, configuration, and monitoring in concentrated sessions, not because dark mode is a shortcut to looking technical. The surface should stay quiet, legible, and immediate.\n\nThe system is dense but not cramped. Controls sit close to the work so capability feels available, while the main chat path stays obvious within seconds. Power should reveal through split panes, compact controls, durable tool states, and restrained accents rather than through marketing spectacle.\n\nThe visual language explicitly rejects a too-corporate SaaS dashboard, childish assistant styling, generic AI product cliches, huge gradient hero text, identical feature-card grids, and decorative complexity that makes the product harder to read.",
+    "keyCharacteristics": [
+      "Dark, near-black workspace with tonal depth.",
+      "Violet as a scarce commitment color, not a background wash.",
+      "Compact controls with readable labels and icon-first actions.",
+      "Soft borders, low-glow focus states, and rounded but not playful surfaces.",
+      "Mobile-safe density that keeps admin workflows usable on phones."
+    ],
+    "rules": [
+      {
+        "name": "The Scarce Signal Rule",
+        "body": "Eidon Violet is for commitment, selection, and focus. If more than 10% of a screen is violet, the screen is shouting.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tonal Depth Rule",
+        "body": "Use near-black layers and faint borders for structure. Do not create depth with decorative purple gradients, blue fog, or large color washes.",
+        "section": "colors"
+      },
+      {
+        "name": "The Status Honesty Rule",
+        "body": "Green, amber, and red mean real system state. They are forbidden as decorative palette fillers.",
+        "section": "colors"
+      },
+      {
+        "name": "The App Scale Rule",
+        "body": "Most product UI lives between 11px and 15px. Large type must signal a real change in context, not fill space.",
+        "section": "typography"
+      },
+      {
+        "name": "The Wordmark Containment Rule",
+        "body": "Orbitron is for the Eidon mark. It is not a general display font for headings, buttons, or cards.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Until Active Rule",
+        "body": "Surfaces do not float unless the user is interacting with them or they are temporarily above the main plane.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Glow Has A Job Rule",
+        "body": "Glow means focus, active work, or a primary action. Decorative glow is prohibited.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do make the first path obvious within seconds: new chat, type, send, provider, persona.",
+      "Do keep Eidon Violet scarce and meaningful. Primary actions, active rows, and focus rings get it first.",
+      "Do use tonal layers, hairline borders, and compact spacing to show hierarchy.",
+      "Do keep controls close to the work, especially in the chat composer and settings detail panes.",
+      "Do preserve pragmatic accessibility: readable contrast, keyboard focus, reduced-motion support, and mobile-safe layouts.",
+      "Do use personal, direct language that respects capable users."
+    ],
+    "donts": [
+      "Don't make Eidon feel like a too-corporate SaaS dashboard full of jargon, upsell framing, sterile admin panels, or abstract productivity promises.",
+      "Don't make it childish, toy-like, mascot-led, gamified, or visually loud for its own sake.",
+      "Don't use generic AI product cliches: huge gradient hero text, vague magic language, empty agent metaphors, identical feature-card grids, or decorative complexity.",
+      "Don't put cards inside cards. Use full-width panes, split views, or simple grouped rows instead.",
+      "Don't use side-stripe borders as accent decoration.",
+      "Don't let violet, cyan, or status colors become background themes. They are signals, not wallpaper.",
+      "Don't use Orbitron outside the Eidon wordmark."
+    ]
+  }
+}
