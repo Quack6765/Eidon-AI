@@ -63,15 +63,6 @@ jobs:
             type=gha,mode=max
             type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:main,mode=max
 
-      - name: Make GHCR package public
-        if: github.event_name == 'release' && github.event.release.target_commitish == 'main'
-        run: |
-          gh api --method PATCH \
-            "/user/packages/container/${{ env.REPO_LOWERCASE }}/visibility" \
-            -f visibility=public
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Build full production image (pull request)
         if: github.event_name == 'pull_request' && steps.changes.outputs.deployment == 'true'
         uses: docker/build-push-action@v6
