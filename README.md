@@ -117,7 +117,7 @@ docker run -d \
   -e EIDON_ADMIN_PASSWORD="$EIDON_ADMIN_PASSWORD" \
   -e EIDON_SESSION_SECRET="$EIDON_SESSION_SECRET" \
   -e EIDON_ENCRYPTION_SECRET="$EIDON_ENCRYPTION_SECRET" \
-  ghcr.io/quack6765/eidon-ai:latest
+  ghcr.io/quack6765/eidon-ai
 ```
 
 ### 3. Or run it with Docker Compose
@@ -125,7 +125,7 @@ docker run -d \
 ```yaml
 services:
   eidon:
-    image: ghcr.io/quack6765/eidon-ai:latest
+    image: ghcr.io/quack6765/eidon-ai
     restart: unless-stopped
     ports:
       - "3000:3000"
