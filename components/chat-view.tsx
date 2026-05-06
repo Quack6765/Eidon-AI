@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Share2 } from "lucide-react";
 
 import {
   AttachmentPreviewModal,
@@ -10,6 +11,7 @@ import {
 import { ChatComposer } from "@/components/chat-composer";
 import { QueuedMessageBanner } from "@/components/queued-message-banner";
 import { MessageBubble, TypingIndicator } from "@/components/message-bubble";
+import { useShareConversation } from "@/components/share-conversation-context";
 import { clearChatBootstrap, readChatBootstrap } from "@/lib/chat-bootstrap";
 import { useContextTokens } from "@/lib/context-tokens-context";
 import {
@@ -476,6 +478,7 @@ function isQueuedMessageOperationError(message: string) {
 export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
   const { getTokenUsage, setTokenUsage } = useContextTokens();
+  const { canShare, openShareModal } = useShareConversation();
   const previewController = useAttachmentPreviewController();
   const activeConversationIdRef = useRef(payload.conversation.id);
   const [messages, setMessages] = useState(() => sanitizeMessages(payload.messages));
@@ -2181,6 +2184,17 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           <div className="min-w-0">
             <div className="font-medium text-[var(--text)] truncate text-sm">{conversationTitle}</div>
           </div>
+          {canShare ? (
+            <button
+              type="button"
+              className="-mr-1 hidden h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/6 bg-white/[0.02] text-white/40 transition-colors duration-150 hover:border-white/10 hover:bg-white/[0.05] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 md:flex"
+              onClick={openShareModal}
+              aria-label="Share conversation"
+              title="Share conversation"
+            >
+              <Share2 className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
         </div>
       </div>
 

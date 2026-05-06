@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -63,6 +63,9 @@ type ConversationRow = {
   created_at: string;
   updated_at: string;
   is_active: number;
+  share_token: string | null;
+  share_enabled: number;
+  shared_at: string | null;
 };
 
 type ConversationCursor = {
@@ -96,8 +99,33 @@ function rowToConversation(row: ConversationRow): Conversation {
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    isActive: row.is_active === 1
+    isActive: row.is_active === 1,
+    shareEnabled: row.share_enabled === 1,
+    shareToken: row.share_token,
+    sharedAt: row.shared_at
   };
+}
+
+function selectConversationColumns(activityTimestamp: string) {
+  return `c.id,
+            c.title,
+            c.title_generation_status,
+            c.folder_id,
+            c.provider_profile_id,
+            c.automation_id,
+            c.automation_run_id,
+            c.conversation_origin,
+            c.sort_order,
+            c.created_at,
+            ${activityTimestamp} AS updated_at,
+            c.is_active,
+            c.share_token,
+            c.share_enabled,
+            c.shared_at`;
+}
+
+function generateShareToken() {
+  return randomBytes(32).toString("base64url");
 }
 
 function buildConversationMatchSnippet(content: string, query: string) {
@@ -288,18 +316,7 @@ export function listConversations(userId?: string) {
     ? getDb()
         .prepare(
           `SELECT
-            c.id,
-            c.title,
-            c.title_generation_status,
-            c.folder_id,
-            c.provider_profile_id,
-            c.automation_id,
-            c.automation_run_id,
-            c.conversation_origin,
-            c.sort_order,
-            c.created_at,
-            ${activityTimestamp} AS updated_at,
-            c.is_active
+            ${selectConversationColumns(activityTimestamp)}
            FROM conversations c
            WHERE c.user_id = ?
              AND c.conversation_origin = ?
@@ -309,18 +326,7 @@ export function listConversations(userId?: string) {
     : getDb()
         .prepare(
           `SELECT
-            c.id,
-            c.title,
-            c.title_generation_status,
-            c.folder_id,
-            c.provider_profile_id,
-            c.automation_id,
-            c.automation_run_id,
-            c.conversation_origin,
-            c.sort_order,
-            c.created_at,
-            ${activityTimestamp} AS updated_at,
-            c.is_active
+            ${selectConversationColumns(activityTimestamp)}
            FROM conversations c
            WHERE c.conversation_origin = ?
            ORDER BY ${activityTimestamp} DESC, c.id DESC`
@@ -344,18 +350,7 @@ export function listConversationsPage(input: {
     ? (getDb()
         .prepare(
           `SELECT
-            c.id,
-            c.title,
-            c.title_generation_status,
-            c.folder_id,
-            c.provider_profile_id,
-            c.automation_id,
-            c.automation_run_id,
-            c.conversation_origin,
-           c.sort_order,
-           c.created_at,
-           ${activityTimestamp} AS updated_at,
-           c.is_active
+            ${selectConversationColumns(activityTimestamp)}
            FROM conversations c
            WHERE ${userCondition}c.conversation_origin = ?
              AND (
@@ -376,18 +371,7 @@ export function listConversationsPage(input: {
     : (getDb()
         .prepare(
           `SELECT
-            c.id,
-            c.title,
-            c.title_generation_status,
-            c.folder_id,
-            c.provider_profile_id,
-            c.automation_id,
-            c.automation_run_id,
-            c.conversation_origin,
-            c.sort_order,
-            c.created_at,
-            ${activityTimestamp} AS updated_at,
-            c.is_active
+            ${selectConversationColumns(activityTimestamp)}
            FROM conversations c
            WHERE ${userCondition}c.conversation_origin = ?
            ORDER BY ${activityTimestamp} DESC, c.id DESC
@@ -417,18 +401,7 @@ export function getConversation(conversationId: string, userId?: string) {
     ? getDb()
         .prepare(
           `SELECT
-            c.id,
-            c.title,
-            c.title_generation_status,
-            c.folder_id,
-            c.provider_profile_id,
-            c.automation_id,
-            c.automation_run_id,
-            c.conversation_origin,
-            c.sort_order,
-            c.created_at,
-            ${activityTimestamp} AS updated_at,
-            c.is_active
+            ${selectConversationColumns(activityTimestamp)}
            FROM conversations c
            WHERE c.id = ? AND c.user_id = ?`
         )
@@ -436,18 +409,7 @@ export function getConversation(conversationId: string, userId?: string) {
     : getDb()
         .prepare(
           `SELECT
-            c.id,
-            c.title,
-            c.title_generation_status,
-            c.folder_id,
-            c.provider_profile_id,
-            c.automation_id,
-            c.automation_run_id,
-            c.conversation_origin,
-            c.sort_order,
-            c.created_at,
-            ${activityTimestamp} AS updated_at,
-            c.is_active
+            ${selectConversationColumns(activityTimestamp)}
            FROM conversations c
            WHERE c.id = ?`
         )
@@ -499,7 +461,10 @@ export function createConversation(
     sortOrder: maxOrder.max_order + 1,
     createdAt: timestamp,
     updatedAt: timestamp,
-    isActive: false
+    isActive: false,
+    shareEnabled: false,
+    shareToken: null,
+    sharedAt: null
   };
 
   getDb()
@@ -514,11 +479,14 @@ export function createConversation(
         automation_id,
         automation_run_id,
         conversation_origin,
+        share_enabled,
+        share_token,
+        shared_at,
         sort_order,
         created_at,
         updated_at,
         is_active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       conversation.id,
@@ -530,6 +498,9 @@ export function createConversation(
       conversation.automationId,
       conversation.automationRunId,
       conversation.conversationOrigin,
+      0,
+      null,
+      null,
       conversation.sortOrder,
       conversation.createdAt,
       conversation.updatedAt,
@@ -1310,6 +1281,103 @@ export function getConversationSnapshot(conversationId: string, userId?: string)
   const messages = listVisibleMessages(conversationId);
   const queuedMessages = listQueuedMessages(conversationId);
   return { conversation, messages, queuedMessages };
+}
+
+export function getConversationShare(conversationId: string, userId?: string) {
+  const conversation = getConversation(conversationId, userId);
+
+  if (!conversation) {
+    return null;
+  }
+
+  return {
+    enabled: conversation.shareEnabled,
+    token: conversation.shareEnabled ? conversation.shareToken : null
+  };
+}
+
+export function enableConversationShare(conversationId: string, userId?: string) {
+  if (!getConversation(conversationId, userId)) {
+    return null;
+  }
+
+  const timestamp = nowIso();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const token = generateShareToken();
+
+    try {
+      getDb()
+        .prepare(
+          `UPDATE conversations
+           SET share_enabled = 1,
+               share_token = ?,
+               shared_at = ?,
+               updated_at = ?
+           WHERE id = ?`
+        )
+        .run(token, timestamp, timestamp, conversationId);
+
+      return {
+        enabled: true,
+        token
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (!message.includes("UNIQUE")) {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error("Unable to generate unique share token");
+}
+
+export function disableConversationShare(conversationId: string, userId?: string) {
+  if (!getConversation(conversationId, userId)) {
+    return null;
+  }
+
+  getDb()
+    .prepare(
+      `UPDATE conversations
+       SET share_enabled = 0,
+           share_token = NULL,
+           shared_at = NULL,
+           updated_at = ?
+       WHERE id = ?`
+    )
+    .run(nowIso(), conversationId);
+
+  return {
+    enabled: false,
+    token: null
+  };
+}
+
+export function getSharedConversationSnapshot(shareToken: string): ConversationSnapshot | null {
+  const activityTimestamp = conversationActivityTimestampSql("c");
+  const row = getDb()
+    .prepare(
+      `SELECT
+        ${selectConversationColumns(activityTimestamp)}
+       FROM conversations c
+       WHERE c.share_enabled = 1
+         AND c.share_token = ?`
+    )
+    .get(shareToken) as ConversationRow | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  const conversation = rowToConversation(row);
+  const messages = listVisibleMessages(conversation.id);
+
+  return {
+    conversation,
+    messages,
+    queuedMessages: []
+  };
 }
 
 export function listActiveConversations(userId?: string): Array<{ id: string; title: string; isActive: boolean }> {
@@ -2486,18 +2554,7 @@ export function searchConversations(query: string, userId?: string): Conversatio
   const rows = getDb()
     .prepare(
       `SELECT
-        c.id,
-        c.title,
-        c.title_generation_status,
-        c.folder_id,
-        c.provider_profile_id,
-        c.automation_id,
-        c.automation_run_id,
-        c.conversation_origin,
-        c.sort_order,
-        c.created_at,
-        ${activityTimestamp} AS updated_at,
-        c.is_active,
+        ${selectConversationColumns(activityTimestamp)},
         m.content AS matched_message_content
        FROM conversations c
        LEFT JOIN messages m

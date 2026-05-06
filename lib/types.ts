@@ -148,6 +148,9 @@ export type Conversation = {
   createdAt: string;
   updatedAt: string;
   isActive: boolean;
+  shareEnabled: boolean;
+  shareToken: string | null;
+  sharedAt: string | null;
 };
 
 export type ConversationSearchResult = Conversation & {

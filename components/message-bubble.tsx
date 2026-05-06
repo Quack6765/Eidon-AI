@@ -9,6 +9,7 @@ import remarkGfm from "remark-gfm";
 import { AssistantCodeBlock } from "@/components/assistant-code-block";
 import {
   AttachmentPreviewModal,
+  useAttachmentUrlBuilder,
   useAttachmentPreviewController
 } from "@/components/attachment-preview-modal";
 import { CompactionIndicator } from "@/components/compaction-indicator";
@@ -408,7 +409,8 @@ function MemorySnapshot({
 function MemoryProposalCard({
   action,
   onApprove,
-  onDismiss
+  onDismiss,
+  readOnly = false
 }: {
   action: Extract<MessageTimelineItem, { timelineKind: "action" }>;
   onApprove?: (
@@ -416,13 +418,14 @@ function MemoryProposalCard({
     overrides?: { content?: string; category?: MemoryCategory }
   ) => Promise<void>;
   onDismiss?: (actionId: string) => Promise<void>;
+  readOnly?: boolean;
 }) {
   const proposal = action.proposalPayload!;
   const editableMemory = proposal.proposedMemory;
   const displayMemory = proposal.proposedMemory ?? proposal.currentMemory ?? null;
   const currentMemory = proposal.currentMemory ?? null;
   const canEdit = action.kind !== "delete_memory" && Boolean(editableMemory);
-  const isPending = action.status === "pending" && action.proposalState === "pending";
+  const isPending = !readOnly && action.status === "pending" && action.proposalState === "pending";
   const isDelete = proposal.operation === "delete";
   const heading = getMemoryProposalHeading(action);
   const [isEditing, setIsEditing] = useState(false);
@@ -701,6 +704,8 @@ function AttachmentTile({
   compact?: boolean;
   onPreview: (attachment: MessageAttachment) => void;
 }) {
+  const buildAttachmentUrl = useAttachmentUrlBuilder();
+
   if (attachment.kind === "image") {
     return (
       <button
@@ -710,7 +715,7 @@ function AttachmentTile({
         className={`overflow-hidden rounded-xl border border-white/10 bg-black/20 ${compact ? "w-16" : "w-28"}`}
       >
         <img
-          src={`/api/attachments/${attachment.id}`}
+          src={buildAttachmentUrl(attachment)}
           alt=""
           aria-hidden="true"
           className={`w-full object-cover ${compact ? "h-16" : "h-28"}`}
@@ -790,6 +795,8 @@ function AssistantInlineImageAttachments({
   attachments: MessageAttachment[];
   onPreview: (attachment: MessageAttachment) => void;
 }) {
+  const buildAttachmentUrl = useAttachmentUrlBuilder();
+
   if (!attachments.length) {
     return null;
   }
@@ -805,7 +812,7 @@ function AssistantInlineImageAttachments({
           className="max-w-full overflow-hidden rounded-xl border border-white/10 bg-black/20"
         >
           <img
-            src={`/api/attachments/${attachment.id}`}
+            src={buildAttachmentUrl(attachment)}
             alt=""
             aria-hidden="true"
             className="block max-h-[28rem] w-auto max-w-full object-contain"
@@ -832,7 +839,8 @@ export function MessageBubble({
   isForking = false,
   onApproveMemoryProposal,
   onDismissMemoryProposal,
-  onPreviewAttachment
+  onPreviewAttachment,
+  readOnly = false
 }: {
   message: Message;
   streamingTimeline?: MessageTimelineItem[];
@@ -853,6 +861,7 @@ export function MessageBubble({
   onForkAssistantMessage?: (messageId: string) => void;
   isForking?: boolean;
   onPreviewAttachment?: (attachment: MessageAttachment) => void;
+  readOnly?: boolean;
 }) {
   const rawContent = streamingAnswer ?? message.content;
   const rawThinking = streamingThinking ?? message.thinkingContent;
@@ -1116,7 +1125,7 @@ export function MessageBubble({
         <div data-message-id={message.id} className="flex w-full justify-end">
           <div className="group flex max-w-[96%] flex-col items-end md:max-w-[95%]">
             <div className="w-full rounded-2xl border border-[var(--accent)]/10 bg-[var(--accent-soft)] px-4 py-3 text-[var(--text)]">
-              {isEditing ? (
+              {!readOnly && isEditing ? (
                 <Textarea
                   ref={editRef}
                   value={draft}
@@ -1140,7 +1149,7 @@ export function MessageBubble({
                 </div>
               ) : null}
               {message.attachments?.length ? (
-                <div className={content || isEditing ? "mt-3" : ""}>
+                <div className={content || (!readOnly && isEditing) ? "mt-3" : ""}>
                   <MessageAttachments
                     attachments={message.attachments}
                     compact
@@ -1165,7 +1174,7 @@ export function MessageBubble({
                   )}
                 </ActionButton>
 
-                {isEditing ? (
+                {!readOnly && isEditing ? (
                   <>
                     <ActionButton
                       label="Save edit"
@@ -1182,11 +1191,11 @@ export function MessageBubble({
                       <X className="h-3.5 w-3.5" />
                     </ActionButton>
                   </>
-                ) : (
+                ) : !readOnly ? (
                   <ActionButton label="Edit message" onClick={() => setIsEditing(true)}>
                     <Pencil className="h-3.5 w-3.5" />
                   </ActionButton>
-                )}
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -1277,6 +1286,7 @@ export function MessageBubble({
                               action={item}
                               onApprove={onApproveMemoryProposal}
                               onDismiss={onDismissMemoryProposal}
+                              readOnly={readOnly}
                             />
                           ) : (
                             <CollapsibleActionRow
