@@ -16,6 +16,13 @@ Object.assign(process.env, {
   EIDON_ENCRYPTION_SECRET: "test-encryption-secret-which-is-long-enough"
 });
 
+if (typeof window !== "undefined") {
+  Object.defineProperty(window, "scrollTo", {
+    configurable: true,
+    value: () => undefined
+  });
+}
+
 beforeEach(async () => {
   const { resetDbForTests } = await import("@/lib/db");
   resetDbForTests();

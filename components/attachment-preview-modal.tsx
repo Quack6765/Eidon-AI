@@ -212,6 +212,7 @@ export function AttachmentPreviewModal({
 
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {state.kind === "image" ? (
+            // eslint-disable-next-line @next/next/no-img-element -- Attachment previews are API-served user files that next/image cannot safely optimize.
             <img
               src={`/api/attachments/${attachment.id}`}
               alt={attachment.filename}

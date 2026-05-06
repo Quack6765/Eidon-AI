@@ -35,6 +35,24 @@ describe("conversations extended", () => {
     expect(results2[0].folderId).toBeNull();
   });
 
+  it("preserves activity timestamps when moving conversations between folders", () => {
+    const folder1 = createFolder("Stable Folder 1");
+    const folder2 = createFolder("Stable Folder 2");
+    const conv = createConversation("Stable folder chat", folder1.id);
+    const originalUpdatedAt = "2026-04-01T10:00:00.000Z";
+
+    getDb()
+      .prepare("UPDATE conversations SET updated_at = ? WHERE id = ?")
+      .run(originalUpdatedAt, conv.id);
+
+    moveConversationToFolder(conv.id, folder2.id);
+
+    const row = getDb()
+      .prepare("SELECT updated_at FROM conversations WHERE id = ?")
+      .get(conv.id) as { updated_at: string };
+    expect(row.updated_at).toBe(originalUpdatedAt);
+  });
+
   it("moves conversations between folders only for the requested user", async () => {
     const userA = await createLocalUser({
       username: "conversation-folder-a",
@@ -70,6 +88,34 @@ describe("conversations extended", () => {
 
     // The reorder updates sort_order, and listConversations uses updated_at DESC
     // but the reorder function persists the new sort_order
+  });
+
+  it("preserves activity timestamps when reordering conversations", () => {
+    const c1 = createConversation("Stable C1");
+    const c2 = createConversation("Stable C2");
+    const timestamps = new Map([
+      [c1.id, "2026-04-01T10:00:00.000Z"],
+      [c2.id, "2026-04-02T10:00:00.000Z"]
+    ]);
+
+    for (const [id, updatedAt] of timestamps) {
+      getDb()
+        .prepare("UPDATE conversations SET updated_at = ? WHERE id = ?")
+        .run(updatedAt, id);
+    }
+
+    reorderConversations([
+      { id: c2.id, folderId: null },
+      { id: c1.id, folderId: null }
+    ]);
+
+    const rows = getDb()
+      .prepare("SELECT id, updated_at FROM conversations WHERE id IN (?, ?)")
+      .all(c1.id, c2.id) as Array<{ id: string; updated_at: string }>;
+
+    for (const row of rows) {
+      expect(row.updated_at).toBe(timestamps.get(row.id));
+    }
   });
 
   it("scopes conversation search results to the requested user", async () => {

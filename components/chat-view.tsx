@@ -477,6 +477,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
   const { getTokenUsage, setTokenUsage } = useContextTokens();
   const previewController = useAttachmentPreviewController();
+  const { closeAttachmentPreview } = previewController;
   const activeConversationIdRef = useRef(payload.conversation.id);
   const [messages, setMessages] = useState(() => sanitizeMessages(payload.messages));
   const [queuedMessages, setQueuedMessages] = useState(() => payload.queuedMessages);
@@ -516,8 +517,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     activeConversationIdRef.current = payload.conversation.id;
-    previewController.closeAttachmentPreview();
-  }, [payload.conversation.id, previewController.closeAttachmentPreview]);
+    closeAttachmentPreview();
+  }, [payload.conversation.id, closeAttachmentPreview]);
 
   const compactionInProgressRef = useRef(false);
   const thinkingStartTimeRef = useRef<number | null>(null);

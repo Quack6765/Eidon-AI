@@ -473,6 +473,57 @@ describe("automation scheduler", () => {
     }
   });
 
+  it("clamps long scheduler sleeps to the maximum timer delay", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    let scheduler: { start: () => void; stop: () => void } | null = null;
+
+    try {
+      const { updateSettings } = await import("@/lib/settings");
+      updateSettings({
+        defaultProviderProfileId: "profile_scheduler",
+        skillsEnabled: false,
+        providerProfiles: [createProviderProfile()]
+      });
+
+      createAutomation({
+        name: "Long interval",
+        prompt: "Run later",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 30 * 24 * 60,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: []
+      });
+
+      const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+      scheduler = createAutomationScheduler({
+        now: () => new Date(),
+        timeZone: "UTC",
+        manager: createConversationManager(),
+        startChatTurn: vi.fn().mockResolvedValue({ status: "completed" })
+      });
+
+      scheduler.start();
+      await vi.runAllTicks();
+      await Promise.resolve();
+
+      const delays = setTimeoutSpy.mock.calls
+        .map((call) => Number(call[1]))
+        .filter((delay) => Number.isFinite(delay));
+
+      expect(delays).toContain(2_147_483_647);
+      expect(Math.max(...delays)).toBeLessThanOrEqual(2_147_483_647);
+    } finally {
+      scheduler?.stop();
+      setTimeoutSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("resyncs future next-run timestamps to the scheduler timezone without touching overdue or disabled work", async () => {
     const previousTz = process.env.TZ;
     vi.useFakeTimers();
