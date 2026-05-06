@@ -96,13 +96,7 @@ The OpenAI-compatible profile is manually configurable, so any service that expo
 
 ## Quick Start
 
-### 1. Build the image
-
-```bash
-docker build -t eidon:latest .
-```
-
-### 2. Generate strong secrets on the host
+### 1. Generate strong secrets on the host
 
 ```bash
 export EIDON_ADMIN_PASSWORD="$(openssl rand -base64 24)"
@@ -110,7 +104,7 @@ export EIDON_SESSION_SECRET="$(openssl rand -hex 32)"
 export EIDON_ENCRYPTION_SECRET="$(openssl rand -hex 32)"
 ```
 
-### 3. Run Eidon with `docker run`
+### 2. Run Eidon with `docker run`
 
 ```bash
 docker run -d \
@@ -123,16 +117,15 @@ docker run -d \
   -e EIDON_ADMIN_PASSWORD="$EIDON_ADMIN_PASSWORD" \
   -e EIDON_SESSION_SECRET="$EIDON_SESSION_SECRET" \
   -e EIDON_ENCRYPTION_SECRET="$EIDON_ENCRYPTION_SECRET" \
-  eidon:latest
+  ghcr.io/quack6765/eidon-ai
 ```
 
-### 4. Or run it with Docker Compose
+### 3. Or run it with Docker Compose
 
 ```yaml
 services:
   eidon:
-    build: .
-    image: eidon:latest
+    image: ghcr.io/quack6765/eidon-ai
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -152,10 +145,10 @@ volumes:
 Start it with the exported variables above, or put the same values in a local `.env` file before launching:
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-### 5. First login
+### 4. First login
 
 1. Open your Eidon URL.
 2. Sign in with `EIDON_ADMIN_USERNAME` and `EIDON_ADMIN_PASSWORD`.
