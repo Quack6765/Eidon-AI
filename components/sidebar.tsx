@@ -28,6 +28,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragStartEvent,
   type CollisionDetection
 } from "@dnd-kit/core";
@@ -205,6 +206,10 @@ function ConversationItem({
     trimmedSearchQuery && conversation.matchSnippet
       ? highlightMatch(conversation.matchSnippet, trimmedSearchQuery)
       : null;
+  const titlePaddingClass = active ? "pr-8" : "pr-8 md:pr-0 md:group-hover:pr-8";
+  const actionVisibilityClass = active
+    ? "opacity-100"
+    : "opacity-100 md:opacity-0 md:group-hover:opacity-100";
 
   function handleNavigate(event: ReactMouseEvent<HTMLAnchorElement>) {
     if (
@@ -272,6 +277,7 @@ function ConversationItem({
       className="relative mb-0.5"
       {...(dragEnabled ? attributes : {})}
       {...(dragEnabled ? listeners : {})}
+      aria-label={`${conversation.title} conversation`}
     >
       <Link
         href={`/chat/${conversation.id}`}
@@ -291,11 +297,11 @@ function ConversationItem({
         <div className="relative min-w-0 flex-1 overflow-hidden">
           {highlightedTitle ? (
             <div
-              className={`truncate ${active ? "pr-8" : "group-hover:pr-8"}`}
+              className={`truncate ${titlePaddingClass}`}
               dangerouslySetInnerHTML={{ __html: highlightedTitle }}
             />
           ) : (
-            <div className={`truncate ${active ? "pr-8" : "group-hover:pr-8"}`}>
+            <div className={`truncate ${titlePaddingClass}`}>
               {conversation.title}
             </div>
           )}
@@ -308,12 +314,14 @@ function ConversationItem({
           ) : null}
 
           <div
-            className={`absolute right-0 top-0 bottom-0 flex items-center bg-gradient-to-l from-transparent via-transparent to-transparent pl-4 pr-1 transition-opacity duration-300 ${
-              active ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-            }`}
+            data-sidebar-row-actions="conversation"
+            className={`absolute right-0 top-0 bottom-0 flex items-center bg-gradient-to-l from-transparent via-transparent to-transparent pl-4 pr-1 transition-opacity duration-300 ${actionVisibilityClass}`}
             onClick={(e) => e.preventDefault()}
           >
             <button
+              type="button"
+              aria-label={`Conversation actions for ${conversation.title}`}
+              title={`Conversation actions for ${conversation.title}`}
               className="text-white/20 hover:text-white transition-colors duration-200 p-1 rounded-lg hover:bg-white/5"
               onClick={(e) => {
                 e.preventDefault();
@@ -401,7 +409,6 @@ function FolderItem({
   onCreateInFolder,
   dragEnabled,
   showCount,
-  isDraggingConversation,
   searchQuery
 }: {
   folder: Folder;
@@ -414,7 +421,6 @@ function FolderItem({
   onCreateInFolder: (folderId: string) => void;
   dragEnabled: boolean;
   showCount: boolean;
-  isDraggingConversation: boolean;
   searchQuery: string;
 }) {
   const [collapsed, setCollapsed] = useState(true);
@@ -432,7 +438,7 @@ function FolderItem({
     setNodeRef,
     transform,
     transition
-  } = useSortable({ id: folder.id, disabled: isDraggingConversation });
+  } = useSortable({ id: folder.id });
   const {
     setNodeRef: setFolderDropRef,
     isOver: isOverFolderDrop
@@ -440,7 +446,7 @@ function FolderItem({
     id: `${FOLDER_DROP_PREFIX}${folder.id}`
   });
 
-  const style = isDraggingConversation ? undefined : {
+  const style = {
     transform: CSS.Transform.toString(transform),
     transition
   };
@@ -499,7 +505,12 @@ function FolderItem({
         aria-label={`${folder.name} folder`}
         {...(dragEnabled ? listeners : {})}
       >
-        <button onClick={() => setCollapsed(!collapsed)} className="p-0.5 opacity-30 hover:opacity-100 transition-opacity">
+        <button
+          type="button"
+          aria-label={collapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
+          onClick={() => setCollapsed(!collapsed)}
+          className="p-0.5 opacity-30 hover:opacity-100 transition-opacity"
+        >
           {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
         </button>
         {collapsed ? (
@@ -531,18 +542,24 @@ function FolderItem({
           <span className="text-[10px] font-bold text-white/10 group-hover:text-white/20 transition-colors mr-1 tabular-nums">{conversations.length}</span>
         ) : null}
         <div
-          className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity duration-300"
+          data-sidebar-row-actions="folder"
+          className="flex items-center gap-1 opacity-100 transition-opacity duration-300 md:opacity-0 md:group-hover:opacity-100"
           onClick={(e) => e.stopPropagation()}
         >
           <button
+            type="button"
+            aria-label={`New chat in ${folder.name}`}
             onClick={() => onCreateInFolder(folder.id)}
             className="p-1 text-white/20 hover:text-white transition-colors duration-200"
-            title="New chat in folder"
+            title={`New chat in ${folder.name}`}
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
           <div className="relative">
             <button
+              type="button"
+              aria-label={`Folder actions for ${folder.name}`}
+              title={`Folder actions for ${folder.name}`}
               onClick={() => { setFolderMenuOpen(!folderMenuOpen); setConfirmDeleteFolder(false); }}
               className="p-1 text-white/20 hover:text-white transition-colors duration-200"
             >
@@ -642,8 +659,10 @@ export function Sidebar({
   const [newFolderName, setNewFolderName] = useState("");
   const [showNewFolder, setShowNewFolder] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const dragPointerRef = useRef<{ x: number; y: number } | null>(null);
 
   const navigateToHref = useCallback(
     async (href: string, nextConversationId?: string) => {
@@ -953,12 +972,33 @@ export function Sidebar({
   }
 
   const handleDragEnd = useCallback((event: DragEndEvent) => {
-    setActiveDragId(null);
     const { active, over } = event;
-    if (!over || active.id === over.id || searchResults) return;
-
     const activeId = String(active.id);
-    const overId = String(over.id);
+    const isConversationDrag = localConversations.some((conversation) => conversation.id === activeId);
+    const dragPointer = dragPointerRef.current;
+    const fallbackFolderId =
+      isConversationDrag && dragPointer && (!over || active.id === over.id)
+        ? document
+            .elementFromPoint(dragPointer.x, dragPointer.y)
+            ?.closest<HTMLElement>("[data-folder-drop-id]")
+            ?.dataset.folderDropId ?? null
+        : null;
+    const rawOverId = fallbackFolderId
+      ? `${FOLDER_DROP_PREFIX}${fallbackFolderId}`
+      : over && active.id !== over.id
+        ? String(over.id)
+        : null;
+    const isRawFolderDrop =
+      isConversationDrag &&
+      rawOverId &&
+      localFolders.some((folder) => folder.id === rawOverId);
+    const overId = isRawFolderDrop ? `${FOLDER_DROP_PREFIX}${rawOverId}` : rawOverId;
+
+    setActiveDragId(null);
+    dragPointerRef.current = null;
+
+    if (!overId || searchResults) return;
+
     const reorderedFolders = reorderSidebarFolders(localFolders, activeId, overId);
 
     if (reorderedFolders) {
@@ -999,6 +1039,36 @@ export function Sidebar({
     setActiveDragId(String(event.active.id));
   }, []);
 
+  const handleDragMove = useCallback((event: DragMoveEvent) => {
+    const rect = event.active.rect.current.translated ?? event.active.rect.current.initial;
+
+    if (!rect) {
+      return;
+    }
+
+    dragPointerRef.current = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeDragId) {
+      dragPointerRef.current = null;
+      return;
+    }
+
+    function handleMouseMove(event: MouseEvent) {
+      dragPointerRef.current = {
+        x: event.clientX,
+        y: event.clientY
+      };
+    }
+
+    window.addEventListener("mousemove", handleMouseMove);
+    return () => window.removeEventListener("mousemove", handleMouseMove);
+  }, [activeDragId]);
+
   const displayedConversations = searchResults ?? localConversations;
   const unfiled = displayedConversations.filter((c) => !c.folderId);
   const unfiledSections = buildConversationSections(unfiled);
@@ -1021,13 +1091,11 @@ export function Sidebar({
   });
   const dragEnabled = mounted && !searchResults;
   const showFolderCounts = !hasMoreConversations && !searchResults;
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const isDraggingConversation = activeDragId ? !localFolders.some((f) => f.id === activeDragId) : false;
   const activeDragConversation = activeDragId
     ? localConversations.find((c) => c.id === activeDragId)
     : null;
 
-  function renderConversationSections(enableDrag: boolean, draggingConversation: boolean) {
+  function renderConversationSections(enableDrag: boolean) {
     return (
       <>
         {localFolders.map((folder) => {
@@ -1045,7 +1113,6 @@ export function Sidebar({
                 onCreateInFolder={(fId) => handleCreate(fId)}
                 dragEnabled={enableDrag}
                 showCount={showFolderCounts}
-                isDraggingConversation={draggingConversation}
                 searchQuery={searchQuery}
               />
             </div>
@@ -1259,13 +1326,13 @@ export function Sidebar({
           </div>
 
           {dragEnabled ? (
-            <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
               <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-                {renderConversationSections(true, isDraggingConversation)}
+                {renderConversationSections(true)}
               </SortableContext>
               <DragOverlay>
                 {activeDragConversation ? (
-                  <div className="flex items-center gap-3 rounded-2xl px-4 py-3 text-sm bg-white/[0.08] text-white font-medium shadow-2xl backdrop-blur-xl border border-white/10 opacity-90">
+                  <div className="pointer-events-none flex items-center gap-3 rounded-2xl px-4 py-3 text-sm bg-white/[0.08] text-white font-medium shadow-2xl backdrop-blur-xl border border-white/10 opacity-90">
                     <MessageSquare className="h-4 w-4 shrink-0 opacity-60" />
                     <span className="truncate max-w-[200px]">{activeDragConversation.title}</span>
                   </div>
@@ -1273,7 +1340,7 @@ export function Sidebar({
               </DragOverlay>
             </DndContext>
           ) : (
-            renderConversationSections(false, false)
+            renderConversationSections(false)
           )}
         </div>
 

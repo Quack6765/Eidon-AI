@@ -547,14 +547,14 @@ function deleteConversationRecord(conversationId: string) {
 
 export function deleteConversation(conversationId: string, userId?: string) {
   if (userId && !getConversation(conversationId, userId)) {
-    return;
+    return false;
   }
 
   const transaction = getDb().transaction((id: string) => {
-    deleteConversationRecord(id);
+    return deleteConversationRecord(id);
   });
 
-  transaction(conversationId);
+  return transaction(conversationId);
 }
 
 export function deleteConversationIfEmpty(conversationId: string, userId?: string) {
@@ -2400,21 +2400,20 @@ export async function generateConversationTitleFromFirstUserMessage(
 }
 
 export function moveConversationToFolder(conversationId: string, folderId: string | null, userId?: string) {
-  const timestamp = nowIso();
   if (userId) {
     getDb()
       .prepare(
-        `UPDATE conversations SET folder_id = ?, updated_at = ? WHERE id = ? AND user_id = ?`
+        `UPDATE conversations SET folder_id = ? WHERE id = ? AND user_id = ?`
       )
-      .run(folderId, timestamp, conversationId, userId);
+      .run(folderId, conversationId, userId);
     return;
   }
 
   getDb()
     .prepare(
-      `UPDATE conversations SET folder_id = ?, updated_at = ? WHERE id = ?`
+      `UPDATE conversations SET folder_id = ? WHERE id = ?`
     )
-    .run(folderId, timestamp, conversationId);
+    .run(folderId, conversationId);
 }
 
 export function updateConversationProviderProfile(
@@ -2450,21 +2449,20 @@ export function reorderConversations(
   const statement = userId
     ? getDb()
         .prepare(
-          "UPDATE conversations SET sort_order = ?, folder_id = ?, updated_at = ? WHERE id = ? AND user_id = ?"
+          "UPDATE conversations SET sort_order = ?, folder_id = ? WHERE id = ? AND user_id = ?"
         )
     : getDb()
-        .prepare("UPDATE conversations SET sort_order = ?, folder_id = ?, updated_at = ? WHERE id = ?");
+        .prepare("UPDATE conversations SET sort_order = ?, folder_id = ? WHERE id = ?");
 
-  const timestamp = nowIso();
   const transaction = getDb().transaction(
     (entries: Array<{ id: string; folderId: string | null; sortOrder: number }>) => {
       entries.forEach((entry) => {
         if (userId) {
-          statement.run(entry.sortOrder, entry.folderId, timestamp, entry.id, userId);
+          statement.run(entry.sortOrder, entry.folderId, entry.id, userId);
           return;
         }
 
-        statement.run(entry.sortOrder, entry.folderId, timestamp, entry.id);
+        statement.run(entry.sortOrder, entry.folderId, entry.id);
       });
     }
   );

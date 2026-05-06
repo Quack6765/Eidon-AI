@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { jwtVerify } from "jose";
 
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
+import { verifyHs256Jwt } from "@/lib/edge-session-token";
 import { env, isPasswordLoginEnabled } from "@/lib/env";
 
 const publicPaths = ["/login"];
@@ -44,7 +44,10 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    await jwtVerify(token, getSecret());
+    const payload = await verifyHs256Jwt(token, getSecret());
+    if (!payload) {
+      throw new Error("Invalid session token");
+    }
   } catch {
     if (isPublic) {
       return NextResponse.next();

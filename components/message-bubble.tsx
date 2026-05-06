@@ -709,6 +709,7 @@ function AttachmentTile({
         onClick={() => onPreview(attachment)}
         className={`overflow-hidden rounded-xl border border-white/10 bg-black/20 ${compact ? "w-16" : "w-28"}`}
       >
+        {/* eslint-disable-next-line @next/next/no-img-element -- Attachment thumbnails are API-served user files that next/image cannot safely optimize. */}
         <img
           src={`/api/attachments/${attachment.id}`}
           alt=""
@@ -804,6 +805,7 @@ function AssistantInlineImageAttachments({
           onClick={() => onPreview(attachment)}
           className="max-w-full overflow-hidden rounded-xl border border-white/10 bg-black/20"
         >
+          {/* eslint-disable-next-line @next/next/no-img-element -- Attachment previews are API-served user files that next/image cannot safely optimize. */}
           <img
             src={`/api/attachments/${attachment.id}`}
             alt=""
@@ -1207,6 +1209,7 @@ export function MessageBubble({
     <div data-message-id={message.id} className="w-full">
       <div className="flex gap-3.5">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] border border-white/6 text-[10px] font-bold text-white/60 overflow-hidden mt-1">
+          {/* eslint-disable-next-line @next/next/no-img-element -- Static assistant avatar is deliberately tiny and unoptimized. */}
           <img src="/agent-icon.png" alt="" width={28} height={28} className="h-full w-full object-cover" />
         </div>
 

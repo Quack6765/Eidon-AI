@@ -64,6 +64,24 @@ async function mockChatResponse(
 async function createNewChat(page: import("@playwright/test").Page) {
   const newChatButtons = page.getByRole("button", { name: "New chat", exact: true });
   await expect(newChatButtons.first()).toBeVisible({ timeout: 10000 });
+  await expect
+    .poll(
+      async () => {
+        const buttonCount = await newChatButtons.count();
+
+        for (let index = 0; index < buttonCount; index += 1) {
+          const candidate = newChatButtons.nth(index);
+
+          if ((await candidate.isVisible()) && (await candidate.isEnabled())) {
+            return index;
+          }
+        }
+
+        return -1;
+      },
+      { timeout: 10000 }
+    )
+    .not.toBe(-1);
 
   let newChatButton: import("@playwright/test").Locator | null = null;
   const buttonCount = await newChatButtons.count();
@@ -92,6 +110,34 @@ async function createNewChat(page: import("@playwright/test").Page) {
       await page.waitForTimeout(500);
     }
   }
+}
+
+async function resetSidebarData(page: import("@playwright/test").Page) {
+  const conversationsResponse = await page.request.get("/api/conversations?limit=50");
+
+  if (conversationsResponse.ok()) {
+    const conversationsPayload = (await conversationsResponse.json()) as {
+      conversations?: Array<{ id: string }>;
+    };
+
+    for (const conversation of conversationsPayload.conversations ?? []) {
+      await page.request.delete(`/api/conversations/${conversation.id}`);
+    }
+  }
+
+  const foldersResponse = await page.request.get("/api/folders");
+
+  if (foldersResponse.ok()) {
+    const foldersPayload = (await foldersResponse.json()) as {
+      folders?: Array<{ id: string }>;
+    };
+
+    for (const folder of foldersPayload.folders ?? []) {
+      await page.request.delete(`/api/folders/${folder.id}`);
+    }
+  }
+
+  await page.goto("/", { waitUntil: "domcontentloaded" });
 }
 
 type MockChatRequest = {
@@ -813,24 +859,36 @@ test.describe("Feature: Folders", () => {
 test.describe("Feature: Move conversation to folder", () => {
   test("moves a conversation into a folder by dragging it onto the folder", async ({ page }) => {
     await signIn(page);
+    await resetSidebarData(page);
+    const folderName = `Projects ${Date.now()}`;
 
     // Create a folder first
     await page.getByRole("button", { name: "New folder" }).click();
-    await page.getByPlaceholder("Folder name").fill("Projects");
+    await page.getByPlaceholder("Folder name").fill(folderName);
     await page.getByPlaceholder("Folder name").press("Enter");
-    await expect(page.getByRole("button", { name: "Projects folder" }).first()).toBeVisible({
-      timeout: 3000
-    });
+    const folderDropTarget = page.locator(`[data-folder-name="${folderName}"]`);
+    await expect(folderDropTarget).toBeVisible({ timeout: 3000 });
+
+    const foldersResponse = await page.request.get("/api/folders");
+    expect(foldersResponse.ok()).toBeTruthy();
+    const foldersPayload = (await foldersResponse.json()) as {
+      folders: Array<{ id: string; name: string }>;
+    };
+    const folderId = foldersPayload.folders.find((folder) => folder.name === folderName)?.id;
+    expect(folderId).toBeTruthy();
 
     // Create a chat
     await createNewChat(page);
     await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+    const conversationId = page.url().match(/\/chat\/([^/?#]+)/)?.[1];
+    expect(conversationId).toBeTruthy();
 
-    const convLink = page.locator('aside a[href*="/chat/"]').first();
-    const folderRow = page.getByRole("button", { name: "Projects folder" }).first();
-
-    const convBox = await convLink.boundingBox();
-    const folderBox = await folderRow.boundingBox();
+    const convLink = page.locator(`aside a[href="/chat/${conversationId}"]`);
+    await expect(convLink).toBeVisible({ timeout: 5000 });
+    const convDragSource = convLink.locator("xpath=..");
+    await expect(convDragSource).toHaveAttribute("role", "button", { timeout: 5000 });
+    const convBox = await convDragSource.boundingBox();
+    const folderBox = await folderDropTarget.boundingBox();
 
     if (!convBox || !folderBox) {
       throw new Error("Could not find drag source or folder target");
@@ -838,13 +896,101 @@ test.describe("Feature: Move conversation to folder", () => {
 
     await page.mouse.move(convBox.x + convBox.width / 2, convBox.y + convBox.height / 2);
     await page.mouse.down();
-    await page.mouse.move(folderBox.x + folderBox.width / 2, folderBox.y + folderBox.height / 2, {
-      steps: 20
+    await page.mouse.move(convBox.x + convBox.width / 2 + 16, convBox.y + convBox.height / 2, {
+      steps: 5
     });
+    await page.waitForTimeout(150);
+    await page.mouse.move(folderBox.x + folderBox.width / 2, folderBox.y + folderBox.height / 2, {
+      steps: 50
+    });
+    await page.waitForTimeout(100);
     await page.mouse.up();
 
-    const projectsFolder = page.getByRole("button", { name: "Projects folder" }).first();
-    await expect(projectsFolder.getByText("1")).toBeVisible({ timeout: 5000 });
+    await expect.poll(
+      async () => {
+        const response = await page.request.get(`/api/conversations/${conversationId}`);
+        const payload = (await response.json()) as {
+          conversation?: { folderId: string | null };
+        };
+        return payload.conversation?.folderId ?? null;
+      },
+      { timeout: 5000 }
+    ).toBe(folderId);
+  });
+
+  test("keeps sidebar actions discoverable and usable on mobile", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await signIn(page);
+    await resetSidebarData(page);
+
+    const folderName = `Mobile Projects ${Date.now()}`;
+    const conversationTitle = `Mobile action chat ${Date.now()}`;
+    const folderResponse = await page.request.post("/api/folders", {
+      data: { name: folderName }
+    });
+    expect(folderResponse.status()).toBe(201);
+    const folderPayload = (await folderResponse.json()) as {
+      folder: { id: string; name: string };
+    };
+
+    const conversationResponse = await page.request.post("/api/conversations", {
+      data: { title: conversationTitle }
+    });
+    expect(conversationResponse.status()).toBe(201);
+    const conversationPayload = (await conversationResponse.json()) as {
+      conversation: { id: string; title: string };
+    };
+
+    await page.goto(`/chat/${conversationPayload.conversation.id}`, {
+      waitUntil: "domcontentloaded"
+    });
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: "Open menu" }).click();
+
+    const sidebar = page.locator("aside");
+    const conversationActions = sidebar.getByRole("button", {
+      name: `Conversation actions for ${conversationTitle}`,
+      exact: true
+    });
+    const folderNewChat = sidebar.getByRole("button", {
+      name: `New chat in ${folderName}`,
+      exact: true
+    });
+    const folderActions = sidebar.getByRole("button", {
+      name: `Folder actions for ${folderName}`,
+      exact: true
+    });
+
+    await expect(conversationActions).toBeVisible({ timeout: 5000 });
+    await expect(conversationActions).toBeInViewport({ timeout: 5000 });
+    await expect(folderNewChat).toBeVisible({ timeout: 5000 });
+    await expect(folderActions).toBeVisible({ timeout: 5000 });
+    await expect(sidebar.locator('[data-sidebar-row-actions="conversation"]').first()).toHaveCSS(
+      "opacity",
+      "1"
+    );
+    await expect(sidebar.locator('[data-sidebar-row-actions="folder"]').first()).toHaveCSS(
+      "opacity",
+      "1"
+    );
+
+    await conversationActions.click();
+    await sidebar.getByRole("button", { name: folderName, exact: true }).click();
+
+    await expect
+      .poll(
+        async () => {
+          const response = await page.request.get(
+            `/api/conversations/${conversationPayload.conversation.id}`
+          );
+          const payload = (await response.json()) as {
+            conversation?: { folderId: string | null };
+          };
+          return payload.conversation?.folderId ?? null;
+        },
+        { timeout: 5000 }
+      )
+      .toBe(folderPayload.folder.id);
   });
 });
 
@@ -976,10 +1122,11 @@ test.describe("Feature: Skills in settings", () => {
     await page.getByPlaceholder("Enter the full skill instructions...").fill("Always respond in French.");
     await page.getByRole("button", { name: "Add skill" }).last().click();
 
-    await expect(page.getByText("Test Skill")).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("heading", { name: "Test Skill", exact: true })).toBeVisible({
+      timeout: 5000
+    });
 
     // Delete it
-    await page.getByText("Test Skill", { exact: true }).click();
     await page.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(page.locator("span").filter({ hasText: "Test Skill" })).toHaveCount(0, {
       timeout: 3000
@@ -1354,13 +1501,13 @@ test.describe("Feature: Chat attachments", () => {
       await expect(page.getByRole("button", { name: "Preview screenshot.png" })).toHaveCount(1);
       await expect(page.getByRole("button", { name: "Preview report.txt" })).toHaveCount(1);
       await expect(page.getByRole("link", { name: "Report" })).toHaveCount(0);
-      await expect(page.getByRole("img", { name: "Screenshot" })).toHaveCount(0);
+      await expect(page.getByRole("img", { name: "Screenshot", exact: true })).toHaveCount(0);
       await expect(page.locator(`a[href="${reportPath}"]`)).toHaveCount(0);
       await expect(page.locator(`img[src="${screenshotPath}"]`)).toHaveCount(0);
 
       await page.getByRole("button", { name: "Preview screenshot.png" }).last().click();
       await expect(page.getByRole("dialog", { name: "Attachment preview" })).toBeVisible();
-      await expect(page.getByRole("img", { name: "Screenshot" })).toHaveCount(0);
+      await expect(page.getByRole("img", { name: "Screenshot", exact: true })).toHaveCount(0);
       await expect(page.getByRole("link", { name: "Download attachment" })).toHaveAttribute(
         "href",
         /\/api\/attachments\/[^/]+\?download=1$/
@@ -1543,14 +1690,16 @@ test.describe("Feature: Queued chat follow-ups", () => {
       await expect(queueHeader).toBeVisible({ timeout: 10000 });
 
       const thirdQueuedRow = page
-        .getByText("Third queued follow-up", { exact: true })
-        .locator("xpath=..");
+        .locator('[data-testid^="queued-message-body-"]')
+        .filter({ hasText: "Third queued follow-up" });
+      await expect(thirdQueuedRow).toBeVisible({ timeout: 10000 });
       await thirdQueuedRow.getByRole("button", { name: "Delete" }).click();
       await expect(page.getByText("Third queued follow-up", { exact: true })).toHaveCount(0);
 
       const secondQueuedRow = page
-        .getByText("Second queued follow-up", { exact: true })
-        .locator("xpath=..");
+        .locator('[data-testid^="queued-message-body-"]')
+        .filter({ hasText: "Second queued follow-up" });
+      await expect(secondQueuedRow).toBeVisible({ timeout: 10000 });
       await secondQueuedRow.getByRole("button", { name: "Send now" }).click();
 
       await expect.poll(
@@ -1575,12 +1724,12 @@ test.describe("Feature: Queued chat follow-ups", () => {
       ]);
       expect(dispatchedMessages).not.toContain("Third queued follow-up");
 
-      await expect(page.getByText("Second queued follow-up", { exact: true })).toHaveCount(0, {
-        timeout: 10000
-      });
-      await expect(page.getByText("First queued follow-up", { exact: true })).toHaveCount(0, {
-        timeout: 10000
-      });
+      await expect(
+        page.locator('[data-testid^="queued-message-body-"]').filter({ hasText: "Second queued follow-up" })
+      ).toHaveCount(0, { timeout: 10000 });
+      await expect(
+        page.locator('[data-testid^="queued-message-body-"]').filter({ hasText: "First queued follow-up" })
+      ).toHaveCount(0, { timeout: 10000 });
       await expect(page.getByText("Handled Second queued follow-up")).toBeVisible({
         timeout: 10000
       });

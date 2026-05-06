@@ -114,7 +114,13 @@ export async function POST(request: Request) {
     return badRequest("Authentication required", 401);
   }
 
-  const multipart = await parseMultipartRequest(request);
+  let multipart: Awaited<ReturnType<typeof parseMultipartRequest>>;
+
+  try {
+    multipart = await parseMultipartRequest(request);
+  } catch {
+    return badRequest("Invalid attachment upload");
+  }
   const parsed = formSchema.safeParse({
     conversationId: multipart.fields.get("conversationId")
   });
