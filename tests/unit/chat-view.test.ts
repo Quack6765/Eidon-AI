@@ -2758,6 +2758,55 @@ describe("chat view", () => {
     expect(screen.queryByRole("button", { name: "Scroll to newest messages" })).toBeNull();
   });
 
+  it("positions the Latest Messages pill to the right of the composer on desktop", async () => {
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
+
+    let scrollTop = 700;
+    const scrollTo = vi.fn(({ top }: { top?: number }) => {
+      if (typeof top === "number") {
+        scrollTop = top;
+      }
+    });
+
+    Object.defineProperty(queue, "clientHeight", {
+      configurable: true,
+      get: () => 300
+    });
+    Object.defineProperty(queue, "scrollHeight", {
+      configurable: true,
+      get: () => 1000
+    });
+    Object.defineProperty(queue, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      }
+    });
+    Object.defineProperty(queue, "scrollTo", {
+      configurable: true,
+      value: scrollTo
+    });
+
+    await flushAnimationFrame();
+
+    scrollTop = 120;
+    fireEvent.scroll(queue);
+    scrollTo.mockClear();
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Scroll to newest messages" })).toBeInTheDocument();
+    });
+
+    const pill = screen.getByRole("button", { name: "Scroll to newest messages" }).parentElement!;
+    expect(pill.className).toContain("md:left-full");
+    expect(pill.className).toContain("md:ml-3");
+    expect(pill.className).toContain("md:-translate-y-1/2");
+    expect(pill.className).not.toContain("md:left-4");
+    expect(pill.className).not.toContain("md:bottom-full");
+  });
+
   it("sets dynamic bottom padding from the queue height with a 260px minimum", async () => {
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
