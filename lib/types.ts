@@ -67,7 +67,7 @@ export type MemoryNodeType = "leaf_summary" | "merged_summary";
 
 export type SystemMessageKind = "compaction_notice";
 
-export type ProviderPresetId = "ollama_cloud" | "glm_coding_plan" | "openrouter" | "custom_openai_compatible";
+export type ProviderPresetId = "ollama_cloud" | "glm_coding_plan" | "openrouter" | "opencode_go" | "custom_openai_compatible";
 
 export type ProviderProfile = {
   id: string;
