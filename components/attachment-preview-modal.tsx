@@ -5,6 +5,16 @@ import { Download, FileText, X } from "lucide-react";
 
 import type { MessageAttachment } from "@/lib/types";
 
+export type AttachmentUrlOptions = {
+  format?: "text";
+  download?: boolean;
+};
+
+export type AttachmentUrlBuilder = (
+  attachment: Pick<MessageAttachment, "id">,
+  options?: AttachmentUrlOptions
+) => string;
+
 export type AttachmentPreviewState =
   | { kind: "loading" }
   | { kind: "image" }
@@ -19,7 +29,50 @@ type AttachmentPreviewModalProps = {
   onRetry?: () => void;
 };
 
+function appendAttachmentUrlParams(baseUrl: string, options?: AttachmentUrlOptions) {
+  const params = new URLSearchParams();
+
+  if (options?.format) {
+    params.set("format", options.format);
+  }
+
+  if (options?.download) {
+    params.set("download", "1");
+  }
+
+  const query = params.toString();
+  return query ? `${baseUrl}?${query}` : baseUrl;
+}
+
+export function buildDefaultAttachmentUrl(
+  attachment: Pick<MessageAttachment, "id">,
+  options?: AttachmentUrlOptions
+) {
+  return appendAttachmentUrlParams(`/api/attachments/${attachment.id}`, options);
+}
+
+const AttachmentUrlContext = React.createContext<AttachmentUrlBuilder>(buildDefaultAttachmentUrl);
+
+export function AttachmentUrlProvider({
+  value,
+  children
+}: {
+  value: AttachmentUrlBuilder;
+  children: React.ReactNode;
+}) {
+  return (
+    <AttachmentUrlContext.Provider value={value}>
+      {children}
+    </AttachmentUrlContext.Provider>
+  );
+}
+
+export function useAttachmentUrlBuilder() {
+  return React.useContext(AttachmentUrlContext);
+}
+
 export function useAttachmentPreviewController() {
+  const buildAttachmentUrl = useAttachmentUrlBuilder();
   const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
   const [previewState, setPreviewState] = useState<AttachmentPreviewState>({
     kind: "unsupported"
@@ -85,7 +138,7 @@ export function useAttachmentPreviewController() {
             message: "Unable to load attachment preview."
           });
         };
-        image.src = `/api/attachments/${attachment.id}`;
+        image.src = buildAttachmentUrl(attachment);
         return;
       }
 
@@ -100,7 +153,7 @@ export function useAttachmentPreviewController() {
       }
 
       try {
-        const response = await fetch(`/api/attachments/${attachment.id}?format=text`);
+        const response = await fetch(buildAttachmentUrl(attachment, { format: "text" }));
         if (!isCurrentPreviewRequest(requestToken, attachment.id)) {
           return;
         }
@@ -144,7 +197,7 @@ export function useAttachmentPreviewController() {
         });
       }
     },
-    [textPreviewCache]
+    [buildAttachmentUrl, textPreviewCache]
   );
 
   return {
@@ -161,6 +214,8 @@ export function AttachmentPreviewModal({
   onClose,
   onRetry
 }: AttachmentPreviewModalProps) {
+  const buildAttachmentUrl = useAttachmentUrlBuilder();
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
@@ -201,7 +256,7 @@ export function AttachmentPreviewModal({
           </div>
 
           <a
-            href={`/api/attachments/${attachment.id}?download=1`}
+            href={buildAttachmentUrl(attachment, { download: true })}
             className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs text-white/70"
             aria-label="Download attachment"
           >
@@ -213,7 +268,7 @@ export function AttachmentPreviewModal({
         <div className="min-h-0 flex-1 overflow-auto p-4">
           {state.kind === "image" ? (
             <img
-              src={`/api/attachments/${attachment.id}`}
+              src={buildAttachmentUrl(attachment)}
               alt={attachment.filename}
               className="mx-auto max-h-[60vh] w-auto max-w-full rounded-xl"
             />

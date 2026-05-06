@@ -39,6 +39,7 @@ export default async function AutomationRunPage({
       conversationPage={listConversationsPage({ userId: user.id })}
       folders={listFolders(user.id)}
       automations={listAutomations(user.id)}
+      currentConversation={conversation}
     >
       <ChatView
         payload={{

@@ -190,6 +190,9 @@ function migrate(db: Database.Database) {
       folder_id TEXT,
       provider_profile_id TEXT,
       tool_execution_mode TEXT NOT NULL DEFAULT 'read_only',
+      share_token TEXT UNIQUE,
+      share_enabled INTEGER NOT NULL DEFAULT 0,
+      shared_at TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
@@ -415,6 +418,15 @@ function migrate(db: Database.Database) {
   }
   if (!convColNames.includes("is_active")) {
     db.exec("ALTER TABLE conversations ADD COLUMN is_active INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!convColNames.includes("share_token")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN share_token TEXT");
+  }
+  if (!convColNames.includes("share_enabled")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN share_enabled INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!convColNames.includes("shared_at")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN shared_at TEXT");
   }
 
   const automationConversationCols = db
@@ -722,6 +734,7 @@ function migrate(db: Database.Database) {
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_conversations_folder ON conversations(folder_id, sort_order);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_conversations_share_token ON conversations(share_token);
     CREATE INDEX IF NOT EXISTS idx_messages_conversation_created_at ON messages(conversation_id, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_messages_compacted_at ON messages(conversation_id, compacted_at);
     CREATE INDEX IF NOT EXISTS idx_automations_enabled_next_run_at ON automations(enabled, next_run_at);

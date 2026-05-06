@@ -4,6 +4,7 @@ import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { ChatView } from "@/components/chat-view";
+import { ShareConversationProvider } from "@/components/share-conversation-context";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
 import type { SpeechSessionSnapshot, SttEngine, SttLanguage } from "@/lib/speech/types";
 import type { Message, MessageAttachment, MessageTimelineItem, QueuedMessage } from "@/lib/types";
@@ -189,7 +190,10 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
       sortOrder: 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      isActive: false
+      isActive: false,
+      shareEnabled: false,
+      shareToken: null,
+      sharedAt: null
     },
     messages: [] as Message[],
     queuedMessages: [],
@@ -448,6 +452,19 @@ describe("chat view", () => {
     );
   }
 
+  function renderWithShareProvider(ui: React.ReactElement, openShareModal = vi.fn()) {
+    return {
+      openShareModal,
+      ...renderWithProvider(
+        React.createElement(
+          ShareConversationProvider,
+          { value: { canShare: true, openShareModal } },
+          ui
+        )
+      )
+    };
+  }
+
   async function flushResizeObservers() {
     await act(async () => {
       for (const callback of resizeObserverCallbacks) {
@@ -455,6 +472,21 @@ describe("chat view", () => {
       }
     });
   }
+
+  it("places the desktop share control in the conversation title header", () => {
+    const openShareModal = vi.fn();
+    renderWithShareProvider(
+      React.createElement(ChatView, { payload: createPayload() }),
+      openShareModal
+    );
+
+    const shareButton = screen.getByRole("button", { name: "Share conversation" });
+    expect(shareButton.className).not.toContain("fixed");
+    expect(shareButton.className).toContain("md:flex");
+
+    fireEvent.click(shareButton);
+    expect(openShareModal).toHaveBeenCalledTimes(1);
+  });
 
   it("uploads an attachment from the file input and removes it from the pending list", async () => {
     const attachment = createAttachment();
