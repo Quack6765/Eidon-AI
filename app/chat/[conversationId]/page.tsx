@@ -59,6 +59,7 @@ export default async function ConversationPage({
       passwordLoginEnabled={isPasswordLoginEnabled()}
       conversationPage={ensureConversationInPage(conversationPage, conversation)}
       folders={folders}
+      currentConversation={conversation}
     >
       <ChatView
         payload={{

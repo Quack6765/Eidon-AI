@@ -5,7 +5,7 @@ import { jwtVerify } from "jose";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
 import { env, isPasswordLoginEnabled } from "@/lib/env";
 
-const publicPaths = ["/login"];
+const publicPaths = ["/login", "/share", "/api/share"];
 
 function getSecret() {
   return new TextEncoder().encode(env.EIDON_SESSION_SECRET);
