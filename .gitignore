@@ -17,6 +17,7 @@ ws-handler-compiled.cjs
 .conductor/
 agent-memory/
 docs/
+docs/superpowers
 tmp/
 
 .env*.local
