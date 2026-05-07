@@ -38,32 +38,33 @@
 
 ## What is Eidon?
 
-Eidon is an all-in-one assistant workspace you can self-host with a single Docker container. You bring your own model provider, keep your own data, and get a polished chat experience with memory, tools, automations, web search, and multi-user administration in one place.
+Eidon is a self-hostable AI assistant workspace for everyday work. It runs as one Docker image, stores app data locally, and lets you connect the model providers you already trust instead of committing to a locked-in hosted platform.
 
-It is designed to feel approachable on day one, whether you want a private assistant for personal use, day-to-day work, or a shared workspace for a group. Instead of stitching together a chat UI, auth, model routing, memory, browser tooling, and scheduling yourself, Eidon ships the whole workspace and lets you plug in the providers and tools you trust.
+Use it as a private assistant, a day-to-day work companion, or a shared workspace for a group. Eidon packages the chat experience, tool layer, memory, automation, and administration pieces behind a responsive UI that is easy to use and easy to self-host.
 
 ## Feature Highlights
 
-- Single Docker deployment with SQLite-backed persistence under `/app/data`
-- Multi-user workspace with `admin` and `user` roles
+- Single self-hostable Docker image with SQLite-backed persistence under `/app/data`
 - Bring-your-own-provider model routing instead of a locked-in hosted backend
-- Multiple provider profiles per workspace, including OpenAI-compatible endpoints and GitHub Copilot
+- Built-in web browsing through the bundled `agent-browser` skill
+- Built-in web search with Exa, Tavily, or SearXNG
 - Automatic memory system with conversation compaction for long-running threads
-- Chat forking from assistant replies when you want to branch a thread without losing context
-- Shareable chat conversations for sending read-only transcript links
-- Previous message editing with restart-from-edit flow for fast iteration
-- Personas you can switch in the composer to change assistant behavior per task
 - Reusable skills stored in-app and available across chats
 - MCP server support over `streamable_http` and `stdio`
 - Docker image already includes both `uvx` and `npx` for `stdio` MCP workflows
-- Built-in web search with Exa, Tavily, or SearXNG
-- Built-in browser automation via the bundled `agent-browser` skill
 - Scheduled automations with run history and transcript views
+- Personas you can switch in the composer to change assistant behavior per task
+- Full mobile PWA support for chat and admin flows
 - Streaming chat with visible action timelines
+- Multi-user workspace with `admin` and `user` roles
+- Multiple provider profiles per workspace, including OpenAI-compatible endpoints
+- Chat forking from assistant replies when you want to branch a thread without losing context
+- Shareable chat conversations for sending read-only transcript links
+- Previous message editing with restart-from-edit flow for fast iteration
 - Browser speech-to-text in the chat composer
 - Image generation support
-- Full mobile PWA support for chat and admin flows
-- Multiple clients stay in sync live through the websocket runtime
+- Multiple clients live sync
+- Support native or dedicated MCP server for vision capabilites
 
 ## Supported Providers
 
