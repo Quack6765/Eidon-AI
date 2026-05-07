@@ -50,6 +50,7 @@ It is designed to feel approachable on day one, whether you want a private assis
 - Multiple provider profiles per workspace, including OpenAI-compatible endpoints and GitHub Copilot
 - Automatic memory system with conversation compaction for long-running threads
 - Chat forking from assistant replies when you want to branch a thread without losing context
+- Shareable chat conversations for sending read-only transcript links
 - Previous message editing with restart-from-edit flow for fast iteration
 - Personas you can switch in the composer to change assistant behavior per task
 - Reusable skills stored in-app and available across chats
@@ -72,6 +73,7 @@ Eidon currently supports these provider options:
 - OpenRouter
 - Ollama Cloud
 - GLM Coding Plan
+- OpenCode Go
 - GitHub Copilot
 
 The OpenAI-compatible profile is manually configurable, so any service that exposes an OpenAI-compatible API can be connected through the same provider type.
@@ -269,35 +271,10 @@ Open [http://localhost:3000](http://localhost:3000).
 | `npm run test:e2e` | Run Playwright smoke and feature tests |
 | `npm run seed:readme-demo` | Create the disposable README screenshot dataset under `.context/readme-demo-data` |
 
-## Security & Storage Notes
-
-Eidon is powerful by design, so treat it like an admin-grade internal tool.
-
-- Always terminate TLS before exposing Eidon publicly.
-- Rate-limit `POST /api/auth/login` at your reverse proxy.
-- Use long, random values for the admin password and both secrets.
-- Persist `/app/data` on a named volume or host mount.
-- Treat MCP servers, browser automation, and shell-capable skills as trusted features.
-- Rotate provider keys and bootstrap secrets during redeploys when needed.
-
-For a public VPS deployment, the minimum baseline should be:
-
-- HTTPS
-- strong secrets
-- a persistent data volume
-- login rate limiting
-- a reverse proxy such as Caddy, Nginx, or Traefik
-
 ## License
 
 Eidon is licensed under the GNU Affero General Public License v3.0 (`AGPL-3.0-only`). See [LICENSE](./LICENSE).
 
-## Stack
+## AI-Assisted Development
 
-- Next.js App Router
-- React 19
-- TypeScript
-- SQLite via `better-sqlite3`
-- `argon2` for password hashing
-- `jose` for signed session cookies
-- `zod` for validation
+Eidon is developed in part with AI assistance. All code is carefully reviewed before it is accepted.
