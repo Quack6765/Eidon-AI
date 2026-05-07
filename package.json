@@ -15,7 +15,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "env -u NO_COLOR playwright test"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

@@ -59,9 +59,15 @@ export async function DELETE(
 
   const onlyIfEmptyParam = new URL(request.url).searchParams.get("onlyIfEmpty");
   const onlyIfEmpty = onlyIfEmptyParam === "1" || onlyIfEmptyParam === "true";
+  const conversation = getConversation(params.data.conversationId, user.id);
+
+  if (!conversation) {
+    return badRequest("Conversation not found", 404);
+  }
+
   const deleted = onlyIfEmpty
     ? deleteConversationIfEmpty(params.data.conversationId, user.id)
-    : (deleteConversation(params.data.conversationId, user.id), true);
+    : deleteConversation(params.data.conversationId, user.id);
 
   if (deleted) {
     try {

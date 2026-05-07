@@ -23,17 +23,28 @@ export async function PUT(request: Request) {
     return badRequest("Invalid account payload");
   }
 
-  await updateUsername(user.id, body.data.username);
+  try {
+    await updateUsername(user.id, body.data.username);
 
-  if (body.data.password) {
-    await updatePassword(user.id, body.data.password);
-    await invalidateAllSessionsForUser(user.id);
+    if (body.data.password) {
+      await updatePassword(user.id, body.data.password);
+      await invalidateAllSessionsForUser(user.id);
 
-    const session = await getSessionPayload();
+      const session = await getSessionPayload();
 
-    if (session) {
-      await clearSessionCookie();
+      if (session) {
+        await clearSessionCookie();
+      }
     }
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "Env-managed credentials cannot be changed in the UI"
+    ) {
+      return badRequest(error.message);
+    }
+
+    throw error;
   }
 
   return ok({ success: true });

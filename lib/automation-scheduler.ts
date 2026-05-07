@@ -35,6 +35,7 @@ type SchedulerHandle = {
 };
 
 const DEFAULT_POLL_INTERVAL_MS = 5 * 60_000;
+const MAX_TIMER_DELAY_MS = 2_147_483_647;
 const SCHEDULER_REGISTRY_KEY = Symbol.for("eidon.automation.schedulers");
 
 function getActiveSchedulers() {
@@ -327,9 +328,10 @@ export function createAutomationScheduler(dependencies: SchedulerDependencies = 
 
   function scheduleNextCycle() {
     const nextWakeAt = getNextWakeAt();
-    const delayMs = nextWakeAt
+    const rawDelayMs = nextWakeAt
       ? Math.max(0, new Date(nextWakeAt).getTime() - now().getTime())
       : pollIntervalMs;
+    const delayMs = Math.min(rawDelayMs, MAX_TIMER_DELAY_MS);
 
     timer = setTimeout(() => {
       void runCycle();

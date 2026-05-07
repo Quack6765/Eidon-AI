@@ -8,7 +8,7 @@ export default defineConfig({
     trace: "on-first-retry"
   },
   webServer: {
-    command: "rm -rf .e2e-data test-results && PORT=3117 npm run dev",
+    command: "rm -rf .e2e-data test-results && env -u NO_COLOR PORT=3117 npm run dev",
     url: "http://localhost:3117",
     reuseExistingServer: false,
     env: {

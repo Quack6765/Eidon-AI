@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import Image from "next/image";
 import {
   AlertCircle,
   ArrowUp,
@@ -293,11 +292,11 @@ export function ChatComposer({
               >
                 {attachment.kind === "image" ? (
                   <div className="relative h-9 w-9 overflow-hidden rounded-xl border border-white/10">
-                    <Image
+                    {/* eslint-disable-next-line @next/next/no-img-element -- Pending attachment thumbnails are API-served user files that next/image cannot safely optimize. */}
+                    <img
                       src={`/api/attachments/${attachment.id}`}
                       alt={attachment.filename}
-                      fill
-                      className="object-cover"
+                      className="h-full w-full object-cover"
                     />
                   </div>
                 ) : (
