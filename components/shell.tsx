@@ -17,6 +17,11 @@ import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { consumeHomeSubmitSidebarAutoHide } from "@/lib/chat-bootstrap";
 import { useGlobalWebSocket } from "@/lib/ws-client";
 
+const COPY_RESET_DELAY_MS = 1600;
+const COPY_FADE_DURATION_MS = 200;
+
+type ShareCopyState = "idle" | "copied" | "fading";
+
 type SharePayload = {
   enabled: boolean;
   token: string | null;
@@ -44,7 +49,9 @@ export function Shell({
   const [shareState, setShareState] = useState<SharePayload | null>(null);
   const [shareLoading, setShareLoading] = useState(false);
   const [shareError, setShareError] = useState("");
-  const [shareCopied, setShareCopied] = useState(false);
+  const [shareCopyState, setShareCopyState] = useState<ShareCopyState>("idle");
+  const shareCopyResetHandle = useRef<number | null>(null);
+  const shareCopyFadeHandle = useRef<number | null>(null);
   const consumedHomeSubmitAutoHideConversationIdRef = useRef<string | null>(null);
   const hasAppliedDesktopDefaultRef = useRef(false);
 
@@ -70,6 +77,19 @@ export function Shell({
   const isDesktopSidebarOpen = isSettingsPage || isSidebarOpen;
   const mobileMenuLabel = isSettingsPage ? "Open settings menu" : "Open menu";
   const sidebarToggleLabel = isSidebarOpen ? "Collapse sidebar" : "Expand sidebar";
+  const shareCopyAcknowledged = shareCopyState !== "idle";
+
+  const clearShareCopyTimers = () => {
+    if (shareCopyResetHandle.current) {
+      window.clearTimeout(shareCopyResetHandle.current);
+      shareCopyResetHandle.current = null;
+    }
+
+    if (shareCopyFadeHandle.current) {
+      window.clearTimeout(shareCopyFadeHandle.current);
+      shareCopyFadeHandle.current = null;
+    }
+  };
 
   const normalizeSharePayload = (payload: SharePayload): SharePayload => {
     if (!payload.token || !payload.enabled || typeof window === "undefined") {
@@ -110,7 +130,8 @@ export function Shell({
     }
 
     setShareModalOpen(true);
-    setShareCopied(false);
+    clearShareCopyTimers();
+    setShareCopyState("idle");
     setShareState({
       enabled: shareConversation.shareEnabled,
       token: shareConversation.shareToken,
@@ -128,7 +149,8 @@ export function Shell({
 
     setShareLoading(true);
     setShareError("");
-    setShareCopied(false);
+    clearShareCopyTimers();
+    setShareCopyState("idle");
 
     try {
       const response = await fetch(`/api/conversations/${shareConversation.id}/share`, {
@@ -142,11 +164,6 @@ export function Shell({
 
       const nextShare = normalizeSharePayload(await response.json() as SharePayload);
       setShareState(nextShare);
-
-      if (nextShare.url) {
-        await writeTextToClipboard(nextShare.url);
-        setShareCopied(true);
-      }
     } catch {
       setShareError("Unable to update sharing.");
     } finally {
@@ -159,16 +176,33 @@ export function Shell({
       return;
     }
 
-    setShareCopied(false);
+    clearShareCopyTimers();
+    setShareCopyState("idle");
     setShareError("");
 
     try {
       await writeTextToClipboard(shareState.url);
-      setShareCopied(true);
+      setShareCopyState("copied");
+
+      shareCopyResetHandle.current = window.setTimeout(() => {
+        setShareCopyState("fading");
+        shareCopyResetHandle.current = null;
+
+        shareCopyFadeHandle.current = window.setTimeout(() => {
+          setShareCopyState("idle");
+          shareCopyFadeHandle.current = null;
+        }, COPY_FADE_DURATION_MS);
+      }, COPY_RESET_DELAY_MS);
     } catch {
       setShareError("Unable to copy link.");
     }
   };
+
+  useEffect(() => {
+    return () => {
+      clearShareCopyTimers();
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -416,13 +450,22 @@ export function Shell({
                     variant="ghost"
                     className="h-10 w-10 shrink-0 rounded-md border border-white/6 bg-white/[0.02] px-0 text-white/35 hover:border-white/10 hover:bg-white/[0.05] hover:text-white/70"
                     onClick={() => void copyShareLink()}
-                    aria-label={shareCopied ? "Copied share link" : "Copy share link"}
-                    title={shareCopied ? "Copied" : "Copy link"}
+                    aria-label={shareCopyAcknowledged ? "Copied share link" : "Copy share link"}
+                    title={shareCopyAcknowledged ? "Copied" : "Copy link"}
+                    data-copy-state={shareCopyState}
                   >
-                    {shareCopied ? (
-                      <Check className="h-3.5 w-3.5 text-emerald-400" />
+                    {shareCopyAcknowledged ? (
+                      <span
+                        className={`flex h-3.5 w-3.5 items-center justify-center transition-[opacity,transform] duration-200 ease-out ${
+                          shareCopyState === "fading" ? "scale-90 opacity-0" : "scale-100 opacity-100"
+                        }`}
+                      >
+                        <Check className="h-3.5 w-3.5 text-emerald-400" />
+                      </span>
                     ) : (
-                      <Copy className="h-3.5 w-3.5" />
+                      <span className="flex h-3.5 w-3.5 items-center justify-center">
+                        <Copy className="h-3.5 w-3.5" />
+                      </span>
                     )}
                   </Button>
                 </div>

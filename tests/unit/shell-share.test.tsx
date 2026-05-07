@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Shell } from "@/components/shell";
@@ -111,10 +111,43 @@ describe("Shell sharing control", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Share this conversation" }));
 
     await waitFor(() => {
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-        `${window.location.origin}/share/share_public_token`
-      );
+      expect(screen.getByRole("button", { name: "Copy share link" })).toBeInTheDocument();
     });
+    expect(screen.queryByRole("button", { name: "Copied share link" })).not.toBeInTheDocument();
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Copy share link" }));
+      });
+
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`${window.location.origin}/share/share_public_token`);
+      expect(screen.getByRole("button", { name: "Copied share link" })).toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1599);
+      });
+      expect(screen.getByRole("button", { name: "Copied share link" })).toBeInTheDocument();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      const fadingCopyButton = screen.getByRole("button", { name: "Copied share link" });
+      expect(fadingCopyButton).toHaveAttribute("data-copy-state", "fading");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(199);
+      });
+      expect(screen.getByRole("button", { name: "Copied share link" })).toHaveAttribute("data-copy-state", "fading");
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(screen.getByRole("button", { name: "Copy share link" })).toHaveAttribute("data-copy-state", "idle");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses one sharing switch and keeps copying on the link icon button", async () => {
