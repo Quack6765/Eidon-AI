@@ -223,14 +223,14 @@ export function Shell({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-40 bg-black/70 backdrop-blur-sm md:hidden"
+            className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm md:hidden"
             onClick={() => setIsSidebarOpen(false)}
           />
         )}
       </AnimatePresence>
 
       <div
-        className={`fixed inset-y-0 left-0 z-50 w-[280px] transform transition-transform duration-300 ease-out border-r border-white/5 ${
+        className={`fixed inset-y-0 left-0 z-[70] w-[280px] transform transition-transform duration-300 ease-out border-r border-white/5 md:z-50 ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${
           isDesktopSidebarOpen ? "md:translate-x-0" : "md:-translate-x-full"

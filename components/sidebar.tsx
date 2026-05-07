@@ -1175,7 +1175,7 @@ export function Sidebar({
 
   return (
     <aside className="no-scrollbar flex h-full w-full flex-col bg-transparent text-gray-300">
-      <div className="flex h-full flex-col px-4 py-6">
+      <div className="flex h-full min-h-0 flex-col px-4 py-6">
         <div className="mb-8 px-2">
           <Link
             href="/"
@@ -1285,7 +1285,7 @@ export function Sidebar({
 
         <div
           ref={scrollContainerRef}
-          className="scrollbar-thin flex-1 overflow-y-auto overflow-x-hidden pr-1 -mr-1 space-y-8"
+          className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 -mr-1 space-y-8"
         >
           <div>
             <div className="flex items-center justify-between px-2 mb-3">
@@ -1344,7 +1344,9 @@ export function Sidebar({
           )}
         </div>
 
-        <SidebarFooterNav onNavigateAction={navigateToHref} />
+        <div className="shrink-0">
+          <SidebarFooterNav onNavigateAction={navigateToHref} />
+        </div>
       </div>
     </aside>
   );

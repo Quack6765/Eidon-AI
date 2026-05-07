@@ -206,4 +206,19 @@ describe("Desktop Sidebar Toggle", () => {
     expect(screen.getByRole("button", { name: "Collapse sidebar" })).toBeInTheDocument();
     expect(screen.getByTestId("sidebar").parentElement).toHaveClass("md:translate-x-0");
   });
+
+  it("layers the open mobile sidebar above fixed chat composer content", () => {
+    mockPathname = "/chat/conv_existing";
+    setViewportWidth(390);
+
+    render(<Shell {...mockProps} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+
+    const overlay = Array.from(document.querySelectorAll("div")).find((element) => {
+      return element.className.includes("bg-black/70") && element.className.includes("md:hidden");
+    });
+
+    expect(overlay).toHaveClass("z-[60]");
+    expect(screen.getByTestId("sidebar").parentElement).toHaveClass("z-[70]");
+  });
 });
