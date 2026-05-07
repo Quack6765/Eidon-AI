@@ -250,6 +250,189 @@ function renderAssistantMarkdown(content: string, isStreaming: boolean) {
   );
 }
 
+function getMarkdownTableCellCount(line: string) {
+  const trimmed = line.trim();
+
+  if (!trimmed.startsWith("|")) {
+    return 0;
+  }
+
+  const inner = trimmed
+    .replace(/^\|/, "")
+    .replace(/\|$/, "");
+
+  return inner.split("|").length;
+}
+
+function isMarkdownTableAlignmentCell(cell: string) {
+  return /^:?-{3,}:?$/.test(cell.trim());
+}
+
+function splitCollapsedMarkdownAlignmentLine(line: string) {
+  if (!line.trimStart().startsWith("|")) {
+    return null;
+  }
+
+  const parts = line.split("|");
+  let alignmentCellCount = 0;
+
+  for (let index = 1; index < parts.length; index += 1) {
+    if (!isMarkdownTableAlignmentCell(parts[index])) {
+      break;
+    }
+
+    alignmentCellCount += 1;
+  }
+
+  if (alignmentCellCount < 2) {
+    return null;
+  }
+
+  const nextPartIndex = alignmentCellCount + 1;
+  const nextPart = parts[nextPartIndex];
+  const followingPart = parts[nextPartIndex + 1];
+
+  if (nextPart === undefined || (nextPart.trim() !== "" || followingPart === undefined)) {
+    return null;
+  }
+
+  return {
+    alignmentLine: `|${parts.slice(1, nextPartIndex).join("|")}|`,
+    remainderLine: `|${parts.slice(nextPartIndex + 1).join("|")}`,
+    columnCount: alignmentCellCount
+  };
+}
+
+function splitCollapsedMarkdownHeaderAlignmentLine(line: string) {
+  if (!line.trimStart().startsWith("|")) {
+    return null;
+  }
+
+  const parts = line.split("|");
+
+  for (let boundaryIndex = 2; boundaryIndex < parts.length - 2; boundaryIndex += 1) {
+    if (parts[boundaryIndex].trim() !== "") {
+      continue;
+    }
+
+    const headerCells = parts.slice(1, boundaryIndex);
+    let alignmentCellCount = 0;
+
+    for (let index = boundaryIndex + 1; index < parts.length; index += 1) {
+      if (!isMarkdownTableAlignmentCell(parts[index])) {
+        break;
+      }
+
+      alignmentCellCount += 1;
+    }
+
+    const nextPartIndex = boundaryIndex + alignmentCellCount + 1;
+    const nextPart = parts[nextPartIndex];
+    const followingPart = parts[nextPartIndex + 1];
+
+    if (
+      headerCells.length < 2 ||
+      alignmentCellCount !== headerCells.length ||
+      nextPart === undefined ||
+      nextPart.trim() !== "" ||
+      followingPart === undefined
+    ) {
+      continue;
+    }
+
+    return {
+      headerLine: `|${headerCells.join("|")}|`,
+      alignmentLine: `|${parts.slice(boundaryIndex + 1, nextPartIndex).join("|")}|`,
+      remainderLine: `|${parts.slice(nextPartIndex + 1).join("|")}`,
+      columnCount: alignmentCellCount
+    };
+  }
+
+  return null;
+}
+
+function splitCollapsedMarkdownTableRows(line: string, columnCount: number) {
+  const rows: string[] = [];
+  let current = line;
+
+  while (current.includes("||") && getMarkdownTableCellCount(current) > columnCount) {
+    const splitIndex = current.indexOf("||");
+    rows.push(`${current.slice(0, splitIndex)}|`);
+    current = `|${current.slice(splitIndex + 2).trimStart()}`;
+  }
+
+  const headingIndex = current.indexOf("|**");
+
+  if (
+    headingIndex !== -1 &&
+    getMarkdownTableCellCount(current.slice(0, headingIndex + 1)) >= columnCount
+  ) {
+    rows.push(current.slice(0, headingIndex + 1));
+    rows.push("");
+    rows.push(current.slice(headingIndex + 1));
+    return rows;
+  }
+
+  rows.push(current);
+  return rows;
+}
+
+function repairCollapsedMarkdownTableBoundaries(content: string) {
+  const repairedLines: string[] = [];
+  let activeTableColumnCount: number | null = null;
+
+  content.split("\n").forEach((line) => {
+    const headerAlignmentSplit = splitCollapsedMarkdownHeaderAlignmentLine(line);
+
+    if (headerAlignmentSplit) {
+      activeTableColumnCount = headerAlignmentSplit.columnCount;
+      repairedLines.push(headerAlignmentSplit.headerLine);
+      repairedLines.push(headerAlignmentSplit.alignmentLine);
+      repairedLines.push(
+        ...splitCollapsedMarkdownTableRows(
+          headerAlignmentSplit.remainderLine,
+          headerAlignmentSplit.columnCount
+        )
+      );
+      return;
+    }
+
+    const alignmentSplit = splitCollapsedMarkdownAlignmentLine(line);
+
+    if (alignmentSplit) {
+      activeTableColumnCount = alignmentSplit.columnCount;
+      repairedLines.push(alignmentSplit.alignmentLine);
+      repairedLines.push(
+        ...splitCollapsedMarkdownTableRows(
+          alignmentSplit.remainderLine,
+          alignmentSplit.columnCount
+        )
+      );
+      return;
+    }
+
+    if (activeTableColumnCount && line.trimStart().startsWith("|")) {
+      repairedLines.push(...splitCollapsedMarkdownTableRows(line, activeTableColumnCount));
+      return;
+    }
+
+    if (line.trim() === "" || !line.trimStart().startsWith("|")) {
+      activeTableColumnCount = null;
+    }
+
+    repairedLines.push(line);
+  });
+
+  return repairedLines.join("\n");
+}
+
+function getRenderableAssistantMarkdown(content: string, attachments: MessageAttachment[]) {
+  return stripAttachmentStyleImageMarkdown(
+    repairCollapsedMarkdownTableBoundaries(normalizeMarkdownLineBreaks(content)),
+    attachments
+  );
+}
+
 export function TypingIndicator({ compact = false }: { compact?: boolean }) {
   return (
     <div className={compact ? "flex items-center gap-1" : "flex items-center gap-1.5 px-1 py-2"}>
@@ -901,10 +1084,6 @@ export function MessageBubble({
       return next;
     }
 
-    if (current.endsWith(next)) {
-      return current;
-    }
-
     return `${current}${next}`;
   }
 
@@ -942,14 +1121,15 @@ export function MessageBubble({
     )
     .map((item) => item.content)
     .join("");
+  const normalizedConsumedText = normalizeMarkdownLineBreaks(consumedText);
 
-  if (rawContent && rawContent.length > consumedText.length) {
+  if (content && content.length > normalizedConsumedText.length) {
     assistantBlocks.push({
       id: `content_${message.id}_remaining`,
       timelineKind: "text",
       sortOrder: assistantBlocks.length,
       createdAt: message.createdAt,
-      content: rawContent.slice(consumedText.length)
+      content: content.slice(normalizedConsumedText.length)
     });
   }
 
@@ -971,7 +1151,7 @@ export function MessageBubble({
     .join("");
   const renderedAssistantText =
     message.role === "assistant"
-      ? stripAttachmentStyleImageMarkdown(assistantText, message.attachments ?? [])
+      ? getRenderableAssistantMarkdown(assistantText, message.attachments ?? [])
       : assistantText;
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
@@ -999,10 +1179,7 @@ export function MessageBubble({
         return;
       }
 
-      const renderedContent = stripAttachmentStyleImageMarkdown(
-        item.content,
-        message.attachments ?? []
-      );
+      const renderedContent = getRenderableAssistantMarkdown(item.content, message.attachments ?? []);
 
       renderedAssistantBlockContentById.set(item.id, renderedContent);
 
@@ -1144,8 +1321,8 @@ export function MessageBubble({
                   }}
                 />
               ) : content ? (
-                <div ref={contentRef}>
-                  <p className="whitespace-pre-wrap text-[14.5px] leading-7">{content}</p>
+                <div ref={contentRef} className="markdown-body">
+                  <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{content}</ReactMarkdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
