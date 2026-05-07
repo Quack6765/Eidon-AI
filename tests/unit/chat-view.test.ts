@@ -3486,6 +3486,63 @@ describe("chat view", () => {
     }));
   });
 
+  it("prevents downward wheel scrolling into padding-only space for short chats", async () => {
+    const { container } = renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          messages: [
+            createMessage({
+              id: "msg_short_user",
+              role: "user",
+              content: "Short prompt"
+            }),
+            createMessage({
+              id: "msg_short_assistant",
+              role: "assistant",
+              content: "Short answer"
+            })
+          ]
+        })
+      })
+    );
+    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
+
+    let scrollTop = 0;
+    Object.defineProperty(queue, "clientHeight", { configurable: true, get: () => 200 });
+    Object.defineProperty(queue, "scrollHeight", { configurable: true, get: () => 240 });
+    Object.defineProperty(queue, "scrollTop", {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => { scrollTop = value; }
+    });
+    Object.defineProperty(queue, "scrollTo", {
+      configurable: true,
+      value: vi.fn(({ top }: { top?: number }) => {
+        if (typeof top === "number") {
+          scrollTop = top;
+        }
+      })
+    });
+
+    await flushResizeObservers();
+    await flushAnimationFrame();
+
+    const wheelEvent = new WheelEvent("wheel", {
+      bubbles: true,
+      cancelable: true,
+      deltaY: 120
+    });
+
+    const defaultAllowed = fireEvent(queue, wheelEvent);
+    if (defaultAllowed && !wheelEvent.defaultPrevented) {
+      scrollTop = 60;
+    }
+
+    expect(wheelEvent.defaultPrevented).toBe(true);
+    expect(scrollTop).toBe(0);
+    expect(screen.queryByRole("button", { name: "Scroll to newest messages" })).toBeNull();
+  });
+
   it("transitions to following mode when streaming content fills the viewport", async () => {
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
