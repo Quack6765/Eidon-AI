@@ -848,6 +848,54 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     suppressNextScrollEventRef.current = false;
   }
 
+  const preventPaddingOnlyScroll = useCallback((event: { preventDefault: () => void }) => {
+    if (!queueRef.current) {
+      return false;
+    }
+
+    const bottomTarget = getComposerAwareBottomTarget(queueRef.current, scrollPadding);
+    if (bottomTarget > 0) {
+      return false;
+    }
+
+    event.preventDefault();
+    if (queueRef.current.scrollTop > bottomTarget) {
+      suppressNextScrollEventRef.current = true;
+      queueRef.current.scrollTo?.({ top: bottomTarget, behavior: "auto" });
+      queueRef.current.scrollTop = bottomTarget;
+      requestAnimationFrame(() => {
+        suppressNextScrollEventRef.current = false;
+      });
+    }
+    setIsConversationAtBottom(true);
+    shouldAutoScrollRef.current = true;
+    userScrollIntentRef.current = false;
+    return true;
+  }, [scrollPadding]);
+
+  useEffect(() => {
+    const el = queueRef.current;
+    if (!el) return;
+
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaY > 0) {
+        preventPaddingOnlyScroll(event);
+      }
+    };
+
+    const handleTouchMove = (event: TouchEvent) => {
+      preventPaddingOnlyScroll(event);
+    };
+
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    el.addEventListener("touchmove", handleTouchMove, { passive: false });
+
+    return () => {
+      el.removeEventListener("wheel", handleWheel);
+      el.removeEventListener("touchmove", handleTouchMove);
+    };
+  }, [preventPaddingOnlyScroll]);
+
   const followAnchoredOverflowIfNeeded = useCallback(() => {
     const canFollowAnchor =
       scrollModeRef.current === "anchored" ||
@@ -2219,11 +2267,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             !streamMessageIdRef.current &&
             queueRef.current.scrollTop > bottomTarget + ANCHOR_SCROLL_TOLERANCE_PX
           ) {
+            const isPaddingOnlyScroll = bottomTarget <= 0;
             suppressNextScrollEventRef.current = true;
             queueRef.current.scrollTo?.({ top: bottomTarget, behavior: "auto" });
             queueRef.current.scrollTop = bottomTarget;
             setIsConversationAtBottom(true);
-            shouldAutoScrollRef.current = false;
+            shouldAutoScrollRef.current = isPaddingOnlyScroll;
             userScrollIntentRef.current = false;
             requestAnimationFrame(() => {
               suppressNextScrollEventRef.current = false;
@@ -2268,10 +2317,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           shouldAutoScrollRef.current = nextIsAtBottom;
           userScrollIntentRef.current = false;
         }}
-        onWheel={() => {
+        onWheel={(event) => {
+          if (event.deltaY > 0 && preventPaddingOnlyScroll(event)) {
+            return;
+          }
           cancelAutoScrollForUserIntent();
         }}
-        onTouchMove={() => {
+        onTouchMove={(event) => {
+          if (preventPaddingOnlyScroll(event)) {
+            return;
+          }
           cancelAutoScrollForUserIntent();
         }}
         onPointerDown={() => {
