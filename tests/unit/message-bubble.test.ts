@@ -41,6 +41,10 @@ function createUserMessage(): Message {
   };
 }
 
+function normalizeEscapedLineBreaksForTest(content: string) {
+  return content.replace(/\\n/g, "\n");
+}
+
 function createMemoryProposalAction(
   overrides: Partial<Extract<MessageTimelineItem, { timelineKind: "action" }>> = {}
 ) {
@@ -542,6 +546,41 @@ describe("message bubble", () => {
     expect(bubbles[0]?.textContent).toContain("Hello there");
   });
 
+  it("does not append a second assistant bubble when normalized timeline text already covers escaped message content", () => {
+    const escapedContent = [
+      "Here is the table:",
+      "",
+      "| Name | Department |",
+      "| --- | --- |",
+      "| Elena Varga | Engineering |"
+    ].join("\\n");
+
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: escapedContent,
+          timeline: [
+            {
+              id: "txt_table",
+              timelineKind: "text",
+              sortOrder: 0,
+              createdAt: new Date().toISOString(),
+              content: normalizeEscapedLineBreaksForTest(escapedContent)
+            }
+          ]
+        }
+      })
+    );
+
+    const bubbles = container.querySelectorAll('[data-testid="assistant-message-bubble"]');
+
+    expect(bubbles).toHaveLength(1);
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(bubbles[0]?.textContent).toContain("Elena Varga");
+    expect(bubbles[0]?.textContent).not.toContain("\\n");
+  });
+
   it("renders memory proposal cards after the full assistant answer", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
@@ -843,6 +882,82 @@ describe("message bubble", () => {
     );
     expect(container.querySelector('input[type="checkbox"]')).not.toBeNull();
     expect(container.querySelector("hr")).not.toBeNull();
+  });
+
+  it("renders GFM tables from completed assistant timeline text with escaped line breaks", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "",
+          timeline: [
+            {
+              id: "txt_table",
+              timelineKind: "text",
+              sortOrder: 0,
+              createdAt: new Date().toISOString(),
+              content: [
+                "Here is the table:",
+                "",
+                "| Name | Department |",
+                "| :--- | :--- |",
+                "| Elena Varga | Engineering |"
+              ].join("\\n")
+            }
+          ]
+        }
+      })
+    );
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Name" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Engineering" })).toBeInTheDocument();
+  });
+
+  it("repairs collapsed assistant table row boundaries from persisted completion text", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: [
+            "Dataset:",
+            "",
+            "| Name | Department | Role |",
+            "| :--- | :--- | :--- || Elena Varga | Engineering | Backend Dev |",
+            "| Tom Bradley | Engineering | Manager || Fatima Al-Rashid | Data | Data Analyst |**Key notes about the data:**",
+            "- **Performance Scores** are on a 0-100 scale.- **Remote Status** categories: On-site, Hybrid, Full-time."
+          ].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Elena Varga" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Fatima Al-Rashid" })).toBeInTheDocument();
+    expect(within(screen.getByRole("table")).queryByText("Key notes about the data:")).toBeNull();
+    expect(screen.getByText("Key notes about the data:")).toBeInTheDocument();
+  });
+
+  it("repairs collapsed assistant table header, divider, and first row from persisted completion text", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: [
+            "Mission log:",
+            "",
+            "| Mission ID | Planet | Commander | Crew | Status ||------------|--------|-----------|------|--------|| TH-001 | Xerion-IV | Capt. Elena Voss | 4 | Completed |",
+            "| TH-002 | Krell Moons | Lt. Jace Okonkwo | 6 | Completed |"
+          ].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Mission ID" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "TH-001" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Xerion-IV" })).toBeInTheDocument();
+    expect(screen.queryByText(/------------/)).toBeNull();
   });
 
   it("renders fenced assistant code blocks with a language label and block-local copy action", () => {
@@ -1367,6 +1482,21 @@ describe("message bubble", () => {
     expect(
       screen.queryByRole("button", { name: "Fork conversation from message" })
     ).toBeNull();
+  });
+
+  it("renders GFM tables inside user message bubbles", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: ["| Symbol | Price |", "| --- | ---: |", "| AAPL | $198 |"].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Symbol" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "$198" })).toBeInTheDocument();
   });
 
   it("allows editing user messages through the inline controls", async () => {
