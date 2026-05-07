@@ -2369,18 +2369,18 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               "pointer-events-none absolute z-50 flex items-center",
               "left-3 sm:left-5",
               queueBannerHeight > 0
-                ? "-top-10 md:left-[-12px] md:-translate-x-full md:-translate-y-1/2 md:bottom-4 md:top-auto"
-                : "bottom-full mb-2 translate-y-0 md:left-[-12px] md:-translate-x-full md:-translate-y-1/2 md:top-1/2 md:bottom-auto md:mb-0"
+                ? "-top-10 md:left-full md:ml-3 md:top-auto md:bottom-4 md:translate-x-0"
+                : "bottom-full mb-2 translate-y-0 md:left-full md:ml-3 md:top-1/2 md:-translate-y-1/2 md:bottom-auto md:mb-0 md:translate-x-0"
             )}>
               <button
                 type="button"
                 onClick={jumpToBottom}
-                className="pointer-events-auto relative inline-flex h-8 w-8 items-center justify-center gap-2 rounded-full border border-[var(--accent)]/45 bg-[var(--panel)] px-2 text-[var(--accent)] shadow-[0_2px_12px_rgba(0,0,0,0.45)] transition-colors duration-150 before:pointer-events-none before:absolute before:inset-0 before:rounded-[inherit] before:bg-[var(--accent)] before:opacity-0 before:transition-opacity before:duration-150 hover:before:opacity-[0.16] active:scale-95 md:w-auto md:min-w-[8rem] md:justify-start"
+                className="pointer-events-auto relative inline-flex h-8 w-8 items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-2 text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-150 hover:opacity-90 active:scale-[0.96] whitespace-nowrap md:w-auto md:justify-start md:px-4 md:py-2"
                 aria-label="Scroll to newest messages"
                 title="Scroll to bottom"
               >
                 ↓
-                <span className="hidden md:inline text-[11px] font-medium text-[var(--text)]/85">Latest messages</span>
+                <span className="hidden md:inline text-xs font-semibold">Latest messages</span>
               </button>
             </div>
           ) : null}
