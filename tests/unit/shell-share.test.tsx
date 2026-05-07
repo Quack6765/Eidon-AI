@@ -182,6 +182,8 @@ describe("Shell sharing control", () => {
     expect(screen.queryByText("Only workspace users can read it.")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Enable sharing" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Disable sharing" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy share link" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Copy share link" })).toBeInTheDocument();
+    });
   });
 });
