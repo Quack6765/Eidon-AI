@@ -4,7 +4,7 @@
   <img src="./.github/readme/eidon-wordmark.svg" alt="Eidon wordmark" width="460" />
 
   <p>
-    <strong>Eidon is a self-hosted, single-container, bring-your-own-provider AI assistant for anyone who wants something in the shape of ChatGPT, Gemini, or Claude, but on infrastructure they control.</strong>
+    <strong>Eidon is a powerful BYOK AI assistant for everyday work, bundled into one easy self-hosted Docker image.</strong>
   </p>
 
   <p>
