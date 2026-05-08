@@ -889,6 +889,58 @@ describe("provider integration", () => {
     ]);
   });
 
+  it("replays assistant reasoning_content for DeepSeek chat-completions tool turns", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([
+        { choices: [{ delta: { content: "Done" } }] }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        apiBaseUrl: "https://opencode.ai/zen/go/v1",
+        model: "deepseek-v4-flash",
+        apiMode: "chat_completions"
+      }),
+      promptMessages: [
+        { role: "user", content: "What is the weather?" },
+        {
+          role: "assistant",
+          content: "",
+          reasoningContent: "I need the date before calling the weather tool.",
+          toolCalls: [{ id: "call_date", name: "get_date", arguments: "{}" }]
+        },
+        { role: "tool", toolCallId: "call_date", content: "2026-05-08" }
+      ]
+    });
+
+    while (!(await stream.next()).done) {
+      // drain
+    }
+
+    expect(chatCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: expect.arrayContaining([
+          expect.objectContaining({
+            role: "assistant",
+            reasoning_content: "I need the date before calling the weather tool.",
+            tool_calls: [
+              {
+                id: "call_date",
+                type: "function",
+                function: { name: "get_date", arguments: "{}" }
+              }
+            ]
+          })
+        ])
+      }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal)
+      })
+    );
+  });
+
   it("serializes assistant tool calls and accumulates streamed chat tool call chunks", async () => {
     chatCreate.mockResolvedValue(
       createAsyncStream([

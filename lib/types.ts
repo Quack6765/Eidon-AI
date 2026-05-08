@@ -491,6 +491,7 @@ export type PromptMessage = {
   content: string | PromptContentPart[];
   toolCallId?: string;
   toolCalls?: ProviderToolCall[];
+  reasoningContent?: string;
 };
 
 export type ToolDefinition = {

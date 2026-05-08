@@ -19,6 +19,10 @@ export function supportsVisibleReasoning(model: string, apiMode: ApiMode) {
     return true;
   }
 
+  if (apiMode === "chat_completions" && normalized.startsWith("deepseek-")) {
+    return true;
+  }
+
   if (apiMode !== "responses") {
     return false;
   }
