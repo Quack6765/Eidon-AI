@@ -831,15 +831,9 @@ async function executeMcpToolCall(
 
   const resultMsg = buildToolResultMessage(toolCallId, resultText);
 
-  const assistantMsg: PromptMessage = {
-    role: "assistant",
-    content: "",
-    toolCalls: [{ id: toolCallId, name: functionName, arguments: JSON.stringify(correctedArgs) }]
-  };
-
   return {
     nextSortOrder: sortOrder,
-    promptMessages: [...context.promptMessages, assistantMsg, resultMsg]
+    promptMessages: [...context.promptMessages, resultMsg]
   };
 }
 
@@ -1411,6 +1405,16 @@ export async function resolveAssistantTurn(input: {
     if (answer) {
       await commitAnswerSegment(answer);
     }
+
+    promptMessages = [
+      ...promptMessages,
+      {
+        role: "assistant",
+        content: answer,
+        reasoningContent: thinking || undefined,
+        toolCalls
+      }
+    ];
 
     if (step === MAX_ASSISTANT_CONTROL_STEPS - 1) {
       const forcedResult = await forceDirectAnswerAfterToolLoop({

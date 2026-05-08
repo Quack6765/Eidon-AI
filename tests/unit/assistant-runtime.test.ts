@@ -1,4 +1,4 @@
-import type { ChatStreamEvent, ProviderProfileWithApiKey, Skill } from "@/lib/types";
+import type { ChatStreamEvent, PromptMessage, ProviderProfileWithApiKey, Skill } from "@/lib/types";
 
 const streamProviderResponse = vi.fn();
 const callProviderText = vi.fn();
@@ -242,6 +242,53 @@ ${JSON.stringify({
     expect(started).toEqual([expect.objectContaining({ kind: "skill_load", label: "Load skill", detail: "Release Notes" })]);
     expect(completed).toEqual([{ handle: "act_skill", resultSummary: "Skill instructions loaded." }]);
     expect(result.answer).toBe("Done");
+  });
+
+  it("keeps assistant reasoning on the replayed tool-call message", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "Need to load the release-notes skill.",
+          toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }],
+          usage: { inputTokens: 10 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done",
+          thinking: "",
+          usage: { inputTokens: 20, outputTokens: 1 }
+        })
+      );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Write release notes" }],
+      skills: [createSkill()],
+      mcpToolSets: [],
+      onEvent: () => {},
+      onActionStart: () => "act_skill",
+      onActionComplete: () => {}
+    });
+
+    const replayMessages = (streamProviderResponse.mock.calls[1]?.[0]?.promptMessages ?? []) as PromptMessage[];
+    const assistantReplay = replayMessages.find((message) => message.role === "assistant");
+
+    expect(assistantReplay).toEqual(
+      expect.objectContaining({
+        role: "assistant",
+        reasoningContent: "Need to load the release-notes skill.",
+        toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }]
+      })
+    );
+    expect(replayMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: "tool", toolCallId: "call_1" })
+      ])
+    );
   });
 
   it("injects enum values into MCP tool descriptions", async () => {

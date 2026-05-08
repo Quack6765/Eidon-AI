@@ -150,7 +150,20 @@ function buildResponsesInput(messages: PromptMessage[]): any[] {
   return input;
 }
 
-function buildChatCompletionMessages(messages: PromptMessage[]): any[] {
+function usesDeepSeekThinkingReplay(settings: ProviderProfile) {
+  if (settings.apiMode !== "chat_completions") {
+    return false;
+  }
+
+  const model = settings.model.trim().toLowerCase();
+  const baseUrl = settings.apiBaseUrl.trim().toLowerCase();
+
+  return model.startsWith("deepseek-") || baseUrl.includes("deepseek.com");
+}
+
+function buildChatCompletionMessages(messages: PromptMessage[], settings?: ProviderProfile): any[] {
+  const replayReasoningContent = settings ? usesDeepSeekThinkingReplay(settings) : false;
+
   return messages.map((message) => {
     if (message.role === "tool") {
       return {
@@ -161,7 +174,7 @@ function buildChatCompletionMessages(messages: PromptMessage[]): any[] {
     }
 
     if (message.role === "assistant" && message.toolCalls?.length) {
-      return {
+      const assistantMessage: Record<string, unknown> = {
         role: "assistant" as const,
         content: typeof message.content === "string" && message.content.trim() ? message.content : null,
         tool_calls: message.toolCalls.map((tc) => ({
@@ -169,6 +182,23 @@ function buildChatCompletionMessages(messages: PromptMessage[]): any[] {
           type: "function" as const,
           function: { name: tc.name, arguments: tc.arguments }
         }))
+      };
+
+      if (replayReasoningContent && message.reasoningContent?.trim()) {
+        assistantMessage.reasoning_content = message.reasoningContent;
+        if (assistantMessage.content === null) {
+          assistantMessage.content = "";
+        }
+      }
+
+      return assistantMessage;
+    }
+
+    if (message.role === "assistant" && replayReasoningContent && message.reasoningContent?.trim()) {
+      return {
+        role: "assistant" as const,
+        content: toChatCompletionContentParts(message.content),
+        reasoning_content: message.reasoningContent
       };
     }
 
@@ -385,7 +415,7 @@ export async function callProviderText(input: {
 
   const response = await client.chat.completions.create({
     model: settings.model,
-    messages: buildChatCompletionMessages(contextualPrompt),
+    messages: buildChatCompletionMessages(contextualPrompt, settings),
     temperature: settings.temperature,
     max_completion_tokens: Math.min(settings.maxOutputTokens, 4000),
     ...buildChatCompletionsOptions(settings)
@@ -853,7 +883,7 @@ export async function* streamProviderResponse(input: {
 
   const chatCreateParams: Record<string, unknown> = {
     model: settings.model,
-    messages: buildChatCompletionMessages(contextualPromptMessages),
+    messages: buildChatCompletionMessages(contextualPromptMessages, settings),
     stream: true,
     temperature: settings.temperature,
     max_completion_tokens: settings.maxOutputTokens,
