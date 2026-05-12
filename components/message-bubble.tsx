@@ -334,10 +334,18 @@ function splitCollapsedMarkdownHeaderAlignmentLine(line: string) {
       headerCells.length < 2 ||
       alignmentCellCount !== headerCells.length ||
       nextPart === undefined ||
-      nextPart.trim() !== "" ||
-      followingPart === undefined
+      nextPart.trim() !== ""
     ) {
       continue;
+    }
+
+    if (followingPart === undefined) {
+      return {
+        headerLine: `|${headerCells.join("|")}|`,
+        alignmentLine: `|${parts.slice(boundaryIndex + 1, nextPartIndex).join("|")}|`,
+        remainderLine: "",
+        columnCount: alignmentCellCount
+      };
     }
 
     return {
@@ -377,6 +385,49 @@ function splitCollapsedMarkdownTableRows(line: string, columnCount: number) {
   return rows;
 }
 
+function isMarkdownTableAlignmentRow(line: string) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("|")) return false;
+  const inner = trimmed.replace(/^\|/, "").replace(/\|$/, "");
+  if (inner === "") return false;
+  return inner.split("|").every((cell) => isMarkdownTableAlignmentCell(cell));
+}
+
+function repairTableColumnMismatch(content: string) {
+  const lines = content.split("\n");
+  const result: string[] = [];
+  let pendingHeaderColumnCount: number | null = null;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!trimmed.startsWith("|")) {
+      pendingHeaderColumnCount = null;
+      result.push(line);
+      continue;
+    }
+
+    const cellCount = getMarkdownTableCellCount(line);
+
+    if (isMarkdownTableAlignmentRow(line) && pendingHeaderColumnCount !== null && cellCount > pendingHeaderColumnCount) {
+      const parts = line.split("|");
+      result.push(`|${parts.slice(1, pendingHeaderColumnCount + 1).join("|")}|`);
+      pendingHeaderColumnCount = null;
+      continue;
+    }
+
+    if (!isMarkdownTableAlignmentRow(line)) {
+      pendingHeaderColumnCount = cellCount;
+    } else {
+      pendingHeaderColumnCount = null;
+    }
+
+    result.push(line);
+  }
+
+  return result.join("\n");
+}
+
 function repairCollapsedMarkdownTableBoundaries(content: string) {
   const repairedLines: string[] = [];
   let activeTableColumnCount: number | null = null;
@@ -388,12 +439,14 @@ function repairCollapsedMarkdownTableBoundaries(content: string) {
       activeTableColumnCount = headerAlignmentSplit.columnCount;
       repairedLines.push(headerAlignmentSplit.headerLine);
       repairedLines.push(headerAlignmentSplit.alignmentLine);
-      repairedLines.push(
-        ...splitCollapsedMarkdownTableRows(
-          headerAlignmentSplit.remainderLine,
-          headerAlignmentSplit.columnCount
-        )
-      );
+      if (headerAlignmentSplit.remainderLine) {
+        repairedLines.push(
+          ...splitCollapsedMarkdownTableRows(
+            headerAlignmentSplit.remainderLine,
+            headerAlignmentSplit.columnCount
+          )
+        );
+      }
       return;
     }
 
@@ -426,9 +479,87 @@ function repairCollapsedMarkdownTableBoundaries(content: string) {
   return repairedLines.join("\n");
 }
 
+function repairMergedBlockElements(content: string) {
+  const lines = content.split("\n");
+  const result: string[] = [];
+
+  for (const line of lines) {
+    if (line.trimStart().startsWith("|")) {
+      result.push(line);
+      continue;
+    }
+
+    const trimmed = line.trim();
+
+    if (/^[\u2014\u2013]{2,}$/.test(trimmed)) {
+      result.push("---");
+      continue;
+    }
+
+    const dashPrefix = trimmed.match(/^([\u2014\u2013]{2,})(.+)$/);
+    if (dashPrefix) {
+      result.push("---");
+      result.push("");
+      result.push(dashPrefix[2].trimStart());
+      continue;
+    }
+
+    const dashSuffix = trimmed.match(/^(.+?)([\u2014\u2013]{2,})\s*$/);
+    if (dashSuffix) {
+      result.push(dashSuffix[1].trimEnd());
+      result.push("");
+      result.push("---");
+      continue;
+    }
+
+    const dashMidIdx = trimmed.search(/[^\s\u2014\u2013][\u2014\u2013]{2,}\S/);
+    if (dashMidIdx !== -1) {
+      const splitAt = dashMidIdx + 1;
+      const dashEnd = splitAt;
+      let end = dashEnd;
+      while (end < trimmed.length && /[\u2014\u2013]/.test(trimmed[end])) end += 1;
+      result.push(trimmed.slice(0, splitAt).trimEnd());
+      result.push("");
+      result.push("---");
+      result.push(trimmed.slice(end).trimStart());
+      continue;
+    }
+
+    const headingIdx = line.search(/[^\s#](#{1,6}\s)/);
+    if (headingIdx !== -1) {
+      const splitAt = headingIdx + 1;
+      result.push(line.slice(0, splitAt).trimEnd());
+      result.push("");
+      result.push(line.slice(splitAt));
+      continue;
+    }
+
+    const hrIdx = line.search(/[^\s](-{3,}|\*{3,}|_{3,})\s*$/);
+    if (hrIdx !== -1) {
+      const splitAt = hrIdx + 1;
+      result.push(line.slice(0, splitAt).trimEnd());
+      result.push("");
+      result.push(line.slice(splitAt));
+      continue;
+    }
+
+    const listIdx = line.search(/[.!?>;]\s*([-*+]\s\S)/);
+    if (listIdx !== -1 && !line.trimStart().startsWith("-") && !line.trimStart().startsWith("*") && !line.trimStart().startsWith("+")) {
+      const splitAt = listIdx + 1;
+      result.push(line.slice(0, splitAt).trimEnd());
+      result.push(line.slice(splitAt));
+      continue;
+    }
+
+    result.push(line);
+  }
+
+  return result.join("\n");
+}
+
 function getRenderableAssistantMarkdown(content: string, attachments: MessageAttachment[]) {
   return stripAttachmentStyleImageMarkdown(
-    repairCollapsedMarkdownTableBoundaries(normalizeMarkdownLineBreaks(content)),
+    repairMergedBlockElements(repairTableColumnMismatch(repairCollapsedMarkdownTableBoundaries(normalizeMarkdownLineBreaks(content)))),
     attachments
   );
 }
@@ -1324,7 +1455,7 @@ export function MessageBubble({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body">
-                  <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{repairMergedBlockElements(repairTableColumnMismatch(repairCollapsedMarkdownTableBoundaries(content)))}</ReactMarkdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
