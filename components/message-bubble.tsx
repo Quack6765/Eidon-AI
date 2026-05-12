@@ -828,7 +828,7 @@ function MemoryProposalCard({
   );
 }
 
-const ASSISTANT_MAX_WIDTH = "max-w-[96%] md:max-w-[95%]";
+const ASSISTANT_MAX_WIDTH = "max-w-full md:max-w-[95%]";
 const ASSISTANT_BUBBLE =
   "w-fit max-w-full rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-2 md:px-4 md:py-3 text-[var(--text)] shadow-[0_8px_24px_rgba(0,0,0,0.28)]";
 const ASSISTANT_LOADING_SHELL =
@@ -1302,7 +1302,7 @@ export function MessageBubble({
     return (
       <>
         <div data-message-id={message.id} className="flex w-full justify-end">
-          <div className="group flex max-w-[96%] flex-col items-end md:max-w-[95%]">
+          <div className="group flex w-full flex-col items-end md:max-w-[95%]">
             <div className="w-full rounded-2xl border border-[var(--accent)]/10 bg-[var(--accent-soft)] px-4 py-3 text-[var(--text)]">
               {!readOnly && isEditing ? (
                 <Textarea
@@ -1393,13 +1393,13 @@ export function MessageBubble({
 
   return (
     <div data-message-id={message.id} className="w-full">
-      <div className="flex gap-3.5">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] border border-white/6 text-[10px] font-bold text-white/60 overflow-hidden mt-1">
+      <div className="flex flex-col gap-1 md:flex-row md:gap-3.5">
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] border border-white/6 text-[10px] font-bold text-white/60 overflow-hidden md:mt-1">
           {/* eslint-disable-next-line @next/next/no-img-element -- Static assistant avatar is deliberately tiny and unoptimized. */}
           <img src="/agent-icon.png" alt="" width={28} height={28} className="h-full w-full object-cover" />
         </div>
 
-        <div className="min-w-0 flex-1 pt-0.5 text-[14.5px] text-[var(--text)]">
+        <div className="min-w-0 flex-1 text-[14.5px] text-[var(--text)] md:pt-0.5">
           <div className="flex flex-col items-start gap-3">
             {showThinkingShell ? (
               <div
