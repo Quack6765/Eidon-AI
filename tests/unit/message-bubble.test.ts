@@ -960,6 +960,77 @@ describe("message bubble", () => {
     expect(screen.queryByText(/------------/)).toBeNull();
   });
 
+  it("repairs collapsed assistant table header and divider without a data row on the same line", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: [
+            "Why this combo?",
+            "",
+            "| Part | What it does ||---|---|",
+            "| Graphite face | Soft touch, dampens hard shots, teaches feel & control |",
+            "| Thick polymer core | Deadens vibration, huge sweet spot, very forgiving on off-centre hits |",
+            "| Widebody shape (7.9–8.25\") | More surface area = fewer mishits |"
+          ].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Part" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "What it does" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Graphite face" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Thick polymer core" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: /Widebody shape/ })).toBeInTheDocument();
+    expect(screen.queryByText(/---/)).toBeNull();
+  });
+
+  it("repairs assistant table with separator row having more columns than header", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: [
+            "| Part | What it does |",
+            "|---|---|---|",
+            "| Graphite face | Soft touch, dampens hard shots, teaches feel & control |",
+            "| Thick polymer core | Deadens vibration, huge sweet spot, very forgiving on off-centre hits |"
+          ].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Part" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "What it does" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Graphite face" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Thick polymer core" })).toBeInTheDocument();
+    expect(screen.queryByText(/\|---\|---\|---\|/)).toBeNull();
+  });
+
+  it("repairs collapsed header and separator in user message tables", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: [
+            "Reply with this table:",
+            "",
+            "| Part | What it does ||---|---|",
+            "| Graphite face | Soft touch, dampens hard shots, teaches feel & control |",
+            "| Thick polymer core | Deadens vibration, huge sweet spot, very forgiving on off-centre hits |"
+          ].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByRole("table")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Part" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "What it does" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Graphite face" })).toBeInTheDocument();
+  });
+
   it("renders fenced assistant code blocks with a language label and block-local copy action", () => {
     render(
       React.createElement(MessageBubble, {
@@ -990,7 +1061,84 @@ describe("message bubble", () => {
     expect(screen.getByTestId("assistant-message-bubble").parentElement?.parentElement?.className).toContain("min-w-0");
   });
 
-  it("renders assistant fenced code blocks without an extra outer pre wrapper", () => {
+  it("splits headings merged with preceding text into separate lines", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Some text before.### Heading Here\n\nParagraph after."
+        }
+      })
+    );
+
+    expect(screen.getByRole("heading", { level: 3, name: "Heading Here" })).toBeInTheDocument();
+    expect(screen.getByText("Some text before.")).toBeInTheDocument();
+    expect(screen.getByText("Paragraph after.")).toBeInTheDocument();
+  });
+
+  it("splits horizontal rules merged with preceding text into separate lines", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Some text before.---\n\nParagraph after."
+        }
+      })
+    );
+
+    expect(screen.getByRole("separator")).toBeInTheDocument();
+    expect(screen.getByText("Some text before.")).toBeInTheDocument();
+  });
+
+  it("splits list items merged with preceding text on the same line", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: [
+            "- **First item** with details.",
+            "- **Second item** with info. The game gives it to you automatically.- **Third item** with more info.",
+            "- **Fourth item** end."
+          ].join("\n")
+        }
+      })
+    );
+
+    expect(screen.getByText("First item")).toBeInTheDocument();
+    expect(screen.getByText("Third item")).toBeInTheDocument();
+    expect(screen.getByText(/automatically/)).toBeInTheDocument();
+  });
+
+  it("converts em-dash sequences to horizontal rules", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Some text before.\n\n\u2014\u2014\n\nSome text after."
+        }
+      })
+    );
+
+    expect(screen.getByRole("separator")).toBeInTheDocument();
+    expect(screen.getByText("Some text before.")).toBeInTheDocument();
+    expect(screen.getByText("Some text after.")).toBeInTheDocument();
+  });
+
+  it("converts em-dash sequences merged with text to horizontal rules", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Some text.\n\n\u2014\u2014There is also more text after."
+        }
+      })
+    );
+
+    expect(screen.getByRole("separator")).toBeInTheDocument();
+    expect(screen.getByText("Some text.")).toBeInTheDocument();
+  });
+
+  it("renders fenced assistant code blocks without an extra outer pre wrapper", () => {
     render(
       React.createElement(MessageBubble, {
         message: {
