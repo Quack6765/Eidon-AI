@@ -15,6 +15,7 @@ ws-handler-compiled.cjs
 .claude/
 .codex/
 .conductor/
+.superset/
 agent-memory/
 docs/
 docs/superpowers
