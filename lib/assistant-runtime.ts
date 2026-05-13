@@ -14,7 +14,7 @@ import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { searchSearxng } from "@/lib/searxng";
 import { extractEnumHints, coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { streamProviderResponse } from "@/lib/provider";
-import { getWebSearchActionLabel } from "@/lib/web-search";
+import { getWebSearchActionLabel, isBuiltinWebSearchServer } from "@/lib/web-search";
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
 import { isFreshImageGenerationRequest } from "@/lib/image-generation/follow-up-context";
 import { supportsImageInput } from "@/lib/model-capabilities";
@@ -266,6 +266,8 @@ function buildToolDefinitions(input: {
 
   const tools: ToolDefinition[] = [];
 
+  const webSearchDirective = "Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently.";
+
   for (const { server, tools: mcpTools } of input.mcpToolSets) {
     for (const tool of mcpTools) {
       const enumHints = extractEnumHints(tool.inputSchema ?? {});
@@ -277,7 +279,8 @@ function buildToolDefinitions(input: {
             tool.annotations?.title ?? tool.name,
             tool.description,
             enumHints || undefined,
-            tool.annotations?.readOnlyHint ? "(read-only)" : undefined
+            tool.annotations?.readOnlyHint ? "(read-only)" : undefined,
+            isBuiltinWebSearchServer(server) ? webSearchDirective : undefined
           ].filter(Boolean).join(" — "),
           parameters: (tool.inputSchema as ToolDefinition["function"]["parameters"]) ?? { type: "object", properties: {} }
         }
@@ -323,7 +326,7 @@ function buildToolDefinitions(input: {
       type: "function",
       function: {
         name: "web_search",
-        description: "Search the web using the configured SearXNG instance.",
+        description: "Search the web using the configured SearXNG instance. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently.",
         parameters: {
           type: "object",
           properties: {
@@ -396,7 +399,7 @@ function buildToolDefinitions(input: {
   return tools;
 }
 
-function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[]) {
+function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[], hasWebSearch: boolean) {
   const lines: string[] = [];
 
   if (skills.length) {
@@ -416,6 +419,16 @@ function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[]
   lines.push("", "Use available tools proactively when they would improve your answer.");
   lines.push("Do not call the same read-only tool repeatedly once you already have a successful result for it in the current turn.");
   lines.push("If a tool call fails because of invalid arguments, correct the arguments and retry at most once.");
+
+  if (hasWebSearch) {
+    lines.push(
+      "",
+      "Web search guidance: prefer answering from your own knowledge whenever possible.",
+      "Only use web search when the question involves recent events, time-sensitive information,",
+      "topics you are uncertain about, or when the user explicitly requests a search.",
+      "If you can answer confidently and accurately from your training data, do so without searching."
+    );
+  }
 
   return lines.join("\n");
 }
@@ -1277,8 +1290,10 @@ export async function resolveAssistantTurn(input: {
   let visibleImageActionStarted = false;
   let visibleImageActionHandle: string | undefined;
 
+  const hasWebSearch = mcpServers.some(isBuiltinWebSearchServer) || !!input.searxngBaseUrl;
+
   promptMessages = turnSkills.length || mcpServers.length || input.mcpToolSets.length
-    ? mergeSystemMessage(promptMessages, buildCapabilitiesSystemMessage(turnSkills, mcpServers))
+    ? mergeSystemMessage(promptMessages, buildCapabilitiesSystemMessage(turnSkills, mcpServers, hasWebSearch))
     : promptMessages;
   if (shouldAddInlineAttachmentDirective(promptMessages)) {
     promptMessages = mergeSystemMessage(promptMessages, INLINE_ATTACHMENT_DIRECTIVE);

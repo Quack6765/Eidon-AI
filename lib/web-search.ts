@@ -6,6 +6,10 @@ const BUILTIN_WEB_SEARCH_SERVER_IDS = new Set([
   "builtin_web_search_searxng"
 ]);
 
+export function isBuiltinWebSearchServer(server: McpServer): boolean {
+  return BUILTIN_WEB_SEARCH_SERVER_IDS.has(server.id);
+}
+
 function buildBuiltinServer(
   input: Pick<McpServer, "id" | "name" | "slug" | "url">
 ): McpServer {
