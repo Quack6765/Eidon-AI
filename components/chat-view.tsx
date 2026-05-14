@@ -1561,6 +1561,34 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [payload.conversation.id]);
 
   useEffect(() => {
+    if (!payload.conversation.isTemporary) {
+      return;
+    }
+
+    const conversationId = payload.conversation.id;
+
+    const handleBeforeUnload = () => {
+      fetch(`/api/conversations/${conversationId}`, { method: "DELETE", keepalive: true }).catch(() => {});
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      if (window.location.pathname === `/chat/${conversationId}`) {
+        return;
+      }
+
+      fetch(`/api/conversations/${conversationId}`, { method: "DELETE" }).catch(() => {});
+    };
+  }, [payload.conversation.id, payload.conversation.isTemporary]);
+
+  useEffect(() => {
     if (titleGenerationStatus === "completed" || titleGenerationStatus === "failed") {
       stopTitlePolling();
     }
@@ -2469,6 +2497,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             speechLevel={speechSnapshot.level}
             speechError={speechSnapshot.error}
             queueingEnabled={isConversationActive}
+            isTemporary={payload.conversation.isTemporary}
+            showTemporaryToggle={false}
             onStartSpeech={() => {
               setError("");
               void startSpeech();
