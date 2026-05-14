@@ -43,7 +43,8 @@ const conversation: Conversation = {
   isActive: false,
   shareEnabled: false,
   shareToken: null,
-  sharedAt: null
+  sharedAt: null,
+  isTemporary: false
 };
 
 const conversationPage: ConversationListPage = {
