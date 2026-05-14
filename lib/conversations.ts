@@ -66,6 +66,7 @@ type ConversationRow = {
   share_token: string | null;
   share_enabled: number;
   shared_at: string | null;
+  is_temporary: number;
 };
 
 type ConversationCursor = {
@@ -102,7 +103,8 @@ function rowToConversation(row: ConversationRow): Conversation {
     isActive: row.is_active === 1,
     shareEnabled: row.share_enabled === 1,
     shareToken: row.share_token,
-    sharedAt: row.shared_at
+    sharedAt: row.shared_at,
+    isTemporary: row.is_temporary === 1
   };
 }
 
@@ -120,8 +122,9 @@ function selectConversationColumns(activityTimestamp: string) {
             ${activityTimestamp} AS updated_at,
             c.is_active,
             c.share_token,
-            c.share_enabled,
-            c.shared_at`;
+             c.share_enabled,
+             c.shared_at,
+             c.is_temporary`;
 }
 
 function generateShareToken() {
@@ -320,6 +323,7 @@ export function listConversations(userId?: string) {
            FROM conversations c
            WHERE c.user_id = ?
              AND c.conversation_origin = ?
+             AND c.is_temporary = 0
            ORDER BY ${activityTimestamp} DESC, c.id DESC`
         )
         .all(userId, MANUAL_CONVERSATION_ORIGIN)
@@ -329,6 +333,7 @@ export function listConversations(userId?: string) {
             ${selectConversationColumns(activityTimestamp)}
            FROM conversations c
            WHERE c.conversation_origin = ?
+             AND c.is_temporary = 0
            ORDER BY ${activityTimestamp} DESC, c.id DESC`
         )
         .all(MANUAL_CONVERSATION_ORIGIN)) as ConversationRow[];
@@ -353,6 +358,7 @@ export function listConversationsPage(input: {
             ${selectConversationColumns(activityTimestamp)}
            FROM conversations c
            WHERE ${userCondition}c.conversation_origin = ?
+             AND c.is_temporary = 0
              AND (
                ${activityTimestamp} < ?
                OR (${activityTimestamp} = ? AND c.id < ?)
@@ -374,6 +380,7 @@ export function listConversationsPage(input: {
             ${selectConversationColumns(activityTimestamp)}
            FROM conversations c
            WHERE ${userCondition}c.conversation_origin = ?
+             AND c.is_temporary = 0
            ORDER BY ${activityTimestamp} DESC, c.id DESC
            LIMIT ?`
         )
@@ -434,6 +441,7 @@ export function createConversation(
     origin?: ConversationOrigin;
     automationId?: string | null;
     automationRunId?: string | null;
+    isTemporary?: boolean;
   },
   userId?: string
 ) {
@@ -464,7 +472,8 @@ export function createConversation(
     isActive: false,
     shareEnabled: false,
     shareToken: null,
-    sharedAt: null
+    sharedAt: null,
+    isTemporary: options?.isTemporary ?? false
   };
 
   getDb()
@@ -485,8 +494,9 @@ export function createConversation(
         sort_order,
         created_at,
         updated_at,
-        is_active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        is_active,
+        is_temporary
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       conversation.id,
@@ -504,7 +514,8 @@ export function createConversation(
       conversation.sortOrder,
       conversation.createdAt,
       conversation.updatedAt,
-      0
+      0,
+      conversation.isTemporary ? 1 : 0
     );
 
   return conversation;
@@ -2560,7 +2571,8 @@ export function searchConversations(query: string, userId?: string): Conversatio
         AND m.content LIKE ?
         AND (m.role != 'system' OR m.system_kind IS NOT NULL)
        WHERE ${userCondition}c.conversation_origin = ?
-         AND (
+          AND c.is_temporary = 0
+          AND (
            c.title LIKE ?
            OR m.id IS NOT NULL
          )
