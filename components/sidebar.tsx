@@ -898,8 +898,12 @@ export function Sidebar({
     return addGlobalWsListener((msg: ServerMessage) => {
       switch (msg.type) {
         case "conversation_created": {
+          const newConv = msg.conversation as Conversation;
+          if (newConv.isTemporary) {
+            break;
+          }
           setLocalConversations((current) =>
-            mergeConversations([msg.conversation as Conversation], current)
+            mergeConversations([newConv], current)
           );
           break;
         }
