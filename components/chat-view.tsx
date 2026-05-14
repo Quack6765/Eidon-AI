@@ -492,6 +492,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isStopPending, setIsStopPending] = useState(false);
+  const [isTemporaryToggled, setIsTemporaryToggled] = useState(payload.conversation.isTemporary);
   const [streamThinkingTarget, setStreamThinkingTarget] = useState("");
   const [streamThinkingDisplay, setStreamThinkingDisplay] = useState("");
   const [streamAnswerTarget, setStreamAnswerTarget] = useState("");
@@ -1561,7 +1562,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [payload.conversation.id]);
 
   useEffect(() => {
-    if (!payload.conversation.isTemporary) {
+    if (!isTemporaryToggled) {
       return;
     }
 
@@ -1586,7 +1587,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
       fetch(`/api/conversations/${conversationId}`, { method: "DELETE" }).catch(() => {});
     };
-  }, [payload.conversation.id, payload.conversation.isTemporary]);
+  }, [payload.conversation.id, isTemporaryToggled]);
 
   useEffect(() => {
     if (titleGenerationStatus === "completed" || titleGenerationStatus === "failed") {
@@ -2497,8 +2498,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             speechLevel={speechSnapshot.level}
             speechError={speechSnapshot.error}
             queueingEnabled={isConversationActive}
-            isTemporary={payload.conversation.isTemporary}
-            showTemporaryToggle={false}
+            isTemporary={isTemporaryToggled}
+            showTemporaryToggle={messages.length === 0}
+            onTemporaryChange={(value: boolean) => {
+              setIsTemporaryToggled(value);
+              fetch(`/api/conversations/${payload.conversation.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ isTemporary: value })
+              }).catch(() => {});
+            }}
             onStartSpeech={() => {
               setError("");
               void startSpeech();

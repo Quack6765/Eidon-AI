@@ -630,6 +630,12 @@ export function setConversationActive(conversationId: string, active: boolean) {
     .run(active ? 1 : 0, timestamp, conversationId);
 }
 
+export function setConversationTemporary(conversationId: string, temporary: boolean) {
+  getDb()
+    .prepare("UPDATE conversations SET is_temporary = ? WHERE id = ?")
+    .run(temporary ? 1 : 0, conversationId);
+}
+
 export function createMessage(input: {
   conversationId: string;
   role: MessageRole;

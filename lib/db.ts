@@ -449,8 +449,8 @@ function migrate(db: Database.Database) {
   }
   if (!automationConversationCols.some((col) => col.name === "is_temporary")) {
     db.exec("ALTER TABLE conversations ADD COLUMN is_temporary INTEGER NOT NULL DEFAULT 0");
+    db.exec("DELETE FROM conversations WHERE is_temporary = 1");
   }
-  db.exec("DELETE FROM conversations WHERE is_temporary = 1");
 
   const messageActionCols = db.prepare("PRAGMA table_info(message_actions)").all() as Array<{ name: string }>;
   if (!messageActionCols.some((col) => col.name === "proposal_state")) {

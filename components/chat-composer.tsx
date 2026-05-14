@@ -256,29 +256,31 @@ export function ChatComposer({
   }));
 
   return (
-    <div className={cn("relative", isTemporary && !showTemporaryToggle && "pt-2.5")}>
+    <div className="relative">
       {isTemporary && !showTemporaryToggle && (
-        <div className="absolute -top-2.5 right-4 z-10 rounded-md bg-violet-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
-          Temporary
+        <div className="absolute -top-[19px] right-4 z-10 flex items-center h-[19px]">
+          <div className="relative flex h-full items-center rounded-t-md border border-b-0 border-violet-500/50 border-dashed bg-zinc-900/70 backdrop-blur-2xl px-2.5 text-[10px] font-bold uppercase tracking-wider text-violet-300">
+            Temporary
+          </div>
         </div>
       )}
       {showTemporaryToggle && (
-        <div className="flex items-center justify-between px-3 pt-2">
-          <span />
+        <div className="absolute -top-[19px] right-4 z-10 flex items-center h-[19px]">
           <button
             type="button"
             onClick={() => onTemporaryChange?.(!isTemporary)}
+            style={{ fontSize: '10px' }}
             className={cn(
-              "flex items-center gap-2 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-all duration-200",
+              "relative flex h-full items-center gap-1 rounded-t-md border border-b-0 px-2 font-bold uppercase tracking-wider transition-all duration-200",
               isTemporary
-                ? "bg-violet-500/15 text-violet-300"
-                : "text-white/40 hover:text-white/60 hover:bg-white/5"
+                ? "border-violet-500/50 border-dashed bg-zinc-900/70 backdrop-blur-2xl text-violet-300"
+                : "border-white/10 border-solid bg-zinc-900/70 backdrop-blur-2xl text-white/40 hover:text-white/60"
             )}
           >
             {isTemporary ? (
-              <ToggleRight className="h-4 w-4 text-violet-400" />
+              <ToggleRight className="h-3 w-3 text-violet-400" />
             ) : (
-              <ToggleLeft className="h-4 w-4" />
+              <ToggleLeft className="h-3 w-3" />
             )}
             Temporary
           </button>
