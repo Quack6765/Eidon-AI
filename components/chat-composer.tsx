@@ -11,6 +11,8 @@ import {
   Mic,
   Paperclip,
   Square,
+  ToggleLeft,
+  ToggleRight,
   Users,
   X
 } from "lucide-react";
@@ -56,6 +58,9 @@ type ChatComposerProps = {
   onStartSpeech: () => void | Promise<void>;
   onStopSpeech: () => void | Promise<void>;
   queueingEnabled?: boolean;
+  isTemporary?: boolean;
+  showTemporaryToggle?: boolean;
+  onTemporaryChange?: (value: boolean) => void;
 };
 
 function CustomDropdown<T extends { id: string; name: string }>({
@@ -213,6 +218,9 @@ export function ChatComposer({
   onStartSpeech,
   onStopSpeech,
   queueingEnabled = false,
+  isTemporary = false,
+  showTemporaryToggle = false,
+  onTemporaryChange,
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -248,9 +256,38 @@ export function ChatComposer({
   }));
 
   return (
+    <div className={cn("relative", isTemporary && !showTemporaryToggle && "pt-2.5")}>
+      {isTemporary && !showTemporaryToggle && (
+        <div className="absolute -top-2.5 right-4 z-10 rounded-md bg-violet-500 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-white">
+          Temporary
+        </div>
+      )}
+      {showTemporaryToggle && (
+        <div className="flex items-center justify-between px-3 pt-2">
+          <span />
+          <button
+            type="button"
+            onClick={() => onTemporaryChange?.(!isTemporary)}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-all duration-200",
+              isTemporary
+                ? "bg-violet-500/15 text-violet-300"
+                : "text-white/40 hover:text-white/60 hover:bg-white/5"
+            )}
+          >
+            {isTemporary ? (
+              <ToggleRight className="h-4 w-4 text-violet-400" />
+            ) : (
+              <ToggleLeft className="h-4 w-4" />
+            )}
+            Temporary
+          </button>
+        </div>
+      )}
     <div
       className={cn(
-        "relative rounded-[22px] sm:rounded-[26px] border border-white/10 bg-zinc-900/70 backdrop-blur-2xl p-1.5 sm:p-2 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all duration-500 focus-within:border-[var(--accent)]/30 focus-within:shadow-[0_0_50px_rgba(0,0,0,0.6),0_0_20px_var(--accent-soft)]",
+        "relative rounded-[22px] sm:rounded-[26px] border bg-zinc-900/70 backdrop-blur-2xl p-1.5 sm:p-2 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all duration-500 focus-within:border-[var(--accent)]/30 focus-within:shadow-[0_0_50px_rgba(0,0,0,0.6),0_0_20px_var(--accent-soft)]",
+        isTemporary ? "border-violet-500/50 border-dashed" : "border-white/10",
         className
       )}
     >
@@ -516,6 +553,7 @@ export function ChatComposer({
           )}
         </div>
       </div>
+    </div>
     </div>
   );
 }
