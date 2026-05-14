@@ -17,7 +17,7 @@ export type ServerMessage =
   | { type: "queue_updated"; conversationId: string; queuedMessages: QueuedMessage[] }
   | { type: "delta"; conversationId: string; event: ChatStreamEvent }
   | { type: "error"; message: string }
-  | { type: "conversation_created"; conversation: { id: string; title: string; folderId: string | null; createdAt: string; updatedAt: string; isActive: boolean } }
+  | { type: "conversation_created"; conversation: { id: string; title: string; folderId: string | null; createdAt: string; updatedAt: string; isActive: boolean; isTemporary: boolean } }
   | { type: "conversation_deleted"; conversationId: string }
   | { type: "conversation_updated"; conversation: { id: string; title: string; folderId: string | null; updatedAt: string; isActive: boolean } }
   | { type: "conversation_activity"; conversationId: string; isActive: boolean }

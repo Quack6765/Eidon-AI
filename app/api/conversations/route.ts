@@ -36,7 +36,8 @@ export async function GET(request: Request) {
 const createSchema = z.object({
   title: z.string().optional(),
   folderId: z.string().nullable().optional(),
-  providerProfileId: z.string().min(1).optional()
+  providerProfileId: z.string().min(1).optional(),
+  isTemporary: z.boolean().optional()
 });
 
 export async function POST(request: Request) {
@@ -64,7 +65,8 @@ export async function POST(request: Request) {
   }
 
   const conversation = createConversation(title, folderId, {
-    providerProfileId
+    providerProfileId,
+    isTemporary: body.success ? body.data.isTemporary : undefined
   }, user.id);
 
   try {
@@ -76,7 +78,8 @@ export async function POST(request: Request) {
         folderId: conversation.folderId,
         createdAt: conversation.createdAt,
         updatedAt: conversation.updatedAt,
-        isActive: conversation.isActive
+        isActive: conversation.isActive,
+        isTemporary: conversation.isTemporary
       }
     }, user.id);
   } catch { /* WS server may not be running */ }
