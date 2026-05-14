@@ -151,6 +151,7 @@ export type Conversation = {
   shareEnabled: boolean;
   shareToken: string | null;
   sharedAt: string | null;
+  isTemporary: boolean;
 };
 
 export type ConversationSearchResult = Conversation & {
