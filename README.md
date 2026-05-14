@@ -65,6 +65,7 @@ Use it as a private assistant, a day-to-day work companion, or a shared workspac
 - Image generation support
 - Multiple clients live sync
 - Support native or dedicated MCP server for vision capabilites
+- Temporary chat
 
 ## Supported Providers
 
