@@ -39,6 +39,7 @@ export function HomeView({
   const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
   const [personaId, setPersonaId] = useState<string | null>(null);
   const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
+  const [isTemporary, setIsTemporary] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
   const {
@@ -97,7 +98,8 @@ export function HomeView({
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        providerProfileId
+        providerProfileId,
+        isTemporary
       })
     });
 
@@ -371,6 +373,9 @@ export function HomeView({
               setInput((current) => appendTranscriptToDraft(current, transcript));
             });
           }}
+          isTemporary={isTemporary}
+          showTemporaryToggle={true}
+          onTemporaryChange={setIsTemporary}
         />
 
         {error ? (

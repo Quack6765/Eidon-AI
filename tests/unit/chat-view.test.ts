@@ -193,7 +193,8 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
       isActive: false,
       shareEnabled: false,
       shareToken: null,
-      sharedAt: null
+      sharedAt: null,
+      isTemporary: false
     },
     messages: [] as Message[],
     queuedMessages: [],

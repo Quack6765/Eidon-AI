@@ -23,7 +23,8 @@ function createConversation(): Conversation {
     isActive: false,
     shareEnabled: true,
     shareToken: "share_token_1234567890",
-    sharedAt: "2026-05-06T12:06:00.000Z"
+    sharedAt: "2026-05-06T12:06:00.000Z",
+    isTemporary: false
   };
 }
 
