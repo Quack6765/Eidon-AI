@@ -264,7 +264,7 @@ select {
 
 .markdown-body table {
   width: 100%;
-  margin: 0.9rem 0;
+  margin: 0rem 0;
   border-collapse: collapse;
   font-size: 0.94em;
 }
@@ -311,6 +311,15 @@ select {
 
 .markdown-body [data-streamdown="table-wrapper"] {
   border-color: rgba(255, 255, 255, 0.06) !important;
+  padding: 0.25rem !important;
+  gap: 0.25rem !important;
+}
+
+.markdown-body [data-streamdown="table-wrapper"] > div:last-child {
+  background-color: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 0.5rem 0.5rem 0.5rem !important;
 }
 
 .markdown-body [data-streamdown="code-block-body"] {
