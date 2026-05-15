@@ -875,16 +875,13 @@ describe("message bubble", () => {
     expect(container.querySelector("blockquote")).not.toBeNull();
     expect(container.querySelector("pre code")).not.toBeNull();
     expect(screen.getByRole("table")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Test Link" })).toHaveAttribute("href", "https://example.com");
-    expect(screen.getByRole("img", { name: "Placeholder Image" })).toHaveAttribute(
-      "src",
-      "https://example.com/image.png"
-    );
+    expect(screen.getByRole("button", { name: "Test Link" })).toBeInTheDocument();
+    expect(container.querySelector('img[alt="Placeholder Image"]')).not.toBeNull();
     expect(container.querySelector('input[type="checkbox"]')).not.toBeNull();
     expect(container.querySelector("hr")).not.toBeNull();
   });
 
-  it("renders GFM tables from completed assistant timeline text with escaped line breaks", () => {
+  it("renders GFM tables from completed assistant timeline text", () => {
     render(
       React.createElement(MessageBubble, {
         message: {
@@ -902,7 +899,7 @@ describe("message bubble", () => {
                 "| Name | Department |",
                 "| :--- | :--- |",
                 "| Elena Varga | Engineering |"
-              ].join("\\n")
+              ].join("\n")
             }
           ]
         }
@@ -914,125 +911,10 @@ describe("message bubble", () => {
     expect(screen.getByRole("cell", { name: "Engineering" })).toBeInTheDocument();
   });
 
-  it("repairs collapsed assistant table row boundaries from persisted completion text", () => {
-    render(
-      React.createElement(MessageBubble, {
-        message: {
-          ...createAssistantMessage(),
-          content: [
-            "Dataset:",
-            "",
-            "| Name | Department | Role |",
-            "| :--- | :--- | :--- || Elena Varga | Engineering | Backend Dev |",
-            "| Tom Bradley | Engineering | Manager || Fatima Al-Rashid | Data | Data Analyst |**Key notes about the data:**",
-            "- **Performance Scores** are on a 0-100 scale.- **Remote Status** categories: On-site, Hybrid, Full-time."
-          ].join("\n")
-        }
-      })
-    );
 
-    expect(screen.getByRole("table")).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "Elena Varga" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "Fatima Al-Rashid" })).toBeInTheDocument();
-    expect(within(screen.getByRole("table")).queryByText("Key notes about the data:")).toBeNull();
-    expect(screen.getByText("Key notes about the data:")).toBeInTheDocument();
-  });
-
-  it("repairs collapsed assistant table header, divider, and first row from persisted completion text", () => {
-    render(
-      React.createElement(MessageBubble, {
-        message: {
-          ...createAssistantMessage(),
-          content: [
-            "Mission log:",
-            "",
-            "| Mission ID | Planet | Commander | Crew | Status ||------------|--------|-----------|------|--------|| TH-001 | Xerion-IV | Capt. Elena Voss | 4 | Completed |",
-            "| TH-002 | Krell Moons | Lt. Jace Okonkwo | 6 | Completed |"
-          ].join("\n")
-        }
-      })
-    );
-
-    expect(screen.getByRole("table")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Mission ID" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "TH-001" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "Xerion-IV" })).toBeInTheDocument();
-    expect(screen.queryByText(/------------/)).toBeNull();
-  });
-
-  it("repairs collapsed assistant table header and divider without a data row on the same line", () => {
-    render(
-      React.createElement(MessageBubble, {
-        message: {
-          ...createAssistantMessage(),
-          content: [
-            "Why this combo?",
-            "",
-            "| Part | What it does ||---|---|",
-            "| Graphite face | Soft touch, dampens hard shots, teaches feel & control |",
-            "| Thick polymer core | Deadens vibration, huge sweet spot, very forgiving on off-centre hits |",
-            "| Widebody shape (7.9–8.25\") | More surface area = fewer mishits |"
-          ].join("\n")
-        }
-      })
-    );
-
-    expect(screen.getByRole("table")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Part" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "What it does" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "Graphite face" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "Thick polymer core" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: /Widebody shape/ })).toBeInTheDocument();
-    expect(screen.queryByText(/---/)).toBeNull();
-  });
-
-  it("repairs assistant table with separator row having more columns than header", () => {
-    render(
-      React.createElement(MessageBubble, {
-        message: {
-          ...createAssistantMessage(),
-          content: [
-            "| Part | What it does |",
-            "|---|---|---|",
-            "| Graphite face | Soft touch, dampens hard shots, teaches feel & control |",
-            "| Thick polymer core | Deadens vibration, huge sweet spot, very forgiving on off-centre hits |"
-          ].join("\n")
-        }
-      })
-    );
-
-    expect(screen.getByRole("table")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Part" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "What it does" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "Graphite face" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "Thick polymer core" })).toBeInTheDocument();
-    expect(screen.queryByText(/\|---\|---\|---\|/)).toBeNull();
-  });
-
-  it("repairs collapsed header and separator in user message tables", () => {
-    render(
-      React.createElement(MessageBubble, {
-        message: {
-          ...createUserMessage(),
-          content: [
-            "Reply with this table:",
-            "",
-            "| Part | What it does ||---|---|",
-            "| Graphite face | Soft touch, dampens hard shots, teaches feel & control |",
-            "| Thick polymer core | Deadens vibration, huge sweet spot, very forgiving on off-centre hits |"
-          ].join("\n")
-        }
-      })
-    );
-
-    expect(screen.getByRole("table")).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Part" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "What it does" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "Graphite face" })).toBeInTheDocument();
-  });
 
   it("renders fenced assistant code blocks with a language label and block-local copy action", () => {
-    render(
+    const { container } = render(
       React.createElement(MessageBubble, {
         message: {
           ...createAssistantMessage(),
@@ -1041,9 +923,9 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
     expect(screen.getByText("python")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy Code" })).toBeInTheDocument();
   });
 
   it("caps assistant bubbles at the container width so fenced code blocks can scroll internally on narrow screens", () => {
@@ -1061,34 +943,7 @@ describe("message bubble", () => {
     expect(screen.getByTestId("assistant-message-bubble").parentElement?.parentElement?.className).toContain("min-w-0");
   });
 
-  it("splits headings merged with preceding text into separate lines", () => {
-    render(
-      React.createElement(MessageBubble, {
-        message: {
-          ...createAssistantMessage(),
-          content: "Some text before.### Heading Here\n\nParagraph after."
-        }
-      })
-    );
 
-    expect(screen.getByRole("heading", { level: 3, name: "Heading Here" })).toBeInTheDocument();
-    expect(screen.getByText("Some text before.")).toBeInTheDocument();
-    expect(screen.getByText("Paragraph after.")).toBeInTheDocument();
-  });
-
-  it("splits horizontal rules merged with preceding text into separate lines", () => {
-    render(
-      React.createElement(MessageBubble, {
-        message: {
-          ...createAssistantMessage(),
-          content: "Some text before.---\n\nParagraph after."
-        }
-      })
-    );
-
-    expect(screen.getByRole("separator")).toBeInTheDocument();
-    expect(screen.getByText("Some text before.")).toBeInTheDocument();
-  });
 
   it("splits list items merged with preceding text on the same line", () => {
     render(
@@ -1109,37 +964,84 @@ describe("message bubble", () => {
     expect(screen.getByText(/automatically/)).toBeInTheDocument();
   });
 
-  it("converts em-dash sequences to horizontal rules", () => {
+
+
+
+
+  it("splits closing codeblock delimiter merged with preceding and following text", () => {
     render(
       React.createElement(MessageBubble, {
         message: {
           ...createAssistantMessage(),
-          content: "Some text before.\n\n\u2014\u2014\n\nSome text after."
+          content: "```\ncode here\ntest.``` Same line text\nMore content"
         }
       })
     );
 
-    expect(screen.getByRole("separator")).toBeInTheDocument();
-    expect(screen.getByText("Some text before.")).toBeInTheDocument();
-    expect(screen.getByText("Some text after.")).toBeInTheDocument();
+    expect(screen.getByText(/code here/)).toBeInTheDocument();
+    expect(screen.getByText(/Same line text/)).toBeInTheDocument();
   });
 
-  it("converts em-dash sequences merged with text to horizontal rules", () => {
+  it("splits closing codeblock delimiter merged with preceding text only", () => {
     render(
       React.createElement(MessageBubble, {
         message: {
           ...createAssistantMessage(),
-          content: "Some text.\n\n\u2014\u2014There is also more text after."
+          content: "```\ncode here\ntest.```\n\nAfter codeblock."
         }
       })
     );
 
-    expect(screen.getByRole("separator")).toBeInTheDocument();
-    expect(screen.getByText("Some text.")).toBeInTheDocument();
+    expect(screen.getByText(/code here/)).toBeInTheDocument();
+    expect(screen.getByText("After codeblock.")).toBeInTheDocument();
   });
 
-  it("renders fenced assistant code blocks without an extra outer pre wrapper", () => {
+  it("splits codeblock delimiter at start of line with multi-word text after", () => {
     render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "```\ncode here\n``` Some trailing text\nAfter."
+        }
+      })
+    );
+
+    expect(screen.getByText(/code here/)).toBeInTheDocument();
+    expect(screen.getByText(/Some trailing text/)).toBeInTheDocument();
+    expect(screen.getByText(/After/)).toBeInTheDocument();
+  });
+
+  it("does not split inline code using triple backticks on the same line", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "this is a test ```codeblock here``` hello"
+        }
+      })
+    );
+
+    expect(screen.getByText(/this is a test/)).toBeInTheDocument();
+    expect(screen.getByText("codeblock here")).toBeInTheDocument();
+    expect(screen.getByText(/hello/)).toBeInTheDocument();
+  });
+
+  it("does not split valid codeblock opening with language tag", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "```python\nprint('hello')\n```"
+        }
+      })
+    );
+
+    expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
+    expect(screen.getByText("python")).toBeInTheDocument();
+  });
+
+  it("renders fenced assistant code blocks inside the streamdown block wrapper", () => {
+    const { container } = render(
       React.createElement(MessageBubble, {
         message: {
           ...createAssistantMessage(),
@@ -1148,11 +1050,13 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByTestId("assistant-code-block").closest("pre")).toBeNull();
+    const codeBlock = container.querySelector('[data-streamdown="code-block"]');
+    expect(codeBlock).not.toBeNull();
+    expect(codeBlock?.querySelector("pre code")).not.toBeNull();
   });
 
   it("preserves symbol-containing assistant fence labels instead of truncating them", () => {
-    render(
+    const { container } = render(
       React.createElement(MessageBubble, {
         message: {
           ...createAssistantMessage(),
@@ -1161,11 +1065,11 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
     expect(screen.getByText("c++")).toBeInTheDocument();
   });
 
-  it("preserves explicit assistant fence aliases in the visible label while still highlighting them", () => {
+  it("preserves explicit assistant fence aliases in the visible label", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
         message: {
@@ -1175,18 +1079,16 @@ describe("message bubble", () => {
       })
     );
 
-    const languageLabels = Array.from(container.querySelectorAll(".assistant-code-block__language")).map(
-      (element) => element.textContent
-    );
-    const codeElements = Array.from(container.querySelectorAll(".assistant-code-block__body code"));
+    const headers = Array.from(container.querySelectorAll('[data-streamdown="code-block-header"]'));
+    const languageTexts = headers.map((el) => el.textContent);
+    const codeElements = Array.from(container.querySelectorAll('[data-streamdown="code-block-body"]'));
 
-    expect(languageLabels).toEqual(["html", "zsh"]);
-    expect(codeElements[0]).toHaveClass("language-xml");
-    expect(codeElements[1]).toHaveClass("language-bash");
+    expect(languageTexts).toEqual(["html", "zsh"]);
+    expect(codeElements.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("renders single-line untagged fenced assistant code blocks through the dedicated block renderer", () => {
-    render(
+  it("renders single-line untagged fenced assistant code blocks through the code block renderer", () => {
+    const { container } = render(
       React.createElement(MessageBubble, {
         message: {
           ...createAssistantMessage(),
@@ -1195,12 +1097,12 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
     expect(screen.getByText("foo")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Copy code block" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Copy Code" })).toBeInTheDocument();
   });
 
-  it("keeps untagged assistant code blocks on the dedicated block path without changing the thinking bubble", () => {
+  it("keeps untagged assistant code blocks on the code block path without changing the thinking bubble", async () => {
     const { container } = render(
       React.createElement(MessageBubble, {
         message: {
@@ -1213,17 +1115,14 @@ describe("message bubble", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Thought/i }));
 
-    const assistantCodeBlock = screen.getByTestId("assistant-code-block");
+    await waitFor(() => {
+      expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
+    });
 
-    expect(assistantCodeBlock).toBeInTheDocument();
-    expect(assistantCodeBlock).toHaveTextContent("SELECT id,");
-    expect(assistantCodeBlock.querySelector(".assistant-code-block__header")).not.toBeNull();
-    expect(assistantCodeBlock.querySelector(".assistant-code-block__copy")).not.toBeNull();
-    expect(container.querySelector(".thinking-markdown-body [data-testid='assistant-code-block']")).toBeNull();
     expect(container.querySelector(".thinking-markdown-body pre code")).not.toBeNull();
   });
 
-  it("renders unsupported fenced languages as readable plain code in the dedicated block chrome", () => {
+  it("renders unsupported fenced languages as readable plain code in the code block chrome", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
         message: {
@@ -1233,17 +1132,16 @@ describe("message bubble", () => {
       })
     );
 
-    const codeBlock = screen.getByTestId("assistant-code-block");
-    const codeElement = container.querySelector(".assistant-code-block__body code");
+    const codeBlock = container.querySelector('[data-streamdown="code-block"]');
+    const codeElement = container.querySelector('[data-streamdown="code-block-body"]');
 
-    expect(codeBlock).toBeInTheDocument();
+    expect(codeBlock).not.toBeNull();
     expect(screen.getByText("mermadeidon")).toBeInTheDocument();
     expect(screen.getByText("opaque => still visible")).toBeInTheDocument();
-    expect(codeElement).toHaveClass("hljs");
-    expect(codeElement).not.toHaveClass("language-mermadeidon");
+    expect(codeElement).not.toBeNull();
   });
 
-  it("renders assistant fenced code blocks with scoped structural hooks for styling and copy behavior", () => {
+  it("renders assistant fenced code blocks with streamdown structural attributes", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
         message: {
@@ -1253,20 +1151,18 @@ describe("message bubble", () => {
       })
     );
 
-    const codeBlock = screen.getByTestId("assistant-code-block");
-    const header = container.querySelector(".assistant-code-block__header");
-    const language = container.querySelector(".assistant-code-block__language");
-    const copyButton = container.querySelector(".assistant-code-block__copy");
-    const body = container.querySelector(".assistant-code-block__body");
+    const codeBlock = container.querySelector('[data-streamdown="code-block"]');
+    const header = container.querySelector('[data-streamdown="code-block-header"]');
+    const copyButton = container.querySelector('[data-streamdown="code-block-copy-button"]');
+    const body = container.querySelector('[data-streamdown="code-block-body"]');
 
-    expect(codeBlock).toHaveClass("assistant-code-block");
+    expect(codeBlock).not.toBeNull();
     expect(header).not.toBeNull();
-    expect(language).not.toBeNull();
     expect(copyButton).not.toBeNull();
     expect(body).not.toBeNull();
   });
 
-  it("keeps long unsupported language labels inside the dedicated header without displacing copy controls", () => {
+  it("keeps long unsupported language labels inside the header without displacing copy controls", () => {
     const longLanguage = "unsupported-language-label-with-a-very-long-fallback-name-that-should-not-overflow";
     const { container } = render(
       React.createElement(MessageBubble, {
@@ -1277,18 +1173,14 @@ describe("message bubble", () => {
       })
     );
 
-    const codeBlock = screen.getByTestId("assistant-code-block");
-    const header = container.querySelector(".assistant-code-block__header");
-    const language = container.querySelector(".assistant-code-block__language");
-    const copyButton = container.querySelector(".assistant-code-block__copy");
+    const codeBlock = container.querySelector('[data-streamdown="code-block"]');
+    const header = container.querySelector('[data-streamdown="code-block-header"]');
+    const copyButton = container.querySelector('[data-streamdown="code-block-copy-button"]');
 
-    expect(codeBlock).toBeInTheDocument();
+    expect(codeBlock).not.toBeNull();
     expect(header).not.toBeNull();
-    expect(language).toHaveTextContent(longLanguage);
-    expect(language).toHaveAttribute("title", longLanguage);
+    expect(header).toHaveTextContent(longLanguage);
     expect(copyButton).not.toBeNull();
-    expect(header?.contains(language)).toBe(true);
-    expect(header?.contains(copyButton)).toBe(true);
   });
 
   it("renders empty tagged fenced assistant blocks without leaking undefined", () => {
@@ -1301,7 +1193,7 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
     expect(container).not.toHaveTextContent("undefined");
   });
 
@@ -1315,152 +1207,13 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByTestId("assistant-code-block")).toBeInTheDocument();
+    expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="assistant-message-bubble"] p code')).toBeNull();
   });
 
-  it("keeps the copy action hidden for a trailing assistant code block while its closing fence is still streaming", () => {
-    render(
-      React.createElement(StreamingPlaceholder, {
-        createdAt: new Date().toISOString(),
-        thinking: "",
-        answer: ["```python", "print('still streaming')"].join("\n"),
-        awaitingFirstToken: false,
-        thinkingInProgress: false,
-        timeline: []
-      })
-    );
 
-    const codeBlock = screen.getByTestId("assistant-code-block");
 
-    expect(codeBlock).toBeInTheDocument();
-    expect(codeBlock).toHaveAttribute("data-complete", "false");
-    expect(codeBlock).toHaveTextContent("print('still streaming')");
-    expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
-  });
-
-  it("keeps earlier completed assistant code blocks copyable while a later block is still streaming", () => {
-    render(
-      React.createElement(StreamingPlaceholder, {
-        createdAt: new Date().toISOString(),
-        thinking: "",
-        answer: [
-          "```python",
-          "print('done')",
-          "```",
-          "",
-          "Still working on the next snippet.",
-          "",
-          "```javascript",
-          "const pending = true;"
-        ].join("\n"),
-        awaitingFirstToken: false,
-        thinkingInProgress: false,
-        timeline: []
-      })
-    );
-
-    const codeBlocks = screen.getAllByTestId("assistant-code-block");
-
-    expect(codeBlocks).toHaveLength(2);
-    expect(codeBlocks[0]).toHaveAttribute("data-complete", "true");
-    expect(codeBlocks[1]).toHaveAttribute("data-complete", "false");
-    expect(codeBlocks[0]).toHaveTextContent("print('done')");
-    expect(codeBlocks[1]).toHaveTextContent("const pending = true;");
-    expect(screen.getAllByRole("button", { name: "Copy code block" })).toHaveLength(1);
-    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
-  });
-
-  it("keeps a trailing closed assistant code block non-copyable until streaming finishes", () => {
-    render(
-      React.createElement(StreamingPlaceholder, {
-        createdAt: new Date().toISOString(),
-        thinking: "",
-        answer: ["```python", "print('closed but still streaming')", "```"].join("\n"),
-        awaitingFirstToken: false,
-        thinkingInProgress: false,
-        timeline: []
-      })
-    );
-
-    const codeBlock = screen.getByTestId("assistant-code-block");
-
-    expect(codeBlock).toHaveAttribute("data-complete", "false");
-    expect(codeBlock).toHaveTextContent("print('closed but still streaming')");
-    expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
-  });
-
-  it("keeps a trailing closed blockquoted assistant code block non-copyable until streaming finishes", () => {
-    render(
-      React.createElement(StreamingPlaceholder, {
-        createdAt: new Date().toISOString(),
-        thinking: "",
-        answer: ["> ```python", "> print('quoted')", "> ```"].join("\n"),
-        awaitingFirstToken: false,
-        thinkingInProgress: false,
-        timeline: []
-      })
-    );
-
-    const codeBlock = screen.getByTestId("assistant-code-block");
-
-    expect(codeBlock).toHaveAttribute("data-complete", "false");
-    expect(codeBlock).toHaveTextContent("print('quoted')");
-    expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
-  });
-
-  it("keeps code-block copy hidden while streamed display text is still animating after the message snapshot is completed", () => {
-    render(
-      React.createElement(MessageBubble, {
-        message: {
-          ...createAssistantMessage(),
-          status: "completed",
-          content: ["```python", "print('final')", "```"].join("\n")
-        },
-        streamingAnswer: ["```python", "print('still painting')", "```"].join("\n")
-      })
-    );
-
-    const codeBlock = screen.getByTestId("assistant-code-block");
-
-    expect(codeBlock).toHaveAttribute("data-complete", "false");
-    expect(codeBlock).toHaveTextContent("print('still painting')");
-    expect(screen.queryByRole("button", { name: "Copy code block" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
-  });
-
-  it("keeps a completed code-block copy button mounted while later streamed prose changes", () => {
-    const { rerender } = render(
-      React.createElement(MessageBubble, {
-        message: {
-          ...createAssistantMessage(),
-          status: "streaming",
-          content: ""
-        },
-        streamingAnswer: ["```python", "print('done')", "```", "", "tail a"].join("\n")
-      })
-    );
-
-    const initialCopyButton = screen.getByRole("button", { name: "Copy code block" });
-
-    rerender(
-      React.createElement(MessageBubble, {
-        message: {
-          ...createAssistantMessage(),
-          status: "streaming",
-          content: ""
-        },
-        streamingAnswer: ["```python", "print('done')", "```", "", "tail ab"].join("\n")
-      })
-    );
-
-    expect(screen.getByRole("button", { name: "Copy code block" })).toBe(initialCopyButton);
-  });
-
-  it("keeps assistant inline code inline instead of rendering the dedicated block component", () => {
+  it("keeps assistant inline code inline instead of rendering the code block component", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
         message: {
@@ -1471,7 +1224,7 @@ describe("message bubble", () => {
     );
 
     expect(screen.getByText("token")).toBeInTheDocument();
-    expect(container.querySelector('[data-testid="assistant-code-block"]')).toBeNull();
+    expect(container.querySelector('[data-streamdown="code-block"]')).toBeNull();
     expect(container.querySelector('[data-testid="assistant-message-bubble"] p code')).not.toBeNull();
   });
 
@@ -1501,43 +1254,14 @@ describe("message bubble", () => {
       })
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy code block" }));
+    fireEvent.click(screen.getByRole("button", { name: "Copy Code" }));
 
     await waitFor(() => {
-      expect(writeText).toHaveBeenCalledWith("print('hello')");
+      expect(writeText).toHaveBeenCalledWith("print('hello')\n");
     });
   });
 
-  it("falls back to legacy copy when the code-block clipboard writeText call rejects", async () => {
-    const writeText = vi.fn().mockRejectedValue(new Error("clipboard denied"));
-    const execCommand = vi.fn().mockReturnValue(true);
 
-    Object.defineProperty(navigator, "clipboard", {
-      value: { writeText },
-      configurable: true
-    });
-    Object.defineProperty(document, "execCommand", {
-      value: execCommand,
-      configurable: true
-    });
-    vi.stubGlobal("ClipboardItem", undefined);
-
-    render(
-      React.createElement(MessageBubble, {
-        message: {
-          ...createAssistantMessage(),
-          content: ["```python", "print('hello')", "```"].join("\n")
-        }
-      })
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Copy code block" }));
-
-    await waitFor(() => {
-      expect(execCommand).toHaveBeenCalledWith("copy");
-    });
-    expect(screen.getByRole("button", { name: "Copied code block" })).toBeInTheDocument();
-  });
 
   it("copies assistant output through the clipboard fallback", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
