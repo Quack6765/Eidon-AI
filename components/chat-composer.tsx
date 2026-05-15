@@ -22,6 +22,7 @@ import { ContextGauge } from "@/components/context-gauge";
 import { Textarea } from "@/components/ui/textarea";
 import type { SpeechPhase } from "@/lib/speech/types";
 import { cn } from "@/lib/utils";
+import { useAutoResize } from "@/lib/use-auto-resize";
 import type {
   MessageAttachment,
   ProviderProfileSummary
@@ -224,6 +225,11 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [mounted, setMounted] = useState(false);
+  const { height: textareaHeight } = useAutoResize({
+    ref: textareaRef as React.RefObject<HTMLTextAreaElement | null>,
+    value: input
+  });
+  const isExpanded = textareaHeight > 60;
 
   useEffect(() => {
     setMounted(true);
@@ -361,15 +367,15 @@ export function ChatComposer({
         ) : null}
       </AnimatePresence>
 
-      <div className="flex w-full items-center gap-2 pb-1 pr-1.5">
+      <div className={cn("flex w-full gap-2 pb-1 pr-1.5", isExpanded ? "items-end" : "items-center")}>
         <div className="flex-1 min-w-0">
           <Textarea
             ref={textareaRef}
             value={input}
             onChange={(event) => onInputChange(event.target.value)}
             placeholder="Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-            className="max-h-[300px] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 py-3.5 text-[15px] text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin placeholder:text-white/20 caret-[var(--accent)]"
-            style={{ height: "auto" }}
+            className="max-h-[60vh] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 py-3.5 text-[15px] text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin placeholder:text-white/20 caret-[var(--accent)] overflow-y-auto"
+            style={{ height: `${textareaHeight}px`, transition: "height 150ms ease" }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
