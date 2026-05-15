@@ -2,11 +2,9 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, GitFork, LoaderCircle, Pencil, Square, X } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkBreaks from "remark-breaks";
-import remarkGfm from "remark-gfm";
-
-import { AssistantCodeBlock } from "@/components/assistant-code-block";
+import type { RemendHandler } from "remend";
+import { Streamdown } from "streamdown";
+import { code } from "@streamdown/code";
 import {
   AttachmentPreviewModal,
   useAttachmentUrlBuilder,
@@ -26,9 +24,142 @@ import type {
 } from "@/lib/types";
 import { normalizeMarkdownLineBreaks } from "@/lib/text-utils";
 
-const MARKDOWN_PLUGINS = [remarkGfm, remarkBreaks];
+const STREAMDOWN_PLUGINS = { code };
+
+const KNOWN_LANG_PREFIXES = [
+  "yaml", "yml", "json", "json5", "jsonc", "python", "py", "javascript", "js",
+  "typescript", "ts", "bash", "sh", "shell", "zsh", "fish", "html", "css", "scss",
+  "sql", "mysql", "postgres", "go", "rust", "java", "csharp", "cs", "cpp", "c",
+  "ruby", "rb", "php", "swift", "kotlin", "dockerfile", "docker", "makefile",
+  "xml", "svg", "markdown", "md", "text", "diff", "graphql", "toml", "ini",
+  "jsx", "tsx", "objective-c", "objc", "r", "lua", "perl", "groovy", "scala",
+  "haskell", "elm", "erlang", "clojure", "vim", "powershell", "bat", "ps1",
+  "nix", "terraform", "tf", "hcl", "docker-compose", "nginx", "apache", "conf",
+];
+
+function splitMergedCodeFenceLang(text: string): [string, string] | null {
+  if (!text || /^\w+$/.test(text)) return null;
+  if (!/[:\s=]/.test(text)) return null;
+
+  let bestMatch = "";
+  for (const lang of KNOWN_LANG_PREFIXES) {
+    if (text.startsWith(lang) && lang.length > bestMatch.length) {
+      bestMatch = lang;
+    }
+  }
+
+  if (bestMatch && text.length > bestMatch.length) {
+    return [bestMatch, text.slice(bestMatch.length)];
+  }
+
+  return null;
+}
+
+const splitMergedBlockElements: RemendHandler = {
+  name: "split-merged-block-elements",
+  priority: 90,
+  handle: (text: string): string => {
+    const lines = text.split("\n");
+    const result: string[] = [];
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      const fenceCount = (line.match(/`{3,}/g) || []).length;
+
+      if (/^\|.*\|$/.test(trimmed) && /\|\|/.test(trimmed)) {
+        const cells = trimmed.split(/\|\|/);
+        for (const cell of cells) {
+          result.push(("|" + cell + (cell.endsWith("|") ? "" : "|")).trim());
+        }
+        continue;
+      }
+
+      if (line.trimStart().startsWith("|")) {
+        result.push(line);
+        continue;
+      }
+
+      const headingTableMatch = trimmed.match(/^(#{1,6}\s+\S.*?)\|(\s*\S)/);
+      if (headingTableMatch) {
+        result.push(headingTableMatch[1].trimEnd());
+        result.push("");
+        result.push("|" + headingTableMatch[2] + trimmed.slice(headingTableMatch[0].length));
+        continue;
+      }
+
+      const codeblockBeforeIdx = line.search(/[^\s](`{3,})/);
+      if (codeblockBeforeIdx !== -1 && fenceCount < 2) {
+        const splitAt = codeblockBeforeIdx + 1;
+        const beforeText = line.slice(0, splitAt).trimEnd();
+        const delimiterAndAfter = line.slice(splitAt);
+        const afterMatch = delimiterAndAfter.match(/^(`{3,})(\s*\S+.*)$/);
+        if (afterMatch && afterMatch[2] && afterMatch[2].trim() && /\s/.test(afterMatch[2].trim())) {
+          result.push(beforeText);
+          result.push("");
+          result.push(afterMatch[1]);
+          result.push(afterMatch[2].trimStart());
+        } else {
+          result.push(beforeText);
+          result.push("");
+          result.push(delimiterAndAfter);
+        }
+        continue;
+      }
+
+      if (fenceCount < 2) {
+        const codeblockAfterMatch = trimmed.match(/^(`{3,})\s+(\S+(?:\s+\S+)+)$/);
+        if (codeblockAfterMatch) {
+          const indent = line.slice(0, line.length - trimmed.length);
+          result.push(indent + codeblockAfterMatch[1]);
+          result.push(codeblockAfterMatch[2]);
+          continue;
+        }
+      }
+
+      if (fenceCount < 2) {
+        const fenceLangMatch = trimmed.match(/^(`{3,})(\S+)(?:\s+(.*))?$/);
+        if (fenceLangMatch) {
+          const langPart = fenceLangMatch[2];
+          const restOfLine = fenceLangMatch[3] || "";
+          const split = splitMergedCodeFenceLang(langPart);
+          if (split) {
+            const indent = line.slice(0, line.length - trimmed.length);
+            result.push(indent + fenceLangMatch[1] + split[0]);
+            result.push(split[1] + (restOfLine ? " " + restOfLine : ""));
+            continue;
+          }
+        }
+      }
+
+      const headingIdx = line.search(/[^\s#](#{1,6}\s)/);
+      if (headingIdx !== -1) {
+        const splitAt = headingIdx + 1;
+        result.push(line.slice(0, splitAt).trimEnd());
+        result.push("");
+        result.push(line.slice(splitAt));
+        continue;
+      }
+
+      const hrIdx = line.search(/[^\s](-{3,}|\*{3,}|_{3,})\s*$/);
+      if (hrIdx !== -1) {
+        const splitAt = hrIdx + 1;
+        result.push(line.slice(0, splitAt).trimEnd());
+        result.push("");
+        result.push(line.slice(splitAt));
+        continue;
+      }
+
+      result.push(line);
+    }
+
+    return result.join("\n");
+  },
+};
+
+const STREAMDOWN_REMEND_OPTIONS = {
+  handlers: [splitMergedBlockElements],
+};
 const COPY_RESET_DELAY_MS = 1600;
-const AssistantMarkdownCopyReadyContext = React.createContext<Map<number, boolean> | null>(null);
 
 function getAnsiForegroundClassName(foregroundColor: ReturnType<typeof parseAnsiText>[number]["foregroundColor"]) {
   switch (foregroundColor) {
@@ -82,485 +213,16 @@ function AnsiText({
   );
 }
 
-function getMarkdownCodeValue(children: React.ReactNode) {
-  return React.Children.toArray(children)
-    .map((child) => {
-      if (typeof child === "string" || typeof child === "number") {
-        return String(child);
-      }
-
-      return "";
-    })
-    .join("");
-}
-
-function stripFenceContainerPrefixes(line: string) {
-  return line.replace(/^(?:>\s*)+/, "");
-}
-
-function getFencedCodeBlocks(content: string) {
-  const blocks: Array<{ startLineNumber: number; endLineIndex: number | null }> = [];
-  const lines = content.split("\n");
-  let activeFenceCharacter: "`" | "~" | null = null;
-  let activeFenceLength = 0;
-
-  lines.forEach((line, lineIndex) => {
-    const trimmedLine = stripFenceContainerPrefixes(line.trim());
-
-    if (!activeFenceCharacter) {
-      const openingFence = trimmedLine.match(/^(`{3,}|~{3,})(.*)$/);
-
-      if (!openingFence) {
-        return;
-      }
-
-      activeFenceCharacter = openingFence[1][0] as "`" | "~";
-      activeFenceLength = openingFence[1].length;
-      blocks.push({ startLineNumber: lineIndex + 1, endLineIndex: null });
-      return;
-    }
-
-    const closingFence = trimmedLine.match(/^(`{3,}|~{3,})\s*$/);
-
-    if (!closingFence) {
-      return;
-    }
-
-    const fenceToken = closingFence[1];
-
-    if (fenceToken[0] !== activeFenceCharacter || fenceToken.length < activeFenceLength) {
-      return;
-    }
-
-    blocks[blocks.length - 1].endLineIndex = lineIndex;
-    activeFenceCharacter = null;
-    activeFenceLength = 0;
-  });
-
-  return blocks;
-}
-
-function getFencedCodeBlockCopyReadyByStartLine(content: string, isStreaming: boolean) {
-  const blocks = getFencedCodeBlocks(content);
-  const lines = content.split("\n");
-
-  return new Map(
-    blocks.map((block) => {
-      if (block.endLineIndex === null) {
-        return [block.startLineNumber, false] as const;
-      }
-
-      if (!isStreaming) {
-        return [block.startLineNumber, true] as const;
-      }
-
-      return [
-        block.startLineNumber,
-        lines
-          .slice(block.endLineIndex + 1)
-          .some((line) => line.trim().length > 0)
-      ] as const;
-    })
-  );
-}
-
-function hasIncompleteFencedCodeBlock(content: string, isStreaming: boolean) {
-  return Array.from(getFencedCodeBlockCopyReadyByStartLine(content, isStreaming).values()).some((isReady) => !isReady);
-}
-
-function AssistantMarkdownPre({
-  node,
-  children
-}: React.ComponentPropsWithoutRef<"pre"> & {
-  node?: {
-    position?: {
-      start?: {
-        line?: number;
-      };
-    };
-  };
-}) {
-  const copyReadyByStartLine = React.useContext(AssistantMarkdownCopyReadyContext);
-  const codeChild = React.Children.toArray(children)[0];
-
-  if (!React.isValidElement(codeChild)) {
-    return <pre>{children}</pre>;
-  }
-
-  const typedCodeChild = codeChild as React.ReactElement<{
-    children?: React.ReactNode;
-    className?: string;
-  }>;
-  const className =
-    typeof typedCodeChild.props.className === "string"
-      ? typedCodeChild.props.className
-      : undefined;
-  const languageClass = className
-    ?.split(/\s+/)
-    .find((token: string) => token.startsWith("language-"));
-  const language = languageClass
-    ? languageClass.slice("language-".length)
-    : null;
-  const value = getMarkdownCodeValue(typedCodeChild.props.children ?? "").replace(/\n$/, "");
-  const startLineNumber = node?.position?.start?.line;
-  const isComplete =
-    typeof startLineNumber === "number"
-      ? copyReadyByStartLine?.get(startLineNumber) ?? true
-      : true;
-
-  return <AssistantCodeBlock code={value} language={language} isComplete={isComplete} />;
-}
-
-function AssistantMarkdownInlineCode({
-  node: _node,
-  className,
-  children,
-  ...props
-}: {
-  node?: unknown;
-  className?: string;
-  children?: React.ReactNode;
-} & React.ComponentPropsWithoutRef<"code"> & {
-  inline?: boolean;
-}) {
-  const { inline: _inline, ...codeProps } = props;
-
-  return (
-    <code className={className} {...codeProps}>
-      {children}
-    </code>
-  );
-}
-
 function renderAssistantMarkdown(content: string, isStreaming: boolean) {
-  const fencedCodeBlockCopyReadyByStartLine = getFencedCodeBlockCopyReadyByStartLine(content, isStreaming);
-
   return (
-    <AssistantMarkdownCopyReadyContext.Provider value={fencedCodeBlockCopyReadyByStartLine}>
-      <ReactMarkdown
-        remarkPlugins={MARKDOWN_PLUGINS}
-        components={{
-          pre: AssistantMarkdownPre,
-          code: AssistantMarkdownInlineCode
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </AssistantMarkdownCopyReadyContext.Provider>
-  );
-}
-
-function getMarkdownTableCellCount(line: string) {
-  const trimmed = line.trim();
-
-  if (!trimmed.startsWith("|")) {
-    return 0;
-  }
-
-  const inner = trimmed
-    .replace(/^\|/, "")
-    .replace(/\|$/, "");
-
-  return inner.split("|").length;
-}
-
-function isMarkdownTableAlignmentCell(cell: string) {
-  return /^:?-{3,}:?$/.test(cell.trim());
-}
-
-function splitCollapsedMarkdownAlignmentLine(line: string) {
-  if (!line.trimStart().startsWith("|")) {
-    return null;
-  }
-
-  const parts = line.split("|");
-  let alignmentCellCount = 0;
-
-  for (let index = 1; index < parts.length; index += 1) {
-    if (!isMarkdownTableAlignmentCell(parts[index])) {
-      break;
-    }
-
-    alignmentCellCount += 1;
-  }
-
-  if (alignmentCellCount < 2) {
-    return null;
-  }
-
-  const nextPartIndex = alignmentCellCount + 1;
-  const nextPart = parts[nextPartIndex];
-  const followingPart = parts[nextPartIndex + 1];
-
-  if (nextPart === undefined || (nextPart.trim() !== "" || followingPart === undefined)) {
-    return null;
-  }
-
-  return {
-    alignmentLine: `|${parts.slice(1, nextPartIndex).join("|")}|`,
-    remainderLine: `|${parts.slice(nextPartIndex + 1).join("|")}`,
-    columnCount: alignmentCellCount
-  };
-}
-
-function splitCollapsedMarkdownHeaderAlignmentLine(line: string) {
-  if (!line.trimStart().startsWith("|")) {
-    return null;
-  }
-
-  const parts = line.split("|");
-
-  for (let boundaryIndex = 2; boundaryIndex < parts.length - 2; boundaryIndex += 1) {
-    if (parts[boundaryIndex].trim() !== "") {
-      continue;
-    }
-
-    const headerCells = parts.slice(1, boundaryIndex);
-    let alignmentCellCount = 0;
-
-    for (let index = boundaryIndex + 1; index < parts.length; index += 1) {
-      if (!isMarkdownTableAlignmentCell(parts[index])) {
-        break;
-      }
-
-      alignmentCellCount += 1;
-    }
-
-    const nextPartIndex = boundaryIndex + alignmentCellCount + 1;
-    const nextPart = parts[nextPartIndex];
-    const followingPart = parts[nextPartIndex + 1];
-
-    if (
-      headerCells.length < 2 ||
-      alignmentCellCount !== headerCells.length ||
-      nextPart === undefined ||
-      nextPart.trim() !== ""
-    ) {
-      continue;
-    }
-
-    if (followingPart === undefined) {
-      return {
-        headerLine: `|${headerCells.join("|")}|`,
-        alignmentLine: `|${parts.slice(boundaryIndex + 1, nextPartIndex).join("|")}|`,
-        remainderLine: "",
-        columnCount: alignmentCellCount
-      };
-    }
-
-    return {
-      headerLine: `|${headerCells.join("|")}|`,
-      alignmentLine: `|${parts.slice(boundaryIndex + 1, nextPartIndex).join("|")}|`,
-      remainderLine: `|${parts.slice(nextPartIndex + 1).join("|")}`,
-      columnCount: alignmentCellCount
-    };
-  }
-
-  return null;
-}
-
-function splitCollapsedMarkdownTableRows(line: string, columnCount: number) {
-  const rows: string[] = [];
-  let current = line;
-
-  while (current.includes("||") && getMarkdownTableCellCount(current) > columnCount) {
-    const splitIndex = current.indexOf("||");
-    rows.push(`${current.slice(0, splitIndex)}|`);
-    current = `|${current.slice(splitIndex + 2).trimStart()}`;
-  }
-
-  const headingIndex = current.indexOf("|**");
-
-  if (
-    headingIndex !== -1 &&
-    getMarkdownTableCellCount(current.slice(0, headingIndex + 1)) >= columnCount
-  ) {
-    rows.push(current.slice(0, headingIndex + 1));
-    rows.push("");
-    rows.push(current.slice(headingIndex + 1));
-    return rows;
-  }
-
-  rows.push(current);
-  return rows;
-}
-
-function isMarkdownTableAlignmentRow(line: string) {
-  const trimmed = line.trim();
-  if (!trimmed.startsWith("|")) return false;
-  const inner = trimmed.replace(/^\|/, "").replace(/\|$/, "");
-  if (inner === "") return false;
-  return inner.split("|").every((cell) => isMarkdownTableAlignmentCell(cell));
-}
-
-function repairTableColumnMismatch(content: string) {
-  const lines = content.split("\n");
-  const result: string[] = [];
-  let pendingHeaderColumnCount: number | null = null;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (!trimmed.startsWith("|")) {
-      pendingHeaderColumnCount = null;
-      result.push(line);
-      continue;
-    }
-
-    const cellCount = getMarkdownTableCellCount(line);
-
-    if (isMarkdownTableAlignmentRow(line) && pendingHeaderColumnCount !== null && cellCount > pendingHeaderColumnCount) {
-      const parts = line.split("|");
-      result.push(`|${parts.slice(1, pendingHeaderColumnCount + 1).join("|")}|`);
-      pendingHeaderColumnCount = null;
-      continue;
-    }
-
-    if (!isMarkdownTableAlignmentRow(line)) {
-      pendingHeaderColumnCount = cellCount;
-    } else {
-      pendingHeaderColumnCount = null;
-    }
-
-    result.push(line);
-  }
-
-  return result.join("\n");
-}
-
-function repairCollapsedMarkdownTableBoundaries(content: string) {
-  const repairedLines: string[] = [];
-  let activeTableColumnCount: number | null = null;
-
-  content.split("\n").forEach((line) => {
-    const headerAlignmentSplit = splitCollapsedMarkdownHeaderAlignmentLine(line);
-
-    if (headerAlignmentSplit) {
-      activeTableColumnCount = headerAlignmentSplit.columnCount;
-      repairedLines.push(headerAlignmentSplit.headerLine);
-      repairedLines.push(headerAlignmentSplit.alignmentLine);
-      if (headerAlignmentSplit.remainderLine) {
-        repairedLines.push(
-          ...splitCollapsedMarkdownTableRows(
-            headerAlignmentSplit.remainderLine,
-            headerAlignmentSplit.columnCount
-          )
-        );
-      }
-      return;
-    }
-
-    const alignmentSplit = splitCollapsedMarkdownAlignmentLine(line);
-
-    if (alignmentSplit) {
-      activeTableColumnCount = alignmentSplit.columnCount;
-      repairedLines.push(alignmentSplit.alignmentLine);
-      repairedLines.push(
-        ...splitCollapsedMarkdownTableRows(
-          alignmentSplit.remainderLine,
-          alignmentSplit.columnCount
-        )
-      );
-      return;
-    }
-
-    if (activeTableColumnCount && line.trimStart().startsWith("|")) {
-      repairedLines.push(...splitCollapsedMarkdownTableRows(line, activeTableColumnCount));
-      return;
-    }
-
-    if (line.trim() === "" || !line.trimStart().startsWith("|")) {
-      activeTableColumnCount = null;
-    }
-
-    repairedLines.push(line);
-  });
-
-  return repairedLines.join("\n");
-}
-
-function repairMergedBlockElements(content: string) {
-  const lines = content.split("\n");
-  const result: string[] = [];
-
-  for (const line of lines) {
-    if (line.trimStart().startsWith("|")) {
-      result.push(line);
-      continue;
-    }
-
-    const trimmed = line.trim();
-
-    if (/^[\u2014\u2013]{2,}$/.test(trimmed)) {
-      result.push("---");
-      continue;
-    }
-
-    const dashPrefix = trimmed.match(/^([\u2014\u2013]{2,})(.+)$/);
-    if (dashPrefix) {
-      result.push("---");
-      result.push("");
-      result.push(dashPrefix[2].trimStart());
-      continue;
-    }
-
-    const dashSuffix = trimmed.match(/^(.+?)([\u2014\u2013]{2,})\s*$/);
-    if (dashSuffix) {
-      result.push(dashSuffix[1].trimEnd());
-      result.push("");
-      result.push("---");
-      continue;
-    }
-
-    const dashMidIdx = trimmed.search(/[^\s\u2014\u2013][\u2014\u2013]{2,}\S/);
-    if (dashMidIdx !== -1) {
-      const splitAt = dashMidIdx + 1;
-      const dashEnd = splitAt;
-      let end = dashEnd;
-      while (end < trimmed.length && /[\u2014\u2013]/.test(trimmed[end])) end += 1;
-      result.push(trimmed.slice(0, splitAt).trimEnd());
-      result.push("");
-      result.push("---");
-      result.push(trimmed.slice(end).trimStart());
-      continue;
-    }
-
-    const headingIdx = line.search(/[^\s#](#{1,6}\s)/);
-    if (headingIdx !== -1) {
-      const splitAt = headingIdx + 1;
-      result.push(line.slice(0, splitAt).trimEnd());
-      result.push("");
-      result.push(line.slice(splitAt));
-      continue;
-    }
-
-    const hrIdx = line.search(/[^\s](-{3,}|\*{3,}|_{3,})\s*$/);
-    if (hrIdx !== -1) {
-      const splitAt = hrIdx + 1;
-      result.push(line.slice(0, splitAt).trimEnd());
-      result.push("");
-      result.push(line.slice(splitAt));
-      continue;
-    }
-
-    const listIdx = line.search(/[.!?>;]\s*([-*+]\s\S)/);
-    if (listIdx !== -1 && !line.trimStart().startsWith("-") && !line.trimStart().startsWith("*") && !line.trimStart().startsWith("+")) {
-      const splitAt = listIdx + 1;
-      result.push(line.slice(0, splitAt).trimEnd());
-      result.push(line.slice(splitAt));
-      continue;
-    }
-
-    result.push(line);
-  }
-
-  return result.join("\n");
-}
-
-function getRenderableAssistantMarkdown(content: string, attachments: MessageAttachment[]) {
-  return stripAttachmentStyleImageMarkdown(
-    repairMergedBlockElements(repairTableColumnMismatch(repairCollapsedMarkdownTableBoundaries(normalizeMarkdownLineBreaks(content)))),
-    attachments
+    <Streamdown
+      plugins={STREAMDOWN_PLUGINS}
+      remend={STREAMDOWN_REMEND_OPTIONS}
+      caret={isStreaming ? "block" : undefined}
+      isAnimating={isStreaming}
+    >
+      {content}
+    </Streamdown>
   );
 }
 
@@ -1284,7 +946,7 @@ export function MessageBubble({
     .join("");
   const renderedAssistantText =
     message.role === "assistant"
-      ? getRenderableAssistantMarkdown(assistantText, message.attachments ?? [])
+      ? stripAttachmentStyleImageMarkdown(assistantText, message.attachments ?? [])
       : assistantText;
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
@@ -1312,7 +974,7 @@ export function MessageBubble({
         return;
       }
 
-      const renderedContent = getRenderableAssistantMarkdown(item.content, message.attachments ?? []);
+      const renderedContent = stripAttachmentStyleImageMarkdown(item.content, message.attachments ?? []);
 
       renderedAssistantBlockContentById.set(item.id, renderedContent);
 
@@ -1339,8 +1001,7 @@ export function MessageBubble({
   const showAssistantBubbleActions =
     Boolean(renderedAssistantText) &&
     !awaitingFirstToken &&
-    !isAssistantStreaming &&
-    !hasIncompleteFencedCodeBlock(renderedAssistantText, isAssistantStreaming);
+    !isAssistantStreaming;
 
   useEffect(() => {
     setDraft(message.content);
@@ -1455,7 +1116,7 @@ export function MessageBubble({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body">
-                  <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{repairMergedBlockElements(repairTableColumnMismatch(repairCollapsedMarkdownTableBoundaries(content)))}</ReactMarkdown>
+                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS} remend={STREAMDOWN_REMEND_OPTIONS}>{content}</Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
@@ -1568,7 +1229,7 @@ export function MessageBubble({
 
                 {thinkingOpen && thinkingContent ? (
                   <div className="markdown-body thinking-markdown-body mt-1.5">
-                    <ReactMarkdown remarkPlugins={MARKDOWN_PLUGINS}>{thinkingContent}</ReactMarkdown>
+                    <Streamdown mode="static" remend={STREAMDOWN_REMEND_OPTIONS}>{thinkingContent}</Streamdown>
                   </div>
                 ) : null}
               </div>
