@@ -33,7 +33,7 @@ if (typeof window !== "undefined") {
       ) {}
       observe() {
         this.callback(
-          [{ isIntersecting: true, target: document.createElement("div") } as IntersectionObserverEntry],
+          [{ isIntersecting: true, target: document.createElement("div") } as unknown as IntersectionObserverEntry],
           this as unknown as IntersectionObserver
         );
       }
