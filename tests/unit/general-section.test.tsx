@@ -64,7 +64,7 @@ describe("general section", () => {
 
     fireEvent.change(screen.getByDisplayValue("Forever"), { target: { value: "30d" } });
     fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "45" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
@@ -101,7 +101,7 @@ describe("general section", () => {
 
     fireEvent.change(screen.getByDisplayValue("Browser"), { target: { value: "embedded" } });
     fireEvent.change(screen.getByDisplayValue("English"), { target: { value: "es" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
@@ -195,7 +195,7 @@ describe("general section", () => {
       })
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(global.fetch).not.toHaveBeenCalled();
     expect(await screen.findByText("Tavily API key is required.")).toBeInTheDocument();
@@ -210,7 +210,7 @@ describe("general section", () => {
       })
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(global.fetch).not.toHaveBeenCalled();
     expect(await screen.findByText("SearXNG base URL is required.")).toBeInTheDocument();
@@ -228,7 +228,7 @@ describe("general section", () => {
     fireEvent.change(screen.getByLabelText("SearXNG base URL"), {
       target: { value: "not-a-url" }
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(global.fetch).not.toHaveBeenCalled();
     expect(await screen.findByText("SearXNG base URL must be valid.")).toBeInTheDocument();
@@ -247,7 +247,7 @@ describe("general section", () => {
     render(React.createElement(GeneralSection, { settings }));
 
     fireEvent.change(screen.getByDisplayValue("Forever"), { target: { value: "30d" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
@@ -300,7 +300,7 @@ describe("general section", () => {
     const exaInput = screen.getByLabelText("Exa API key");
     fireEvent.change(exaInput, { target: { value: "temporary-value" } });
     fireEvent.change(exaInput, { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
@@ -329,7 +329,7 @@ describe("general section", () => {
     fireEvent.change(tavilyInput, { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Web search engine"), { target: { value: "exa" } });
     fireEvent.change(screen.getByDisplayValue("Forever"), { target: { value: "30d" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
@@ -371,7 +371,7 @@ describe("general section", () => {
     expect(screen.queryByRole("option", { name: "ComfyUI" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Test ComfyUI workflow" })).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(global.fetch).toHaveBeenCalledWith(

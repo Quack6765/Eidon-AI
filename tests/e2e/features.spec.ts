@@ -1046,7 +1046,7 @@ test.describe("Feature: MCP Servers in settings", () => {
     await page.getByPlaceholder("https://...").fill("https://mcp.example.com/api");
     await page.getByRole("button", { name: "Test", exact: true }).click();
     await expect(page.locator("text=2 tools discovered").first()).toBeVisible({ timeout: 5000 });
-    await page.getByRole("button", { name: "Add server" }).click();
+    await page.getByRole("button", { name: "Save" }).click();
 
     await expect(page.locator("span").filter({ hasText: serverName }).first()).toBeVisible({
       timeout: 5000
@@ -1120,7 +1120,7 @@ test.describe("Feature: Skills in settings", () => {
     await page.getByPlaceholder("Skill name").fill("Test Skill");
     await page.getByPlaceholder("Explain when this skill should and should not trigger").fill("Use when the user asks for French output.");
     await page.getByPlaceholder("Enter the full skill instructions...").fill("Always respond in French.");
-    await page.getByRole("button", { name: "Add skill" }).last().click();
+    await page.getByRole("button", { name: "Save" }).last().click();
 
     await expect(page.getByRole("heading", { name: "Test Skill", exact: true })).toBeVisible({
       timeout: 5000
@@ -1147,7 +1147,7 @@ test.describe("Feature: Automations workspace", () => {
     await page.getByLabel("Name").fill("Morning summary");
     await page.getByLabel("Prompt").fill("Summarize priorities");
     await expect(page.getByLabel("Provider profile")).toHaveValue(/profile_/);
-    await page.getByRole("button", { name: "Save automation" }).click();
+    await page.getByRole("button", { name: "Save" }).click();
     await expect(page.getByRole("heading", { name: "Morning summary" })).toBeVisible({
       timeout: 5000
     });

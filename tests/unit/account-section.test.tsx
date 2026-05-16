@@ -31,7 +31,7 @@ describe("account section", () => {
 
     expect(screen.getByText(/managed by environment variables/i)).toBeInTheDocument();
     expect(screen.queryByText("New password")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Update account" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
   });
 
@@ -49,7 +49,7 @@ describe("account section", () => {
     );
 
     expect(screen.getByText("New password")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Update account" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
   });
 });

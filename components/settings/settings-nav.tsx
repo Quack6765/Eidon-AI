@@ -175,26 +175,21 @@ export function SettingsNav({
           ) : null}
         </div>
 
-        <div className="mt-8 rounded-2xl border border-white/6 bg-white/[0.02] px-4 py-4">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-white/30">
-            Signed in
-          </p>
-          <p className="mt-2 text-sm font-medium text-white/85">
-            {currentUser.username}
-          </p>
-          <p className="mt-1 text-xs text-white/45">
-            {currentUser.role === "admin" ? "Administrator access" : "Private workspace"}
-          </p>
-          <Button
-            type="button"
-            variant="danger"
-            onClick={() => void handleLogout()}
-            disabled={isSigningOut}
-            className="mt-4 w-full gap-2 rounded-2xl border-red-400/15 bg-red-500/[0.07] px-3 py-2.5 text-sm text-red-100 hover:bg-red-500/[0.12]"
-          >
-            <LogOut className="h-3.5 w-3.5" />
-            Sign out
-          </Button>
+        <div className="mt-auto pt-6">
+          <div className="border-t border-white/[0.06] pt-4">
+            <p className="text-sm font-medium text-[var(--text)]">
+              {currentUser.username}
+            </p>
+            <button
+              type="button"
+              onClick={() => void handleLogout()}
+              disabled={isSigningOut}
+              className="mt-1.5 inline-flex items-center gap-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <LogOut className="h-3 w-3" />
+              Sign out
+            </button>
+          </div>
         </div>
       </div>
     </aside>

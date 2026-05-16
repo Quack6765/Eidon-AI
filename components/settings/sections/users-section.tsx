@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Plus, Shield, Trash2, UserRound } from "lucide-react";
+import { AlertTriangle, Plus, Trash2, UserRound } from "lucide-react";
 
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
@@ -183,18 +183,23 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
 
   const showDetail = isAddingNew || Boolean(selectedUser);
   const isProtectedUser = selectedUser?.authSource === "env_super_admin";
+
+  const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
+  const inputLike = "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
+  const selectLike = `${inputLike} appearance-none bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2371717a%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`;
+  const sectionTitle = "text-sm font-semibold text-[var(--text)]";
+  const sectionDivider = "border-t border-white/[0.06]";
+
   const emptyState = (
     <div className="flex flex-col items-center justify-center py-24 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/6 bg-white/[0.03]">
-        <UserRound className="h-5 w-5 text-[#52525b]" />
+        <UserRound className="h-5 w-5 text-[var(--muted)]" />
       </div>
-      <p className="mt-4 text-[0.85rem] text-[#71717a]">
+      <p className="mt-4 text-[0.85rem] text-[var(--muted)]">
         Select a user from the roster or create a new login.
       </p>
     </div>
   );
-  const selectClass =
-    "w-full rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm outline-none transition-all duration-200 text-[#f4f4f5] focus:border-[rgba(139,92,246,0.3)]";
 
   return (
     <div className="min-h-0 p-4 md:h-full md:p-8">
@@ -204,15 +209,15 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
         listHeader={
           <div className="flex w-full items-center justify-between">
             <div>
-              <h2 className="text-[0.9rem] font-semibold text-[#f4f4f5]">Users</h2>
-              <p className="text-[0.68rem] text-[#52525b]">
+              <h2 className="text-sm font-semibold text-[var(--text)]">Users</h2>
+              <p className="text-xs text-[var(--muted)]">
                 {userRows.length} account{userRows.length === 1 ? "" : "s"}
               </p>
             </div>
             <button
               type="button"
               onClick={handleAddUser}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] transition-all duration-200 hover:bg-white/[0.06] hover:text-[#f4f4f5]"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[var(--muted)] transition-all duration-200 hover:bg-white/[0.06] hover:text-[var(--text)]"
               aria-label="Add user"
             >
               <Plus className="h-4 w-4" />
@@ -235,26 +240,13 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
         }
         detailPanel={
           showDetail ? (
-            <div className="max-w-[620px] space-y-6">
+            <div className="max-w-[720px] space-y-6">
               <div className="flex items-start justify-between gap-4">
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-sky-500/10 text-sky-300">
-                      <Shield className="h-4 w-4" />
-                    </div>
-                    <div>
-                      <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-sky-300">
-                        Access
-                      </p>
-                      <h3
-                        className="text-[1.2rem] font-semibold text-[#f4f4f5]"
-                        style={{ fontFamily: "var(--font-display)" }}
-                      >
-                        {isAddingNew ? "Create user" : selectedUser?.username}
-                      </h3>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 pl-12">
+                <div>
+                  <h3 className={sectionTitle}>
+                    {isAddingNew ? "Create user" : selectedUser?.username}
+                  </h3>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
                     {selectedUser ? (
                       <>
                         <Badge variant={buildRoleBadge(selectedUser).variant}>
@@ -271,18 +263,19 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
                 </div>
 
                 {!isAddingNew && !isProtectedUser ? (
-                  <Button
+                  <button
                     type="button"
-                    variant="danger"
                     onClick={() => void deleteUser()}
                     disabled={isSaving}
-                    className="gap-2"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <Trash2 className="h-4 w-4" />
-                    Delete user
-                  </Button>
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
                 ) : null}
               </div>
+
+              <div className={sectionDivider} />
 
               {isProtectedUser ? (
                 <div className="space-y-4">
@@ -290,34 +283,35 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
                     This account is env-managed and protected from UI edits. Change the bootstrap
                     admin credentials through environment variables instead.
                   </div>
-                  <div className="grid gap-4 rounded-2xl border border-white/6 bg-white/[0.02] p-5 md:grid-cols-2">
+                  <div className="grid gap-4 md:grid-cols-2">
                     <div>
-                      <Label>Username</Label>
-                      <Input value={selectedUser?.username ?? ""} readOnly disabled />
+                      <label className={fieldLabel}>Username</label>
+                      <Input value={selectedUser?.username ?? ""} readOnly disabled className={inputLike} />
                     </div>
                     <div>
-                      <Label>Role</Label>
-                      <Input value={selectedUser?.role ?? ""} readOnly disabled />
+                      <label className={fieldLabel}>Role</label>
+                      <Input value={selectedUser?.role ?? ""} readOnly disabled className={inputLike} />
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-5 rounded-2xl border border-white/6 bg-white/[0.02] p-5">
+                <div className="space-y-5">
                   <div className="grid gap-4 md:grid-cols-2">
                     <div>
-                      <Label>Username</Label>
+                      <label className={fieldLabel}>Username</label>
                       <Input
                         value={draftUsername}
                         onChange={(event) => setDraftUsername(event.target.value)}
                         placeholder="Username"
+                        className={inputLike}
                       />
                     </div>
                     <div>
-                      <Label>Role</Label>
+                      <label className={fieldLabel}>Role</label>
                       <select
                         value={draftRole}
                         onChange={(event) => setDraftRole(event.target.value as UserRole)}
-                        className={selectClass}
+                        className={selectLike}
                       >
                         <option value="user">User</option>
                         <option value="admin">Admin</option>
@@ -326,16 +320,17 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
                   </div>
 
                   <div>
-                    <Label>{isAddingNew ? "Password" : "New password"}</Label>
+                    <label className={fieldLabel}>{isAddingNew ? "Password" : "New password"}</label>
                     <Input
                       type="password"
                       value={draftPassword}
                       onChange={(event) => setDraftPassword(event.target.value)}
                       placeholder={isAddingNew ? "Set a password" : "Leave blank to keep the current password"}
+                      className={inputLike}
                     />
                   </div>
 
-                  <div className="rounded-2xl border border-white/6 bg-black/20 px-4 py-4 text-sm leading-6 text-[#a1a1aa]">
+                  <div className="rounded-2xl border border-white/6 bg-black/20 px-4 py-4 text-sm leading-6 text-[var(--muted)]">
                     {isAddingNew ? (
                       <>
                         New users start with their own empty conversations, personas, memories,
@@ -349,20 +344,14 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
                     )}
                   </div>
 
-                  <div className="flex flex-wrap gap-2">
-                    <Button type="button" onClick={() => void saveUser()} disabled={isSaving}>
-                      {isAddingNew ? (
-                        <>
-                          <Plus className="mr-2 h-4 w-4" />
-                          Create user
-                        </>
-                      ) : (
-                        "Save changes"
-                      )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" className="px-3 py-1.5 text-xs" onClick={() => void saveUser()} disabled={isSaving}>
+                      Save
                     </Button>
                     <Button
                       type="button"
-                      variant="secondary"
+                      variant="ghost"
+                      className="px-2.5 py-1.5 text-xs"
                       onClick={() => {
                         if (selectedUser) {
                           handleSelectUser(selectedUser);
@@ -379,18 +368,18 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
                 </div>
               )}
 
+              <div className={sectionDivider} />
+
               {success ? (
-                <div className="rounded-2xl border border-emerald-400/12 bg-emerald-500/8 px-4 py-3 text-sm text-emerald-200">
+                <div className="flex items-center gap-1.5 text-sm text-emerald-400">
                   {success}
                 </div>
               ) : null}
 
               {error ? (
-                <div className="rounded-2xl border border-red-400/12 bg-red-500/8 px-4 py-3 text-sm text-red-200">
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4" />
-                    <span>{error}</span>
-                  </div>
+                <div className="flex items-center gap-2 text-sm text-red-200">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span>{error}</span>
                 </div>
               ) : null}
             </div>

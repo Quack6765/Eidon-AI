@@ -10,8 +10,6 @@ import type { AppSettings, MemoryCategory, UserMemory } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
-import { SettingsCard } from "../settings-card";
-import { SettingRow } from "../setting-row";
 
 const CATEGORIES: Array<{ value: MemoryCategory | "all"; label: string }> = [
   { value: "all", label: "All" },
@@ -120,48 +118,71 @@ export function MemoriesSection() {
   }
 
   const selectedMemory = memories.find((m) => m.id === selectedMemoryId);
-  const labelClass = "text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#71717a]";
+
+  const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
+  const inputLike = "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
+  const selectLike = `${inputLike} appearance-none bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2371717a%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`;
+  const sectionTitle = "text-sm font-semibold text-[var(--text)]";
+  const sectionDivider = "border-t border-white/[0.06]";
 
   return (
     <div className="min-h-0 p-4 md:h-full md:p-8 space-y-6">
-      <SettingsCard
-        title="Memory Settings"
-        description="The assistant automatically saves important facts about you across conversations."
-      >
-        <div className="space-y-4">
-          <SettingRow label="Enable memories" description="Allow the assistant to save and recall facts about you">
-            <label className="relative inline-flex cursor-pointer items-center">
-              <input
-                type="checkbox"
-                checked={settings?.memoriesEnabled ?? true}
-                onChange={(e) => saveSettings({ memoriesEnabled: e.target.checked })}
-                className="peer sr-only"
-              />
-              <div className="h-5 w-9 rounded-full bg-white/10 peer-checked:bg-violet-500/60 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full" />
-            </label>
-          </SettingRow>
-          <SettingRow label="Max memories" description={`Maximum number of memories (current: ${memories.length})`}>
-            <Input
-              type="number"
-              min={1}
-              max={500}
-              value={settings?.memoriesMaxCount ?? 100}
-              onChange={(e) => {
-                const val = parseInt(e.target.value, 10);
-                if (val >= 1 && val <= 500) saveSettings({ memoriesMaxCount: val });
-              }}
-              className="w-20 text-center text-sm"
-            />
-          </SettingRow>
+      <div className="space-y-0">
+        <div className="pb-5">
+          <h3 className="text-base font-semibold text-[var(--text)]">Memory Settings</h3>
+          <p className="mt-1 text-xs text-[var(--muted)]">
+            The assistant automatically saves important facts about you across conversations.
+          </p>
         </div>
-      </SettingsCard>
+
+        <div className={`${sectionDivider} py-5`}>
+          <div className="space-y-4">
+            <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <div className="min-w-0">
+                <div className="text-[13px] text-[var(--text)]">Enable memories</div>
+                <div className="mt-0.5 text-xs text-[var(--muted)]">Allow the assistant to save and recall facts about you</div>
+              </div>
+              <div className="w-full sm:w-auto sm:flex-shrink-0">
+                <label className="relative inline-flex cursor-pointer items-center">
+                  <input
+                    type="checkbox"
+                    checked={settings?.memoriesEnabled ?? true}
+                    onChange={(e) => saveSettings({ memoriesEnabled: e.target.checked })}
+                    className="peer sr-only"
+                  />
+                  <div className="h-5 w-9 rounded-full bg-white/10 peer-checked:bg-violet-500/60 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-4 after:w-4 after:rounded-full after:bg-white after:transition-all peer-checked:after:translate-x-full" />
+                </label>
+              </div>
+            </div>
+            <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+              <div className="min-w-0">
+                <div className="text-[13px] text-[var(--text)]">Max memories</div>
+                <div className="mt-0.5 text-xs text-[var(--muted)]">Maximum number of memories (current: {memories.length})</div>
+              </div>
+              <div className="w-full sm:w-auto sm:flex-shrink-0">
+                <Input
+                  type="number"
+                  min={1}
+                  max={500}
+                  value={settings?.memoriesMaxCount ?? 100}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10);
+                    if (val >= 1 && val <= 500) saveSettings({ memoriesMaxCount: val });
+                  }}
+                  className="w-20 text-center text-sm"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       <SettingsSplitPane
         listHeader={
           <div className="flex items-center justify-between w-full">
             <div>
-              <h2 className="text-[0.9rem] font-semibold text-[#f4f4f5]">Memories</h2>
-              <p className="text-[0.68rem] text-[#52525b]">
+              <h2 className="text-sm font-semibold text-[var(--text)]">Memories</h2>
+              <p className="text-xs text-[var(--muted)]">
                 {memories.length} memor{memories.length !== 1 ? "ies" : "y"}
               </p>
             </div>
@@ -171,13 +192,13 @@ export function MemoriesSection() {
           <div className="space-y-3">
             <div className="flex gap-2">
               <div className="relative flex-1">
-                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#52525b]" />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
                 <input
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder="Search memories..."
-                  className="w-full rounded-lg border border-white/6 bg-white/[0.03] py-2 pl-8 pr-3 text-xs text-[#f4f4f5] placeholder:text-[#52525b] outline-none focus:border-violet-500/30 transition-colors"
+                  className={`${inputLike} pl-10`}
                 />
               </div>
             </div>
@@ -190,7 +211,7 @@ export function MemoriesSection() {
                   className={`rounded-md px-2.5 py-1 text-[10px] font-medium transition-all duration-200 ${
                     filterCategory === cat.value
                       ? "bg-violet-500/15 text-violet-300 border border-violet-500/25"
-                      : "bg-white/[0.03] text-[#71717a] border border-white/4 hover:bg-white/[0.06] hover:text-[#a1a1aa]"
+                      : "bg-white/[0.03] text-[var(--muted)] border border-white/4 hover:bg-white/[0.06] hover:text-[var(--text)]"
                   }`}
                 >
                   {cat.label}
@@ -201,9 +222,9 @@ export function MemoriesSection() {
               {memories.length === 0 ? (
                 <div className="flex flex-col items-center py-12 text-center">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-white/[0.03] border border-white/6 mb-3">
-                    <Brain className="h-4 w-4 text-[#52525b]" />
+                    <Brain className="h-4 w-4 text-[var(--muted)]" />
                   </div>
-                  <p className="text-xs text-[#52525b]">
+                  <p className="text-xs text-[var(--muted)]">
                     No memories yet. The assistant will automatically save important facts about you as you chat.
                   </p>
                 </div>
@@ -223,7 +244,7 @@ export function MemoriesSection() {
                             e.stopPropagation();
                             deleteMemory(memory.id);
                           }}
-                          className="opacity-0 group-hover:opacity-100 flex h-6 w-6 items-center justify-center rounded-md text-[#52525b] hover:text-red-400 hover:bg-red-500/10 transition-all"
+                          className="opacity-0 group-hover:opacity-100 flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted)] hover:text-red-400 hover:bg-red-500/10 transition-all"
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
@@ -238,23 +259,22 @@ export function MemoriesSection() {
         isDetailVisible={mobileDetailVisible}
         onBackAction={() => setMobileDetailVisible(false)}
         detailPanel={
-          <div className="max-w-[560px] space-y-6">
+          <div             className="w-full max-w-[720px] space-y-8">
             {selectedMemory ? (
               <>
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-[1.1rem] font-semibold text-[#f4f4f5]">Edit Memory</h3>
-                    <Button
+                    <h3 className="text-base font-semibold text-[var(--text)]">Edit Memory</h3>
+                    <button
                       type="button"
-                      variant="danger"
                       onClick={() => deleteMemory(selectedMemory.id)}
-                      className="gap-1.5 px-3 py-1.5 text-xs"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
                     >
                       <Trash2 className="h-3 w-3" />
                       Delete
-                    </Button>
+                    </button>
                   </div>
-                  <div className="flex gap-4 text-xs text-[#52525b]">
+                  <div className="flex gap-4 text-xs text-[var(--muted)]">
                     <span>Created {formatRelativeTime(selectedMemory.createdAt)}</span>
                     <span>Updated {formatRelativeTime(selectedMemory.updatedAt)}</span>
                   </div>
@@ -262,7 +282,7 @@ export function MemoriesSection() {
 
                 <div className="space-y-5">
                   <div>
-                    <label className={labelClass}>Content</label>
+                    <label className={fieldLabel}>Content</label>
                     <Textarea
                       value={editContent}
                       onChange={(e) => setEditContent(e.target.value)}
@@ -271,11 +291,11 @@ export function MemoriesSection() {
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>Category</label>
+                    <label className={fieldLabel}>Category</label>
                     <select
                       value={editCategory}
                       onChange={(e) => setEditCategory(e.target.value as MemoryCategory)}
-                      className="w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-violet-500/30"
+                      className={selectLike}
                     >
                       <option value="personal">Personal</option>
                       <option value="preference">Preference</option>
@@ -286,13 +306,14 @@ export function MemoriesSection() {
                   </div>
                 </div>
 
-                <div className="flex gap-2 pt-2">
-                  <Button type="button" onClick={saveMemory}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" className="px-3 py-1.5 text-xs" onClick={saveMemory}>
                     Save
                   </Button>
                   <Button
                     type="button"
-                    variant="secondary"
+                    variant="ghost"
+                    className="px-2.5 py-1.5 text-xs"
                     onClick={() => {
                       setSelectedMemoryId(null);
                       setMobileDetailVisible(false);
@@ -305,9 +326,9 @@ export function MemoriesSection() {
             ) : (
               <div className="flex flex-col items-center justify-center py-24 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.03] border border-white/6 mb-4">
-                  <Brain className="h-5 w-5 text-[#52525b]" />
+                  <Brain className="h-5 w-5 text-[var(--muted)]" />
                 </div>
-                <p className="text-[0.85rem] text-[#71717a]">
+                <p className="text-sm text-[var(--muted)]">
                   Select a memory to view and edit
                 </p>
               </div>

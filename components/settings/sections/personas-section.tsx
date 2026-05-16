@@ -19,6 +19,8 @@ export function PersonasSection() {
   const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
+  const [isPersonaContentOpen, setIsPersonaContentOpen] = useState(false);
+  const [personaContentDraft, setPersonaContentDraft] = useState("");
 
   useEffect(() => {
     fetch("/api/personas")
@@ -92,12 +94,33 @@ export function PersonasSection() {
     setSelectedPersonaId(null);
     setIsAddingNew(false);
     setMobileDetailVisible(false);
+    setIsPersonaContentOpen(false);
+    setPersonaContentDraft("");
+  }
+
+  function openPersonaContent() {
+    setPersonaContentDraft(personaContent);
+    setIsPersonaContentOpen(true);
+  }
+
+  function savePersonaContent() {
+    setPersonaContent(personaContentDraft);
+    setIsPersonaContentOpen(false);
+  }
+
+  function closePersonaContent() {
+    setIsPersonaContentOpen(false);
+    setPersonaContentDraft("");
   }
 
   const selectedPersona = personas.find((p) => p.id === selectedPersonaId);
   const showDetail = selectedPersona || isAddingNew;
 
-  const labelClass = "text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#71717a]";
+  const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
+  const inputLike = "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
+  const selectLike = `${inputLike} appearance-none bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2371717a%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`;
+  const sectionTitle = "text-sm font-semibold text-[var(--text)]";
+  const sectionDivider = "border-t border-white/[0.06]";
 
   return (
     <div className="min-h-0 p-4 md:h-full md:p-8">
@@ -105,17 +128,18 @@ export function PersonasSection() {
         listHeader={
           <div className="flex items-center justify-between w-full">
             <div>
-              <h2 className="text-[0.9rem] font-semibold text-[#f4f4f5]">Personas</h2>
-              <p className="text-[0.68rem] text-[#52525b]">
+              <h2 className="text-sm font-semibold text-[var(--text)]">Personas</h2>
+              <p className="text-xs text-[var(--muted)]">
                 {personas.length} persona{personas.length !== 1 ? "s" : ""}
               </p>
             </div>
             <button
               type="button"
               onClick={handleAddNew}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] hover:text-[#f4f4f5] hover:bg-white/[0.06] transition-all duration-200"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/[0.07] transition-all duration-200"
+              aria-label="Add persona"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-3.5 w-3.5" />
             </button>
           </div>
         }
@@ -134,63 +158,135 @@ export function PersonasSection() {
         isDetailVisible={mobileDetailVisible}
         onBackAction={() => setMobileDetailVisible(false)}
         detailPanel={
-          <div className="max-w-[560px] space-y-6">
+          <div className="w-full max-w-[720px]">
             {showDetail ? (
-              <>
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-[1.1rem] font-semibold text-[#f4f4f5]">
-                      {isAddingNew ? "New Persona" : selectedPersona?.name}
-                    </h3>
+              <div className="space-y-0">
+                {/* Header */}
+                <div className="pb-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-semibold text-[var(--text)]">
+                        {isAddingNew ? "New persona" : selectedPersona?.name}
+                      </h3>
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        {isAddingNew
+                          ? "Create a new persona with custom system instructions."
+                          : "Edit the name and system instructions for this persona."}
+                      </p>
+                    </div>
+                    {!isAddingNew && selectedPersona ? (
+                      <button
+                        type="button"
+                        onClick={() => deletePersona(selectedPersona.id)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
+                      >
+                        Delete
+                      </button>
+                    ) : null}
                   </div>
+                </div>
 
-                  {!isAddingNew && selectedPersona ? (
-                    <Button
-                      type="button"
-                      variant="danger"
-                      onClick={() => deletePersona(selectedPersona.id)}
-                      className="gap-1.5 px-3 py-1.5 text-xs"
-                    >
-                      Delete
+                {/* Identity */}
+                <div className={`${sectionDivider} py-5`}>
+                  <h4 className={sectionTitle}>Identity</h4>
+                  <div className="mt-4 space-y-5">
+                    <div>
+                      <label className={fieldLabel}>Name</label>
+                      <Input
+                        value={personaName}
+                        onChange={(e) => setPersonaName(e.target.value)}
+                        placeholder="Persona name"
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className={fieldLabel}>System Instructions (Markdown)</label>
+                        <button
+                          type="button"
+                          onClick={openPersonaContent}
+                          className="text-xs text-[var(--accent)] hover:underline"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                      <div
+                        onClick={openPersonaContent}
+                        className="cursor-pointer rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 hover:bg-white/[0.06] transition-colors"
+                      >
+                        {personaContent || "No system instructions set"}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className={`${sectionDivider} py-5`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" className="px-3 py-1.5 text-xs" onClick={savePersona}>
+                      Save
                     </Button>
-                  ) : null}
-                </div>
-
-                <div className="space-y-5">
-                  <div>
-                    <label className={labelClass}>Name</label>
-                    <Input
-                      value={personaName}
-                      onChange={(e) => setPersonaName(e.target.value)}
-                      placeholder="Persona name"
-                    />
-                  </div>
-                  <div>
-                    <label className={labelClass}>System Instructions (Markdown)</label>
-                    <Textarea
-                      value={personaContent}
-                      onChange={(e) => setPersonaContent(e.target.value)}
-                      placeholder="Enter the persona instructions in markdown..."
-                      rows={12}
-                    />
+                    <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={resetPersonaForm}>
+                      Cancel
+                    </Button>
                   </div>
                 </div>
 
-                <div className="flex gap-2 pt-2">
-                  <Button type="button" onClick={savePersona}>
-                    {editingPersonaId ? "Update" : "Add persona"}
-                  </Button>
-                  <Button type="button" variant="secondary" onClick={resetPersonaForm}>
-                    Cancel
-                  </Button>
-                </div>
-              </>
+                {/* Persona Content Modal */}
+                {isPersonaContentOpen && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div
+                      className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                      onClick={closePersonaContent}
+                    />
+                    <div className="relative w-full max-w-[720px] max-h-[80vh] flex flex-col rounded-2xl border border-white/[0.08] bg-[#121214] p-6 shadow-2xl">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-semibold text-[var(--text)]">Edit system instructions</h3>
+                        <button
+                          type="button"
+                          onClick={closePersonaContent}
+                          className="text-[var(--muted)] hover:text-[var(--text)] transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                      </div>
+                      <p className="mb-3 text-xs text-[var(--muted)]">
+                        Markdown is supported
+                      </p>
+                      <Textarea
+                        autoComplete="off"
+                        spellCheck={false}
+                        value={personaContentDraft}
+                        onChange={(event) => setPersonaContentDraft(event.target.value)}
+                        rows={16}
+                        className="flex-1 resize-none min-h-[300px]"
+                      />
+                      <div className="flex flex-wrap items-center justify-end gap-2 mt-5 pt-4 border-t border-white/[0.06]">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="px-3 py-1.5 text-xs"
+                          onClick={closePersonaContent}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          className="px-3 py-1.5 text-xs"
+                          onClick={savePersonaContent}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-24 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.03] border border-white/6 mb-4">
-                  <FileText className="h-5 w-5 text-[#52525b]" />
+                  <FileText className="h-5 w-5 text-[var(--muted)]" />
                 </div>
-                <p className="text-[0.85rem] text-[#71717a]">
+                <p className="text-sm text-[var(--muted)]">
                   Select a persona or add a new one
                 </p>
               </div>

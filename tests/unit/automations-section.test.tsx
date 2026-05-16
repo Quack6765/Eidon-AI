@@ -118,7 +118,7 @@ describe("automations section", () => {
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Morning summary" } });
     fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Summarize priorities" } });
     fireEvent.change(screen.getByLabelText("Every"), { target: { value: "4" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     expect(screen.getByText("Interval must be at least 5 minutes")).toBeInTheDocument();
     expect(global.fetch).not.toHaveBeenCalledWith(
@@ -139,7 +139,7 @@ describe("automations section", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Morning summary" } });
     fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Summarize priorities" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save automation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(screen.getByText("Automation saved.")).toBeInTheDocument();

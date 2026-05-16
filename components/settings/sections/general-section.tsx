@@ -2,9 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Info } from "lucide-react";
 
-import { SettingsCard } from "@/components/settings/settings-card";
-import { SettingRow } from "@/components/settings/setting-row";
 import { Button } from "@/components/ui/button";
 import type { AppSettings, ConversationRetention, ImageGenerationBackend } from "@/lib/types";
 
@@ -13,11 +12,6 @@ type GeneralSectionSettings = AppSettings & {
   hasTavilyApiKey?: boolean;
   hasGoogleNanoBananaApiKey?: boolean;
 };
-
-const inputClassName =
-  "w-full rounded-lg border border-white/6 bg-white/[0.03] px-3 py-2 text-sm outline-none transition-all duration-200 focus:border-[var(--accent)]/30";
-
-const fieldLabelClassName = "mb-1 block text-xs font-medium text-[var(--muted)]";
 
 export function GeneralSection({
   settings,
@@ -200,47 +194,60 @@ export function GeneralSection({
     }
   }
 
+  const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
+  const inputLike = "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
+  const selectLike = `${inputLike} appearance-none bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2371717a%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`;
+  const sectionTitle = "text-sm font-semibold text-[var(--text)]";
+  const sectionDivider = "border-t border-white/[0.06]";
+
   return (
     <div className="w-full max-w-none space-y-6 p-4 sm:p-6 md:max-w-[55%] md:p-8">
-      <SettingsCard title="Conversation Retention">
-        <SettingRow
-          label="Keep conversations for"
-          description="Older conversations will be automatically deleted"
-        >
+      {/* Conversation Retention */}
+      <div className="space-y-4">
+        <h3 className={sectionTitle}>Conversation Retention</h3>
+        <div className="space-y-1.5">
+          <label className={fieldLabel}>Keep conversations for</label>
+          <p className="text-xs text-[var(--muted)]">Older conversations will be automatically deleted</p>
           <select
             value={conversationRetention}
             onChange={(event) => setConversationRetention(event.target.value as ConversationRetention)}
-            className={`${inputClassName} sm:w-auto`}
+            className={`${selectLike} sm:w-auto`}
           >
             <option value="forever">Forever</option>
             <option value="90d">90 days</option>
             <option value="30d">30 days</option>
             <option value="7d">7 days</option>
           </select>
-        </SettingRow>
-      </SettingsCard>
+        </div>
+      </div>
 
-      <SettingsCard title="MCP Server Timeout">
-        <SettingRow
-          label="Max tool call timeout"
-          description="Maximum time (seconds) to wait for an MCP server to respond to a tool call"
-        >
+      <div className={sectionDivider} />
+
+      {/* MCP Server Timeout */}
+      <div className="space-y-4">
+        <h3 className={sectionTitle}>MCP Server Timeout</h3>
+        <div className="space-y-1.5">
+          <label className={fieldLabel}>Max tool call timeout</label>
+          <p className="text-xs text-[var(--muted)]">Maximum time (seconds) to wait for an MCP server to respond to a tool call</p>
           <input
             type="number"
             min={10}
             max={600}
             value={Math.round(mcpTimeout / 1000)}
             onChange={(event) => setMcpTimeout(Number(event.target.value) * 1000)}
-            className={`${inputClassName} sm:w-20`}
+            className={`${inputLike} sm:w-20`}
           />
-        </SettingRow>
-      </SettingsCard>
+        </div>
+      </div>
 
-      <SettingsCard title="Speech-to-Text">
-        <SettingRow
-          label="Speech engine and language"
-          description="Choose whether dictation uses the browser speech engine or the embedded model path, then set its default language behavior."
-        >
+      <div className={sectionDivider} />
+
+      {/* Speech-to-Text */}
+      <div className="space-y-4">
+        <h3 className={sectionTitle}>Speech-to-Text</h3>
+        <div className="space-y-1.5">
+          <label className={fieldLabel}>Speech engine and language</label>
+          <p className="text-xs text-[var(--muted)]">Choose whether dictation uses the browser speech engine or the embedded model path, then set its default language behavior.</p>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
             <select
               aria-label="Speech engine"
@@ -248,7 +255,7 @@ export function GeneralSection({
               onChange={(event) =>
                 handleSpeechEngineChange(event.target.value as AppSettings["sttEngine"])
               }
-              className={`${inputClassName} sm:w-auto`}
+              className={`${selectLike} sm:w-auto`}
             >
               <option value="browser">Browser</option>
               <option value="embedded">Embedded model</option>
@@ -261,7 +268,7 @@ export function GeneralSection({
                 resetMessages();
                 setSttLanguage(event.target.value as AppSettings["sttLanguage"]);
               }}
-              className={`${inputClassName} sm:w-auto`}
+              className={`${selectLike} sm:w-auto`}
             >
               {speechLanguageOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -270,221 +277,219 @@ export function GeneralSection({
               ))}
             </select>
           </div>
-        </SettingRow>
-      </SettingsCard>
+        </div>
+      </div>
 
-      <SettingsCard title="Web Search">
-        <SettingRow
-          label="Search provider"
-          description="Choose which web search engine is available to the agent."
-        >
-          <div className="w-full space-y-3 sm:w-[22rem]">
-            <div>
-              <label htmlFor="web-search-engine" className={fieldLabelClassName}>
-                Web search engine
-              </label>
-              <select
-                id="web-search-engine"
-                aria-label="Web search engine"
-                value={webSearchEngine}
-                onChange={(event) => {
-                  resetMessages();
-                  setWebSearchEngine(event.target.value as AppSettings["webSearchEngine"]);
-                }}
-                className={inputClassName}
-              >
-                <option value="exa">Exa</option>
-                <option value="tavily">Tavily</option>
-                <option value="searxng">SearXNG</option>
-                <option value="disabled">Disabled</option>
-              </select>
-            </div>
+      <div className={sectionDivider} />
 
-            {webSearchEngine === "exa" ? (
-              <div className="space-y-3">
-                <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2 text-sm text-[var(--muted)]">
-                  Exa API key is optional and the public endpoint works without one.
-                </div>
-                <div>
-                  <label htmlFor="exa-api-key" className={fieldLabelClassName}>
-                    Exa API key
-                  </label>
-                  <input
-                    id="exa-api-key"
-                    aria-label="Exa API key"
-                    type="password"
-                    autoComplete="off"
-                    value={exaApiKey}
-                    placeholder={
-                      hasStoredExaApiKey && !hasEditedExaApiKey ? "••••••••" : "Optional"
-                    }
-                    onChange={(event) => {
-                      resetMessages();
-                      setHasEditedExaApiKey(true);
-                      setExaApiKey(event.target.value);
-                    }}
-                    className={inputClassName}
-                  />
-                </div>
+      {/* Web Search */}
+      <div className="space-y-4">
+        <h3 className={sectionTitle}>Web Search</h3>
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="web-search-engine" className={fieldLabel}>
+              Search provider
+            </label>
+            <p className="text-xs text-[var(--muted)] mb-2">Choose which web search engine is available to the agent.</p>
+            <select
+              id="web-search-engine"
+              aria-label="Web search engine"
+              value={webSearchEngine}
+              onChange={(event) => {
+                resetMessages();
+                setWebSearchEngine(event.target.value as AppSettings["webSearchEngine"]);
+              }}
+              className={`${selectLike} w-full sm:w-[22rem]`}
+            >
+              <option value="exa">Exa</option>
+              <option value="tavily">Tavily</option>
+              <option value="searxng">SearXNG</option>
+              <option value="disabled">Disabled</option>
+            </select>
+          </div>
+
+          {webSearchEngine === "exa" ? (
+            <div className="space-y-3">
+              <div className="flex items-start gap-2.5 rounded-xl border border-sky-400/15 bg-sky-400/8 px-4 py-3 text-sm text-sky-200">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
+                <span>Exa API key is optional and the public endpoint works without one.</span>
               </div>
-            ) : null}
-
-            {webSearchEngine === "tavily" ? (
               <div>
-                <label htmlFor="tavily-api-key" className={fieldLabelClassName}>
-                  Tavily API key
-                </label>
-                  <input
-                    id="tavily-api-key"
-                    aria-label="Tavily API key"
-                    type="password"
-                    autoComplete="off"
-                    value={tavilyApiKey}
-                    placeholder={
-                      hasStoredTavilyApiKey && !hasEditedTavilyApiKey ? "••••••••" : "Required"
-                    }
-                    onChange={(event) => {
-                      resetMessages();
-                      setHasEditedTavilyApiKey(true);
-                      setTavilyApiKey(event.target.value);
-                  }}
-                  className={inputClassName}
-                />
-              </div>
-            ) : null}
-
-            {webSearchEngine === "searxng" ? (
-              <div>
-                <label htmlFor="searxng-base-url" className={fieldLabelClassName}>
-                  SearXNG base URL
+                <label htmlFor="exa-api-key" className={fieldLabel}>
+                  Exa API key
                 </label>
                 <input
-                  id="searxng-base-url"
-                  aria-label="SearXNG base URL"
-                  type="url"
+                  id="exa-api-key"
+                  aria-label="Exa API key"
+                  type="password"
                   autoComplete="off"
-                  value={searxngBaseUrl}
-                  placeholder="https://search.example.com"
+                  value={exaApiKey}
+                  placeholder={
+                    hasStoredExaApiKey && !hasEditedExaApiKey ? "••••••••" : "Optional"
+                  }
                   onChange={(event) => {
                     resetMessages();
-                    setSearxngBaseUrl(event.target.value);
+                    setHasEditedExaApiKey(true);
+                    setExaApiKey(event.target.value);
                   }}
-                  className={inputClassName}
+                  className={`${inputLike} w-full sm:w-[22rem]`}
                 />
               </div>
-            ) : null}
-          </div>
-        </SettingRow>
-      </SettingsCard>
+            </div>
+          ) : null}
 
-      <SettingsCard title="Image Generation">
+          {webSearchEngine === "tavily" ? (
+            <div>
+              <label htmlFor="tavily-api-key" className={fieldLabel}>
+                Tavily API key
+              </label>
+              <input
+                id="tavily-api-key"
+                aria-label="Tavily API key"
+                type="password"
+                autoComplete="off"
+                value={tavilyApiKey}
+                placeholder={
+                  hasStoredTavilyApiKey && !hasEditedTavilyApiKey ? "••••••••" : "Required"
+                }
+                onChange={(event) => {
+                  resetMessages();
+                  setHasEditedTavilyApiKey(true);
+                  setTavilyApiKey(event.target.value);
+                }}
+                className={`${inputLike} w-full sm:w-[22rem]`}
+              />
+            </div>
+          ) : null}
+
+          {webSearchEngine === "searxng" ? (
+            <div>
+              <label htmlFor="searxng-base-url" className={fieldLabel}>
+                SearXNG base URL
+              </label>
+              <input
+                id="searxng-base-url"
+                aria-label="SearXNG base URL"
+                type="url"
+                autoComplete="off"
+                value={searxngBaseUrl}
+                placeholder="https://search.example.com"
+                onChange={(event) => {
+                  resetMessages();
+                  setSearxngBaseUrl(event.target.value);
+                }}
+                className={`${inputLike} w-full sm:w-[22rem]`}
+              />
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className={sectionDivider} />
+
+      {/* Image Generation */}
+      <div className="space-y-4">
+        <h3 className={sectionTitle}>Image Generation</h3>
         {!canManageImageGeneration ? (
-          <SettingRow
-            label="Image generation backend"
-            description="Only admins can change image generation settings."
-          >
+          <div className="space-y-1.5">
+            <label className={fieldLabel}>Image generation backend</label>
+            <p className="text-xs text-[var(--muted)]">Only admins can change image generation settings.</p>
             <select
               aria-label="Image generation backend"
               value={imageGenerationBackend}
               disabled
-              className={`${inputClassName} sm:w-auto opacity-60`}
+              className={`${selectLike} sm:w-auto opacity-60`}
             >
               <option value="disabled">Disabled</option>
               <option value="google_nano_banana">Google Nano Banana</option>
             </select>
-          </SettingRow>
+          </div>
         ) : (
-          <>
-            <SettingRow
-              label="Image generation backend"
-              description="Choose the backend used for image generation."
-            >
-              <div className="w-full space-y-3 sm:w-[22rem]">
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="image-generation-backend" className={fieldLabel}>
+                Image generation backend
+              </label>
+              <p className="text-xs text-[var(--muted)] mb-2">Choose the backend used for image generation.</p>
+              <select
+                id="image-generation-backend"
+                aria-label="Image generation backend"
+                value={imageGenerationBackend}
+                onChange={(event) => {
+                  resetMessages();
+                  setImageGenerationBackend(
+                    event.target.value as ImageGenerationBackend
+                  );
+                }}
+                className={`${selectLike} w-full sm:w-[22rem]`}
+              >
+                <option value="disabled">Disabled</option>
+                <option value="google_nano_banana">Google Nano Banana</option>
+              </select>
+            </div>
+
+            {imageGenerationBackend === "google_nano_banana" ? (
+              <div className="space-y-3">
                 <div>
-                  <label htmlFor="image-generation-backend" className={fieldLabelClassName}>
-                    Image generation backend
+                  <label htmlFor="google-nano-banana-model" className={fieldLabel}>
+                    Model
                   </label>
                   <select
-                    id="image-generation-backend"
-                    aria-label="Image generation backend"
-                    value={imageGenerationBackend}
+                    id="google-nano-banana-model"
+                    aria-label="Google Nano Banana model"
+                    value={googleNanoBananaModel}
                     onChange={(event) => {
                       resetMessages();
-                      setImageGenerationBackend(
-                        event.target.value as ImageGenerationBackend
+                      setGoogleNanoBananaModel(
+                        event.target.value as AppSettings["googleNanoBananaModel"]
                       );
                     }}
-                    className={inputClassName}
+                    className={`${selectLike} w-full sm:w-[22rem]`}
                   >
-                    <option value="disabled">Disabled</option>
-                    <option value="google_nano_banana">Google Nano Banana</option>
+                    <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
+                    <option value="gemini-3.1-flash-image-preview">
+                      Gemini 3.1 Flash Image Preview
+                    </option>
+                    <option value="gemini-3-pro-image-preview">
+                      Gemini 3 Pro Image Preview
+                    </option>
                   </select>
                 </div>
-
-                {imageGenerationBackend === "google_nano_banana" ? (
-                  <div className="space-y-3">
-                    <div>
-                      <label htmlFor="google-nano-banana-model" className={fieldLabelClassName}>
-                        Model
-                      </label>
-                      <select
-                        id="google-nano-banana-model"
-                        aria-label="Google Nano Banana model"
-                        value={googleNanoBananaModel}
-                        onChange={(event) => {
-                          resetMessages();
-                          setGoogleNanoBananaModel(
-                            event.target.value as AppSettings["googleNanoBananaModel"]
-                          );
-                        }}
-                        className={inputClassName}
-                      >
-                        <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
-                        <option value="gemini-3.1-flash-image-preview">
-                          Gemini 3.1 Flash Image Preview
-                        </option>
-                        <option value="gemini-3-pro-image-preview">
-                          Gemini 3 Pro Image Preview
-                        </option>
-                      </select>
-                    </div>
-                    <div>
-                      <label htmlFor="google-nano-banana-api-key" className={fieldLabelClassName}>
-                        API key
-                      </label>
-                      <input
-                        id="google-nano-banana-api-key"
-                        aria-label="Google Nano Banana API key"
-                        type="password"
-                        autoComplete="off"
-                        value={googleNanoBananaApiKey}
-                        placeholder={
-                          hasStoredGoogleNanoBananaApiKey && !hasEditedGoogleNanoBananaApiKey
-                            ? "••••••••"
-                            : ""
-                        }
-                        onChange={(event) => {
-                          resetMessages();
-                          setHasEditedGoogleNanoBananaApiKey(true);
-                          setGoogleNanoBananaApiKey(event.target.value);
-                        }}
-                        className={inputClassName}
-                      />
-                    </div>
-                  </div>
-                ) : null}
+                <div>
+                  <label htmlFor="google-nano-banana-api-key" className={fieldLabel}>
+                    API key
+                  </label>
+                  <input
+                    id="google-nano-banana-api-key"
+                    aria-label="Google Nano Banana API key"
+                    type="password"
+                    autoComplete="off"
+                    value={googleNanoBananaApiKey}
+                    placeholder={
+                      hasStoredGoogleNanoBananaApiKey && !hasEditedGoogleNanoBananaApiKey
+                        ? "••••••••"
+                        : ""
+                    }
+                    onChange={(event) => {
+                      resetMessages();
+                      setHasEditedGoogleNanoBananaApiKey(true);
+                      setGoogleNanoBananaApiKey(event.target.value);
+                    }}
+                    className={`${inputLike} w-full sm:w-[22rem]`}
+                  />
+                </div>
               </div>
-            </SettingRow>
-          </>
+            ) : null}
+          </div>
         )}
-      </SettingsCard>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Button className="w-full sm:w-auto" onClick={() => void save()} disabled={isSaving}>
-          Save settings
-        </Button>
-        {success ? <span className="text-sm text-emerald-400">{success}</span> : null}
       </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button className="px-3 py-1.5 text-xs" onClick={() => void save()} disabled={isSaving}>
+          Save
+        </Button>
+      </div>
+      {success ? <span className="text-sm text-emerald-400">{success}</span> : null}
 
       {error ? (
         <div className="rounded-xl border border-red-400/10 bg-red-500/8 px-4 py-3 text-sm text-red-300">

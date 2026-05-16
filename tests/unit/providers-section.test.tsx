@@ -376,19 +376,17 @@ describe("providers section", () => {
       } as Response);
     });
 
-    const { container } = render(React.createElement(ProvidersSection, { settings }));
+    render(React.createElement(ProvidersSection, { settings }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/mcp-servers");
     });
 
-    fireEvent.click(container.querySelectorAll("summary")[0]);
-
     expect(screen.getByText("Fresh tail turns")).toBeInTheDocument();
     expect(screen.getByDisplayValue("80")).toBeInTheDocument();
 
     fireEvent.change(screen.getByDisplayValue("80"), { target: { value: "75" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -447,15 +445,14 @@ describe("providers section", () => {
       } as Response);
     });
 
-    const { container } = render(React.createElement(ProvidersSection, { settings }));
+    render(React.createElement(ProvidersSection, { settings }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/mcp-servers");
     });
 
-    fireEvent.click(container.querySelectorAll("summary")[0]);
     fireEvent.change(screen.getByDisplayValue("80"), { target: { value: "75.5" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -576,7 +573,10 @@ describe("providers section", () => {
     });
 
     fireEvent.click(screen.getByText("Backup"));
-    fireEvent.click(screen.getByRole("button", { name: "Set Default" }));
+
+    const defaultCheckbox = screen.getByLabelText("Default provider");
+    expect(defaultCheckbox).not.toBeChecked();
+    fireEvent.click(defaultCheckbox);
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
@@ -591,6 +591,8 @@ describe("providers section", () => {
     const body = JSON.parse(String(putCall?.[1]?.body));
 
     expect(body.defaultProviderProfileId).toBe("profile_backup");
-    expect(screen.getByRole("button", { name: "Is Default" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Default provider")).toBeChecked();
+    });
   });
 });
