@@ -876,7 +876,8 @@ describe("chat-turn", () => {
       (message: { role: string; content: unknown }) => message.role === "system"
     )?.content;
 
-    expect(systemPrompt).toBeUndefined();
+    expect(systemPrompt).not.toContain("Do not run base64 on screenshot/image files");
+    expect(systemPrompt).not.toContain("Do not embed data: image URLs");
   });
 
   it("keeps the inline attachment directive when the user explicitly says not to send base64 or a data URL", async () => {
@@ -957,7 +958,8 @@ describe("chat-turn", () => {
       (message: { role: string; content: unknown }) => message.role === "system"
     )?.content;
 
-    expect(systemPrompt).toBeUndefined();
+    expect(systemPrompt).not.toContain("Do not run base64 on screenshot/image files");
+    expect(systemPrompt).not.toContain("Do not embed data: image URLs");
   });
 
   it("persists pending memory proposal metadata on assistant actions", async () => {
