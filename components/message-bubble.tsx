@@ -5,6 +5,7 @@ import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, GitFork, Loade
 import type { RemendHandler } from "remend";
 import { Streamdown } from "streamdown";
 import { code } from "@streamdown/code";
+import { mermaid } from "@streamdown/mermaid";
 import {
   AttachmentPreviewModal,
   useAttachmentUrlBuilder,
@@ -24,14 +25,14 @@ import type {
 } from "@/lib/types";
 import { normalizeMarkdownLineBreaks } from "@/lib/text-utils";
 
-const STREAMDOWN_PLUGINS = { code };
+const STREAMDOWN_PLUGINS = { code, mermaid };
 
 const KNOWN_LANG_PREFIXES = [
   "yaml", "yml", "json", "json5", "jsonc", "python", "py", "javascript", "js",
   "typescript", "ts", "bash", "sh", "shell", "zsh", "fish", "html", "css", "scss",
   "sql", "mysql", "postgres", "go", "rust", "java", "csharp", "cs", "cpp", "c",
   "ruby", "rb", "php", "swift", "kotlin", "dockerfile", "docker", "makefile",
-  "xml", "svg", "markdown", "md", "text", "diff", "graphql", "toml", "ini",
+  "xml", "svg",   "markdown", "mermaid", "md", "text", "diff", "graphql", "toml", "ini",
   "jsx", "tsx", "objective-c", "objc", "r", "lua", "perl", "groovy", "scala",
   "haskell", "elm", "erlang", "clojure", "vim", "powershell", "bat", "ps1",
   "nix", "terraform", "tf", "hcl", "docker-compose", "nginx", "apache", "conf",
