@@ -1229,7 +1229,11 @@ export function MessageBubble({
 
                 {thinkingOpen && thinkingContent ? (
                   <div className="markdown-body thinking-markdown-body mt-1.5">
-                    <Streamdown mode="static" remend={STREAMDOWN_REMEND_OPTIONS}>{thinkingContent}</Streamdown>
+                    <Streamdown
+                      remend={STREAMDOWN_REMEND_OPTIONS}
+                      caret={thinkingInProgress ? "block" : undefined}
+                      isAnimating={thinkingInProgress}
+                    >{thinkingContent}</Streamdown>
                   </div>
                 ) : null}
               </div>
