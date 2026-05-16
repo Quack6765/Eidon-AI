@@ -1,17 +1,13 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
-  Sparkles,
   Plus,
   Trash2,
   Check,
   Eye,
   EyeOff,
-  Zap,
-  Shield,
-  FlaskConical
+  Zap
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -28,7 +24,6 @@ import type { AppSettings, ApiMode, McpServer, ProviderPresetId, ReasoningEffort
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
-import { CollapsibleSection } from "../collapsible-section";
 
 type SettingsPayload = AppSettings & {
   providerProfiles: Array<{
@@ -75,10 +70,9 @@ type ProviderProfileDraft = SettingsPayload["providerProfiles"][number] & {
 };
 
 export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
-  const router = useRouter();
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [testResult, setTestResult] = useState("");
+  const [testResult, setTestResult] = useState<{ text: string; isSuccess: boolean } | null>(null);
   const [defaultProviderProfileId, setDefaultProviderProfileId] = useState(
     settings.defaultProviderProfileId ?? settings.providerProfiles[0]?.id ?? ""
   );
@@ -96,6 +90,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const [showApiKey, setShowApiKey] = useState(false);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [copilotModels, setCopilotModels] = useState<Array<{ id: string; name: string; maxContextWindowTokens: number | null }>>([]);
+  const [isSystemPromptOpen, setIsSystemPromptOpen] = useState(false);
+  const [systemPromptDraft, setSystemPromptDraft] = useState("");
   const maskedApiKeyValue = "••••••••";
 
   useEffect(() => {
@@ -327,19 +323,51 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   }
 
   async function runConnectionTest() {
-    setTestResult("");
+    setTestResult(null);
     const response = await fetch("/api/settings/test", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ providerProfileId: selectedProviderProfileId })
     });
     const result = (await response.json()) as { text?: string; error?: string };
-    setTestResult(result.text ?? result.error ?? "No result");
+    const text = result.text ?? result.error ?? "No result";
+    setTestResult({ text, isSuccess: response.ok && !result.error });
   }
 
-  const selectClass =
-    "w-full rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm outline-none focus:border-[rgba(139,92,246,0.3)] transition-all duration-200 text-[#f4f4f5]";
-  const labelClass = "text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#71717a]";
+  async function handleToggleDefault() {
+    if (!activeProviderProfile || activeProviderProfile.id === defaultProviderProfileId) {
+      return;
+    }
+    setError("");
+    setSuccess("");
+    if (await saveSettingsWithDefault(activeProviderProfile.id)) {
+      setDefaultProviderProfileId(activeProviderProfile.id);
+      setSuccess("Default provider updated.");
+    }
+  }
+
+  function openSystemPrompt() {
+    if (!activeProviderProfile) return;
+    setSystemPromptDraft(activeProviderProfile.systemPrompt);
+    setIsSystemPromptOpen(true);
+  }
+
+  function saveSystemPrompt() {
+    updateActiveProviderProfile({ systemPrompt: systemPromptDraft });
+    setIsSystemPromptOpen(false);
+  }
+
+  function closeSystemPrompt() {
+    setIsSystemPromptOpen(false);
+    setSystemPromptDraft("");
+  }
+
+  const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
+  const inputLike =
+    "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
+  const selectLike = `${inputLike} appearance-none bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2371717a%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`;
+  const sectionTitle = "text-sm font-semibold text-[var(--text)]";
+  const sectionDivider = "border-t border-white/[0.06]";
 
   return (
     <div className="min-h-0 p-4 md:h-full md:p-8">
@@ -347,17 +375,17 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         listHeader={
           <div className="flex items-center justify-between w-full">
             <div>
-              <h2 className="text-[0.9rem] font-semibold text-[#f4f4f5]">Providers</h2>
-              <p className="text-[0.68rem] text-[#52525b]">
+              <h2 className="text-sm font-semibold text-[var(--text)]">Providers</h2>
+              <p className="text-xs text-[var(--muted)]">
                 {providerProfiles.length} profile{providerProfiles.length !== 1 ? "s" : ""}
               </p>
             </div>
             <button
               type="button"
               onClick={addProviderProfile}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] hover:text-[#f4f4f5] hover:bg-white/[0.06] transition-all duration-200"
+              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/[0.07] transition-all duration-200"
             >
-              <Plus className="h-4 w-4" />
+              <Plus className="h-3.5 w-3.5" />
             </button>
           </div>
         }
@@ -397,151 +425,138 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         detailPanel={
           <form
             onSubmit={(event) => void handleSettings(event)}
-            className="max-w-[560px] space-y-6"
+            className="w-full max-w-[840px]"
           >
             {activeProviderProfile ? (
-              <>
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-[1.1rem] font-semibold text-[#f4f4f5]">
+              <div className="space-y-0">
+                {/* Header */}
+                <div className="pb-5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base font-semibold text-[var(--text)]">
                       {activeProviderProfile.name}
                     </h3>
-                    <p className="mt-0.5 text-[0.75rem] text-[#52525b]">
-                      {isCopilot
-                        ? `GitHub Copilot${activeProviderProfile.model ? ` · ${activeProviderProfile.model}` : ""}`
-                        : `${activeProviderProfile.apiBaseUrl} · ${activeProviderProfile.model} · ${activeProviderProfile.apiMode}`}
-                    </p>
+                    {activeProviderProfile.id === defaultProviderProfileId && (
+                      <span className="inline-flex items-center rounded-md bg-[var(--accent)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
+                        Default
+                      </span>
+                    )}
+                    {!activeProviderProfile.hasApiKey && !activeProviderProfile.apiKey && activeProviderProfile.providerKind !== "github_copilot" && (
+                      <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+                        No key
+                      </span>
+                    )}
+                    {activeProviderProfile.providerKind === "github_copilot" && activeProviderProfile.githubConnectionStatus === "disconnected" && (
+                      <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+                        Not connected
+                      </span>
+                    )}
                   </div>
+                  <p className="mt-1 text-xs text-[var(--muted)]">
+                    {isCopilot
+                      ? `GitHub Copilot${activeProviderProfile.model ? ` · ${activeProviderProfile.model}` : ""}`
+                      : `${activeProviderProfile.apiBaseUrl} · ${activeProviderProfile.model} · ${activeProviderProfile.apiMode}`}
+                  </p>
+                </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={runConnectionTest}
-                      className="gap-1.5 px-3 py-1.5 text-xs"
-                    >
-                      <Zap className="h-3.5 w-3.5" />
-                      Test
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={async () => {
-                        setError("");
-                        setSuccess("");
-                        const nextDefaultProfileId = activeProviderProfile.id;
-
-                        if (await saveSettingsWithDefault(nextDefaultProfileId)) {
-                          setDefaultProviderProfileId(nextDefaultProfileId);
+                {/* Identity */}
+                <div className={`${sectionDivider} py-5`}>
+                  <h4 className={sectionTitle}>Identity</h4>
+                  <div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <label className={fieldLabel}>Profile name</label>
+                      <Input
+                        name="provider-profile-name"
+                        autoComplete="off"
+                        value={activeProviderProfile.name}
+                        onChange={(event) =>
+                          updateActiveProviderProfile({ name: event.target.value })
                         }
-                      }}
-                      disabled={activeProviderProfile.id === defaultProviderProfileId}
-                      className="gap-1.5 px-3 py-1.5 text-xs"
-                    >
-                      <Shield className="h-3.5 w-3.5" />
-                      {activeProviderProfile.id === defaultProviderProfileId
-                        ? "Is Default"
-                        : "Set Default"}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => removeProviderProfile(activeProviderProfile.id)}
-                      disabled={providerProfiles.length === 1}
-                      className="gap-1.5 px-3 py-1.5 text-xs text-red-400 hover:text-red-300"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete
-                    </Button>
+                        required
+                      />
+                    </div>
+                    <label className="flex items-center gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] cursor-pointer sm:col-span-2">
+                      <input
+                        type="checkbox"
+                        checked={activeProviderProfile.id === defaultProviderProfileId}
+                        onChange={() => {
+                          if (activeProviderProfile.id !== defaultProviderProfileId) {
+                            void handleToggleDefault();
+                          }
+                        }}
+                        disabled={activeProviderProfile.id === defaultProviderProfileId}
+                      />
+                      Default provider
+                    </label>
+                    <div>
+                      <label className={fieldLabel}>Provider type</label>
+                      <select
+                        className={selectLike}
+                        value={activeProviderProfile.providerKind ?? "openai_compatible"}
+                        onChange={(event) => {
+                          const value = event.target.value as "openai_compatible" | "github_copilot";
+                          if (value === "github_copilot") {
+                            updateActiveProviderProfile({
+                              providerKind: "github_copilot",
+                              apiBaseUrl: "",
+                              apiKey: "",
+                              model: "",
+                              apiMode: "responses",
+                              systemPrompt: "",
+                              tokenizerModel: "off",
+                              providerPresetId: null
+                            });
+                          } else {
+                            updateActiveProviderProfile({
+                              providerKind: "openai_compatible",
+                              apiBaseUrl: activeProviderProfile.apiBaseUrl || "https://api.openai.com/v1",
+                              apiKey: "",
+                              providerPresetId: null
+                            });
+                          }
+                        }}
+                      >
+                        <option value="openai_compatible">OpenAI compatible</option>
+                        <option value="github_copilot">GitHub Copilot</option>
+                      </select>
+                    </div>
+                    {!isCopilot && (
+                      <div>
+                        <label className={fieldLabel}>Provider preset</label>
+                        <select
+                          value={activeProviderPresetId ?? ""}
+                          onChange={(event) => {
+                            const nextPresetId = event.target.value as ProviderPresetId;
+                            if (!nextPresetId) return;
+                            applyPresetToActiveProviderProfile(nextPresetId);
+                          }}
+                          className={selectLike}
+                        >
+                          <option value="">Manual configuration</option>
+                          {PROVIDER_PRESETS.map((preset) => (
+                            <option key={preset.id} value={preset.id}>
+                              {preset.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                <div className="space-y-5">
-                  <div>
-                    <label className={labelClass}>Provider type</label>
-                    <select
-                      className={selectClass}
-                      value={activeProviderProfile.providerKind ?? "openai_compatible"}
-                      onChange={(event) => {
-                        const value = event.target.value as "openai_compatible" | "github_copilot";
-
-                        if (value === "github_copilot") {
-                          updateActiveProviderProfile({
-                            providerKind: "github_copilot",
-                            apiBaseUrl: "",
-                            apiKey: "",
-                            model: "",
-                            apiMode: "responses",
-                            systemPrompt: "",
-                            tokenizerModel: "off",
-                            providerPresetId: null
-                          });
-                        } else {
-                          updateActiveProviderProfile({
-                            providerKind: "openai_compatible",
-                            apiBaseUrl: activeProviderProfile.apiBaseUrl || "https://api.openai.com/v1",
-                            apiKey: "",
-                            providerPresetId: null
-                          });
-                        }
-                      }
-                    }
-                    >
-                      <option value="openai_compatible">OpenAI compatible</option>
-                      <option value="github_copilot">GitHub Copilot</option>
-                    </select>
-                  </div>
-
-                  {!isCopilot && (
-                    <div>
-                      <label className={labelClass}>Provider preset</label>
-                      <select
-                        value={activeProviderPresetId ?? ""}
-                        onChange={(event) => {
-                          const nextPresetId = event.target.value as ProviderPresetId;
-
-                          if (!nextPresetId) {
-                            return;
-                          }
-
-                          applyPresetToActiveProviderProfile(nextPresetId);
-                        }}
-                        className={selectClass}
-                      >
-                        <option value="">Manual configuration</option>
-                        {PROVIDER_PRESETS.map((preset) => (
-                          <option key={preset.id} value={preset.id}>
-                            {preset.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  <div>
-                    <label className={labelClass}>Profile name</label>
-                    <Input
-                      name="provider-profile-name"
-                      autoComplete="off"
-                      value={activeProviderProfile.name}
-                      onChange={(event) =>
-                        updateActiveProviderProfile({ name: event.target.value })
-                      }
-                      required
-                    />
-                  </div>
-
+                {/* Connection */}
+                <div className={`${sectionDivider} py-5`}>
+                  <h4 className={sectionTitle}>Connection</h4>
                   {isCopilot ? (
-                    <div className="space-y-3">
-                      <p className={labelClass}>GitHub connection</p>
-                      <div className="rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm text-[#f4f4f5]">
+                    <div className="mt-4 space-y-4">
+                      <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[var(--text)]">
                         {activeProviderProfile.githubConnectionStatus === "connected"
                           ? `Connected as ${activeProviderProfile.githubAccountLogin ?? "GitHub user"}`
                           : "No GitHub account connected"}
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Button
                           type="button"
+                          className="px-3 py-1.5 text-xs"
                           onClick={async () => {
                             if (await saveSettings()) {
                               window.location.href = `/api/providers/github/connect?providerProfileId=${activeProviderProfile.id}`;
@@ -555,6 +570,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         <Button
                           type="button"
                           variant="ghost"
+                          className="px-2.5 py-1.5 text-xs"
                           onClick={async () => {
                             await fetch("/api/providers/github/disconnect", {
                               method: "POST",
@@ -572,12 +588,42 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           Disconnect
                         </Button>
                       </div>
+                      {isCopilot && copilotModels.length > 0 && (
+                        <div>
+                          <label className={fieldLabel}>Model</label>
+                          <select
+                            value={activeProviderProfile.model}
+                            onChange={(event) => {
+                              const selected = copilotModels.find((m) => m.id === event.target.value);
+                              updateActiveProviderProfile({
+                                model: event.target.value,
+                                ...(selected?.maxContextWindowTokens
+                                  ? { modelContextLimit: selected.maxContextWindowTokens }
+                                  : {})
+                              });
+                            }}
+                            className={selectLike}
+                          >
+                            {copilotModels.map((model) => (
+                              <option key={model.id} value={model.id}>{model.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      {isCopilot && copilotModels.length === 0 && activeProviderProfile.githubConnectionStatus !== "connected" && (
+                        <div>
+                          <label className={fieldLabel}>Model</label>
+                          <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[var(--muted)]">
+                            Connect GitHub to browse models
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ) : (
-                    <>
-                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                    <div className="mt-4 space-y-4">
+                      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                         <div>
-                          <label className={labelClass}>API base URL</label>
+                          <label className={fieldLabel}>API base URL</label>
                           <Input
                             name="provider-api-base-url"
                             autoComplete="url"
@@ -589,7 +635,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           />
                         </div>
                         <div>
-                          <label className={labelClass}>Model</label>
+                          <label className={fieldLabel}>Model</label>
                           <Input
                             name="provider-model"
                             autoComplete="off"
@@ -601,9 +647,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           />
                         </div>
                       </div>
-
                       <div>
-                        <label className={labelClass}>API key</label>
+                        <label className={fieldLabel}>API key</label>
                         <div className="relative">
                           <Input
                             name="provider-api-key"
@@ -614,122 +659,74 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({
                                 apiKey: event.target.value,
-                                hasApiKey:
-                                  activeProviderProfile.hasApiKey || Boolean(event.target.value)
+                                hasApiKey: activeProviderProfile.hasApiKey || Boolean(event.target.value)
                               })
                             }
-                            placeholder={
-                              activeProviderProfile.hasApiKey
-                                ? maskedApiKeyValue
-                                : "sk-..."
-                            }
+                            placeholder={activeProviderProfile.hasApiKey ? maskedApiKeyValue : "sk-..."}
                             className="pr-10"
                           />
                           <button
                             type="button"
                             onClick={() => setShowApiKey((v) => !v)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-[#52525b] hover:text-[#a1a1aa] transition-colors"
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)] transition-colors"
                           >
-                            {showApiKey ? (
-                              <EyeOff className="h-4 w-4" />
-                            ) : (
-                              <Eye className="h-4 w-4" />
-                            )}
+                            {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                           </button>
                         </div>
-                      </div>
-                    </>
-                  )}
-
-                  {isCopilot && copilotModels.length > 0 && (
-                    <div>
-                      <label className={labelClass}>Model</label>
-                      <select
-                        value={activeProviderProfile.model}
-                        onChange={(event) => {
-                          const selected = copilotModels.find((m) => m.id === event.target.value);
-                          updateActiveProviderProfile({
-                            model: event.target.value,
-                            ...(selected?.maxContextWindowTokens
-                              ? { modelContextLimit: selected.maxContextWindowTokens }
-                              : {})
-                          });
-                        }}
-                        className={selectClass}
-                      >
-                        {copilotModels.map((model) => (
-                          <option key={model.id} value={model.id}>{model.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
-
-                  {isCopilot && copilotModels.length === 0 && activeProviderProfile.githubConnectionStatus !== "connected" && (
-                    <div>
-                      <label className={labelClass}>Model</label>
-                      <div className="rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm text-[#52525b]">
-                        Connect GitHub to browse models
                       </div>
                     </div>
                   )}
                 </div>
 
-                <CollapsibleSection
-                  title="Advanced Settings"
-                  icon={<FlaskConical className="h-4 w-4" />}
-                >
-                  <div className="mb-3 flex justify-end">
+                {/* Configuration */}
+                <div className={`${sectionDivider} py-5`}>
+                  <div className="flex items-center justify-between">
+                    <h4 className={sectionTitle}>Configuration</h4>
                     <Button
                       type="button"
-                      variant="secondary"
+                      variant="ghost"
                       onClick={resetActiveProviderAdvancedSettings}
-                      className="gap-1.5 px-3 py-1.5 text-xs"
+                      className="px-2.5 py-1 text-[11px]"
                     >
-                      Reset advanced defaults
+                      Reset defaults
                     </Button>
                   </div>
-                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
                     {!isCopilot && (
                       <>
                         <div>
-                          <label className={labelClass}>Temperature</label>
+                          <label className={fieldLabel}>Temperature</label>
                           <Input
                             name="provider-temperature"
                             type="number"
                             step="0.1"
                             value={activeProviderProfile.temperature}
                             onChange={(event) =>
-                              updateActiveProviderProfile({
-                                temperature: Number(event.target.value || 0)
-                              })
+                              updateActiveProviderProfile({ temperature: Number(event.target.value || 0) })
                             }
                           />
                         </div>
                         <div>
-                          <label className={labelClass}>Max output tokens</label>
+                          <label className={fieldLabel}>Max output tokens</label>
                           <Input
                             name="provider-max-output-tokens"
                             type="number"
                             value={activeProviderProfile.maxOutputTokens}
                             onChange={(event) =>
-                              updateActiveProviderProfile({
-                                maxOutputTokens: Number(event.target.value || 0)
-                              })
+                              updateActiveProviderProfile({ maxOutputTokens: Number(event.target.value || 0) })
                             }
                           />
                         </div>
                       </>
                     )}
                     <div>
-                      <label className={labelClass}>Reasoning effort</label>
+                      <label className={fieldLabel}>Reasoning effort</label>
                       <select
                         value={activeProviderProfile.reasoningEffort}
                         onChange={(event) =>
-                          updateActiveProviderProfile({
-                            reasoningEffort: event.target.value as ReasoningEffort
-                          })
+                          updateActiveProviderProfile({ reasoningEffort: event.target.value as ReasoningEffort })
                         }
-                        className={selectClass}
+                        className={selectLike}
                       >
                         <option value="low">low</option>
                         <option value="medium">medium</option>
@@ -740,50 +737,46 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     {!isCopilot && (
                       <>
                         <div>
-                          <label className={labelClass}>Reasoning summary</label>
-                          <label className="flex h-[46px] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-4 text-[0.82rem] text-[#a1a1aa] cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={activeProviderProfile.reasoningSummaryEnabled}
-                              onChange={(event) =>
-                                updateActiveProviderProfile({
-                                  reasoningSummaryEnabled: event.target.checked
-                                })
-                              }
-                            />
-                            Show reasoning when supported
-                          </label>
-                        </div>
-                        <div>
-                          <label className={labelClass}>API mode</label>
+                          <label className={fieldLabel}>API mode</label>
                           <select
                             value={activeProviderProfile.apiMode}
                             onChange={(event) =>
                               updateActiveProviderProfile({ apiMode: event.target.value as ApiMode })
                             }
-                            className={selectClass}
+                            className={selectLike}
                           >
                             <option value="responses">responses</option>
                             <option value="chat_completions">chat_completions</option>
                           </select>
                         </div>
+                        <div>
+                          <label className={fieldLabel}>Reasoning summary</label>
+                          <label className="flex h-[42px] items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 text-sm text-[var(--muted)] cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={activeProviderProfile.reasoningSummaryEnabled}
+                              onChange={(event) =>
+                                updateActiveProviderProfile({ reasoningSummaryEnabled: event.target.checked })
+                              }
+                            />
+                            Show reasoning when supported
+                          </label>
+                        </div>
                       </>
                     )}
                     <div>
-                      <label className={labelClass}>Model context limit</label>
+                      <label className={fieldLabel}>Model context limit</label>
                       <Input
                         name="provider-model-context-limit"
                         type="number"
                         value={activeProviderProfile.modelContextLimit}
                         onChange={(event) =>
-                          updateActiveProviderProfile({
-                            modelContextLimit: Number(event.target.value || 0)
-                          })
+                          updateActiveProviderProfile({ modelContextLimit: Number(event.target.value || 0) })
                         }
                       />
                     </div>
                     <div>
-                      <label className={labelClass}>Compaction threshold %</label>
+                      <label className={fieldLabel}>Compaction threshold %</label>
                       <Input
                         name="provider-compaction-threshold"
                         type="number"
@@ -793,42 +786,39 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         value={Math.round(activeProviderProfile.compactionThreshold * 100)}
                         onChange={(event) =>
                           updateActiveProviderProfile({
-                            compactionThreshold:
-                              Math.round(Number(event.target.value || 0)) / 100
+                            compactionThreshold: Math.round(Number(event.target.value || 0)) / 100
                           })
                         }
                       />
                     </div>
                     <div>
-                      <label className={labelClass}>Fresh tail turns</label>
+                      <label className={fieldLabel}>Fresh tail turns</label>
                       <Input
                         name="provider-fresh-tail-count"
                         type="number"
                         value={activeProviderProfile.freshTailCount}
                         onChange={(event) =>
-                          updateActiveProviderProfile({
-                            freshTailCount: Number(event.target.value || 0)
-                          })
+                          updateActiveProviderProfile({ freshTailCount: Number(event.target.value || 0) })
                         }
                       />
                     </div>
                     {!isCopilot && (
                       <>
                         <div>
-                          <label className={labelClass}>Tokenizer model</label>
+                          <label className={fieldLabel}>Tokenizer model</label>
                           <select
                             value={activeProviderProfile.tokenizerModel}
                             onChange={(event) =>
                               updateActiveProviderProfile({ tokenizerModel: event.target.value as "gpt-tokenizer" | "off" })
                             }
-                            className={selectClass}
+                            className={selectLike}
                           >
                             <option value="gpt-tokenizer">gpt-tokenizer</option>
                             <option value="off">Off (char / 4)</option>
                           </select>
                         </div>
                         <div>
-                          <label className={labelClass}>Safety margin tokens</label>
+                          <label className={fieldLabel}>Safety margin tokens</label>
                           <Input
                             name="provider-safety-margin-tokens"
                             type="number"
@@ -839,7 +829,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           />
                         </div>
                         <div>
-                          <label className={labelClass}>Leaf source token limit</label>
+                          <label className={fieldLabel}>Leaf source token limit</label>
                           <Input
                             name="provider-leaf-source-token-limit"
                             type="number"
@@ -850,7 +840,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           />
                         </div>
                         <div>
-                          <label className={labelClass}>Leaf min message count</label>
+                          <label className={fieldLabel}>Leaf min message count</label>
                           <Input
                             name="provider-leaf-min-message-count"
                             type="number"
@@ -861,7 +851,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           />
                         </div>
                         <div>
-                          <label className={labelClass}>Merged min node count</label>
+                          <label className={fieldLabel}>Merged min node count</label>
                           <Input
                             name="provider-merged-min-node-count"
                             type="number"
@@ -872,7 +862,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           />
                         </div>
                         <div>
-                          <label className={labelClass}>Merged target tokens</label>
+                          <label className={fieldLabel}>Merged target tokens</label>
                           <Input
                             name="provider-merged-target-tokens"
                             type="number"
@@ -885,13 +875,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                       </>
                     )}
                     <div>
-                      <label className={labelClass}>Vision mode</label>
+                      <label className={fieldLabel}>Vision mode</label>
                       <select
                         value={activeProviderProfile.visionMode ?? "native"}
                         onChange={(event) =>
                           updateActiveProviderProfile({ visionMode: event.target.value as VisionMode })
                         }
-                        className={selectClass}
+                        className={selectLike}
                       >
                         <option value="native">native</option>
                         <option value="none">none</option>
@@ -900,13 +890,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     </div>
                     {activeProviderProfile.visionMode === "mcp" && (
                       <div>
-                        <label className={labelClass}>Vision MCP server</label>
+                        <label className={fieldLabel}>Vision MCP server</label>
                         <select
                           value={activeProviderProfile.visionMcpServerId ?? ""}
                           onChange={(event) =>
                             updateActiveProviderProfile({ visionMcpServerId: event.target.value || null })
                           }
-                          className={selectClass}
+                          className={selectLike}
                         >
                           <option value="">Select a server...</option>
                           {mcpServers
@@ -918,71 +908,149 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             ))}
                         </select>
                         {activeProviderProfile.visionMcpServerId === null && (
-                          <p className="mt-1 text-xs text-amber-400">
+                          <p className="mt-1.5 text-xs text-amber-400">
                             Select an MCP server for image analysis
                           </p>
                         )}
                       </div>
                     )}
                   </div>
-                </CollapsibleSection>
-
-                <CollapsibleSection
-                  title="System Prompt & Skills"
-                  icon={<Sparkles className="h-4 w-4" />}
-                  defaultOpen={false}
-                >
-                  <div className="space-y-4">
-                    <div>
-                      <label className={labelClass}>
-                        System prompt (applied to new conversations only)
-                      </label>
-                      <Textarea
-                        name="provider-system-prompt"
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={activeProviderProfile.systemPrompt}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ systemPrompt: event.target.value })
-                        }
-                        rows={5}
-                        required
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Workspace skills</label>
-                      <label className="flex h-[46px] items-center gap-3 rounded-xl border border-white/6 bg-white/[0.03] px-4 text-[0.82rem] text-[#a1a1aa] cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={skillsEnabled}
-                          onChange={(event) => setSkillsEnabled(event.target.checked)}
-                        />
-                        Make enabled skills available to every chat in this workspace
-                      </label>
-                    </div>
-                  </div>
-                </CollapsibleSection>
-
-                <div className="flex flex-wrap items-center gap-3 pt-2">
-                  <Button type="submit">Save Changes</Button>
-                  {success ? (
-                    <div className="flex items-center gap-1.5 text-sm text-emerald-400">
-                      <Check className="h-3.5 w-3.5" />
-                      {success}
-                    </div>
-                  ) : null}
                 </div>
 
-                {testResult ? (
-                  <p className="text-[0.82rem] text-[#71717a]">{testResult}</p>
-                ) : null}
+                {/* System */}
+                <div className={`${sectionDivider} py-5`}>
+                  <h4 className={sectionTitle}>System</h4>
+                  <div className="mt-4 space-y-4">
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className={fieldLabel}>System prompt</label>
+                        <button
+                          type="button"
+                          onClick={openSystemPrompt}
+                          className="text-xs text-[var(--accent)] hover:underline"
+                        >
+                          Edit
+                        </button>
+                      </div>
+                      <p className="mb-1.5 text-xs text-[var(--muted)]">
+                        Applied to new conversations only
+                      </p>
+                      <div
+                        onClick={openSystemPrompt}
+                        className="cursor-pointer rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 hover:bg-white/[0.06] transition-colors"
+                      >
+                        {activeProviderProfile.systemPrompt || "No system prompt set"}
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2.5 text-sm text-[var(--muted)] cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={skillsEnabled}
+                        onChange={(event) => setSkillsEnabled(event.target.checked)}
+                      />
+                      Make enabled skills available to every chat in this workspace
+                    </label>
+                  </div>
+                </div>
 
+                {/* Actions */}
+                <div className={`${sectionDivider} py-5`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="submit" className="px-3 py-1.5 text-xs">
+                        Save
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={runConnectionTest}
+                        className="gap-1.5 px-2.5 py-1.5 text-xs"
+                      >
+                        <Zap className="h-3.5 w-3.5" />
+                        Test
+                      </Button>
+
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeProviderProfile(activeProviderProfile.id)}
+                      disabled={providerProfiles.length === 1}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+
+                {/* Messages */}
+                {success ? (
+                  <div className="flex items-center gap-1.5 pt-2 text-sm text-emerald-400">
+                    <Check className="h-3.5 w-3.5" />
+                    {success}
+                  </div>
+                ) : null}
+                {testResult ? (
+                  <p className={`pt-2 text-sm ${testResult.isSuccess ? "text-emerald-400" : "text-red-300"}`}>
+                    {testResult.text}
+                  </p>
+                ) : null}
                 {error ? (
-                  <div className="rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300">
+                  <div className="rounded-lg border border-red-400/10 bg-red-500/8 px-4 py-3 text-sm text-red-300">
                     {error}
                   </div>
                 ) : null}
-              </>
+
+                {/* System Prompt Modal */}
+                {isSystemPromptOpen && (
+                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+                    <div
+                      className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                      onClick={closeSystemPrompt}
+                    />
+                    <div className="relative w-full max-w-[720px] max-h-[80vh] flex flex-col rounded-2xl border border-white/[0.08] bg-[#121214] p-6 shadow-2xl">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-semibold text-[var(--text)]">Edit system prompt</h3>
+                        <button
+                          type="button"
+                          onClick={closeSystemPrompt}
+                          className="text-[var(--muted)] hover:text-[var(--text)] transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                      </div>
+                      <p className="mb-3 text-xs text-[var(--muted)]">
+                        Applied to new conversations only
+                      </p>
+                      <Textarea
+                        autoComplete="off"
+                        spellCheck={false}
+                        value={systemPromptDraft}
+                        onChange={(event) => setSystemPromptDraft(event.target.value)}
+                        rows={16}
+                        className="flex-1 resize-none min-h-[300px]"
+                      />
+                      <div className="flex flex-wrap items-center justify-end gap-2 mt-5 pt-4 border-t border-white/[0.06]">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="px-3 py-1.5 text-xs"
+                          onClick={closeSystemPrompt}
+                        >
+                          Cancel
+                        </Button>
+                        <Button
+                          type="button"
+                          className="px-3 py-1.5 text-xs"
+                          onClick={saveSystemPrompt}
+                        >
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             ) : null}
           </form>
         }

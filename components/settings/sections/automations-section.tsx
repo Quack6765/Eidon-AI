@@ -7,7 +7,6 @@ import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { Automation, Persona } from "@/lib/types";
 
@@ -41,9 +40,6 @@ const WEEKDAYS = [
   { value: 6, label: "Sat" },
   { value: 0, label: "Sun" }
 ] as const;
-
-const selectClassName =
-  "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
 
 function createDefaultForm(providerProfileId = ""): AutomationFormState {
   return {
@@ -286,14 +282,20 @@ export function AutomationsSection() {
 
   const showDetail = isAddingNew || Boolean(selectedAutomationId);
 
+  const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
+  const inputLike = "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
+  const selectLike = `${inputLike} appearance-none bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2371717a%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`;
+  const sectionTitle = "text-sm font-semibold text-[var(--text)]";
+  const sectionDivider = "border-t border-white/[0.06]";
+
   return (
     <div className="min-h-0 p-4 md:h-full md:p-8">
       <SettingsSplitPane
         listHeader={
           <div className="flex w-full items-center justify-between">
             <div>
-              <h2 className="text-[0.9rem] font-semibold text-[#f4f4f5]">Scheduled automations</h2>
-              <p className="text-[0.68rem] text-[#52525b]">
+              <h2 className="text-sm font-semibold text-[var(--text)]">Scheduled automations</h2>
+              <p className="text-xs text-[var(--muted)]">
                 {automations.length} automation{automations.length === 1 ? "" : "s"}
               </p>
             </div>
@@ -301,23 +303,23 @@ export function AutomationsSection() {
               <button
                 type="button"
                 onClick={openNewAutomation}
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] transition-all duration-200 hover:bg-white/[0.06] hover:text-[#f4f4f5]"
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-[var(--muted)] transition-all duration-200 hover:bg-white/[0.07] hover:text-[var(--text)]"
                 aria-label="Add automation"
               >
-                <Plus className="h-4 w-4" />
+                <Plus className="h-3.5 w-3.5" />
               </button>
             </div>
           </div>
         }
         listPanel={
           isLoading ? (
-            <div className="px-3 py-6 text-sm text-[#71717a]">Loading automations...</div>
+            <div className="px-3 py-6 text-sm text-[var(--muted)]">Loading automations...</div>
           ) : automations.length === 0 ? (
             <div className="flex flex-col items-center py-16 text-center">
               <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-white/6 bg-white/[0.03]">
-                <Clock3 className="h-4 w-4 text-[#52525b]" />
+                <Clock3 className="h-4 w-4 text-[var(--muted)]" />
               </div>
-              <p className="max-w-[180px] text-xs leading-5 text-[#71717a]">
+              <p className="max-w-[180px] text-xs leading-5 text-[var(--muted)]">
                 Create scheduled automations here. Runs will appear in the dedicated Automations workspace.
               </p>
             </div>
@@ -338,235 +340,249 @@ export function AutomationsSection() {
         isDetailVisible={mobileDetailVisible}
         onBackAction={() => setMobileDetailVisible(false)}
         detailPanel={
-          <div className="max-w-[620px] space-y-6">
+          <div className="w-full max-w-[720px]">
             {showDetail ? (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <h3 className="text-[1.1rem] font-semibold text-[#f4f4f5]">
-                      {isAddingNew ? "New automation" : form.name || "Edit automation"}
-                    </h3>
-                    <p className="text-sm text-[#71717a]">
-                      Configure the prompt, execution profile, and cadence for this scheduled automation.
-                    </p>
+              <div className="space-y-0">
+                {/* Header */}
+                <div className="pb-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-base font-semibold text-[var(--text)]">
+                        {isAddingNew ? "New automation" : form.name || "Edit automation"}
+                      </h3>
+                      <p className="mt-1 text-xs text-[var(--muted)]">
+                        Configure the prompt, execution profile, and cadence for this scheduled automation.
+                      </p>
+                    </div>
+                    {selectedAutomationId ? (
+                      <button
+                        type="button"
+                        onClick={deleteSelectedAutomation}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </button>
+                    ) : null}
                   </div>
-                  {selectedAutomationId ? (
-                    <Button
-                      type="button"
-                      variant="danger"
-                      onClick={deleteSelectedAutomation}
-                      className="gap-1.5 px-3 py-1.5 text-xs"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      Delete
-                    </Button>
-                  ) : null}
                 </div>
 
-                <div className="grid gap-5">
-                  <div>
-                    <Label>Name</Label>
-                    <Input
-                      aria-label="Name"
-                      value={form.name}
-                      onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                      placeholder="Morning summary"
-                    />
-                  </div>
-
-                  <div>
-                    <Label>Prompt</Label>
-                    <Textarea
-                      aria-label="Prompt"
-                      value={form.prompt}
-                      onChange={(event) => setForm((current) => ({ ...current, prompt: event.target.value }))}
-                      placeholder="Summarize priorities, blockers, and open follow-ups."
-                      rows={7}
-                    />
-                  </div>
-
-                  <div className="grid gap-5 md:grid-cols-2">
+                {/* Details */}
+                <div className={`${sectionDivider} py-5`}>
+                  <h4 className={sectionTitle}>Details</h4>
+                  <div className="mt-4 space-y-5">
                     <div>
-                      <Label>Provider profile</Label>
-                      <select
-                        aria-label="Provider profile"
-                        className={selectClassName}
-                        value={form.providerProfileId}
-                        onChange={(event) => setForm((current) => ({ ...current, providerProfileId: event.target.value }))}
-                      >
-                        <option value="">Select a profile</option>
-                        {providerProfiles.map((profile) => (
-                          <option key={profile.id} value={profile.id}>
-                            {profile.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <Label>Persona</Label>
-                      <select
-                        aria-label="Persona"
-                        className={selectClassName}
-                        value={form.personaId ?? ""}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            personaId: event.target.value || null
-                          }))
-                        }
-                      >
-                        <option value="">No persona</option>
-                        {personas.map((persona) => (
-                          <option key={persona.id} value={persona.id}>
-                            {persona.name}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
-                    <div>
-                      <Label>Cadence</Label>
-                      <select
-                        aria-label="Schedule type"
-                        className={selectClassName}
-                        value={form.scheduleKind}
-                        onChange={(event) =>
-                          setForm((current) => ({
-                            ...current,
-                            scheduleKind: event.target.value as "interval" | "calendar"
-                          }))
-                        }
-                      >
-                        <option value="interval">Every X minutes</option>
-                        <option value="calendar">Specific local time</option>
-                      </select>
-                    </div>
-
-                    <label className="flex items-center gap-2 rounded-xl border border-white/6 bg-white/[0.03] px-3 py-3 text-sm text-[#d4d4d8]">
-                      <input
-                        type="checkbox"
-                        checked={form.enabled}
-                        onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))}
+                      <label className={fieldLabel}>Name</label>
+                      <Input
+                        aria-label="Name"
+                        value={form.name}
+                        onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                        placeholder="Morning summary"
                       />
-                      Enabled
-                    </label>
-                  </div>
+                    </div>
 
-                  {form.scheduleKind === "interval" ? (
-                    <div className="grid gap-5 md:grid-cols-[160px_1fr] md:items-end">
+                    <div>
+                      <label className={fieldLabel}>Prompt</label>
+                      <Textarea
+                        aria-label="Prompt"
+                        value={form.prompt}
+                        onChange={(event) => setForm((current) => ({ ...current, prompt: event.target.value }))}
+                        placeholder="Summarize priorities, blockers, and open follow-ups."
+                        rows={7}
+                      />
+                    </div>
+
+                    <div className="grid gap-5 md:grid-cols-2">
                       <div>
-                        <Label>Every</Label>
-                        <Input
-                          aria-label="Every"
-                          type="number"
-                          min={5}
-                          step={5}
-                          value={String(form.intervalMinutes)}
+                        <label className={fieldLabel}>Provider profile</label>
+                        <select
+                          aria-label="Provider profile"
+                          className={selectLike}
+                          value={form.providerProfileId}
+                          onChange={(event) => setForm((current) => ({ ...current, providerProfileId: event.target.value }))}
+                        >
+                          <option value="">Select a profile</option>
+                          {providerProfiles.map((profile) => (
+                            <option key={profile.id} value={profile.id}>
+                              {profile.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className={fieldLabel}>Persona</label>
+                        <select
+                          aria-label="Persona"
+                          className={selectLike}
+                          value={form.personaId ?? ""}
                           onChange={(event) =>
                             setForm((current) => ({
                               ...current,
-                              intervalMinutes: Number(event.target.value) || 0
+                              personaId: event.target.value || null
                             }))
                           }
-                        />
+                        >
+                          <option value="">No persona</option>
+                          {personas.map((persona) => (
+                            <option key={persona.id} value={persona.id}>
+                              {persona.name}
+                            </option>
+                          ))}
+                        </select>
                       </div>
-                      <p className="pb-3 text-sm text-[#71717a]">
-                        Minimum interval is 5 minutes.
-                      </p>
                     </div>
-                  ) : (
-                    <div className="space-y-5">
-                      <div className="grid gap-5 md:grid-cols-2">
+                  </div>
+                </div>
+
+                {/* Schedule */}
+                <div className={`${sectionDivider} py-5`}>
+                  <h4 className={sectionTitle}>Schedule</h4>
+                  <div className="mt-4 space-y-5">
+                    <div className="grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
+                      <div>
+                        <label className={fieldLabel}>Cadence</label>
+                        <select
+                          aria-label="Schedule type"
+                          className={selectLike}
+                          value={form.scheduleKind}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              scheduleKind: event.target.value as "interval" | "calendar"
+                            }))
+                          }
+                        >
+                          <option value="interval">Every X minutes</option>
+                          <option value="calendar">Specific local time</option>
+                        </select>
+                      </div>
+
+                      <label className="flex items-center gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.enabled}
+                          onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))}
+                        />
+                        Enabled
+                      </label>
+                    </div>
+
+                    {form.scheduleKind === "interval" ? (
+                      <div className="grid gap-5 md:grid-cols-[160px_1fr] md:items-end">
                         <div>
-                          <Label>Frequency</Label>
-                          <select
-                            aria-label="Calendar frequency"
-                            className={selectClassName}
-                            value={form.calendarFrequency}
+                          <label className={fieldLabel}>Every</label>
+                          <Input
+                            aria-label="Every"
+                            type="number"
+                            min={5}
+                            step={5}
+                            value={String(form.intervalMinutes)}
                             onChange={(event) =>
                               setForm((current) => ({
                                 ...current,
-                                calendarFrequency: event.target.value as "daily" | "weekly"
+                                intervalMinutes: Number(event.target.value) || 0
                               }))
                             }
-                          >
-                            <option value="daily">Daily</option>
-                            <option value="weekly">Weekly</option>
-                          </select>
-                        </div>
-
-                        <div>
-                          <Label>Time</Label>
-                          <Input
-                            aria-label="Time"
-                            type="time"
-                            value={form.timeOfDay}
-                            onChange={(event) => setForm((current) => ({ ...current, timeOfDay: event.target.value }))}
                           />
                         </div>
+                        <p className="pb-3 text-sm text-[var(--muted)]">
+                          Minimum interval is 5 minutes.
+                        </p>
                       </div>
+                    ) : (
+                      <div className="space-y-5">
+                        <div className="grid gap-5 md:grid-cols-2">
+                          <div>
+                            <label className={fieldLabel}>Frequency</label>
+                            <select
+                              aria-label="Calendar frequency"
+                              className={selectLike}
+                              value={form.calendarFrequency}
+                              onChange={(event) =>
+                                setForm((current) => ({
+                                  ...current,
+                                  calendarFrequency: event.target.value as "daily" | "weekly"
+                                }))
+                              }
+                            >
+                              <option value="daily">Daily</option>
+                              <option value="weekly">Weekly</option>
+                            </select>
+                          </div>
 
-                      {form.calendarFrequency === "weekly" ? (
-                        <div>
-                          <Label>Days</Label>
-                          <div className="flex flex-wrap gap-2">
-                            {WEEKDAYS.map((day) => {
-                              const active = form.daysOfWeek.includes(day.value);
-                              return (
-                                <button
-                                  key={day.value}
-                                  type="button"
-                                  aria-pressed={active}
-                                  onClick={() => toggleWeekday(day.value)}
-                                  className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
-                                    active
-                                      ? "border-violet-500/30 bg-violet-500/12 text-violet-200"
-                                      : "border-white/6 bg-white/[0.03] text-[#a1a1aa] hover:bg-white/[0.06] hover:text-[#f4f4f5]"
-                                  }`}
-                                >
-                                  {day.label}
-                                </button>
-                              );
-                            })}
+                          <div>
+                            <label className={fieldLabel}>Time</label>
+                            <Input
+                              aria-label="Time"
+                              type="time"
+                              value={form.timeOfDay}
+                              onChange={(event) => setForm((current) => ({ ...current, timeOfDay: event.target.value }))}
+                            />
                           </div>
                         </div>
-                      ) : null}
-                    </div>
-                  )}
 
-                  {error ? (
-                    <div className="rounded-xl border border-red-400/20 bg-red-500/8 px-4 py-3 text-sm text-red-200">
-                      {error}
-                    </div>
-                  ) : null}
+                        {form.calendarFrequency === "weekly" ? (
+                          <div>
+                            <label className={fieldLabel}>Days</label>
+                            <div className="flex flex-wrap gap-2">
+                              {WEEKDAYS.map((day) => {
+                                const active = form.daysOfWeek.includes(day.value);
+                                return (
+                                  <button
+                                    key={day.value}
+                                    type="button"
+                                    aria-pressed={active}
+                                    onClick={() => toggleWeekday(day.value)}
+                                    className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+                                      active
+                                        ? "border-violet-500/30 bg-violet-500/12 text-violet-200"
+                                        : "border-white/6 bg-white/[0.03] text-[var(--muted)] hover:bg-white/[0.06] hover:text-[var(--text)]"
+                                    }`}
+                                  >
+                                    {day.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 pt-2">
-                  <div className="flex items-center gap-2">
-                    <Button type="button" onClick={() => void saveAutomation()}>
-                      Save automation
+                {/* Actions */}
+                <div className={`${sectionDivider} py-5`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" className="px-3 py-1.5 text-xs" onClick={() => void saveAutomation()}>
+                      Save
                     </Button>
-                    <Button type="button" variant="secondary" onClick={resetSelection}>
+                    <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={resetSelection}>
                       Cancel
                     </Button>
                   </div>
-                  {success ? (
-                    <div className="flex items-center gap-1.5 text-sm text-emerald-400">
-                      <Check className="h-3.5 w-3.5" />
-                      {success}
-                    </div>
-                  ) : null}
                 </div>
-              </>
+
+                {/* Messages */}
+                {success ? (
+                  <div className="flex items-center gap-1.5 pt-2 text-sm text-emerald-400">
+                    <Check className="h-3.5 w-3.5" />
+                    {success}
+                  </div>
+                ) : null}
+                {error ? (
+                  <div className="rounded-lg border border-red-400/10 bg-red-500/8 px-4 py-3 text-sm text-red-300">
+                    {error}
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-24 text-center">
                 <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl border border-white/6 bg-white/[0.03]">
-                  <CalendarDays className="h-5 w-5 text-[#52525b]" />
+                  <CalendarDays className="h-5 w-5 text-[var(--muted)]" />
                 </div>
-                <p className="max-w-[260px] text-sm leading-6 text-[#71717a]">
+                <p className="max-w-[260px] text-sm leading-6 text-[var(--muted)]">
                   Select an automation to edit it, or create a new one from the list pane.
                 </p>
               </div>

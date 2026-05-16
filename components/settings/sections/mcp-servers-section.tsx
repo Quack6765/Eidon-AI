@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Plus, Server } from "lucide-react";
+import { Check, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import type { McpServer, McpTransport } from "@/lib/types";
 import { ProfileCard } from "@/components/settings/profile-card";
@@ -21,8 +20,8 @@ export function McpServersSection() {
   const [mcpArgs, setMcpArgs] = useState("");
   const [mcpEnv, setMcpEnv] = useState("");
   const [editingMcpId, setEditingMcpId] = useState<string | null>(null);
-  const [mcpDraftTestResult, setMcpDraftTestResult] = useState("");
-  const [mcpRowTestResults, setMcpRowTestResults] = useState<Record<string, string>>({});
+  const [mcpDraftTestResult, setMcpDraftTestResult] = useState<{ text: string; isSuccess: boolean } | null>(null);
+  const [mcpRowTestResults, setMcpRowTestResults] = useState<Record<string, { text: string; isSuccess: boolean }>>({});
   const [mcpTestingTarget, setMcpTestingTarget] = useState<string | null>(null);
   const [mcpEnabledDraft, setMcpEnabledDraft] = useState(true);
   const [error, setError] = useState("");
@@ -144,7 +143,7 @@ export function McpServersSection() {
       setMcpArgs(savedServer.args ? JSON.stringify(savedServer.args) : "");
       setMcpEnv(savedServer.env ? JSON.stringify(savedServer.env, null, 2) : "");
       setMcpEnabledDraft(savedServer.enabled);
-      setMcpDraftTestResult("");
+      setMcpDraftTestResult(null);
       setIsAddingNew(false);
       setMobileDetailVisible(true);
     }
@@ -203,14 +202,15 @@ export function McpServersSection() {
       const result = (await response.json()) as { text?: string; error?: string; toolCount?: number; stderr?: string };
       const message = result.text ?? result.error ?? "No result";
       const fullMessage = result.stderr ? `${message}\n${result.stderr}` : message;
+      const isSuccess = response.ok && !result.error;
 
       if (serverId) {
         setMcpRowTestResults((current) => ({
           ...current,
-          [serverId]: fullMessage
+          [serverId]: { text: fullMessage, isSuccess }
         }));
       } else {
-        setMcpDraftTestResult(fullMessage);
+        setMcpDraftTestResult({ text: fullMessage, isSuccess });
       }
 
       if (!response.ok) {
@@ -221,10 +221,10 @@ export function McpServersSection() {
       if (serverId) {
         setMcpRowTestResults((current) => ({
           ...current,
-          [serverId]: message
+          [serverId]: { text: message, isSuccess: false }
         }));
       } else {
-        setMcpDraftTestResult(message);
+        setMcpDraftTestResult({ text: message, isSuccess: false });
       }
       setError(message);
     } finally {
@@ -251,7 +251,7 @@ export function McpServersSection() {
     setMcpCommand(server.command ?? "");
     setMcpArgs(server.args ? JSON.stringify(server.args) : "");
     setMcpEnv(server.env ? JSON.stringify(server.env, null, 2) : "");
-    setMcpDraftTestResult(mcpRowTestResults[server.id] ?? "");
+    setMcpDraftTestResult(mcpRowTestResults[server.id] ?? null);
     setMcpEnabledDraft(server.enabled);
   }
 
@@ -265,7 +265,7 @@ export function McpServersSection() {
     setMcpEnv("");
     setMcpEnabledDraft(true);
     setEditingMcpId(null);
-    setMcpDraftTestResult("");
+    setMcpDraftTestResult(null);
     setSelectedServerId(null);
     setIsAddingNew(false);
   }
@@ -287,6 +287,12 @@ export function McpServersSection() {
   const selectedServer = mcpServers.find((s) => s.id === selectedServerId);
   const showDetail = selectedServerId !== null || isAddingNew;
 
+  const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
+  const inputLike = "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
+  const selectLike = `${inputLike} appearance-none bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2371717a%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`;
+  const sectionTitle = "text-sm font-semibold text-[var(--text)]";
+  const sectionDivider = "border-t border-white/[0.06]";
+
   return (
     <div className="min-h-0 p-4 md:h-full md:p-8">
       <SettingsSplitPane
@@ -296,7 +302,7 @@ export function McpServersSection() {
           <div className="flex items-center justify-between w-full">
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-semibold text-[var(--text)]">MCP Servers</h2>
-              <span className="text-[0.7rem] text-[var(--muted)]">{mcpServers.length}</span>
+              <span className="text-xs text-[var(--muted)]">{mcpServers.length}</span>
             </div>
             <button
               onClick={handleAddNew}
@@ -338,19 +344,17 @@ export function McpServersSection() {
         }
         detailPanel={
           showDetail ? (
-            <div className="space-y-5">
-              <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-400">
-                  <Server className="h-4 w-4" />
-                </div>
-                <h3 className="text-lg font-medium text-[var(--text)]">
+            <div className="space-y-0">
+              <div className="pb-5">
+                <h3 className="text-base font-semibold text-[var(--text)]">
                   {isAddingNew ? "Add MCP Server" : selectedServer?.name ?? "Server"}
                 </h3>
               </div>
 
-              <div className="space-y-3">
+              <div className={`${sectionDivider} py-5`}>
+                <div className="space-y-3">
                 <div>
-                  <Label>Name</Label>
+                  <label className={fieldLabel}>Name</label>
                   <Input
                     value={mcpName}
                     onChange={(e) => setMcpName(e.target.value)}
@@ -358,11 +362,11 @@ export function McpServersSection() {
                   />
                 </div>
                 <div>
-                  <Label>Transport</Label>
+                  <label className={fieldLabel}>Transport</label>
                   <select
                     value={mcpTransport}
                     onChange={(e) => setMcpTransport(e.target.value as McpTransport)}
-                    className="w-full rounded-xl border border-white/6 bg-white/[0.03] px-4 py-3 text-sm outline-none focus:border-[var(--accent)]/30 transition-all duration-200"
+                    className={selectLike}
                   >
                     <option value="streamable_http">Streamable HTTP</option>
                     <option value="stdio">Local stdio</option>
@@ -371,7 +375,7 @@ export function McpServersSection() {
                 {mcpTransport === "streamable_http" ? (
                   <>
                     <div>
-                      <Label>URL</Label>
+                      <label className={fieldLabel}>URL</label>
                       <Input
                         value={mcpUrl}
                         onChange={(e) => setMcpUrl(e.target.value)}
@@ -379,7 +383,7 @@ export function McpServersSection() {
                       />
                     </div>
                     <div>
-                      <Label>Headers (JSON)</Label>
+                      <label className={fieldLabel}>Headers (JSON)</label>
                       <Textarea
                         value={mcpHeaders}
                         onChange={(e) => setMcpHeaders(e.target.value)}
@@ -391,18 +395,18 @@ export function McpServersSection() {
                 ) : (
                   <>
                     <div>
-                      <Label>Command</Label>
+                      <label className={fieldLabel}>Command</label>
                       <Input
                         value={mcpCommand}
                         onChange={(e) => setMcpCommand(e.target.value)}
                         placeholder="uvx or npx"
                       />
-                      <p className="mt-1 text-xs text-white/20">
+                      <p className="mt-1 text-xs text-[var(--muted)]">
                         Use &quot;uvx&quot; for Python-based servers or &quot;npx&quot; for Node.js-based servers.
                       </p>
                     </div>
                     <div>
-                      <Label>Args (JSON array or space-separated)</Label>
+                      <label className={fieldLabel}>Args (JSON array or space-separated)</label>
                       <Input
                         value={mcpArgs}
                         onChange={(e) => setMcpArgs(e.target.value)}
@@ -414,7 +418,7 @@ export function McpServersSection() {
                       />
                     </div>
                     <div>
-                      <Label>Environment variables (JSON, optional)</Label>
+                      <label className={fieldLabel}>Environment variables (JSON, optional)</label>
                       <Textarea
                         value={mcpEnv}
                         onChange={(e) => setMcpEnv(e.target.value)}
@@ -428,53 +432,62 @@ export function McpServersSection() {
 
               {editingMcpId ? (
                 <div className="flex items-center gap-2">
-                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/8 bg-white/[0.04] px-2.5 py-1.5 text-xs text-white/65 transition-colors hover:border-white/15">
+                  <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)]">
                     <input
                       type="checkbox"
                       checked={mcpEnabledDraft}
                       onChange={(e) => setMcpEnabledDraft(e.target.checked)}
-                      className="rounded"
                     />
                     Enabled
                   </label>
                 </div>
               ) : null}
-
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => void testMcpServer()}
-                  disabled={mcpTestingTarget === "draft"}
-                >
-                  {mcpTestingTarget === "draft" ? "Testing" : "Test"}
-                </Button>
-                <Button type="button" onClick={() => void saveMcpServer()}>
-                  {editingMcpId ? "Update" : "Add server"}
-                </Button>
-                {editingMcpId && (
-                  <Button
-                    type="button"
-                    variant="danger"
-                    onClick={() => deleteMcpServer(editingMcpId)}
-                  >
-                    Delete
-                  </Button>
-                )}
-                {success ? (
-                  <div className="flex items-center gap-1.5 text-sm text-emerald-400">
-                    <Check className="h-3.5 w-3.5" />
-                    {success}
-                  </div>
-                ) : null}
               </div>
 
+              <div className={`${sectionDivider} py-5`}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" className="px-3 py-1.5 text-xs" onClick={() => void saveMcpServer()}>
+                    Save
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="px-2.5 py-1.5 text-xs"
+                    onClick={() => void testMcpServer()}
+                    disabled={mcpTestingTarget === "draft"}
+                  >
+                    {mcpTestingTarget === "draft" ? "Testing" : "Test"}
+                  </Button>
+                </div>
+                {editingMcpId && (
+                  <button
+                    type="button"
+                    onClick={() => deleteMcpServer(editingMcpId)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
+                )}
+              </div>
+              </div>
+
+              {success ? (
+                <div className="flex items-center gap-1.5 pt-2 text-sm text-emerald-400">
+                  <Check className="h-3.5 w-3.5" />
+                  {success}
+                </div>
+              ) : null}
+
               {mcpDraftTestResult && (
-                <p className="text-xs text-white/35">{mcpDraftTestResult}</p>
+                <p className={`pt-2 text-sm ${mcpDraftTestResult.isSuccess ? "text-emerald-400" : "text-red-300"}`}>
+                  {mcpDraftTestResult.text}
+                </p>
               )}
 
               {error && (
-                <div className="rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300">
+                <div className="rounded-lg border border-red-400/10 bg-red-500/8 px-4 py-3 text-sm text-red-300">
                   {error}
                 </div>
               )}

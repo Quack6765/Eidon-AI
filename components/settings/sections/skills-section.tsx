@@ -183,7 +183,10 @@ export function SkillsSection() {
   const isBuiltin = selectedSkill?.id.startsWith("builtin-") ?? false;
   const showDetail = selectedSkill || isAddingNew;
 
-  const labelClass = "text-[0.68rem] font-semibold uppercase tracking-[0.12em] text-[#71717a]";
+  const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
+  const inputLike = "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
+  const sectionTitle = "text-sm font-semibold text-[var(--text)]";
+  const sectionDivider = "border-t border-white/[0.06]";
 
   return (
     <div className="min-h-0 p-4 md:h-full md:p-8">
@@ -191,8 +194,8 @@ export function SkillsSection() {
         listHeader={
           <div className="flex items-center justify-between w-full">
             <div>
-              <h2 className="text-[0.9rem] font-semibold text-[#f4f4f5]">Skills</h2>
-              <p className="text-[0.68rem] text-[#52525b]">
+              <h2 className="text-sm font-semibold text-[var(--text)]">Skills</h2>
+              <p className="text-xs text-[var(--muted)]">
                 {skills.length} skill{skills.length !== 1 ? "s" : ""}
               </p>
             </div>
@@ -207,7 +210,7 @@ export function SkillsSection() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] hover:text-[#f4f4f5] hover:bg-white/[0.06] transition-all duration-200"
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/[0.06] transition-all duration-200"
                 title="Import skill from .md file"
               >
                 <Upload className="h-4 w-4" />
@@ -217,7 +220,7 @@ export function SkillsSection() {
                 onClick={handleAddNew}
                 aria-label="Add skill"
                 title="Add skill"
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[#71717a] hover:text-[#f4f4f5] hover:bg-white/[0.06] transition-all duration-200"
+                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/[0.06] transition-all duration-200"
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -246,32 +249,33 @@ export function SkillsSection() {
         isDetailVisible={mobileDetailVisible}
         onBackAction={() => setMobileDetailVisible(false)}
         detailPanel={
-          <div className="max-w-[560px] space-y-6">
+          <div className="max-w-[720px] space-y-6">
             {showDetail ? (
               <>
                 <div className="space-y-4">
                   <div>
-                    <h3 className="text-[1.1rem] font-semibold text-[#f4f4f5]">
+                    <h3 className={sectionTitle}>
                       {isAddingNew ? "New Skill" : selectedSkill?.name}
                     </h3>
                     {!isAddingNew && selectedSkill ? (
-                      <p className="mt-0.5 text-[0.75rem] text-[#52525b]">
+                      <p className="mt-0.5 text-xs text-[var(--muted)]">
                         {selectedSkill.description}
                       </p>
                     ) : null}
                   </div>
 
                   {!isAddingNew && !isBuiltin && selectedSkill ? (
-                    <Button
+                    <button
                       type="button"
-                      variant="danger"
                       onClick={() => deleteSkill(selectedSkill.id)}
-                      className="gap-1.5 px-3 py-1.5 text-xs"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
                     >
                       Delete
-                    </Button>
+                    </button>
                   ) : null}
                 </div>
+
+                <div className={sectionDivider} />
 
                 <div className="space-y-5">
                   {selectedSkill && isBuiltin ? (
@@ -286,39 +290,41 @@ export function SkillsSection() {
                   ) : null}
 
                   <div>
-                    <label className={labelClass}>Name</label>
+                    <label className={fieldLabel}>Name</label>
                     <Input
                       value={skillName}
                       onChange={(e) => setSkillName(e.target.value)}
                       placeholder="Skill name"
                       disabled={isBuiltin}
+                      className={inputLike}
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>Description</label>
+                    <label className={fieldLabel}>Description</label>
                     <Input
                       value={skillDescription}
                       onChange={(e) => setSkillDescription(e.target.value)}
                       placeholder="Explain when this skill should and should not trigger"
                       disabled={isBuiltin}
+                      className={inputLike}
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>INSTRUCTIONS</label>
+                    <label className={fieldLabel}>Instructions</label>
                     <Textarea
                       value={skillContent}
                       onChange={(e) => setSkillContent(e.target.value)}
                       placeholder="Enter the full skill instructions..."
                       rows={8}
                       readOnly={isBuiltin}
-                      className={isBuiltin ? "opacity-60 cursor-default" : ""}
+                      className={isBuiltin ? `opacity-60 cursor-default ${inputLike}` : inputLike}
                     />
                   </div>
                 </div>
 
                 {selectedSkill ? (
                   <div className="flex gap-2 pt-2">
-                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-white/8 bg-white/[0.04] px-2.5 py-1.5 text-xs text-[#52525b] transition-colors hover:border-white/15">
+                    <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--muted)] transition-colors hover:border-white/15">
                       <input
                         type="checkbox"
                         checked={skillEnabledDraft}
@@ -330,27 +336,27 @@ export function SkillsSection() {
                   </div>
                 ) : null}
 
-                <div className="flex gap-2 pt-2">
-                  <Button type="button" onClick={saveSkill}>
-                    {editingSkillId ? "Update" : "Add skill"}
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" className="px-3 py-1.5 text-xs" onClick={saveSkill}>
+                    Save
                   </Button>
-                  <Button type="button" variant="secondary" onClick={resetSkillForm}>
+                  <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={resetSkillForm}>
                     {isBuiltin ? "Close" : "Cancel"}
                   </Button>
-                  {skillSuccess ? (
-                    <div className="flex items-center gap-1.5 text-sm text-emerald-400">
-                      <Check className="h-3.5 w-3.5" />
-                      {skillSuccess}
-                    </div>
-                  ) : null}
                 </div>
+                {skillSuccess ? (
+                  <div className="flex items-center gap-1.5 text-sm text-emerald-400">
+                    <Check className="h-3.5 w-3.5" />
+                    {skillSuccess}
+                  </div>
+                ) : null}
               </>
             ) : (
               <div className="flex flex-col items-center justify-center py-24 text-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.03] border border-white/6 mb-4">
-                  <FileText className="h-5 w-5 text-[#52525b]" />
+                  <FileText className="h-5 w-5 text-[var(--muted)]" />
                 </div>
-                <p className="text-[0.85rem] text-[#71717a]">
+                <p className="text-[0.85rem] text-[var(--muted)]">
                   Select a skill or add a new one
                 </p>
               </div>
