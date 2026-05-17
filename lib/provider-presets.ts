@@ -116,9 +116,11 @@ export function applyProviderPreset<T extends PresetCompatibleProfile>(
     return profile;
   }
 
+  const { name: _presetName, ...presetValues } = getProviderPreset(presetId).values;
+
   return {
     ...profile,
-    ...getProviderPreset(presetId).values
+    ...presetValues
   };
 }
 
@@ -133,7 +135,6 @@ export function getMatchingProviderPresetId(
     const { values } = entry;
 
     return (
-      values.name === profile.name &&
       values.apiBaseUrl === profile.apiBaseUrl &&
       values.model === profile.model &&
       values.apiMode === profile.apiMode &&

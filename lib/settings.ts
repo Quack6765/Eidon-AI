@@ -89,6 +89,7 @@ const settingsSchema = z
   })
   .superRefine((value, context) => {
     const ids = new Set<string>();
+    const names = new Set<string>();
 
     value.providerProfiles.forEach((profile, index) => {
       if (ids.has(profile.id)) {
@@ -100,6 +101,17 @@ const settingsSchema = z
       }
 
       ids.add(profile.id);
+
+      const normalizedName = profile.name.trim().toLowerCase();
+      if (names.has(normalizedName)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Provider profile names must be unique",
+          path: ["providerProfiles", index, "name"]
+        });
+      }
+
+      names.add(normalizedName);
     });
 
     if (!ids.has(value.defaultProviderProfileId)) {
