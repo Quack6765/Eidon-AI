@@ -6,7 +6,7 @@ import {
   decodeMarkdownTarget,
   findMarkdownTargets,
   isExternalMarkdownTarget,
-  normalizeProtectedMarkdownContent,
+  normalizeProtectedMarkdownContentOutsideCodeBlocks,
   parseAssistantDataImageTarget
 } from "@/lib/assistant-markdown-parsing";
 import { env } from "@/lib/env";
@@ -49,7 +49,7 @@ function isPathInsideRoot(candidatePath: string, rootPath: string) {
 }
 
 function collapseWhitespace(content: string) {
-  return normalizeProtectedMarkdownContent(content);
+  return normalizeProtectedMarkdownContentOutsideCodeBlocks(content);
 }
 
 function buildFailureNote(deniedNames: Set<string>, failedNames: Set<string>) {

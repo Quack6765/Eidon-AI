@@ -27,6 +27,7 @@
     "@radix-ui/react-scroll-area": "^1.2.2",
     "@radix-ui/react-slot": "^1.1.1",
     "@streamdown/code": "^1.1.1",
+    "@streamdown/mermaid": "^1.0.2",
     "argon2": "^0.41.1",
     "better-sqlite3": "^11.7.0",
     "clsx": "^2.1.1",

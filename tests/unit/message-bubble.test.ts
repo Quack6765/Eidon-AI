@@ -1087,6 +1087,19 @@ describe("message bubble", () => {
     expect(codeElements.length).toBeGreaterThanOrEqual(2);
   });
 
+  it("renders mermaid code blocks via streamdown", async () => {
+    const message = createAssistantMessage();
+    message.content = "Here is a diagram:\n\n```mermaid\ngraph TD\n    A --> B\n```";
+
+    const { container } = render(
+      React.createElement(MessageBubble, { message })
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-streamdown="mermaid-block"]')).not.toBeNull();
+    });
+  });
+
   it("renders single-line untagged fenced assistant code blocks through the code block renderer", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
@@ -1116,7 +1129,7 @@ describe("message bubble", () => {
     fireEvent.click(screen.getByRole("button", { name: /Thought/i }));
 
     await waitFor(() => {
-      expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
+    expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
     });
 
     expect(container.querySelector(".thinking-markdown-body pre code")).not.toBeNull();
