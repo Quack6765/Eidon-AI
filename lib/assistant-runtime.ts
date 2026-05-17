@@ -416,6 +416,14 @@ function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[]
     }
   }
 
+  lines.push(
+    "",
+    "Skills-first behavior: before choosing an approach for any task, review the available skills listed above.",
+    "If a skill matches the task, use it instead of a raw tool or command.",
+    "For example, when navigating to a website, use the agent-browser skill (full browser with JS rendering) instead of curl or webfetch.",
+    "Skills provide purpose-built workflows that are more effective than ad-hoc commands."
+  );
+
   lines.push("", "Use available tools proactively when they would improve your answer.");
   lines.push("Do not call the same read-only tool repeatedly once you already have a successful result for it in the current turn.");
   lines.push("If a tool call fails because of invalid arguments, correct the arguments and retry at most once.");
