@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, GitFork, LoaderCircle, Pencil, Square, X } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, GitFork, LoaderCircle, Pencil, RefreshCw, Square, X } from "lucide-react";
 import type { RemendHandler } from "remend";
 import { Streamdown } from "streamdown";
 import { code } from "@streamdown/code";
@@ -815,6 +815,8 @@ export function MessageBubble({
   isUpdating = false,
   onForkAssistantMessage,
   isForking = false,
+  onRetryAssistantMessage,
+  isRetrying = false,
   onApproveMemoryProposal,
   onDismissMemoryProposal,
   onPreviewAttachment,
@@ -838,6 +840,8 @@ export function MessageBubble({
   isUpdating?: boolean;
   onForkAssistantMessage?: (messageId: string) => void;
   isForking?: boolean;
+  onRetryAssistantMessage?: (messageId: string) => void;
+  isRetrying?: boolean;
   onPreviewAttachment?: (attachment: MessageAttachment) => void;
   readOnly?: boolean;
 }) {
@@ -1351,6 +1355,19 @@ export function MessageBubble({
                           <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                         ) : (
                           <GitFork className="h-3.5 w-3.5" />
+                        )}
+                      </ActionButton>
+                    ) : null}
+                    {onRetryAssistantMessage && message.status === "error" ? (
+                      <ActionButton
+                        label="Retry message"
+                        onClick={() => onRetryAssistantMessage(message.id)}
+                        disabled={isRetrying}
+                      >
+                        {isRetrying ? (
+                          <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
                         )}
                       </ActionButton>
                     ) : null}
