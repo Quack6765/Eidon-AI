@@ -62,9 +62,27 @@ const splitMergedBlockElements: RemendHandler = {
   handle: (text: string): string => {
     const lines = text.split("\n");
     const result: string[] = [];
+    let insideCodeBlock = false;
 
     for (const line of lines) {
       const trimmed = line.trim();
+
+      if (insideCodeBlock) {
+        const closingFence = trimmed.match(/^`{3,}\s*$/);
+        if (closingFence) {
+          insideCodeBlock = false;
+        }
+        result.push(line);
+        continue;
+      }
+
+      const openingFence = trimmed.match(/^(`{3,})(\S*)/);
+      if (openingFence) {
+        insideCodeBlock = true;
+        result.push(line);
+        continue;
+      }
+
       const fenceCount = (line.match(/`{3,}/g) || []).length;
 
       if (/^\|.*\|$/.test(trimmed) && /\|\|/.test(trimmed)) {
