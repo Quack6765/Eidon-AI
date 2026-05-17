@@ -1945,7 +1945,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       });
 
       if (!response.ok) {
-        let message = "Unable to retry message";
+        let message = "Message retry failed";
 
         try {
           const failure = (await response.json()) as { error?: string };
@@ -1978,7 +1978,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       setIsSending(true);
     } catch (caughtError) {
       setError(
-        caughtError instanceof Error ? caughtError.message : "Unable to retry message"
+        caughtError instanceof Error ? caughtError.message : "Message retry failed"
       );
     } finally {
       setRetryingMessageId((current) => (current === messageId ? null : current));
