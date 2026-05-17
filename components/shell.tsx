@@ -227,6 +227,7 @@ export function Shell({
 
     if (pathname === "/") {
       hasAppliedDesktopDefaultRef.current = true;
+      sessionStorage.removeItem("eidon:sidebar:user-closed");
       setIsSidebarOpen(true);
       return;
     }
@@ -237,13 +238,22 @@ export function Shell({
 
     if (shouldAutoHideActiveConversation) {
       hasAppliedDesktopDefaultRef.current = true;
+      sessionStorage.removeItem("eidon:sidebar:user-closed");
       setIsSidebarOpen(false);
       return;
     }
 
+    const userClosed = sessionStorage.getItem("eidon:sidebar:user-closed") === "true";
+
     if (!hasAppliedDesktopDefaultRef.current) {
       hasAppliedDesktopDefaultRef.current = true;
-      setIsSidebarOpen(true);
+      if (userClosed) {
+        setIsSidebarOpen(false);
+      } else {
+        setIsSidebarOpen(true);
+      }
+    } else if (userClosed) {
+      setIsSidebarOpen(false);
     }
   }, [activeConversationId, isSettingsPage, pathname]);
 
@@ -257,14 +267,14 @@ export function Shell({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm md:hidden"
-            onClick={() => setIsSidebarOpen(false)}
+            className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm"
+            onClick={() => { sessionStorage.setItem("eidon:sidebar:user-closed", "true"); setIsSidebarOpen(false); }}
           />
         )}
       </AnimatePresence>
 
       <div
-        className={`fixed inset-y-0 left-0 z-[70] w-[280px] transform transition-transform duration-300 ease-out border-r border-white/5 md:z-50 ${
+        className={`fixed inset-y-0 left-0 z-[70] w-[280px] transform transition-transform duration-300 ease-out border-r border-white/5 md:z-[70] ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${
           isDesktopSidebarOpen ? "md:translate-x-0" : "md:-translate-x-full"
@@ -274,20 +284,20 @@ export function Shell({
           <SettingsNav
             currentUser={currentUser}
             passwordLoginEnabled={passwordLoginEnabled}
-            onCloseAction={() => setIsSidebarOpen(false)}
+            onCloseAction={() => { sessionStorage.setItem("eidon:sidebar:user-closed", "true"); setIsSidebarOpen(false); }}
           />
         ) : isAutomationsPage ? (
-          <AutomationsNav automations={automations ?? []} onCloseAction={() => setIsSidebarOpen(false)} />
+          <AutomationsNav automations={automations ?? []} onCloseAction={() => { sessionStorage.setItem("eidon:sidebar:user-closed", "true"); setIsSidebarOpen(false); }} />
         ) : (
-          <Sidebar conversationPage={conversationPage} folders={folders} onClose={() => setIsSidebarOpen(false)} />
+          <Sidebar conversationPage={conversationPage} folders={folders} onClose={() => { sessionStorage.setItem("eidon:sidebar:user-closed", "true"); setIsSidebarOpen(false); }} />
         )}
       </div>
 
       {!isSettingsPage ? (
         <button
           type="button"
-          onClick={() => setIsSidebarOpen((prev) => !prev)}
-          className={`group/sidebar-toggle hidden md:flex fixed top-[72px] z-50 h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-[var(--background)]/95 text-white/45 shadow-[0_2px_8px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-[left,background-color,border-color,color] duration-200 ease-out hover:border-white/18 hover:bg-[#171717] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 ${
+          onClick={() => setIsSidebarOpen((prev) => { if (prev) sessionStorage.setItem("eidon:sidebar:user-closed", "true"); else sessionStorage.removeItem("eidon:sidebar:user-closed"); return !prev; })}
+          className={`group/sidebar-toggle hidden md:flex fixed top-[72px] z-[80] h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-[var(--background)]/95 text-white/45 shadow-[0_2px_8px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-[left,background-color,border-color,color] duration-200 ease-out hover:border-white/18 hover:bg-[#171717] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 ${
             isSidebarOpen ? "left-[262px]" : "left-3"
           }`}
           aria-label={sidebarToggleLabel}
@@ -317,7 +327,7 @@ export function Shell({
           <button
             type="button"
             className="p-2 -ml-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
-            onClick={() => setIsSidebarOpen(true)}
+            onClick={() => { sessionStorage.removeItem("eidon:sidebar:user-closed"); setIsSidebarOpen(true); }}
             aria-label={mobileMenuLabel}
           >
             <Menu className="h-5 w-5" />
