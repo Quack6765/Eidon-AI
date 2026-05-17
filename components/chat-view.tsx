@@ -571,6 +571,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const streamTimelineRef = useRef<MessageTimelineItem[]>([]);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
   const [forkingMessageId, setForkingMessageId] = useState<string | null>(null);
+  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
   const titlePollTimeoutRef = useRef<number | null>(null);
   const titlePollAttemptsRef = useRef(0);
   const messageSyncTimeoutRef = useRef<number | null>(null);
@@ -1930,6 +1931,60 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  async function retryAssistantMessage(messageId: string) {
+    if (retryingMessageId) {
+      return;
+    }
+
+    setError("");
+    setRetryingMessageId(messageId);
+
+    try {
+      const response = await fetch(`/api/messages/${messageId}/retry`, {
+        method: "POST"
+      });
+
+      if (!response.ok) {
+        let message = "Unable to retry message";
+
+        try {
+          const failure = (await response.json()) as { error?: string };
+          message = failure.error ?? message;
+        } catch {}
+
+        throw new Error(message);
+      }
+
+      const result = (await response.json()) as {
+        conversation?: Conversation;
+        messages?: Message[];
+      };
+
+      resetStreamingState();
+
+      if (result.messages) {
+        setMessages(sanitizeMessages(result.messages));
+      }
+
+      if (result.conversation) {
+        setConversationTitle(result.conversation.title);
+        setTitleGenerationStatus(result.conversation.titleGenerationStatus);
+        dispatchConversationActivityUpdated({
+          conversationId: result.conversation.id,
+          isActive: true
+        });
+      }
+
+      setIsSending(true);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : "Unable to retry message"
+      );
+    } finally {
+      setRetryingMessageId((current) => (current === messageId ? null : current));
+    }
+  }
+
   async function approveMemoryProposal(
     actionId: string,
     overrides?: { content?: string; category?: MemoryCategory }
@@ -2420,6 +2475,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                     isUpdating={updatingMessageId === message.id}
                     onForkAssistantMessage={forkAssistantMessage}
                     isForking={forkingMessageId === message.id}
+                    onRetryAssistantMessage={retryAssistantMessage}
+                    isRetrying={retryingMessageId === message.id}
                   />
                   {isStreamingMessage && isAgentIdle && hasReceivedFirstToken && (
                     <div className="animate-fade-in mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 md:ml-[42px]">
@@ -2432,7 +2489,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           ))}
 
           {error ? (
-            <div className="mt-3 rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
+            <div className="mx-auto mt-3 max-w-md rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
               {error}
             </div>
           ) : null}
