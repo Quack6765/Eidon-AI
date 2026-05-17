@@ -363,6 +363,10 @@ select {
   border-color: rgba(255, 255, 255, 0.06) !important;
 }
 
+.markdown-body [data-streamdown="mermaid"] [class*="border-border"] {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
 .markdown-body [data-streamdown="mermaid-block"] .bg-red-50 {
   background: rgba(255, 255, 255, 0.04) !important;
   border: 1px solid rgba(255, 255, 255, 0.06);

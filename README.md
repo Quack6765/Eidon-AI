@@ -63,6 +63,7 @@ Use it as a private assistant, a day-to-day work companion, or a shared workspac
 - Previous message editing with restart-from-edit flow for fast iteration
 - Browser speech-to-text in the chat composer
 - Image generation support
+- Mermaid diagram generation
 - Multiple clients live sync
 - Support native or dedicated MCP server for vision capabilites
 - Temporary chat

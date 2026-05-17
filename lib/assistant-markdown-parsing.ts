@@ -200,6 +200,48 @@ export function normalizeProtectedMarkdownContent(content: string) {
     .replace(/[ \t]+$/, "");
 }
 
+export function normalizeProtectedMarkdownContentOutsideCodeBlocks(content: string) {
+  const parts = splitAroundCodeBlocks(content);
+  return parts.map((part) =>
+    part.insideCode ? part.text : normalizeProtectedMarkdownContent(part.text)
+  ).join("");
+}
+
+function splitAroundCodeBlocks(content: string): Array<{ text: string; insideCode: boolean }> {
+  const parts: Array<{ text: string; insideCode: boolean }> = [];
+  const fenceRegex = /^(`{3,})/gm;
+  let lastEnd = 0;
+
+  while (true) {
+    const match = fenceRegex.exec(content);
+    if (!match) break;
+
+    const fenceLen = match[1].length;
+    const fenceStart = match.index;
+    const afterFence = fenceStart + fenceLen;
+    const rest = content.slice(afterFence);
+    const closeFence = rest.match(new RegExp(`\n((?:[ \t]*\n)?)\`{${fenceLen},}[ \t]*$`, "m"));
+
+    if (closeFence) {
+      const codeEnd = afterFence + (closeFence.index ?? 0) + closeFence[0].length;
+      if (fenceStart > lastEnd) {
+        parts.push({ text: content.slice(lastEnd, fenceStart), insideCode: false });
+      }
+      parts.push({ text: content.slice(fenceStart, codeEnd), insideCode: true });
+      lastEnd = codeEnd;
+      fenceRegex.lastIndex = codeEnd;
+    } else {
+      break;
+    }
+  }
+
+  if (lastEnd < content.length) {
+    parts.push({ text: content.slice(lastEnd), insideCode: false });
+  }
+
+  return parts.length > 0 ? parts : [{ text: content, insideCode: false }];
+}
+
 export function decodeMarkdownTarget(target: string) {
   try {
     return decodeURIComponent(target);
