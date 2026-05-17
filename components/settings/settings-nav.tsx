@@ -20,6 +20,8 @@ import {
 import { Button } from "@/components/ui/button";
 import type { AuthUser } from "@/lib/types";
 
+const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || "dev";
+
 const PERSONAL_ITEMS = [
   { href: "/settings/general", label: "General", icon: Settings },
   { href: "/settings/personas", label: "Personas", icon: Users },
@@ -189,6 +191,9 @@ export function SettingsNav({
               <LogOut className="h-3 w-3" />
               Sign out
             </button>
+            <p className="mt-2.5 text-[10px] font-medium text-white/15 tracking-[0.04em] tabular-nums">
+              {appVersion}
+            </p>
           </div>
         </div>
       </div>
