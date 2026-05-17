@@ -84,7 +84,7 @@ const INLINE_ATTACHMENT_DIRECTIVE =
 const NON_NATIVE_VISION_DIRECTIVE =
   "The current model configuration cannot inspect attached images directly in this turn. Attached images were provided only as text placeholders. Do not claim to have viewed image contents directly. If image analysis is required, explain the limitation or use the configured vision MCP server when available.";
 const MERMAID_DIAGRAM_DIRECTIVE =
-  "When you need to present diagrams (flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, Gantt charts, pie charts, mind maps, or any other diagram type), use mermaid.js syntax inside a fenced code block with the `mermaid` language identifier. For example:\n\n```mermaid\ngraph TD\n    A[Start] --> B{Decision}\n    B -->|Yes| C[Success]\n    B -->|No| D[Try Again]\n```\n\nAlways prefer mermaid diagrams over ASCII art or text-based diagrams.";
+  "When you need to present diagrams (flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, Gantt charts, pie charts, mind maps, or any other diagram type), use mermaid.js syntax inside a fenced code block with the `mermaid` language identifier. Each diagram statement must be on its own line with actual line breaks. For example:\n\n```mermaid\ngraph TD\n    A[Start] --> B{Decision}\n    B -->|Yes| C[Success]\n    B -->|No| D[Try Again]\n```\n\nDo not put multiple statements on a single line. Do not collapse lines together. Always prefer mermaid diagrams over ASCII art or text-based diagrams.";
 
 function mcpToolFunctionName(serverSlug: string, toolName: string) {
   return `mcp_${serverSlug}_${toolName}`;
