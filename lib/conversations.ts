@@ -2130,6 +2130,54 @@ export function rewriteConversationFromEditedUserMessage(
   return snapshot;
 }
 
+export function deleteAssistantMessageAndChildren(
+  messageId: string,
+  userId?: string
+) {
+  const db = getDb();
+  const deletedAttachmentPaths = new Set<string>();
+  const transaction = db.transaction(() => {
+    const message = getMessage(messageId, userId);
+
+    if (!message) {
+      throw new Error("Message not found");
+    }
+
+    if (message.role !== "assistant") {
+      throw new Error("Only assistant messages can be retried");
+    }
+
+    const conversation = getConversation(message.conversationId, userId);
+
+    if (!conversation) {
+      throw new Error("Conversation not found");
+    }
+
+    listAttachmentsForMessageIds([message.id]).forEach((attachment) => {
+      deletedAttachmentPaths.add(attachment.relativePath);
+    });
+
+    db.prepare("DELETE FROM message_actions WHERE message_id = ?").run(message.id);
+    db.prepare("DELETE FROM message_text_segments WHERE message_id = ?").run(message.id);
+    db.prepare("DELETE FROM message_timeline WHERE message_id = ?").run(message.id);
+    db.prepare("DELETE FROM message_attachments WHERE message_id = ?").run(message.id);
+    db.prepare("DELETE FROM messages WHERE id = ?").run(message.id);
+
+    setConversationActive(conversation.id, false);
+
+    return getConversationSnapshot(conversation.id, userId);
+  });
+
+  const snapshot = transaction();
+  deleteAttachmentFiles([...deletedAttachmentPaths]);
+
+  if (!snapshot) {
+    throw new Error("Conversation not found");
+  }
+
+  return snapshot;
+}
+
 export function createMessageAction(input: {
   messageId: string;
   kind: MessageActionKind;
