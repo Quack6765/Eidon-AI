@@ -191,7 +191,7 @@ export function SettingsNav({
               <LogOut className="h-3 w-3" />
               Sign out
             </button>
-            <p className="mt-2.5 text-[10px] font-medium text-white/15 tracking-[0.04em] tabular-nums">
+            <p className="mt-2.5 text-[10px] font-medium text-white/30 tracking-[0.04em] tabular-nums">
               {appVersion}
             </p>
           </div>
