@@ -1036,6 +1036,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       wasStreamingRef.current = true;
       setIsConversationActive(true);
       setStreamMessageId(event.messageId);
+      streamMessageIdRef.current = event.messageId;
       setHasReceivedFirstToken(false);
       resetIdleTimer();
       setStreamAnswerTarget("");
