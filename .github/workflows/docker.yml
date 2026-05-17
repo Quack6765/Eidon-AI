@@ -53,6 +53,8 @@ jobs:
         with:
           context: .
           push: true
+          build-args: |
+            NEXT_PUBLIC_APP_VERSION=${{ github.event.release.tag_name }}
           tags: |
             ghcr.io/${{ env.REPO_LOWERCASE }}:latest
             ghcr.io/${{ env.REPO_LOWERCASE }}:${{ github.event.release.tag_name }}
