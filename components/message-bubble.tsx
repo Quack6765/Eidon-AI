@@ -1254,6 +1254,32 @@ export function MessageBubble({
                   <TypingIndicator compact />
                 </div>
               )
+            ) : message.status === "error" && content ? (
+              <div className="group flex w-full min-w-0 flex-col items-start">
+                <div className="flex w-full max-w-[calc(100%-32px)] flex-col gap-3">
+                  <div
+                    className="rounded-xl border border-red-400/15 bg-red-500/8 px-3.5 py-2.5 text-[14px] text-red-300/90"
+                    data-testid="assistant-error-bubble"
+                  >
+                    {content}
+                  </div>
+                </div>
+                {onRetryAssistantMessage ? (
+                  <div className="mt-2 flex items-center gap-1">
+                    <ActionButton
+                      label="Retry message"
+                      onClick={() => onRetryAssistantMessage(message.id)}
+                      disabled={isRetrying}
+                    >
+                      {isRetrying ? (
+                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
+                    </ActionButton>
+                  </div>
+                ) : null}
+              </div>
             ) : assistantBlocks.length || content || assistantImageAttachments.length || assistantFileAttachments.length ? (
               <div className="group flex w-full min-w-0 flex-col items-start">
                 <div ref={contentRef} className={`flex w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>

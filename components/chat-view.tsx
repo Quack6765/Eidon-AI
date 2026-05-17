@@ -1257,10 +1257,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       });
       setMessages((current) =>
         current.map((m) =>
-          m.id === activeStreamMessageId ? { ...m, status: "error" as const } : m
+          m.id === activeStreamMessageId ? { ...m, status: "error" as const, content: event.message } : m
         )
       );
-      setError(event.message);
+      setError("");
       setStreamMessageId(null);
       updateStreamTimeline([]);
       setIsSending(false);
@@ -1393,12 +1393,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             const activeStreamMessageId = streamMessageIdRef.current;
             if (activeStreamMessageId) {
               return current.map((m) =>
-                m.id === activeStreamMessageId ? { ...m, status: "error" as const } : m
+                m.id === activeStreamMessageId ? { ...m, status: "error" as const, content: msg.message } : m
               );
             }
             return current;
           });
-          setError(msg.message);
+          setError("");
           setStreamMessageId(null);
           updateStreamTimeline([]);
           setIsSending(false);
