@@ -21,6 +21,7 @@ export function SkillsSection() {
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
+  const [skillError, setSkillError] = useState("");
   const [skillSuccess, setSkillSuccess] = useState("");
   const [skillEnabledDraft, setSkillEnabledDraft] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -36,6 +37,7 @@ export function SkillsSection() {
 
   async function saveSkill() {
     if (!skillName.trim() || !skillDescription.trim() || !skillContent.trim()) return;
+    setSkillError("");
     setSkillSuccess("");
 
     let savedId = editingSkillId;
@@ -56,11 +58,15 @@ export function SkillsSection() {
     }
 
     if (editingSkillId) {
-      await fetch(`/api/skills/${editingSkillId}`, {
+      const updateRes = await fetch(`/api/skills/${editingSkillId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
+      if (!updateRes.ok) {
+        setSkillError("Failed to save skill.");
+        return;
+      }
     } else {
       const createRes = await fetch("/api/skills", {
         method: "POST",
@@ -71,6 +77,10 @@ export function SkillsSection() {
           content: skillContent
         })
       });
+      if (!createRes.ok) {
+        setSkillError("Failed to save skill.");
+        return;
+      }
       const createdData = (await createRes.json().catch(() => null)) as { skill?: Skill } | null;
       savedId = createdData?.skill?.id ?? savedId;
       if (savedId && skillEnabledDraft === false) {
@@ -348,6 +358,11 @@ export function SkillsSection() {
                   <div className="flex items-center gap-1.5 text-sm text-emerald-400">
                     <Check className="h-3.5 w-3.5" />
                     {skillSuccess}
+                  </div>
+                ) : null}
+                {skillError ? (
+                  <div className="text-sm text-red-400">
+                    {skillError}
                   </div>
                 ) : null}
               </>
