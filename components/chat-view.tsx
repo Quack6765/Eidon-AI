@@ -783,7 +783,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (!el) return;
 
     const updateScrollPadding = () => {
-      setScrollPadding(Math.max(SCROLL_BOTTOM_PADDING, el.clientHeight));
+      setScrollPadding(SCROLL_BOTTOM_PADDING);
     };
 
     updateScrollPadding();
@@ -858,13 +858,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     suppressNextScrollEventRef.current = false;
   }
 
-  const preventPaddingOnlyScroll = useCallback((event: { preventDefault: () => void }) => {
+  const preventOverscroll = useCallback((event: { preventDefault: () => void }) => {
     if (!queueRef.current) {
       return false;
     }
 
     const bottomTarget = getComposerAwareBottomTarget(queueRef.current, scrollPadding);
-    if (bottomTarget > 0) {
+    if (queueRef.current.scrollTop < bottomTarget) {
       return false;
     }
 
@@ -889,22 +889,32 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     const handleWheel = (event: WheelEvent) => {
       if (event.deltaY > 0) {
-        preventPaddingOnlyScroll(event);
+        preventOverscroll(event);
       }
     };
 
+    let lastTouchY = 0;
+    const handleTouchStart = (event: TouchEvent) => {
+      lastTouchY = event.touches[0]?.clientY ?? 0;
+    };
     const handleTouchMove = (event: TouchEvent) => {
-      preventPaddingOnlyScroll(event);
+      const touchY = event.touches[0]?.clientY ?? 0;
+      if (touchY < lastTouchY) {
+        preventOverscroll(event);
+      }
+      lastTouchY = touchY;
     };
 
     el.addEventListener("wheel", handleWheel, { passive: false });
+    el.addEventListener("touchstart", handleTouchStart, { passive: true });
     el.addEventListener("touchmove", handleTouchMove, { passive: false });
 
     return () => {
       el.removeEventListener("wheel", handleWheel);
+      el.removeEventListener("touchstart", handleTouchStart);
       el.removeEventListener("touchmove", handleTouchMove);
     };
-  }, [preventPaddingOnlyScroll]);
+  }, [preventOverscroll]);
 
   const followAnchoredOverflowIfNeeded = useCallback(() => {
     const canFollowAnchor =
@@ -2342,7 +2352,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
       <div
         ref={queueRef}
-        className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-2 md:px-8 relative z-0 isolate"
+        className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-2 md:px-8 relative z-0 isolate"
         onScroll={() => {
           if (!queueRef.current) {
             return;
@@ -2360,12 +2370,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             !streamMessageIdRef.current &&
             queueRef.current.scrollTop > bottomTarget + ANCHOR_SCROLL_TOLERANCE_PX
           ) {
-            const isPaddingOnlyScroll = bottomTarget <= 0;
             suppressNextScrollEventRef.current = true;
             queueRef.current.scrollTo?.({ top: bottomTarget, behavior: "auto" });
             queueRef.current.scrollTop = bottomTarget;
             setIsConversationAtBottom(true);
-            shouldAutoScrollRef.current = isPaddingOnlyScroll;
+            shouldAutoScrollRef.current = true;
             userScrollIntentRef.current = false;
             requestAnimationFrame(() => {
               suppressNextScrollEventRef.current = false;
@@ -2411,13 +2420,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           userScrollIntentRef.current = false;
         }}
         onWheel={(event) => {
-          if (event.deltaY > 0 && preventPaddingOnlyScroll(event)) {
+          if (event.deltaY > 0 && preventOverscroll(event)) {
             return;
           }
           cancelAutoScrollForUserIntent();
         }}
         onTouchMove={(event) => {
-          if (preventPaddingOnlyScroll(event)) {
+          if (preventOverscroll(event)) {
             return;
           }
           cancelAutoScrollForUserIntent();

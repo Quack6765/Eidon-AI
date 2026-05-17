@@ -21,6 +21,34 @@ if (typeof window !== "undefined") {
     configurable: true,
     value: () => undefined
   });
+
+  if (!window.IntersectionObserver) {
+    class IntersectionObserver {
+      readonly root: Element | null = null;
+      readonly rootMargin: string = "";
+      readonly thresholds: ReadonlyArray<number> = [];
+      constructor(
+        private callback: IntersectionObserverCallback,
+        _options?: IntersectionObserverInit
+      ) {}
+      observe() {
+        this.callback(
+          [{ isIntersecting: true, target: document.createElement("div") } as unknown as IntersectionObserverEntry],
+          this as unknown as IntersectionObserver
+        );
+      }
+      unobserve() {}
+      disconnect() {}
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+    }
+    Object.defineProperty(window, "IntersectionObserver", {
+      configurable: true,
+      writable: true,
+      value: IntersectionObserver
+    });
+  }
 }
 
 beforeEach(async () => {

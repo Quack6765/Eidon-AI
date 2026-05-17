@@ -690,6 +690,34 @@ ${JSON.stringify({
     expect(assignAttachmentsToMessage).toHaveBeenCalledWith("conv_image", "msg_assistant_image", ["att_1"]);
   });
 
+  it("injects the mermaid diagram directive into the system prompt", async () => {
+    streamProviderResponse.mockImplementation(({ promptMessages }: { promptMessages?: Array<{ content: string }> }) => {
+      const systemPrompt = String(promptMessages?.[0]?.content ?? "");
+      expect(systemPrompt).toContain("mermaid");
+      expect(systemPrompt).toContain("graph TD");
+      expect(systemPrompt).toContain("Always prefer mermaid diagrams over ASCII art");
+      return createProviderStream([{ type: "answer_delta", text: "Done." }], {
+        answer: "Done.",
+        thinking: "",
+        usage: { outputTokens: 2 }
+      });
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Draw a flowchart" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_mermaid",
+      assistantMessageId: "msg_mermaid"
+    });
+
+    expect(result.answer).toBe("Done.");
+  });
+
   it("binds every generated assistant attachment to the provided assistant message id", async () => {
     let providerCallCount = 0;
     streamProviderResponse.mockImplementation(() => {

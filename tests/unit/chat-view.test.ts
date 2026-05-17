@@ -2808,22 +2808,16 @@ describe("chat view", () => {
     expect(pill.className).not.toContain("md:bottom-full");
   });
 
-  it("sets dynamic bottom padding from the queue height with a 260px minimum", async () => {
+  it("uses fixed bottom padding of 260px", async () => {
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
     const messageList = queue.firstElementChild as HTMLDivElement;
 
-    let clientHeight = 420;
     Object.defineProperty(queue, "clientHeight", {
       configurable: true,
-      get: () => clientHeight
+      get: () => 420
     });
 
-    await flushResizeObservers();
-
-    expect(messageList).toHaveStyle({ paddingBottom: "420px" });
-
-    clientHeight = 180;
     await flushResizeObservers();
 
     expect(messageList).toHaveStyle({ paddingBottom: "260px" });
@@ -2885,7 +2879,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
 
     await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 620 }));
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 720 }));
     });
     expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ top: 1080 }));
   });
@@ -2951,7 +2945,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
 
     await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 620 }));
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 720 }));
     });
     expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ top: 1080 }));
   });
@@ -3010,7 +3004,7 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 620 }));
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 720 }));
     });
 
     scrollTo.mockClear();
@@ -3027,9 +3021,9 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 620 }));
-    expect(scrollTop).toBe(620);
-    expect(messageList).toHaveStyle({ paddingBottom: "360px" });
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 720 }));
+    expect(scrollTop).toBe(720);
+    expect(messageList).toHaveStyle({ paddingBottom: "260px" });
   });
 
   it("anchors to the reconciled server user message when the optimistic local message is removed first", async () => {
@@ -3402,7 +3396,7 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 620 }));
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 720 }));
     });
 
     scrollTo.mockClear();
@@ -3420,10 +3414,10 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ top: 620 }));
+    expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ top: 720 }));
   });
 
-  it("clamps idle scrolling before the padding-only blank area after streaming ends", async () => {
+  it("does not clamp when scroll position matches the bottom target after streaming ends", async () => {
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
     const textarea = screen.getByPlaceholderText(
@@ -3481,10 +3475,8 @@ describe("chat view", () => {
     scrollTop = 720;
     fireEvent.scroll(queue);
 
-    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({
-      behavior: "auto",
-      top: 620
-    }));
+    expect(scrollTo).not.toHaveBeenCalled();
+    expect(scrollTop).toBe(720);
   });
 
   it("prevents downward wheel scrolling into padding-only space for short chats", async () => {

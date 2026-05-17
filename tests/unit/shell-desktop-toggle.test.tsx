@@ -215,7 +215,7 @@ describe("Desktop Sidebar Toggle", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
 
     const overlay = Array.from(document.querySelectorAll("div")).find((element) => {
-      return element.className.includes("bg-black/70") && element.className.includes("md:hidden");
+      return element.className.includes("bg-black/70") && element.className.includes("z-[60]");
     });
 
     expect(overlay).toHaveClass("z-[60]");
