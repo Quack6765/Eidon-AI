@@ -836,6 +836,74 @@ describe("settings storage", () => {
     ).toThrow();
   });
 
+  it("rejects duplicate profile names (case-insensitive)", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "My Provider"
+    });
+    const beta = buildProfile({
+      id: "profile_beta",
+      name: "my provider"
+    });
+
+    expect(() =>
+      updateSettings({
+        defaultProviderProfileId: alpha.id,
+        skillsEnabled: true,
+        providerProfiles: [alpha, beta]
+      })
+    ).toThrow("Provider profile names must be unique");
+  });
+
+  it("rejects duplicate profile names with different whitespace", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "My Provider"
+    });
+    const beta = buildProfile({
+      id: "profile_beta",
+      name: " My Provider "
+    });
+
+    expect(() =>
+      updateSettings({
+        defaultProviderProfileId: alpha.id,
+        skillsEnabled: true,
+        providerProfiles: [alpha, beta]
+      })
+    ).toThrow("Provider profile names must be unique");
+  });
+
+  it("allows multiple profiles with the same preset but different names", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Ollama Primary",
+      apiBaseUrl: "https://ollama.com/v1",
+      model: "glm-4.7:cloud",
+      apiMode: "chat_completions",
+      providerPresetId: "ollama_cloud"
+    });
+    const beta = buildProfile({
+      id: "profile_beta",
+      name: "Ollama Secondary",
+      apiBaseUrl: "https://ollama.com/v1",
+      model: "glm-4.7:cloud",
+      apiMode: "chat_completions",
+      providerPresetId: "ollama_cloud"
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: true,
+      providerProfiles: [alpha, beta]
+    });
+
+    const stored = listProviderProfiles();
+    expect(stored).toHaveLength(2);
+    expect(stored.map((p) => p.name)).toEqual(["Ollama Primary", "Ollama Secondary"]);
+    expect(stored.every((p) => p.providerPresetId === "ollama_cloud")).toBe(true);
+  });
+
   it("stores github copilot profiles without requiring an api key", () => {
     const copilot = {
       ...buildProfile({

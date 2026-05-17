@@ -18,6 +18,7 @@ import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
 import {
   applyProviderPreset,
   getMatchingProviderPresetId,
+  getProviderPreset,
   PROVIDER_PRESETS
 } from "@/lib/provider-presets";
 import type { AppSettings, ApiMode, McpServer, ProviderPresetId, ReasoningEffort, VisionMode } from "@/lib/types";
@@ -111,6 +112,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     ? activeProviderProfile.providerPresetId ?? getMatchingProviderPresetId(activeProviderProfile)
     : null;
   const isCopilot = activeProviderProfile?.providerKind === "github_copilot";
+  const isDuplicateName = activeProviderProfile
+    ? providerProfiles.some(
+        (p) =>
+          p.id !== activeProviderProfile.id &&
+          p.name.trim().toLowerCase() === activeProviderProfile.name.trim().toLowerCase()
+      )
+    : false;
 
   useEffect(() => {
     if (
@@ -195,10 +203,17 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       return;
     }
 
-    updateActiveProviderProfile({
+    const isAutoName = /^Profile \d+$/.test(activeProviderProfile.name);
+    const patch: Partial<ProviderProfileDraft> = {
       ...applyProviderPreset(activeProviderProfile, presetId),
       providerPresetId: presetId
-    });
+    };
+
+    if (isAutoName) {
+      patch.name = getProviderPreset(presetId).values.name;
+    }
+
+    updateActiveProviderProfile(patch);
   }
 
   function resetActiveProviderAdvancedSettings() {
@@ -473,6 +488,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         }
                         required
                       />
+                      {isDuplicateName && (
+                        <p className="mt-1 text-xs text-red-400">A profile with this name already exists</p>
+                      )}
                     </div>
                     <label className="flex items-center gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] cursor-pointer sm:col-span-2">
                       <input
@@ -957,7 +975,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                 <div className={`${sectionDivider} py-5`}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button type="submit" className="px-3 py-1.5 text-xs">
+                      <Button type="submit" className="px-3 py-1.5 text-xs" disabled={isDuplicateName}>
                         Save
                       </Button>
                       <Button
