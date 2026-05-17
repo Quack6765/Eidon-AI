@@ -305,7 +305,7 @@ describe("providers section", () => {
       target: { value: "openrouter" }
     });
 
-    expect(profileNameInput).toHaveValue("OpenRouter");
+    expect(profileNameInput).toHaveValue("Default");
     expect(apiBaseUrlInput).toHaveValue("https://openrouter.ai/api/v1");
     expect(modelInput).toHaveValue("");
   });

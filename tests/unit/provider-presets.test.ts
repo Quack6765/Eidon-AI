@@ -26,10 +26,10 @@ function createProfile() {
 }
 
 describe("provider presets", () => {
-  it("applies the Ollama Cloud preset values", () => {
+  it("applies the Ollama Cloud preset values without overwriting the name", () => {
     const profile = applyProviderPreset(createProfile(), "ollama_cloud");
 
-    expect(profile.name).toBe("Ollama Cloud");
+    expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://ollama.com/v1");
     expect(profile.model).toBe("glm-4.7:cloud");
     expect(profile.apiMode).toBe("chat_completions");
@@ -38,10 +38,10 @@ describe("provider presets", () => {
     expect(profile.modelContextLimit).toBe(64000);
   });
 
-  it("applies the GLM Coding Plan preset values", () => {
+  it("applies the GLM Coding Plan preset values without overwriting the name", () => {
     const profile = applyProviderPreset(createProfile(), "glm_coding_plan");
 
-    expect(profile.name).toBe("GLM Coding Plan");
+    expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://api.z.ai/api/coding/paas/v4");
     expect(profile.model).toBe("glm-5.1");
     expect(profile.apiMode).toBe("chat_completions");
@@ -50,10 +50,10 @@ describe("provider presets", () => {
     expect(profile.modelContextLimit).toBe(200000);
   });
 
-  it("applies the custom OpenAI compatible preset values", () => {
+  it("applies the custom OpenAI compatible preset values without overwriting the name", () => {
     const profile = applyProviderPreset(createProfile(), "custom_openai_compatible");
 
-    expect(profile.name).toBe("Custom OpenAI compatible");
+    expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://api.openai.com/v1");
     expect(profile.model).toBe("gpt-5-mini");
     expect(profile.apiMode).toBe("responses");
@@ -62,10 +62,10 @@ describe("provider presets", () => {
     expect(profile.modelContextLimit).toBe(200000);
   });
 
-  it("applies the OpenRouter preset values", () => {
+  it("applies the OpenRouter preset values without overwriting the name", () => {
     const profile = applyProviderPreset(createProfile(), "openrouter");
 
-    expect(profile.name).toBe("OpenRouter");
+    expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://openrouter.ai/api/v1");
     expect(profile.model).toBe("");
     expect(profile.apiMode).toBe(DEFAULT_PROVIDER_SETTINGS.apiMode);
@@ -76,10 +76,10 @@ describe("provider presets", () => {
     expect(profile.modelContextLimit).toBe(200000);
   });
 
-  it("applies the OpenCode Go preset values", () => {
+  it("applies the OpenCode Go preset values without overwriting the name", () => {
     const profile = applyProviderPreset(createProfile(), "opencode_go");
 
-    expect(profile.name).toBe("OpenCode Go");
+    expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://opencode.ai/zen/go/v1");
     expect(profile.model).toBe("kimi-k2.6");
     expect(profile.apiMode).toBe("chat_completions");
@@ -95,6 +95,17 @@ describe("provider presets", () => {
     };
 
     expect(getMatchingProviderPresetId(profile)).toBe("opencode_go");
+  });
+
+  it("matches a profile back to its preset even with a different name", () => {
+    const { name: _presetName, ...presetValues } = getProviderPreset("ollama_cloud").values;
+    const profile = {
+      ...createProfile(),
+      ...presetValues,
+      name: "My Custom Ollama"
+    };
+
+    expect(getMatchingProviderPresetId(profile)).toBe("ollama_cloud");
   });
 
   it("preserves non-provider tuning and secrets when applying a preset", () => {
