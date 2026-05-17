@@ -54,6 +54,7 @@ export function Shell({
   const shareCopyFadeHandle = useRef<number | null>(null);
   const consumedHomeSubmitAutoHideConversationIdRef = useRef<string | null>(null);
   const hasAppliedDesktopDefaultRef = useRef(false);
+  const prevIsSettingsPageRef = useRef(false);
 
   const pathname = usePathname();
   const router = useRouter();
@@ -256,6 +257,14 @@ export function Shell({
       setIsSidebarOpen(false);
     }
   }, [activeConversationId, isSettingsPage, pathname]);
+
+  useEffect(() => {
+    if (isSettingsPage && !prevIsSettingsPageRef.current && typeof window !== "undefined" && window.innerWidth < 768) {
+      sessionStorage.removeItem("eidon:sidebar:user-closed");
+      setIsSidebarOpen(true);
+    }
+    prevIsSettingsPageRef.current = isSettingsPage;
+  }, [isSettingsPage, pathname]);
 
   return (
     <div className="flex h-[100dvh] w-full bg-[var(--background)] overflow-hidden">
