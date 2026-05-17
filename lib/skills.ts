@@ -33,7 +33,7 @@ function deriveDescription(content: string) {
   const metadata = parseSkillContentMetadata(content);
 
   if (metadata.description?.trim()) {
-    return metadata.description.trim().slice(0, 240);
+    return metadata.description.trim();
   }
 
   const lines = content
@@ -46,7 +46,7 @@ function deriveDescription(content: string) {
       continue;
     }
 
-    return line.slice(0, 240);
+    return line;
   }
 
   return "Reusable skill instructions.";
