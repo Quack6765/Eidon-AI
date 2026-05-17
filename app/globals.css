@@ -341,6 +341,47 @@ select {
   background: rgba(255, 255, 255, 0.03) !important;
 }
 
+.markdown-body [data-streamdown="mermaid-block"] {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+  padding: 0.25rem !important;
+  gap: 0.25rem !important;
+}
+
+.markdown-body [data-streamdown="mermaid-block"] > div:last-child {
+  background-color: transparent !important;
+}
+
+.markdown-body [data-streamdown="mermaid-block"] details pre {
+  background: rgba(255, 255, 255, 0.06) !important;
+  color: rgba(255, 255, 255, 0.75) !important;
+}
+
+.markdown-body [data-streamdown="mermaid-block"] [data-streamdown="mermaid-block-actions"] {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.markdown-body [data-streamdown="mermaid-block"] .bg-red-50 {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.5rem;
+}
+
+.markdown-body [data-streamdown="mermaid-block"] .text-red-700 {
+  color: rgba(248, 113, 113, 0.9) !important;
+}
+
+.markdown-body [data-streamdown="mermaid-block"] .text-red-600 {
+  color: rgba(248, 113, 113, 0.7) !important;
+}
+
+.markdown-body [data-streamdown="mermaid-block"] .bg-red-100 {
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.markdown-body [data-streamdown="mermaid-block"] .text-red-800 {
+  color: rgba(255, 255, 255, 0.65) !important;
+}
+
 
 .thinking-markdown-body {
   color: rgba(255, 255, 255, 0.48);
