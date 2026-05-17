@@ -349,6 +349,9 @@ select {
 
 .markdown-body [data-streamdown="mermaid-block"] > div:last-child {
   background-color: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 0.5rem 0.5rem 0.5rem !important;
 }
 
 .markdown-body [data-streamdown="mermaid-block"] details pre {

@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, GitFork, LoaderCircle, Pencil, Square, X } from "lucide-react";
-import type { RemendHandler } from "remend";
 import { Streamdown } from "streamdown";
 import { code } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
@@ -23,161 +22,9 @@ import type {
   MessageAttachment,
   MessageTimelineItem
 } from "@/lib/types";
-import { normalizeMarkdownLineBreaks } from "@/lib/text-utils";
+import { normalizeLineBreaks } from "@/lib/text-utils";
 
 const STREAMDOWN_PLUGINS = { code, mermaid };
-
-const KNOWN_LANG_PREFIXES = [
-  "yaml", "yml", "json", "json5", "jsonc", "python", "py", "javascript", "js",
-  "typescript", "ts", "bash", "sh", "shell", "zsh", "fish", "html", "css", "scss",
-  "sql", "mysql", "postgres", "go", "rust", "java", "csharp", "cs", "cpp", "c",
-  "ruby", "rb", "php", "swift", "kotlin", "dockerfile", "docker", "makefile",
-  "xml", "svg",   "markdown", "mermaid", "md", "text", "diff", "graphql", "toml", "ini",
-  "jsx", "tsx", "objective-c", "objc", "r", "lua", "perl", "groovy", "scala",
-  "haskell", "elm", "erlang", "clojure", "vim", "powershell", "bat", "ps1",
-  "nix", "terraform", "tf", "hcl", "docker-compose", "nginx", "apache", "conf",
-];
-
-function splitMergedCodeFenceLang(text: string): [string, string] | null {
-  if (!text || /^\w+$/.test(text)) return null;
-  if (!/[:\s=]/.test(text)) return null;
-
-  let bestMatch = "";
-  for (const lang of KNOWN_LANG_PREFIXES) {
-    if (text.startsWith(lang) && lang.length > bestMatch.length) {
-      bestMatch = lang;
-    }
-  }
-
-  if (bestMatch && text.length > bestMatch.length) {
-    return [bestMatch, text.slice(bestMatch.length)];
-  }
-
-  return null;
-}
-
-const splitMergedBlockElements: RemendHandler = {
-  name: "split-merged-block-elements",
-  priority: 90,
-  handle: (text: string): string => {
-    const lines = text.split("\n");
-    const result: string[] = [];
-    let insideCodeBlock = false;
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-
-      if (insideCodeBlock) {
-        const closingFence = trimmed.match(/^`{3,}\s*$/);
-        if (closingFence) {
-          insideCodeBlock = false;
-        }
-        result.push(line);
-        continue;
-      }
-
-      const openingFence = trimmed.match(/^(`{3,})(\S*)/);
-      if (openingFence) {
-        insideCodeBlock = true;
-        result.push(line);
-        continue;
-      }
-
-      const fenceCount = (line.match(/`{3,}/g) || []).length;
-
-      if (/^\|.*\|$/.test(trimmed) && /\|\|/.test(trimmed)) {
-        const cells = trimmed.split(/\|\|/);
-        for (const cell of cells) {
-          result.push(("|" + cell + (cell.endsWith("|") ? "" : "|")).trim());
-        }
-        continue;
-      }
-
-      if (line.trimStart().startsWith("|")) {
-        result.push(line);
-        continue;
-      }
-
-      const headingTableMatch = trimmed.match(/^(#{1,6}\s+\S.*?)\|(\s*\S)/);
-      if (headingTableMatch) {
-        result.push(headingTableMatch[1].trimEnd());
-        result.push("");
-        result.push("|" + headingTableMatch[2] + trimmed.slice(headingTableMatch[0].length));
-        continue;
-      }
-
-      const codeblockBeforeIdx = line.search(/[^\s](`{3,})/);
-      if (codeblockBeforeIdx !== -1 && fenceCount < 2) {
-        const splitAt = codeblockBeforeIdx + 1;
-        const beforeText = line.slice(0, splitAt).trimEnd();
-        const delimiterAndAfter = line.slice(splitAt);
-        const afterMatch = delimiterAndAfter.match(/^(`{3,})(\s*\S+.*)$/);
-        if (afterMatch && afterMatch[2] && afterMatch[2].trim() && /\s/.test(afterMatch[2].trim())) {
-          result.push(beforeText);
-          result.push("");
-          result.push(afterMatch[1]);
-          result.push(afterMatch[2].trimStart());
-        } else {
-          result.push(beforeText);
-          result.push("");
-          result.push(delimiterAndAfter);
-        }
-        continue;
-      }
-
-      if (fenceCount < 2) {
-        const codeblockAfterMatch = trimmed.match(/^(`{3,})\s+(\S+(?:\s+\S+)+)$/);
-        if (codeblockAfterMatch) {
-          const indent = line.slice(0, line.length - trimmed.length);
-          result.push(indent + codeblockAfterMatch[1]);
-          result.push(codeblockAfterMatch[2]);
-          continue;
-        }
-      }
-
-      if (fenceCount < 2) {
-        const fenceLangMatch = trimmed.match(/^(`{3,})(\S+)(?:\s+(.*))?$/);
-        if (fenceLangMatch) {
-          const langPart = fenceLangMatch[2];
-          const restOfLine = fenceLangMatch[3] || "";
-          const split = splitMergedCodeFenceLang(langPart);
-          if (split) {
-            const indent = line.slice(0, line.length - trimmed.length);
-            result.push(indent + fenceLangMatch[1] + split[0]);
-            result.push(split[1] + (restOfLine ? " " + restOfLine : ""));
-            continue;
-          }
-        }
-      }
-
-      const headingIdx = line.search(/[^\s#](#{1,6}\s)/);
-      if (headingIdx !== -1) {
-        const splitAt = headingIdx + 1;
-        result.push(line.slice(0, splitAt).trimEnd());
-        result.push("");
-        result.push(line.slice(splitAt));
-        continue;
-      }
-
-      const hrIdx = line.search(/[^\s](-{3,}|\*{3,}|_{3,})\s*$/);
-      if (hrIdx !== -1) {
-        const splitAt = hrIdx + 1;
-        result.push(line.slice(0, splitAt).trimEnd());
-        result.push("");
-        result.push(line.slice(splitAt));
-        continue;
-      }
-
-      result.push(line);
-    }
-
-    return result.join("\n");
-  },
-};
-
-const STREAMDOWN_REMEND_OPTIONS = {
-  handlers: [splitMergedBlockElements],
-};
 const COPY_RESET_DELAY_MS = 1600;
 
 function getAnsiForegroundClassName(foregroundColor: ReturnType<typeof parseAnsiText>[number]["foregroundColor"]) {
@@ -236,7 +83,6 @@ function renderAssistantMarkdown(content: string, isStreaming: boolean) {
   return (
     <Streamdown
       plugins={STREAMDOWN_PLUGINS}
-      remend={STREAMDOWN_REMEND_OPTIONS}
       caret={isStreaming ? "block" : undefined}
       isAnimating={isStreaming}
     >
@@ -864,8 +710,8 @@ export function MessageBubble({
   const rawThinking = streamingThinking ?? message.thinkingContent;
   const actions = message.actions ?? [];
   const liveTimeline = streamingTimeline ?? message.timeline;
-  const content = normalizeMarkdownLineBreaks(rawContent);
-  const thinkingContent = normalizeMarkdownLineBreaks(rawThinking);
+  const content = normalizeLineBreaks(rawContent);
+  const thinkingContent = normalizeLineBreaks(rawThinking);
   const timeline = liveTimeline ?? actions.map((action) => ({
     ...action,
     timelineKind: "action" as const
@@ -935,7 +781,7 @@ export function MessageBubble({
     )
     .map((item) => item.content)
     .join("");
-  const normalizedConsumedText = normalizeMarkdownLineBreaks(consumedText);
+  const normalizedConsumedText = normalizeLineBreaks(consumedText);
 
   if (content && content.length > normalizedConsumedText.length) {
     assistantBlocks.push({
@@ -1135,7 +981,7 @@ export function MessageBubble({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body">
-                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS} remend={STREAMDOWN_REMEND_OPTIONS}>{content}</Streamdown>
+                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS}>{content}</Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
@@ -1248,7 +1094,7 @@ export function MessageBubble({
 
                 {thinkingOpen && thinkingContent ? (
                   <div className="markdown-body thinking-markdown-body mt-1.5">
-                    <Streamdown mode="static" remend={STREAMDOWN_REMEND_OPTIONS}>{thinkingContent}</Streamdown>
+                    <Streamdown mode="static">{thinkingContent}</Streamdown>
                   </div>
                 ) : null}
               </div>
