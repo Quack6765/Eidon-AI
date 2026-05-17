@@ -683,7 +683,15 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, [updateStreamTimeline]);
 
   useEffect(() => {
-    setMessages(sanitizeMessages(payload.messages));
+    setMessages((current) => {
+      const incoming = sanitizeMessages(payload.messages);
+      if (!current.length) return incoming;
+      return incoming.map((msg) => {
+        if (msg.status !== "error" || msg.content) return msg;
+        const local = current.find((m) => m.id === msg.id);
+        return local?.content ? { ...msg, content: local.content } : msg;
+      });
+    });
   }, [payload.messages]);
 
   useEffect(() => {
