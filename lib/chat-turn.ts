@@ -698,8 +698,9 @@ async function startAssistantTurn(
       }
 
       if (assistantMessageId) {
+        const errorMessage = error instanceof Error ? error.message : "Chat stream failed";
         updateMessage(assistantMessageId, {
-          content: "",
+          content: errorMessage,
           thinkingContent: "",
           status: "error"
         });
