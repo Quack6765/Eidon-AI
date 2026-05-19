@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -25,13 +26,15 @@ export function TextEditModal({
   placeholder,
   readOnly,
 }: TextEditModalProps) {
+  const titleId = useId();
   const [draft, setDraft] = useState(value);
 
   useEffect(() => {
     if (open) {
       setDraft(value);
     }
-  }, [open, value]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   if (!open) return null;
 
@@ -45,14 +48,14 @@ export function TextEditModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={handleClose}
       />
       <div className="relative w-full max-w-[720px] max-h-[80vh] flex flex-col rounded-2xl border border-white/[0.08] bg-[#121214] p-6 shadow-2xl">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-[var(--text)]">{title}</h3>
+          <h3 id={titleId} className="text-sm font-semibold text-[var(--text)]">{title}</h3>
           <button
             type="button"
             onClick={handleClose}
@@ -72,7 +75,7 @@ export function TextEditModal({
           rows={16}
           placeholder={placeholder}
           readOnly={readOnly}
-          className={`flex-1 resize-none min-h-[300px]${readOnly ? " opacity-60 cursor-default" : ""}`}
+          className={cn("flex-1 resize-none min-h-[300px]", readOnly && "opacity-60 cursor-default")}
         />
         <div className="flex flex-wrap items-center justify-end gap-2 mt-5 pt-4 border-t border-white/[0.06]">
           <Button
