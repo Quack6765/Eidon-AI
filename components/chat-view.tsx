@@ -783,7 +783,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (!el) return;
 
     const updateScrollPadding = () => {
-      setScrollPadding(SCROLL_BOTTOM_PADDING);
+      setScrollPadding(Math.max(SCROLL_BOTTOM_PADDING, el.clientHeight));
     };
 
     updateScrollPadding();
