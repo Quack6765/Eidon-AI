@@ -13,6 +13,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { createId } from "@/lib/ids";
 import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
 import {
@@ -92,7 +93,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [copilotModels, setCopilotModels] = useState<Array<{ id: string; name: string; maxContextWindowTokens: number | null }>>([]);
   const [isSystemPromptOpen, setIsSystemPromptOpen] = useState(false);
-  const [systemPromptDraft, setSystemPromptDraft] = useState("");
   const maskedApiKeyValue = "••••••••";
 
   useEffect(() => {
@@ -363,18 +363,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
   function openSystemPrompt() {
     if (!activeProviderProfile) return;
-    setSystemPromptDraft(activeProviderProfile.systemPrompt);
     setIsSystemPromptOpen(true);
   }
 
-  function saveSystemPrompt() {
-    updateActiveProviderProfile({ systemPrompt: systemPromptDraft });
+  function saveSystemPrompt(value: string) {
+    updateActiveProviderProfile({ systemPrompt: value });
     setIsSystemPromptOpen(false);
-  }
-
-  function closeSystemPrompt() {
-    setIsSystemPromptOpen(false);
-    setSystemPromptDraft("");
   }
 
   const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
@@ -1019,55 +1013,14 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   </div>
                 ) : null}
 
-                {/* System Prompt Modal */}
-                {isSystemPromptOpen && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div
-                      className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                      onClick={closeSystemPrompt}
-                    />
-                    <div className="relative w-full max-w-[720px] max-h-[80vh] flex flex-col rounded-2xl border border-white/[0.08] bg-[#121214] p-6 shadow-2xl">
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm font-semibold text-[var(--text)]">Edit system prompt</h3>
-                        <button
-                          type="button"
-                          onClick={closeSystemPrompt}
-                          className="text-[var(--muted)] hover:text-[var(--text)] transition-colors"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                        </button>
-                      </div>
-                      <p className="mb-3 text-xs text-[var(--muted)]">
-                        Applied to new conversations only
-                      </p>
-                      <Textarea
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={systemPromptDraft}
-                        onChange={(event) => setSystemPromptDraft(event.target.value)}
-                        rows={16}
-                        className="flex-1 resize-none min-h-[300px]"
-                      />
-                      <div className="flex flex-wrap items-center justify-end gap-2 mt-5 pt-4 border-t border-white/[0.06]">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="px-3 py-1.5 text-xs"
-                          onClick={closeSystemPrompt}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          type="button"
-                          className="px-3 py-1.5 text-xs"
-                          onClick={saveSystemPrompt}
-                        >
-                          Save
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                <TextEditModal
+                  open={isSystemPromptOpen}
+                  onOpenChange={setIsSystemPromptOpen}
+                  value={activeProviderProfile?.systemPrompt ?? ""}
+                  onChange={saveSystemPrompt}
+                  title="Edit system prompt"
+                  subtitle="Applied to new conversations only"
+                />
               </div>
             ) : null}
           </form>

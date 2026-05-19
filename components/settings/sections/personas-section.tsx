@@ -5,7 +5,7 @@ import { Plus, FileText } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { TextEditModal } from "@/components/ui/text-edit-modal";
 import type { Persona } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -20,7 +20,6 @@ export function PersonasSection() {
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [isPersonaContentOpen, setIsPersonaContentOpen] = useState(false);
-  const [personaContentDraft, setPersonaContentDraft] = useState("");
 
   useEffect(() => {
     fetch("/api/personas")
@@ -94,23 +93,15 @@ export function PersonasSection() {
     setSelectedPersonaId(null);
     setIsAddingNew(false);
     setMobileDetailVisible(false);
-    setIsPersonaContentOpen(false);
-    setPersonaContentDraft("");
   }
 
   function openPersonaContent() {
-    setPersonaContentDraft(personaContent);
     setIsPersonaContentOpen(true);
   }
 
-  function savePersonaContent() {
-    setPersonaContent(personaContentDraft);
+  function savePersonaContent(value: string) {
+    setPersonaContent(value);
     setIsPersonaContentOpen(false);
-  }
-
-  function closePersonaContent() {
-    setIsPersonaContentOpen(false);
-    setPersonaContentDraft("");
   }
 
   const selectedPersona = personas.find((p) => p.id === selectedPersonaId);
@@ -231,55 +222,14 @@ export function PersonasSection() {
                   </div>
                 </div>
 
-                {/* Persona Content Modal */}
-                {isPersonaContentOpen && (
-                  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                    <div
-                      className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                      onClick={closePersonaContent}
-                    />
-                    <div className="relative w-full max-w-[720px] max-h-[80vh] flex flex-col rounded-2xl border border-white/[0.08] bg-[#121214] p-6 shadow-2xl">
-                      <div className="flex items-center justify-between mb-4">
-                        <h3 className="text-sm font-semibold text-[var(--text)]">Edit system instructions</h3>
-                        <button
-                          type="button"
-                          onClick={closePersonaContent}
-                          className="text-[var(--muted)] hover:text-[var(--text)] transition-colors"
-                        >
-                          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                        </button>
-                      </div>
-                      <p className="mb-3 text-xs text-[var(--muted)]">
-                        Markdown is supported
-                      </p>
-                      <Textarea
-                        autoComplete="off"
-                        spellCheck={false}
-                        value={personaContentDraft}
-                        onChange={(event) => setPersonaContentDraft(event.target.value)}
-                        rows={16}
-                        className="flex-1 resize-none min-h-[300px]"
-                      />
-                      <div className="flex flex-wrap items-center justify-end gap-2 mt-5 pt-4 border-t border-white/[0.06]">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          className="px-3 py-1.5 text-xs"
-                          onClick={closePersonaContent}
-                        >
-                          Cancel
-                        </Button>
-                        <Button
-                          type="button"
-                          className="px-3 py-1.5 text-xs"
-                          onClick={savePersonaContent}
-                        >
-                          Save
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                <TextEditModal
+                  open={isPersonaContentOpen}
+                  onOpenChange={setIsPersonaContentOpen}
+                  value={personaContent}
+                  onChange={savePersonaContent}
+                  title="Edit system instructions"
+                  subtitle="Markdown is supported"
+                />
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-24 text-center">

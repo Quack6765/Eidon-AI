@@ -5,7 +5,7 @@ import { Check, Plus, FileText, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import type { Skill } from "@/lib/types";
 
@@ -24,6 +24,7 @@ export function SkillsSection() {
   const [skillError, setSkillError] = useState("");
   const [skillSuccess, setSkillSuccess] = useState("");
   const [skillEnabledDraft, setSkillEnabledDraft] = useState(true);
+  const [isInstructionsOpen, setIsInstructionsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -121,6 +122,11 @@ export function SkillsSection() {
     setSkillSuccess("Skill saved.");
     setIsAddingNew(false);
     setMobileDetailVisible(true);
+  }
+
+  function saveInstructions(value: string) {
+    setSkillContent(value);
+    setIsInstructionsOpen(false);
   }
 
   async function deleteSkill(id: string) {
@@ -320,15 +326,25 @@ export function SkillsSection() {
                     />
                   </div>
                   <div>
-                    <label className={fieldLabel}>Instructions</label>
-                    <Textarea
-                      value={skillContent}
-                      onChange={(e) => setSkillContent(e.target.value)}
-                      placeholder="Enter the full skill instructions..."
-                      rows={8}
-                      readOnly={isBuiltin}
-                      className={isBuiltin ? `opacity-60 cursor-default ${inputLike}` : inputLike}
-                    />
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className={fieldLabel}>Instructions</label>
+                      <button
+                        type="button"
+                        onClick={() => setIsInstructionsOpen(true)}
+                        disabled={isBuiltin}
+                        className="text-xs text-[var(--accent)] hover:underline disabled:opacity-40 disabled:cursor-not-allowed disabled:no-underline"
+                      >
+                        Edit
+                      </button>
+                    </div>
+                    <div
+                      onClick={() => { if (!isBuiltin) setIsInstructionsOpen(true); }}
+                      className={`rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 transition-colors ${
+                        isBuiltin ? "opacity-60 cursor-default" : "cursor-pointer hover:bg-white/[0.06]"
+                      }`}
+                    >
+                      {skillContent || "No instructions set"}
+                    </div>
                   </div>
                 </div>
 
@@ -354,6 +370,16 @@ export function SkillsSection() {
                     {isBuiltin ? "Close" : "Cancel"}
                   </Button>
                 </div>
+                <TextEditModal
+                  open={isInstructionsOpen}
+                  onOpenChange={setIsInstructionsOpen}
+                  value={skillContent}
+                  onChange={saveInstructions}
+                  title="Edit instructions"
+                  subtitle="Skill instructions are applied when the skill is activated"
+                  placeholder="Enter the full skill instructions..."
+                  readOnly={isBuiltin}
+                />
                 {skillSuccess ? (
                   <div className="flex items-center gap-1.5 text-sm text-emerald-400">
                     <Check className="h-3.5 w-3.5" />
