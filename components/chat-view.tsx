@@ -821,7 +821,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     });
   }
 
-  function performAnchorScroll(messageEl: Element) {
+  function performAnchorScroll(messageEl: Element, behavior: ScrollBehavior = "auto") {
     if (!queueRef.current) return;
     const containerRect = queueRef.current.getBoundingClientRect();
     const messageRect = messageEl.getBoundingClientRect();
@@ -830,7 +830,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     suppressNextScrollEventRef.current = true;
     if (queueRef.current.scrollTo) {
-      queueRef.current.scrollTo({ top: scrollTarget, behavior: "smooth" });
+      queueRef.current.scrollTo({ top: scrollTarget, behavior });
     } else {
       queueRef.current.scrollTop = scrollTarget;
     }
