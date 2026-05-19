@@ -333,10 +333,10 @@ export function ChatComposer({
                 initial={{ scale: 0.9, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
-                className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 p-1.5 pr-2.5 text-sm text-white/80 backdrop-blur-md"
+                className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 p-1.5 pr-2.5 text-sm text-white/80 backdrop-blur-md min-h-[48px]"
               >
                 {attachment.kind === "image" ? (
-                  <div className="relative h-9 w-9 overflow-hidden rounded-xl border border-white/10">
+                  <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/10">
                     {/* eslint-disable-next-line @next/next/no-img-element -- Pending attachment thumbnails are API-served user files that next/image cannot safely optimize. */}
                     <img
                       src={`/api/attachments/${attachment.id}`}
