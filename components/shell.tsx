@@ -55,6 +55,7 @@ export function Shell({
   const consumedHomeSubmitAutoHideConversationIdRef = useRef<string | null>(null);
   const hasAppliedDesktopDefaultRef = useRef(false);
   const prevIsSettingsPageRef = useRef(false);
+  const prevIsAutomationsPageRef = useRef(false);
 
   const pathname = usePathname();
   const router = useRouter();
@@ -237,6 +238,15 @@ export function Shell({
       return;
     }
 
+    if (isAutomationsPage) {
+      if (pathname === "/automations") {
+        hasAppliedDesktopDefaultRef.current = true;
+        sessionStorage.removeItem("eidon:sidebar:user-closed");
+        setIsSidebarOpen(true);
+      }
+      return;
+    }
+
     if (shouldAutoHideActiveConversation) {
       hasAppliedDesktopDefaultRef.current = true;
       sessionStorage.removeItem("eidon:sidebar:user-closed");
@@ -263,8 +273,13 @@ export function Shell({
       sessionStorage.removeItem("eidon:sidebar:user-closed");
       setIsSidebarOpen(true);
     }
+    if (isAutomationsPage && pathname === "/automations" && !prevIsAutomationsPageRef.current && typeof window !== "undefined" && window.innerWidth < 768) {
+      sessionStorage.removeItem("eidon:sidebar:user-closed");
+      setIsSidebarOpen(true);
+    }
     prevIsSettingsPageRef.current = isSettingsPage;
-  }, [isSettingsPage, pathname]);
+    prevIsAutomationsPageRef.current = isAutomationsPage;
+  }, [isSettingsPage, isAutomationsPage, pathname]);
 
   return (
     <div className="flex h-[100dvh] w-full bg-[var(--background)] overflow-hidden">

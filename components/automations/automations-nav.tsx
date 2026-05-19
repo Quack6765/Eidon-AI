@@ -30,12 +30,6 @@ export function AutomationsNav({
 
   function handleBack() {
     onCloseAction();
-
-    if (typeof window !== "undefined" && window.history.length > 1) {
-      router.back();
-      return;
-    }
-
     router.push("/");
   }
 
@@ -47,7 +41,7 @@ export function AutomationsNav({
             type="button"
             onClick={handleBack}
             className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/5 transition-all duration-300 hover:bg-white/10"
-            aria-label="Open automation settings"
+            aria-label="Back to conversations"
           >
             <ArrowLeft className="h-4 w-4 text-white/60" />
           </button>
