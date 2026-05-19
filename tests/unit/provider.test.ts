@@ -331,6 +331,63 @@ describe("provider integration", () => {
     ]);
   });
 
+  it("streams responses without tools and recovers text from output_item.done message", async () => {
+    responsesCreate.mockResolvedValue(
+      createAsyncStream([
+        { type: "response.function_call_arguments.delta" },
+        {
+          type: "response.output_item.done",
+          item: {
+            type: "function_call",
+            name: "get_weather",
+            arguments: "{\"city\":\"SF\"}",
+            call_id: "fc_1"
+          }
+        },
+        {
+          type: "response.output_item.done",
+          item: {
+            type: "message",
+            content: [{ text: "It is sunny in SF" }]
+          }
+        },
+        {
+          type: "response.completed",
+          response: {
+            usage: { input_tokens: 5, output_tokens: 3 }
+          }
+        }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        model: "gpt-5-mini",
+        apiMode: "responses"
+      }),
+      promptMessages: [{ role: "user", content: "Weather?" }]
+    });
+
+    const events: ChatStreamEvent[] = [];
+
+    while (true) {
+      const next = await stream.next();
+
+      if (next.done) {
+        expect(next.value.answer).toBe("It is sunny in SF");
+        expect(next.value.toolCalls).toEqual([
+          { id: "fc_1", name: "get_weather", arguments: "{\"city\":\"SF\"}" }
+        ]);
+        break;
+      }
+
+      events.push(next.value);
+    }
+
+    expect(events).toContainEqual({ type: "answer_delta", text: "It is sunny in SF" });
+  });
+
   it("uses output_item reasoning summaries when no direct reasoning delta arrives", async () => {
     responsesCreate.mockResolvedValue(
       createAsyncStream([

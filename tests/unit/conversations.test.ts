@@ -403,6 +403,44 @@ describe("conversation helpers", () => {
     expect(after?.updatedAt).toBe(before?.updatedAt);
   });
 
+  it("fails title generation when provider profile has no API key", async () => {
+    updateSettings({
+      defaultProviderProfileId: "profile_no_key",
+      providerProfiles: [
+        {
+          id: "profile_no_key",
+          name: "No Key",
+          apiBaseUrl: "https://api.example.com/v1",
+          apiKey: "",
+          apiKeyEncrypted: "",
+          model: "gpt-5-mini",
+          apiMode: "responses",
+          systemPrompt: "Be exact.",
+          temperature: 0.2,
+          maxOutputTokens: 512,
+          reasoningEffort: "medium",
+          reasoningSummaryEnabled: true,
+          modelContextLimit: 16000,
+          compactionThreshold: 0.8,
+          freshTailCount: 12
+        }
+      ]
+    });
+
+    const conversation = createConversation();
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Hello"
+    });
+
+    await generateConversationTitleFromFirstUserMessage(conversation.id, message.id);
+
+    const after = getConversation(conversation.id);
+    expect(after?.titleGenerationStatus).toBe("failed");
+    expect(generateConversationTitle).not.toHaveBeenCalled();
+  });
+
   it("can complete or fail title generation without bumping the conversation timestamp", () => {
     const conversation = createConversation();
     const before = getConversation(conversation.id);

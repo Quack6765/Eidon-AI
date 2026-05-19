@@ -3,7 +3,7 @@ import OpenAI from "openai";
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { ensureFreshGithubAccessToken, runGithubCopilotChat, streamGithubCopilotChat } from "@/lib/github-copilot";
 import { buildCopilotTools, type CopilotToolContext } from "@/lib/copilot-tools";
-import { supportsVisibleReasoning } from "@/lib/model-capabilities";
+import { resolveCapabilities, supportsVisibleReasoning } from "@/lib/model-capabilities";
 import { estimatePromptTokens, setActiveTokenizer } from "@/lib/tokenization";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import type {
@@ -150,19 +150,17 @@ function buildResponsesInput(messages: PromptMessage[]): any[] {
   return input;
 }
 
-function usesDeepSeekThinkingReplay(settings: ProviderProfile) {
+function usesThinkingReplay(settings: ProviderProfile) {
   if (settings.apiMode !== "chat_completions") {
     return false;
   }
 
-  const model = settings.model.trim().toLowerCase();
-  const baseUrl = settings.apiBaseUrl.trim().toLowerCase();
-
-  return model.startsWith("deepseek-") || baseUrl.includes("deepseek.com");
+  const caps = resolveCapabilities(settings.model, settings.apiMode);
+  return caps.thinkingReplay;
 }
 
 function buildChatCompletionMessages(messages: PromptMessage[], settings?: ProviderProfile): any[] {
-  const replayReasoningContent = settings ? usesDeepSeekThinkingReplay(settings) : false;
+  const replayReasoningContent = settings ? usesThinkingReplay(settings) : false;
 
   return messages.map((message) => {
     if (message.role === "tool") {
@@ -243,6 +241,7 @@ function buildChatCompletionsOptions(settings: ProviderProfile) {
     return {};
   }
 
+  const caps = resolveCapabilities(settings.model, settings.apiMode);
   const effort = normalizeReasoningEffort(settings.reasoningEffort);
 
   if (settings.apiBaseUrl.includes("ollama.com")) {
@@ -258,13 +257,21 @@ function buildChatCompletionsOptions(settings: ProviderProfile) {
     } as const;
   }
 
-  return {
-    extra_body: {
-      thinking: {
-        type: settings.reasoningSummaryEnabled ? "enabled" : "disabled"
+  if (caps.strictExtraRejection) {
+    return {};
+  }
+
+  if (caps.extraBody === "thinking") {
+    return {
+      extra_body: {
+        thinking: {
+          type: settings.reasoningSummaryEnabled ? "enabled" : "disabled"
+        }
       }
-    }
-  } as const;
+    } as const;
+  }
+
+  return {};
 }
 
 function getResponseText(output: unknown) {

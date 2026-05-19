@@ -355,4 +355,17 @@ describe("conversations extended", () => {
     expect(page.conversations[0]?.updatedAt).toBe("2026-04-01T00:00:00.000Z");
     expect(page.conversations[1]?.updatedAt).toBe("2026-03-31T12:00:00.000Z");
   });
+
+  it("deduplicates conversations when search matches multiple messages", async () => {
+    const user = await createLocalUser({ username: "dedup@test.com", password: "Password123!", role: "user" });
+    const conv = createConversation("Unique Dedup Title", null, undefined, user.id);
+
+    createMessage({ conversationId: conv.id, role: "user", content: "alpha bravo charlie", userId: user.id });
+    createMessage({ conversationId: conv.id, role: "assistant", content: "alpha bravo delta", userId: user.id });
+
+    const results = searchConversations("alpha bravo", user.id);
+
+    const matching = results.filter((r) => r.id === conv.id);
+    expect(matching).toHaveLength(1);
+  });
 });
