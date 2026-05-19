@@ -1,81 +1,70 @@
 import type { ApiMode, VisionMode } from "@/lib/types";
+import { MODEL_REGISTRY, type ModelCapabilityOverride } from "@/lib/model-registry";
 
-function normalizeModel(model: string) {
-  return model.trim().toLowerCase();
+type CapabilityFlag = boolean | { apiModes: ApiMode[] };
+
+type ResolvedCapabilities = {
+  reasoning: boolean;
+  vision: boolean;
+  thinkingReplay: boolean;
+  extraBody: "none" | "thinking" | "reasoning_effort";
+  strictExtraRejection: boolean;
+};
+
+const DEFAULT_CAPABILITIES: ResolvedCapabilities = {
+  reasoning: false,
+  vision: false,
+  thinkingReplay: false,
+  extraBody: "none",
+  strictExtraRejection: false,
+};
+
+function resolveCapabilityFlag(flag: CapabilityFlag, apiMode: ApiMode): boolean {
+  if (typeof flag === "boolean") return flag;
+  return flag.apiModes.includes(apiMode);
 }
 
-export function supportsVisibleReasoning(model: string, apiMode: ApiMode) {
-  const normalized = normalizeModel(model);
+export function resolveCapabilities(
+  model: string,
+  apiMode: ApiMode,
+  userOverrides?: Partial<ResolvedCapabilities>
+): ResolvedCapabilities {
+  const normalized = model.trim().toLowerCase();
 
-  if (!normalized) {
-    return false;
+  const resolved = { ...DEFAULT_CAPABILITIES };
+
+  const entry: Partial<ModelCapabilityOverride> | undefined =
+    MODEL_REGISTRY.find((e) => normalized.startsWith(e.prefix));
+
+  if (entry) {
+    const { prefix: _, ...overrides } = entry;
+    for (const [key, value] of Object.entries(overrides)) {
+      if (value !== undefined) {
+        if (key === "reasoning" || key === "vision") {
+          (resolved as Record<string, unknown>)[key] = resolveCapabilityFlag(
+            value as CapabilityFlag,
+            apiMode
+          );
+        } else {
+          (resolved as Record<string, unknown>)[key] = value;
+        }
+      }
+    }
   }
 
-  if (normalized.startsWith("glm-5") || normalized.startsWith("glm-4.7")) {
-    return true;
+  if (userOverrides) {
+    Object.assign(resolved, userOverrides);
   }
 
-  if (normalized.startsWith("kimi-k2")) {
-    return true;
-  }
-
-  if (apiMode === "chat_completions" && normalized.startsWith("deepseek-")) {
-    return true;
-  }
-
-  if (apiMode !== "responses") {
-    return false;
-  }
-
-  if (
-    normalized.startsWith("gpt-5") ||
-    normalized.startsWith("o1") ||
-    normalized.startsWith("o3") ||
-    normalized.startsWith("o4") ||
-    normalized.startsWith("gpt-oss")
-  ) {
-    return true;
-  }
-
-  if (
-    normalized.startsWith("gpt-4.1") ||
-    normalized.startsWith("gpt-4o") ||
-    normalized.startsWith("gpt-3.5")
-  ) {
-    return false;
-  }
-
-  return false;
+  return resolved;
 }
 
-export function supportsImageInput(model: string, apiMode: ApiMode) {
-  const normalized = normalizeModel(model);
+export function supportsVisibleReasoning(model: string, apiMode: ApiMode): boolean {
+  return resolveCapabilities(model, apiMode).reasoning;
+}
 
-  if (!normalized) {
-    return false;
-  }
-
-  if (
-    normalized.startsWith("gpt-5") ||
-    normalized.startsWith("gpt-4o") ||
-    normalized.startsWith("gpt-4.1") ||
-    normalized.startsWith("o1") ||
-    normalized.startsWith("o3") ||
-    normalized.startsWith("o4") ||
-    normalized.startsWith("claude-3") ||
-    normalized.startsWith("claude-4") ||
-    normalized.startsWith("gemini") ||
-    normalized.startsWith("glm-4") ||
-    normalized.startsWith("glm-5")
-  ) {
-    return true;
-  }
-
-  if (apiMode === "responses" && normalized.startsWith("gpt-oss")) {
-    return true;
-  }
-
-  return false;
+export function supportsImageInput(model: string, apiMode: ApiMode): boolean {
+  return resolveCapabilities(model, apiMode).vision;
 }
 
 export function getDefaultVisionMode(model: string, apiMode: ApiMode): VisionMode {
