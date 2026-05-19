@@ -965,7 +965,7 @@ export function MessageBubble({
       <>
         <div data-message-id={message.id} className="flex w-full justify-end">
           <div className="group flex w-full flex-col items-end md:max-w-[95%]">
-            <div className="w-full rounded-2xl border border-[var(--accent)]/10 bg-[var(--accent-soft)] px-4 py-3 text-[var(--text)]">
+            <div className={`${!readOnly && isEditing ? "w-full" : "w-fit max-w-full"} rounded-2xl border border-[var(--accent)]/10 bg-[var(--accent-soft)] px-4 py-3 text-[var(--text)]`}>
               {!readOnly && isEditing ? (
                 <Textarea
                   ref={editRef}
