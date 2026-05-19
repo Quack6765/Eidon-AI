@@ -1,23 +1,23 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Shield, Check } from "lucide-react";
+import { Shield } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Toast } from "@/components/ui/toast";
 import type { AuthUser } from "@/lib/types";
+import { useToastState } from "@/hooks/use-toast-state";
 
 export function AccountSection({ user }: { user: AuthUser }) {
   const router = useRouter();
-  const [error, setError] = useState("");
-  const [accountSuccess, setAccountSuccess] = useState("");
+  const toast = useToastState();
   const isEnvManaged = user.passwordManagedBy === "env";
 
   async function handleAccount(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError("");
-    setAccountSuccess("");
+    toast.dismissToast();
     const formData = new FormData(event.currentTarget);
     const response = await fetch("/api/auth/account", {
       method: "PUT",
@@ -29,10 +29,10 @@ export function AccountSection({ user }: { user: AuthUser }) {
     });
     const result = (await response.json()) as { error?: string };
     if (!response.ok) {
-      setError(result.error ?? "Unable to update account");
+      toast.showToast("error", result.error ?? "Unable to update account");
       return;
     }
-    setAccountSuccess("Account updated. Sign in again if you changed the password.");
+    toast.showToast("success", "Account updated. Sign in again if you changed the password.");
     router.refresh();
   }
 
@@ -93,21 +93,15 @@ export function AccountSection({ user }: { user: AuthUser }) {
                 Save
               </Button>
             </div>
-            {accountSuccess ? (
-              <div className="flex items-center gap-1.5 text-sm text-emerald-400">
-                <Check className="h-3.5 w-3.5" />
-                {accountSuccess}
-              </div>
-            ) : null}
           </form>
         )}
       </div>
 
-      {error ? (
-        <div className="rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300">
-          {error}
-        </div>
-      ) : null}
+      <Toast
+        visible={toast.visible}
+        variant={toast.variant}
+        message={toast.message}
+      />
     </div>
   );
 }

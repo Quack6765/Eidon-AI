@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Plus, FileText, Upload } from "lucide-react";
+import { Plus, FileText, Upload } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
+import { Toast } from "@/components/ui/toast";
+import { useToastState } from "@/hooks/use-toast-state";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import type { Skill } from "@/lib/types";
 
@@ -21,8 +23,7 @@ export function SkillsSection() {
   const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
-  const [skillError, setSkillError] = useState("");
-  const [skillSuccess, setSkillSuccess] = useState("");
+  const toast = useToastState();
   const [skillEnabledDraft, setSkillEnabledDraft] = useState(true);
   const [isInstructionsOpen, setIsInstructionsOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -38,8 +39,7 @@ export function SkillsSection() {
 
   async function saveSkill() {
     if (!skillName.trim() || !skillDescription.trim() || !skillContent.trim()) return;
-    setSkillError("");
-    setSkillSuccess("");
+    toast.dismissToast();
 
     let savedId = editingSkillId;
     const isBuiltin = editingSkillId?.startsWith("builtin-") ?? false;
@@ -65,7 +65,7 @@ export function SkillsSection() {
         body: JSON.stringify(payload)
       });
       if (!updateRes.ok) {
-        setSkillError("Failed to save skill.");
+        toast.showToast("error", "Failed to save skill.");
         return;
       }
     } else {
@@ -79,7 +79,7 @@ export function SkillsSection() {
         })
       });
       if (!createRes.ok) {
-        setSkillError("Failed to save skill.");
+        toast.showToast("error", "Failed to save skill.");
         return;
       }
       const createdData = (await createRes.json().catch(() => null)) as { skill?: Skill } | null;
@@ -119,7 +119,7 @@ export function SkillsSection() {
       }
     }
 
-    setSkillSuccess("Skill saved.");
+    toast.showToast("success", "Skill saved.");
     setIsAddingNew(false);
     setMobileDetailVisible(true);
   }
@@ -132,7 +132,7 @@ export function SkillsSection() {
   async function deleteSkill(id: string) {
     await fetch(`/api/skills/${id}`, { method: "DELETE" });
     setSkills((prev) => prev.filter((s) => s.id !== id));
-    setSkillSuccess("");
+    toast.dismissToast();
     if (selectedSkillId === id) {
       setSelectedSkillId(null);
       setMobileDetailVisible(false);
@@ -145,7 +145,7 @@ export function SkillsSection() {
     setSkillDescription(skill.description);
     setSkillContent(skill.content);
     setSkillEnabledDraft(skill.enabled);
-    setSkillSuccess("");
+    toast.dismissToast();
     setSelectedSkillId(skill.id);
     setIsAddingNew(false);
     setMobileDetailVisible(true);
@@ -157,7 +157,7 @@ export function SkillsSection() {
     setSkillDescription("");
     setSkillContent("");
     setSkillEnabledDraft(true);
-    setSkillSuccess("");
+    toast.dismissToast();
     setSelectedSkillId(null);
     setIsAddingNew(true);
     setMobileDetailVisible(true);
@@ -192,7 +192,7 @@ export function SkillsSection() {
     setSelectedSkillId(null);
     setIsAddingNew(false);
     setMobileDetailVisible(false);
-    setSkillSuccess("");
+    toast.dismissToast();
   }
 
   const selectedSkill = skills.find((s) => s.id === selectedSkillId);
@@ -380,17 +380,11 @@ export function SkillsSection() {
                   placeholder="Enter the full skill instructions..."
                   readOnly={isBuiltin}
                 />
-                {skillSuccess ? (
-                  <div className="flex items-center gap-1.5 text-sm text-emerald-400">
-                    <Check className="h-3.5 w-3.5" />
-                    {skillSuccess}
-                  </div>
-                ) : null}
-                {skillError ? (
-                  <div className="text-sm text-red-400">
-                    {skillError}
-                  </div>
-                ) : null}
+                <Toast
+                  visible={toast.visible}
+                  variant={toast.variant}
+                  message={toast.message}
+                />
               </>
             ) : (
               <div className="flex flex-col items-center justify-center py-24 text-center">
