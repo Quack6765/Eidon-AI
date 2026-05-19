@@ -324,12 +324,12 @@ export function HomeView({
         </div>
       ) : null}
       <div className="w-full md:max-w-[980px] px-4 animate-slide-up">
-        <div className="mb-10 text-center">
+        <div className="mb-16 text-center">
           <h2
             className="mb-3 text-3xl font-medium text-[var(--text)] md:text-4xl"
-            style={{ fontFamily: "var(--font-display)" }}
+            style={{ fontFamily: "var(--font-wordmark), 'Eurostile', 'Space Grotesk', sans-serif" }}
           >
-            What&apos;s on your mind?
+            Let&apos;s get to work
           </h2>
         </div>
 
