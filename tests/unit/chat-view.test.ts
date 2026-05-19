@@ -483,7 +483,7 @@ describe("chat view", () => {
 
     const shareButton = screen.getByRole("button", { name: "Share conversation" });
     expect(shareButton.className).not.toContain("fixed");
-    expect(shareButton.className).toContain("md:flex");
+    expect(shareButton.closest("div")?.className).toContain("md:flex");
 
     fireEvent.click(shareButton);
     expect(openShareModal).toHaveBeenCalledTimes(1);

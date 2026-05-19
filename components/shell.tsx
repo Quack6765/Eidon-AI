@@ -406,7 +406,7 @@ export function Shell({
               ) : null}
               <button
                 type="button"
-                className="p-2 -mr-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
+                className="p-2 -mr-2 rounded-lg bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-200 hover:opacity-90 hover:scale-[0.98] active:scale-[0.96]"
                 onClick={async () => {
                   try {
                     await deleteConversationIfStillEmpty(activeConversationId);
