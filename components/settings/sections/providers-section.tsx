@@ -332,7 +332,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     toast.dismissToast();
 
     if (await saveSettings()) {
-      toast.showToast("success", "Settings saved.");
+      toast.showToast("success", "Provider saved.");
     }
   }
 

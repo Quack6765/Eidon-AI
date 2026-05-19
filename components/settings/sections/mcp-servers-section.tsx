@@ -146,7 +146,7 @@ export function McpServersSection() {
       setMobileDetailVisible(true);
     }
 
-    toast.showToast("success", "Server saved.");
+    toast.showToast("success", "MCP saved.");
   }
 
   async function testMcpServer(serverId?: string) {
