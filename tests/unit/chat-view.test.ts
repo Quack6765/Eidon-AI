@@ -2808,7 +2808,7 @@ describe("chat view", () => {
     expect(pill.className).not.toContain("md:bottom-full");
   });
 
-  it("uses fixed bottom padding of 260px", async () => {
+  it("uses dynamic bottom padding based on clientHeight", async () => {
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
     const messageList = queue.firstElementChild as HTMLDivElement;
@@ -2820,7 +2820,7 @@ describe("chat view", () => {
 
     await flushResizeObservers();
 
-    expect(messageList).toHaveStyle({ paddingBottom: "260px" });
+    expect(messageList).toHaveStyle({ paddingBottom: "420px" });
   });
 
   it("follows streaming overflow to the composer-aware bottom target after sending", async () => {
@@ -2879,7 +2879,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
 
     await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 720 }));
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 620 }));
     });
     expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ top: 1080 }));
   });
@@ -2945,7 +2945,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
 
     await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 720 }));
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 620 }));
     });
     expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ top: 1080 }));
   });
@@ -3004,11 +3004,11 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 720 }));
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 620 }));
     });
 
     scrollTo.mockClear();
-    scrollTop = 720;
+    scrollTop = 620;
 
     act(() => {
       wsMock.onMessage!({
@@ -3021,9 +3021,9 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 720 }));
-    expect(scrollTop).toBe(720);
-    expect(messageList).toHaveStyle({ paddingBottom: "260px" });
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 620 }));
+    expect(scrollTop).toBe(620);
+    expect(messageList).toHaveStyle({ paddingBottom: "360px" });
   });
 
   it("anchors to the reconciled server user message when the optimistic local message is removed first", async () => {
@@ -3180,7 +3180,7 @@ describe("chat view", () => {
       await flushAnimationFrame();
 
       expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({
-        behavior: "smooth",
+        behavior: "auto",
         top: 512
       }));
     } finally {
@@ -3396,7 +3396,7 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 720 }));
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 620 }));
     });
 
     scrollTo.mockClear();
@@ -3414,7 +3414,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ top: 720 }));
+    expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ top: 620 }));
   });
 
   it("does not clamp when scroll position matches the bottom target after streaming ends", async () => {
@@ -3472,11 +3472,11 @@ describe("chat view", () => {
     await flushAnimationFrame();
 
     scrollTo.mockClear();
-    scrollTop = 720;
+    scrollTop = 620;
     fireEvent.scroll(queue);
 
     expect(scrollTo).not.toHaveBeenCalled();
-    expect(scrollTop).toBe(720);
+    expect(scrollTop).toBe(620);
   });
 
   it("prevents downward wheel scrolling into padding-only space for short chats", async () => {
