@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Share2 } from "lucide-react";
+import { Plus, Share2 } from "lucide-react";
 
 import {
   AttachmentPreviewModal,
@@ -2336,17 +2336,35 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           <div className="min-w-0">
             <div className="font-medium text-[var(--text)] truncate text-sm">{conversationTitle}</div>
           </div>
-          {canShare ? (
+          <div className="hidden md:flex items-center gap-1">
+            {canShare ? (
+              <button
+                type="button"
+                className="h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/6 bg-white/[0.02] text-white/40 transition-colors duration-150 hover:border-white/10 hover:bg-white/[0.05] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 flex"
+                onClick={openShareModal}
+                aria-label="Share conversation"
+                title="Share conversation"
+              >
+                <Share2 className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
             <button
               type="button"
-              className="-mr-1 hidden h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/6 bg-white/[0.02] text-white/40 transition-colors duration-150 hover:border-white/10 hover:bg-white/[0.05] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 md:flex"
-              onClick={openShareModal}
-              aria-label="Share conversation"
-              title="Share conversation"
+              className="h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-200 hover:opacity-90 hover:scale-[0.98] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 flex"
+              onClick={async () => {
+                try {
+                  await deleteConversationIfStillEmpty(payload.conversation.id);
+                  const res = await fetch("/api/conversations", { method: "POST" });
+                  const data = (await res.json()) as { conversation: Conversation };
+                  router.push(`/chat/${data.conversation.id}`);
+                } catch {}
+              }}
+              aria-label="New chat"
+              title="New chat"
             >
-              <Share2 className="h-3.5 w-3.5" />
+              <Plus className="h-3.5 w-3.5" />
             </button>
-          ) : null}
+          </div>
         </div>
       </div>
 
