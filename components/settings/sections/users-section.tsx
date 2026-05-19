@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, Plus, Trash2, UserRound } from "lucide-react";
+import { Plus, Trash2, UserRound } from "lucide-react";
 
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
@@ -9,6 +9,8 @@ import { Badge } from "@/components/settings/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Toast } from "@/components/ui/toast";
+import { useToastState } from "@/hooks/use-toast-state";
 import type { PersistedUser, UserRole } from "@/lib/types";
 
 function readErrorMessage(payload: unknown, fallback: string) {
@@ -45,8 +47,7 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
   const [draftPassword, setDraftPassword] = useState("");
   const [draftRole, setDraftRole] = useState<UserRole>(users[0]?.role ?? "user");
   const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const toast = useToastState();
 
   const selectedUser = useMemo(
     () => userRows.find((user) => user.id === selectedUserId) ?? null,
@@ -63,8 +64,7 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
     setSelectedUserId(user.id);
     setIsAddingNew(false);
     setMobileDetailVisible(true);
-    setError("");
-    setSuccess("");
+    toast.dismissToast();
     loadDraft(user);
   }
 
@@ -75,8 +75,7 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
     setDraftUsername("");
     setDraftPassword("");
     setDraftRole("user");
-    setError("");
-    setSuccess("");
+    toast.dismissToast();
   }
 
   async function refreshUsers(nextSelectedUserId?: string | null) {
@@ -100,12 +99,12 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
 
   async function saveUser() {
     if (!draftUsername.trim()) {
-      setError("Username is required.");
+      toast.showToast("error", "Username is required.");
       return;
     }
 
     if (isAddingNew && draftPassword.length < 8) {
-      setError("New users must have a password with at least 8 characters.");
+      toast.showToast("error", "New users must have a password with at least 8 characters.");
       return;
     }
 
@@ -114,8 +113,7 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
     }
 
     setIsSaving(true);
-    setError("");
-    setSuccess("");
+    toast.dismissToast();
 
     try {
       const response = await fetch(
@@ -133,15 +131,15 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
       const payload = (await response.json()) as { user?: PersistedUser; error?: string };
 
       if (!response.ok) {
-        setError(readErrorMessage(payload, "Unable to save user"));
+        toast.showToast("error", readErrorMessage(payload, "Unable to save user"));
         return;
       }
 
       await refreshUsers(payload.user?.id ?? selectedUserId);
-      setSuccess(isAddingNew ? "User created." : "User updated.");
+      toast.showToast("success", isAddingNew ? "User created." : "User updated.");
       setMobileDetailVisible(true);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to save user");
+      toast.showToast("error", caughtError instanceof Error ? caughtError.message : "Unable to save user");
     } finally {
       setIsSaving(false);
     }
@@ -157,8 +155,7 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
     }
 
     setIsSaving(true);
-    setError("");
-    setSuccess("");
+    toast.dismissToast();
 
     try {
       const response = await fetch(`/api/users/${selectedUser.id}`, {
@@ -167,15 +164,15 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
       const payload = (await response.json()) as { error?: string };
 
       if (!response.ok) {
-        setError(readErrorMessage(payload, "Unable to delete user"));
+        toast.showToast("error", readErrorMessage(payload, "Unable to delete user"));
         return;
       }
 
       await refreshUsers(null);
-      setSuccess("User deleted.");
+      toast.showToast("success", "User deleted.");
       setMobileDetailVisible(false);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : "Unable to delete user");
+      toast.showToast("error", caughtError instanceof Error ? caughtError.message : "Unable to delete user");
     } finally {
       setIsSaving(false);
     }
@@ -370,18 +367,11 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
 
               <div className={sectionDivider} />
 
-              {success ? (
-                <div className="flex items-center gap-1.5 text-sm text-emerald-400">
-                  {success}
-                </div>
-              ) : null}
-
-              {error ? (
-                <div className="flex items-center gap-2 text-sm text-red-200">
-                  <AlertTriangle className="h-4 w-4" />
-                  <span>{error}</span>
-                </div>
-              ) : null}
+              <Toast
+                visible={toast.visible}
+                variant={toast.variant}
+                message={toast.message}
+              />
             </div>
           ) : (
             emptyState

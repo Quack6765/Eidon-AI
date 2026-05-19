@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Toast } from "@/components/ui/toast";
+import { useToastState } from "@/hooks/use-toast-state";
 
 type TextEditModalProps = {
   open: boolean;
@@ -30,7 +30,7 @@ export function TextEditModal({
 }: TextEditModalProps) {
   const titleId = useId();
   const [draft, setDraft] = useState(value);
-  const [toastVisible, setToastVisible] = useState(false);
+  const toast = useToastState();
 
   useEffect(() => {
     if (open) {
@@ -39,12 +39,6 @@ export function TextEditModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  useEffect(() => {
-    if (!toastVisible) return;
-    const timer = setTimeout(() => setToastVisible(false), 2000);
-    return () => clearTimeout(timer);
-  }, [toastVisible]);
-
   function handleClose() {
     onOpenChange(false);
   }
@@ -52,7 +46,7 @@ export function TextEditModal({
   function handleSave() {
     onChange(draft);
     onOpenChange(false);
-    setToastVisible(true);
+    toast.showToast("success", "Saved successfully !");
   }
 
   return (
@@ -108,20 +102,11 @@ export function TextEditModal({
           </div>
         </div>
       )}
-      <AnimatePresence>
-        {toastVisible && (
-          <motion.div
-            key="save-toast"
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0, transition: { duration: 0.25, ease: [0.22, 1, 0.36, 1] } }}
-            exit={{ opacity: 0, transition: { duration: 0.8, ease: "easeOut" } }}
-            className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex items-center gap-2 rounded-lg border border-emerald-400/20 bg-emerald-900 px-4 py-2.5 text-sm text-emerald-200 shadow-[0_4px_24px_rgba(0,0,0,0.5)]"
-          >
-            <Check className="h-3.5 w-3.5" />
-            Saved successfully !
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <Toast
+        visible={toast.visible}
+        variant={toast.variant}
+        message={toast.message}
+      />
     </>
   );
 }

@@ -6,6 +6,8 @@ import { Plus, FileText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
+import { Toast } from "@/components/ui/toast";
+import { useToastState } from "@/hooks/use-toast-state";
 import type { Persona } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -20,6 +22,7 @@ export function PersonasSection() {
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [isPersonaContentOpen, setIsPersonaContentOpen] = useState(false);
+  const toast = useToastState();
 
   useEffect(() => {
     fetch("/api/personas")
@@ -31,40 +34,67 @@ export function PersonasSection() {
   }, []);
 
   async function savePersona() {
-    if (!personaName.trim() || !personaContent.trim()) return;
-
-    if (editingPersonaId) {
-      await fetch(`/api/personas/${editingPersonaId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: personaName,
-          content: personaContent
-        })
-      });
-    } else {
-      await fetch("/api/personas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: personaName,
-          content: personaContent
-        })
-      });
+    if (!personaName.trim() || !personaContent.trim()) {
+      toast.showToast("error", "Name and system instructions are required.");
+      return;
     }
 
-    const res = await fetch("/api/personas");
-    const data = (await res.json()) as { personas: Persona[] };
-    setPersonas(data.personas);
-    resetPersonaForm();
+    try {
+      if (editingPersonaId) {
+        const res = await fetch(`/api/personas/${editingPersonaId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: personaName,
+            content: personaContent
+          })
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          toast.showToast("error", (data as { error?: string })?.error ?? "Failed to save persona");
+          return;
+        }
+      } else {
+        const res = await fetch("/api/personas", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: personaName,
+            content: personaContent
+          })
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => null);
+          toast.showToast("error", (data as { error?: string })?.error ?? "Failed to create persona");
+          return;
+        }
+      }
+
+      const res = await fetch("/api/personas");
+      const data = (await res.json()) as { personas: Persona[] };
+      setPersonas(data.personas);
+      resetPersonaForm();
+      toast.showToast("success", "Persona saved.");
+    } catch {
+      toast.showToast("error", "Failed to save persona.");
+    }
   }
 
   async function deletePersona(id: string) {
-    await fetch(`/api/personas/${id}`, { method: "DELETE" });
-    setPersonas((prev) => prev.filter((p) => p.id !== id));
-    if (selectedPersonaId === id) {
-      setSelectedPersonaId(null);
-      setMobileDetailVisible(false);
+    try {
+      const res = await fetch(`/api/personas/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        toast.showToast("error", "Failed to delete persona.");
+        return;
+      }
+      setPersonas((prev) => prev.filter((p) => p.id !== id));
+      if (selectedPersonaId === id) {
+        setSelectedPersonaId(null);
+        setMobileDetailVisible(false);
+      }
+      toast.showToast("success", "Persona deleted.");
+    } catch {
+      toast.showToast("error", "Failed to delete persona.");
     }
   }
 
@@ -243,6 +273,11 @@ export function PersonasSection() {
             )}
           </div>
         }
+      />
+      <Toast
+        visible={toast.visible}
+        variant={toast.variant}
+        message={toast.message}
       />
     </div>
   );

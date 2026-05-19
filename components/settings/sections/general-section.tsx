@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { Toast } from "@/components/ui/toast";
+import { useToastState } from "@/hooks/use-toast-state";
 import type { AppSettings, ConversationRetention, ImageGenerationBackend } from "@/lib/types";
 
 type GeneralSectionSettings = AppSettings & {
@@ -34,8 +36,7 @@ export function GeneralSection({
   const [hasEditedExaApiKey, setHasEditedExaApiKey] = useState(false);
   const [hasEditedTavilyApiKey, setHasEditedTavilyApiKey] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [success, setSuccess] = useState("");
-  const [error, setError] = useState("");
+  const toast = useToastState();
   const hasStoredExaApiKey = settings.hasExaApiKey ?? Boolean(settings.exaApiKey);
   const hasStoredTavilyApiKey = settings.hasTavilyApiKey ?? Boolean(settings.tavilyApiKey);
 
@@ -67,8 +68,7 @@ export function GeneralSection({
         ];
 
   function resetMessages() {
-    setError("");
-    setSuccess("");
+    toast.dismissToast();
   }
 
   function handleSpeechEngineChange(nextEngine: AppSettings["sttEngine"]) {
@@ -108,7 +108,7 @@ export function GeneralSection({
 
     const validationError = getSearchValidationError();
     if (validationError) {
-      setError(validationError);
+      toast.showToast("error", validationError);
       return;
     }
 
@@ -174,7 +174,7 @@ export function GeneralSection({
       const generalResult = (await generalResponse.json()) as { error?: string };
 
       if (!generalResponse.ok) {
-        setError(generalResult.error ?? "Unable to save settings");
+        toast.showToast("error", generalResult.error ?? "Unable to save settings");
         return;
       }
 
@@ -182,12 +182,12 @@ export function GeneralSection({
         const imageResult = (await imageResponse.json()) as { error?: string };
 
         if (!imageResponse.ok) {
-          setError(imageResult.error ?? "Unable to save image generation settings");
+          toast.showToast("error", imageResult.error ?? "Unable to save image generation settings");
           return;
         }
       }
 
-      setSuccess("Settings saved.");
+      toast.showToast("success", "Settings saved.");
       router.refresh();
     } finally {
       setIsSaving(false);
@@ -489,13 +489,11 @@ export function GeneralSection({
           Save
         </Button>
       </div>
-      {success ? <span className="text-sm text-emerald-400">{success}</span> : null}
-
-      {error ? (
-        <div className="rounded-xl border border-red-400/10 bg-red-500/8 px-4 py-3 text-sm text-red-300">
-          {error}
-        </div>
-      ) : null}
+      <Toast
+        visible={toast.visible}
+        variant={toast.variant}
+        message={toast.message}
+      />
     </div>
   );
 }

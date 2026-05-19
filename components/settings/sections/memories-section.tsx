@@ -6,6 +6,8 @@ import { Brain, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Toast } from "@/components/ui/toast";
+import { useToastState } from "@/hooks/use-toast-state";
 import type { AppSettings, MemoryCategory, UserMemory } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -45,6 +47,7 @@ export function MemoriesSection() {
   const [editContent, setEditContent] = useState("");
   const [editCategory, setEditCategory] = useState<MemoryCategory>("other");
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
+  const toast = useToastState();
 
   const fetchMemories = useCallback(async (params?: string) => {
     const url = params ? `/api/memories?${params}` : "/api/memories";
@@ -72,41 +75,68 @@ export function MemoriesSection() {
   }, [filterCategory, searchQuery, fetchMemories]);
 
   async function saveSettings(patch: Partial<AppSettings>) {
-    const res = await fetch("/api/settings/general", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...settings, ...patch })
-    });
-    const data = (await res.json()) as { settings: AppSettings };
-    setSettings(data.settings);
+    try {
+      const res = await fetch("/api/settings/general", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...settings, ...patch })
+      });
+      if (!res.ok) {
+        toast.showToast("error", "Failed to save settings.");
+        return;
+      }
+      const data = (await res.json()) as { settings: AppSettings };
+      setSettings(data.settings);
+      toast.showToast("success", "Settings saved.");
+    } catch {
+      toast.showToast("error", "Failed to save settings.");
+    }
   }
 
   async function saveMemory() {
     if (!selectedMemoryId || !editContent.trim()) return;
 
-    await fetch(`/api/memories/${selectedMemoryId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        content: editContent.trim(),
-        category: editCategory
-      })
-    });
+    try {
+      const res = await fetch(`/api/memories/${selectedMemoryId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: editContent.trim(),
+          category: editCategory
+        })
+      });
+      if (!res.ok) {
+        toast.showToast("error", "Failed to save memory.");
+        return;
+      }
 
-    const params = new URLSearchParams();
-    if (filterCategory !== "all") params.set("category", filterCategory);
-    if (searchQuery.trim()) params.set("search", searchQuery.trim());
-    await fetchMemories(params.toString() || undefined);
-    setSelectedMemoryId(null);
-    setMobileDetailVisible(false);
+      const params = new URLSearchParams();
+      if (filterCategory !== "all") params.set("category", filterCategory);
+      if (searchQuery.trim()) params.set("search", searchQuery.trim());
+      await fetchMemories(params.toString() || undefined);
+      setSelectedMemoryId(null);
+      setMobileDetailVisible(false);
+      toast.showToast("success", "Memory saved.");
+    } catch {
+      toast.showToast("error", "Failed to save memory.");
+    }
   }
 
   async function deleteMemory(id: string) {
-    await fetch(`/api/memories/${id}`, { method: "DELETE" });
-    setMemories((prev) => prev.filter((m) => m.id !== id));
-    if (selectedMemoryId === id) {
-      setSelectedMemoryId(null);
-      setMobileDetailVisible(false);
+    try {
+      const res = await fetch(`/api/memories/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        toast.showToast("error", "Failed to delete memory.");
+        return;
+      }
+      setMemories((prev) => prev.filter((m) => m.id !== id));
+      if (selectedMemoryId === id) {
+        setSelectedMemoryId(null);
+        setMobileDetailVisible(false);
+      }
+      toast.showToast("success", "Memory deleted.");
+    } catch {
+      toast.showToast("error", "Failed to delete memory.");
     }
   }
 
@@ -335,6 +365,11 @@ export function MemoriesSection() {
             )}
           </div>
         }
+      />
+      <Toast
+        visible={toast.visible}
+        variant={toast.variant}
+        message={toast.message}
       />
     </div>
   );

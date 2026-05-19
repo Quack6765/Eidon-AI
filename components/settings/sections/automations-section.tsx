@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarDays, Check, Clock3, Plus, Trash2 } from "lucide-react";
+import { CalendarDays, Clock3, Plus, Trash2 } from "lucide-react";
 
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Toast } from "@/components/ui/toast";
+import { useToastState } from "@/hooks/use-toast-state";
 import type { Automation, Persona } from "@/lib/types";
 
 type SettingsPayload = {
@@ -93,8 +95,7 @@ export function AutomationsSection() {
   const [selectedAutomationId, setSelectedAutomationId] = useState<string | null>(null);
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const toast = useToastState();
   const [isLoading, setIsLoading] = useState(true);
 
   async function loadData() {
@@ -149,8 +150,7 @@ export function AutomationsSection() {
     setSelectedAutomationId(automation.id);
     setIsAddingNew(false);
     setForm(automationToForm(automation));
-    setError("");
-    setSuccess("");
+    toast.dismissToast();
     setMobileDetailVisible(true);
   }
 
@@ -158,16 +158,14 @@ export function AutomationsSection() {
     setSelectedAutomationId(null);
     setIsAddingNew(true);
     setForm(createDefaultForm(defaultProviderProfileId || providerProfiles[0]?.id || ""));
-    setError("");
-    setSuccess("");
+    toast.dismissToast();
     setMobileDetailVisible(true);
   }
 
   function resetSelection() {
     setSelectedAutomationId(null);
     setIsAddingNew(false);
-    setError("");
-    setSuccess("");
+    toast.dismissToast();
     setMobileDetailVisible(false);
     setForm(createDefaultForm(defaultProviderProfileId || providerProfiles[0]?.id || ""));
   }
@@ -190,31 +188,26 @@ export function AutomationsSection() {
     const resolvedProviderProfileId = form.providerProfileId || defaultProviderProfileId || providerProfiles[0]?.id || "";
 
     if (!form.name.trim() || !form.prompt.trim()) {
-      setError("Name and prompt are required");
-      setSuccess("");
+      toast.showToast("error", "Name and prompt are required");
       return;
     }
 
     if (!resolvedProviderProfileId) {
-      setError("Choose a provider profile");
-      setSuccess("");
+      toast.showToast("error", "Choose a provider profile");
       return;
     }
 
     if (form.scheduleKind === "interval" && form.intervalMinutes < 5) {
-      setError("Interval must be at least 5 minutes");
-      setSuccess("");
+      toast.showToast("error", "Interval must be at least 5 minutes");
       return;
     }
 
     if (form.scheduleKind === "calendar" && form.calendarFrequency === "weekly" && form.daysOfWeek.length === 0) {
-      setError("Choose at least one day for weekly automations");
-      setSuccess("");
+      toast.showToast("error", "Choose at least one day for weekly automations");
       return;
     }
 
-    setError("");
-    setSuccess("");
+    toast.dismissToast();
 
     const payload = {
       name: form.name.trim(),
@@ -244,8 +237,7 @@ export function AutomationsSection() {
       const failure = (await response.json().catch(() => ({ error: "Unable to save automation" }))) as {
         error?: string;
       };
-      setError(failure.error ?? "Unable to save automation");
-      setSuccess("");
+      toast.showToast("error", failure.error ?? "Unable to save automation");
       return;
     }
 
@@ -255,7 +247,7 @@ export function AutomationsSection() {
     setIsAddingNew(false);
     setForm(automationToForm(data.automation));
     setMobileDetailVisible(true);
-    setSuccess("Automation saved.");
+    toast.showToast("success", "Automation saved.");
   }
 
   async function deleteSelectedAutomation() {
@@ -271,8 +263,7 @@ export function AutomationsSection() {
       const failure = (await response.json().catch(() => ({ error: "Unable to delete automation" }))) as {
         error?: string;
       };
-      setError(failure.error ?? "Unable to delete automation");
-      setSuccess("");
+      toast.showToast("error", failure.error ?? "Unable to delete automation");
       return;
     }
 
@@ -564,18 +555,11 @@ export function AutomationsSection() {
                   </div>
                 </div>
 
-                {/* Messages */}
-                {success ? (
-                  <div className="flex items-center gap-1.5 pt-2 text-sm text-emerald-400">
-                    <Check className="h-3.5 w-3.5" />
-                    {success}
-                  </div>
-                ) : null}
-                {error ? (
-                  <div className="rounded-lg border border-red-400/10 bg-red-500/8 px-4 py-3 text-sm text-red-300">
-                    {error}
-                  </div>
-                ) : null}
+                <Toast
+                  visible={toast.visible}
+                  variant={toast.variant}
+                  message={toast.message}
+                />
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-24 text-center">

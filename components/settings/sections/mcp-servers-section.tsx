@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Check, Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Toast } from "@/components/ui/toast";
+import { useToastState } from "@/hooks/use-toast-state";
 import type { McpServer, McpTransport } from "@/lib/types";
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
@@ -24,8 +26,7 @@ export function McpServersSection() {
   const [mcpRowTestResults, setMcpRowTestResults] = useState<Record<string, { text: string; isSuccess: boolean }>>({});
   const [mcpTestingTarget, setMcpTestingTarget] = useState<string | null>(null);
   const [mcpEnabledDraft, setMcpEnabledDraft] = useState(true);
-  const [error, setError] = useState("");
-  const [success, setSuccess] = useState("");
+  const toast = useToastState();
 
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
@@ -44,9 +45,6 @@ export function McpServersSection() {
     if (!mcpName.trim()) return;
     if (mcpTransport === "streamable_http" && !mcpUrl.trim()) return;
     if (mcpTransport === "stdio" && !mcpCommand.trim()) return;
-
-    setSuccess("");
-    setError("");
 
     let headersObj: Record<string, string> = {};
     if (mcpTransport === "streamable_http" && mcpHeaders.trim()) {
@@ -101,7 +99,7 @@ export function McpServersSection() {
       });
       if (!patchRes.ok) {
         const errorData = await patchRes.json().catch(() => null);
-        setError(errorData?.error ?? "Failed to update server");
+        toast.showToast("error", errorData?.error ?? "Failed to update server");
         return;
       }
     } else {
@@ -112,7 +110,7 @@ export function McpServersSection() {
       });
       if (!postRes.ok) {
         const errorData = await postRes.json().catch(() => null);
-        setError(errorData?.error ?? "Failed to add server");
+        toast.showToast("error", errorData?.error ?? "Failed to add server");
         return;
       }
       const created = (await postRes.json()) as { server: McpServer };
@@ -148,13 +146,10 @@ export function McpServersSection() {
       setMobileDetailVisible(true);
     }
 
-    setError("");
-    setSuccess("Server saved.");
+    toast.showToast("success", "MCP saved.");
   }
 
   async function testMcpServer(serverId?: string) {
-    setError("");
-    setSuccess("");
     const target = serverId ?? "draft";
     setMcpTestingTarget(target);
 
@@ -214,7 +209,7 @@ export function McpServersSection() {
       }
 
       if (!response.ok) {
-        setError(fullMessage);
+        toast.showToast("error", fullMessage);
       }
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "MCP connection test failed";
@@ -226,7 +221,7 @@ export function McpServersSection() {
       } else {
         setMcpDraftTestResult({ text: message, isSuccess: false });
       }
-      setError(message);
+      toast.showToast("error", message);
     } finally {
       setMcpTestingTarget(null);
     }
@@ -473,23 +468,16 @@ export function McpServersSection() {
               </div>
               </div>
 
-              {success ? (
-                <div className="flex items-center gap-1.5 pt-2 text-sm text-emerald-400">
-                  <Check className="h-3.5 w-3.5" />
-                  {success}
-                </div>
-              ) : null}
+              <Toast
+                visible={toast.visible}
+                variant={toast.variant}
+                message={toast.message}
+              />
 
               {mcpDraftTestResult && (
                 <p className={`pt-2 text-sm ${mcpDraftTestResult.isSuccess ? "text-emerald-400" : "text-red-300"}`}>
                   {mcpDraftTestResult.text}
                 </p>
-              )}
-
-              {error && (
-                <div className="rounded-lg border border-red-400/10 bg-red-500/8 px-4 py-3 text-sm text-red-300">
-                  {error}
-                </div>
               )}
             </div>
           ) : (
