@@ -116,12 +116,12 @@ export function TextEditModal({
             key="save-toast"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 6 }}
-            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-lg border border-emerald-400/15 bg-emerald-500/12 px-4 py-2.5 text-sm text-emerald-300 shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-lg border border-emerald-400/15 bg-emerald-500/12 px-4 py-2.5 text-sm text-emerald-300 shadow-[0_4px_24px_rgba(0,0,0,0.4)]"
           >
             <Check className="h-3.5 w-3.5" />
-            Saved
+            Saved successfully !
           </motion.div>
         )}
       </AnimatePresence>
