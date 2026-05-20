@@ -89,7 +89,13 @@ click_openrouter_and_wait() {
 }
 
 dismiss_sidebar_overlay() {
-    "$AB" click "button[class*=sidebar-toggle]" 2>/dev/null || true
+    "$AB" eval "document.querySelector('.fixed.inset-0')?.style?.removeProperty('display'); document.querySelector('.fixed.inset-0')?.click()" 2>/dev/null || true
+    local toggle_ref
+    toggle_ref=$("$AB" snapshot -i 2>/dev/null | grep -i "sidebar\|hide sidebar\|collapse" | head -1 | grep -o '@e[0-9]*' || true)
+    if [ -n "$toggle_ref" ]; then
+        "$AB" click "$toggle_ref" 2>/dev/null || true
+    fi
+    "$AB" eval "const ov = document.querySelector('.fixed.inset-0'); if(ov) ov.style.display='none'" 2>/dev/null || true
     "$AB" wait 500
 }
 
