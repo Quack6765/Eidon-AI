@@ -88,17 +88,24 @@ click_openrouter_and_wait() {
     "$AB" wait 1000
 }
 
+dismiss_sidebar_overlay() {
+    "$AB" click "button[class*=sidebar-toggle]" 2>/dev/null || true
+    "$AB" wait 500
+}
+
 echo "==> Setting desktop viewport (1440x900)..."
 "$AB" set viewport 1440 900
 
 echo "==> Opening base URL to establish session..."
 "$AB" open "$BASE_URL"
 "$AB" wait --load networkidle
+dismiss_sidebar_overlay
 
 echo "==> Capturing desktop-chat.png..."
 "$AB" open "$BASE_URL/chat/$PRIMARY_CONV_ID"
 "$AB" wait --load networkidle
 "$AB" wait 3000
+dismiss_sidebar_overlay
 CHAT_TEXT=$("$AB" get text "main" 2>/dev/null || echo "")
 if echo "$CHAT_TEXT" | grep -q "April launch" 2>/dev/null; then
     echo "  Chat content loaded"
@@ -117,6 +124,7 @@ echo "==> Capturing desktop-providers.png..."
 "$AB" open "$BASE_URL/settings/providers"
 "$AB" wait --load networkidle
 "$AB" wait 2000
+dismiss_sidebar_overlay
 click_openrouter_and_wait
 "$AB" screenshot "$SCREENSHOT_DIR/desktop-providers.png"
 echo "  Saved desktop-providers.png"
@@ -125,6 +133,7 @@ echo "==> Capturing desktop-automations.png..."
 "$AB" open "$BASE_URL/automations/$AUTOMATION_ID"
 "$AB" wait --load networkidle
 "$AB" wait 2000
+dismiss_sidebar_overlay
 "$AB" screenshot "$SCREENSHOT_DIR/desktop-automations.png"
 echo "  Saved desktop-automations.png"
 
@@ -135,6 +144,7 @@ echo "==> Capturing mobile-chat.png..."
 "$AB" open "$BASE_URL/chat/$PRIMARY_CONV_ID"
 "$AB" wait --load networkidle
 "$AB" wait 3000
+dismiss_sidebar_overlay
 "$AB" screenshot "$SCREENSHOT_DIR/mobile-chat.png"
 echo "  Saved mobile-chat.png"
 
@@ -142,6 +152,7 @@ echo "==> Capturing mobile-providers.png..."
 "$AB" open "$BASE_URL/settings/providers"
 "$AB" wait --load networkidle
 "$AB" wait 2000
+dismiss_sidebar_overlay
 PROVIDERS_REF=$("$AB" snapshot -i | grep -i "providers" | head -1 | grep -o '@e[0-9]*' || true)
 if [ -n "$PROVIDERS_REF" ]; then
     "$AB" click "$PROVIDERS_REF"
