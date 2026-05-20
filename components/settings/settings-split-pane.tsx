@@ -17,7 +17,7 @@ export function SettingsSplitPane({
   listHeader: ReactNode;
 }) {
   return (
-    <div className="flex min-h-0 flex-col border border-white/6 bg-white/[0.02] md:h-[calc(100dvh-6rem)] md:flex-row md:overflow-hidden md:rounded-xl">
+    <div className="flex min-h-0 flex-col rounded-xl border border-white/6 bg-white/[0.02] md:h-[calc(100dvh-6rem)] md:flex-row md:overflow-hidden">
       <div
         className={`min-h-0 w-full border-b border-white/6 bg-[#0e0e0e] ${
           isDetailVisible ? "hidden md:flex" : "flex"

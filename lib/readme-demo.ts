@@ -1,17 +1,19 @@
-import { attachConversationToRun, createAutomation, createAutomationRun, updateAutomationRunStatus } from "@/lib/automations";
+import { attachConversationToRun, createAutomation, createAutomationRun, deleteAutomation, listAutomations, updateAutomationRunStatus } from "@/lib/automations";
 import {
   createConversation,
   createMessage,
   createMessageAction,
   createMessageTextSegment,
   createQueuedMessage,
+  deleteConversation,
+  listConversations,
   setConversationActive,
   updateMessageAction
 } from "@/lib/conversations";
-import { createFolder } from "@/lib/folders";
+import { createFolder, deleteFolder, listFolders } from "@/lib/folders";
 import { createMcpServer, deleteMcpServer, listMcpServers } from "@/lib/mcp-servers";
-import { createMemory } from "@/lib/memories";
-import { createPersona } from "@/lib/personas";
+import { createMemory, deleteMemory, listMemories } from "@/lib/memories";
+import { createPersona, deletePersona, listPersonas } from "@/lib/personas";
 import { getSettingsDefaults, updateGeneralSettingsForUser, updateSettings } from "@/lib/settings";
 import { createSkill, listSkills, updateSkill } from "@/lib/skills";
 import {
@@ -254,12 +256,14 @@ Lead with product value, keep claims accurate, and make install steps feel easy.
 };
 
 export type ReadmeDemoSeedResult = {
+  envSuperAdminId: string;
   localAdminId: string;
   memberId: string;
   primaryConversationId: string;
   secondaryConversationId: string;
   automationConversationId: string;
   automationId: string;
+  automationRunId: string;
 };
 
 async function deleteDemoUsers() {
@@ -272,6 +276,24 @@ async function deleteDemoUsers() {
     if (record?.user.authSource === "local") {
       deleteManagedUser(record.user.id);
     }
+  }
+}
+
+function deleteDemoAdminResources(userId: string) {
+  for (const automation of listAutomations(userId)) {
+    deleteAutomation(automation.id, userId);
+  }
+  for (const conversation of listConversations(userId)) {
+    deleteConversation(conversation.id, userId);
+  }
+  for (const folder of listFolders(userId)) {
+    deleteFolder(folder.id, userId);
+  }
+  for (const memory of listMemories(userId)) {
+    deleteMemory(memory.id, userId);
+  }
+  for (const persona of listPersonas(userId)) {
+    deletePersona(persona.id, userId);
   }
 }
 
@@ -331,8 +353,9 @@ function markCompletedAction(actionId: string) {
 }
 
 export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
-  await ensureEnvSuperAdminUser();
+  const envSuperAdmin = await ensureEnvSuperAdminUser();
   await deleteDemoUsers();
+  deleteDemoAdminResources(envSuperAdmin.id);
 
   updateSettings({
     defaultProviderProfileId: README_DEMO_FIXTURES.providerProfiles[1].id,
@@ -370,15 +393,15 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
   });
 
   const personas = README_DEMO_FIXTURES.personas.map((persona) =>
-    createPersona(persona, localAdmin.id)
+    createPersona(persona, envSuperAdmin.id)
   );
 
   README_DEMO_FIXTURES.memories.forEach((memory) =>
-    createMemory(memory.content, memory.category, localAdmin.id)
+    createMemory(memory.content, memory.category, envSuperAdmin.id)
   );
 
-  const launchOpsFolder = createFolder(README_DEMO_FIXTURES.folders[0], localAdmin.id);
-  const playbooksFolder = createFolder(README_DEMO_FIXTURES.folders[1], localAdmin.id);
+  const launchOpsFolder = createFolder(README_DEMO_FIXTURES.folders[0], envSuperAdmin.id);
+  const playbooksFolder = createFolder(README_DEMO_FIXTURES.folders[1], envSuperAdmin.id);
 
   const primaryConversation = createConversation(
     README_DEMO_FIXTURES.primaryConversationTitle,
@@ -386,7 +409,7 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     {
       providerProfileId: README_DEMO_FIXTURES.providerProfiles[1].id
     },
-    localAdmin.id
+    envSuperAdmin.id
   );
   setConversationActive(primaryConversation.id, true);
 
@@ -486,7 +509,7 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     {
       providerProfileId: README_DEMO_FIXTURES.providerProfiles[2].id
     },
-    localAdmin.id
+    envSuperAdmin.id
   );
   createMessage({
     conversationId: secondaryConversation.id,
@@ -511,9 +534,10 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
       intervalMinutes: null,
       calendarFrequency: "daily",
       timeOfDay: README_DEMO_FIXTURES.automation.timeOfDay,
-      daysOfWeek: []
+      daysOfWeek: [],
+      enabled: false
     },
-    localAdmin.id
+    envSuperAdmin.id
   );
 
   const completedRun = createAutomationRun({
@@ -536,7 +560,7 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
       automationId: automation.id,
       automationRunId: completedRun.id
     },
-    localAdmin.id
+    envSuperAdmin.id
   );
   attachConversationToRun(completedRun.id, automationConversation.id);
 
@@ -559,11 +583,13 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
   });
 
   return {
+    envSuperAdminId: envSuperAdmin.id,
     localAdminId: localAdmin.id,
     memberId: member.id,
     primaryConversationId: primaryConversation.id,
     secondaryConversationId: secondaryConversation.id,
     automationConversationId: automationConversation.id,
-    automationId: automation.id
+    automationId: automation.id,
+    automationRunId: completedRun.id
   };
 }

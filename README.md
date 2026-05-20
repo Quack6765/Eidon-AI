@@ -86,7 +86,7 @@ The OpenAI-compatible profile is manually configurable, so any service that expo
 ![Eidon desktop chat workspace](./.github/readme/desktop-chat.png)
 
 <p align="center">
-  <em>Desktop chat workspace with provider switching, persona selection, queued follow-ups, and visible tool activity.</em>
+  <em>Desktop workspace with sidebar navigation, provider switching, persona selection, queued follow-ups, and visible tool activity.</em>
 </p>
 
 | Desktop providers | Automation transcript |
