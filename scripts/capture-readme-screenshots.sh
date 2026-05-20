@@ -4,6 +4,7 @@ set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SCREENSHOT_DIR="$PROJECT_DIR/.github/readme"
 DEV_SERVER_FILE="$PROJECT_DIR/.dev-server"
+EIDON_DATA_DIR="$PROJECT_DIR/.context/readme-demo-data"
 DEV_SERVER_PID=""
 AB="agent-browser"
 
@@ -45,7 +46,7 @@ echo "  automationConversationId: $AUTOMATION_CONV_ID"
 
 echo "==> Starting dev server..."
 rm -f "$DEV_SERVER_FILE"
-npm run dev --prefix "$PROJECT_DIR" &
+EIDON_DATA_DIR="$EIDON_DATA_DIR" npm run dev --prefix "$PROJECT_DIR" &
 DEV_SERVER_PID=$!
 
 echo "  Waiting for dev server (PID $DEV_SERVER_PID)..."
