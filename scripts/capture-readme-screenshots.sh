@@ -151,14 +151,8 @@ echo "==> Capturing mobile-providers.png..."
 "$AB" open "$BASE_URL/settings/providers"
 "$AB" wait --load networkidle
 "$AB" wait 2000
-PROVIDERS_REF=$("$AB" snapshot -i | grep -i "providers" | head -1 | grep -o '@e[0-9]*' || true)
-if [ -n "$PROVIDERS_REF" ]; then
-    "$AB" click "$PROVIDERS_REF"
-    "$AB" wait --load networkidle
-    "$AB" wait 2000
-fi
-click_openrouter_and_wait
-"$AB" wait 2000
+"$AB" eval "document.querySelectorAll('.fixed.inset-0').forEach(el => el.remove())" 2>/dev/null || true
+"$AB" wait 500
 "$AB" screenshot "$SCREENSHOT_DIR/mobile-providers.png"
 echo "  Saved mobile-providers.png"
 
