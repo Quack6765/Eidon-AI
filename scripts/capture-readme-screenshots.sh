@@ -94,7 +94,14 @@ echo "==> Opening base URL to establish session..."
 echo "==> Capturing desktop-chat.png..."
 "$AB" open "$BASE_URL/chat/$PRIMARY_CONV_ID"
 "$AB" wait --load networkidle
-"$AB" wait 2000
+"$AB" wait 3000
+"$AB" snapshot -i > /tmp/chat-snapshot.txt 2>&1 || true
+if grep -q "April launch" /tmp/chat-snapshot.txt 2>/dev/null; then
+    echo "  Chat content loaded"
+else
+    echo "  WARNING: Chat content not found in snapshot, retrying..."
+    "$AB" wait 3000
+fi
 "$AB" screenshot "$SCREENSHOT_DIR/desktop-chat.png"
 echo "  Saved desktop-chat.png"
 
@@ -119,7 +126,7 @@ echo "==> Setting mobile viewport (390x844)..."
 echo "==> Capturing mobile-chat.png..."
 "$AB" open "$BASE_URL/chat/$PRIMARY_CONV_ID"
 "$AB" wait --load networkidle
-"$AB" wait 2000
+"$AB" wait 3000
 "$AB" screenshot "$SCREENSHOT_DIR/mobile-chat.png"
 echo "  Saved mobile-chat.png"
 
@@ -128,6 +135,7 @@ echo "==> Capturing mobile-providers.png..."
 "$AB" wait --load networkidle
 "$AB" wait 2000
 click_openrouter_and_wait
+"$AB" wait 2000
 "$AB" screenshot "$SCREENSHOT_DIR/mobile-providers.png"
 echo "  Saved mobile-providers.png"
 
