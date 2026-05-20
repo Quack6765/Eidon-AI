@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import {
+  Copy,
   Plus,
   Trash2,
   Eye,
@@ -264,6 +265,49 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
     if (defaultProviderProfileId === profileId) {
       setDefaultProviderProfileId(fallbackProfileId);
+    }
+  }
+
+  async function handleDuplicateProviderProfile() {
+    if (!activeProviderProfile) return;
+
+    try {
+      const response = await fetch("/api/settings/providers/duplicate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sourceProfileId: activeProviderProfile.id })
+      });
+
+      const result = (await response.json()) as {
+        settings?: {
+          providerProfiles: Array<ProviderProfileDraft>;
+        };
+        error?: string;
+      };
+
+      if (!response.ok) {
+        toast.showToast("error", result.error ?? "Unable to duplicate provider");
+        return;
+      }
+
+      const newProfiles = result.settings!.providerProfiles.map(
+        (profile: ProviderProfileDraft) => ({
+          ...profile,
+          apiKey: ""
+        })
+      );
+      const newProfileId = newProfiles.find(
+        (p: ProviderProfileDraft) => !providerProfiles.some((existing) => existing.id === p.id)
+      )?.id;
+
+      setProviderProfiles(newProfiles);
+      if (newProfileId) {
+        setSelectedProviderProfileId(newProfileId);
+      }
+      setMobileDetailVisible(true);
+      toast.showToast("success", "Provider duplicated");
+    } catch {
+      toast.showToast("error", "Unable to duplicate provider");
     }
   }
 
@@ -978,6 +1022,15 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                       >
                         <Zap className="h-3.5 w-3.5" />
                         Test
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={handleDuplicateProviderProfile}
+                        className="gap-1.5 px-2.5 py-1.5 text-xs"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                        Duplicate
                       </Button>
 
                     </div>
