@@ -3,7 +3,6 @@ import {
   decodeMarkdownTarget,
   findMarkdownTargets,
   isExternalMarkdownTarget,
-  normalizeProtectedMarkdownContent,
   parseAssistantDataImageTarget
 } from "@/lib/assistant-markdown-parsing";
 
@@ -96,5 +95,5 @@ export function stripAttachmentStyleImageMarkdown(
     return content;
   }
 
-  return normalizeProtectedMarkdownContent(sanitized.content);
+  return sanitized.content;
 }

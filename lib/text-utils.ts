@@ -9,13 +9,6 @@ export function normalizeLineBreaks(text: string) {
     .replace(/\\r/g, "\n");
 }
 
-export function normalizeMarkdownLineBreaks(text: string) {
-  return normalizeLineBreaks(text).replace(/\n{3,}/g, (match) => {
-    const extras = match.length - 2;
-    return "\n\n" + "\u00A0\n\n".repeat(extras);
-  });
-}
-
 export function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat("en", {
     month: "short",

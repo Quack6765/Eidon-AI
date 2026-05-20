@@ -51,6 +51,8 @@ describe("stripAttachmentStyleImageMarkdown", () => {
       [
         "I've generated an image for you.",
         "",
+        "",
+        "",
         "The real attachment preview should render below."
       ].join("\n")
     );
@@ -74,6 +76,8 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     expect(stripAttachmentStyleImageMarkdown(content, [createImageAttachment()])).toBe(
       [
         "I've generated an image for you.",
+        "",
+        "",
         "",
         "The real attachment preview should render below."
       ].join("\n")
@@ -102,6 +106,8 @@ describe("stripAttachmentStyleImageMarkdown", () => {
       [
         "I've generated an image for you.",
         "",
+        "",
+        "",
         "The real attachment preview should render below."
       ].join("\n")
     );
@@ -120,7 +126,9 @@ describe("stripAttachmentStyleImageMarkdown", () => {
       [
         "```md",
         "![Generated Image](data:image/png;base64,Zm9v)",
-        "```"
+        "```",
+        "",
+        ""
       ].join("\n")
     );
   });
@@ -153,7 +161,9 @@ describe("stripAttachmentStyleImageMarkdown", () => {
         "",
         "  ```md",
         "  ![Generated Image](data:image/png;base64,Zm9v)",
-        "  ```"
+        "  ```",
+        "",
+        ""
       ].join("\n")
     );
   });
@@ -168,7 +178,7 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     ].join("\n");
 
     expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
-      ["> ```md", "> ![Generated Image](data:image/png;base64,Zm9v)", "> still code"].join("\n")
+      ["> ```md", "> ![Generated Image](data:image/png;base64,Zm9v)", "> still code", "", ""].join("\n")
     );
   });
 
@@ -189,7 +199,9 @@ describe("stripAttachmentStyleImageMarkdown", () => {
         "![Generated Image](data:image/png;base64,Zm9v)",
         "```notclose",
         "still code",
-        "```"
+        "```",
+        "",
+        ""
       ].join("\n")
     );
   });
@@ -207,7 +219,9 @@ describe("stripAttachmentStyleImageMarkdown", () => {
       [
         "~~~md",
         "![Generated Image](data:image/png;base64,Zm9v)",
-        "~~~"
+        "~~~",
+        "",
+        ""
       ].join("\n")
     );
   });
@@ -223,7 +237,9 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
       [
         "    ![Generated Image](data:image/png;base64,Zm9v)",
-        "    still code"
+        "    still code",
+        "",
+        ""
       ].join("\n")
     );
   });
@@ -231,7 +247,7 @@ describe("stripAttachmentStyleImageMarkdown", () => {
   it("does not treat list continuation lines as indented code blocks", () => {
     const content = ["- item", "    [Report](notes.txt)"].join("\n");
 
-    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe("- item");
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe("- item\n    ");
   });
 
   it("removes local markdown file links when the assistant message already has text attachments", () => {
@@ -246,6 +262,8 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe(
       [
         "Here is the report you asked for.",
+        "",
+        "",
         "",
         "The external reference should remain: [Spec](https://example.com/spec.pdf)"
       ].join("\n")
@@ -269,19 +287,19 @@ describe("stripAttachmentStyleImageMarkdown", () => {
           relativePath: "conv_test/notes with space.txt"
         })
       ])
-    ).toBe("Here are the reports you asked for.");
+    ).toBe("Here are the reports you asked for.\n\n\n");
   });
 
   it("removes reference-style local markdown links when the assistant message already has matching text attachments", () => {
     const content = ["Here is the report:", "", "[Report][report]", "", "[report]: notes.txt"].join("\n");
 
-    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe("Here is the report:");
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe("Here is the report:\n\n\n\n");
   });
 
   it("removes local absolute markdown links when the assistant message already has matching text attachments", () => {
     const content = ["Here is the report:", "", "[Report](/tmp/notes.txt)"].join("\n");
 
-    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe("Here is the report:");
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment()])).toBe("Here is the report:\n\n");
   });
 
   it("keeps shared reference definitions when only the image reference is stripped", () => {
@@ -299,7 +317,7 @@ describe("stripAttachmentStyleImageMarkdown", () => {
         content,
         [createImageAttachment({ filename: "generated.png", relativePath: "conv_test/generated.png" })]
       )
-    ).toBe(["Keep the text reference:", "", "[Report][shared]", "", "[shared]: generated.png"].join("\n"));
+    ).toBe(["Keep the text reference:", "", "[Report][shared]", "", "", "[shared]: generated.png"].join("\n"));
   });
 
   it("strips parsed markdown targets with parentheses, angle brackets, and escaped closers when attachments match", () => {
@@ -317,7 +335,7 @@ describe("stripAttachmentStyleImageMarkdown", () => {
         createTextAttachment({ filename: "notes with space.txt" }),
         createTextAttachment({ filename: "file)name.txt" })
       ])
-    ).toBe("Matched links:");
+    ).toBe("Matched links:\n\n\n\n");
   });
 
   it("does not over-strip unrelated link suffixes", () => {
