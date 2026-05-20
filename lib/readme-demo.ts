@@ -260,6 +260,7 @@ export type ReadmeDemoSeedResult = {
   secondaryConversationId: string;
   automationConversationId: string;
   automationId: string;
+  automationRunId: string;
 };
 
 async function deleteDemoUsers() {
@@ -564,6 +565,7 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     primaryConversationId: primaryConversation.id,
     secondaryConversationId: secondaryConversation.id,
     automationConversationId: automationConversation.id,
-    automationId: automation.id
+    automationId: automation.id,
+    automationRunId: completedRun.id
   };
 }
