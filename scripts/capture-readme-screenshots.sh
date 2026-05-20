@@ -97,7 +97,7 @@ ensure_desktop_sidebar_open() {
         "$AB" click "$toggle_ref" 2>/dev/null || true
         "$AB" wait 1000
     fi
-    "$AB" eval "const ov = document.querySelector('.fixed.inset-0.bg-black\\/70'); if(ov) ov.remove()" 2>/dev/null || true
+    "$AB" eval "document.querySelectorAll('.fixed.inset-0').forEach(el => el.remove())" 2>/dev/null || true
 }
 
 echo "==> Setting desktop viewport (1920x1080)..."
