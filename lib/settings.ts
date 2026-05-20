@@ -788,6 +788,108 @@ export function listProviderProfilesWithApiKeys() {
   return listProviderProfiles().map(withApiKey);
 }
 
+export function duplicateProviderProfile(sourceProfileId: string) {
+  const source = getProviderProfileRow(sourceProfileId);
+  if (!source) {
+    throw new Error("Provider profile not found");
+  }
+
+  const existingProfiles = listProviderProfiles();
+  const existingNames = new Set(
+    existingProfiles.map((p) => p.name.trim().toLowerCase())
+  );
+
+  const baseName = source.name;
+  let name = `${baseName} copy`;
+  let suffix = 2;
+  while (existingNames.has(name.trim().toLowerCase())) {
+    name = `${baseName} copy ${suffix}`;
+    suffix++;
+  }
+
+  const newId = `profile_${crypto.randomUUID()}`;
+  const timestamp = new Date().toISOString();
+
+  getDb()
+    .prepare(
+      `INSERT INTO provider_profiles (
+        id,
+        name,
+        api_base_url,
+        api_key_encrypted,
+        model,
+        api_mode,
+        system_prompt,
+        temperature,
+        max_output_tokens,
+        reasoning_effort,
+        reasoning_summary_enabled,
+        model_context_limit,
+        compaction_threshold,
+        fresh_tail_count,
+        tokenizer_model,
+        safety_margin_tokens,
+        leaf_source_token_limit,
+        leaf_min_message_count,
+        merged_min_node_count,
+        merged_target_tokens,
+        vision_mode,
+        vision_mcp_server_id,
+        provider_kind,
+        provider_preset_id,
+        github_user_access_token_encrypted,
+        github_refresh_token_encrypted,
+        github_token_expires_at,
+        github_refresh_token_expires_at,
+        github_account_login,
+        github_account_name,
+        created_at,
+        updated_at
+      ) VALUES (
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?
+      )`
+    )
+    .run(
+      newId,
+      name,
+      source.api_base_url,
+      source.api_key_encrypted,
+      source.model,
+      source.api_mode,
+      source.system_prompt,
+      source.temperature,
+      source.max_output_tokens,
+      source.reasoning_effort,
+      source.reasoning_summary_enabled ? 1 : 0,
+      source.model_context_limit,
+      source.compaction_threshold,
+      source.fresh_tail_count,
+      source.tokenizer_model,
+      source.safety_margin_tokens,
+      source.leaf_source_token_limit,
+      source.leaf_min_message_count,
+      source.merged_min_node_count,
+      source.merged_target_tokens,
+      source.vision_mode,
+      source.vision_mcp_server_id,
+      source.provider_kind,
+      source.provider_preset_id,
+      source.github_user_access_token_encrypted,
+      source.github_refresh_token_encrypted,
+      source.github_token_expires_at,
+      source.github_refresh_token_expires_at,
+      source.github_account_login,
+      source.github_account_name,
+      timestamp,
+      timestamp
+    );
+
+  return getSanitizedSettings();
+}
+
 export function getProviderProfile(profileId: string) {
   const row = getProviderProfileRow(profileId);
   return row ? rowToProviderProfile(row) : null;

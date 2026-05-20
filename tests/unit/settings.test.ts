@@ -14,7 +14,8 @@ import {
   parseImageGenerationSettingsInput,
   updateGeneralSettingsForUser,
   updateSettings,
-  updateImageGenerationSettings
+  updateImageGenerationSettings,
+  duplicateProviderProfile
 } from "@/lib/settings";
 import { createLocalUser } from "@/lib/users";
 
@@ -1220,5 +1221,69 @@ describe("settings storage", () => {
     );
 
     expect(response.status).toBe(403);
+  });
+
+  it("duplicates a provider profile with encrypted credentials", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-secret-key"
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: true,
+      providerProfiles: [alpha]
+    });
+
+    const result = duplicateProviderProfile(alpha.id);
+
+    const profiles = result.providerProfiles;
+    expect(profiles).toHaveLength(2);
+
+    const original = profiles.find((p) => p.id === "profile_alpha");
+    const copy = profiles.find((p) => p.id !== "profile_alpha");
+
+    expect(original?.name).toBe("Alpha");
+    expect(copy?.name).toBe("Alpha copy");
+    expect(copy?.providerKind).toBe("openai_compatible");
+    expect(copy?.hasApiKey).toBe(true);
+    expect(copy?.model).toBe("gpt-test");
+    expect(copy?.apiBaseUrl).toBe("https://api.example.com/v1");
+
+    const copyWithKey = getProviderProfileWithApiKey(copy!.id);
+    expect(copyWithKey?.apiKey).toBe("sk-secret-key");
+  });
+
+  it("appends numeric suffix when duplicate name already exists", () => {
+    const alpha = buildProfile({
+      id: "profile_alpha",
+      name: "Alpha",
+      apiKey: "sk-key"
+    });
+    const existingCopy = buildProfile({
+      id: "profile_existing_copy",
+      name: "Alpha copy",
+      apiKey: "sk-key2"
+    });
+
+    updateSettings({
+      defaultProviderProfileId: alpha.id,
+      skillsEnabled: true,
+      providerProfiles: [alpha, existingCopy]
+    });
+
+    const result = duplicateProviderProfile(alpha.id);
+
+    const copy = result.providerProfiles.find(
+      (p) => p.id !== "profile_alpha" && p.id !== "profile_existing_copy"
+    );
+    expect(copy?.name).toBe("Alpha copy 2");
+  });
+
+  it("throws when source profile does not exist", () => {
+    expect(() => duplicateProviderProfile("profile_nonexistent")).toThrow(
+      "Provider profile not found"
+    );
   });
 });
