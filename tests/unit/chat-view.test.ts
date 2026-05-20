@@ -3104,10 +3104,9 @@ describe("chat view", () => {
         expect(screen.getByText("Server-backed prompt")).toBeInTheDocument();
       });
 
-      await flushAnimationFrame();
-      await flushAnimationFrame();
-
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 177 }));
+      await waitFor(() => {
+        expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 177 }));
+      });
     } finally {
       Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
     }
