@@ -1,17 +1,19 @@
-import { attachConversationToRun, createAutomation, createAutomationRun, updateAutomationRunStatus } from "@/lib/automations";
+import { attachConversationToRun, createAutomation, createAutomationRun, deleteAutomation, listAutomations, updateAutomationRunStatus } from "@/lib/automations";
 import {
   createConversation,
   createMessage,
   createMessageAction,
   createMessageTextSegment,
   createQueuedMessage,
+  deleteConversation,
+  listConversations,
   setConversationActive,
   updateMessageAction
 } from "@/lib/conversations";
-import { createFolder } from "@/lib/folders";
+import { createFolder, deleteFolder, listFolders } from "@/lib/folders";
 import { createMcpServer, deleteMcpServer, listMcpServers } from "@/lib/mcp-servers";
-import { createMemory } from "@/lib/memories";
-import { createPersona } from "@/lib/personas";
+import { createMemory, deleteMemory, listMemories } from "@/lib/memories";
+import { createPersona, deletePersona, listPersonas } from "@/lib/personas";
 import { getSettingsDefaults, updateGeneralSettingsForUser, updateSettings } from "@/lib/settings";
 import { createSkill, listSkills, updateSkill } from "@/lib/skills";
 import {
@@ -254,6 +256,7 @@ Lead with product value, keep claims accurate, and make install steps feel easy.
 };
 
 export type ReadmeDemoSeedResult = {
+  envSuperAdminId: string;
   localAdminId: string;
   memberId: string;
   primaryConversationId: string;
@@ -273,6 +276,24 @@ async function deleteDemoUsers() {
     if (record?.user.authSource === "local") {
       deleteManagedUser(record.user.id);
     }
+  }
+}
+
+function deleteDemoAdminResources(userId: string) {
+  for (const automation of listAutomations(userId)) {
+    deleteAutomation(automation.id, userId);
+  }
+  for (const conversation of listConversations(userId)) {
+    deleteConversation(conversation.id, userId);
+  }
+  for (const folder of listFolders(userId)) {
+    deleteFolder(folder.id, userId);
+  }
+  for (const memory of listMemories(userId)) {
+    deleteMemory(memory.id, userId);
+  }
+  for (const persona of listPersonas(userId)) {
+    deletePersona(persona.id, userId);
   }
 }
 
@@ -334,6 +355,7 @@ function markCompletedAction(actionId: string) {
 export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
   const envSuperAdmin = await ensureEnvSuperAdminUser();
   await deleteDemoUsers();
+  deleteDemoAdminResources(envSuperAdmin.id);
 
   updateSettings({
     defaultProviderProfileId: README_DEMO_FIXTURES.providerProfiles[1].id,
@@ -561,6 +583,7 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
   });
 
   return {
+    envSuperAdminId: envSuperAdmin.id,
     localAdminId: localAdmin.id,
     memberId: member.id,
     primaryConversationId: primaryConversation.id,

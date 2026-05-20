@@ -28,7 +28,7 @@ describe("readme demo seed", () => {
       expect.arrayContaining(README_DEMO_FIXTURES.providerProfiles.map((profile) => profile.name))
     );
 
-    expect(listPersonas(seeded.localAdminId).map((persona) => persona.name)).toEqual(
+    expect(listPersonas(seeded.envSuperAdminId).map((persona) => persona.name)).toEqual(
       expect.arrayContaining(README_DEMO_FIXTURES.personas.map((persona) => persona.name))
     );
 
@@ -40,19 +40,19 @@ describe("readme demo seed", () => {
       expect.arrayContaining(README_DEMO_FIXTURES.mcpServers.map((server) => server.name))
     );
 
-    expect(listFolders(seeded.localAdminId).map((folder) => folder.name)).toEqual(
+    expect(listFolders(seeded.envSuperAdminId).map((folder) => folder.name)).toEqual(
       expect.arrayContaining(README_DEMO_FIXTURES.folders)
     );
 
-    expect(listMemories(seeded.localAdminId)).toHaveLength(
+    expect(listMemories(seeded.envSuperAdminId)).toHaveLength(
       README_DEMO_FIXTURES.memories.length
     );
 
-    expect(listAutomations(seeded.localAdminId).map((automation) => automation.name)).toEqual(
+    expect(listAutomations(seeded.envSuperAdminId).map((automation) => automation.name)).toEqual(
       [README_DEMO_FIXTURES.automation.name]
     );
 
-    const automationRuns = listAutomationRuns(seeded.automationId, seeded.localAdminId);
+    const automationRuns = listAutomationRuns(seeded.automationId, seeded.envSuperAdminId);
     expect(automationRuns).toEqual([
       expect.objectContaining({
         conversationId: seeded.automationConversationId,
@@ -62,7 +62,7 @@ describe("readme demo seed", () => {
 
     const snapshot = getConversationSnapshot(
       seeded.primaryConversationId,
-      seeded.localAdminId
+      seeded.envSuperAdminId
     );
 
     expect(snapshot?.conversation.title).toBe(README_DEMO_FIXTURES.primaryConversationTitle);
@@ -79,7 +79,7 @@ describe("readme demo seed", () => {
       ])
     );
 
-    const settings = getSettingsForUser(seeded.localAdminId);
+    const settings = getSettingsForUser(seeded.envSuperAdminId);
     expect(settings.sttEngine).toBe("browser");
     expect(settings.webSearchEngine).toBe("exa");
   });
@@ -97,7 +97,7 @@ describe("readme demo seed", () => {
       )
     ).toHaveLength(2);
 
-    expect(listPersonas(secondSeed.localAdminId)).toHaveLength(
+    expect(listPersonas(secondSeed.envSuperAdminId)).toHaveLength(
       README_DEMO_FIXTURES.personas.length
     );
 
@@ -113,7 +113,7 @@ describe("readme demo seed", () => {
       )
     ).toHaveLength(README_DEMO_FIXTURES.mcpServers.length);
 
-    expect(listConversations(secondSeed.localAdminId).map((conversation) => conversation.title)).toEqual(
+    expect(listConversations(secondSeed.envSuperAdminId).map((conversation) => conversation.title)).toEqual(
       expect.arrayContaining([
         README_DEMO_FIXTURES.primaryConversationTitle,
         README_DEMO_FIXTURES.secondaryConversationTitle
@@ -121,7 +121,7 @@ describe("readme demo seed", () => {
     );
 
     expect(
-      listAutomationRuns(secondSeed.automationId, secondSeed.localAdminId).some(
+      listAutomationRuns(secondSeed.automationId, secondSeed.envSuperAdminId).some(
         (run) => run.conversationId === secondSeed.automationConversationId
       )
     ).toBe(true);
