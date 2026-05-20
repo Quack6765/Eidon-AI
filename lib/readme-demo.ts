@@ -332,7 +332,7 @@ function markCompletedAction(actionId: string) {
 }
 
 export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
-  await ensureEnvSuperAdminUser();
+  const envSuperAdmin = await ensureEnvSuperAdminUser();
   await deleteDemoUsers();
 
   updateSettings({
@@ -371,15 +371,15 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
   });
 
   const personas = README_DEMO_FIXTURES.personas.map((persona) =>
-    createPersona(persona, localAdmin.id)
+    createPersona(persona, envSuperAdmin.id)
   );
 
   README_DEMO_FIXTURES.memories.forEach((memory) =>
-    createMemory(memory.content, memory.category, localAdmin.id)
+    createMemory(memory.content, memory.category, envSuperAdmin.id)
   );
 
-  const launchOpsFolder = createFolder(README_DEMO_FIXTURES.folders[0], localAdmin.id);
-  const playbooksFolder = createFolder(README_DEMO_FIXTURES.folders[1], localAdmin.id);
+  const launchOpsFolder = createFolder(README_DEMO_FIXTURES.folders[0], envSuperAdmin.id);
+  const playbooksFolder = createFolder(README_DEMO_FIXTURES.folders[1], envSuperAdmin.id);
 
   const primaryConversation = createConversation(
     README_DEMO_FIXTURES.primaryConversationTitle,
@@ -387,7 +387,7 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     {
       providerProfileId: README_DEMO_FIXTURES.providerProfiles[1].id
     },
-    localAdmin.id
+    envSuperAdmin.id
   );
   setConversationActive(primaryConversation.id, true);
 
@@ -487,7 +487,7 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     {
       providerProfileId: README_DEMO_FIXTURES.providerProfiles[2].id
     },
-    localAdmin.id
+    envSuperAdmin.id
   );
   createMessage({
     conversationId: secondaryConversation.id,
@@ -512,9 +512,10 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
       intervalMinutes: null,
       calendarFrequency: "daily",
       timeOfDay: README_DEMO_FIXTURES.automation.timeOfDay,
-      daysOfWeek: []
+      daysOfWeek: [],
+      enabled: false
     },
-    localAdmin.id
+    envSuperAdmin.id
   );
 
   const completedRun = createAutomationRun({
@@ -537,7 +538,7 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
       automationId: automation.id,
       automationRunId: completedRun.id
     },
-    localAdmin.id
+    envSuperAdmin.id
   );
   attachConversationToRun(completedRun.id, automationConversation.id);
 
