@@ -74,7 +74,11 @@ fi
 
 click_openrouter_and_wait() {
     local ref
-    ref=$("$AB" snapshot -i | grep -i "openrouter" | head -1 | grep -o '@e[0-9]*' || true)
+    ref=$("$AB" snapshot -i | grep -i "openrouter\|claude" | head -1 | grep -o '@e[0-9]*' || true)
+    if [ -z "$ref" ]; then
+        echo "  WARNING: Could not find OpenRouter element ref, trying full snapshot" >&2
+        ref=$("$AB" snapshot | grep -i "openrouter\|claude" | head -1 | grep -o '@e[0-9]*' || true)
+    fi
     if [ -z "$ref" ]; then
         echo "  WARNING: Could not find OpenRouter element ref in snapshot" >&2
         return
@@ -95,12 +99,16 @@ echo "==> Capturing desktop-chat.png..."
 "$AB" open "$BASE_URL/chat/$PRIMARY_CONV_ID"
 "$AB" wait --load networkidle
 "$AB" wait 3000
-"$AB" snapshot -i > /tmp/chat-snapshot.txt 2>&1 || true
-if grep -q "April launch" /tmp/chat-snapshot.txt 2>/dev/null; then
+CHAT_TEXT=$("$AB" get text "main" 2>/dev/null || echo "")
+if echo "$CHAT_TEXT" | grep -q "April launch" 2>/dev/null; then
     echo "  Chat content loaded"
 else
-    echo "  WARNING: Chat content not found in snapshot, retrying..."
-    "$AB" wait 3000
+    echo "  Waiting for chat content to render..."
+    for i in $(seq 1 6); do
+        "$AB" wait 2000
+        CHAT_TEXT=$("$AB" get text "main" 2>/dev/null || echo "")
+        echo "$CHAT_TEXT" | grep -q "April launch" 2>/dev/null && break
+    done
 fi
 "$AB" screenshot "$SCREENSHOT_DIR/desktop-chat.png"
 echo "  Saved desktop-chat.png"
@@ -134,6 +142,12 @@ echo "==> Capturing mobile-providers.png..."
 "$AB" open "$BASE_URL/settings/providers"
 "$AB" wait --load networkidle
 "$AB" wait 2000
+PROVIDERS_REF=$("$AB" snapshot -i | grep -i "providers" | head -1 | grep -o '@e[0-9]*' || true)
+if [ -n "$PROVIDERS_REF" ]; then
+    "$AB" click "$PROVIDERS_REF"
+    "$AB" wait --load networkidle
+    "$AB" wait 2000
+fi
 click_openrouter_and_wait
 "$AB" wait 2000
 "$AB" screenshot "$SCREENSHOT_DIR/mobile-providers.png"
