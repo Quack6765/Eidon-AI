@@ -7,6 +7,10 @@ DEV_SERVER_FILE="$PROJECT_DIR/.dev-server"
 DEV_SERVER_PID=""
 AB="agent-browser"
 
+for cmd in jq curl agent-browser; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: $cmd is required but not found in PATH" >&2; exit 1; }
+done
+
 mkdir -p "$SCREENSHOT_DIR"
 
 cleanup() {
@@ -23,7 +27,11 @@ trap cleanup EXIT
 
 echo "==> Seeding README demo data..."
 SEED_OUTPUT=$(npm run seed:readme-demo --prefix "$PROJECT_DIR" --silent)
-echo "$SEED_OUTPUT" | jq . > /dev/null
+if ! echo "$SEED_OUTPUT" | jq -e . > /dev/null 2>&1; then
+    echo "ERROR: seed:readme-demo did not return valid JSON:" >&2
+    echo "$SEED_OUTPUT" >&2
+    exit 1
+fi
 
 PRIMARY_CONV_ID=$(echo "$SEED_OUTPUT" | jq -r '.seeded.primaryConversationId')
 AUTOMATION_ID=$(echo "$SEED_OUTPUT" | jq -r '.seeded.automationId')
@@ -63,6 +71,18 @@ if [ $ELAPSED -ge $MAX_WAIT ]; then
     exit 1
 fi
 
+click_openrouter_and_wait() {
+    local ref
+    ref=$("$AB" snapshot -i | grep -i "openrouter" | head -1 | grep -o '@e[0-9]*' || true)
+    if [ -z "$ref" ]; then
+        echo "  WARNING: Could not find OpenRouter element ref in snapshot" >&2
+        return
+    fi
+    "$AB" click "$ref"
+    "$AB" wait --load networkidle
+    "$AB" wait 1000
+}
+
 echo "==> Setting desktop viewport (1440x900)..."
 "$AB" set viewport 1440 900
 
@@ -81,12 +101,7 @@ echo "==> Capturing desktop-providers.png..."
 "$AB" open "$BASE_URL/settings/providers"
 "$AB" wait --load networkidle
 "$AB" wait 2000
-OPENROUTER_REF=$("$AB" snapshot -i | grep -i "openrouter" | head -1 | grep -o '@e[0-9]*' || true)
-if [ -n "$OPENROUTER_REF" ]; then
-    "$AB" click "$OPENROUTER_REF"
-    "$AB" wait --load networkidle
-    "$AB" wait 1000
-fi
+click_openrouter_and_wait
 "$AB" screenshot "$SCREENSHOT_DIR/desktop-providers.png"
 echo "  Saved desktop-providers.png"
 
@@ -111,12 +126,7 @@ echo "==> Capturing mobile-providers.png..."
 "$AB" open "$BASE_URL/settings/providers"
 "$AB" wait --load networkidle
 "$AB" wait 2000
-MOBILE_OPENROUTER_REF=$("$AB" snapshot -i | grep -i "openrouter" | head -1 | grep -o '@e[0-9]*' || true)
-if [ -n "$MOBILE_OPENROUTER_REF" ]; then
-    "$AB" click "$MOBILE_OPENROUTER_REF"
-    "$AB" wait --load networkidle
-    "$AB" wait 1000
-fi
+click_openrouter_and_wait
 "$AB" screenshot "$SCREENSHOT_DIR/mobile-providers.png"
 echo "  Saved mobile-providers.png"
 
