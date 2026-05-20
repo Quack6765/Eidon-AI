@@ -715,8 +715,9 @@ export function MessageBubble({
   const rawThinking = streamingThinking ?? message.thinkingContent;
   const actions = message.actions ?? [];
   const liveTimeline = streamingTimeline ?? message.timeline;
-  const content = normalizeLineBreaks(rawContent);
-  const thinkingContent = normalizeLineBreaks(rawThinking);
+  const content = rawContent;
+  const contentForComparison = normalizeLineBreaks(rawContent);
+  const thinkingContent = rawThinking;
   const timeline = liveTimeline ?? actions.map((action) => ({
     ...action,
     timelineKind: "action" as const
@@ -788,13 +789,13 @@ export function MessageBubble({
     .join("");
   const normalizedConsumedText = normalizeLineBreaks(consumedText);
 
-  if (content && content.length > normalizedConsumedText.length) {
+  if (contentForComparison && contentForComparison.length > normalizedConsumedText.length) {
     assistantBlocks.push({
       id: `content_${message.id}_remaining`,
       timelineKind: "text",
       sortOrder: assistantBlocks.length,
       createdAt: message.createdAt,
-      content: content.slice(normalizedConsumedText.length)
+      content: contentForComparison.slice(normalizedConsumedText.length)
     });
   }
 
