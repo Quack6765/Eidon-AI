@@ -151,7 +151,7 @@ echo "==> Capturing mobile-providers.png..."
 "$AB" open "$BASE_URL/settings/providers"
 "$AB" wait --load networkidle
 "$AB" wait 2000
-"$AB" eval "document.querySelectorAll('.fixed.inset-0').forEach(el => el.remove())" 2>/dev/null || true
+"$AB" eval "document.querySelectorAll('.fixed.inset-0').forEach(el => el.remove()); document.querySelectorAll('.fixed.inset-y-0.left-0').forEach(el => el.style.display='none')" 2>/dev/null || true
 "$AB" wait 500
 "$AB" screenshot "$SCREENSHOT_DIR/mobile-providers.png"
 echo "  Saved mobile-providers.png"
