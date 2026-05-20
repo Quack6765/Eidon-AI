@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Share2 } from "lucide-react";
 
@@ -60,7 +60,7 @@ const ANCHOR_LAYOUT_SCROLL_GRACE_MS = 300;
 const ANCHOR_PROGRAMMATIC_SCROLL_GRACE_MS = 900;
 
 type ScrollMode = "idle" | "anchored" | "following";
-const SCROLL_BOTTOM_PADDING = 260;
+const SCROLL_BOTTOM_PADDING = 180;
 
 type SnapshotReconciliation = {
   messages: Message[];
@@ -562,6 +562,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       (message.status === "streaming" || message.status === "completed")
   );
   const queueRef = useRef<HTMLDivElement | null>(null);
+  const queueContentRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
   const messagesRef = useRef(payload.messages);
@@ -826,7 +827,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     const containerRect = queueRef.current.getBoundingClientRect();
     const messageRect = messageEl.getBoundingClientRect();
     const scrollOffset = messageRect.top - containerRect.top + queueRef.current.scrollTop;
-    const scrollTarget = Math.max(0, scrollOffset - ANCHOR_SCROLL_TOP_INSET_PX);
+    const idealTarget = Math.max(0, scrollOffset - ANCHOR_SCROLL_TOP_INSET_PX);
+    const maxScrollTop = Math.max(0, queueRef.current.scrollHeight - queueRef.current.clientHeight);
+    const scrollTarget = Math.min(idealTarget, maxScrollTop);
 
     suppressNextScrollEventRef.current = true;
     if (queueRef.current.scrollTo) {
@@ -869,14 +872,15 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     event.preventDefault();
+
     if (queueRef.current.scrollTop > bottomTarget) {
       suppressNextScrollEventRef.current = true;
-      queueRef.current.scrollTo?.({ top: bottomTarget, behavior: "auto" });
       queueRef.current.scrollTop = bottomTarget;
       requestAnimationFrame(() => {
         suppressNextScrollEventRef.current = false;
       });
     }
+
     setIsConversationAtBottom(true);
     shouldAutoScrollRef.current = true;
     userScrollIntentRef.current = false;
@@ -949,22 +953,40 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!queueRef.current || !shouldAutoScrollRef.current) {
       return;
     }
 
-    requestAnimationFrame(() => {
-      if (!queueRef.current || !shouldAutoScrollRef.current) return;
-      setIsConversationAtBottom(true);
-      const top = getComposerAwareBottomTarget(queueRef.current, scrollPadding);
-      if (queueRef.current.scrollTo) {
-        queueRef.current.scrollTo({ top, behavior: "auto" });
-      } else {
-        queueRef.current.scrollTop = top;
-      }
-    });
+    setIsConversationAtBottom(true);
+    const top = getComposerAwareBottomTarget(queueRef.current, scrollPadding);
+    suppressNextScrollEventRef.current = true;
+    if (queueRef.current.scrollTo) {
+      queueRef.current.scrollTo({ top, behavior: "auto" });
+    } else {
+      queueRef.current.scrollTop = top;
+    }
+    suppressNextScrollEventRef.current = false;
   }, [messages, streamThinkingDisplay, streamAnswerDisplay, streamTimeline, scrollPadding]);
+
+  useEffect(() => {
+    const scrollContainer = queueRef.current;
+    const contentEl = queueContentRef.current;
+    if (!scrollContainer || !contentEl || !streamMessageId) return;
+
+    if (typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      if (!shouldAutoScrollRef.current) return;
+      const top = getComposerAwareBottomTarget(scrollContainer, scrollPadding);
+      suppressNextScrollEventRef.current = true;
+      scrollContainer.scrollTop = top;
+      suppressNextScrollEventRef.current = false;
+    });
+    observer.observe(contentEl);
+
+    return () => observer.disconnect();
+  }, [streamMessageId, scrollPadding]);
 
   useEffect(() => {
     if (!pendingAnchorMessageIdRef.current || !queueRef.current) return;
@@ -2363,25 +2385,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             return;
           }
 
-          const bottomTarget = getComposerAwareBottomTarget(queueRef.current, scrollPadding);
-          if (
-            scrollModeRef.current === "idle" &&
-            !isConversationActive &&
-            !streamMessageIdRef.current &&
-            queueRef.current.scrollTop > bottomTarget + ANCHOR_SCROLL_TOLERANCE_PX
-          ) {
-            suppressNextScrollEventRef.current = true;
-            queueRef.current.scrollTo?.({ top: bottomTarget, behavior: "auto" });
-            queueRef.current.scrollTop = bottomTarget;
-            setIsConversationAtBottom(true);
-            shouldAutoScrollRef.current = true;
-            userScrollIntentRef.current = false;
-            requestAnimationFrame(() => {
-              suppressNextScrollEventRef.current = false;
-            });
-            return;
-          }
-
           const nextIsAtBottom = isNearQueueBottom(queueRef.current, scrollPadding);
           setIsConversationAtBottom(nextIsAtBottom);
 
@@ -2446,6 +2449,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         }}
       >
         <div
+          ref={queueContentRef}
           className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4"
           style={{ paddingBottom: scrollPadding }}
         >
@@ -2511,6 +2515,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               {error}
             </div>
           ) : null}
+
+          {streamMessageId ? <div style={{ height: 36 }} /> : null}
         </div>
       </div>
 
