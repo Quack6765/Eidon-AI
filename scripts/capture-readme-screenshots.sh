@@ -99,30 +99,14 @@ ensure_desktop_sidebar_open() {
     fi
 }
 
-hide_sidebar() {
-    local toggle_ref
-    toggle_ref=$("$AB" snapshot -i 2>/dev/null | grep -i "collapse\|hide sidebar" | head -1 | grep -o '@e[0-9]*' || true)
-    if [ -n "$toggle_ref" ]; then
-        "$AB" click "$toggle_ref" 2>/dev/null || true
-        "$AB" wait 500
-    fi
-    "$AB" eval "document.querySelector('.fixed.inset-0')?.remove()" 2>/dev/null || true
-    "$AB" wait 500
-}
+echo "==> Setting desktop viewport (1920x1080)..."
+"$AB" set viewport 1920 1080
 
-echo "==> Setting desktop viewport (1440x900)..."
-"$AB" set viewport 1440 900
-
-echo "==> Capturing desktop-sidebar.png..."
+echo "==> Capturing desktop-chat.png..."
 "$AB" open "$BASE_URL/chat/$PRIMARY_CONV_ID"
 "$AB" wait --load networkidle
 "$AB" wait 3000
 ensure_desktop_sidebar_open
-"$AB" screenshot "$SCREENSHOT_DIR/desktop-sidebar.png"
-echo "  Saved desktop-sidebar.png"
-
-echo "==> Capturing desktop-chat.png..."
-hide_sidebar
 CHAT_TEXT=$("$AB" get text "main" 2>/dev/null || echo "")
 if echo "$CHAT_TEXT" | grep -q "April launch" 2>/dev/null; then
     echo "  Chat content loaded"
