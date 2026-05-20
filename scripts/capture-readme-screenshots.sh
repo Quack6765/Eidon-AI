@@ -88,30 +88,41 @@ click_openrouter_and_wait() {
     "$AB" wait 1000
 }
 
-dismiss_sidebar_overlay() {
-    "$AB" eval "document.querySelector('.fixed.inset-0')?.style?.removeProperty('display'); document.querySelector('.fixed.inset-0')?.click()" 2>/dev/null || true
+ensure_desktop_sidebar_open() {
+    "$AB" eval "sessionStorage.removeItem('eidon:sidebar:user-closed')" 2>/dev/null || true
+    "$AB" wait 500
     local toggle_ref
-    toggle_ref=$("$AB" snapshot -i 2>/dev/null | grep -i "sidebar\|hide sidebar\|collapse" | head -1 | grep -o '@e[0-9]*' || true)
+    toggle_ref=$("$AB" snapshot -i 2>/dev/null | grep -i "show sidebar\|expand sidebar\|panel" | head -1 | grep -o '@e[0-9]*' || true)
     if [ -n "$toggle_ref" ]; then
         "$AB" click "$toggle_ref" 2>/dev/null || true
+        "$AB" wait 1000
     fi
-    "$AB" eval "const ov = document.querySelector('.fixed.inset-0'); if(ov) ov.style.display='none'" 2>/dev/null || true
+}
+
+hide_sidebar() {
+    local toggle_ref
+    toggle_ref=$("$AB" snapshot -i 2>/dev/null | grep -i "collapse\|hide sidebar" | head -1 | grep -o '@e[0-9]*' || true)
+    if [ -n "$toggle_ref" ]; then
+        "$AB" click "$toggle_ref" 2>/dev/null || true
+        "$AB" wait 500
+    fi
+    "$AB" eval "document.querySelector('.fixed.inset-0')?.remove()" 2>/dev/null || true
     "$AB" wait 500
 }
 
 echo "==> Setting desktop viewport (1440x900)..."
 "$AB" set viewport 1440 900
 
-echo "==> Opening base URL to establish session..."
-"$AB" open "$BASE_URL"
-"$AB" wait --load networkidle
-dismiss_sidebar_overlay
-
-echo "==> Capturing desktop-chat.png..."
+echo "==> Capturing desktop-sidebar.png..."
 "$AB" open "$BASE_URL/chat/$PRIMARY_CONV_ID"
 "$AB" wait --load networkidle
 "$AB" wait 3000
-dismiss_sidebar_overlay
+ensure_desktop_sidebar_open
+"$AB" screenshot "$SCREENSHOT_DIR/desktop-sidebar.png"
+echo "  Saved desktop-sidebar.png"
+
+echo "==> Capturing desktop-chat.png..."
+hide_sidebar
 CHAT_TEXT=$("$AB" get text "main" 2>/dev/null || echo "")
 if echo "$CHAT_TEXT" | grep -q "April launch" 2>/dev/null; then
     echo "  Chat content loaded"
@@ -130,7 +141,6 @@ echo "==> Capturing desktop-providers.png..."
 "$AB" open "$BASE_URL/settings/providers"
 "$AB" wait --load networkidle
 "$AB" wait 2000
-dismiss_sidebar_overlay
 click_openrouter_and_wait
 "$AB" screenshot "$SCREENSHOT_DIR/desktop-providers.png"
 echo "  Saved desktop-providers.png"
@@ -139,7 +149,6 @@ echo "==> Capturing desktop-automations.png..."
 "$AB" open "$BASE_URL/automations/$AUTOMATION_ID"
 "$AB" wait --load networkidle
 "$AB" wait 2000
-dismiss_sidebar_overlay
 "$AB" screenshot "$SCREENSHOT_DIR/desktop-automations.png"
 echo "  Saved desktop-automations.png"
 
@@ -150,7 +159,6 @@ echo "==> Capturing mobile-chat.png..."
 "$AB" open "$BASE_URL/chat/$PRIMARY_CONV_ID"
 "$AB" wait --load networkidle
 "$AB" wait 3000
-dismiss_sidebar_overlay
 "$AB" screenshot "$SCREENSHOT_DIR/mobile-chat.png"
 echo "  Saved mobile-chat.png"
 
@@ -158,7 +166,6 @@ echo "==> Capturing mobile-providers.png..."
 "$AB" open "$BASE_URL/settings/providers"
 "$AB" wait --load networkidle
 "$AB" wait 2000
-dismiss_sidebar_overlay
 PROVIDERS_REF=$("$AB" snapshot -i | grep -i "providers" | head -1 | grep -o '@e[0-9]*' || true)
 if [ -n "$PROVIDERS_REF" ]; then
     "$AB" click "$PROVIDERS_REF"
