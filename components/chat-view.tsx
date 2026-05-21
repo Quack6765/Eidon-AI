@@ -2016,20 +2016,34 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const overscanValue = useMemo(() => ({ main: 200, reverse: 200 }), []);
   const computeItemKey = useCallback((_: number, message: { id: string }) => message.id, []);
 
+  useEffect(() => {
+    if (!streamMessageId) return;
+    requestAnimationFrame(() => {
+      virtuosoRef.current?.scrollToIndex({
+        index: "LAST",
+        align: "end",
+        behavior: "auto",
+      });
+    });
+  }, [streamMessageId]);
+
   const virtuosoComponents = useMemo(() => ({
     List: React.forwardRef<HTMLDivElement>(function List(props: Record<string, unknown>, ref: React.Ref<HTMLDivElement>) {
       return <div {...props} ref={ref} className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-8 pt-4" />;
     }),
-    Footer: ({ context: footerCtx }: { context?: Record<string, unknown> }) => (
-      <>
-        {(footerCtx?.error as string | undefined) ? (
-          <div className="mx-auto mt-3 max-w-md rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
-            {footerCtx!.error as string}
-          </div>
-        ) : null}
-        <div style={{ height: 195 }} />
-      </>
-    ),
+    Footer: ({ context: footerCtx }: { context?: Record<string, unknown> }) => {
+      const isStreaming = Boolean(footerCtx?.streamMessageId);
+      return (
+        <>
+          {(footerCtx?.error as string | undefined) ? (
+            <div className="mx-auto mt-3 max-w-md rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
+              {footerCtx!.error as string}
+            </div>
+          ) : null}
+          <div style={{ height: isStreaming ? 80 : 24 }} />
+        </>
+      );
+    },
   }), []);
 
   const chatItemContent = useCallback((index: number, message: Message, context: Record<string, unknown>) => {
@@ -2206,7 +2220,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         className="no-scrollbar overscroll-y-contain"
         data={renderableMessages}
         alignToBottom={true}
-        followOutput="auto"
+        followOutput={(atBottom: boolean) => {
+          if (streamMessageId) return "auto" as const;
+          return atBottom ? ("smooth" as const) : false;
+        }}
         atBottomStateChange={setIsAtBottom}
         atBottomThreshold={64}
         computeItemKey={computeItemKey}
@@ -2238,8 +2255,29 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         components={virtuosoComponents}
       />
 
-      <div className="fixed inset-x-0 bottom-0 z-50 pointer-events-none">
-        <div className="mx-auto w-full px-4 md:px-8 max-w-[980px] pointer-events-auto relative">
+      {!isAtBottom ? (
+        <div className={cn(
+          "pointer-events-none absolute z-50 flex items-center",
+          "left-3 sm:left-5 bottom-3",
+          queueBannerHeight > 0
+            ? "md:left-auto md:right-5 md:bottom-auto md:top-3 md:translate-x-0"
+            : "md:left-auto md:right-5 md:bottom-3 md:translate-x-0"
+        )}>
+          <button
+            type="button"
+            onClick={jumpToBottom}
+            className="pointer-events-auto relative inline-flex h-8 w-8 items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-2 text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-150 hover:opacity-90 active:scale-[0.96] whitespace-nowrap md:w-auto md:justify-start md:px-4 md:py-2"
+            aria-label="Scroll to newest messages"
+            title="Scroll to bottom"
+          >
+            ↓
+            <span className="hidden md:inline text-xs font-semibold">Latest messages</span>
+          </button>
+        </div>
+      ) : null}
+
+      <div className="shrink-0 px-4 md:px-8 pt-1 pb-3">
+        <div className="mx-auto w-full max-w-[980px] relative">
           <div ref={queueBannerRef}>
             <QueuedMessageBanner
               items={queuedMessages}
@@ -2248,26 +2286,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               onSendNow={sendQueuedMessageNow}
             />
           </div>
-          {!isAtBottom ? (
-            <div className={cn(
-              "pointer-events-none absolute z-50 flex items-center",
-              "left-3 sm:left-5",
-              queueBannerHeight > 0
-                ? "-top-10 md:left-full md:ml-3 md:top-auto md:bottom-4 md:translate-x-0"
-                : "bottom-full mb-2 translate-y-0 md:left-full md:ml-3 md:top-1/2 md:-translate-y-1/2 md:bottom-auto md:mb-0 md:translate-x-0"
-            )}>
-              <button
-                type="button"
-                onClick={jumpToBottom}
-                className="pointer-events-auto relative inline-flex h-8 w-8 items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-2 text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-150 hover:opacity-90 active:scale-[0.96] whitespace-nowrap md:w-auto md:justify-start md:px-4 md:py-2"
-                aria-label="Scroll to newest messages"
-                title="Scroll to bottom"
-              >
-                ↓
-                <span className="hidden md:inline text-xs font-semibold">Latest messages</span>
-              </button>
-            </div>
-          ) : null}
           <div className="relative">
           <ChatComposer
             input={input}

@@ -2747,11 +2747,8 @@ describe("chat view", () => {
     });
 
     const pill = screen.getByRole("button", { name: "Scroll to newest messages" }).parentElement!;
-    expect(pill.className).toContain("md:left-full");
-    expect(pill.className).toContain("md:ml-3");
-    expect(pill.className).toContain("md:-translate-y-1/2");
-    expect(pill.className).not.toContain("md:left-4");
-    expect(pill.className).not.toContain("md:bottom-full");
+    expect(pill.className).toContain("md:right-5");
+    expect(pill.className).toContain("bottom-3");
   });
 
   it("follows streaming overflow after sending", async () => {
