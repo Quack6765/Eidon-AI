@@ -141,6 +141,55 @@ vi.mock("@/lib/speech/speech-controller", () => ({
   createSpeechController: speechMock.createSpeechController
 }));
 
+const virtuosoMock = vi.hoisted(() => {
+  const handle = {
+    scrollToIndex: vi.fn(),
+    scrollIntoView: vi.fn(),
+    scrollTo: vi.fn(),
+    scrollBy: vi.fn(),
+    autoscrollToBottom: vi.fn(),
+    getState: vi.fn()
+  };
+  let atBottomCallback: ((atBottom: boolean) => void) | null = null;
+  return { handle, getAtBottomCallback: () => atBottomCallback, setAtBottomCallback: (cb: ((atBottom: boolean) => void) | null) => { atBottomCallback = cb; } };
+});
+
+vi.mock("react-virtuoso", () => {
+  return {
+    Virtuoso: React.forwardRef(function MockVirtuoso(
+      props: Record<string, unknown>,
+      ref: React.Ref<unknown>
+    ) {
+      const { handle, setAtBottomCallback } = virtuosoMock as unknown as {
+        handle: Record<string, ReturnType<typeof vi.fn>>;
+        setAtBottomCallback: (cb: ((atBottom: boolean) => void) | null) => void;
+      };
+
+      React.useImperativeHandle(ref, () => handle);
+
+      React.useEffect(() => {
+        setAtBottomCallback(props.atBottomStateChange as ((atBottom: boolean) => void) | null);
+        return () => setAtBottomCallback(null);
+      }, [props.atBottomStateChange]);
+
+      const data = (props.data as unknown[]) ?? [];
+      const itemContent = props.itemContent as ((index: number, item: unknown, context: unknown) => React.ReactNode) | undefined;
+      const components = props.components as Record<string, React.ComponentType<Record<string, unknown>>> | undefined;
+      const context = props.context;
+
+      return React.createElement(
+        "div",
+        { "data-testid": "virtuoso-scroller", className: props.className as string | undefined, style: props.style as React.CSSProperties | undefined },
+        ...data.map((item, index) =>
+          itemContent ? itemContent(index, item, context) : null
+        ),
+        components?.Footer ? React.createElement(components.Footer, { context }) : null
+      );
+    }),
+    VirtuosoHandle: {} as unknown
+  };
+});
+
 function createAttachment(overrides: Partial<MessageAttachment> = {}): MessageAttachment {
   return {
     id: "att_1",
@@ -323,6 +372,13 @@ async function flushAnimationFrame() {
   });
 }
 
+function simulateAtBottomChange(atBottom: boolean) {
+  const cb = virtuosoMock.getAtBottomCallback();
+  if (cb) {
+    act(() => { cb(atBottom); });
+  }
+}
+
 describe("chat view", () => {
   const originalMaxTouchPoints = Object.getOwnPropertyDescriptor(navigator, "maxTouchPoints");
   const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
@@ -349,6 +405,11 @@ describe("chat view", () => {
     speechMock.createSpeechEngine.mockClear();
     speechMock.audioMonitor.readLevel.mockReturnValue(0.42);
     speechMock.audioMonitor.dispose.mockReset();
+    virtuosoMock.handle.scrollToIndex.mockReset();
+    virtuosoMock.handle.scrollIntoView.mockReset();
+    virtuosoMock.handle.scrollTo.mockReset();
+    virtuosoMock.handle.scrollBy.mockReset();
+    virtuosoMock.handle.autoscrollToBottom.mockReset();
     resizeObserverCallbacks = [];
     window.ResizeObserver = class {
       private callback: ResizeObserverCallback;
@@ -2570,7 +2631,7 @@ describe("chat view", () => {
   });
 
   it("jumps back to the latest messages when a scrolled-up user queues another prompt", async () => {
-    const { container } = renderWithProvider(
+    renderWithProvider(
       React.createElement(ChatView, {
         payload: createPayload({
           conversation: {
@@ -2580,37 +2641,9 @@ describe("chat view", () => {
         })
       })
     );
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
     );
-
-    let scrollTop = 700;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
-    });
-
-    Object.defineProperty(queue, "clientHeight", {
-      configurable: true,
-      get: () => 300
-    });
-    Object.defineProperty(queue, "scrollHeight", {
-      configurable: true,
-      get: () => 1000
-    });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => {
-        scrollTop = value;
-      }
-    });
-    Object.defineProperty(queue, "scrollTo", {
-      configurable: true,
-      value: scrollTo
-    });
 
     act(() => {
       wsMock.onMessage!({
@@ -2622,9 +2655,8 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    scrollTop = 120;
-    fireEvent.scroll(queue);
-    scrollTo.mockClear();
+    simulateAtBottomChange(false);
+    virtuosoMock.handle.scrollToIndex.mockClear();
 
     fireEvent.change(textarea, { target: { value: "Queued follow-up" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2637,52 +2669,26 @@ describe("chat view", () => {
       });
     });
 
-    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 700 }));
-    expect(scrollTop).toBe(700);
+    expect(virtuosoMock.handle.scrollToIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ index: "LAST", align: "end" })
+    );
   });
 
   it("does not force-scroll streaming updates when the user has scrolled away from the bottom", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    let scrollTop = 700;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
-    });
-
-    Object.defineProperty(queue, "clientHeight", {
-      configurable: true,
-      get: () => 300
-    });
-    Object.defineProperty(queue, "scrollHeight", {
-      configurable: true,
-      get: () => 1000
-    });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => {
-        scrollTop = value;
-      }
-    });
-    Object.defineProperty(queue, "scrollTo", {
-      configurable: true,
-      value: scrollTo
-    });
-
-    wsMock.onMessage!({
-      type: "delta",
-      conversationId: "conv_1",
-      event: { type: "message_start", messageId: "msg_assistant" }
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
     });
 
     await flushAnimationFrame();
 
-    scrollTop = 120;
-    fireEvent.scroll(queue);
-    scrollTo.mockClear();
+    simulateAtBottomChange(false);
+    virtuosoMock.handle.scrollToIndex.mockClear();
 
     act(() => {
       wsMock.onMessage!({
@@ -2694,49 +2700,18 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    expect(scrollTo).not.toHaveBeenCalled();
-    expect(scrollTop).toBe(120);
+    expect(virtuosoMock.handle.scrollToIndex).not.toHaveBeenCalled();
   });
 
   it("hides the scroll-to-newest pill when the user sends from a scrolled-up conversation", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
     );
 
-    let scrollTop = 700;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
-    });
-
-    Object.defineProperty(queue, "clientHeight", {
-      configurable: true,
-      get: () => 300
-    });
-    Object.defineProperty(queue, "scrollHeight", {
-      configurable: true,
-      get: () => 1000
-    });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => {
-        scrollTop = value;
-      }
-    });
-    Object.defineProperty(queue, "scrollTo", {
-      configurable: true,
-      value: scrollTo
-    });
-
     await flushAnimationFrame();
 
-    scrollTop = 120;
-    fireEvent.scroll(queue);
-    scrollTo.mockClear();
+    simulateAtBottomChange(false);
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Scroll to newest messages" })).toBeInTheDocument();
@@ -2754,47 +2729,18 @@ describe("chat view", () => {
       attachmentIds: [],
       personaId: undefined
     });
-    await flushAnimationFrame();
+
+    simulateAtBottomChange(true);
     await flushAnimationFrame();
     expect(screen.queryByRole("button", { name: "Scroll to newest messages" })).toBeNull();
   });
 
   it("positions the Latest Messages pill to the right of the composer on desktop", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
-
-    let scrollTop = 700;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
-    });
-
-    Object.defineProperty(queue, "clientHeight", {
-      configurable: true,
-      get: () => 300
-    });
-    Object.defineProperty(queue, "scrollHeight", {
-      configurable: true,
-      get: () => 1000
-    });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => {
-        scrollTop = value;
-      }
-    });
-    Object.defineProperty(queue, "scrollTo", {
-      configurable: true,
-      value: scrollTo
-    });
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     await flushAnimationFrame();
 
-    scrollTop = 120;
-    fireEvent.scroll(queue);
-    scrollTo.mockClear();
+    simulateAtBottomChange(false);
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Scroll to newest messages" })).toBeInTheDocument();
@@ -2808,46 +2754,11 @@ describe("chat view", () => {
     expect(pill.className).not.toContain("md:bottom-full");
   });
 
-  it("uses dynamic bottom padding based on clientHeight", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
-    const messageList = queue.firstElementChild as HTMLDivElement;
-
-    Object.defineProperty(queue, "clientHeight", {
-      configurable: true,
-      get: () => 420
-    });
-
-    await flushResizeObservers();
-
-    expect(messageList).toHaveStyle({ paddingBottom: "420px" });
-  });
-
-  it("follows streaming overflow to the composer-aware bottom target after sending", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
+  it("follows streaming overflow after sending", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
     );
-
-    let scrollHeight = 720;
-    let scrollTop = 0;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
-    });
-
-    Object.defineProperty(queue, "clientHeight", { configurable: true, get: () => 360 });
-    Object.defineProperty(queue, "scrollHeight", { configurable: true, get: () => scrollHeight });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => { scrollTop = value; }
-    });
-    Object.defineProperty(queue, "scrollTo", { configurable: true, value: scrollTo });
-
-    await flushResizeObservers();
 
     fireEvent.change(textarea, { target: { value: "Track the next reply" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2859,8 +2770,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    scrollTo.mockClear();
-    scrollHeight = 1080;
+    virtuosoMock.handle.scrollToIndex.mockClear();
 
     act(() => {
       wsMock.onMessage!({
@@ -2871,7 +2781,7 @@ describe("chat view", () => {
       wsMock.onMessage!({
         type: "delta",
         conversationId: "conv_1",
-        event: { type: "answer_delta", text: "A long response that overflows the composer-aware viewport" }
+        event: { type: "answer_delta", text: "A long response that overflows the viewport" }
       });
     });
 
@@ -2879,151 +2789,8 @@ describe("chat view", () => {
     await flushAnimationFrame();
 
     await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 540 }));
+      expect(screen.getByText("A long response that overflows the viewport")).toBeInTheDocument();
     });
-    expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ top: 1080 }));
-  });
-
-  it("follows to the composer-aware bottom target when a stream completes before the overflow frame", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
-
-    let scrollHeight = 720;
-    let scrollTop = 0;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
-    });
-
-    Object.defineProperty(queue, "clientHeight", { configurable: true, get: () => 360 });
-    Object.defineProperty(queue, "scrollHeight", { configurable: true, get: () => scrollHeight });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => { scrollTop = value; }
-    });
-    Object.defineProperty(queue, "scrollTo", { configurable: true, value: scrollTo });
-
-    await flushResizeObservers();
-
-    fireEvent.change(textarea, { target: { value: "Track a fast reply" } });
-    fireEvent.keyDown(textarea, { key: "Enter" });
-
-    await waitFor(() => {
-      expect(screen.getByText("Track a fast reply")).toBeInTheDocument();
-    });
-
-    await flushAnimationFrame();
-    await flushAnimationFrame();
-
-    scrollTo.mockClear();
-    scrollHeight = 1080;
-
-    act(() => {
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "message_start", messageId: "msg_assistant" }
-      });
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "answer_delta", text: "A long response that completes before the frame runs" }
-      });
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "done", messageId: "msg_assistant" }
-      });
-    });
-
-    await flushAnimationFrame();
-    await flushAnimationFrame();
-
-    await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 540 }));
-    });
-    expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ top: 1080 }));
-  });
-
-  it("clamps back from padding-only max scroll when a followed stream completes", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
-    const messageList = queue.firstElementChild as HTMLDivElement;
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
-
-    let scrollHeight = 720;
-    let scrollTop = 0;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
-    });
-
-    Object.defineProperty(queue, "clientHeight", { configurable: true, get: () => 360 });
-    Object.defineProperty(queue, "scrollHeight", { configurable: true, get: () => scrollHeight });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => { scrollTop = value; }
-    });
-    Object.defineProperty(queue, "scrollTo", { configurable: true, value: scrollTo });
-
-    await flushResizeObservers();
-
-    fireEvent.change(textarea, { target: { value: "Track completion" } });
-    fireEvent.keyDown(textarea, { key: "Enter" });
-
-    await waitFor(() => {
-      expect(screen.getByText("Track completion")).toBeInTheDocument();
-    });
-
-    await flushAnimationFrame();
-    await flushAnimationFrame();
-
-    scrollTo.mockClear();
-    scrollHeight = 1080;
-
-    act(() => {
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "message_start", messageId: "msg_assistant" }
-      });
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "answer_delta", text: "A long response that starts following" }
-      });
-    });
-
-    await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 540 }));
-    });
-
-    scrollTo.mockClear();
-    scrollTop = 540;
-
-    act(() => {
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "done", messageId: "msg_assistant" }
-      });
-    });
-
-    await flushAnimationFrame();
-    await flushAnimationFrame();
-
-    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 540 }));
-    expect(scrollTop).toBe(540);
-    expect(messageList).toHaveStyle({ paddingBottom: "360px" });
   });
 
   it("anchors to the reconciled server user message when the optimistic local message is removed first", async () => {
@@ -3049,146 +2816,52 @@ describe("chat view", () => {
         })
       } as Response);
 
-    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
-    Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
-      if (this instanceof HTMLElement && this.dataset.messageId === "msg_server_user") {
-        return {
-          x: 0,
-          y: 180,
-          top: 180,
-          right: 0,
-          bottom: 220,
-          left: 0,
-          width: 0,
-          height: 40,
-          toJSON: () => ({})
-        };
-      }
-
-      return originalGetBoundingClientRect.call(this);
-    };
-
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
     );
 
-    let scrollTop = 25;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
+    fireEvent.change(textarea, { target: { value: "Server-backed prompt" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/conversations/conv_1", {
+        cache: "no-store"
+      });
     });
 
-    Object.defineProperty(queue, "clientHeight", { configurable: true, get: () => 300 });
-    Object.defineProperty(queue, "scrollHeight", { configurable: true, get: () => 900 });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => { scrollTop = value; }
+    await waitFor(() => {
+      expect(screen.getByText("Server-backed prompt")).toBeInTheDocument();
     });
-    Object.defineProperty(queue, "scrollTo", { configurable: true, value: scrollTo });
 
-    try {
-      fireEvent.change(textarea, { target: { value: "Server-backed prompt" } });
-      fireEvent.keyDown(textarea, { key: "Enter" });
-
-      await waitFor(() => {
-        expect(global.fetch).toHaveBeenCalledWith("/api/conversations/conv_1", {
-          cache: "no-store"
-        });
-      });
-
-      await waitFor(() => {
-        expect(screen.getByText("Server-backed prompt")).toBeInTheDocument();
-      });
-
-      await waitFor(() => {
-        expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 177 }));
-      });
-    } finally {
-      Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
-    }
+    await waitFor(() => {
+      expect(virtuosoMock.handle.scrollIntoView).toHaveBeenCalled();
+    });
   });
 
   it("scrolls to anchor the user message near the top after sending", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
     );
-    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
 
-    let scrollTop = 500;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
+    fireEvent.change(textarea, { target: { value: "Hello world" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello world")).toBeInTheDocument();
     });
 
-    Object.defineProperty(queue, "clientHeight", { configurable: true, get: () => 300 });
-    Object.defineProperty(queue, "scrollHeight", { configurable: true, get: () => 1000 });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => { scrollTop = value; }
-    });
-    Object.defineProperty(queue, "scrollTo", { configurable: true, value: scrollTo });
-    Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
-      if (this === queue) {
-        return {
-          x: 0,
-          y: 100,
-          top: 100,
-          right: 0,
-          bottom: 400,
-          left: 0,
-          width: 0,
-          height: 300,
-          toJSON: () => ({})
-        };
-      }
+    await flushAnimationFrame();
+    await flushAnimationFrame();
 
-      if (this instanceof HTMLElement && this.dataset.messageId?.startsWith("local_")) {
-        return {
-          x: 0,
-          y: 140,
-          top: 140,
-          right: 0,
-          bottom: 180,
-          left: 0,
-          width: 0,
-          height: 40,
-          toJSON: () => ({})
-        };
-      }
-
-      return originalGetBoundingClientRect.call(this);
-    };
-
-    try {
-      fireEvent.change(textarea, { target: { value: "Hello world" } });
-      fireEvent.keyDown(textarea, { key: "Enter" });
-
-      await waitFor(() => {
-        expect(screen.getByText("Hello world")).toBeInTheDocument();
-      });
-
-      await flushAnimationFrame();
-      await flushAnimationFrame();
-
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({
-        behavior: "auto",
-        top: 512
-      }));
-    } finally {
-      Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
-    }
+    expect(virtuosoMock.handle.scrollIntoView).toHaveBeenCalledWith(
+      expect.objectContaining({ behavior: "smooth" })
+    );
   });
 
   it("scrolls to bottom when queuing a follow-up during an active turn", async () => {
-    const { container } = renderWithProvider(
+    renderWithProvider(
       React.createElement(ChatView, {
         payload: createPayload({
           conversation: {
@@ -3198,26 +2871,9 @@ describe("chat view", () => {
         })
       })
     );
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
     );
-
-    let scrollTop = 120;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
-    });
-
-    Object.defineProperty(queue, "clientHeight", { configurable: true, get: () => 300 });
-    Object.defineProperty(queue, "scrollHeight", { configurable: true, get: () => 1000 });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => { scrollTop = value; }
-    });
-    Object.defineProperty(queue, "scrollTo", { configurable: true, value: scrollTo });
 
     act(() => {
       wsMock.onMessage!({
@@ -3229,7 +2885,7 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    scrollTo.mockClear();
+    virtuosoMock.handle.scrollToIndex.mockClear();
 
     fireEvent.change(textarea, { target: { value: "Queued follow-up" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -3244,129 +2900,16 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 700 }));
-  });
-
-  it("returns to idle when the user manually scrolls during anchored mode", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    expect(virtuosoMock.handle.scrollToIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ index: "LAST", align: "end", behavior: "auto" })
     );
-    const originalGetBoundingClientRect = Element.prototype.getBoundingClientRect;
-
-    let scrollHeight = 200;
-    let scrollTop = 0;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
-    });
-
-    Object.defineProperty(queue, "clientHeight", { configurable: true, get: () => 300 });
-    Object.defineProperty(queue, "scrollHeight", { configurable: true, get: () => scrollHeight });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => { scrollTop = value; }
-    });
-    Object.defineProperty(queue, "scrollTo", { configurable: true, value: scrollTo });
-    Element.prototype.getBoundingClientRect = function getBoundingClientRect() {
-      if (this === queue) {
-        return {
-          x: 0,
-          y: 0,
-          top: 0,
-          right: 0,
-          bottom: 300,
-          left: 0,
-          width: 0,
-          height: 300,
-          toJSON: () => ({})
-        };
-      }
-
-      if (this instanceof HTMLElement && this.dataset.messageId?.startsWith("local_")) {
-        return {
-          x: 0,
-          y: 120,
-          top: 120,
-          right: 0,
-          bottom: 160,
-          left: 0,
-          width: 0,
-          height: 40,
-          toJSON: () => ({})
-        };
-      }
-
-      return originalGetBoundingClientRect.call(this);
-    };
-
-    try {
-      fireEvent.change(textarea, { target: { value: "Hello" } });
-      fireEvent.keyDown(textarea, { key: "Enter" });
-
-      await waitFor(() => {
-        expect(screen.getByText("Hello")).toBeInTheDocument();
-      });
-
-      await flushAnimationFrame();
-      await flushAnimationFrame();
-
-      scrollTo.mockClear();
-
-      scrollHeight = 700;
-      scrollTop = 10;
-      fireEvent.wheel(queue, { deltaY: -120 });
-      fireEvent.scroll(queue);
-
-      act(() => {
-        wsMock.onMessage!({
-          type: "delta",
-          conversationId: "conv_1",
-          event: { type: "message_start", messageId: "msg_assistant" }
-        });
-        wsMock.onMessage!({
-          type: "delta",
-          conversationId: "conv_1",
-          event: { type: "answer_delta", text: "Streaming content" }
-        });
-      });
-
-      await flushAnimationFrame();
-
-      expect(scrollTo).not.toHaveBeenCalled();
-    } finally {
-      Element.prototype.getBoundingClientRect = originalGetBoundingClientRect;
-    }
   });
 
   it("cancels streaming follow immediately when the user wheels away", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
     );
-
-    let scrollHeight = 720;
-    let scrollTop = 0;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
-    });
-
-    Object.defineProperty(queue, "clientHeight", { configurable: true, get: () => 360 });
-    Object.defineProperty(queue, "scrollHeight", { configurable: true, get: () => scrollHeight });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => { scrollTop = value; }
-    });
-    Object.defineProperty(queue, "scrollTo", { configurable: true, value: scrollTo });
-
-    await flushResizeObservers();
 
     fireEvent.change(textarea, { target: { value: "Track then interrupt" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -3378,8 +2921,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    scrollTo.mockClear();
-    scrollHeight = 1080;
+    virtuosoMock.handle.scrollToIndex.mockClear();
 
     act(() => {
       wsMock.onMessage!({
@@ -3395,12 +2937,11 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: 540 }));
+      expect(screen.getByText("A long response that starts following")).toBeInTheDocument();
     });
 
-    scrollTo.mockClear();
-    fireEvent.wheel(queue, { deltaY: -240 });
-    scrollTo.mockClear();
+    simulateAtBottomChange(false);
+    virtuosoMock.handle.scrollToIndex.mockClear();
 
     act(() => {
       wsMock.onMessage!({
@@ -3413,180 +2954,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    expect(scrollTo).not.toHaveBeenCalledWith(expect.objectContaining({ top: 540 }));
-  });
-
-  it("does not clamp when scroll position matches the bottom target after streaming ends", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
-
-    let scrollHeight = 1080;
-    let scrollTop = 0;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
-    });
-
-    Object.defineProperty(queue, "clientHeight", { configurable: true, get: () => 360 });
-    Object.defineProperty(queue, "scrollHeight", { configurable: true, get: () => scrollHeight });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => { scrollTop = value; }
-    });
-    Object.defineProperty(queue, "scrollTo", { configurable: true, value: scrollTo });
-
-    await flushResizeObservers();
-
-    fireEvent.change(textarea, { target: { value: "Finish without blank space" } });
-    fireEvent.keyDown(textarea, { key: "Enter" });
-
-    await waitFor(() => {
-      expect(screen.getByText("Finish without blank space")).toBeInTheDocument();
-    });
-
-    act(() => {
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "message_start", messageId: "msg_assistant" }
-      });
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "answer_delta", text: "Final response text" }
-      });
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "done", messageId: "msg_assistant" }
-      });
-    });
-
-    await flushAnimationFrame();
-    await flushAnimationFrame();
-
-    scrollTo.mockClear();
-    scrollTop = 540;
-    fireEvent.scroll(queue);
-
-    expect(scrollTo).not.toHaveBeenCalled();
-    expect(scrollTop).toBe(540);
-  });
-
-  it("prevents downward wheel scrolling into padding-only space for short chats", async () => {
-    const { container } = renderWithProvider(
-      React.createElement(ChatView, {
-        payload: createPayload({
-          messages: [
-            createMessage({
-              id: "msg_short_user",
-              role: "user",
-              content: "Short prompt"
-            }),
-            createMessage({
-              id: "msg_short_assistant",
-              role: "assistant",
-              content: "Short answer"
-            })
-          ]
-        })
-      })
-    );
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
-
-    let scrollTop = 0;
-    Object.defineProperty(queue, "clientHeight", { configurable: true, get: () => 200 });
-    Object.defineProperty(queue, "scrollHeight", { configurable: true, get: () => 240 });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => { scrollTop = value; }
-    });
-    Object.defineProperty(queue, "scrollTo", {
-      configurable: true,
-      value: vi.fn(({ top }: { top?: number }) => {
-        if (typeof top === "number") {
-          scrollTop = top;
-        }
-      })
-    });
-
-    await flushResizeObservers();
-    await flushAnimationFrame();
-
-    const wheelEvent = new WheelEvent("wheel", {
-      bubbles: true,
-      cancelable: true,
-      deltaY: 120
-    });
-
-    const defaultAllowed = fireEvent(queue, wheelEvent);
-    if (defaultAllowed && !wheelEvent.defaultPrevented) {
-      scrollTop = scrollTop + 120;
-    }
-
-    expect(wheelEvent.defaultPrevented).toBe(true);
-    expect(scrollTop).toBe(20);
-    expect(screen.queryByRole("button", { name: "Scroll to newest messages" })).toBeNull();
-  });
-
-  it("transitions to following mode when streaming content fills the viewport", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
-
-    let scrollHeight = 700;
-    let scrollTop = 0;
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        scrollTop = top;
-      }
-    });
-
-    Object.defineProperty(queue, "clientHeight", { configurable: true, get: () => 300 });
-    Object.defineProperty(queue, "scrollHeight", { configurable: true, get: () => scrollHeight });
-    Object.defineProperty(queue, "scrollTop", {
-      configurable: true,
-      get: () => scrollTop,
-      set: (value: number) => { scrollTop = value; }
-    });
-    Object.defineProperty(queue, "scrollTo", { configurable: true, value: scrollTo });
-
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
-
-    fireEvent.change(textarea, { target: { value: "Hello" } });
-    fireEvent.keyDown(textarea, { key: "Enter" });
-
-    await waitFor(() => {
-      expect(screen.getByText("Hello")).toBeInTheDocument();
-    });
-
-    await flushAnimationFrame();
-    await flushAnimationFrame();
-
-    act(() => {
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "message_start", messageId: "msg_assistant" }
-      });
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "answer_delta", text: "A very long response that fills the viewport" }
-      });
-    });
-
-    await flushAnimationFrame();
-    await flushAnimationFrame();
-
-    expect(screen.queryByRole("button", { name: "Scroll to newest messages" })).toBeNull();
+    expect(virtuosoMock.handle.scrollToIndex).not.toHaveBeenCalled();
   });
 
   it("anchors to the edited message after edit-retry", async () => {
@@ -3612,7 +2980,7 @@ describe("chat view", () => {
         })
       } as Response);
 
-    const { container } = renderWithProvider(
+    renderWithProvider(
       React.createElement(ChatView, {
         payload: {
           ...createPayload(),
@@ -3630,14 +2998,6 @@ describe("chat view", () => {
         }
       })
     );
-    const queue = container.querySelector(".no-scrollbar.overflow-y-auto") as HTMLDivElement;
-
-    const scrollTo = vi.fn(({ top }: { top?: number }) => {
-      if (typeof top === "number") {
-        // noop
-      }
-    });
-    Object.defineProperty(queue, "scrollTo", { configurable: true, value: scrollTo });
 
     fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
     fireEvent.change(screen.getByDisplayValue("Original prompt"), {
@@ -3660,7 +3020,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    expect(scrollTo).toHaveBeenCalled();
+    expect(virtuosoMock.handle.scrollIntoView).toHaveBeenCalled();
   });
 
   it("renders tool actions and answer text while streaming", async () => {

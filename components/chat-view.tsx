@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { useRouter } from "next/navigation";
 import { Plus, Share2 } from "lucide-react";
 
@@ -51,17 +52,6 @@ type ConversationPayload = {
   };
 };
 
-const AUTO_SCROLL_THRESHOLD_PX = 64;
-const ANCHOR_SCROLL_TOLERANCE_PX = 4;
-const ANCHOR_VISIBLE_TOP_GAP_PX = 16;
-const MESSAGE_SLIDE_UP_OFFSET_PX = 12;
-const ANCHOR_SCROLL_TOP_INSET_PX = ANCHOR_VISIBLE_TOP_GAP_PX + MESSAGE_SLIDE_UP_OFFSET_PX;
-const ANCHOR_LAYOUT_SCROLL_GRACE_MS = 300;
-const ANCHOR_PROGRAMMATIC_SCROLL_GRACE_MS = 900;
-
-type ScrollMode = "idle" | "anchored" | "following";
-const SCROLL_BOTTOM_PADDING = 180;
-
 type SnapshotReconciliation = {
   messages: Message[];
   pendingLocalSubmissions: PendingLocalSubmission[];
@@ -90,26 +80,6 @@ function isLooseImageActionMatch(
     (left.toolName ?? "") === (right.toolName ?? "") &&
     (!left.detail || !right.detail)
   );
-}
-
-function getComposerSafeVisibleHeight(element: HTMLDivElement) {
-  return Math.max(0, element.clientHeight - SCROLL_BOTTOM_PADDING);
-}
-
-function getQueueContentBottom(element: HTMLDivElement, scrollPadding: number) {
-  return Math.max(0, element.scrollHeight - scrollPadding);
-}
-
-function getComposerAwareBottomTarget(element: HTMLDivElement, scrollPadding: number) {
-  return Math.max(
-    0,
-    getQueueContentBottom(element, scrollPadding) - getComposerSafeVisibleHeight(element)
-  );
-}
-
-function isNearQueueBottom(element: HTMLDivElement, scrollPadding: number) {
-  const distanceFromBottom = getComposerAwareBottomTarget(element, scrollPadding) - element.scrollTop;
-  return distanceFromBottom <= AUTO_SCROLL_THRESHOLD_PX;
 }
 
 function getAttachmentIdSignature(attachments: MessageAttachment[] | undefined) {
@@ -538,10 +508,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
   const [personaId, setPersonaId] = useState<string | null>(null);
-  const [isConversationAtBottom, setIsConversationAtBottom] = useState(true);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
   const queueBannerRef = useRef<HTMLDivElement>(null);
   const [queueBannerHeight, setQueueBannerHeight] = useState(0);
-  const [scrollPadding, setScrollPadding] = useState(SCROLL_BOTTOM_PADDING);
   const [isAgentIdle, setIsAgentIdle] = useState(false);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -561,8 +531,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       !(message.timeline?.length ?? 0) &&
       (message.status === "streaming" || message.status === "completed")
   );
-  const queueRef = useRef<HTMLDivElement | null>(null);
-  const queueContentRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
   const messagesRef = useRef(payload.messages);
@@ -578,16 +546,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const messageSyncTimeoutRef = useRef<number | null>(null);
   const pendingLocalSubmissionsRef = useRef<PendingLocalSubmission[]>([]);
 
-  const shouldAutoScrollRef = useRef(true);
-  const scrollModeRef = useRef<ScrollMode>("idle");
   const pendingAnchorMessageIdRef = useRef<string | null>(null);
-  const anchorScrollTopRef = useRef(0);
-  const anchorLayoutScrollGraceUntilRef = useRef(0);
-  const anchorProgrammaticScrollUntilRef = useRef(0);
-  const suppressNextScrollEventRef = useRef(false);
-  const userScrollIntentRef = useRef(false);
-  const anchorInterruptedRef = useRef(false);
-  const wasStreamingRef = useRef(false);
   const bootstrapPayloadRef = useRef<{
     message: string;
     attachments: MessageAttachment[];
@@ -768,180 +727,21 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, []);
 
   useEffect(() => {
-    scrollModeRef.current = "idle";
-    shouldAutoScrollRef.current = true;
-    requestAnimationFrame(() => {
-      if (!queueRef.current) {
-        return;
-      }
-
-      setIsConversationAtBottom(isNearQueueBottom(queueRef.current, scrollPadding));
+    virtuosoRef.current?.scrollToIndex({
+      index: "LAST",
+      align: "end",
+      behavior: "auto",
     });
-  }, [payload.conversation.id, scrollPadding]);
-
-  useEffect(() => {
-    const el = queueRef.current;
-    if (!el) return;
-
-    const updateScrollPadding = () => {
-      setScrollPadding(Math.max(SCROLL_BOTTOM_PADDING, el.clientHeight));
-    };
-
-    updateScrollPadding();
-
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(updateScrollPadding);
-    observer.observe(el);
-    return () => observer.disconnect();
+    setIsAtBottom(true);
   }, [payload.conversation.id]);
 
-  const scrollQueueToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    if (!queueRef.current) {
-      return;
-    }
-
-    shouldAutoScrollRef.current = true;
-    setIsConversationAtBottom(true);
-    const top = getComposerAwareBottomTarget(queueRef.current, scrollPadding);
-    if (queueRef.current.scrollTo) {
-      queueRef.current.scrollTo({ top, behavior });
-    } else {
-      queueRef.current.scrollTop = top;
-    }
-  }, [scrollPadding]);
-
-  function jumpToBottom() {
-    scrollModeRef.current = streamMessageIdRef.current ? "following" : "idle";
-    scrollQueueToBottom("smooth");
-  }
-
-  function ensureQueueAtBottomAfterSubmit() {
-    scrollQueueToBottom("auto");
-    requestAnimationFrame(() => {
-      scrollQueueToBottom("auto");
+  const jumpToBottom = useCallback(() => {
+    virtuosoRef.current?.scrollToIndex({
+      index: "LAST",
+      align: "end",
+      behavior: "smooth",
     });
-  }
-
-  function performAnchorScroll(messageEl: Element, behavior: ScrollBehavior = "auto") {
-    if (!queueRef.current) return;
-    const containerRect = queueRef.current.getBoundingClientRect();
-    const messageRect = messageEl.getBoundingClientRect();
-    const scrollOffset = messageRect.top - containerRect.top + queueRef.current.scrollTop;
-    const idealTarget = Math.max(0, scrollOffset - ANCHOR_SCROLL_TOP_INSET_PX);
-    const maxScrollTop = Math.max(0, queueRef.current.scrollHeight - queueRef.current.clientHeight);
-    const scrollTarget = Math.min(idealTarget, maxScrollTop);
-
-    suppressNextScrollEventRef.current = true;
-    if (queueRef.current.scrollTo) {
-      queueRef.current.scrollTo({ top: scrollTarget, behavior });
-    } else {
-      queueRef.current.scrollTop = scrollTarget;
-    }
-    setIsConversationAtBottom(true);
-    anchorScrollTopRef.current = scrollTarget;
-    anchorLayoutScrollGraceUntilRef.current = Date.now() + ANCHOR_LAYOUT_SCROLL_GRACE_MS;
-    anchorProgrammaticScrollUntilRef.current = Date.now() + ANCHOR_PROGRAMMATIC_SCROLL_GRACE_MS;
-    anchorInterruptedRef.current = false;
-    requestAnimationFrame(() => {
-      suppressNextScrollEventRef.current = false;
-    });
-  }
-
-  function cancelAutoScrollForUserIntent() {
-    userScrollIntentRef.current = true;
-    anchorProgrammaticScrollUntilRef.current = 0;
-
-    if (scrollModeRef.current === "idle" && !shouldAutoScrollRef.current) {
-      return;
-    }
-
-    scrollModeRef.current = "idle";
-    shouldAutoScrollRef.current = false;
-    anchorInterruptedRef.current = true;
-    suppressNextScrollEventRef.current = false;
-  }
-
-  const preventOverscroll = useCallback((event: { preventDefault: () => void }) => {
-    if (!queueRef.current) {
-      return false;
-    }
-
-    const bottomTarget = getComposerAwareBottomTarget(queueRef.current, scrollPadding);
-    if (queueRef.current.scrollTop < bottomTarget) {
-      return false;
-    }
-
-    event.preventDefault();
-
-    if (queueRef.current.scrollTop > bottomTarget) {
-      suppressNextScrollEventRef.current = true;
-      queueRef.current.scrollTop = bottomTarget;
-      requestAnimationFrame(() => {
-        suppressNextScrollEventRef.current = false;
-      });
-    }
-
-    setIsConversationAtBottom(true);
-    shouldAutoScrollRef.current = true;
-    userScrollIntentRef.current = false;
-    return true;
-  }, [scrollPadding]);
-
-  useEffect(() => {
-    const el = queueRef.current;
-    if (!el) return;
-
-    const handleWheel = (event: WheelEvent) => {
-      if (event.deltaY > 0) {
-        preventOverscroll(event);
-      }
-    };
-
-    let lastTouchY = 0;
-    const handleTouchStart = (event: TouchEvent) => {
-      lastTouchY = event.touches[0]?.clientY ?? 0;
-    };
-    const handleTouchMove = (event: TouchEvent) => {
-      const touchY = event.touches[0]?.clientY ?? 0;
-      if (touchY < lastTouchY) {
-        preventOverscroll(event);
-      }
-      lastTouchY = touchY;
-    };
-
-    el.addEventListener("wheel", handleWheel, { passive: false });
-    el.addEventListener("touchstart", handleTouchStart, { passive: true });
-    el.addEventListener("touchmove", handleTouchMove, { passive: false });
-
-    return () => {
-      el.removeEventListener("wheel", handleWheel);
-      el.removeEventListener("touchstart", handleTouchStart);
-      el.removeEventListener("touchmove", handleTouchMove);
-    };
-  }, [preventOverscroll]);
-
-  const followAnchoredOverflowIfNeeded = useCallback(() => {
-    const canFollowAnchor =
-      scrollModeRef.current === "anchored" ||
-      (wasStreamingRef.current && !anchorInterruptedRef.current);
-
-    if (!canFollowAnchor || !queueRef.current) {
-      return false;
-    }
-
-    const contentBottom = getQueueContentBottom(queueRef.current, scrollPadding);
-    if (
-      contentBottom - anchorScrollTopRef.current <=
-      getComposerSafeVisibleHeight(queueRef.current)
-    ) {
-      return false;
-    }
-
-    scrollModeRef.current = "following";
-    shouldAutoScrollRef.current = true;
-    scrollQueueToBottom("auto");
-    return true;
-  }, [scrollPadding, scrollQueueToBottom]);
+  }, []);
 
   useEffect(() => {
     const el = queueBannerRef.current;
@@ -953,89 +753,20 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     return () => observer.disconnect();
   }, []);
 
-  useLayoutEffect(() => {
-    if (!queueRef.current || !shouldAutoScrollRef.current) {
-      return;
-    }
-
-    setIsConversationAtBottom(true);
-    const top = getComposerAwareBottomTarget(queueRef.current, scrollPadding);
-    suppressNextScrollEventRef.current = true;
-    if (queueRef.current.scrollTo) {
-      queueRef.current.scrollTo({ top, behavior: "auto" });
-    } else {
-      queueRef.current.scrollTop = top;
-    }
-    suppressNextScrollEventRef.current = false;
-  }, [messages, streamThinkingDisplay, streamAnswerDisplay, streamTimeline, scrollPadding]);
-
   useEffect(() => {
-    const scrollContainer = queueRef.current;
-    const contentEl = queueContentRef.current;
-    if (!scrollContainer || !contentEl || !streamMessageId) return;
-
-    if (typeof ResizeObserver === "undefined") return;
-
-    const observer = new ResizeObserver(() => {
-      if (!shouldAutoScrollRef.current) return;
-      const top = getComposerAwareBottomTarget(scrollContainer, scrollPadding);
-      suppressNextScrollEventRef.current = true;
-      scrollContainer.scrollTop = top;
-      suppressNextScrollEventRef.current = false;
-    });
-    observer.observe(contentEl);
-
-    return () => observer.disconnect();
-  }, [streamMessageId, scrollPadding]);
-
-  useEffect(() => {
-    if (!pendingAnchorMessageIdRef.current || !queueRef.current) return;
+    if (!pendingAnchorMessageIdRef.current) return;
     const messageId = pendingAnchorMessageIdRef.current;
-    const messageEl = queueRef.current.querySelector(`[data-message-id="${messageId}"]`);
-    if (!messageEl) return;
+    const index = renderableMessages.findIndex((m) => m.id === messageId);
+    if (index === -1) return;
 
+    pendingAnchorMessageIdRef.current = null;
     requestAnimationFrame(() => {
-      if (!queueRef.current) return;
-      const el = queueRef.current.querySelector(`[data-message-id="${messageId}"]`);
-      if (!el) return;
-      pendingAnchorMessageIdRef.current = null;
-      performAnchorScroll(el);
+      virtuosoRef.current?.scrollIntoView({
+        index,
+        behavior: "smooth",
+      });
     });
-  }, [messages]);
-
-  useEffect(() => {
-    if (!streamMessageId) {
-      if (wasStreamingRef.current) {
-        requestAnimationFrame(() => {
-          const didFollow = followAnchoredOverflowIfNeeded();
-          if (!didFollow && scrollModeRef.current === "anchored") {
-            scrollModeRef.current = "idle";
-          } else if (scrollModeRef.current === "following") {
-            scrollModeRef.current = "idle";
-          }
-          wasStreamingRef.current = false;
-        });
-      }
-      return;
-    }
-
-    wasStreamingRef.current = true;
-
-    if (scrollModeRef.current !== "anchored" || !queueRef.current) return;
-
-    requestAnimationFrame(() => {
-      if (scrollModeRef.current !== "anchored" || !queueRef.current) return;
-
-      followAnchoredOverflowIfNeeded();
-    });
-  }, [
-    streamAnswerDisplay,
-    streamTimeline,
-    streamThinkingDisplay,
-    streamMessageId,
-    scrollPadding,
-    followAnchoredOverflowIfNeeded
-  ]);
+  }, [renderableMessages]);
 
   useEffect(() => {
     if (!shouldAutofocusTextInput()) {
@@ -1073,7 +804,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "message_start") {
-      wasStreamingRef.current = true;
       setIsConversationActive(true);
       setStreamMessageId(event.messageId);
       streamMessageIdRef.current = event.messageId;
@@ -1275,15 +1005,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       streamAnswerTargetRef.current = "";
       streamThinkingTargetRef.current = "";
       setIsSending(false);
-      requestAnimationFrame(() => {
-        const didFollow = followAnchoredOverflowIfNeeded();
-        if (!didFollow && scrollModeRef.current === "anchored") {
-          scrollModeRef.current = "idle";
-        } else if (scrollModeRef.current === "following") {
-          scrollModeRef.current = "idle";
-        }
-        wasStreamingRef.current = false;
-      });
     }
 
     if (event.type === "error") {
@@ -1870,9 +1591,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       return;
     }
 
-    scrollModeRef.current = "anchored";
-    anchorInterruptedRef.current = false;
-    shouldAutoScrollRef.current = false;
     pendingAnchorMessageIdRef.current = messageId;
 
     setError("");
@@ -2162,7 +1880,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         return;
       }
 
-      ensureQueueAtBottomAfterSubmit();
+      virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
       setError("");
       setInput("");
       wsSend({
@@ -2177,9 +1895,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       return;
     }
 
-    scrollModeRef.current = "anchored";
-    anchorInterruptedRef.current = false;
-    shouldAutoScrollRef.current = false;
     setError("");
     setInput("");
     setPendingAttachments([]);
@@ -2297,6 +2012,101 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     });
   }
 
+  const virtuosoStyle = useMemo(() => ({ flex: 1, minHeight: 0, minWidth: 0, overflowY: "auto" as const }), []);
+  const overscanValue = useMemo(() => ({ main: 200, reverse: 200 }), []);
+  const computeItemKey = useCallback((_: number, message: { id: string }) => message.id, []);
+
+  const virtuosoComponents = useMemo(() => ({
+    List: React.forwardRef<HTMLDivElement>(function List(props: Record<string, unknown>, ref: React.Ref<HTMLDivElement>) {
+      return <div {...props} ref={ref} className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-8 pt-4" />;
+    }),
+    Footer: ({ context: footerCtx }: { context?: Record<string, unknown> }) => (
+      <>
+        {(footerCtx?.error as string | undefined) ? (
+          <div className="mx-auto mt-3 max-w-md rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
+            {footerCtx!.error as string}
+          </div>
+        ) : null}
+        <div style={{ height: 195 }} />
+      </>
+    ),
+  }), []);
+
+  const chatItemContent = useCallback((index: number, message: Message, context: Record<string, unknown>) => {
+    const streamMessageId = context.streamMessageId as string | null;
+    const streamTimeline = context.streamTimeline as MessageTimelineItem[];
+    const streamThinkingDisplay = context.streamThinkingDisplay as string;
+    const streamAnswerDisplay = context.streamAnswerDisplay as string;
+    const streamThinkingTarget = context.streamThinkingTarget as string;
+    const streamAnswerTarget = context.streamAnswerTarget as string;
+    const hasReceivedFirstToken = context.hasReceivedFirstToken as boolean;
+    const compactionInProgress = context.compactionInProgress as boolean;
+    const thinkingDuration = context.thinkingDuration as number | undefined;
+    const isAgentIdle = context.isAgentIdle as boolean;
+    const updatingMessageId = context.updatingMessageId as string | null;
+    const forkingMessageId = context.forkingMessageId as string | null;
+    const retryingMessageId = context.retryingMessageId as string | null;
+    const previewController = context.previewController as { openAttachmentPreview: (attachment: MessageAttachment) => void };
+    const onUpdateUserMessage = context.updateUserMessage as (messageId: string, content: string) => Promise<void>;
+    const onApproveMemoryProposal = context.approveMemoryProposal as (actionId: string, overrides?: { content?: string; category?: string }) => Promise<void>;
+    const onDismissMemoryProposal = context.dismissMemoryProposal as (actionId: string) => Promise<void>;
+    const onForkAssistantMessage = context.forkAssistantMessage as (messageId: string) => Promise<void>;
+    const onRetryAssistantMessage = context.retryAssistantMessage as (messageId: string) => Promise<void>;
+
+    const isStreamingMessage = message.id === streamMessageId;
+    const streamingTimelineItems = isStreamingMessage ? streamTimeline : undefined;
+    const hasRunningStreamingAction = Boolean(
+      streamingTimelineItems?.some(
+        (item) => item.timelineKind === "action" && item.status === "running"
+      )
+    );
+
+    return (
+      <div
+        data-message-id={message.id}
+        className="animate-slide-up"
+        style={{ animationFillMode: "forwards" }}
+      >
+        <MessageBubble
+          message={message}
+          onPreviewAttachment={previewController.openAttachmentPreview}
+          streamingTimeline={streamingTimelineItems}
+          streamingThinking={isStreamingMessage ? streamThinkingDisplay : undefined}
+          streamingAnswer={isStreamingMessage ? streamAnswerDisplay : undefined}
+          awaitingFirstToken={
+            isStreamingMessage
+              ? !hasReceivedFirstToken &&
+                !streamAnswerDisplay &&
+                !message.content &&
+                !(streamingTimelineItems?.length ?? message.timeline?.length ?? 0)
+              : false
+          }
+          compactionInProgress={isStreamingMessage ? compactionInProgress : false}
+          thinkingInProgress={
+            isStreamingMessage
+              ? Boolean(streamThinkingTarget) && !streamAnswerTarget && !hasRunningStreamingAction
+              : false
+          }
+          thinkingDuration={isStreamingMessage ? thinkingDuration : undefined}
+          hasThinking={isStreamingMessage ? Boolean(streamThinkingTarget) : false}
+          onUpdateUserMessage={onUpdateUserMessage}
+          onApproveMemoryProposal={onApproveMemoryProposal}
+          onDismissMemoryProposal={onDismissMemoryProposal}
+          isUpdating={updatingMessageId === message.id}
+          onForkAssistantMessage={onForkAssistantMessage}
+          isForking={forkingMessageId === message.id}
+          onRetryAssistantMessage={onRetryAssistantMessage}
+          isRetrying={retryingMessageId === message.id}
+        />
+        {isStreamingMessage && isAgentIdle && hasReceivedFirstToken && (
+          <div className="animate-fade-in mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 md:ml-[42px]">
+            <TypingIndicator compact />
+          </div>
+        )}
+      </div>
+    );
+  }, []);
+
   return (
     <div
       data-testid="chat-view-root"
@@ -2390,153 +2200,43 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       </div>
 
-      <div
-        ref={queueRef}
-        className="no-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-2 md:px-8 relative z-0 isolate"
-        onScroll={() => {
-          if (!queueRef.current) {
-            return;
-          }
-
-          if (suppressNextScrollEventRef.current) {
-            suppressNextScrollEventRef.current = false;
-            return;
-          }
-
-          const nextIsAtBottom = isNearQueueBottom(queueRef.current, scrollPadding);
-          setIsConversationAtBottom(nextIsAtBottom);
-
-          if (scrollModeRef.current === "anchored") {
-            const movedAboveAnchor =
-              queueRef.current.scrollTop <
-              anchorScrollTopRef.current - ANCHOR_SCROLL_TOLERANCE_PX;
-            if (
-              movedAboveAnchor &&
-              !userScrollIntentRef.current &&
-              Date.now() <= anchorProgrammaticScrollUntilRef.current
-            ) {
-              return;
-            }
-            if (
-              movedAboveAnchor &&
-              (userScrollIntentRef.current || Date.now() > anchorLayoutScrollGraceUntilRef.current)
-            ) {
-              scrollModeRef.current = "idle";
-              shouldAutoScrollRef.current = false;
-              anchorInterruptedRef.current = true;
-            }
-            userScrollIntentRef.current = false;
-            return;
-          }
-
-          if (!nextIsAtBottom && scrollModeRef.current !== "idle") {
-            scrollModeRef.current = "idle";
-            shouldAutoScrollRef.current = false;
-            anchorInterruptedRef.current = true;
-            userScrollIntentRef.current = false;
-            return;
-          }
-
-          shouldAutoScrollRef.current = nextIsAtBottom;
-          userScrollIntentRef.current = false;
+      <Virtuoso
+        ref={virtuosoRef}
+        style={virtuosoStyle}
+        className="no-scrollbar overscroll-y-contain"
+        data={renderableMessages}
+        alignToBottom={true}
+        followOutput="auto"
+        atBottomStateChange={setIsAtBottom}
+        atBottomThreshold={64}
+        computeItemKey={computeItemKey}
+        overscan={overscanValue}
+        initialTopMostItemIndex={Math.max(0, renderableMessages.length - 1)}
+        context={{
+          streamMessageId,
+          streamTimeline,
+          streamThinkingDisplay,
+          streamAnswerDisplay,
+          streamThinkingTarget,
+          streamAnswerTarget,
+          hasReceivedFirstToken,
+          compactionInProgress,
+          thinkingDuration,
+          isAgentIdle,
+          updatingMessageId,
+          forkingMessageId,
+          retryingMessageId,
+          error,
+          previewController,
+          updateUserMessage,
+          approveMemoryProposal,
+          dismissMemoryProposal,
+          forkAssistantMessage,
+          retryAssistantMessage,
         }}
-        onWheel={(event) => {
-          if (event.deltaY > 0 && preventOverscroll(event)) {
-            return;
-          }
-          cancelAutoScrollForUserIntent();
-        }}
-        onTouchMove={(event) => {
-          if (preventOverscroll(event)) {
-            return;
-          }
-          cancelAutoScrollForUserIntent();
-        }}
-        onPointerDown={() => {
-          cancelAutoScrollForUserIntent();
-        }}
-        onKeyDown={(event) => {
-          if (
-            event.key === "ArrowUp" ||
-            event.key === "PageUp" ||
-            event.key === "Home" ||
-            event.key === " "
-          ) {
-            cancelAutoScrollForUserIntent();
-          }
-        }}
-      >
-        <div
-          ref={queueContentRef}
-          className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-0 pt-4"
-          style={{ paddingBottom: scrollPadding }}
-        >
-          {renderableMessages.map((message) => (
-            (() => {
-              const isStreamingMessage = message.id === streamMessageId;
-              const streamingTimelineItems = isStreamingMessage ? streamTimeline : undefined;
-              const hasRunningStreamingAction = Boolean(
-                streamingTimelineItems?.some(
-                  (item) => item.timelineKind === "action" && item.status === "running"
-                )
-              );
-
-              return (
-                <div
-                  key={message.id}
-                  className="animate-slide-up"
-                  style={{ animationFillMode: "forwards" }}
-                >
-                  <MessageBubble
-                    message={message}
-                    onPreviewAttachment={previewController.openAttachmentPreview}
-                    streamingTimeline={streamingTimelineItems}
-                    streamingThinking={isStreamingMessage ? streamThinkingDisplay : undefined}
-                    streamingAnswer={isStreamingMessage ? streamAnswerDisplay : undefined}
-                    awaitingFirstToken={
-                      isStreamingMessage
-                        ? !hasReceivedFirstToken &&
-                          !streamAnswerDisplay &&
-                          !message.content &&
-                          !(streamingTimelineItems?.length ?? message.timeline?.length ?? 0)
-                        : false
-                    }
-                    compactionInProgress={isStreamingMessage ? compactionInProgress : false}
-                    thinkingInProgress={
-                      isStreamingMessage
-                        ? Boolean(streamThinkingTarget) && !streamAnswerTarget && !hasRunningStreamingAction
-                        : false
-                    }
-                    thinkingDuration={isStreamingMessage ? thinkingDuration : undefined}
-                    hasThinking={isStreamingMessage ? Boolean(streamThinkingTarget) : false}
-                    onUpdateUserMessage={updateUserMessage}
-                    onApproveMemoryProposal={approveMemoryProposal}
-                    onDismissMemoryProposal={dismissMemoryProposal}
-                    isUpdating={updatingMessageId === message.id}
-                    onForkAssistantMessage={forkAssistantMessage}
-                    isForking={forkingMessageId === message.id}
-                    onRetryAssistantMessage={retryAssistantMessage}
-                    isRetrying={retryingMessageId === message.id}
-                  />
-                  {isStreamingMessage && isAgentIdle && hasReceivedFirstToken && (
-                    <div className="animate-fade-in mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 md:ml-[42px]">
-                      <TypingIndicator compact />
-                    </div>
-                  )}
-                </div>
-              );
-            })()
-          ))}
-
-          {error ? (
-            <div className="mx-auto mt-3 max-w-md rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
-              {error}
-            </div>
-          ) : null}
-
-          {streamMessageId ? <div style={{ height: 36 }} /> : null}
-        </div>
-      </div>
+        itemContent={chatItemContent}
+        components={virtuosoComponents}
+      />
 
       <div className="fixed inset-x-0 bottom-0 z-50 pointer-events-none">
         <div className="mx-auto w-full px-4 md:px-8 max-w-[980px] pointer-events-auto relative">
@@ -2548,7 +2248,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               onSendNow={sendQueuedMessageNow}
             />
           </div>
-          {!isConversationAtBottom ? (
+          {!isAtBottom ? (
             <div className={cn(
               "pointer-events-none absolute z-50 flex items-center",
               "left-3 sm:left-5",
