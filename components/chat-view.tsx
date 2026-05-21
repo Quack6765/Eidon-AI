@@ -2038,7 +2038,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               {footerCtx!.error as string}
             </div>
           ) : null}
-          <div style={{ height: isAnchoring ? vpHeight : (isStreaming ? 80 : 150) }} />
+          <div style={{ height: isAnchoring ? vpHeight : (isStreaming ? 80 : 24) }} />
         </>
       );
     },
@@ -2212,7 +2212,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       </div>
 
-      <div className="relative flex-1 min-h-0">
       <Virtuoso
         ref={virtuosoRef}
         style={virtuosoStyle}
@@ -2220,7 +2219,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         data={renderableMessages}
         alignToBottom={true}
         followOutput={(atBottom: boolean) => {
-          if (pendingAnchorMessageIdRef.current) return false;
+          if (pendingAnchorMessageIdRef.current || isAnchoring) return false;
           if (streamMessageId && hasReceivedFirstToken) return "auto" as const;
           if (streamMessageId) return false;
           return atBottom ? ("smooth" as const) : false;
@@ -2282,8 +2281,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       ) : null}
 
-      <div className="absolute inset-x-0 bottom-0 z-50 pointer-events-none">
-        <div className="mx-auto w-full max-w-[980px] px-4 md:px-8 pt-1 pb-3 pointer-events-auto">
+      <div className="shrink-0 px-4 md:px-8 pt-1 pb-3">
+        <div className="mx-auto w-full max-w-[980px] relative">
           <div ref={queueBannerRef}>
             <QueuedMessageBanner
               items={queuedMessages}
@@ -2345,9 +2344,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               });
             }}
           />
-           </div>
+          </div>
         </div>
-      </div>
       </div>
       {previewController.previewAttachment ? (
         <AttachmentPreviewModal
