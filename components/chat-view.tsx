@@ -511,6 +511,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const queueBannerRef = useRef<HTMLDivElement>(null);
+  const [viewportHeight, setViewportHeight] = useState(800);
+  const [isAnchoring, setIsAnchoring] = useState(false);
   const [queueBannerHeight, setQueueBannerHeight] = useState(0);
   const [isAgentIdle, setIsAgentIdle] = useState(false);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -759,11 +761,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     const index = renderableMessages.findIndex((m) => m.id === messageId);
     if (index === -1) return;
 
+    setIsAnchoring(true);
     pendingAnchorMessageIdRef.current = null;
     requestAnimationFrame(() => {
-      virtuosoRef.current?.scrollIntoView({
+      virtuosoRef.current?.scrollToIndex({
         index,
-        behavior: "smooth",
+        align: "start",
+        behavior: "auto",
+      });
+      requestAnimationFrame(() => {
+        setIsAnchoring(false);
       });
     });
   }, [renderableMessages]);
@@ -2016,23 +2023,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const overscanValue = useMemo(() => ({ main: 200, reverse: 200 }), []);
   const computeItemKey = useCallback((_: number, message: { id: string }) => message.id, []);
 
-  useEffect(() => {
-    if (!streamMessageId) return;
-    requestAnimationFrame(() => {
-      virtuosoRef.current?.scrollToIndex({
-        index: "LAST",
-        align: "end",
-        behavior: "auto",
-      });
-    });
-  }, [streamMessageId]);
-
   const virtuosoComponents = useMemo(() => ({
     List: React.forwardRef<HTMLDivElement>(function List(props: Record<string, unknown>, ref: React.Ref<HTMLDivElement>) {
       return <div {...props} ref={ref} className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-8 pt-4" />;
     }),
     Footer: ({ context: footerCtx }: { context?: Record<string, unknown> }) => {
       const isStreaming = Boolean(footerCtx?.streamMessageId);
+      const isAnchoring = Boolean(footerCtx?.isAnchoring);
+      const vpHeight = (footerCtx?.viewportHeight as number) ?? 800;
       return (
         <>
           {(footerCtx?.error as string | undefined) ? (
@@ -2040,7 +2038,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               {footerCtx!.error as string}
             </div>
           ) : null}
-          <div style={{ height: isStreaming ? 80 : 24 }} />
+          <div style={{ height: isAnchoring ? vpHeight : (isStreaming ? 80 : 150) }} />
         </>
       );
     },
@@ -2214,6 +2212,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       </div>
 
+      <div className="relative flex-1 min-h-0">
       <Virtuoso
         ref={virtuosoRef}
         style={virtuosoStyle}
@@ -2221,7 +2220,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         data={renderableMessages}
         alignToBottom={true}
         followOutput={(atBottom: boolean) => {
-          if (streamMessageId) return "auto" as const;
+          if (pendingAnchorMessageIdRef.current) return false;
+          if (streamMessageId && hasReceivedFirstToken) return "auto" as const;
+          if (streamMessageId) return false;
           return atBottom ? ("smooth" as const) : false;
         }}
         atBottomStateChange={setIsAtBottom}
@@ -2250,9 +2251,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           dismissMemoryProposal,
           forkAssistantMessage,
           retryAssistantMessage,
+          viewportHeight,
+          isAnchoring,
         }}
         itemContent={chatItemContent}
         components={virtuosoComponents}
+        scrollerRef={(ref) => {
+          if (ref instanceof HTMLElement) setViewportHeight(ref.clientHeight);
+        }}
       />
 
       {!isAtBottom ? (
@@ -2276,8 +2282,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       ) : null}
 
-      <div className="shrink-0 px-4 md:px-8 pt-1 pb-3">
-        <div className="mx-auto w-full max-w-[980px] relative">
+      <div className="absolute inset-x-0 bottom-0 z-50 pointer-events-none">
+        <div className="mx-auto w-full max-w-[980px] px-4 md:px-8 pt-1 pb-3 pointer-events-auto">
           <div ref={queueBannerRef}>
             <QueuedMessageBanner
               items={queuedMessages}
@@ -2339,8 +2345,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               });
             }}
           />
-          </div>
+           </div>
         </div>
+      </div>
       </div>
       {previewController.previewAttachment ? (
         <AttachmentPreviewModal

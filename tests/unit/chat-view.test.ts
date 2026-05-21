@@ -2832,7 +2832,9 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(virtuosoMock.handle.scrollIntoView).toHaveBeenCalled();
+      expect(virtuosoMock.handle.scrollToIndex).toHaveBeenCalledWith(
+        expect.objectContaining({ align: "start", behavior: "auto" })
+      );
     });
   });
 
@@ -2852,8 +2854,8 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    expect(virtuosoMock.handle.scrollIntoView).toHaveBeenCalledWith(
-      expect.objectContaining({ behavior: "smooth" })
+    expect(virtuosoMock.handle.scrollToIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ align: "start", behavior: "auto" })
     );
   });
 
@@ -3017,7 +3019,9 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    expect(virtuosoMock.handle.scrollIntoView).toHaveBeenCalled();
+    expect(virtuosoMock.handle.scrollToIndex).toHaveBeenCalledWith(
+      expect.objectContaining({ align: "start", behavior: "auto" })
+    );
   });
 
   it("renders tool actions and answer text while streaming", async () => {
