@@ -513,6 +513,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const queueBannerRef = useRef<HTMLDivElement>(null);
   const [viewportHeight, setViewportHeight] = useState(800);
   const [isAnchoring, setIsAnchoring] = useState(false);
+  const composerAreaRef = useRef<HTMLDivElement>(null);
+  const [composerAreaHeight, setComposerAreaHeight] = useState(160);
   const [queueBannerHeight, setQueueBannerHeight] = useState(0);
   const [isAgentIdle, setIsAgentIdle] = useState(false);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -750,6 +752,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (!el || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
       setQueueBannerHeight(el.offsetHeight);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const el = composerAreaRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      setComposerAreaHeight(el.offsetHeight);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -2031,6 +2043,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       const isStreaming = Boolean(footerCtx?.streamMessageId);
       const isAnchoring = Boolean(footerCtx?.isAnchoring);
       const vpHeight = (footerCtx?.viewportHeight as number) ?? 800;
+      const compHeight = (footerCtx?.composerAreaHeight as number) ?? 160;
+      const minFooter = isStreaming ? Math.max(80, compHeight + 60) : Math.max(24, compHeight);
       return (
         <>
           {(footerCtx?.error as string | undefined) ? (
@@ -2038,7 +2052,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               {footerCtx!.error as string}
             </div>
           ) : null}
-          <div style={{ height: isAnchoring ? vpHeight : (isStreaming ? 80 : 24) }} />
+          <div style={{ height: isAnchoring ? vpHeight : minFooter }} />
         </>
       );
     },
@@ -2212,6 +2226,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       </div>
 
+      <div className="relative flex-1 min-h-0">
       <Virtuoso
         ref={virtuosoRef}
         style={virtuosoStyle}
@@ -2252,6 +2267,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           retryAssistantMessage,
           viewportHeight,
           isAnchoring,
+          composerAreaHeight,
         }}
         itemContent={chatItemContent}
         components={virtuosoComponents}
@@ -2281,8 +2297,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       ) : null}
 
-      <div className="shrink-0 px-4 md:px-8 pt-1 pb-3">
-        <div className="mx-auto w-full max-w-[980px] relative">
+      <div ref={composerAreaRef} className="absolute inset-x-0 bottom-0 z-50 pointer-events-none">
+        <div className="mx-auto w-full max-w-[980px] px-4 md:px-8 pt-1 pb-3 pointer-events-auto">
           <div ref={queueBannerRef}>
             <QueuedMessageBanner
               items={queuedMessages}
@@ -2344,8 +2360,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               });
             }}
           />
-          </div>
+           </div>
         </div>
+      </div>
       </div>
       {previewController.previewAttachment ? (
         <AttachmentPreviewModal
