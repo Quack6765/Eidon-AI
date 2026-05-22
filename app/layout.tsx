@@ -1,9 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Instrument_Serif, Orbitron } from "next/font/google";
+import { Inter, Instrument_Serif, Orbitron, Geist } from "next/font/google";
 
 import { APP_NAME } from "@/lib/constants";
 
 import "@/app/globals.css";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 const bodyFont = Inter({
   variable: "--font-body",
@@ -64,7 +67,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${bodyFont.variable} ${displayFont.variable} ${wordmarkFont.variable}`} suppressHydrationWarning>
+    <html lang="en" className={cn(bodyFont.variable, displayFont.variable, wordmarkFont.variable, "font-sans", geist.variable)} suppressHydrationWarning>
       <body>{children}</body>
     </html>
   );
