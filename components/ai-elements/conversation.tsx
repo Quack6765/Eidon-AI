@@ -22,16 +22,21 @@ export const Conversation = ({ className, ...props }: ConversationProps) => (
 
 export type ConversationContentProps = ComponentProps<
   typeof StickToBottom.Content
->;
+> & {
+  scrollerRef?: React.RefCallback<HTMLElement>;
+};
 
 export const ConversationContent = ({
   className,
+  scrollerRef,
   ...props
 }: ConversationContentProps) => (
-  <StickToBottom.Content
-    className={cn("flex flex-col gap-8 p-4", className)}
-    {...props}
-  />
+  <div ref={scrollerRef as React.RefCallback<HTMLDivElement>}>
+    <StickToBottom.Content
+      className={cn("flex w-full flex-col", className)}
+      {...props}
+    />
+  </div>
 );
 
 export type ConversationEmptyStateProps = ComponentProps<"div"> & {
@@ -57,11 +62,11 @@ export const ConversationEmptyState = ({
   >
     {children ?? (
       <>
-        {icon && <div className="text-muted-foreground">{icon}</div>}
+        {icon && <div className="text-white/45">{icon}</div>}
         <div className="space-y-1">
           <h3 className="font-medium text-sm">{title}</h3>
           {description && (
-            <p className="text-muted-foreground text-sm">{description}</p>
+            <p className="text-white/45 text-sm">{description}</p>
           )}
         </div>
       </>
@@ -85,16 +90,17 @@ export const ConversationScrollButton = ({
     !isAtBottom && (
       <Button
         className={cn(
-          "absolute bottom-4 left-[50%] translate-x-[-50%] rounded-full dark:bg-background dark:hover:bg-muted",
+          "absolute bottom-4 left-[50%] translate-x-[-50%] flex h-8 items-center gap-1 rounded-full border border-white/10 bg-white/[0.06] text-[10px] font-bold uppercase tracking-wider text-white/60 shadow-lg backdrop-blur-xl transition-all hover:bg-white/[0.1] hover:text-white/80",
           className
         )}
         onClick={handleScrollToBottom}
-        size="icon"
+        size="sm"
         type="button"
-        variant="outline"
+        variant="ghost"
         {...props}
       >
-        <ArrowDownIcon className="size-4" />
+        <ArrowDownIcon className="size-3.5" />
+        Latest
       </Button>
     )
   );
@@ -153,7 +159,7 @@ export const ConversationDownload = ({
   return (
     <Button
       className={cn(
-        "absolute top-4 right-4 rounded-full dark:bg-background dark:hover:bg-muted",
+        "absolute top-4 right-4 rounded-full border border-white/10 bg-white/[0.06] text-white/60 hover:bg-white/[0.1]",
         className
       )}
       onClick={handleDownload}
