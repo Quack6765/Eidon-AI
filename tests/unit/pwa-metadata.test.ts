@@ -39,7 +39,8 @@ describe("PWA shell metadata", () => {
     });
     expect(viewport).toEqual({
       themeColor: "#0a0a0a",
-      colorScheme: "dark"
+      colorScheme: "dark",
+      viewportFit: "cover"
     });
   });
 
