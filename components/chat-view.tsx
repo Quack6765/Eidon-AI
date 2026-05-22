@@ -1187,6 +1187,17 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         case "delta":
           handleDelta(msg.event as ChatStreamEvent);
           break;
+        case "conversation_title_updated":
+          if (msg.conversationId === payload.conversation.id) {
+            setConversationTitle(msg.title);
+            setTitleGenerationStatus("completed");
+            dispatchConversationTitleUpdated({
+              conversationId: msg.conversationId,
+              title: msg.title
+            });
+            stopTitlePolling();
+          }
+          break;
       }
     }
   });
