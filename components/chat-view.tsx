@@ -2276,29 +2276,36 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         }}
       />
 
-      {!isAtBottom ? (
-        <div className={cn(
-          "pointer-events-none absolute z-50 flex items-center",
-          "left-3 sm:left-5 bottom-3",
-          queueBannerHeight > 0
-            ? "md:left-auto md:right-5 md:bottom-auto md:top-3 md:translate-x-0"
-            : "md:left-auto md:right-5 md:bottom-3 md:translate-x-0"
-        )}>
-          <button
-            type="button"
-            onClick={jumpToBottom}
-            className="pointer-events-auto relative inline-flex h-8 w-8 items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-2 text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-150 hover:opacity-90 active:scale-[0.96] whitespace-nowrap md:w-auto md:justify-start md:px-4 md:py-2"
-            aria-label="Scroll to newest messages"
-            title="Scroll to bottom"
+       <div ref={composerAreaRef} className="absolute inset-x-0 bottom-0 z-50 pointer-events-none">
+        {!isAtBottom && queueBannerHeight === 0 && (
+          <div className="absolute z-[60] pointer-events-none flex items-center left-3"
+            style={{ bottom: `calc(${composerAreaHeight}px / 2 - 16px)` }}
           >
-            ↓
-            <span className="hidden md:inline text-xs font-semibold">Latest messages</span>
-          </button>
-        </div>
-      ) : null}
-
-      <div ref={composerAreaRef} className="absolute inset-x-0 bottom-0 z-50 pointer-events-none">
-        <div className="mx-auto w-full max-w-[980px] px-4 md:px-8 pt-1 pb-3 pointer-events-auto">
+            <button
+              type="button"
+              onClick={jumpToBottom}
+              className="pointer-events-auto relative inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--accent)] px-2 text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-150 hover:opacity-90 active:scale-[0.96]"
+              aria-label="Scroll to newest messages"
+              title="Scroll to bottom"
+            >
+              ↓
+            </button>
+          </div>
+        )}
+        {!isAtBottom && queueBannerHeight > 0 && (
+          <div className="absolute z-[60] pointer-events-none flex items-center right-5 top-3">
+            <button
+              type="button"
+              onClick={jumpToBottom}
+              className="pointer-events-auto relative inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--accent)] px-2 text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-150 hover:opacity-90 active:scale-[0.96]"
+              aria-label="Scroll to newest messages"
+              title="Scroll to bottom"
+            >
+              ↓
+            </button>
+          </div>
+        )}
+        <div className="mx-auto w-full max-w-[980px] px-4 md:px-8 pt-1 pb-[max(0px,env(safe-area-inset-bottom))] md:pb-3 pointer-events-auto">
           <div ref={queueBannerRef}>
             <QueuedMessageBanner
               items={queuedMessages}
