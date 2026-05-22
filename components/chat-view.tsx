@@ -2276,36 +2276,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         }}
       />
 
-       <div ref={composerAreaRef} className="absolute inset-x-0 bottom-0 z-50 pointer-events-none">
-        {!isAtBottom && queueBannerHeight === 0 && (
-          <div className="absolute z-[60] pointer-events-none flex items-center left-3"
-            style={{ bottom: `calc(${composerAreaHeight}px / 2 - 16px)` }}
-          >
-            <button
-              type="button"
-              onClick={jumpToBottom}
-              className="pointer-events-auto relative inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--accent)] px-2 text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-150 hover:opacity-90 active:scale-[0.96]"
-              aria-label="Scroll to newest messages"
-              title="Scroll to bottom"
-            >
-              ↓
-            </button>
-          </div>
-        )}
-        {!isAtBottom && queueBannerHeight > 0 && (
-          <div className="absolute z-[60] pointer-events-none flex items-center right-5 top-3">
-            <button
-              type="button"
-              onClick={jumpToBottom}
-              className="pointer-events-auto relative inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--accent)] px-2 text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-150 hover:opacity-90 active:scale-[0.96]"
-              aria-label="Scroll to newest messages"
-              title="Scroll to bottom"
-            >
-              ↓
-            </button>
-          </div>
-        )}
-        <div className="mx-auto w-full max-w-[980px] px-4 md:px-8 pt-1 pb-[max(0px,env(safe-area-inset-bottom))] md:pb-3 pointer-events-auto">
+        <div ref={composerAreaRef} className="absolute inset-x-0 bottom-0 z-50 pointer-events-none">
+         <div className="mx-auto w-full max-w-[980px] px-4 md:px-8 pt-1 pb-[max(0px,env(safe-area-inset-bottom))] md:pb-3 pointer-events-auto">
           <div ref={queueBannerRef}>
             <QueuedMessageBanner
               items={queuedMessages}
@@ -2353,6 +2325,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 body: JSON.stringify({ isTemporary: value })
               }).catch(() => {});
             }}
+            isAtBottom={isAtBottom}
+            onJumpToBottom={jumpToBottom}
             onStartSpeech={() => {
               setError("");
               void startSpeech();
