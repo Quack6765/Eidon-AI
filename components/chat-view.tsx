@@ -1,7 +1,11 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
+import {
+  Conversation as ConversationContainer,
+  ConversationContent,
+  ConversationScrollButton
+} from "@/components/ai-elements/conversation";
 import { useRouter } from "next/navigation";
 import { Plus, Share2 } from "lucide-react";
 
@@ -508,7 +512,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
   const [personaId, setPersonaId] = useState<string | null>(null);
-  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const queueBannerRef = useRef<HTMLDivElement>(null);
   const [viewportHeight, setViewportHeight] = useState(800);
@@ -731,20 +735,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, []);
 
   useEffect(() => {
-    virtuosoRef.current?.scrollToIndex({
-      index: "LAST",
-      align: "end",
-      behavior: "auto",
-    });
+    scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: "auto" });
     setIsAtBottom(true);
   }, [payload.conversation.id]);
 
   const jumpToBottom = useCallback(() => {
-    virtuosoRef.current?.scrollToIndex({
-      index: "LAST",
-      align: "end",
-      behavior: "smooth",
-    });
+    scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: "smooth" });
   }, []);
 
   useEffect(() => {
@@ -768,19 +764,31 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, []);
 
   useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+
+    const handleScroll = () => {
+      const threshold = 64;
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+      setIsAtBottom(atBottom);
+    };
+
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    handleScroll();
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
     if (!pendingAnchorMessageIdRef.current) return;
     const messageId = pendingAnchorMessageIdRef.current;
-    const index = renderableMessages.findIndex((m) => m.id === messageId);
-    if (index === -1) return;
+    const exists = renderableMessages.some((m) => m.id === messageId);
+    if (!exists) return;
 
     setIsAnchoring(true);
     pendingAnchorMessageIdRef.current = null;
     requestAnimationFrame(() => {
-      virtuosoRef.current?.scrollToIndex({
-        index,
-        align: "start",
-        behavior: "auto",
-      });
+      const targetEl = document.querySelector(`[data-message-id="${messageId}"]`);
+      targetEl?.scrollIntoView({ block: "start", behavior: "auto" });
       requestAnimationFrame(() => {
         setIsAnchoring(false);
       });
@@ -1910,7 +1918,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         return;
       }
 
-      virtuosoRef.current?.scrollToIndex({ index: "LAST", align: "end", behavior: "auto" });
+      scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: "auto" });
       setError("");
       setInput("");
       wsSend({
@@ -2042,108 +2050,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     });
   }
 
-  const virtuosoStyle = useMemo(() => ({ flex: 1, minHeight: 0, minWidth: 0, overflowY: "auto" as const }), []);
-  const overscanValue = useMemo(() => ({ main: 200, reverse: 200 }), []);
-  const computeItemKey = useCallback((_: number, message: { id: string }) => message.id, []);
-
-  const virtuosoComponents = useMemo(() => ({
-    List: React.forwardRef<HTMLDivElement>(function List(props: Record<string, unknown>, ref: React.Ref<HTMLDivElement>) {
-      return <div {...props} ref={ref} className="flex w-full flex-col gap-2.5 md:gap-4 px-2 md:px-8 pt-4" />;
-    }),
-    Footer: ({ context: footerCtx }: { context?: Record<string, unknown> }) => {
-      const isStreaming = Boolean(footerCtx?.streamMessageId);
-      const isAnchoring = Boolean(footerCtx?.isAnchoring);
-      const vpHeight = (footerCtx?.viewportHeight as number) ?? 800;
-      const compHeight = (footerCtx?.composerAreaHeight as number) ?? 160;
-      const minFooter = isStreaming ? Math.max(80, compHeight + 60) : Math.max(24, compHeight);
-      return (
-        <>
-          {(footerCtx?.error as string | undefined) ? (
-            <div className="mx-auto mt-3 max-w-md rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
-              {footerCtx!.error as string}
-            </div>
-          ) : null}
-          <div style={{ height: isAnchoring ? vpHeight : minFooter }} />
-        </>
-      );
-    },
-  }), []);
-
-  const chatItemContent = useCallback((index: number, message: Message, context: Record<string, unknown>) => {
-    const streamMessageId = context.streamMessageId as string | null;
-    const streamTimeline = context.streamTimeline as MessageTimelineItem[];
-    const streamThinkingDisplay = context.streamThinkingDisplay as string;
-    const streamAnswerDisplay = context.streamAnswerDisplay as string;
-    const streamThinkingTarget = context.streamThinkingTarget as string;
-    const streamAnswerTarget = context.streamAnswerTarget as string;
-    const hasReceivedFirstToken = context.hasReceivedFirstToken as boolean;
-    const compactionInProgress = context.compactionInProgress as boolean;
-    const thinkingDuration = context.thinkingDuration as number | undefined;
-    const isAgentIdle = context.isAgentIdle as boolean;
-    const updatingMessageId = context.updatingMessageId as string | null;
-    const forkingMessageId = context.forkingMessageId as string | null;
-    const retryingMessageId = context.retryingMessageId as string | null;
-    const previewController = context.previewController as { openAttachmentPreview: (attachment: MessageAttachment) => void };
-    const onUpdateUserMessage = context.updateUserMessage as (messageId: string, content: string) => Promise<void>;
-    const onApproveMemoryProposal = context.approveMemoryProposal as (actionId: string, overrides?: { content?: string; category?: string }) => Promise<void>;
-    const onDismissMemoryProposal = context.dismissMemoryProposal as (actionId: string) => Promise<void>;
-    const onForkAssistantMessage = context.forkAssistantMessage as (messageId: string) => Promise<void>;
-    const onRetryAssistantMessage = context.retryAssistantMessage as (messageId: string) => Promise<void>;
-
-    const isStreamingMessage = message.id === streamMessageId;
-    const streamingTimelineItems = isStreamingMessage ? streamTimeline : undefined;
-    const hasRunningStreamingAction = Boolean(
-      streamingTimelineItems?.some(
-        (item) => item.timelineKind === "action" && item.status === "running"
-      )
-    );
-
-    return (
-      <div
-        data-message-id={message.id}
-        className="animate-slide-up"
-        style={{ animationFillMode: "forwards" }}
-      >
-        <MessageBubble
-          message={message}
-          onPreviewAttachment={previewController.openAttachmentPreview}
-          streamingTimeline={streamingTimelineItems}
-          streamingThinking={isStreamingMessage ? streamThinkingDisplay : undefined}
-          streamingAnswer={isStreamingMessage ? streamAnswerDisplay : undefined}
-          awaitingFirstToken={
-            isStreamingMessage
-              ? !hasReceivedFirstToken &&
-                !streamAnswerDisplay &&
-                !message.content &&
-                !(streamingTimelineItems?.length ?? message.timeline?.length ?? 0)
-              : false
-          }
-          compactionInProgress={isStreamingMessage ? compactionInProgress : false}
-          thinkingInProgress={
-            isStreamingMessage
-              ? Boolean(streamThinkingTarget) && !streamAnswerTarget && !hasRunningStreamingAction
-              : false
-          }
-          thinkingDuration={isStreamingMessage ? thinkingDuration : undefined}
-          hasThinking={isStreamingMessage ? Boolean(streamThinkingTarget) : false}
-          onUpdateUserMessage={onUpdateUserMessage}
-          onApproveMemoryProposal={onApproveMemoryProposal}
-          onDismissMemoryProposal={onDismissMemoryProposal}
-          isUpdating={updatingMessageId === message.id}
-          onForkAssistantMessage={onForkAssistantMessage}
-          isForking={forkingMessageId === message.id}
-          onRetryAssistantMessage={onRetryAssistantMessage}
-          isRetrying={retryingMessageId === message.id}
-        />
-        {isStreamingMessage && isAgentIdle && hasReceivedFirstToken && (
-          <div className="animate-fade-in mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 md:ml-[42px]">
-            <TypingIndicator compact />
-          </div>
-        )}
-      </div>
-    );
-  }, []);
-
   return (
     <div
       data-testid="chat-view-root"
@@ -2238,54 +2144,79 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       </div>
 
       <div className="relative flex-1 min-h-0">
-      <Virtuoso
-        ref={virtuosoRef}
-        style={virtuosoStyle}
-        className="no-scrollbar overscroll-y-contain"
-        data={renderableMessages}
-        alignToBottom={true}
-        followOutput={(atBottom: boolean) => {
-          if (pendingAnchorMessageIdRef.current || isAnchoring) return false;
-          if (streamMessageId && hasReceivedFirstToken) return "auto" as const;
-          if (streamMessageId) return false;
-          return atBottom ? ("smooth" as const) : false;
-        }}
-        atBottomStateChange={setIsAtBottom}
-        atBottomThreshold={64}
-        computeItemKey={computeItemKey}
-        overscan={overscanValue}
-        initialTopMostItemIndex={Math.max(0, renderableMessages.length - 1)}
-        context={{
-          streamMessageId,
-          streamTimeline,
-          streamThinkingDisplay,
-          streamAnswerDisplay,
-          streamThinkingTarget,
-          streamAnswerTarget,
-          hasReceivedFirstToken,
-          compactionInProgress,
-          thinkingDuration,
-          isAgentIdle,
-          updatingMessageId,
-          forkingMessageId,
-          retryingMessageId,
-          error,
-          previewController,
-          updateUserMessage,
-          approveMemoryProposal,
-          dismissMemoryProposal,
-          forkAssistantMessage,
-          retryAssistantMessage,
-          viewportHeight,
-          isAnchoring,
-          composerAreaHeight,
-        }}
-        itemContent={chatItemContent}
-        components={virtuosoComponents}
-        scrollerRef={(ref) => {
-          if (ref instanceof HTMLElement) setViewportHeight(ref.clientHeight);
-        }}
-      />
+      <ConversationContainer>
+        <ConversationContent
+          className="no-scrollbar overscroll-y-contain gap-2.5 px-2 pt-4 md:gap-4 md:px-8"
+          scrollerRef={(el) => {
+            if (el) {
+              scrollContainerRef.current = el as HTMLDivElement;
+              setViewportHeight(el.clientHeight);
+            }
+          }}
+        >
+          {renderableMessages.map((message) => {
+            const isStreamingMessage = message.id === streamMessageId;
+            const hasRunningStreamingAction = Boolean(
+              streamTimeline?.some(
+                (item) => item.timelineKind === "action" && item.status === "running"
+              )
+            );
+
+            return (
+              <div
+                key={message.id}
+                data-message-id={message.id}
+                className="animate-slide-up"
+                style={{ animationFillMode: "forwards" }}
+              >
+                <MessageBubble
+                  message={message}
+                  onPreviewAttachment={previewController.openAttachmentPreview}
+                  streamingTimeline={isStreamingMessage ? streamTimeline : undefined}
+                  streamingThinking={isStreamingMessage ? streamThinkingDisplay : undefined}
+                  streamingAnswer={isStreamingMessage ? streamAnswerDisplay : undefined}
+                  awaitingFirstToken={
+                    isStreamingMessage
+                      ? !hasReceivedFirstToken &&
+                        !streamAnswerDisplay &&
+                        !message.content &&
+                        !(streamTimeline?.length ?? message.timeline?.length ?? 0)
+                      : false
+                  }
+                  compactionInProgress={isStreamingMessage ? compactionInProgress : false}
+                  thinkingInProgress={
+                    isStreamingMessage
+                      ? Boolean(streamThinkingTarget) && !streamAnswerTarget && !hasRunningStreamingAction
+                      : false
+                  }
+                  thinkingDuration={isStreamingMessage ? thinkingDuration : undefined}
+                  hasThinking={isStreamingMessage ? Boolean(streamThinkingTarget) : false}
+                  onUpdateUserMessage={updateUserMessage}
+                  onApproveMemoryProposal={approveMemoryProposal}
+                  onDismissMemoryProposal={dismissMemoryProposal}
+                  isUpdating={updatingMessageId === message.id}
+                  onForkAssistantMessage={forkAssistantMessage}
+                  isForking={forkingMessageId === message.id}
+                  onRetryAssistantMessage={retryAssistantMessage}
+                  isRetrying={retryingMessageId === message.id}
+                />
+                {isStreamingMessage && isAgentIdle && hasReceivedFirstToken && (
+                  <div className="animate-fade-in mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 md:ml-[42px]">
+                    <TypingIndicator compact />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {error ? (
+            <div className="mx-auto mt-3 max-w-md rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
+              {error}
+            </div>
+          ) : null}
+          <div style={{ height: isAnchoring ? viewportHeight : Math.max(24, composerAreaHeight) }} />
+        </ConversationContent>
+        <ConversationScrollButton />
+      </ConversationContainer>
 
         <div ref={composerAreaRef} className="absolute inset-x-0 bottom-0 z-50 pointer-events-none">
          <div className="mx-auto w-full max-w-[980px] px-4 md:px-8 pt-1 pb-[max(0px,env(safe-area-inset-bottom))] md:pb-3 pointer-events-auto">
