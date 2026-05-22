@@ -1466,6 +1466,64 @@ describe("chat view", () => {
     expect(screen.queryByRole("button", { name: "Thinking ..." })).toBeNull();
   });
 
+  it("updates the header title when a conversation_title_updated WebSocket message arrives", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          conversation: {
+            ...createPayload().conversation,
+            title: "Conversation",
+            titleGenerationStatus: "pending"
+          }
+        })
+      })
+    );
+
+    expect(screen.getByText("Conversation")).toBeInTheDocument();
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "conversation_title_updated",
+        conversationId: "conv_1",
+        title: "Deployment Checklist"
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Deployment Checklist")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Conversation")).toBeNull();
+    expect(conversationEventMock.dispatchConversationTitleUpdated).toHaveBeenCalledWith({
+      conversationId: "conv_1",
+      title: "Deployment Checklist"
+    });
+  });
+
+  it("ignores conversation_title_updated for a different conversation", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          conversation: {
+            ...createPayload().conversation,
+            title: "My Chat",
+            titleGenerationStatus: "completed"
+          }
+        })
+      })
+    );
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "conversation_title_updated",
+        conversationId: "conv_other",
+        title: "Other Title"
+      });
+    });
+
+    expect(screen.getByText("My Chat")).toBeInTheDocument();
+    expect(screen.queryByText("Other Title")).toBeNull();
+  });
+
   it("hydrates queued messages from a WebSocket snapshot", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
