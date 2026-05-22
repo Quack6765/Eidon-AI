@@ -2714,7 +2714,7 @@ describe("chat view", () => {
     simulateAtBottomChange(false);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Scroll to newest messages" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Scroll to latest messages" })).toBeInTheDocument();
     });
 
     fireEvent.change(textarea, { target: { value: "Follow the latest reply" } });
@@ -2732,7 +2732,7 @@ describe("chat view", () => {
 
     simulateAtBottomChange(true);
     await flushAnimationFrame();
-    expect(screen.queryByRole("button", { name: "Scroll to newest messages" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Scroll to latest messages" })).toBeNull();
   });
 
   it("positions the Latest Messages pill to the right of the composer on desktop", async () => {
@@ -2743,11 +2743,11 @@ describe("chat view", () => {
     simulateAtBottomChange(false);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Scroll to newest messages" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Scroll to latest messages" })).toBeInTheDocument();
     });
 
-    const pill = screen.getByRole("button", { name: "Scroll to newest messages" }).parentElement!;
-    expect(pill.className).toContain("left-3");
+    const pill = screen.getByRole("button", { name: "Scroll to latest messages" }).parentElement!;
+    expect(pill.className).toContain("left-4");
   });
 
   it("follows streaming overflow after sending", async () => {

@@ -62,6 +62,8 @@ type ChatComposerProps = {
   isTemporary?: boolean;
   showTemporaryToggle?: boolean;
   onTemporaryChange?: (value: boolean) => void;
+  isAtBottom?: boolean;
+  onJumpToBottom?: () => void;
 };
 
 function CustomDropdown<T extends { id: string; name: string }>({
@@ -222,6 +224,8 @@ export function ChatComposer({
   isTemporary = false,
   showTemporaryToggle = false,
   onTemporaryChange,
+  isAtBottom = true,
+  onJumpToBottom,
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -263,6 +267,20 @@ export function ChatComposer({
 
   return (
     <div className="relative">
+      {!isAtBottom && (
+        <div className="absolute -top-[19px] left-4 z-0 flex items-start h-[24px]">
+          <button
+            type="button"
+            onClick={onJumpToBottom}
+            style={{ fontSize: '10px' }}
+            className="relative flex h-full items-center gap-0.5 rounded-t-md border border-b-0 border-violet-500/50 border-dashed bg-zinc-900/90 backdrop-blur-2xl px-2.5 font-bold uppercase tracking-wider text-violet-300 transition-all duration-150 active:scale-[0.96]"
+            aria-label="Scroll to latest messages"
+            title="Scroll to latest"
+          >
+            ↓ Latest
+          </button>
+        </div>
+      )}
       {isTemporary && !showTemporaryToggle && (
         <div className="absolute -top-[19px] right-4 z-10 flex items-center h-[19px]">
           <div className="relative flex h-full items-center rounded-t-md border border-b-0 border-violet-500/50 border-dashed bg-zinc-900/70 backdrop-blur-2xl px-2.5 text-[10px] font-bold uppercase tracking-wider text-violet-300">
@@ -294,7 +312,7 @@ export function ChatComposer({
       )}
     <div
       className={cn(
-        "relative rounded-[22px] sm:rounded-[26px] border bg-zinc-900/70 backdrop-blur-2xl p-1.5 sm:p-2 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all duration-500 focus-within:border-[var(--accent)]/30 focus-within:shadow-[0_0_50px_rgba(0,0,0,0.6),0_0_20px_var(--accent-soft)]",
+        "relative z-[1] rounded-[22px] sm:rounded-[26px] border bg-zinc-900/70 backdrop-blur-2xl p-1.5 sm:p-2 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all duration-500 focus-within:border-[var(--accent)]/30 focus-within:shadow-[0_0_50px_rgba(0,0,0,0.6),0_0_20px_var(--accent-soft)]",
         isTemporary ? "border-violet-500/50 border-dashed" : "border-white/10",
         className
       )}
