@@ -765,6 +765,17 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   useEffect(() => {
     const el = scrollContainerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    setViewportHeight(el.clientHeight);
+    const observer = new ResizeObserver(() => {
+      setViewportHeight(el.clientHeight);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
     if (!el) return;
 
     const handleScroll = () => {
@@ -2150,7 +2161,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           scrollerRef={(el) => {
             if (el) {
               scrollContainerRef.current = el as HTMLDivElement;
-              setViewportHeight(el.clientHeight);
             }
           }}
         >
