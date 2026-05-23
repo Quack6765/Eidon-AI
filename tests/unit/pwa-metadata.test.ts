@@ -1,6 +1,7 @@
 import { vi } from "vitest";
 
 vi.mock("next/font/google", () => ({
+  Geist: () => ({ variable: "--font-sans" }),
   Inter: () => ({ variable: "--font-body" }),
   Instrument_Serif: () => ({ variable: "--font-display" }),
   Orbitron: () => ({ variable: "--font-wordmark" })

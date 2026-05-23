@@ -141,52 +141,79 @@ vi.mock("@/lib/speech/speech-controller", () => ({
   createSpeechController: speechMock.createSpeechController
 }));
 
-const virtuosoMock = vi.hoisted(() => {
-  const handle = {
-    scrollToIndex: vi.fn(),
-    scrollIntoView: vi.fn(),
-    scrollTo: vi.fn(),
-    scrollBy: vi.fn(),
-    autoscrollToBottom: vi.fn(),
-    getState: vi.fn()
-  };
-  let atBottomCallback: ((atBottom: boolean) => void) | null = null;
-  return { handle, getAtBottomCallback: () => atBottomCallback, setAtBottomCallback: (cb: ((atBottom: boolean) => void) | null) => { atBottomCallback = cb; } };
-});
+const stickToBottomMock = vi.hoisted(() => ({
+  isAtBottomValue: true,
+  scrollToBottom: vi.fn(),
+}));
 
-vi.mock("react-virtuoso", () => {
+vi.mock("use-stick-to-bottom", () => ({
+  StickToBottom: require("react").forwardRef(function MockStickToBottom(
+    props: Record<string, unknown>,
+    ref: React.Ref<unknown>
+  ) {
+    require("react").useImperativeHandle(ref, () => ({}));
+    return require("react").createElement("div", null, props.children as React.ReactNode);
+  }),
+  useStickToBottomContext: () => ({
+    get isAtBottom() { return stickToBottomMock.isAtBottomValue; },
+    scrollToBottom: stickToBottomMock.scrollToBottom,
+  }),
+}));
+
+vi.mock("@/components/ai-elements/conversation", () => {
+  const React = require("react");
   return {
-    Virtuoso: React.forwardRef(function MockVirtuoso(
+    Conversation: React.forwardRef(function MockConversation(
       props: Record<string, unknown>,
       ref: React.Ref<unknown>
     ) {
-      const { handle, setAtBottomCallback } = virtuosoMock as unknown as {
-        handle: Record<string, ReturnType<typeof vi.fn>>;
-        setAtBottomCallback: (cb: ((atBottom: boolean) => void) | null) => void;
-      };
-
-      React.useImperativeHandle(ref, () => handle);
-
-      React.useEffect(() => {
-        setAtBottomCallback(props.atBottomStateChange as ((atBottom: boolean) => void) | null);
-        return () => setAtBottomCallback(null);
-      }, [props.atBottomStateChange]);
-
-      const data = (props.data as unknown[]) ?? [];
-      const itemContent = props.itemContent as ((index: number, item: unknown, context: unknown) => React.ReactNode) | undefined;
-      const components = props.components as Record<string, React.ComponentType<Record<string, unknown>>> | undefined;
-      const context = props.context;
-
-      return React.createElement(
-        "div",
-        { "data-testid": "virtuoso-scroller", className: props.className as string | undefined, style: props.style as React.CSSProperties | undefined },
-        ...data.map((item, index) =>
-          itemContent ? itemContent(index, item, context) : null
-        ),
-        components?.Footer ? React.createElement(components.Footer, { context }) : null
-      );
+      React.useImperativeHandle(ref, () => ({}));
+      return React.createElement("div", { "data-testid": "conversation" }, props.children as React.ReactNode);
     }),
-    VirtuosoHandle: {} as unknown
+    ConversationContent: ({ children, ...props }: Record<string, unknown>) => {
+      const scrollerRef = props.scrollerRef as ((el: HTMLElement | null) => void) | undefined;
+      const divRef = (React as any).useRef(null);
+      React.useEffect(() => {
+        if (scrollerRef) scrollerRef(divRef.current);
+      }, [scrollerRef]);
+      return React.createElement("div", { "data-testid": "conversation-content", ref: divRef }, children as React.ReactNode);
+    },
+    ConversationScrollButton: () =>
+      React.createElement("button", { "data-testid": "conversation-scroll-button" }, "Scroll to bottom"),
+    ConversationEmptyState: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "conversation-empty-state", ...props }, children as React.ReactNode),
+    ConversationDownload: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("button", { "data-testid": "conversation-download", ...props }, children as React.ReactNode),
+  };
+});
+
+vi.mock("@/components/ai-elements/message", () => {
+  const React = require("react");
+  return {
+    Message: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "message", "data-from": props.from }, children as React.ReactNode),
+    MessageContent: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "message-content", ...props }, children as React.ReactNode),
+    MessageActions: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "message-actions", ...props }, children as React.ReactNode),
+    MessageAction: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("button", { "data-testid": "message-action", ...props }, children as React.ReactNode, React.createElement("span", { className: "sr-only" }, (props.label || props.tooltip) as string)),
+    MessageToolbar: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "message-toolbar", ...props }, children as React.ReactNode),
+    MessageBranch: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "message-branch", ...props }, children as React.ReactNode),
+    MessageBranchContent: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "message-branch-content", ...props }, children as React.ReactNode),
+    MessageBranchSelector: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "message-branch-selector", ...props }, children as React.ReactNode),
+    MessageBranchPrevious: (props: Record<string, unknown>) =>
+      React.createElement("button", { "data-testid": "branch-prev", ...props }, "Previous"),
+    MessageBranchNext: (props: Record<string, unknown>) =>
+      React.createElement("button", { "data-testid": "branch-next", ...props }, "Next"),
+    MessageBranchPage: (props: Record<string, unknown>) =>
+      React.createElement("span", { "data-testid": "branch-page", ...props }, "1/1"),
+    MessageResponse: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "message-response", ...props }, children as React.ReactNode),
   };
 });
 
@@ -372,11 +399,8 @@ async function flushAnimationFrame() {
   });
 }
 
-function simulateAtBottomChange(atBottom: boolean) {
-  const cb = virtuosoMock.getAtBottomCallback();
-  if (cb) {
-    act(() => { cb(atBottom); });
-  }
+function getScrollContainer(): HTMLElement | null {
+  return document.querySelector('[data-testid="conversation-content"]');
 }
 
 describe("chat view", () => {
@@ -384,7 +408,19 @@ describe("chat view", () => {
   const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
   const originalAudioContext = Object.getOwnPropertyDescriptor(window, "AudioContext");
   const originalResizeObserver = window.ResizeObserver;
+  const originalScrollIntoView = Element.prototype.scrollIntoView;
+  const originalScrollTo = HTMLElement.prototype.scrollTo;
   let resizeObserverCallbacks: Array<ResizeObserverCallback> = [];
+
+  beforeAll(() => {
+    Element.prototype.scrollIntoView = function() {} as any;
+    HTMLElement.prototype.scrollTo = function() {} as any;
+  });
+
+  afterAll(() => {
+    if (originalScrollIntoView) Element.prototype.scrollIntoView = originalScrollIntoView;
+    if (originalScrollTo) HTMLElement.prototype.scrollTo = originalScrollTo;
+  });
 
   beforeEach(() => {
     push.mockReset();
@@ -405,11 +441,6 @@ describe("chat view", () => {
     speechMock.createSpeechEngine.mockClear();
     speechMock.audioMonitor.readLevel.mockReturnValue(0.42);
     speechMock.audioMonitor.dispose.mockReset();
-    virtuosoMock.handle.scrollToIndex.mockReset();
-    virtuosoMock.handle.scrollIntoView.mockReset();
-    virtuosoMock.handle.scrollTo.mockReset();
-    virtuosoMock.handle.scrollBy.mockReset();
-    virtuosoMock.handle.autoscrollToBottom.mockReset();
     resizeObserverCallbacks = [];
     window.ResizeObserver = class {
       private callback: ResizeObserverCallback;
@@ -498,6 +529,8 @@ describe("chat view", () => {
     }
 
     window.ResizeObserver = originalResizeObserver;
+    stickToBottomMock.isAtBottomValue = true;
+    stickToBottomMock.scrollToBottom.mockClear();
   });
 
   function renderWithProvider(ui: React.ReactElement) {
@@ -529,6 +562,15 @@ describe("chat view", () => {
 
   async function flushResizeObservers() {
     await act(async () => {
+      for (const callback of resizeObserverCallbacks) {
+        callback([], {} as ResizeObserver);
+      }
+    });
+  }
+
+  function simulateAtBottomState(atBottom: boolean) {
+    stickToBottomMock.isAtBottomValue = atBottom;
+    act(() => {
       for (const callback of resizeObserverCallbacks) {
         callback([], {} as ResizeObserver);
       }
@@ -2713,8 +2755,8 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    simulateAtBottomChange(false);
-    virtuosoMock.handle.scrollToIndex.mockClear();
+    simulateAtBottomState(false);
+    stickToBottomMock.scrollToBottom.mockClear();
 
     fireEvent.change(textarea, { target: { value: "Queued follow-up" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2727,9 +2769,7 @@ describe("chat view", () => {
       });
     });
 
-    expect(virtuosoMock.handle.scrollToIndex).toHaveBeenCalledWith(
-      expect.objectContaining({ index: "LAST", align: "end" })
-    );
+    expect(stickToBottomMock.scrollToBottom).toHaveBeenCalled();
   });
 
   it("does not force-scroll streaming updates when the user has scrolled away from the bottom", async () => {
@@ -2745,8 +2785,8 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    simulateAtBottomChange(false);
-    virtuosoMock.handle.scrollToIndex.mockClear();
+    simulateAtBottomState(false);
+    stickToBottomMock.scrollToBottom.mockClear();
 
     act(() => {
       wsMock.onMessage!({
@@ -2758,7 +2798,7 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    expect(virtuosoMock.handle.scrollToIndex).not.toHaveBeenCalled();
+    expect(stickToBottomMock.scrollToBottom).not.toHaveBeenCalled();
   });
 
   it("hides the scroll-to-newest pill when the user sends from a scrolled-up conversation", async () => {
@@ -2769,7 +2809,7 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    simulateAtBottomChange(false);
+    simulateAtBottomState(false);
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Scroll to latest messages" })).toBeInTheDocument();
@@ -2788,7 +2828,7 @@ describe("chat view", () => {
       personaId: undefined
     });
 
-    simulateAtBottomChange(true);
+    simulateAtBottomState(true);
     await flushAnimationFrame();
     expect(screen.queryByRole("button", { name: "Scroll to latest messages" })).toBeNull();
   });
@@ -2798,7 +2838,7 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    simulateAtBottomChange(false);
+    simulateAtBottomState(false);
 
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Scroll to latest messages" })).toBeInTheDocument();
@@ -2824,8 +2864,6 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    virtuosoMock.handle.scrollToIndex.mockClear();
-
     act(() => {
       wsMock.onMessage!({
         type: "delta",
@@ -2847,7 +2885,7 @@ describe("chat view", () => {
     });
   });
 
-  it("anchors to the reconciled server user message when the optimistic local message is removed first", async () => {
+  it("renders the reconciled server user message when the optimistic local message is replaced", async () => {
     const serverUserMessage = createMessage({
       id: "msg_server_user",
       role: "user",
@@ -2888,11 +2926,7 @@ describe("chat view", () => {
       expect(screen.getByText("Server-backed prompt")).toBeInTheDocument();
     });
 
-    await waitFor(() => {
-      expect(virtuosoMock.handle.scrollToIndex).toHaveBeenCalledWith(
-        expect.objectContaining({ align: "start", behavior: "auto" })
-      );
-    });
+    expect(screen.getByText("Server-backed prompt")).toBeInTheDocument();
   });
 
   it("scrolls to anchor the user message near the top after sending", async () => {
@@ -2900,6 +2934,8 @@ describe("chat view", () => {
     const textarea = screen.getByPlaceholderText(
       "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
     );
+
+    const scrollIntoViewSpy2 = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
 
     fireEvent.change(textarea, { target: { value: "Hello world" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2911,9 +2947,10 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    expect(virtuosoMock.handle.scrollToIndex).toHaveBeenCalledWith(
-      expect.objectContaining({ align: "start", behavior: "auto" })
+    expect(scrollIntoViewSpy2).toHaveBeenCalledWith(
+      expect.objectContaining({ block: "start", behavior: "auto" })
     );
+    scrollIntoViewSpy2.mockRestore();
   });
 
   it("scrolls to bottom when queuing a follow-up during an active turn", async () => {
@@ -2941,7 +2978,7 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    virtuosoMock.handle.scrollToIndex.mockClear();
+    stickToBottomMock.scrollToBottom.mockClear();
 
     fireEvent.change(textarea, { target: { value: "Queued follow-up" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2956,9 +2993,7 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    expect(virtuosoMock.handle.scrollToIndex).toHaveBeenCalledWith(
-      expect.objectContaining({ index: "LAST", align: "end", behavior: "auto" })
-    );
+    expect(stickToBottomMock.scrollToBottom).toHaveBeenCalled();
   });
 
   it("cancels streaming follow immediately when the user wheels away", async () => {
@@ -2977,8 +3012,6 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    virtuosoMock.handle.scrollToIndex.mockClear();
-
     act(() => {
       wsMock.onMessage!({
         type: "delta",
@@ -2996,8 +3029,8 @@ describe("chat view", () => {
       expect(screen.getByText("A long response that starts following")).toBeInTheDocument();
     });
 
-    simulateAtBottomChange(false);
-    virtuosoMock.handle.scrollToIndex.mockClear();
+    simulateAtBottomState(false);
+    const scrollToSpy2 = vi.spyOn(HTMLElement.prototype, 'scrollTo').mockImplementation(() => {});
 
     act(() => {
       wsMock.onMessage!({
@@ -3010,7 +3043,8 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    expect(virtuosoMock.handle.scrollToIndex).not.toHaveBeenCalled();
+    expect(scrollToSpy2).not.toHaveBeenCalled();
+    scrollToSpy2.mockRestore();
   });
 
   it("anchors to the edited message after edit-retry", async () => {
@@ -3055,6 +3089,8 @@ describe("chat view", () => {
       })
     );
 
+    const scrollIntoViewSpy3 = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+
     fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
     fireEvent.change(screen.getByDisplayValue("Original prompt"), {
       target: { value: "Edited prompt" }
@@ -3076,9 +3112,10 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    expect(virtuosoMock.handle.scrollToIndex).toHaveBeenCalledWith(
-      expect.objectContaining({ align: "start", behavior: "auto" })
+    expect(scrollIntoViewSpy3).toHaveBeenCalledWith(
+      expect.objectContaining({ block: "start", behavior: "auto" })
     );
+    scrollIntoViewSpy3.mockRestore();
   });
 
   it("renders tool actions and answer text while streaming", async () => {

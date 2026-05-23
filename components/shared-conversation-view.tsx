@@ -8,7 +8,13 @@ import {
   type AttachmentUrlOptions,
   useAttachmentPreviewController
 } from "@/components/attachment-preview-modal";
+import {
+  Conversation as ConversationContainer,
+  ConversationContent,
+  ConversationScrollButton
+} from "@/components/ai-elements/conversation";
 import { MessageBubble } from "@/components/message-bubble";
+import { Message as AiMessage } from "@/components/ai-elements/message";
 import type { Conversation, Message, MessageAttachment } from "@/lib/types";
 
 function buildSharedAttachmentUrl(
@@ -103,32 +109,31 @@ function SharedConversationTranscript({
         </div>
       </header>
 
-      <section
-        className="no-scrollbar relative z-0 isolate min-h-0 flex-1 overflow-y-auto px-2 md:px-8"
-        aria-label="Shared transcript"
-      >
-        <div className="flex w-full flex-col gap-2.5 px-2 pt-4 pb-10 md:gap-4 md:px-0">
+      <ConversationContainer className="no-scrollbar relative z-0 isolate min-h-0 flex-1">
+        <ConversationContent className="flex w-full flex-col gap-2.5 px-2 pt-4 pb-10 md:gap-4 md:px-0">
           {messages.length > 0 ? (
             messages.map((message) => (
-              <div
-                key={message.id}
-                className="animate-slide-up"
-                style={{ animationFillMode: "forwards" }}
-              >
-                <MessageBubble
-                  message={message}
-                  onPreviewAttachment={previewController.openAttachmentPreview}
-                  readOnly
-                />
-              </div>
+              <AiMessage from={message.role} key={message.id}>
+                <div
+                  className="animate-slide-up"
+                  style={{ animationFillMode: "forwards" }}
+                >
+                  <MessageBubble
+                    message={message}
+                    onPreviewAttachment={previewController.openAttachmentPreview}
+                    readOnly
+                  />
+                </div>
+              </AiMessage>
             ))
           ) : (
             <div className="rounded-2xl border border-white/8 bg-white/[0.025] px-4 py-5 text-sm text-[var(--muted)]">
               This shared conversation has no visible messages.
             </div>
           )}
-        </div>
-      </section>
+        </ConversationContent>
+        <ConversationScrollButton />
+      </ConversationContainer>
 
       {previewController.previewAttachment ? (
         <AttachmentPreviewModal

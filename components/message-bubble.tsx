@@ -18,12 +18,18 @@ import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdow
 import { writeRichTextToClipboard } from "@/lib/clipboard";
 import type {
   MemoryCategory,
-  Message,
-  MessageAction,
+  Message as MessageType,
+  MessageAction as MessageActionType,
   MessageAttachment,
   MessageTimelineItem
 } from "@/lib/types";
 import { normalizeLineBreaks } from "@/lib/text-utils";
+import {
+  Message,
+  MessageContent,
+  MessageActions,
+  MessageAction
+} from "@/components/ai-elements/message";
 
 const STREAMDOWN_PLUGINS = { code, mermaid };
 const COPY_RESET_DELAY_MS = 1600;
@@ -493,7 +499,7 @@ const ASSISTANT_BUBBLE =
 const ASSISTANT_LOADING_SHELL =
   "mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1";
 
-function getActionSignature(action: Pick<MessageAction, "kind" | "label" | "detail" | "toolName">) {
+function getActionSignature(action: Pick<MessageActionType, "kind" | "label" | "detail" | "toolName">) {
   return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
 }
 
@@ -511,30 +517,6 @@ function formatPlainTextHtml(value: string) {
     .split(/\n{2,}/)
     .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br />")}</p>`)
     .join("");
-}
-
-function ActionButton({
-  label,
-  onClick,
-  disabled,
-  children
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      onClick={onClick}
-      disabled={disabled}
-      className="flex h-7 w-7 items-center justify-center rounded-md border border-white/6 bg-white/[0.02] text-white/35 transition hover:border-white/10 hover:bg-white/[0.05] hover:text-white/70 disabled:cursor-not-allowed disabled:opacity-50"
-    >
-      {children}
-    </button>
-  );
 }
 
 function AttachmentTile({
@@ -688,7 +670,7 @@ export function MessageBubble({
   onPreviewAttachment,
   readOnly = false
 }: {
-  message: Message;
+  message: MessageType;
   streamingTimeline?: MessageTimelineItem[];
   streamingThinking?: string;
   streamingAnswer?: string;
@@ -955,18 +937,20 @@ export function MessageBubble({
 
   if (message.role === "system") {
     return (
-      <div data-message-id={message.id} className="mx-auto max-w-lg rounded-full border border-white/6 bg-white/[0.03] px-5 py-2 text-center text-[11px] tracking-[0.12em] text-white/40 uppercase">
-        {message.content}
-      </div>
+      <Message from="system" data-message-id={message.id}>
+        <MessageContent className="mx-auto max-w-lg rounded-full border border-white/6 bg-white/[0.03] px-5 py-2 text-center text-[11px] tracking-[0.12em] text-white/40 uppercase">
+          {message.content}
+        </MessageContent>
+      </Message>
     );
   }
 
   if (message.role === "user") {
     return (
       <>
-        <div data-message-id={message.id} className="flex w-full justify-end">
+        <Message from="user" data-message-id={message.id}>
           <div className="group flex w-full flex-col items-end md:max-w-[95%]">
-            <div className={`${!readOnly && isEditing ? "w-full" : "w-fit max-w-full"} rounded-2xl border border-[var(--accent)]/10 bg-[var(--accent-soft)] px-4 py-3 text-[var(--text)]`}>
+            <MessageContent className={`${!readOnly && isEditing ? "w-full" : "w-fit max-w-full"} rounded-2xl border border-[var(--accent)]/10 bg-[var(--accent-soft)] px-4 py-3 text-[var(--text)]`}>
               {!readOnly && isEditing ? (
                 <Textarea
                   ref={editRef}
@@ -999,12 +983,13 @@ export function MessageBubble({
                   />
                 </div>
               ) : null}
-            </div>
+            </MessageContent>
 
             {showUserBubbleActions ? (
               <div className="mt-2 flex items-center gap-1 opacity-100 transition md:pointer-events-none md:translate-y-1 md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:translate-y-0 md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100">
-                <ActionButton
+                <MessageAction
                   label={copyState === "copied" ? "Copied" : "Copy message"}
+                  tooltip={copyState === "copied" ? "Copied" : "Copy message"}
                   onClick={() => void handleCopy()}
                 >
                   {copyState === "copied" ? (
@@ -1014,12 +999,13 @@ export function MessageBubble({
                   ) : (
                     <Copy className="h-3.5 w-3.5" />
                   )}
-                </ActionButton>
+                </MessageAction>
 
                 {!readOnly && isEditing ? (
                   <>
-                    <ActionButton
+                    <MessageAction
                       label="Save edit"
+                      tooltip="Save edit"
                       onClick={() => void handleSaveEdit()}
                       disabled={isUpdating || !draft.trim()}
                     >
@@ -1028,20 +1014,20 @@ export function MessageBubble({
                       ) : (
                         <Check className="h-3.5 w-3.5" />
                       )}
-                    </ActionButton>
-                    <ActionButton label="Cancel edit" onClick={handleCancelEdit} disabled={isUpdating}>
+                    </MessageAction>
+                    <MessageAction label="Cancel edit" tooltip="Cancel edit" onClick={handleCancelEdit} disabled={isUpdating}>
                       <X className="h-3.5 w-3.5" />
-                    </ActionButton>
+                    </MessageAction>
                   </>
                 ) : !readOnly ? (
-                  <ActionButton label="Edit message" onClick={() => setIsEditing(true)}>
+                  <MessageAction label="Edit message" tooltip="Edit message" onClick={() => setIsEditing(true)}>
                     <Pencil className="h-3.5 w-3.5" />
-                  </ActionButton>
+                  </MessageAction>
                 ) : null}
               </div>
             ) : null}
           </div>
-        </div>
+        </Message>
         {!onPreviewAttachment && previewController.previewAttachment ? (
           <AttachmentPreviewModal
             attachment={previewController.previewAttachment}
@@ -1055,7 +1041,7 @@ export function MessageBubble({
   }
 
   return (
-    <div data-message-id={message.id} className="w-full">
+    <Message from="assistant" data-message-id={message.id}>
       <div className="flex flex-col gap-1 md:flex-row md:gap-3.5">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] border border-white/6 text-[10px] font-bold text-white/60 overflow-hidden md:mt-1">
           {/* eslint-disable-next-line @next/next/no-img-element -- Static assistant avatar is deliberately tiny and unoptimized. */}
@@ -1122,18 +1108,19 @@ export function MessageBubble({
               )
             ) : message.status === "error" ? (
               <div className="group flex w-full min-w-0 flex-col items-start">
-                <div className={`flex w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
+                <MessageContent className={`w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
                   <div
                     className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-red-300/85 shadow-[0_8px_24px_rgba(0,0,0,0.28)] md:px-4 md:py-3"
                     data-testid="assistant-error-bubble"
                   >
                     {content || "Something went wrong"}
                   </div>
-                </div>
+                </MessageContent>
                 {onRetryAssistantMessage ? (
                   <div className="mt-2 flex items-center gap-1">
-                    <ActionButton
+                    <MessageAction
                       label="Retry message"
+                      tooltip="Retry message"
                       onClick={() => onRetryAssistantMessage(message.id)}
                       disabled={isRetrying}
                     >
@@ -1142,91 +1129,94 @@ export function MessageBubble({
                       ) : (
                         <RefreshCw className="h-3.5 w-3.5" />
                       )}
-                    </ActionButton>
+                    </MessageAction>
                   </div>
                 ) : null}
               </div>
             ) : assistantBlocks.length || content || assistantImageAttachments.length || assistantFileAttachments.length ? (
               <div className="group flex w-full min-w-0 flex-col items-start">
-                <div ref={contentRef} className={`flex w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
-                  {assistantBlocks.map((item) => {
-                    if (item.timelineKind === "action") {
+                <MessageContent className={`w-full ${ASSISTANT_MAX_WIDTH}`}>
+                  <div ref={contentRef} className="flex flex-col gap-3">
+                    {assistantBlocks.map((item) => {
+                      if (item.timelineKind === "action") {
+                        return (
+                          <div key={item.id} data-testid="assistant-actions-shell">
+                            {isMemoryProposalAction(item) ? (
+                              <MemoryProposalCard
+                                action={item}
+                                onApprove={onApproveMemoryProposal}
+                                onDismiss={onDismissMemoryProposal}
+                                readOnly={readOnly}
+                              />
+                            ) : (
+                              <CollapsibleActionRow
+                                action={item}
+                                isOpen={toolOpenItems[item.id] ?? false}
+                                onToggle={() => toggleToolItem(item.id)}
+                              />
+                            )}
+                          </div>
+                        );
+                      }
+                      const renderedContent =
+                        renderedAssistantBlockContentById.get(item.id) ?? item.content;
+
+                      if (!renderedContent) {
+                        return null;
+                      }
                       return (
-                        <div key={item.id} data-testid="assistant-actions-shell">
-                          {isMemoryProposalAction(item) ? (
-                            <MemoryProposalCard
-                              action={item}
-                              onApprove={onApproveMemoryProposal}
-                              onDismiss={onDismissMemoryProposal}
-                              readOnly={readOnly}
-                            />
-                          ) : (
-                            <CollapsibleActionRow
-                              action={item}
-                              isOpen={toolOpenItems[item.id] ?? false}
-                              onToggle={() => toggleToolItem(item.id)}
-                            />
-                          )}
+                        <div
+                          key={item.id}
+                          className={ASSISTANT_BUBBLE}
+                          data-testid="assistant-message-bubble"
+                        >
+                          <div className="markdown-body">
+                            {renderAssistantMarkdown(renderedContent, isAssistantStreaming)}
+                          </div>
+                          {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
+                            <div className="mt-3">
+                              <AssistantInlineImageAttachments
+                                attachments={assistantImageAttachments}
+                                onPreview={handleAttachmentPreview}
+                              />
+                            </div>
+                          ) : null}
                         </div>
                       );
-                    }
-                    const renderedContent =
-                      renderedAssistantBlockContentById.get(item.id) ?? item.content;
-
-                    if (!renderedContent) {
-                      return null;
-                    }
-                    return (
+                    })}
+                    {showStandaloneAssistantImageBubble ? (
                       <div
-                        key={item.id}
                         className={ASSISTANT_BUBBLE}
                         data-testid="assistant-message-bubble"
                       >
-                        <div className="markdown-body">
-                          {renderAssistantMarkdown(renderedContent, isAssistantStreaming)}
-                        </div>
-                        {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
-                          <div className="mt-3">
-                            <AssistantInlineImageAttachments
-                              attachments={assistantImageAttachments}
-                              onPreview={handleAttachmentPreview}
-                            />
-                          </div>
-                        ) : null}
+                        <AssistantInlineImageAttachments
+                          attachments={assistantImageAttachments}
+                          onPreview={handleAttachmentPreview}
+                        />
                       </div>
-                    );
-                  })}
-                  {showStandaloneAssistantImageBubble ? (
-                    <div
-                      className={ASSISTANT_BUBBLE}
-                      data-testid="assistant-message-bubble"
-                    >
-                      <AssistantInlineImageAttachments
-                        attachments={assistantImageAttachments}
-                        onPreview={handleAttachmentPreview}
-                      />
-                    </div>
-                  ) : null}
-                  {message.status === "stopped" ? (
-                    <div className="inline-flex items-center gap-1.5 rounded-md border border-red-400/12 bg-red-400/8 px-2 py-1 text-[11px] text-red-200/85">
-                      <Square className="h-2.5 w-2.5 fill-current" />
-                      <span>Stopped</span>
-                    </div>
-                  ) : null}
-                  {assistantFileAttachments.length ? (
-                    <div>
-                      <MessageAttachments
-                        attachments={assistantFileAttachments}
-                        onPreview={handleAttachmentPreview}
-                      />
-                    </div>
-                  ) : null}
-                </div>
+                    ) : null}
+                    {message.status === "stopped" ? (
+                      <div className="inline-flex items-center gap-1.5 rounded-md border border-red-400/12 bg-red-400/8 px-2 py-1 text-[11px] text-red-200/85">
+                        <Square className="h-2.5 w-2.5 fill-current" />
+                        <span>Stopped</span>
+                      </div>
+                    ) : null}
+                    {assistantFileAttachments.length ? (
+                      <div>
+                        <MessageAttachments
+                          attachments={assistantFileAttachments}
+                          onPreview={handleAttachmentPreview}
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                </MessageContent>
 
                 {showAssistantBubbleActions ? (
                   <div className="mt-2 flex items-center gap-1 opacity-100 transition md:pointer-events-none md:translate-y-1 md:opacity-0 md:group-hover:pointer-events-auto md:group-hover:translate-y-0 md:group-hover:opacity-100 md:group-focus-within:pointer-events-auto md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100">
-                    <ActionButton
+                    <MessageAction
                       label={copyState === "copied" ? "Copied" : "Copy message"}
+                      tooltip={copyState === "copied" ? "Copied" : "Copy message"}
                       onClick={() => void handleCopy()}
                     >
                       {copyState === "copied" ? (
@@ -1236,10 +1226,11 @@ export function MessageBubble({
                       ) : (
                         <Copy className="h-3.5 w-3.5" />
                       )}
-                    </ActionButton>
+                    </MessageAction>
                     {onForkAssistantMessage && message.status === "completed" ? (
-                      <ActionButton
+                      <MessageAction
                         label="Fork conversation from message"
+                        tooltip="Fork conversation from message"
                         onClick={() => onForkAssistantMessage(message.id)}
                         disabled={isForking}
                       >
@@ -1248,7 +1239,7 @@ export function MessageBubble({
                         ) : (
                           <GitFork className="h-3.5 w-3.5" />
                         )}
-                      </ActionButton>
+                      </MessageAction>
                     ) : null}
                   </div>
                 ) : null}
@@ -1265,7 +1256,7 @@ export function MessageBubble({
           onRetry={() => void previewController.openAttachmentPreview(previewController.previewAttachment!)}
         />
       ) : null}
-    </div>
+    </Message>
   );
 }
 

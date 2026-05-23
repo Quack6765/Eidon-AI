@@ -4,6 +4,47 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+global.ResizeObserver = class ResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+};
+
+vi.mock("@/components/ai-elements/conversation", () => {
+  const React = require("react");
+  return {
+    Conversation: React.forwardRef(function MockConversation(
+      props: Record<string, unknown>,
+      ref: React.Ref<unknown>
+    ) {
+      React.useImperativeHandle(ref, () => ({}));
+      return React.createElement("div", { "data-testid": "conversation" }, props.children as React.ReactNode);
+    }),
+    ConversationContent: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "conversation-content", ...props }, children as React.ReactNode),
+    ConversationScrollButton: () =>
+      React.createElement("button", { "data-testid": "conversation-scroll-button" }, "Scroll to bottom"),
+    ConversationEmptyState: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "conversation-empty-state", ...props }, children as React.ReactNode),
+    ConversationDownload: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("button", { "data-testid": "conversation-download", ...props }, children as React.ReactNode),
+  };
+});
+
+vi.mock("@/components/ai-elements/message", () => {
+  const React = require("react");
+  return {
+    Message: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "message", "data-from": props.from }, children as React.ReactNode),
+    MessageContent: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "message-content", ...props }, children as React.ReactNode),
+    MessageActions: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("div", { "data-testid": "message-actions", ...props }, children as React.ReactNode),
+    MessageAction: ({ children, ...props }: Record<string, unknown>) =>
+      React.createElement("button", { "data-testid": "message-action", ...props }, children as React.ReactNode),
+  };
+});
+
 import { SharedConversationView } from "@/components/shared-conversation-view";
 import type { Conversation, Message, MessageAttachment, MessageTimelineItem } from "@/lib/types";
 
