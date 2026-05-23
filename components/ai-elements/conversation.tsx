@@ -31,7 +31,7 @@ export const ConversationContent = ({
   scrollerRef,
   ...props
 }: ConversationContentProps) => (
-  <div ref={scrollerRef as React.RefCallback<HTMLDivElement>}>
+  <div ref={scrollerRef as React.RefCallback<HTMLDivElement>} className="h-full overflow-hidden">
     <StickToBottom.Content
       className={cn("flex w-full flex-col", className)}
       {...props}

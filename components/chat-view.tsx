@@ -2154,7 +2154,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       </div>
 
-      <div className="relative flex-1 min-h-0">
+      <div className="relative flex min-h-0 flex-1 flex-col">
       <ConversationContainer>
         <ConversationContent
           className="no-scrollbar overscroll-y-contain gap-2.5 px-2 pt-4 md:gap-4 md:px-8"
