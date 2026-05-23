@@ -2,10 +2,10 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, GitFork, LoaderCircle, Pencil, RefreshCw, Square, X } from "lucide-react";
-import type { RemendHandler } from "remend";
-import { Streamdown } from "streamdown";
+import { Streamdown, parseMarkdownIntoBlocks } from "streamdown";
 import { code } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
+import { MARKDOWN_REMEND_HANDLERS, normalizeMarkdown } from "@/lib/markdown-normalization";
 import {
   AttachmentPreviewModal,
   useAttachmentUrlBuilder,
@@ -32,7 +32,14 @@ import {
 } from "@/components/ai-elements/message";
 
 const STREAMDOWN_PLUGINS = { code, mermaid };
+const STREAMDOWN_REMEND = { handlers: MARKDOWN_REMEND_HANDLERS };
+const STREAMDOWN_PARSE_BLOCKS = (markdown: string) =>
+  parseMarkdownIntoBlocks(markdown);
 const COPY_RESET_DELAY_MS = 1600;
+
+function md(content: string): string {
+  return normalizeMarkdown(content);
+}
 
 function getAnsiForegroundClassName(foregroundColor: ReturnType<typeof parseAnsiText>[number]["foregroundColor"]) {
   switch (foregroundColor) {
@@ -90,10 +97,12 @@ function renderAssistantMarkdown(content: string, isStreaming: boolean) {
   return (
     <Streamdown
       plugins={STREAMDOWN_PLUGINS}
+      remend={STREAMDOWN_REMEND}
+      parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
       caret={isStreaming ? "block" : undefined}
       isAnimating={isStreaming}
     >
-      {content}
+      {md(content)}
     </Streamdown>
   );
 }
@@ -971,7 +980,7 @@ export function MessageBubble({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body">
-                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS}>{content}</Streamdown>
+                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS} remend={STREAMDOWN_REMEND} parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}>{md(content)}</Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
@@ -1087,9 +1096,11 @@ export function MessageBubble({
                 {thinkingOpen && thinkingContent ? (
                   <div className="markdown-body thinking-markdown-body mt-1.5">
                     <Streamdown
+                      remend={STREAMDOWN_REMEND}
+                      parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
                       caret={thinkingInProgress ? "block" : undefined}
                       isAnimating={thinkingInProgress}
-                    >{thinkingContent}</Streamdown>
+                    >{md(thinkingContent)}</Streamdown>
                   </div>
                 ) : null}
               </div>

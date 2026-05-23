@@ -86,6 +86,21 @@ const NON_NATIVE_VISION_DIRECTIVE =
 const MERMAID_DIAGRAM_DIRECTIVE =
   "When you need to present diagrams (flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, Gantt charts, pie charts, mind maps, or any other diagram type), use mermaid.js syntax inside a fenced code block with the `mermaid` language identifier. For example:\n\n```mermaid\ngraph TD\n    A[Start] --> B{Decision}\n    B -->|Yes| C[Success]\n    B -->|No| D[Try Again]\n```\n\nAlways prefer mermaid diagrams over ASCII art or text-based diagrams.";
 
+const MARKDOWN_FORMATTING_DIRECTIVE =
+  "Follow these markdown formatting rules strictly in every response:\n\
+\n\
+1. **Headings**: Always place at least one space after the # markers. Write `## Title`, never `##Title`.\n\
+\n\
+2. **Horizontal rules**: Always place horizontal rules (`---`, `***`, or `___`) on their own line with a blank line before and after. Never put text on the same line as a horizontal rule. `---First text` and `text---` are invalid.\n\
+\n\
+3. **Tables**: Use proper GitHub Flavored Markdown table syntax. Include a header row, a separator row with `|---|---|` or `| --- | --- |`, and consistent column counts across all rows.\n\
+\n\
+4. **Fenced code blocks**: Always close every opened fenced code block with matching backtick fences. Never leave a code block unclosed.\n\
+\n\
+5. **Blank lines**: Always use blank lines to separate block-level elements from each other — headings, horizontal rules, tables, fenced code blocks, and lists must each be surrounded by blank lines.\n\
+\n\
+6. **General**: Always output valid GitHub Flavored Markdown. Do not use raw HTML when a markdown equivalent exists.";
+
 function mcpToolFunctionName(serverSlug: string, toolName: string) {
   return `mcp_${serverSlug}_${toolName}`;
 }
@@ -1314,6 +1329,7 @@ export async function resolveAssistantTurn(input: {
   }
 
   promptMessages = mergeSystemMessage(promptMessages, MERMAID_DIAGRAM_DIRECTIVE);
+  promptMessages = mergeSystemMessage(promptMessages, MARKDOWN_FORMATTING_DIRECTIVE);
 
   let timelineSortOrder = 0;
 
