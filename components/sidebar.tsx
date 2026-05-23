@@ -50,6 +50,7 @@ import {
   CONVERSATION_REMOVED_EVENT,
   CONVERSATION_TITLE_UPDATED_EVENT,
   dispatchConversationRemoved,
+  dispatchConversationTitleUpdated,
   type ConversationActivityUpdatedDetail,
   type ConversationRemovedDetail,
   type ConversationTitleUpdatedDetail
@@ -59,6 +60,7 @@ import { addGlobalWsListener } from "@/lib/ws-client";
 import type { ServerMessage } from "@/lib/ws-protocol";
 import type { Conversation, ConversationListPage, ConversationSearchResult, Folder } from "@/lib/types";
 import { SidebarFooterNav } from "@/components/sidebar-footer-nav";
+import { RenameModal } from "@/components/ui/rename-modal";
 
 type SidebarConversation = ConversationSearchResult;
 
@@ -184,6 +186,7 @@ function ConversationItem({
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -268,6 +271,21 @@ function ConversationItem({
     }
     router.refresh();
     setMenuOpen(false);
+  }
+
+  async function handleRenameConversation(newTitle: string) {
+    const response = await fetch(`/api/conversations/${conversation.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: newTitle })
+    });
+    if (response.ok) {
+      dispatchConversationTitleUpdated({
+        conversationId: conversation.id,
+        title: newTitle
+      });
+    }
+    router.refresh();
   }
 
   return (
@@ -384,6 +402,13 @@ function ConversationItem({
                 </>
               )}
               <button
+                onClick={() => { setRenameOpen(true); setMenuOpen(false); }}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-white/40 hover:bg-white/[0.04] hover:text-white transition-colors duration-200"
+              >
+                <Pencil className="h-4 w-4 opacity-50" />
+                Rename
+              </button>
+              <button
                 onClick={handleDelete}
                 className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-red-400/80 hover:bg-red-500/10 hover:text-red-400 transition-colors duration-200"
               >
@@ -394,6 +419,13 @@ function ConversationItem({
           )}
         </div>
       )}
+      <RenameModal
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+        value={conversation.title}
+        onSave={handleRenameConversation}
+        title="Rename conversation"
+      />
     </div>
   );
 }
@@ -424,12 +456,10 @@ function FolderItem({
   searchQuery: string;
 }) {
   const [collapsed, setCollapsed] = useState(true);
-  const [renaming, setRenaming] = useState(false);
-  const [renameValue, setRenameValue] = useState(folder.name);
+  const [renameOpen, setRenameOpen] = useState(false);
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const renameRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
 
   const {
@@ -452,13 +482,6 @@ function FolderItem({
   };
 
   useEffect(() => {
-    if (renaming && renameRef.current) {
-      renameRef.current.focus();
-      renameRef.current.select();
-    }
-  }, [renaming]);
-
-  useEffect(() => {
     if (!folderMenuOpen) return;
     function handleClick(e: MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
@@ -469,14 +492,12 @@ function FolderItem({
     return () => document.removeEventListener("mousedown", handleClick);
   }, [folderMenuOpen]);
 
-  async function handleRename() {
-    if (!renameValue.trim()) return;
+  async function handleRename(newName: string) {
     await fetch(`/api/folders/${folder.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: renameValue.trim() })
+      body: JSON.stringify({ name: newName })
     });
-    setRenaming(false);
     router.refresh();
   }
 
@@ -518,26 +539,12 @@ function FolderItem({
         ) : (
           <FolderOpen className="h-4 w-4 text-[var(--accent)] opacity-60" />
         )}
-        {renaming ? (
-          <input
-            ref={renameRef}
-            value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
-            onBlur={handleRename}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleRename();
-              if (e.key === "Escape") setRenaming(false);
-            }}
-            className="flex-1 bg-transparent border-b border-white/20 text-sm text-white outline-none px-1"
-          />
-        ) : (
-          <span
-            className="flex-1 truncate font-medium"
-            onClick={() => setCollapsed(!collapsed)}
-          >
-            {folder.name}
-          </span>
-        )}
+        <span
+          className="flex-1 truncate font-medium"
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          {folder.name}
+        </span>
         {showCount ? (
           <span className="text-[10px] font-bold text-white/10 group-hover:text-white/20 transition-colors mr-1 tabular-nums">{conversations.length}</span>
         ) : null}
@@ -591,7 +598,7 @@ function FolderItem({
                 ) : (
                   <>
                     <button
-                      onClick={() => { setRenaming(true); setFolderMenuOpen(false); }}
+                      onClick={() => { setRenameOpen(true); setFolderMenuOpen(false); }}
                       className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-white/40 hover:bg-white/[0.04] hover:text-white transition-colors duration-200"
                     >
                       <Pencil className="h-4 w-4 opacity-50" />
@@ -611,6 +618,15 @@ function FolderItem({
           </div>
         </div>
       </div>
+
+      <RenameModal
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+        value={folder.name}
+        onSave={handleRename}
+        title="Rename folder"
+        maxLength={100}
+      />
 
       {!collapsed && conversations.length > 0 && (
         <div className="ml-5 mt-1 flex flex-col border-l border-white/5 pl-2">
