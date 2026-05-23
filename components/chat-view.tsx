@@ -6,6 +6,7 @@ import {
   ConversationContent,
   ConversationScrollButton
 } from "@/components/ai-elements/conversation";
+import { useStickToBottomContext } from "use-stick-to-bottom";
 import { useRouter } from "next/navigation";
 import { Plus, Share2 } from "lucide-react";
 
@@ -449,6 +450,27 @@ function isQueuedMessageOperationError(message: string) {
   return message === "Queued message not found";
 }
 
+function StickToBottomBridge({
+  onAtBottomChange,
+  scrollToBottomRef
+}: {
+  onAtBottomChange: (atBottom: boolean) => void;
+  scrollToBottomRef: React.MutableRefObject<(() => void) | null>;
+}) {
+  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
+
+  useEffect(() => {
+    onAtBottomChange(isAtBottom);
+  }, [isAtBottom, onAtBottomChange]);
+
+  useEffect(() => {
+    scrollToBottomRef.current = scrollToBottom;
+    return () => { scrollToBottomRef.current = null; };
+  }, [scrollToBottom, scrollToBottomRef]);
+
+  return null;
+}
+
 export function ChatView({ payload }: { payload: ConversationPayload }) {
   const router = useRouter();
   const { getTokenUsage, setTokenUsage } = useContextTokens();
@@ -512,7 +534,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
   const [personaId, setPersonaId] = useState<string | null>(null);
-  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const scrollToBottomRef = useRef<(() => void) | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const queueBannerRef = useRef<HTMLDivElement>(null);
   const [viewportHeight, setViewportHeight] = useState(800);
@@ -735,12 +757,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, []);
 
   useEffect(() => {
-    scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: "auto" });
+    scrollToBottomRef.current?.();
     setIsAtBottom(true);
   }, [payload.conversation.id]);
 
   const jumpToBottom = useCallback(() => {
-    scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: "smooth" });
+    scrollToBottomRef.current?.();
   }, []);
 
   useEffect(() => {
@@ -761,32 +783,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     });
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    setViewportHeight(el.clientHeight);
-    const observer = new ResizeObserver(() => {
-      setViewportHeight(el.clientHeight);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-
-    const handleScroll = () => {
-      const threshold = 64;
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
-      setIsAtBottom(atBottom);
-    };
-
-    el.addEventListener("scroll", handleScroll, { passive: true });
-    handleScroll();
-    return () => el.removeEventListener("scroll", handleScroll);
   }, []);
 
   useEffect(() => {
@@ -1929,7 +1925,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         return;
       }
 
-      scrollContainerRef.current?.scrollTo({ top: scrollContainerRef.current.scrollHeight, behavior: "auto" });
+      scrollToBottomRef.current?.();
       setError("");
       setInput("");
       wsSend({
@@ -2156,13 +2152,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
       <div className="relative flex min-h-0 flex-1 flex-col">
       <ConversationContainer>
+        <StickToBottomBridge
+          onAtBottomChange={setIsAtBottom}
+          scrollToBottomRef={scrollToBottomRef}
+        />
         <ConversationContent
           className="no-scrollbar overscroll-y-contain gap-2.5 px-2 pt-4 md:gap-4 md:px-8"
-          scrollerRef={(el) => {
-            if (el) {
-              scrollContainerRef.current = el as HTMLDivElement;
-            }
-          }}
         >
           {renderableMessages.map((message) => {
             const isStreamingMessage = message.id === streamMessageId;
@@ -2223,7 +2218,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               {error}
             </div>
           ) : null}
-          <div style={{ height: isAnchoring ? viewportHeight : Math.max(24, composerAreaHeight) }} />
+          <div style={{ height: isAnchoring ? viewportHeight : (streamMessageId ? Math.max(80, composerAreaHeight + 40) : Math.max(24, composerAreaHeight)) }} />
         </ConversationContent>
         <ConversationScrollButton />
       </ConversationContainer>

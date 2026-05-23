@@ -141,6 +141,25 @@ vi.mock("@/lib/speech/speech-controller", () => ({
   createSpeechController: speechMock.createSpeechController
 }));
 
+const stickToBottomMock = vi.hoisted(() => ({
+  isAtBottomValue: true,
+  scrollToBottom: vi.fn(),
+}));
+
+vi.mock("use-stick-to-bottom", () => ({
+  StickToBottom: require("react").forwardRef(function MockStickToBottom(
+    props: Record<string, unknown>,
+    ref: React.Ref<unknown>
+  ) {
+    require("react").useImperativeHandle(ref, () => ({}));
+    return require("react").createElement("div", null, props.children as React.ReactNode);
+  }),
+  useStickToBottomContext: () => ({
+    get isAtBottom() { return stickToBottomMock.isAtBottomValue; },
+    scrollToBottom: stickToBottomMock.scrollToBottom,
+  }),
+}));
+
 vi.mock("@/components/ai-elements/conversation", () => {
   const React = require("react");
   return {
@@ -384,21 +403,6 @@ function getScrollContainer(): HTMLElement | null {
   return document.querySelector('[data-testid="conversation-content"]');
 }
 
-function simulateAtBottomState(atBottom: boolean) {
-  const container = getScrollContainer();
-  if (!container) return;
-  if (atBottom) {
-    Object.defineProperty(container, 'scrollTop', { value: 900, configurable: true });
-    Object.defineProperty(container, 'scrollHeight', { value: 1000, configurable: true });
-    Object.defineProperty(container, 'clientHeight', { value: 100, configurable: true });
-  } else {
-    Object.defineProperty(container, 'scrollTop', { value: 0, configurable: true });
-    Object.defineProperty(container, 'scrollHeight', { value: 2000, configurable: true });
-    Object.defineProperty(container, 'clientHeight', { value: 500, configurable: true });
-  }
-  fireEvent.scroll(container);
-}
-
 describe("chat view", () => {
   const originalMaxTouchPoints = Object.getOwnPropertyDescriptor(navigator, "maxTouchPoints");
   const originalMediaDevices = Object.getOwnPropertyDescriptor(navigator, "mediaDevices");
@@ -525,6 +529,8 @@ describe("chat view", () => {
     }
 
     window.ResizeObserver = originalResizeObserver;
+    stickToBottomMock.isAtBottomValue = true;
+    stickToBottomMock.scrollToBottom.mockClear();
   });
 
   function renderWithProvider(ui: React.ReactElement) {
@@ -556,6 +562,15 @@ describe("chat view", () => {
 
   async function flushResizeObservers() {
     await act(async () => {
+      for (const callback of resizeObserverCallbacks) {
+        callback([], {} as ResizeObserver);
+      }
+    });
+  }
+
+  function simulateAtBottomState(atBottom: boolean) {
+    stickToBottomMock.isAtBottomValue = atBottom;
+    act(() => {
       for (const callback of resizeObserverCallbacks) {
         callback([], {} as ResizeObserver);
       }
@@ -2741,7 +2756,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
 
     simulateAtBottomState(false);
-    const scrollToSpy = vi.spyOn(HTMLElement.prototype, 'scrollTo').mockImplementation(() => {});
+    stickToBottomMock.scrollToBottom.mockClear();
 
     fireEvent.change(textarea, { target: { value: "Queued follow-up" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2754,8 +2769,7 @@ describe("chat view", () => {
       });
     });
 
-    expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: expect.any(String) }));
-    scrollToSpy.mockRestore();
+    expect(stickToBottomMock.scrollToBottom).toHaveBeenCalled();
   });
 
   it("does not force-scroll streaming updates when the user has scrolled away from the bottom", async () => {
@@ -2772,7 +2786,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
 
     simulateAtBottomState(false);
-    const scrollToSpy3 = vi.spyOn(HTMLElement.prototype, 'scrollTo').mockImplementation(() => {});
+    stickToBottomMock.scrollToBottom.mockClear();
 
     act(() => {
       wsMock.onMessage!({
@@ -2784,8 +2798,7 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    expect(scrollToSpy3).not.toHaveBeenCalled();
-    scrollToSpy3.mockRestore();
+    expect(stickToBottomMock.scrollToBottom).not.toHaveBeenCalled();
   });
 
   it("hides the scroll-to-newest pill when the user sends from a scrolled-up conversation", async () => {
@@ -2965,7 +2978,7 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    const scrollToSpy = vi.spyOn(HTMLElement.prototype, 'scrollTo').mockImplementation(() => {});
+    stickToBottomMock.scrollToBottom.mockClear();
 
     fireEvent.change(textarea, { target: { value: "Queued follow-up" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2980,8 +2993,7 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    expect(scrollToSpy).toHaveBeenCalledWith(expect.objectContaining({ behavior: "auto" }));
-    scrollToSpy.mockRestore();
+    expect(stickToBottomMock.scrollToBottom).toHaveBeenCalled();
   });
 
   it("cancels streaming follow immediately when the user wheels away", async () => {
