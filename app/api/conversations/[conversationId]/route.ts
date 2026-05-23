@@ -8,6 +8,7 @@ import {
   listQueuedMessages,
   listVisibleMessages,
   moveConversationToFolder,
+  renameConversation,
   setConversationActive,
   setConversationTemporary,
   updateConversationProviderProfile
@@ -87,14 +88,16 @@ const updateSchema = z
     folderId: z.string().nullable().optional(),
     providerProfileId: z.string().min(1).optional(),
     isActive: z.boolean().optional(),
-    isTemporary: z.boolean().optional()
+    isTemporary: z.boolean().optional(),
+    title: z.string().min(1).max(200).optional()
   })
   .refine(
     (value) =>
       value.folderId !== undefined ||
       value.providerProfileId !== undefined ||
       value.isActive !== undefined ||
-      value.isTemporary !== undefined,
+      value.isTemporary !== undefined ||
+      value.title !== undefined,
     "Invalid conversation update"
   );
 
@@ -145,6 +148,20 @@ export async function PATCH(
 
   if (body.data.isTemporary !== undefined) {
     setConversationTemporary(conversation.id, body.data.isTemporary);
+  }
+
+  if (body.data.title !== undefined) {
+    renameConversation(conversation.id, body.data.title);
+    try {
+      getConversationManager().broadcastAll(
+        {
+          type: "conversation_title_updated",
+          conversationId: conversation.id,
+          title: body.data.title
+        },
+        user.id
+      );
+    } catch {}
   }
 
   const updated = getConversation(conversation.id, user.id);
