@@ -10,6 +10,7 @@ const INLINE_ORDERED_MARKER = /([^\s\d.)_<>(#`])(\d{1,3}[.)]\s)/g;
 const INLINE_HEADING_MARKER = /([^\s#_|>#`])(#{1,6}\s\S)/g;
 const INLINE_STAR_MARKER_EMPHASIS = /(\*{1,3})([ \t]+)([*+]\s(?:\[[ x]\]\s)?)/g;
 const INLINE_STAR_MARKER_INLINE = /(\S)([ \t]+)([*+]\s(?:\[[ x]\]\s)?)/g;
+const INLINE_STAR_MARKER_NO_SPACE = /(\S)([*+]\s(?:\[[ x]\]\s)?)/g;
 const INLINE_BLOCKQUOTE_MARKER_EMPHASIS = /(\*{1,3})([ \t]*)(>(?:[ \t]|$))/gm;
 const INLINE_BLOCKQUOTE_MARKER_INLINE = /(\S)([ \t]+)(>(?:[ \t]*>)+[ \t]?)/gm;
 
@@ -64,6 +65,27 @@ function fixHorizontalRuleFusion(text: string): string {
   return result;
 }
 
+function lineIndentAt(fullString: string, offset: number): string {
+  const lineStart = fullString.lastIndexOf("\n", offset - 1) + 1;
+  const lineText = fullString.slice(lineStart);
+  const indent = lineText.match(/^[ \t]*/);
+  return indent ? indent[0] : "";
+}
+
+function lineIsListItem(fullString: string, offset: number): boolean {
+  const lineStart = fullString.lastIndexOf("\n", offset - 1) + 1;
+  const lineText = fullString.slice(lineStart);
+  return /^\s*([-*+]|\d{1,3}[.)])\s/.test(lineText);
+}
+
+function subItemIndentAt(fullString: string, offset: number): string {
+  const indent = lineIndentAt(fullString, offset);
+  if (lineIsListItem(fullString, offset)) {
+    return indent + "  ";
+  }
+  return indent;
+}
+
 function fixInlineBlockMarkersInner(text: string): string {
   let result = text;
 
@@ -81,9 +103,10 @@ function fixInlineBlockMarkersInner(text: string): string {
     return `${before}\n${marker}`;
   });
 
-  result = result.replace(INLINE_STAR_MARKER_EMPHASIS, (match, emphasis, spaces, marker) => {
+  result = result.replace(INLINE_STAR_MARKER_EMPHASIS, (match, emphasis, spaces, marker, offset, fullString) => {
     if (spaces.includes("\n")) return match;
-    return `${emphasis}\n${marker}`;
+    const indent = subItemIndentAt(fullString, offset);
+    return `${emphasis}\n${indent}${marker}`;
   });
 
   result = result.replace(INLINE_STAR_MARKER_INLINE, (match, before, spaces, marker, offset, fullString) => {
@@ -92,12 +115,23 @@ function fixInlineBlockMarkersInner(text: string): string {
     const afterIdx = offset + before.length + spaces.length + marker.length;
     const afterChar = fullString[afterIdx];
     if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
-    return `${before}\n${spaces}${marker}`;
+    const indent = subItemIndentAt(fullString, offset);
+    return `${before}\n${indent}${marker}`;
   });
 
-  result = result.replace(INLINE_BLOCKQUOTE_MARKER_EMPHASIS, (match, emphasis, spaces, marker) => {
+  result = result.replace(INLINE_STAR_MARKER_NO_SPACE, (match, before, marker, offset, fullString) => {
+    if (before === "*" || before === "+") return match;
+    const afterIdx = offset + before.length + marker.length;
+    const afterChar = fullString[afterIdx];
+    if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
+    const indent = subItemIndentAt(fullString, offset);
+    return `${before}\n${indent}${marker}`;
+  });
+
+  result = result.replace(INLINE_BLOCKQUOTE_MARKER_EMPHASIS, (match, emphasis, spaces, marker, offset, fullString) => {
     if (spaces.includes("\n")) return match;
-    return `${emphasis}\n${spaces}${marker}`;
+    const indent = subItemIndentAt(fullString, offset);
+    return `${emphasis}\n${indent}${marker}`;
   });
 
   result = result.replace(INLINE_BLOCKQUOTE_MARKER_INLINE, (match, before, spaces, marker, offset, fullString) => {
@@ -107,7 +141,8 @@ function fixInlineBlockMarkersInner(text: string): string {
     const afterChar = fullString[afterIdx];
     if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
     if (/[<>=!]=?/.test(before) && afterChar && /\d/.test(afterChar)) return match;
-    return `${before}\n${spaces}${marker}`;
+    const indent = subItemIndentAt(fullString, offset);
+    return `${before}\n${indent}${marker}`;
   });
 
   return result;
