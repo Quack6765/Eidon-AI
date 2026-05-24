@@ -674,6 +674,8 @@ export function MessageBubble({
   isForking = false,
   onRetryAssistantMessage,
   isRetrying = false,
+  onRegenerateUserMessage,
+  isRegenerating = false,
   onApproveMemoryProposal,
   onDismissMemoryProposal,
   onPreviewAttachment,
@@ -699,6 +701,8 @@ export function MessageBubble({
   isForking?: boolean;
   onRetryAssistantMessage?: (messageId: string) => void;
   isRetrying?: boolean;
+  onRegenerateUserMessage?: (messageId: string) => void;
+  isRegenerating?: boolean;
   onPreviewAttachment?: (attachment: MessageAttachment) => void;
   readOnly?: boolean;
 }) {
@@ -1009,6 +1013,21 @@ export function MessageBubble({
                     <Copy className="h-3.5 w-3.5" />
                   )}
                 </MessageAction>
+
+                {!readOnly && onRegenerateUserMessage ? (
+                  <MessageAction
+                    label={isRegenerating ? "Regenerating..." : "Regenerate response"}
+                    tooltip="Regenerate response"
+                    onClick={() => onRegenerateUserMessage(message.id)}
+                    disabled={isRegenerating}
+                  >
+                    {isRegenerating ? (
+                      <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3.5 w-3.5" />
+                    )}
+                  </MessageAction>
+                ) : null}
 
                 {!readOnly && isEditing ? (
                   <>

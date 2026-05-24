@@ -2159,7 +2159,6 @@ export function deleteAssistantMessageAndChildren(
 
     db.prepare("DELETE FROM message_actions WHERE message_id = ?").run(message.id);
     db.prepare("DELETE FROM message_text_segments WHERE message_id = ?").run(message.id);
-    db.prepare("DELETE FROM message_timeline WHERE message_id = ?").run(message.id);
     db.prepare("DELETE FROM message_attachments WHERE message_id = ?").run(message.id);
     db.prepare("DELETE FROM messages WHERE id = ?").run(message.id);
 
