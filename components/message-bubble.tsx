@@ -175,7 +175,14 @@ function CollapsibleActionRow({
         </span>
       </button>
       {isOpen && (action.detail || action.resultSummary) ? (
-        <div className="px-2.5 pb-2">
+        <div
+          className="px-2.5 pb-2"
+          onClick={() => {
+            if (!window.getSelection()?.toString()) {
+              onToggle();
+            }
+          }}
+        >
           {action.detail ? (
             <pre className="overflow-x-auto rounded-md bg-black/30 p-2 text-[11px] leading-5 whitespace-pre-wrap break-words font-mono">
               <AnsiText text={action.detail} defaultTextClassName="text-white/45" />
@@ -1113,7 +1120,14 @@ export function MessageBubble({
                 </button>
 
                 {thinkingOpen && thinkingContent ? (
-                  <div className="markdown-body thinking-markdown-body mt-1.5">
+                  <div
+                    className="markdown-body thinking-markdown-body mt-1.5"
+                    onClick={() => {
+                      if (!window.getSelection()?.toString()) {
+                        setThinkingOpen(false);
+                      }
+                    }}
+                  >
                     <Streamdown
                       remend={STREAMDOWN_REMEND}
                       parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
