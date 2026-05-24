@@ -455,7 +455,10 @@ function FolderItem({
   showCount: boolean;
   searchQuery: string;
 }) {
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (activeConversationId === null) return true;
+    return !conversations.some(c => c.id === activeConversationId);
+  });
   const [renameOpen, setRenameOpen] = useState(false);
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState(false);
@@ -491,6 +494,11 @@ function FolderItem({
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
   }, [folderMenuOpen]);
+
+  useEffect(() => {
+    if (activeConversationId === null) return;
+    setCollapsed(!conversations.some(c => c.id === activeConversationId));
+  }, [activeConversationId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleRename(newName: string) {
     await fetch(`/api/folders/${folder.id}`, {
