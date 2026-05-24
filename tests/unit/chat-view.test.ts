@@ -3118,6 +3118,162 @@ describe("chat view", () => {
     scrollIntoViewSpy3.mockRestore();
   });
 
+  it("shows regenerate button only on the last user message", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: {
+          ...createPayload(),
+          messages: [
+            createMessage({
+              id: "msg_user_1",
+              role: "user",
+              content: "First question"
+            }),
+            createMessage({
+              id: "msg_assistant_1",
+              content: "First answer"
+            }),
+            createMessage({
+              id: "msg_user_2",
+              role: "user",
+              content: "Second question"
+            }),
+            createMessage({
+              id: "msg_assistant_2",
+              content: "Second answer"
+            })
+          ]
+        }
+      })
+    );
+
+    const regenerateButtons = screen.getAllByRole("button", { name: "Regenerate response" });
+    expect(regenerateButtons).toHaveLength(1);
+  });
+
+  it("calls regenerate endpoint when regenerate button is clicked", async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          conversation: {
+            ...createPayload().conversation,
+            id: "conv_1"
+          },
+          messages: [
+            createMessage({
+              id: "msg_user",
+              role: "user",
+              content: "Hello"
+            })
+          ]
+        })
+      } as Response);
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: {
+          ...createPayload(),
+          messages: [
+            createMessage({
+              id: "msg_user",
+              role: "user",
+              content: "Hello"
+            }),
+            createMessage({
+              id: "msg_assistant_old",
+              content: "Old answer"
+            })
+          ]
+        }
+      })
+    );
+
+    const regenerateButton = screen.getByRole("button", { name: "Regenerate response" });
+    expect(regenerateButton).toBeInTheDocument();
+
+    fireEvent.click(regenerateButton);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/messages/msg_user/regenerate", {
+        method: "POST"
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello")).toBeInTheDocument();
+    });
+  });
+
+  it("stops active stream before regenerating", async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          conversation: {
+            ...createPayload().conversation,
+            id: "conv_1"
+          },
+          messages: [
+            createMessage({
+              id: "msg_user",
+              role: "user",
+              content: "Hello"
+            })
+          ]
+        })
+      } as Response);
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: {
+          ...createPayload(),
+          messages: [
+            createMessage({
+              id: "msg_user",
+              role: "user",
+              content: "Hello"
+            })
+          ]
+        }
+      })
+    );
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello")).toBeInTheDocument();
+    });
+
+    const regenerateButton = await screen.findByRole("button", { name: "Regenerate response" });
+    fireEvent.click(regenerateButton);
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "stop",
+        conversationId: "conv_1"
+      });
+    });
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/messages/msg_user/regenerate", {
+        method: "POST"
+      });
+    });
+  });
+
   it("renders tool actions and answer text while streaming", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
