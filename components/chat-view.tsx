@@ -571,6 +571,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
   const [forkingMessageId, setForkingMessageId] = useState<string | null>(null);
   const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
+  const [regeneratingMessageId, setRegeneratingMessageId] = useState<string | null>(null);
   const titlePollTimeoutRef = useRef<number | null>(null);
   const titlePollAttemptsRef = useRef(0);
   const messageSyncTimeoutRef = useRef<number | null>(null);
@@ -619,6 +620,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   );
   const hasPendingLocalSubmission = pendingLocalSubmissionsRef.current.length > 0;
+  const lastUserMsgIndex = useMemo(() => {
+    for (let i = renderableMessages.length - 1; i >= 0; i--) {
+      if (renderableMessages[i].role === "user") return i;
+    }
+    return -1;
+  }, [renderableMessages]);
   const hasOptimisticLocalMessage = renderableMessages.some((message) =>
     message.id.startsWith("local_")
   );
@@ -1789,6 +1796,65 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  async function regenerateUserMessage(messageId: string) {
+    if (regeneratingMessageId) {
+      return;
+    }
+
+    if (streamMessageIdRef.current && !isStopPending) {
+      stopActiveTurn();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    setError("");
+    setRegeneratingMessageId(messageId);
+
+    try {
+      const response = await fetch(`/api/messages/${messageId}/regenerate`, {
+        method: "POST"
+      });
+
+      if (!response.ok) {
+        let message = "Message regeneration failed";
+
+        try {
+          const failure = (await response.json()) as { error?: string };
+          message = failure.error ?? message;
+        } catch {}
+
+        throw new Error(message);
+      }
+
+      const result = (await response.json()) as {
+        conversation?: Conversation;
+        messages?: Message[];
+      };
+
+      resetStreamingState();
+
+      if (result.messages) {
+        setMessages(sanitizeMessages(result.messages));
+      }
+
+      if (result.conversation) {
+        setConversationTitle(result.conversation.title);
+        setTitleGenerationStatus(result.conversation.titleGenerationStatus);
+        dispatchConversationActivityUpdated({
+          conversationId: result.conversation.id,
+          isActive: true
+        });
+      }
+
+      setIsSending(true);
+    } catch (caughtError) {
+      setError(
+        caughtError instanceof Error ? caughtError.message : "Message regeneration failed"
+      );
+    } finally {
+      setRegeneratingMessageId((current) => (current === messageId ? null : current));
+    }
+  }
+
   async function approveMemoryProposal(
     actionId: string,
     overrides?: { content?: string; category?: MemoryCategory }
@@ -2159,7 +2225,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         <ConversationContent
           className="no-scrollbar overscroll-y-contain gap-2.5 px-2 pt-4 md:gap-4 md:px-8"
         >
-          {renderableMessages.map((message) => {
+          {renderableMessages.map((message, index) => {
             const isStreamingMessage = message.id === streamMessageId;
             const hasRunningStreamingAction = Boolean(
               streamTimeline?.some(
@@ -2204,6 +2270,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                   isForking={forkingMessageId === message.id}
                   onRetryAssistantMessage={retryAssistantMessage}
                   isRetrying={retryingMessageId === message.id}
+                  onRegenerateUserMessage={index === lastUserMsgIndex ? regenerateUserMessage : undefined}
+                  isRegenerating={regeneratingMessageId === message.id}
                 />
                 {isStreamingMessage && isAgentIdle && hasReceivedFirstToken && (
                   <div className="animate-fade-in mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 md:ml-[42px]">
