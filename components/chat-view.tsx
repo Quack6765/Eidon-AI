@@ -1830,8 +1830,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         messages?: Message[];
       };
 
-      resetStreamingState();
-
       if (result.messages) {
         setMessages(sanitizeMessages(result.messages));
       }
