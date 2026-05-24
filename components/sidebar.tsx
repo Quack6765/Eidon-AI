@@ -516,7 +516,7 @@ function FolderItem({
     <div ref={setNodeRef} style={style} {...(dragEnabled ? attributes : {})}>
       <div
         ref={dragEnabled ? setFolderDropRef : undefined}
-        className={`group flex items-center gap-3 rounded-2xl px-3 py-2 text-sm text-white/30 hover:bg-white/[0.03] transition-all duration-300 cursor-pointer ${
+        className={`group flex items-center gap-3 rounded-2xl pl-1 pr-3 py-2 text-sm text-white/30 hover:bg-white/[0.03] transition-all duration-300 cursor-pointer ${
           dragEnabled && isOverFolderDrop
             ? "bg-white/[0.05] border border-white/10 shadow-2xl"
             : "border border-transparent"
@@ -526,14 +526,6 @@ function FolderItem({
         aria-label={`${folder.name} folder`}
         {...(dragEnabled ? listeners : {})}
       >
-        <button
-          type="button"
-          aria-label={collapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
-          onClick={() => setCollapsed(!collapsed)}
-          className="p-0.5 opacity-30 hover:opacity-100 transition-opacity"
-        >
-          {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-        </button>
         {collapsed ? (
           <FolderIcon className="h-4 w-4 opacity-30" />
         ) : (
@@ -617,6 +609,14 @@ function FolderItem({
             )}
           </div>
         </div>
+        <button
+          type="button"
+          aria-label={collapsed ? `Expand ${folder.name}` : `Collapse ${folder.name}`}
+          onClick={() => setCollapsed(!collapsed)}
+          className="shrink-0 p-0.5 opacity-30 hover:opacity-100 transition-opacity"
+        >
+          {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        </button>
       </div>
 
       <RenameModal
@@ -629,7 +629,7 @@ function FolderItem({
       />
 
       {!collapsed && conversations.length > 0 && (
-        <div className="ml-5 mt-1 flex flex-col border-l border-white/5 pl-2">
+        <div className="ml-3 mt-1 flex flex-col border-l border-white/15 pl-1.5">
           {conversations.map((conversation) => (
             <ConversationItem
               key={conversation.id}
