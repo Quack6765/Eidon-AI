@@ -584,6 +584,28 @@ select {
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+@layer utilities {
+  .pt-safe-mobile {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  @media (min-width: 768px) {
+    .pt-safe-mobile {
+      padding-top: 0;
+    }
+  }
+  .pt-mobile-header {
+    padding-top: calc(3.5rem + env(safe-area-inset-top, 0px));
+  }
+  @media (min-width: 768px) {
+    .pt-mobile-header {
+      padding-top: 0;
+    }
+  }
+  .h-mobile-header {
+    height: calc(3.5rem + env(safe-area-inset-top, 0px));
+  }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

@@ -345,10 +345,10 @@ export function Shell({
         </button>
       ) : null}
 
-      <div className={`relative flex min-h-0 min-w-0 flex-1 flex-col w-full overflow-hidden md:pt-0 transition-all duration-300 ease-out ${
+      <div className={`relative flex min-h-0 min-w-0 flex-1 flex-col w-full overflow-hidden pt-mobile-header transition-all duration-300 ease-out ${
         isDesktopSidebarOpen ? "md:pl-[280px]" : "md:pl-0"
-      }`} style={{ paddingTop: 'calc(3.5rem + env(safe-area-inset-top, 0px))' }}>
-        <div className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 md:hidden bg-[var(--background)]/80 backdrop-blur-xl border-b border-white/4" style={{ paddingTop: 'env(safe-area-inset-top, 0px)', height: 'calc(3.5rem + env(safe-area-inset-top, 0px))' }}>
+      }`}>
+        <div className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 pt-safe-mobile h-mobile-header md:hidden bg-[var(--background)]/80 backdrop-blur-xl border-b border-white/4">
           <button
             type="button"
             className="p-2 -ml-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
