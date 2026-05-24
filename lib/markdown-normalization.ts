@@ -6,8 +6,12 @@ const HR_FUSED_AFTER = /(?<=\S)(-{3,})$/gm;
 
 const INLINE_TABLE_OPENER = /([^\s|])(\| [^ |-])/g;
 const INLINE_LIST_MARKER = /([^\s*_|>#`])([-]\s(?:\[[ x]\]\s)?)/g;
-const INLINE_ORDERED_MARKER = /([^\s\d.)_<>(#`])(\d+[.)]\s)/g;
+const INLINE_ORDERED_MARKER = /([^\s\d.)_<>(#`])(\d{1,3}[.)]\s)/g;
 const INLINE_HEADING_MARKER = /([^\s#_|>#`])(#{1,6}\s\S)/g;
+const INLINE_STAR_MARKER_EMPHASIS = /(\*{1,3})([ \t]+)([*+]\s(?:\[[ x]\]\s)?)/g;
+const INLINE_STAR_MARKER_INLINE = /(\S)([ \t]+)([*+]\s(?:\[[ x]\]\s)?)/g;
+const INLINE_BLOCKQUOTE_MARKER_EMPHASIS = /(\*{1,3})([ \t]*)(>(?:[ \t]|$))/gm;
+const INLINE_BLOCKQUOTE_MARKER_INLINE = /(\S)([ \t]+)(>(?:[ \t]*>)+[ \t]?)/gm;
 
 function splitAroundCodeFences(text: string): { text: string; insideCode: boolean }[] {
   const parts: { text: string; insideCode: boolean }[] = [];
@@ -77,6 +81,35 @@ function fixInlineBlockMarkersInner(text: string): string {
     return `${before}\n${marker}`;
   });
 
+  result = result.replace(INLINE_STAR_MARKER_EMPHASIS, (match, emphasis, spaces, marker) => {
+    if (spaces.includes("\n")) return match;
+    return `${emphasis}\n${marker}`;
+  });
+
+  result = result.replace(INLINE_STAR_MARKER_INLINE, (match, before, spaces, marker, offset, fullString) => {
+    if (spaces.includes("\n")) return match;
+    if (before === "*" || before === "+") return match;
+    const afterIdx = offset + before.length + spaces.length + marker.length;
+    const afterChar = fullString[afterIdx];
+    if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
+    return `${before}\n${spaces}${marker}`;
+  });
+
+  result = result.replace(INLINE_BLOCKQUOTE_MARKER_EMPHASIS, (match, emphasis, spaces, marker) => {
+    if (spaces.includes("\n")) return match;
+    return `${emphasis}\n${spaces}${marker}`;
+  });
+
+  result = result.replace(INLINE_BLOCKQUOTE_MARKER_INLINE, (match, before, spaces, marker, offset, fullString) => {
+    if (spaces.includes("\n")) return match;
+    if (before === ">") return match;
+    const afterIdx = offset + before.length + spaces.length + marker.length;
+    const afterChar = fullString[afterIdx];
+    if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
+    if (/[<>=!]=?/.test(before) && afterChar && /\d/.test(afterChar)) return match;
+    return `${before}\n${spaces}${marker}`;
+  });
+
   return result;
 }
 
@@ -94,7 +127,7 @@ function classifyLine(line: string): BlockKind {
   if (/^>\s?/.test(trimmed)) return "blockquote";
   if (/^\|/.test(trimmed)) return "table";
   if (/^[-*+]\s/.test(trimmed)) return "unordered-list";
-  if (/^\d+[.)]\s/.test(trimmed)) return "ordered-list";
+  if (/^\d{1,3}[.)]\s/.test(trimmed)) return "ordered-list";
   if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(trimmed)) return "hr";
   return "other";
 }

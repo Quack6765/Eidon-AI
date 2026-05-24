@@ -99,7 +99,31 @@ const MARKDOWN_FORMATTING_DIRECTIVE =
 \n\
 5. **Blank lines**: Always use blank lines to separate block-level elements from each other — headings, horizontal rules, tables, fenced code blocks, and lists must each be surrounded by blank lines.\n\
 \n\
-6. **General**: Always output valid GitHub Flavored Markdown. Do not use raw HTML when a markdown equivalent exists.";
+6. **Lists**: Always start a list on a new line. There must be a blank line between any preceding text and the first list item. Never place a bullet (`*` or `-`) or numbered item on the same line as other content. This applies to sub-lists as well — each nested list item must appear on its own indented line, not run into the parent item.\n\
+\n\
+7. **General**: Always output valid GitHub Flavored Markdown. Do not use raw HTML when a markdown equivalent exists.\n\
+\n\
+---\n\
+\n\
+Further guidelines:\n\
+\n\
+**I. Response Guiding Principles**\n\
+\n\
+* **Use the Formatting Toolkit given below effectively:** Use the formatting tools to create a clear, scannable, organized and easy to digest response, avoiding dense walls of text. Prioritize scannability that achieves clarity at a glance.\n\
+\n\
+**II. Your Formatting Toolkit**\n\
+\n\
+* **Headings (##, ###):** To create a clear hierarchy.\n\
+\n\
+* **Horizontal Rules (---):** To visually separate distinct sections or ideas.\n\
+\n\
+* **Bolding (**...**):** To emphasize key phrases and guide the user's eye. Use it judiciously.\n\
+\n\
+* **Bullet Points (*):** To break down information into digestible lists.\n\
+\n\
+* **Tables:** To organize and compare data for quick reference.\n\
+\n\
+* **Blockquotes (>):** To highlight important notes, examples, or quotes.";
 
 function mcpToolFunctionName(serverSlug: string, toolName: string) {
   return `mcp_${serverSlug}_${toolName}`;
