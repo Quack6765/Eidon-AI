@@ -219,6 +219,19 @@ describe("normalizeMarkdown", () => {
       expect(result).toContain("text- not a list");
       expect(result).toContain("- item");
     });
+
+    it("splits inline closing fence from code content", () => {
+      const result = normalizeMarkdown(
+        "```python\ndb = DatabaseConnection()\nprint(\"Connected!\")```\n\n### Next"
+      );
+      expect(result).toContain('print("Connected!")\n```');
+      expect(result).toContain("### Next");
+    });
+
+    it("preserves normal code fence closing", () => {
+      const input = "```\ncode\n```\nafter";
+      expect(normalizeMarkdown(input)).toContain("code\n```\n\nafter");
+    });
   });
 
   describe("combined scenarios", () => {

@@ -307,7 +307,16 @@ export function normalizeMarkdown(text: string): string {
           collapsed.splice(i + 1, 0, closingMatch[2].trimStart());
         }
       } else {
-        output.push(line);
+        const inlineClose = line.match(/(.*?)(`{3,})\s*$/);
+        if (inlineClose && inlineClose[1].trim()) {
+          output.push(inlineClose[1]);
+          insideFence = false;
+          output.push(inlineClose[2]);
+          prevBlockKind = "code-fence";
+          rootListKind = null;
+        } else {
+          output.push(line);
+        }
       }
       continue;
     }
