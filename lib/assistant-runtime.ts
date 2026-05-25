@@ -87,21 +87,29 @@ const MERMAID_DIAGRAM_DIRECTIVE =
   "When you need to present diagrams (flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, Gantt charts, pie charts, mind maps, or any other diagram type), use mermaid.js syntax inside a fenced code block with the `mermaid` language identifier. For example:\n\n```mermaid\ngraph TD\n    A[Start] --> B{Decision}\n    B -->|Yes| C[Success]\n    B -->|No| D[Try Again]\n```\n\nAlways prefer mermaid diagrams over ASCII art or text-based diagrams.";
 
 const MARKDOWN_FORMATTING_DIRECTIVE =
-  "Follow these markdown formatting rules strictly in every response:\n\
+  "You MUST follow these markdown formatting rules in EVERY response. Violations break the rendering:\n\
 \n\
-1. **Headings**: Always place at least one space after the # markers. Write `## Title`, never `##Title`.\n\
+1. **Block elements MUST start on a new line.** Headings (`#`, `##`, `###`), bullet lists (`*`, `-`, `+`), numbered lists (`1.`, `2.`), blockquotes (`>`), tables (`|`), horizontal rules (`---`), and fenced code blocks (```) must ALWAYS begin on their own line — NEVER on the same line as other text.\n\
+   - WRONG: `Here is my list:* item1* item2`\n\
+   - RIGHT: `Here is my list:\\n\\n* item1\\n* item2`\n\
+   - WRONG: `Some text### Next Section`\n\
+   - RIGHT: `Some text\\n\\n### Next Section`\n\
 \n\
-2. **Horizontal rules**: Always place horizontal rules (`---`, `***`, or `___`) on their own line with a blank line before and after. Never put text on the same line as a horizontal rule. `---First text` and `text---` are invalid.\n\
+2. **Blank lines are mandatory between block elements.** Every heading, list, table, blockquote, code block, and horizontal rule MUST be separated from adjacent content by a blank line (two newlines). There are no exceptions.\n\
 \n\
-3. **Tables**: Use proper GitHub Flavored Markdown table syntax. Include a header row, a separator row with `|---|---|` or `| --- | --- |`, and consistent column counts across all rows.\n\
+3. **Headings require a space after the # markers.** Write `## Title`, NEVER `##Title`. The space is not optional.\n\
 \n\
-4. **Fenced code blocks**: Always close every opened fenced code block with matching backtick fences. Never leave a code block unclosed.\n\
+4. **Horizontal rules must stand alone.** `---`, `***`, and `___` must appear on their own line with blank lines before and after. `text---` and `---text` are invalid.\n\
 \n\
-5. **Blank lines**: Always use blank lines to separate block-level elements from each other — headings, horizontal rules, tables, fenced code blocks, and lists must each be surrounded by blank lines.\n\
+5. **Tables must use proper GFM syntax.** Include a header row, a separator row (`|---|`), and consistent column counts. Never collapse multiple rows onto one line.\n\
 \n\
-6. **Lists**: Always start a list on a new line. There must be a blank line between any preceding text and the first list item. Never place a bullet (`*` or `-`) or numbered item on the same line as other content. This applies to sub-lists as well — each nested list item must appear on its own indented line, not run into the parent item.\n\
+6. **Code blocks must be closed.** Every opening fence (``` or ~~~) must have a matching closing fence. Never leave a code block open.\n\
 \n\
-7. **General**: Always output valid GitHub Flavored Markdown. Do not use raw HTML when a markdown equivalent exists.\n\
+7. **List items must each be on their own line.** Never place multiple list items on the same line. Nested list items must be indented on their own line.\n\
+\n\
+8. **Blockquotes must start on a new line.** The `>` character must be at the start of a line, never inline with other text.\n\
+\n\
+9. **Always output valid GitHub Flavored Markdown.** Do not use raw HTML when a markdown equivalent exists.\n\
 \n\
 ---\n\
 \n\
