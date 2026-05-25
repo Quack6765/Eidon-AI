@@ -72,6 +72,8 @@ function subItemIndentAt(text: string, offset: number): string {
 }
 
 function expandLineInline(line: string): string {
+  if (/^\|/.test(line.trimStart())) return line;
+
   let r = line;
 
   r = r.replace(/^(#{1,6})([^#\s\n])/, "$1 $2");
@@ -111,6 +113,13 @@ function expandLineInline(line: string): string {
     (match, before: string, fence: string) => {
       if (before === "`") return match;
       return `${before}\n${fence}`;
+    },
+  );
+
+  r = r.replace(
+    /(`{3,})([^\n`])/g,
+    (match, fence: string, after: string) => {
+      return `${fence}\n${after}`;
     },
   );
 
@@ -243,16 +252,19 @@ export function normalizeMarkdown(text: string): string {
       continue;
     }
 
-    if (/^`{3,}/.test(trimmed) && insideFence) {
-      insideFence = false;
-      output.push(line);
-      prevBlockKind = "code-fence";
-      rootListKind = null;
-      continue;
-    }
-
     if (insideFence) {
-      output.push(line);
+      const closingMatch = line.match(/^([ \t]*`{3,})(.*)/);
+      if (closingMatch) {
+        insideFence = false;
+        output.push(closingMatch[1]);
+        prevBlockKind = "code-fence";
+        rootListKind = null;
+        if (closingMatch[2].trim()) {
+          lines.splice(i + 1, 0, closingMatch[2].trimStart());
+        }
+      } else {
+        output.push(line);
+      }
       continue;
     }
 
