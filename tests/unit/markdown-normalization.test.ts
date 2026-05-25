@@ -401,4 +401,42 @@ describe("normalizeMarkdown", () => {
       expect(result).not.toMatch(/Second\n\n3\./);
     });
   });
+
+  describe("parenthetical ordered list guards", () => {
+    it("does not split P0) into separate lines", () => {
+      const result = normalizeMarkdown("1. Critical (P0)      2. High (P1)");
+      expect(result).toContain("Critical (P0)");
+      expect(result).toContain("2. High (P1)");
+      expect(result).not.toMatch(/\(P\n/);
+    });
+
+    it("does not split letter+digit) pattern", () => {
+      const result = normalizeMarkdown("      4. Low (P3)---");
+      expect(result).toContain("Low (P3)");
+    });
+
+    it("splits ordered list with ) syntax", () => {
+      const result = normalizeMarkdown("1) first 2) second");
+      expect(result).toContain("1) first");
+      expect(result).toContain("2) second");
+    });
+
+    it("preserves indent for space-separated ordered items", () => {
+      const result = normalizeMarkdown("      1. Critical (P0)      2. High (P1)");
+      expect(result).toContain("      2. High (P1)");
+    });
+  });
+
+  describe("glued unordered list at same level", () => {
+    it("keeps glued * items at same indent level", () => {
+      const result = normalizeMarkdown("* item1* item2* item3");
+      expect(result).not.toMatch(/\n  \*/);
+      expect(result).toContain("* item1\n* item2\n* item3");
+    });
+
+    it("keeps glued - items at same indent level", () => {
+      const result = normalizeMarkdown("- item1- item2- item3");
+      expect(result).not.toMatch(/\n  -/);
+    });
+  });
 });

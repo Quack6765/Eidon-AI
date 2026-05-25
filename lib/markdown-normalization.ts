@@ -93,24 +93,30 @@ function expandLineInline(line: string): string {
 
   r = r.replace(
     /([^\s\d.)_<>(#`])(\d{1,3}[.)]\s)/g,
-    (match, before: string, marker: string) => {
+    (match, before: string, marker: string, offset: number, fullString: string) => {
       if (/[0-9.]/.test(before)) return match;
+      if (/[A-Za-z]/.test(before) && marker.includes(")")) return match;
       return `${before}\n${marker}`;
     },
   );
 
   r = r.replace(
     /(\))(\d{1,3}[.)]\s)/g,
-    (match, before: string, marker: string) => {
-      return `${before}\n${marker}`;
+    (match, before: string, marker: string, offset: number, fullString: string) => {
+      const charBeforeParen = fullString[offset - 1];
+      if (/[A-Za-z]/.test(charBeforeParen)) return match;
+      const indent = lineIndentAt(fullString, offset);
+      return `${before}\n${indent}${marker}`;
     },
   );
 
   r = r.replace(
     /(\S)([ \t]+)(\d{1,3}[.)]\s)/g,
-    (match, before: string, _spaces: string, marker: string) => {
+    (match, before: string, _spaces: string, marker: string, offset: number, fullString: string) => {
       if (/\d/.test(before) && /\d/.test(marker)) return match;
-      return `${before}\n${marker}`;
+      if (before === ")" && offset > 0 && /[A-Za-z]/.test(fullString[offset - 1])) return match;
+      const indent = lineIndentAt(fullString, offset);
+      return `${before}\n${indent}${marker}`;
     },
   );
 
@@ -195,7 +201,7 @@ function expandLineInline(line: string): string {
       const afterIdx = offset + before.length + marker.length;
       const afterChar = fullString[afterIdx];
       if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
-      const indent = subItemIndentAt(fullString, offset);
+      const indent = lineIndentAt(fullString, offset);
       return `${before}\n${indent}${marker}`;
     },
   );
