@@ -16,8 +16,6 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
 import {
-  getDefaultProviderProfileWithApiKey,
-  getProviderProfileWithApiKey,
   getSettings
 } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
@@ -2491,25 +2489,7 @@ export async function generateConversationTitleFromFirstUserMessage(
       return true;
     }
 
-    const conversation = getConversation(conversationId);
-
-    if (!conversation) {
-      failConversationTitleGeneration(conversationId);
-      return false;
-    }
-
-    const settings =
-      (conversation.providerProfileId
-        ? getProviderProfileWithApiKey(conversation.providerProfileId)
-        : null) ?? getDefaultProviderProfileWithApiKey();
-
-    if (!settings?.apiKey) {
-      failConversationTitleGeneration(conversationId);
-      return false;
-    }
-
     const title = await generateConversationTitle({
-      settings,
       firstMessage: trimmedContent
     });
 
