@@ -153,4 +153,90 @@ describe("normalizeMarkdown", () => {
       expect(normalizeMarkdown(input)).toBe(input);
     });
   });
+
+  describe("horizontal rule fusion", () => {
+    it("separates --- fused after text", () => {
+      const result = normalizeMarkdown("some text---");
+      expect(result).toContain("---");
+      expect(result).not.toBe("some text---");
+    });
+
+    it("separates --- fused before text", () => {
+      const result = normalizeMarkdown("---some text");
+      expect(result).toContain("---");
+      expect(result).not.toBe("---some text");
+    });
+
+    it("separates --- fused between text", () => {
+      const result = normalizeMarkdown("text---more");
+      expect(result).toContain("---");
+    });
+  });
+
+  describe("blank line enforcement", () => {
+    it("inserts blank line before heading after paragraph", () => {
+      const result = normalizeMarkdown("Some text\n## Heading");
+      expect(result).toBe("Some text\n\n## Heading");
+    });
+
+    it("inserts blank line before code fence", () => {
+      const result = normalizeMarkdown("Some text\n```js\ncode\n```");
+      expect(result).toContain("Some text\n\n```");
+    });
+
+    it("preserves existing blank lines", () => {
+      const input = "Some text\n\n## Heading";
+      expect(normalizeMarkdown(input)).toBe(input);
+    });
+
+    it("inserts blank line between list and heading", () => {
+      const result = normalizeMarkdown("- item\n- item2\n## Heading");
+      expect(result).toContain("- item2\n\n## Heading");
+    });
+  });
+
+  describe("collapsed table rows", () => {
+    it("splits || into separate rows", () => {
+      const result = normalizeMarkdown("|a||b|");
+      expect(result).toBe("|a|\n|b|");
+    });
+  });
+
+  describe("code fence protection (extended)", () => {
+    it("does not modify inline markers inside code fences", () => {
+      const input = "```\n* item * sub\n```";
+      expect(normalizeMarkdown(input)).toBe(input);
+    });
+
+    it("does not modify ATX heading inside code fences", () => {
+      const input = "```\n##NoSpace\n```";
+      expect(normalizeMarkdown(input)).toBe(input);
+    });
+
+    it("normalizes outside code fences but preserves inside", () => {
+      const result = normalizeMarkdown("text## Heading\n```\ntext- not a list\n```\nmore- item");
+      expect(result).toContain("## Heading");
+      expect(result).toContain("text- not a list");
+      expect(result).toContain("- item");
+    });
+  });
+
+  describe("combined scenarios", () => {
+    it("handles multiple issues in one document", () => {
+      const result = normalizeMarkdown(
+        "Intro## Overview\ntext- item1- item2\n```\nraw## code\n```\n##NoSpace"
+      );
+      expect(result).toContain("## Overview");
+      expect(result).toContain("- item1");
+      expect(result).toContain("raw## code");
+      expect(result).toContain("## NoSpace");
+    });
+
+    it("is idempotent", () => {
+      const input = "text- item\n##Heading";
+      const first = normalizeMarkdown(input);
+      const second = normalizeMarkdown(first);
+      expect(second).toBe(first);
+    });
+  });
 });

@@ -262,6 +262,13 @@ export function normalizeMarkdown(text: string): string {
         insideTable = false;
       }
 
+      if (subTrimmed === "") {
+        output.push(subLine);
+        prevBlockKind = "other";
+        rootListKind = null;
+        continue;
+      }
+
       const kind = classifyLine(subLine);
       const indent = subLine.length - subTrimmed.length;
       const prevLine =
