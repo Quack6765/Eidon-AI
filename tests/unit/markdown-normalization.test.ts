@@ -200,6 +200,25 @@ describe("normalizeMarkdown", () => {
       const result = normalizeMarkdown("|a||b|");
       expect(result).toBe("|a|\n|b|");
     });
+
+    it("splits glued header-separator-data rows", () => {
+      const result = normalizeMarkdown(
+        "| Param | Type ||---|---|| | int | number | | str | string |"
+      );
+      const lines = result.split("\n");
+      expect(lines).toContain("| Param | Type |");
+      expect(lines).toContain("|---|---|");
+      expect(lines).toContain("| int | number |");
+      expect(lines).toContain("| str | string |");
+    });
+
+    it("splits data rows glued with pipe-space-pipe", () => {
+      const result = normalizeMarkdown(
+        "| H1 | H2 |\n|---|---|\n| a | b | | c | d |"
+      );
+      expect(result).toContain("| a | b |");
+      expect(result).toContain("| c | d |");
+    });
   });
 
   describe("code fence protection (extended)", () => {

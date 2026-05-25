@@ -72,7 +72,13 @@ function subItemIndentAt(text: string, offset: number): string {
 }
 
 function expandLineInline(line: string): string {
-  if (/^\|/.test(line.trimStart())) return line;
+  if (/^\|/.test(line.trimStart())) {
+    let t = line;
+    t = t.replace(/\|\|/g, "|\n|");
+    t = t.replace(/(\S \| )(\| \S)/g, "$1\n$2");
+    t = t.replace(/^\| \| /gm, "| ");
+    return t;
+  }
 
   let r = line;
 
