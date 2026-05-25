@@ -326,4 +326,24 @@ describe("normalizeMarkdown", () => {
       expect(result).toContain("*confidential*");
     });
   });
+
+  describe("inline checklist splitting (space-dash-bracket)", () => {
+    it("splits checklist items joined by space-dash-bracket", () => {
+      const result = normalizeMarkdown(
+        "Disaster relief protocols established - [x] Medical aid networks active - [ ] Evacuation fleet fully funded"
+      );
+      expect(result).toContain("established\n\n- [x] Medical aid networks active");
+      expect(result).toContain("Medical aid networks active\n- [ ] Evacuation fleet fully funded");
+    });
+
+    it("does not split plain dash between words", () => {
+      const result = normalizeMarkdown("5 - 3 = 2");
+      expect(result).toBe("5 - 3 = 2");
+    });
+
+    it("does not split markdown link after dash", () => {
+      const result = normalizeMarkdown("see docs - [reference here](url)");
+      expect(result).toBe("see docs - [reference here](url)");
+    });
+  });
 });

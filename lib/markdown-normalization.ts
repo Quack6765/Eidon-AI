@@ -132,6 +132,15 @@ function expandLineInline(line: string): string {
   );
 
   r = r.replace(
+    /(\S)([ \t]+)([-]\s(?:\[[ x]\]\s))/g,
+    (match, before: string, _spaces: string, marker: string, offset: number, full: string) => {
+      if (_spaces.includes("\n")) return match;
+      const indent = subItemIndentAt(full, offset);
+      return `${before}\n${indent}${marker}`;
+    },
+  );
+
+  r = r.replace(
     /(\*{1,3})([ \t]+)([*+]\s(?:\[[ x]\]\s)?)/g,
     (
       match: string,
