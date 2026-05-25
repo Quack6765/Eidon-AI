@@ -43,6 +43,18 @@ describe("normalizeMarkdown", () => {
     it("does not split no-space digit guard", () => {
       expect(normalizeMarkdown("5*3")).toBe("5*3");
     });
+
+    it("does not split closing emphasis * as list marker", () => {
+      expect(normalizeMarkdown("This is *confidential* info")).toBe(
+        "This is *confidential* info"
+      );
+    });
+
+    it("does not split closing bold ** as list marker", () => {
+      expect(normalizeMarkdown("This is **bold** text")).toBe(
+        "This is **bold** text"
+      );
+    });
   });
 
   describe("nested inline markers", () => {

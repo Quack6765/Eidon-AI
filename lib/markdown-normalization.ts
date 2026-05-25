@@ -50,6 +50,30 @@ function fixCollapsedTableRows(text: string): string {
   return r;
 }
 
+function isClosingStar(text: string, starPos: number): boolean {
+  const lineStart = text.lastIndexOf("\n", starPos - 1) + 1;
+  const lineText = text.slice(lineStart);
+  let depth = 0;
+  let i = 0;
+  while (lineStart + i < starPos) {
+    if (lineText[i] === "\\") { i += 2; continue; }
+    if (i === 0 && /^[*+\-]\s/.test(lineText)) { i += 2; continue; }
+    if (lineText[i] === "`") {
+      const j = lineText.indexOf("`", i + 1);
+      i = j === -1 ? lineText.length : j + 1;
+      continue;
+    }
+    if (lineText[i] === "*" && i + 1 < lineText.length && lineText[i + 1] === "*") {
+      depth += 2; i += 2;
+    } else if (lineText[i] === "*") {
+      depth += 1; i += 1;
+    } else {
+      i += 1;
+    }
+  }
+  return depth % 2 !== 0;
+}
+
 function lineIndentAt(text: string, offset: number): string {
   const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
   const lineText = text.slice(lineStart);
@@ -183,6 +207,7 @@ function expandLineInline(line: string): string {
       const afterIdx = offset + before.length + spaces.length + marker.length;
       const afterChar = fullString[afterIdx];
       if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
+      if (marker[0] === "*" && before === "*" && isClosingStar(fullString, offset + before.length + spaces.length)) return match;
       const indent = subItemIndentAt(fullString, offset);
       return `${before}\n${indent}${marker}`;
     },
@@ -201,10 +226,13 @@ function expandLineInline(line: string): string {
       const afterIdx = offset + before.length + marker.length;
       const afterChar = fullString[afterIdx];
       if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
+      if (marker[0] === "*" && isClosingStar(fullString, offset + before.length)) return match;
       const indent = lineIndentAt(fullString, offset);
       return `${before}\n${indent}${marker}`;
     },
   );
+
+  r = r.replace(/([.])(>(?:[ \t]|$))/gm, "$1\n$2");
 
   r = r.replace(
     /(\*{1,3})([ \t]*)(>(?:[ \t]|$))/gm,
@@ -356,7 +384,12 @@ export function normalizeMarkdown(text: string): string {
       continue;
     }
 
-    const expanded = expandLineInline(line);
+    let expanded = expandLineInline(line);
+    for (let pass = 0; pass < 3; pass++) {
+      const next = expandLineInline(expanded);
+      if (next === expanded) break;
+      expanded = next;
+    }
     const subLines = expanded.split("\n");
 
     for (let j = 0; j < subLines.length; j++) {
