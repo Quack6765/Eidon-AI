@@ -146,15 +146,24 @@ function expandLineInline(line: string): string {
 
   r = r.replace(
     /(\S)(`{3,})/g,
-    (match, before: string, fence: string) => {
+    (match, before: string, fence: string, offset: number, fullString: string) => {
       if (before === "`") return match;
+      const afterFence = fullString.slice(offset + before.length + fence.length);
+      const closingIdx = afterFence.indexOf(fence);
+      if (closingIdx !== -1 && !/\n/.test(afterFence.slice(0, closingIdx))) return match;
+      const beforeFence = fullString.slice(0, offset + before.length);
+      const openerIdx = beforeFence.lastIndexOf(fence);
+      if (openerIdx !== -1 && !/\n/.test(beforeFence.slice(openerIdx + fence.length))) return match;
       return `${before}\n${fence}`;
     },
   );
 
   r = r.replace(
     /(`{3,})([^\n`])/g,
-    (match, fence: string, after: string) => {
+    (match, fence: string, after: string, offset: number, fullString: string) => {
+      const afterFull = fullString.slice(offset + fence.length);
+      const closingIdx = afterFull.indexOf(fence);
+      if (closingIdx !== -1 && !/\n/.test(afterFull.slice(0, closingIdx))) return match;
       return `${fence}\n${after}`;
     },
   );
