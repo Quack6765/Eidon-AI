@@ -1,5 +1,4 @@
-import { callProviderText } from "@/lib/provider";
-import type { ProviderProfileWithApiKey } from "@/lib/types";
+import { runLocalTitleInference } from "@/lib/local-title-model";
 
 export const DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE = "Files";
 export const DEFAULT_CONVERSATION_TITLE = "Conversation";
@@ -20,23 +19,10 @@ function trimToWordBoundary(value: string, maxLength: number) {
   return truncated;
 }
 
-export function buildConversationTitlePrompt(firstMessage: string) {
-  return [
-    "Generate a short conversation title from the user's first message.",
-    "Return only the title.",
-    "Prefer 2 to 4 words.",
-    "Keep it natural and specific.",
-    "Do not use quotes, markdown, labels, or trailing punctuation.",
-    "",
-    "User message:",
-    firstMessage
-  ].join("\n");
-}
-
 export function sanitizeGeneratedConversationTitle(rawTitle: string) {
   const firstLine = rawTitle.split(/\r?\n/, 1)[0] ?? "";
   const collapsed = firstLine
-    .replace(/["'`“”]+/g, "")
+    .replace(/["'`""]+/g, "")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/[.!?,;:]+$/g, "")
@@ -46,18 +32,13 @@ export function sanitizeGeneratedConversationTitle(rawTitle: string) {
 }
 
 export async function generateConversationTitle(input: {
-  settings: ProviderProfileWithApiKey;
   firstMessage: string;
 }) {
-  const rawTitle = await callProviderText({
-    settings: input.settings,
-    prompt: buildConversationTitlePrompt(input.firstMessage),
-    purpose: "title"
-  });
+  const rawTitle = await runLocalTitleInference(input.firstMessage);
   const title = sanitizeGeneratedConversationTitle(rawTitle);
 
   if (!title) {
-    throw new Error("Provider returned an empty title");
+    throw new Error("Local model returned an empty title");
   }
 
   return title;
