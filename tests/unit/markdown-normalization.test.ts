@@ -239,4 +239,48 @@ describe("normalizeMarkdown", () => {
       expect(second).toBe(first);
     });
   });
+
+  describe("triple backtick after text", () => {
+    it("separates closing fence from text", () => {
+      const result = normalizeMarkdown("--set resources.limits.memory=8Gi```");
+      expect(result).toBe("--set resources.limits.memory=8Gi\n\n```");
+    });
+
+    it("separates opening fence from text", () => {
+      const result = normalizeMarkdown("some code:```");
+      expect(result).toContain("some code:\n\n```");
+    });
+  });
+
+  describe("ordered list after closing paren", () => {
+    it("splits ordered list after closing parenthesis", () => {
+      const result = normalizeMarkdown(
+        "Docker Engine (version 24.0+)2. Kubernetes cluster (v1.28+)"
+      );
+      expect(result).toContain("24.0+)\n\n2. Kubernetes");
+    });
+
+    it("preserves version number in parentheses", () => {
+      expect(normalizeMarkdown("requires (v2.0) to run")).toBe(
+        "requires (v2.0) to run"
+      );
+    });
+  });
+
+  describe("space before ordered list marker", () => {
+    it("splits ordered list after space when not a decimal number", () => {
+      const result = normalizeMarkdown(
+        "1. Minimum16 GB RAM 2.8 CPU cores 3. 100 GB SSD storage"
+      );
+      expect(result).toContain("CPU cores\n3. 100 GB SSD storage");
+    });
+
+    it("preserves decimal numbers like 2.8", () => {
+      expect(normalizeMarkdown("RAM 2.8 GHz")).toBe("RAM 2.8 GHz");
+    });
+
+    it("preserves IP addresses", () => {
+      expect(normalizeMarkdown("192.168.1.1")).toBe("192.168.1.1");
+    });
+  });
 });

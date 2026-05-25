@@ -92,6 +92,29 @@ function expandLineInline(line: string): string {
   );
 
   r = r.replace(
+    /(\))(\d{1,3}[.)]\s)/g,
+    (match, before: string, marker: string) => {
+      return `${before}\n${marker}`;
+    },
+  );
+
+  r = r.replace(
+    /(\S)([ \t]+)(\d{1,3}[.)]\s)/g,
+    (match, before: string, _spaces: string, marker: string) => {
+      if (/\d/.test(before) && /\d/.test(marker)) return match;
+      return `${before}\n${marker}`;
+    },
+  );
+
+  r = r.replace(
+    /(\S)(`{3,})/g,
+    (match, before: string, fence: string) => {
+      if (before === "`") return match;
+      return `${before}\n${fence}`;
+    },
+  );
+
+  r = r.replace(
     /([^\s*_|>#`])([-]\s(?:\[[ x]\]\s)?)/g,
     (match, before: string, _marker: string) => {
       if (before === "|" || before === ">" || before === "-") return match;
