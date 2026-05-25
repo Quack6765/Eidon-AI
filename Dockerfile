@@ -17,6 +17,13 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 RUN npx esbuild lib/ws-handler.ts --bundle --platform=node --format=cjs --packages=external --outfile=ws-handler-compiled.cjs
+RUN node -e "\
+  const { pipeline, env } = require('@huggingface/transformers');\
+  env.cacheDir = '/app/.cache/huggingface';\
+  pipeline('text-generation', 'HuggingFaceTB/SmolLM2-135M-Instruct', { dtype: 'q4', device: 'cpu' })\
+    .then(() => console.log('Model cached successfully'))\
+    .catch((err) => { console.error('Model download failed:', err); process.exit(1); });\
+"
 
 FROM base AS runner
 ENV NODE_ENV=production
@@ -45,6 +52,7 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/server.cjs ./server.cjs
 COPY --from=builder /app/ws-handler-compiled.cjs ./ws-handler-compiled.cjs
+COPY --from=builder /app/.cache/huggingface /app/.cache/huggingface
 COPY --from=prod-deps /app/node_modules ./node_modules
 RUN install -d -m 700 /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser \
     && chown -R eidon:eidon /app
