@@ -306,7 +306,7 @@ function ConversationItem({
             : "text-white/30 hover:bg-white/[0.03] hover:text-white/60"
         }`}
       >
-        {conversation.isActive ? (
+        {(conversation.isActive || conversation.titleGenerationStatus === "pending") ? (
           <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--accent)]" />
         ) : (
           <MessageSquare className={`h-4 w-4 shrink-0 transition-opacity duration-300 ${active ? "opacity-100 text-[var(--accent)]" : "opacity-40"}`} />
@@ -834,7 +834,7 @@ export function Sidebar({
       setLocalConversations((current) =>
         current.map((conversation) =>
           conversation.id === detail.conversationId
-            ? { ...conversation, title: detail.title }
+            ? { ...conversation, title: detail.title, titleGenerationStatus: "completed" as const }
             : conversation
         )
       );
@@ -844,7 +844,8 @@ export function Sidebar({
               conversation.id === detail.conversationId
                 ? {
                     ...conversation,
-                    title: detail.title
+                    title: detail.title,
+                    titleGenerationStatus: "completed" as const
                   }
                 : conversation
             )

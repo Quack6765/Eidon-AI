@@ -20,6 +20,10 @@ import { parseClientMessage, serializeServerMessage } from "@/lib/ws-protocol";
 import type { ClientMessage } from "@/lib/ws-protocol";
 import { initializeMcpServers, shutdownAllProcesses } from "@/lib/mcp-client";
 import { getConversationManager } from "@/lib/ws-singleton";
+import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
+import { getDb } from "@/lib/db";
+
+export { disposeTitleModel, getDb, initTitleModel, initializeMcpServers, shutdownAllProcesses };
 
 function extractToken(req: import("http").IncomingMessage): string | null {
   const cookieHeader = req.headers.cookie ?? "";

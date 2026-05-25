@@ -90,7 +90,8 @@ export function createConversationManager() {
   function broadcastAll(event: ServerMessage, userId?: string | null) {
     const raw = serializeServerMessage(event);
     for (const ws of connectedSockets) {
-      if (userId !== undefined && (connectionUsers.get(ws) ?? null) !== userId) {
+      const socketUserId = connectionUsers.get(ws) ?? null;
+      if (userId !== undefined && socketUserId !== null && socketUserId !== userId) {
         continue;
       }
 

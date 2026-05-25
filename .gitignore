@@ -8,6 +8,7 @@ ws-handler-compiled.cjs
 .playwright-cli/
 .context/
 .data
+.cache/
 .test-data
 .e2e-data/
 .superpowers/
