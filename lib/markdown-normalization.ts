@@ -75,7 +75,7 @@ function expandLineInline(line: string): string {
   if (/^\|/.test(line.trimStart())) {
     let t = line;
     t = t.replace(/\|\|/g, "|\n|");
-    t = t.replace(/(\S \| )(\| \S)/g, "$1\n$2");
+    t = t.replace(/(\|) (\| [A-Za-z✅❌0-9])/g, "$1\n$2");
     t = t.replace(/^\| \| /gm, "| ");
     return t;
   }
