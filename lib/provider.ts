@@ -384,13 +384,16 @@ export async function callProviderText(input: {
   conversationId?: string;
 }) {
   const { settings } = input;
+  const profile = input.purpose === "title"
+    ? { ...settings, reasoningEffort: "low" as const, reasoningSummaryEnabled: false }
+    : settings;
   const contextualPrompt = withDateContextSystemMessage([{
     role: "user",
     content: input.prompt
   }]);
 
-  if (settings.providerKind === "github_copilot") {
-    const freshSettings = await ensureFreshGithubAccessToken(settings);
+  if (profile.providerKind === "github_copilot") {
+    const freshSettings = await ensureFreshGithubAccessToken(profile);
     const result = await runGithubCopilotChat({
       ...freshSettings,
       systemPrompt: withDateContextSystemPrompt(freshSettings.systemPrompt),
@@ -400,14 +403,14 @@ export async function callProviderText(input: {
     return typeof result === "string" ? result : JSON.stringify(result);
   }
 
-  const client = createClient(settings, settings.apiKey);
+  const client = createClient(profile, profile.apiKey);
 
-  if (settings.apiMode === "responses") {
-    const reasoning = buildReasoningConfig(settings);
+  if (profile.apiMode === "responses") {
+    const reasoning = buildReasoningConfig(profile);
     const response = await client.responses.create({
-      model: settings.model,
+      model: profile.model,
       input: buildResponsesInput(contextualPrompt),
-      max_output_tokens: Math.min(settings.maxOutputTokens, 4000),
+      max_output_tokens: Math.min(profile.maxOutputTokens, 4000),
       reasoning
     });
 
@@ -421,11 +424,11 @@ export async function callProviderText(input: {
   }
 
   const response = await client.chat.completions.create({
-    model: settings.model,
-    messages: buildChatCompletionMessages(contextualPrompt, settings),
-    temperature: settings.temperature,
-    max_completion_tokens: Math.min(settings.maxOutputTokens, 4000),
-    ...buildChatCompletionsOptions(settings)
+    model: profile.model,
+    messages: buildChatCompletionMessages(contextualPrompt, profile),
+    temperature: profile.temperature,
+    max_completion_tokens: Math.min(profile.maxOutputTokens, 4000),
+    ...buildChatCompletionsOptions(profile)
   });
 
   const text = normalizeLineBreaks(

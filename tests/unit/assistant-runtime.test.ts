@@ -142,6 +142,8 @@ function createAppSettings() {
     imageGenerationBackend: "google_nano_banana" as const,
     googleNanoBananaModel: "gemini-3.1-flash-image-preview" as const,
     googleNanoBananaApiKey: "google-secret",
+    titleGenerationMode: "same" as const,
+    titleGenerationProfileId: null,
     updatedAt: new Date().toISOString()
   };
 }

@@ -218,6 +218,8 @@ type AppSettingsRow = {
   comfyui_width_path?: string;
   comfyui_height_path?: string;
   comfyui_seed_path?: string;
+  title_generation_mode?: string;
+  title_generation_profile_id?: string | null;
   updated_at: string;
 };
 
@@ -248,6 +250,8 @@ type UserSettingsRow = {
   comfyui_width_path?: string;
   comfyui_height_path?: string;
   comfyui_seed_path?: string;
+  title_generation_mode?: string;
+  title_generation_profile_id?: string | null;
   updated_at: string;
 };
 
@@ -412,6 +416,8 @@ function rowToSettings(row: AppSettingsRow | UserSettingsRow): AppSettings {
       "googleNanoBananaApiKey",
       row.google_nano_banana_api_key_encrypted
     ),
+    titleGenerationMode: (row.title_generation_mode ?? "same") as AppSettings["titleGenerationMode"],
+    titleGenerationProfileId: row.title_generation_profile_id ?? null,
     updatedAt: row.updated_at
   };
 }
@@ -672,6 +678,8 @@ export function getSettings() {
         comfyui_width_path,
         comfyui_height_path,
         comfyui_seed_path,
+        title_generation_mode,
+        title_generation_profile_id,
         updated_at
       FROM app_settings
       WHERE id = ?`
@@ -679,6 +687,34 @@ export function getSettings() {
     .get(SETTINGS_ROW_ID) as AppSettingsRow;
 
   return rowToSettings(row);
+}
+
+export function updateTitleGenerationSettings(input: {
+  titleGenerationMode: "same" | "specific" | "local";
+  titleGenerationProfileId?: string | null;
+}) {
+  const current = getSettings();
+  const updatedAt = new Date().toISOString();
+  const profileId = input.titleGenerationMode === "specific"
+    ? (input.titleGenerationProfileId ?? current.titleGenerationProfileId)
+    : null;
+
+  getDb()
+    .prepare(
+      `UPDATE app_settings
+       SET title_generation_mode = ?,
+           title_generation_profile_id = ?,
+           updated_at = ?
+       WHERE id = ?`
+    )
+    .run(
+      input.titleGenerationMode,
+      profileId,
+      updatedAt,
+      SETTINGS_ROW_ID
+    );
+
+  return getSettings();
 }
 
 function ensureUserSettingsRow(userId: string) {
@@ -776,6 +812,8 @@ export function getSettingsForUser(userId: string): AppSettings {
     imageGenerationBackend: globalSettings.imageGenerationBackend,
     googleNanoBananaModel: globalSettings.googleNanoBananaModel,
     googleNanoBananaApiKey: globalSettings.googleNanoBananaApiKey,
+    titleGenerationMode: globalSettings.titleGenerationMode,
+    titleGenerationProfileId: globalSettings.titleGenerationProfileId,
     updatedAt: globalSettings.updatedAt
   };
 }

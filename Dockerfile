@@ -17,13 +17,6 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npm run build
 RUN npx esbuild lib/ws-handler.ts --bundle --platform=node --format=cjs --packages=external --outfile=ws-handler-compiled.cjs
-RUN node -e "\
-  const { pipeline, env } = require('@huggingface/transformers');\
-  env.cacheDir = '/app/.cache/huggingface';\
-  pipeline('text-generation', 'HuggingFaceTB/SmolLM2-135M-Instruct', { dtype: 'q4', device: 'cpu' })\
-    .then(() => console.log('Model cached successfully'))\
-    .catch((err) => { console.error('Model download failed:', err); process.exit(1); });\
-"
 
 FROM base AS runner
 ENV NODE_ENV=production

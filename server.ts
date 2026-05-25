@@ -3,6 +3,7 @@ import { writeFileSync, unlinkSync, existsSync, readFileSync } from "node:fs";
 import next from "next";
 import { WebSocketServer } from "ws";
 import { setupWebSocketHandler } from "@/lib/ws-handler";
+import { initTitleModel } from "@/lib/local-title-model";
 
 const DEV_SERVER_FILE = ".dev-server";
 const PORT_MIN = 3000;
@@ -136,4 +137,5 @@ app.prepare().then(async () => {
   }
 
   console.log(`> Ready on http://localhost:${port}`);
+  initTitleModel();
 });

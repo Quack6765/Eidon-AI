@@ -278,12 +278,12 @@ describe("conversation helpers", () => {
     const firstMessage = createMessage({
       conversationId: conversation.id,
       role: "user",
-      content: "First prompt"
+      content: "First message"
     });
     const secondMessage = createMessage({
       conversationId: conversation.id,
       role: "user",
-      content: "Second prompt"
+      content: "Second message"
     });
 
     expect(claimConversationTitleGeneration(conversation.id, secondMessage.id)).toBe(false);

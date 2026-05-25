@@ -2400,8 +2400,7 @@ export function claimConversationTitleGeneration(conversationId: string, userMes
   const result = getDb()
     .prepare(
       `UPDATE conversations
-       SET title_generation_status = 'running',
-           is_active = 1
+       SET title_generation_status = 'running'
        WHERE id = ?
          AND title_generation_status = 'pending'
          AND ? = (
@@ -2490,7 +2489,8 @@ export async function generateConversationTitleFromFirstUserMessage(
     }
 
     const title = await generateConversationTitle({
-      firstMessage: trimmedContent
+      firstMessage: trimmedContent,
+      conversationId
     });
 
     completeConversationTitleGeneration(conversationId, title);
@@ -2502,10 +2502,13 @@ export async function generateConversationTitleFromFirstUserMessage(
         conversationId,
         title
       }, conversationOwnerId ?? undefined);
-    } catch { /* WS server may not be running */ }
+    } catch (err) {
+      console.error("[title-generation] Broadcast failed:", err);
+    }
 
     return true;
-  } catch {
+  } catch (err) {
+    console.error("[title-generation] Failed:", err);
     failConversationTitleGeneration(conversationId);
     return false;
   }

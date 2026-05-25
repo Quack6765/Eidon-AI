@@ -4,6 +4,23 @@ vi.mock("@/lib/local-title-model", () => ({
   runLocalTitleInference
 }));
 
+vi.mock("@/lib/provider", () => ({
+  callProviderText: vi.fn()
+}));
+
+vi.mock("@/lib/settings", () => ({
+  getSettings: vi.fn(() => ({
+    titleGenerationMode: "local",
+    defaultProviderProfileId: null,
+    titleGenerationProfileId: null
+  })),
+  listProviderProfilesWithApiKeys: vi.fn(() => [])
+}));
+
+vi.mock("@/lib/conversations", () => ({
+  getConversation: vi.fn()
+}));
+
 describe("conversation title generator", () => {
   beforeEach(() => {
     runLocalTitleInference.mockReset();
@@ -33,22 +50,23 @@ describe("conversation title generator", () => {
 
     const { generateConversationTitle } = await import("@/lib/conversation-title-generator");
     const title = await generateConversationTitle({
-      firstMessage: "Build a deployment checklist for me"
+      firstMessage: "Build a deployment checklist for me",
+      conversationId: "test-conv-1"
     });
 
     expect(title).toBe("Deployment Checklist");
     expect(runLocalTitleInference).toHaveBeenCalledWith("Build a deployment checklist for me");
   });
 
-  it("treats empty sanitized output as a failure", async () => {
+  it("returns fallback title when local model returns empty output", async () => {
     runLocalTitleInference.mockResolvedValue('""');
 
     const { generateConversationTitle } = await import("@/lib/conversation-title-generator");
+    const title = await generateConversationTitle({
+      firstMessage: "Build a deployment checklist for me",
+      conversationId: "test-conv-1"
+    });
 
-    await expect(
-      generateConversationTitle({
-        firstMessage: "Build a deployment checklist for me"
-      })
-    ).rejects.toThrow("Local model returned an empty title");
+    expect(title).toBe("Build a deployment checklist for me");
   });
 });

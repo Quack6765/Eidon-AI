@@ -140,6 +140,19 @@ app.prepare().then(async () => {
 
   console.log(`> Ready on http://localhost:${port}`);
 
+  const { initTitleModel, getDb } = require("./ws-handler-compiled.cjs");
+  if (initTitleModel && getDb) {
+    try {
+      const db = getDb();
+      const row = db.prepare("SELECT title_generation_mode FROM app_settings WHERE id = 1").get();
+      if (row && row.title_generation_mode === "local") {
+        initTitleModel().catch((err) => {
+          console.error("[title-model] Init failed:", err.message);
+        });
+      }
+    } catch {}
+  }
+
   // Initialize MCP server connections in the background
   const { initializeMcpServers } = require("./ws-handler-compiled.cjs");
   if (initializeMcpServers) {

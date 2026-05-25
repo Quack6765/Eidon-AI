@@ -12,6 +12,7 @@ type GeneralSectionSettings = AppSettings & {
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
   hasGoogleNanoBananaApiKey?: boolean;
+  providerProfiles: Array<{ id: string; name: string; model: string; hasApiKey: boolean }>;
 };
 
 vi.mock("next/navigation", () => ({
@@ -40,6 +41,9 @@ function makeSettings(overrides: Partial<GeneralSectionSettings> = {}): GeneralS
     hasExaApiKey: false,
     hasTavilyApiKey: false,
     updatedAt: new Date().toISOString(),
+    providerProfiles: [],
+    titleGenerationMode: "same",
+    titleGenerationProfileId: null,
     ...overrides
   };
 }
@@ -350,6 +354,10 @@ describe("general section", () => {
     });
 
     vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ settings })
+      } as Response)
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ settings })

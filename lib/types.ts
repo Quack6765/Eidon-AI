@@ -116,6 +116,8 @@ export type ProviderProfileSummary = Omit<
   githubConnectionStatus: GithubConnectionStatus;
 };
 
+export type TitleGenerationMode = "same" | "specific" | "local";
+
 export type AppSettings = {
   defaultProviderProfileId: string | null;
   skillsEnabled: boolean;
@@ -132,6 +134,8 @@ export type AppSettings = {
   imageGenerationBackend: ImageGenerationBackend;
   googleNanoBananaModel: GoogleNanoBananaModel;
   googleNanoBananaApiKey: string;
+  titleGenerationMode: TitleGenerationMode;
+  titleGenerationProfileId: string | null;
   updatedAt: string;
 };
 

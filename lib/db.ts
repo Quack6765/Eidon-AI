@@ -575,6 +575,12 @@ function migrate(db: Database.Database) {
   if (!settingsColNames.includes("comfyui_seed_path")) {
     db.exec("ALTER TABLE app_settings ADD COLUMN comfyui_seed_path TEXT NOT NULL DEFAULT ''");
   }
+  if (!settingsColNames.includes("title_generation_mode")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN title_generation_mode TEXT NOT NULL DEFAULT 'same'");
+  }
+  if (!settingsColNames.includes("title_generation_profile_id")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN title_generation_profile_id TEXT");
+  }
 
   const userSettingsCols = db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>;
   const userSettingsColNames = userSettingsCols.map((column) => column.name);

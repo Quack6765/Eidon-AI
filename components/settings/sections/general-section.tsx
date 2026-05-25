@@ -13,6 +13,7 @@ type GeneralSectionSettings = AppSettings & {
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
   hasGoogleNanoBananaApiKey?: boolean;
+  providerProfiles: Array<{ id: string; name: string; model: string; hasApiKey: boolean }>;
 };
 
 export function GeneralSection({
@@ -52,6 +53,13 @@ export function GeneralSection({
   const [hasEditedGoogleNanoBananaApiKey, setHasEditedGoogleNanoBananaApiKey] = useState(false);
   const hasStoredGoogleNanoBananaApiKey =
     settings.hasGoogleNanoBananaApiKey ?? Boolean(settings.googleNanoBananaApiKey);
+
+  const [titleGenerationMode, setTitleGenerationMode] = useState<AppSettings["titleGenerationMode"]>(
+    settings.titleGenerationMode
+  );
+  const [titleGenerationProfileId, setTitleGenerationProfileId] = useState<string | null>(
+    settings.titleGenerationProfileId
+  );
 
   const speechLanguageOptions =
     sttEngine === "browser"
@@ -153,10 +161,15 @@ export function GeneralSection({
       }
     }
 
+    const titleGenerationPayload: Record<string, unknown> = {
+      titleGenerationMode,
+      titleGenerationProfileId: titleGenerationMode === "specific" ? titleGenerationProfileId : null
+    };
+
     setIsSaving(true);
 
     try {
-      const [generalResponse, imageResponse] = await Promise.all([
+      const [generalResponse, imageResponse, titleGenerationResponse] = await Promise.all([
         fetch("/api/settings/general", {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -167,6 +180,13 @@ export function GeneralSection({
               method: "PUT",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(imagePayload)
+            })
+          : Promise.resolve(null),
+        canManageImageGeneration
+          ? fetch("/api/settings/title-generation", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(titleGenerationPayload)
             })
           : Promise.resolve(null)
       ]);
@@ -183,6 +203,15 @@ export function GeneralSection({
 
         if (!imageResponse.ok) {
           toast.showToast("error", imageResult.error ?? "Unable to save image generation settings");
+          return;
+        }
+      }
+
+      if (titleGenerationResponse) {
+        const titleGenerationResult = (await titleGenerationResponse.json()) as { error?: string };
+
+        if (!titleGenerationResponse.ok) {
+          toast.showToast("error", titleGenerationResult.error ?? "Unable to save title generation settings");
           return;
         }
       }
@@ -480,6 +509,90 @@ export function GeneralSection({
                 </div>
               </div>
             ) : null}
+          </div>
+        )}
+      </div>
+
+      <div className={sectionDivider} />
+
+      <div className="space-y-4">
+        <h3 className={sectionTitle}>Title Generation</h3>
+        {!canManageImageGeneration ? (
+          <div className="space-y-1.5">
+            <label className={fieldLabel}>Title generation mode</label>
+            <p className="text-xs text-[var(--muted)]">Only admins can change title generation settings.</p>
+            <select
+              aria-label="Title generation mode"
+              value={titleGenerationMode}
+              disabled
+              className={`${selectLike} sm:w-auto opacity-60`}
+            >
+              <option value="local">Local model</option>
+              <option value="same">Same as conversation</option>
+              <option value="specific">Specific provider</option>
+            </select>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="title-generation-mode" className={fieldLabel}>
+                Title generation mode
+              </label>
+              <p className="text-xs text-[var(--muted)] mb-2">Choose which AI generates conversation titles. Local model runs on the server without an API key.</p>
+              <select
+                id="title-generation-mode"
+                aria-label="Title generation mode"
+                value={titleGenerationMode}
+                onChange={(event) => {
+                  resetMessages();
+                  const nextMode = event.target.value as AppSettings["titleGenerationMode"];
+                  setTitleGenerationMode(nextMode);
+                  if (nextMode === "specific" && !titleGenerationProfileId && settings.providerProfiles.length > 0) {
+                    setTitleGenerationProfileId(settings.providerProfiles[0].id);
+                  }
+                }}
+                className={`${selectLike} w-full sm:w-[22rem]`}
+              >
+                <option value="local">Local model</option>
+                <option value="same">Same as conversation</option>
+                <option value="specific">Specific provider</option>
+              </select>
+            </div>
+
+            {titleGenerationMode === "local" && (
+              <div className="flex items-start gap-2.5 rounded-xl border border-sky-400/15 bg-sky-400/8 px-4 py-3 text-sm text-sky-200">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
+                <span>The SmolLM2-360M-Instruct model (~273 MB) will be downloaded to the server and loaded into memory on save.</span>
+              </div>
+            )}
+
+            {titleGenerationMode === "specific" && (
+              settings.providerProfiles.length > 0 ? (
+                <div>
+                  <label htmlFor="title-generation-profile" className={fieldLabel}>
+                    Provider profile
+                  </label>
+                  <select
+                    id="title-generation-profile"
+                    aria-label="Title generation provider profile"
+                    value={titleGenerationProfileId ?? settings.providerProfiles[0]?.id ?? ""}
+                    onChange={(event) => {
+                      resetMessages();
+                      setTitleGenerationProfileId(event.target.value || null);
+                    }}
+                    className={`${selectLike} w-full sm:w-[22rem]`}
+                  >
+                    {settings.providerProfiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.name} ({profile.model})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <p className="text-xs text-[var(--muted)]">No provider profiles available. Create a provider profile first.</p>
+              )
+            )}
           </div>
         )}
       </div>
