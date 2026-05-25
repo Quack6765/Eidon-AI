@@ -254,14 +254,25 @@ export function normalizeMarkdown(text: string): string {
   const preprocessed = fixCollapsedTableRows(text);
   const lines = preprocessed.split("\n");
   closeUnclosedInline(lines);
+  const collapsed: string[] = [];
+  let blankRun = 0;
+  for (const ln of lines) {
+    if (ln.trim() === "") {
+      blankRun++;
+      if (blankRun <= 1) collapsed.push(ln);
+    } else {
+      blankRun = 0;
+      collapsed.push(ln);
+    }
+  }
   const output: string[] = [];
   let insideFence = false;
   let insideTable = false;
   let prevBlockKind: BlockKind | null = null;
   let rootListKind: BlockKind | null = null;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (let i = 0; i < collapsed.length; i++) {
+    const line = collapsed[i];
     const trimmed = line.trimStart();
 
     if (/^`{3,}/.test(trimmed) && !insideFence) {
@@ -284,7 +295,7 @@ export function normalizeMarkdown(text: string): string {
         prevBlockKind = "code-fence";
         rootListKind = null;
         if (closingMatch[2].trim()) {
-          lines.splice(i + 1, 0, closingMatch[2].trimStart());
+          collapsed.splice(i + 1, 0, closingMatch[2].trimStart());
         }
       } else {
         output.push(line);
