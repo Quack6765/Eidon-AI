@@ -45,7 +45,6 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/server.cjs ./server.cjs
 COPY --from=builder /app/ws-handler-compiled.cjs ./ws-handler-compiled.cjs
-COPY --from=builder /app/.cache/huggingface /app/.cache/huggingface
 COPY --from=prod-deps /app/node_modules ./node_modules
 RUN install -d -m 700 /app/data /app/data/home /app/data/tmp /app/data/runtime /app/data/runtime/agent-browser \
     && chown -R eidon:eidon /app
