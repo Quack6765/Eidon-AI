@@ -5,7 +5,7 @@ import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, GitFork, Loade
 import { Streamdown, parseMarkdownIntoBlocks } from "streamdown";
 import { code } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
-import { MARKDOWN_REMEND_HANDLERS, normalizeMarkdown } from "@/lib/markdown-normalization";
+import { normalizeMarkdown } from "@/lib/markdown-normalization";
 import {
   AttachmentPreviewModal,
   useAttachmentUrlBuilder,
@@ -32,7 +32,6 @@ import {
 } from "@/components/ai-elements/message";
 
 const STREAMDOWN_PLUGINS = { code, mermaid };
-const STREAMDOWN_REMEND = { handlers: MARKDOWN_REMEND_HANDLERS };
 const STREAMDOWN_PARSE_BLOCKS = (markdown: string) =>
   parseMarkdownIntoBlocks(markdown);
 const COPY_RESET_DELAY_MS = 1600;
@@ -97,7 +96,6 @@ function renderAssistantMarkdown(content: string, isStreaming: boolean) {
   return (
     <Streamdown
       plugins={STREAMDOWN_PLUGINS}
-      remend={STREAMDOWN_REMEND}
       parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
       caret={isStreaming ? "block" : undefined}
       isAnimating={isStreaming}
@@ -991,7 +989,7 @@ export function MessageBubble({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body">
-                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS} remend={STREAMDOWN_REMEND} parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}>{md(content)}</Streamdown>
+                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS} parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}>{md(content)}</Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
@@ -1129,7 +1127,6 @@ export function MessageBubble({
                     }}
                   >
                     <Streamdown
-                      remend={STREAMDOWN_REMEND}
                       parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
                       caret={thinkingInProgress ? "block" : undefined}
                       isAnimating={thinkingInProgress}

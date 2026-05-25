@@ -43,6 +43,18 @@ describe("normalizeMarkdown", () => {
     it("does not split no-space digit guard", () => {
       expect(normalizeMarkdown("5*3")).toBe("5*3");
     });
+
+    it("does not split closing emphasis * as list marker", () => {
+      expect(normalizeMarkdown("This is *confidential* info")).toBe(
+        "This is *confidential* info"
+      );
+    });
+
+    it("does not split closing bold ** as list marker", () => {
+      expect(normalizeMarkdown("This is **bold** text")).toBe(
+        "This is **bold** text"
+      );
+    });
   });
 
   describe("nested inline markers", () => {
@@ -151,6 +163,292 @@ describe("normalizeMarkdown", () => {
     it("does not modify content inside code fences", () => {
       const input = "```\n* item * sub\n```";
       expect(normalizeMarkdown(input)).toBe(input);
+    });
+  });
+
+  describe("horizontal rule fusion", () => {
+    it("separates --- fused after text", () => {
+      const result = normalizeMarkdown("some text---");
+      expect(result).toContain("---");
+      expect(result).not.toBe("some text---");
+    });
+
+    it("separates --- fused before text", () => {
+      const result = normalizeMarkdown("---some text");
+      expect(result).toContain("---");
+      expect(result).not.toBe("---some text");
+    });
+
+    it("separates --- fused between text", () => {
+      const result = normalizeMarkdown("text---more");
+      expect(result).toContain("---");
+    });
+  });
+
+  describe("blank line enforcement", () => {
+    it("inserts blank line before heading after paragraph", () => {
+      const result = normalizeMarkdown("Some text\n## Heading");
+      expect(result).toBe("Some text\n\n## Heading");
+    });
+
+    it("inserts blank line before code fence", () => {
+      const result = normalizeMarkdown("Some text\n```js\ncode\n```");
+      expect(result).toContain("Some text\n\n```");
+    });
+
+    it("preserves existing blank lines", () => {
+      const input = "Some text\n\n## Heading";
+      expect(normalizeMarkdown(input)).toBe(input);
+    });
+
+    it("inserts blank line between list and heading", () => {
+      const result = normalizeMarkdown("- item\n- item2\n## Heading");
+      expect(result).toContain("- item2\n\n## Heading");
+    });
+  });
+
+  describe("collapsed table rows", () => {
+    it("splits || into separate rows", () => {
+      const result = normalizeMarkdown("|a||b|");
+      expect(result).toBe("|a|\n|b|");
+    });
+
+    it("splits glued header-separator-data rows", () => {
+      const result = normalizeMarkdown(
+        "| Param | Type ||---|---|| | int | number | | str | string |"
+      );
+      const lines = result.split("\n");
+      expect(lines).toContain("| Param | Type |");
+      expect(lines).toContain("|---|---|");
+      expect(lines).toContain("| int | number |");
+      expect(lines).toContain("| str | string |");
+    });
+
+    it("splits data rows glued with pipe-space-pipe", () => {
+      const result = normalizeMarkdown(
+        "| H1 | H2 |\n|---|---|\n| a | b | | c | d |"
+      );
+      expect(result).toContain("| a | b |");
+      expect(result).toContain("| c | d |");
+    });
+  });
+
+  describe("code fence protection (extended)", () => {
+    it("does not modify inline markers inside code fences", () => {
+      const input = "```\n* item * sub\n```";
+      expect(normalizeMarkdown(input)).toBe(input);
+    });
+
+    it("does not modify ATX heading inside code fences", () => {
+      const input = "```\n##NoSpace\n```";
+      expect(normalizeMarkdown(input)).toBe(input);
+    });
+
+    it("normalizes outside code fences but preserves inside", () => {
+      const result = normalizeMarkdown("text## Heading\n```\ntext- not a list\n```\nmore- item");
+      expect(result).toContain("## Heading");
+      expect(result).toContain("text- not a list");
+      expect(result).toContain("- item");
+    });
+
+    it("splits inline closing fence from code content", () => {
+      const result = normalizeMarkdown(
+        "```python\ndb = DatabaseConnection()\nprint(\"Connected!\")```\n\n### Next"
+      );
+      expect(result).toContain('print("Connected!")\n```');
+      expect(result).toContain("### Next");
+    });
+
+    it("preserves normal code fence closing", () => {
+      const input = "```\ncode\n```\nafter";
+      expect(normalizeMarkdown(input)).toContain("code\n```\n\nafter");
+    });
+  });
+
+  describe("combined scenarios", () => {
+    it("handles multiple issues in one document", () => {
+      const result = normalizeMarkdown(
+        "Intro## Overview\ntext- item1- item2\n```\nraw## code\n```\n##NoSpace"
+      );
+      expect(result).toContain("## Overview");
+      expect(result).toContain("- item1");
+      expect(result).toContain("raw## code");
+      expect(result).toContain("## NoSpace");
+    });
+
+    it("is idempotent", () => {
+      const input = "text- item\n##Heading";
+      const first = normalizeMarkdown(input);
+      const second = normalizeMarkdown(first);
+      expect(second).toBe(first);
+    });
+  });
+
+  describe("triple backtick after text", () => {
+    it("separates closing fence from text", () => {
+      const result = normalizeMarkdown("--set resources.limits.memory=8Gi```");
+      expect(result).toBe("--set resources.limits.memory=8Gi\n\n```");
+    });
+
+    it("separates opening fence from text", () => {
+      const result = normalizeMarkdown("some code:```");
+      expect(result).toContain("some code:\n\n```");
+    });
+  });
+
+  describe("ordered list after closing paren", () => {
+    it("splits ordered list after closing parenthesis", () => {
+      const result = normalizeMarkdown(
+        "Docker Engine (version 24.0+)2. Kubernetes cluster (v1.28+)"
+      );
+      expect(result).toContain("24.0+)\n\n2. Kubernetes");
+    });
+
+    it("preserves version number in parentheses", () => {
+      expect(normalizeMarkdown("requires (v2.0) to run")).toBe(
+        "requires (v2.0) to run"
+      );
+    });
+  });
+
+  describe("space before ordered list marker", () => {
+    it("splits ordered list after space when not a decimal number", () => {
+      const result = normalizeMarkdown(
+        "1. Minimum16 GB RAM 2.8 CPU cores 3. 100 GB SSD storage"
+      );
+      expect(result).toContain("CPU cores\n3. 100 GB SSD storage");
+    });
+
+    it("preserves decimal numbers like 2.8", () => {
+      expect(normalizeMarkdown("RAM 2.8 GHz")).toBe("RAM 2.8 GHz");
+    });
+
+    it("preserves IP addresses", () => {
+      expect(normalizeMarkdown("192.168.1.1")).toBe("192.168.1.1");
+    });
+  });
+
+  describe("unclosed inline before list", () => {
+    it("closes unclosed italic before bullet list", () => {
+      const result = normalizeMarkdown(
+        "Contains *confidential\n* information regarding"
+      );
+      expect(result).toContain("*confidential*");
+      expect(result).toContain("\n\n* information");
+    });
+
+    it("closes unclosed bold before bullet list", () => {
+      const result = normalizeMarkdown(
+        "Contains **confidential\n* information regarding"
+      );
+      expect(result).toContain("**confidential**");
+    });
+
+    it("does not add closer when italic is already closed", () => {
+      const result = normalizeMarkdown(
+        "This is *confidential*\n* next item"
+      );
+      expect(result).toBe("This is *confidential*\n\n* next item");
+    });
+
+    it("does not close italic when next line is not a list", () => {
+      const result = normalizeMarkdown(
+        "Contains *confidential\nSome other text"
+      );
+      expect(result).toBe("Contains *confidential\nSome other text");
+    });
+
+    it("preserves multiplication before list", () => {
+      const result = normalizeMarkdown("5 * 3 equals 15\n* list item");
+      expect(result).toContain("5 * 3 equals 15");
+    });
+
+    it("closes unclosed italic before dash list", () => {
+      const result = normalizeMarkdown(
+        "Contains *confidential\n- information regarding"
+      );
+      expect(result).toContain("*confidential*");
+    });
+  });
+
+  describe("inline checklist splitting (space-dash-bracket)", () => {
+    it("splits checklist items joined by space-dash-bracket", () => {
+      const result = normalizeMarkdown(
+        "Disaster relief protocols established - [x] Medical aid networks active - [ ] Evacuation fleet fully funded"
+      );
+      expect(result).toContain("established\n\n- [x] Medical aid networks active");
+      expect(result).toContain("Medical aid networks active\n- [ ] Evacuation fleet fully funded");
+    });
+
+    it("does not split plain dash between words", () => {
+      const result = normalizeMarkdown("5 - 3 = 2");
+      expect(result).toBe("5 - 3 = 2");
+    });
+
+    it("does not split markdown link after dash", () => {
+      const result = normalizeMarkdown("see docs - [reference here](url)");
+      expect(result).toBe("see docs - [reference here](url)");
+    });
+  });
+
+  describe("blank lines between list items", () => {
+    it("removes blank line between nested and parent list items", () => {
+      const result = normalizeMarkdown("- Level 1\n  - Level 2a\n  - Level 2b\n\n- Level 1 again");
+      expect(result).not.toMatch(/Level 2b\n\n- Level 1/);
+      expect(result).toMatch(/Level 2b\n- Level 1/);
+    });
+
+    it("removes multiple blank lines between list items", () => {
+      const result = normalizeMarkdown("- Level 1\n  - Level 2a\n  - Level 2b\n\n\n- Level 1 again");
+      expect(result).not.toMatch(/Level 2b\n\n/);
+    });
+
+    it("preserves blank line between list and paragraph", () => {
+      const result = normalizeMarkdown("- item1\n- item2\n\nSome paragraph");
+      expect(result).toContain("item2\n\nSome paragraph");
+    });
+
+    it("removes blank lines between ordered list items", () => {
+      const result = normalizeMarkdown("1. First\n2. Second\n\n3. Third");
+      expect(result).not.toMatch(/Second\n\n3\./);
+    });
+  });
+
+  describe("parenthetical ordered list guards", () => {
+    it("does not split P0) into separate lines", () => {
+      const result = normalizeMarkdown("1. Critical (P0)      2. High (P1)");
+      expect(result).toContain("Critical (P0)");
+      expect(result).toContain("2. High (P1)");
+      expect(result).not.toMatch(/\(P\n/);
+    });
+
+    it("does not split letter+digit) pattern", () => {
+      const result = normalizeMarkdown("      4. Low (P3)---");
+      expect(result).toContain("Low (P3)");
+    });
+
+    it("splits ordered list with ) syntax", () => {
+      const result = normalizeMarkdown("1) first 2) second");
+      expect(result).toContain("1) first");
+      expect(result).toContain("2) second");
+    });
+
+    it("preserves indent for space-separated ordered items", () => {
+      const result = normalizeMarkdown("      1. Critical (P0)      2. High (P1)");
+      expect(result).toContain("      2. High (P1)");
+    });
+  });
+
+  describe("glued unordered list at same level", () => {
+    it("keeps glued * items at same indent level", () => {
+      const result = normalizeMarkdown("* item1* item2* item3");
+      expect(result).not.toMatch(/\n  \*/);
+      expect(result).toContain("* item1\n* item2\n* item3");
+    });
+
+    it("keeps glued - items at same indent level", () => {
+      const result = normalizeMarkdown("- item1- item2- item3");
+      expect(result).not.toMatch(/\n  -/);
     });
   });
 });

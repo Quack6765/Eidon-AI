@@ -1,162 +1,17 @@
 import type { RemendHandler } from "remend";
 
-const ATX_HEADING_NO_SPACE = /^(#{1,6})([^#\s\n])/gm;
-const HR_FUSED_BEFORE = /^(-{3,})(?=[^\n])/gm;
-const HR_FUSED_AFTER = /(?<=\S)(-{3,})$/gm;
-
-const INLINE_TABLE_OPENER = /([^\s|])(\| [^ |-])/g;
-const INLINE_LIST_MARKER = /([^\s*_|>#`])([-]\s(?:\[[ x]\]\s)?)/g;
-const INLINE_ORDERED_MARKER = /([^\s\d.)_<>(#`])(\d{1,3}[.)]\s)/g;
-const INLINE_HEADING_MARKER = /([^\s#_|>#`])(#{1,6}\s\S)/g;
-const INLINE_STAR_MARKER_EMPHASIS = /(\*{1,3})([ \t]+)([*+]\s(?:\[[ x]\]\s)?)/g;
-const INLINE_STAR_MARKER_INLINE = /(\S)([ \t]+)([*+]\s(?:\[[ x]\]\s)?)/g;
-const INLINE_STAR_MARKER_NO_SPACE = /(\S)([*+]\s(?:\[[ x]\]\s)?)/g;
-const INLINE_BLOCKQUOTE_MARKER_EMPHASIS = /(\*{1,3})([ \t]*)(>(?:[ \t]|$))/gm;
-const INLINE_BLOCKQUOTE_MARKER_INLINE = /(\S)([ \t]+)(>(?:[ \t]*>)+[ \t]?)/gm;
-
-function splitAroundCodeFences(text: string): { text: string; insideCode: boolean }[] {
-  const parts: { text: string; insideCode: boolean }[] = [];
-  const fenceRegex = /^(`{3,})/gm;
-  let lastEnd = 0;
-
-  while (true) {
-    const match = fenceRegex.exec(text);
-    if (!match) break;
-
-    const fenceStart = match.index;
-    const fenceLen = match[1].length;
-    const afterFence = fenceStart + fenceLen;
-    const rest = text.slice(afterFence);
-    const closeFence = rest.match(new RegExp(`\n((?:[ \t]*\n)?)` + "`".repeat(fenceLen) + `[ \t]*$`, "m"));
-
-    if (closeFence) {
-      const codeEnd = afterFence + (closeFence.index ?? 0) + closeFence[0].length;
-      if (fenceStart > lastEnd) {
-        parts.push({ text: text.slice(lastEnd, fenceStart), insideCode: false });
-      }
-      parts.push({ text: text.slice(fenceStart, codeEnd), insideCode: true });
-      lastEnd = codeEnd;
-      fenceRegex.lastIndex = codeEnd;
-    } else {
-      break;
-    }
-  }
-
-  if (lastEnd < text.length) {
-    parts.push({ text: text.slice(lastEnd), insideCode: false });
-  }
-
-  return parts.length > 0 ? parts : [{ text, insideCode: false }];
-}
-
-function applyOutsideCodeBlocks(text: string, fn: (t: string) => string): string {
-  const parts = splitAroundCodeFences(text);
-  return parts.map((part) => (part.insideCode ? part.text : fn(part.text))).join("");
-}
-
-function fixAtxHeadingSpace(text: string): string {
-  return text.replace(ATX_HEADING_NO_SPACE, "$1 $2");
-}
-
-function fixHorizontalRuleFusion(text: string): string {
-  let result = text;
-  result = result.replace(HR_FUSED_BEFORE, "\n\n---\n\n");
-  result = result.replace(HR_FUSED_AFTER, "\n\n---\n\n");
-  return result;
-}
-
-function lineIndentAt(fullString: string, offset: number): string {
-  const lineStart = fullString.lastIndexOf("\n", offset - 1) + 1;
-  const lineText = fullString.slice(lineStart);
-  const indent = lineText.match(/^[ \t]*/);
-  return indent ? indent[0] : "";
-}
-
-function lineIsListItem(fullString: string, offset: number): boolean {
-  const lineStart = fullString.lastIndexOf("\n", offset - 1) + 1;
-  const lineText = fullString.slice(lineStart);
-  return /^\s*([-*+]|\d{1,3}[.)])\s/.test(lineText);
-}
-
-function subItemIndentAt(fullString: string, offset: number): string {
-  const indent = lineIndentAt(fullString, offset);
-  if (lineIsListItem(fullString, offset)) {
-    return indent + "  ";
-  }
-  return indent;
-}
-
-function fixInlineBlockMarkersInner(text: string): string {
-  let result = text;
-
-  result = result.replace(INLINE_HEADING_MARKER, "$1\n$2");
-
-  result = result.replace(INLINE_TABLE_OPENER, "$1\n$2");
-
-  result = result.replace(INLINE_ORDERED_MARKER, (match, before, marker) => {
-    if (/[0-9.]/.test(before)) return match;
-    return `${before}\n${marker}`;
-  });
-
-  result = result.replace(INLINE_LIST_MARKER, (match, before, marker) => {
-    if (before === "|" || before === ">" || before === "-") return match;
-    return `${before}\n${marker}`;
-  });
-
-  result = result.replace(INLINE_STAR_MARKER_EMPHASIS, (match, emphasis, spaces, marker, offset, fullString) => {
-    if (spaces.includes("\n")) return match;
-    const indent = subItemIndentAt(fullString, offset);
-    return `${emphasis}\n${indent}${marker}`;
-  });
-
-  result = result.replace(INLINE_STAR_MARKER_INLINE, (match, before, spaces, marker, offset, fullString) => {
-    if (spaces.includes("\n")) return match;
-    if (before === "*" || before === "+") return match;
-    const afterIdx = offset + before.length + spaces.length + marker.length;
-    const afterChar = fullString[afterIdx];
-    if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
-    const indent = subItemIndentAt(fullString, offset);
-    return `${before}\n${indent}${marker}`;
-  });
-
-  result = result.replace(INLINE_STAR_MARKER_NO_SPACE, (match, before, marker, offset, fullString) => {
-    if (before === "*" || before === "+") return match;
-    const afterIdx = offset + before.length + marker.length;
-    const afterChar = fullString[afterIdx];
-    if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
-    const indent = subItemIndentAt(fullString, offset);
-    return `${before}\n${indent}${marker}`;
-  });
-
-  result = result.replace(INLINE_BLOCKQUOTE_MARKER_EMPHASIS, (match, emphasis, spaces, marker, offset, fullString) => {
-    if (spaces.includes("\n")) return match;
-    const indent = subItemIndentAt(fullString, offset);
-    return `${emphasis}\n${indent}${marker}`;
-  });
-
-  result = result.replace(INLINE_BLOCKQUOTE_MARKER_INLINE, (match, before, spaces, marker, offset, fullString) => {
-    if (spaces.includes("\n")) return match;
-    if (before === ">") return match;
-    const afterIdx = offset + before.length + spaces.length + marker.length;
-    const afterChar = fullString[afterIdx];
-    if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
-    if (/[<>=!]=?/.test(before) && afterChar && /\d/.test(afterChar)) return match;
-    const indent = subItemIndentAt(fullString, offset);
-    return `${before}\n${indent}${marker}`;
-  });
-
-  return result;
-}
-
-function fixInlineBlockMarkers(text: string): string {
-  return applyOutsideCodeBlocks(text, fixInlineBlockMarkersInner);
-}
-
-type BlockKind = "heading" | "code-fence" | "blockquote" | "table" | "unordered-list" | "ordered-list" | "hr" | "other";
+type BlockKind =
+  | "heading"
+  | "code-fence"
+  | "blockquote"
+  | "table"
+  | "unordered-list"
+  | "ordered-list"
+  | "hr"
+  | "other";
 
 function classifyLine(line: string): BlockKind {
   const trimmed = line.trimStart();
-
   if (/^#{1,6}\s/.test(trimmed)) return "heading";
   if (/^`{3,}/.test(trimmed)) return "code-fence";
   if (/^>\s?/.test(trimmed)) return "blockquote";
@@ -167,139 +22,489 @@ function classifyLine(line: string): BlockKind {
   return "other";
 }
 
-function needsBlankLineBetween(prevKind: BlockKind, currentKind: BlockKind, currentIndent: number): boolean {
-  if (currentIndent > 0 && (currentKind === "unordered-list" || currentKind === "ordered-list")) {
+function needsBlankLineBetween(
+  prevKind: BlockKind,
+  currentKind: BlockKind,
+  currentIndent: number,
+): boolean {
+  if (
+    currentIndent > 0 &&
+    (currentKind === "unordered-list" || currentKind === "ordered-list")
+  ) {
     return false;
   }
-
   if (prevKind === "heading" || currentKind === "heading") {
     return true;
   }
-
   if (prevKind === currentKind) {
     return false;
   }
-
   return true;
 }
 
-function ensureBlockBlankLines(text: string): string {
-  const lines = text.split("\n");
-  const result: string[] = [];
+function fixCollapsedTableRows(text: string): string {
+  let r = text;
+  r = r.replace(/\|\|(?=\s*[`!*\w])/g, "|\n|");
+  r = r.replace(/(\|) (\| \w)/g, "$1\n$2");
+  r = r.replace(/(\|)(#{1,6}\s\S)/g, "$1\n$2");
+  return r;
+}
+
+function isClosingStar(text: string, starPos: number): boolean {
+  const lineStart = text.lastIndexOf("\n", starPos - 1) + 1;
+  const lineText = text.slice(lineStart);
+  let depth = 0;
+  let i = 0;
+  while (lineStart + i < starPos) {
+    if (lineText[i] === "\\") { i += 2; continue; }
+    if (i === 0 && /^[*+\-]\s/.test(lineText)) { i += 2; continue; }
+    if (lineText[i] === "`") {
+      const j = lineText.indexOf("`", i + 1);
+      i = j === -1 ? lineText.length : j + 1;
+      continue;
+    }
+    if (lineText[i] === "*" && i + 1 < lineText.length && lineText[i + 1] === "*") {
+      depth += 2; i += 2;
+    } else if (lineText[i] === "*") {
+      depth += 1; i += 1;
+    } else {
+      i += 1;
+    }
+  }
+  return depth % 2 !== 0;
+}
+
+function lineIndentAt(text: string, offset: number): string {
+  const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+  const lineText = text.slice(lineStart);
+  const indent = lineText.match(/^[ \t]*/);
+  return indent ? indent[0] : "";
+}
+
+function lineIsListItem(text: string, offset: number): boolean {
+  const lineStart = text.lastIndexOf("\n", offset - 1) + 1;
+  const lineText = text.slice(lineStart);
+  return /^\s*([-*+]|\d{1,3}[.)])\s/.test(lineText);
+}
+
+function subItemIndentAt(text: string, offset: number): string {
+  const indent = lineIndentAt(text, offset);
+  if (lineIsListItem(text, offset)) {
+    return indent + "  ";
+  }
+  return indent;
+}
+
+function expandLineInline(line: string): string {
+  if (/^\|/.test(line.trimStart())) {
+    let t = line;
+    t = t.replace(/\|\|/g, "|\n|");
+    t = t.replace(/(\|) (\| [A-Za-z✅❌0-9])/g, "$1\n$2");
+    t = t.replace(/^\| \| /gm, "| ");
+    return t;
+  }
+
+  let r = line;
+
+  r = r.replace(/^(#{1,6})([^#\s\n])/, "$1 $2");
+
+  r = r.replace(/^(-{3,})(?=[^\n])/, "\n$1\n");
+  r = r.replace(/(?<=\S)(-{3,})$/, "\n$1\n");
+
+  r = r.replace(/([^\s#_|>#`])(#{1,6}\s\S)/g, "$1\n$2");
+
+  r = r.replace(/([^\s|])(\| [^ |-])/g, "$1\n$2");
+
+  r = r.replace(
+    /([^\s\d.)_<>(#`])(\d{1,3}[.)]\s)/g,
+    (match, before: string, marker: string, offset: number, fullString: string) => {
+      if (/[0-9.]/.test(before)) return match;
+      if (/[A-Za-z]/.test(before) && marker.includes(")")) return match;
+      return `${before}\n${marker}`;
+    },
+  );
+
+  r = r.replace(
+    /(\))(\d{1,3}[.)]\s)/g,
+    (match, before: string, marker: string, offset: number, fullString: string) => {
+      const charBeforeParen = fullString[offset - 1];
+      if (/[A-Za-z]/.test(charBeforeParen)) return match;
+      const indent = lineIndentAt(fullString, offset);
+      return `${before}\n${indent}${marker}`;
+    },
+  );
+
+  r = r.replace(
+    /(\S)([ \t]+)(\d{1,3}[.)]\s)/g,
+    (match, before: string, _spaces: string, marker: string, offset: number, fullString: string) => {
+      if (/\d/.test(before) && /\d/.test(marker)) return match;
+      if (before === ")" && offset > 0 && /[A-Za-z]/.test(fullString[offset - 1])) return match;
+      const indent = lineIndentAt(fullString, offset);
+      return `${before}\n${indent}${marker}`;
+    },
+  );
+
+  r = r.replace(
+    /(\S)(`{3,})/g,
+    (match, before: string, fence: string, offset: number, fullString: string) => {
+      if (before === "`") return match;
+      const afterFence = fullString.slice(offset + before.length + fence.length);
+      const closingIdx = afterFence.indexOf(fence);
+      if (closingIdx !== -1 && !/\n/.test(afterFence.slice(0, closingIdx))) return match;
+      const beforeFence = fullString.slice(0, offset + before.length);
+      const openerIdx = beforeFence.lastIndexOf(fence);
+      if (openerIdx !== -1 && !/\n/.test(beforeFence.slice(openerIdx + fence.length))) return match;
+      return `${before}\n${fence}`;
+    },
+  );
+
+  r = r.replace(
+    /(`{3,})([^\n`])/g,
+    (match, fence: string, after: string, offset: number, fullString: string) => {
+      const afterFull = fullString.slice(offset + fence.length);
+      const closingIdx = afterFull.indexOf(fence);
+      if (closingIdx !== -1 && !/\n/.test(afterFull.slice(0, closingIdx))) return match;
+      return `${fence}\n${after}`;
+    },
+  );
+
+  r = r.replace(
+    /([^\s*_|>#`])([-]\s(?:\[[ x]\]\s)?)/g,
+    (match, before: string, _marker: string) => {
+      if (before === "|" || before === ">" || before === "-") return match;
+      return `${before}\n${_marker}`;
+    },
+  );
+
+  r = r.replace(
+    /(\S)([ \t]+)([-]\s(?:\[[ x]\]\s))/g,
+    (match, before: string, _spaces: string, marker: string, offset: number, full: string) => {
+      if (_spaces.includes("\n")) return match;
+      const indent = subItemIndentAt(full, offset);
+      return `${before}\n${indent}${marker}`;
+    },
+  );
+
+  r = r.replace(
+    /(\*{1,3})([ \t]+)([*+]\s(?:\[[ x]\]\s)?)/g,
+    (
+      match: string,
+      emphasis: string,
+      spaces: string,
+      marker: string,
+      offset: number,
+      fullString: string,
+    ) => {
+      if (spaces.includes("\n")) return match;
+      const indent = subItemIndentAt(fullString, offset);
+      return `${emphasis}\n${indent}${marker}`;
+    },
+  );
+
+  r = r.replace(
+    /(\S)([ \t]+)([*+]\s(?:\[[ x]\]\s)?)/g,
+    (
+      match: string,
+      before: string,
+      spaces: string,
+      marker: string,
+      offset: number,
+      fullString: string,
+    ) => {
+      if (spaces.includes("\n")) return match;
+      if (before === "*" || before === "+") return match;
+      const afterIdx = offset + before.length + spaces.length + marker.length;
+      const afterChar = fullString[afterIdx];
+      if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
+      if (marker[0] === "*" && before === "*" && isClosingStar(fullString, offset + before.length + spaces.length)) return match;
+      const indent = subItemIndentAt(fullString, offset);
+      return `${before}\n${indent}${marker}`;
+    },
+  );
+
+  r = r.replace(
+    /(\S)([*+]\s(?:\[[ x]\]\s)?)/g,
+    (
+      match: string,
+      before: string,
+      marker: string,
+      offset: number,
+      fullString: string,
+    ) => {
+      if (before === "*" || before === "+") return match;
+      if (/\d/.test(before) && marker[0] === "*" && (offset === 0 || /\s/.test(fullString[offset - 1]))) return match;
+      const afterIdx = offset + before.length + marker.length;
+      const afterChar = fullString[afterIdx];
+      if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
+      if (marker[0] === "*" && isClosingStar(fullString, offset + before.length)) return match;
+      const indent = lineIndentAt(fullString, offset);
+      return `${before}\n${indent}${marker}`;
+    },
+  );
+
+  r = r.replace(/([.])(>(?:[ \t]|$))/gm, "$1\n$2");
+
+  r = r.replace(
+    /(\*{1,3})([ \t]*)(>(?:[ \t]|$))/gm,
+    (
+      _match: string,
+      emphasis: string,
+      spaces: string,
+      marker: string,
+      offset: number,
+      fullString: string,
+    ) => {
+      if (spaces.includes("\n")) return _match;
+      const indent = subItemIndentAt(fullString, offset);
+      return `${emphasis}\n${indent}${marker}`;
+    },
+  );
+
+  r = r.replace(
+    /(\S)([ \t]+)(>(?:[ \t]*>)+[ \t]?)/gm,
+    (
+      _match: string,
+      before: string,
+      spaces: string,
+      marker: string,
+      offset: number,
+      fullString: string,
+    ) => {
+      if (spaces.includes("\n")) return _match;
+      if (before === ">") return _match;
+      const afterIdx = offset + before.length + spaces.length + marker.length;
+      const afterChar = fullString[afterIdx];
+      if (/\d/.test(before) && afterChar && /\d/.test(afterChar))
+        return _match;
+      if (/[<>=!]=?/.test(before) && afterChar && /\d/.test(afterChar))
+        return _match;
+      const indent = subItemIndentAt(fullString, offset);
+      return `${before}\n${indent}${marker}`;
+    },
+  );
+
+  return r;
+}
+
+function closeUnclosedInline(lines: string[]): void {
+  for (let i = 0; i < lines.length - 1; i++) {
+    const line = lines[i];
+    const nextTrimmed = lines[i + 1].trimStart();
+    if (!/^[-*+]\s/.test(nextTrimmed)) continue;
+    if (/^\|/.test(line.trimStart())) continue;
+
+    const match = line.match(/(^|[\s(])(\*{1,3})(\S[^*\n]*)$/);
+    if (!match) continue;
+    const opener = match[2];
+    const text = match[3];
+    const openerLen = opener.length;
+    const closer = "*".repeat(openerLen);
+    if (text.endsWith(closer)) continue;
+    let closeCount = 0;
+    for (let j = 0; j < text.length - openerLen + 1; j++) {
+      if (text.slice(j, j + openerLen) === closer) closeCount++;
+    }
+    if (closeCount % 2 !== 0) continue;
+    lines[i] = line + closer;
+  }
+}
+
+export function normalizeMarkdown(text: string): string {
+  const preprocessed = fixCollapsedTableRows(text);
+  const lines = preprocessed.split("\n");
+  closeUnclosedInline(lines);
+  const collapsed: string[] = [];
+  let blankRun = 0;
+  for (const ln of lines) {
+    if (ln.trim() === "") {
+      blankRun++;
+      if (blankRun <= 1) collapsed.push(ln);
+    } else {
+      blankRun = 0;
+      collapsed.push(ln);
+    }
+  }
+  const output: string[] = [];
   let insideFence = false;
   let insideTable = false;
+  let tableHasSeparator = false;
   let prevBlockKind: BlockKind | null = null;
   let rootListKind: BlockKind | null = null;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
+  for (let i = 0; i < collapsed.length; i++) {
+    const line = collapsed[i];
     const trimmed = line.trimStart();
 
     if (/^`{3,}/.test(trimmed) && !insideFence) {
       insideFence = true;
-      const prevLine = result.length > 0 ? result[result.length - 1] : "";
-      if (i > 0 && prevLine.trim() !== "") {
-        result.push("");
+      const prevLine = output.length > 0 ? output[output.length - 1] : "";
+      if (output.length > 0 && prevLine.trim() !== "") {
+        output.push("");
       }
-      result.push(line);
-      prevBlockKind = "code-fence";
-      rootListKind = null;
-      continue;
-    }
-
-    if (/^`{3,}/.test(trimmed) && insideFence) {
-      insideFence = false;
-      result.push(line);
+      output.push(line);
       prevBlockKind = "code-fence";
       rootListKind = null;
       continue;
     }
 
     if (insideFence) {
-      result.push(line);
-      continue;
-    }
-
-    if (/^\|/.test(trimmed)) {
-      if (!insideTable) {
-        insideTable = true;
-        const prevLine = result.length > 0 ? result[result.length - 1] : "";
-        if (i > 0 && prevLine.trim() !== "" && prevBlockKind !== "table") {
-          result.push("");
+      const closingMatch = line.match(/^([ \t]*`{3,})(.*)/);
+      if (closingMatch) {
+        insideFence = false;
+        output.push(closingMatch[1]);
+        prevBlockKind = "code-fence";
+        rootListKind = null;
+        if (closingMatch[2].trim()) {
+          collapsed.splice(i + 1, 0, closingMatch[2].trimStart());
+        }
+      } else {
+        const inlineClose = line.match(/(.*?)(`{3,})\s*$/);
+        if (inlineClose && inlineClose[1].trim()) {
+          output.push(inlineClose[1]);
+          insideFence = false;
+          output.push(inlineClose[2]);
+          prevBlockKind = "code-fence";
+          rootListKind = null;
+        } else {
+          output.push(line);
         }
       }
-      result.push(line);
-      prevBlockKind = "table";
+      continue;
+    }
+
+    if (trimmed === "") {
+      let lookAhead = i + 1;
+      while (lookAhead < collapsed.length && collapsed[lookAhead].trim() === "") {
+        lookAhead++;
+      }
+      if (lookAhead < collapsed.length) {
+        const nextTrimmed = collapsed[lookAhead].trimStart();
+        const nextKind = classifyLine(collapsed[lookAhead]);
+        if (
+          prevBlockKind !== null &&
+          (prevBlockKind === "ordered-list" || prevBlockKind === "unordered-list") &&
+          (nextKind === "ordered-list" || nextKind === "unordered-list")
+        ) {
+          prevBlockKind = nextKind;
+          continue;
+        }
+      }
+      output.push(line);
+      prevBlockKind = "other";
       rootListKind = null;
       continue;
     }
 
-    if (insideTable && trimmed !== "" && !/^\|/.test(trimmed)) {
-      insideTable = false;
+    let expanded = expandLineInline(line);
+    for (let pass = 0; pass < 3; pass++) {
+      const next = expandLineInline(expanded);
+      if (next === expanded) break;
+      expanded = next;
     }
+    const subLines = expanded.split("\n");
 
-    const kind = classifyLine(line);
-    const indent = line.length - trimmed.length;
-    const prevLine = result.length > 0 ? result[result.length - 1] : "";
-    const prevIsBlank = prevLine.trim() === "";
+    for (let j = 0; j < subLines.length; j++) {
+      const subLine = subLines[j];
+      const subTrimmed = subLine.trimStart();
 
-    if (indent === 0 && (kind === "ordered-list" || kind === "unordered-list")) {
-      if (rootListKind === kind && !prevIsBlank) {
-        result.push(line);
-        prevBlockKind = kind;
+      if (/^\|/.test(subTrimmed)) {
+        if (!insideTable) {
+          insideTable = true;
+          tableHasSeparator = false;
+          const prevLine =
+            output.length > 0 ? output[output.length - 1] : "";
+          if (
+            output.length > 0 &&
+            prevLine.trim() !== "" &&
+            prevBlockKind !== "table"
+          ) {
+            output.push("");
+          }
+          output.push(subLine);
+          prevBlockKind = "table";
+          rootListKind = null;
+          continue;
+        }
+        const isSeparator = /^[\s|:\-]+$/.test(subTrimmed);
+        if (isSeparator) {
+          tableHasSeparator = true;
+          output.push(subLine);
+          prevBlockKind = "table";
+          rootListKind = null;
+          continue;
+        }
+        if (!tableHasSeparator && prevBlockKind === "table") {
+          const prevOut = output[output.length - 1];
+          const prevCols = (prevOut.match(/\|/g) || []).length - 1;
+          const colCount = (subTrimmed.match(/\|/g) || []).length - 1;
+          if (colCount > 1 && colCount === prevCols) {
+            output.push("|" + "---|".repeat(colCount));
+            tableHasSeparator = true;
+          }
+        }
+        output.push(subLine);
+        prevBlockKind = "table";
+        rootListKind = null;
         continue;
       }
-      rootListKind = kind;
-    } else if (indent > 0 && (kind === "ordered-list" || kind === "unordered-list")) {
-      result.push(line);
+
+      if (insideTable && subTrimmed !== "" && !/^\|/.test(subTrimmed)) {
+        insideTable = false;
+        tableHasSeparator = false;
+      }
+
+      if (subTrimmed === "") {
+        output.push(subLine);
+        prevBlockKind = "other";
+        rootListKind = null;
+        continue;
+      }
+
+      const kind = classifyLine(subLine);
+      const indent = subLine.length - subTrimmed.length;
+      const prevLine =
+        output.length > 0 ? output[output.length - 1] : "";
+      const prevIsBlank = prevLine.trim() === "";
+
+      if (
+        indent === 0 &&
+        (kind === "ordered-list" || kind === "unordered-list")
+      ) {
+        if (rootListKind === kind && !prevIsBlank) {
+          output.push(subLine);
+          prevBlockKind = kind;
+          continue;
+        }
+        rootListKind = kind;
+      } else if (
+        indent > 0 &&
+        (kind === "ordered-list" || kind === "unordered-list")
+      ) {
+        output.push(subLine);
+        prevBlockKind = kind;
+        continue;
+      } else if (
+        kind !== "ordered-list" &&
+        kind !== "unordered-list"
+      ) {
+        rootListKind = null;
+      }
+
+      if (
+        output.length > 0 &&
+        !prevIsBlank &&
+        prevBlockKind !== null &&
+        needsBlankLineBetween(prevBlockKind, kind, indent)
+      ) {
+        output.push("");
+      }
+
+      output.push(subLine);
       prevBlockKind = kind;
-      continue;
-    } else if (kind !== "ordered-list" && kind !== "unordered-list") {
-      rootListKind = null;
     }
-
-    if (i > 0 && !prevIsBlank && prevBlockKind !== null && needsBlankLineBetween(prevBlockKind, kind, indent)) {
-      result.push("");
-    }
-
-    result.push(line);
-    prevBlockKind = kind;
   }
 
-  return result.join("\n");
+  return output.join("\n");
 }
 
-function fixCollapsedTableRowsInner(text: string): string {
-  let result = text;
-  result = result.replace(/\|\|(?=\s*[`!*\w])/g, "|\n|");
-  result = result.replace(/(\|) (\| \w)/g, "$1\n$2");
-  result = result.replace(/(\|)(#{1,6}\s\S)/g, "$1\n$2");
-  return result;
-}
-
-function fixCollapsedTableRows(text: string): string {
-  return applyOutsideCodeBlocks(text, fixCollapsedTableRowsInner);
-}
-
-export function normalizeMarkdown(text: string): string {
-  let result = text;
-  result = applyOutsideCodeBlocks(result, fixAtxHeadingSpace);
-  result = applyOutsideCodeBlocks(result, fixHorizontalRuleFusion);
-  result = fixInlineBlockMarkers(result);
-  result = fixCollapsedTableRows(result);
-  result = ensureBlockBlankLines(result);
-  return result;
-}
-
-export const MARKDOWN_REMEND_HANDLERS: RemendHandler[] = [
-  {
-    name: "fix-atx-heading-space",
-    handle: fixAtxHeadingSpace,
-    priority: -5,
-  },
-  {
-    name: "fix-horizontal-rule-fusion",
-    handle: fixHorizontalRuleFusion,
-    priority: -5,
-  },
-];
+export const MARKDOWN_REMEND_HANDLERS: RemendHandler[] = [];
