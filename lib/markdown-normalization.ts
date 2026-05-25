@@ -223,6 +223,7 @@ function expandLineInline(line: string): string {
       fullString: string,
     ) => {
       if (before === "*" || before === "+") return match;
+      if (/\d/.test(before) && marker[0] === "*" && (offset === 0 || /\s/.test(fullString[offset - 1]))) return match;
       const afterIdx = offset + before.length + marker.length;
       const afterChar = fullString[afterIdx];
       if (/\d/.test(before) && afterChar && /\d/.test(afterChar)) return match;
@@ -317,6 +318,7 @@ export function normalizeMarkdown(text: string): string {
   const output: string[] = [];
   let insideFence = false;
   let insideTable = false;
+  let tableHasSeparator = false;
   let prevBlockKind: BlockKind | null = null;
   let rootListKind: BlockKind | null = null;
 
@@ -399,6 +401,7 @@ export function normalizeMarkdown(text: string): string {
       if (/^\|/.test(subTrimmed)) {
         if (!insideTable) {
           insideTable = true;
+          tableHasSeparator = false;
           const prevLine =
             output.length > 0 ? output[output.length - 1] : "";
           if (
@@ -407,6 +410,27 @@ export function normalizeMarkdown(text: string): string {
             prevBlockKind !== "table"
           ) {
             output.push("");
+          }
+          output.push(subLine);
+          prevBlockKind = "table";
+          rootListKind = null;
+          continue;
+        }
+        const isSeparator = /^[\s|:\-]+$/.test(subTrimmed);
+        if (isSeparator) {
+          tableHasSeparator = true;
+          output.push(subLine);
+          prevBlockKind = "table";
+          rootListKind = null;
+          continue;
+        }
+        if (!tableHasSeparator && prevBlockKind === "table") {
+          const prevOut = output[output.length - 1];
+          const prevCols = (prevOut.match(/\|/g) || []).length - 1;
+          const colCount = (subTrimmed.match(/\|/g) || []).length - 1;
+          if (colCount > 1 && colCount === prevCols) {
+            output.push("|" + "---|".repeat(colCount));
+            tableHasSeparator = true;
           }
         }
         output.push(subLine);
@@ -417,6 +441,7 @@ export function normalizeMarkdown(text: string): string {
 
       if (insideTable && subTrimmed !== "" && !/^\|/.test(subTrimmed)) {
         insideTable = false;
+        tableHasSeparator = false;
       }
 
       if (subTrimmed === "") {
