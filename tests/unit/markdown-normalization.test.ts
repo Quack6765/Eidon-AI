@@ -283,4 +283,47 @@ describe("normalizeMarkdown", () => {
       expect(normalizeMarkdown("192.168.1.1")).toBe("192.168.1.1");
     });
   });
+
+  describe("unclosed inline before list", () => {
+    it("closes unclosed italic before bullet list", () => {
+      const result = normalizeMarkdown(
+        "Contains *confidential\n* information regarding"
+      );
+      expect(result).toContain("*confidential*");
+      expect(result).toContain("\n\n* information");
+    });
+
+    it("closes unclosed bold before bullet list", () => {
+      const result = normalizeMarkdown(
+        "Contains **confidential\n* information regarding"
+      );
+      expect(result).toContain("**confidential**");
+    });
+
+    it("does not add closer when italic is already closed", () => {
+      const result = normalizeMarkdown(
+        "This is *confidential*\n* next item"
+      );
+      expect(result).toBe("This is *confidential*\n\n* next item");
+    });
+
+    it("does not close italic when next line is not a list", () => {
+      const result = normalizeMarkdown(
+        "Contains *confidential\nSome other text"
+      );
+      expect(result).toBe("Contains *confidential\nSome other text");
+    });
+
+    it("preserves multiplication before list", () => {
+      const result = normalizeMarkdown("5 * 3 equals 15\n* list item");
+      expect(result).toContain("5 * 3 equals 15");
+    });
+
+    it("closes unclosed italic before dash list", () => {
+      const result = normalizeMarkdown(
+        "Contains *confidential\n- information regarding"
+      );
+      expect(result).toContain("*confidential*");
+    });
+  });
 });

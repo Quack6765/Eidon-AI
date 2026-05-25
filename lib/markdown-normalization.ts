@@ -227,9 +227,33 @@ function expandLineInline(line: string): string {
   return r;
 }
 
+function closeUnclosedInline(lines: string[]): void {
+  for (let i = 0; i < lines.length - 1; i++) {
+    const line = lines[i];
+    const nextTrimmed = lines[i + 1].trimStart();
+    if (!/^[-*+]\s/.test(nextTrimmed)) continue;
+    if (/^\|/.test(line.trimStart())) continue;
+
+    const match = line.match(/(^|[\s(])(\*{1,3})(\S[^*\n]*)$/);
+    if (!match) continue;
+    const opener = match[2];
+    const text = match[3];
+    const openerLen = opener.length;
+    const closer = "*".repeat(openerLen);
+    if (text.endsWith(closer)) continue;
+    let closeCount = 0;
+    for (let j = 0; j < text.length - openerLen + 1; j++) {
+      if (text.slice(j, j + openerLen) === closer) closeCount++;
+    }
+    if (closeCount % 2 !== 0) continue;
+    lines[i] = line + closer;
+  }
+}
+
 export function normalizeMarkdown(text: string): string {
   const preprocessed = fixCollapsedTableRows(text);
   const lines = preprocessed.split("\n");
+  closeUnclosedInline(lines);
   const output: string[] = [];
   let insideFence = false;
   let insideTable = false;
