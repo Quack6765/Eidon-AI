@@ -1,61 +1,12 @@
-import type { ProviderProfileWithApiKey } from "@/lib/types";
+const runLocalTitleInference = vi.fn();
 
-const callProviderText = vi.fn();
-
-vi.mock("@/lib/provider", () => ({
-  callProviderText
+vi.mock("@/lib/local-title-model", () => ({
+  runLocalTitleInference
 }));
-
-function createSettings(): ProviderProfileWithApiKey {
-  return {
-    id: "profile_test",
-    name: "Test profile",
-    apiBaseUrl: "https://api.example.com/v1",
-    apiKeyEncrypted: "",
-    apiKey: "sk-test",
-    model: "gpt-5-mini",
-    apiMode: "responses",
-    systemPrompt: "Be exact",
-    temperature: 0.2,
-    maxOutputTokens: 512,
-    reasoningEffort: "medium",
-    reasoningSummaryEnabled: true,
-    modelContextLimit: 16000,
-    compactionThreshold: 0.8,
-    freshTailCount: 12,
-    tokenizerModel: "gpt-tokenizer",
-    safetyMarginTokens: 1200,
-    leafSourceTokenLimit: 12000,
-    leafMinMessageCount: 6,
-    mergedMinNodeCount: 4,
-    mergedTargetTokens: 1600,
-    visionMode: "native",
-    visionMcpServerId: null,
-    providerPresetId: null,
-    providerKind: "openai_compatible",
-    githubUserAccessTokenEncrypted: "",
-    githubRefreshTokenEncrypted: "",
-    githubTokenExpiresAt: null,
-    githubRefreshTokenExpiresAt: null,
-    githubAccountLogin: null,
-    githubAccountName: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-}
 
 describe("conversation title generator", () => {
   beforeEach(() => {
-    callProviderText.mockReset();
-  });
-
-  it("builds a compact title-generation prompt", async () => {
-    const { buildConversationTitlePrompt } = await import("@/lib/conversation-title-generator");
-    const prompt = buildConversationTitlePrompt("Build a deployment checklist for me");
-
-    expect(prompt).toContain("Prefer 2 to 4 words.");
-    expect(prompt).toContain("Return only the title.");
-    expect(prompt).toContain("Build a deployment checklist for me");
+    runLocalTitleInference.mockReset();
   });
 
   it("sanitizes quotes, line breaks, and excessive length", async () => {
@@ -77,37 +28,27 @@ describe("conversation title generator", () => {
     expect(result).toBe("Superlongwordthatexceedsthemaxlengthbyfar".slice(0, 48));
   });
 
-  it("calls the provider with title purpose and returns a sanitized title", async () => {
-    callProviderText.mockResolvedValue('  "Deployment Checklist."\n');
+  it("calls the local model and returns a sanitized title", async () => {
+    runLocalTitleInference.mockResolvedValue('  "Deployment Checklist."\n');
 
     const { generateConversationTitle } = await import("@/lib/conversation-title-generator");
     const title = await generateConversationTitle({
-      settings: createSettings(),
       firstMessage: "Build a deployment checklist for me"
     });
 
     expect(title).toBe("Deployment Checklist");
-    expect(callProviderText).toHaveBeenCalledWith(
-      expect.objectContaining({
-        settings: expect.objectContaining({
-          model: "gpt-5-mini",
-          apiMode: "responses"
-        }),
-        purpose: "title"
-      })
-    );
+    expect(runLocalTitleInference).toHaveBeenCalledWith("Build a deployment checklist for me");
   });
 
   it("treats empty sanitized output as a failure", async () => {
-    callProviderText.mockResolvedValue('""');
+    runLocalTitleInference.mockResolvedValue('""');
 
     const { generateConversationTitle } = await import("@/lib/conversation-title-generator");
 
     await expect(
       generateConversationTitle({
-        settings: createSettings(),
         firstMessage: "Build a deployment checklist for me"
       })
-    ).rejects.toThrow("Provider returned an empty title");
+    ).rejects.toThrow("Local model returned an empty title");
   });
 });
