@@ -378,4 +378,27 @@ describe("normalizeMarkdown", () => {
       expect(result).toBe("see docs - [reference here](url)");
     });
   });
+
+  describe("blank lines between list items", () => {
+    it("removes blank line between nested and parent list items", () => {
+      const result = normalizeMarkdown("- Level 1\n  - Level 2a\n  - Level 2b\n\n- Level 1 again");
+      expect(result).not.toMatch(/Level 2b\n\n- Level 1/);
+      expect(result).toMatch(/Level 2b\n- Level 1/);
+    });
+
+    it("removes multiple blank lines between list items", () => {
+      const result = normalizeMarkdown("- Level 1\n  - Level 2a\n  - Level 2b\n\n\n- Level 1 again");
+      expect(result).not.toMatch(/Level 2b\n\n/);
+    });
+
+    it("preserves blank line between list and paragraph", () => {
+      const result = normalizeMarkdown("- item1\n- item2\n\nSome paragraph");
+      expect(result).toContain("item2\n\nSome paragraph");
+    });
+
+    it("removes blank lines between ordered list items", () => {
+      const result = normalizeMarkdown("1. First\n2. Second\n\n3. Third");
+      expect(result).not.toMatch(/Second\n\n3\./);
+    });
+  });
 });

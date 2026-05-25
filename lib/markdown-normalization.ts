@@ -327,10 +327,34 @@ export function normalizeMarkdown(text: string): string {
       continue;
     }
 
+    if (trimmed === "") {
+      let lookAhead = i + 1;
+      while (lookAhead < collapsed.length && collapsed[lookAhead].trim() === "") {
+        lookAhead++;
+      }
+      if (lookAhead < collapsed.length) {
+        const nextTrimmed = collapsed[lookAhead].trimStart();
+        const nextKind = classifyLine(collapsed[lookAhead]);
+        if (
+          prevBlockKind !== null &&
+          (prevBlockKind === "ordered-list" || prevBlockKind === "unordered-list") &&
+          (nextKind === "ordered-list" || nextKind === "unordered-list")
+        ) {
+          prevBlockKind = nextKind;
+          continue;
+        }
+      }
+      output.push(line);
+      prevBlockKind = "other";
+      rootListKind = null;
+      continue;
+    }
+
     const expanded = expandLineInline(line);
     const subLines = expanded.split("\n");
 
-    for (const subLine of subLines) {
+    for (let j = 0; j < subLines.length; j++) {
+      const subLine = subLines[j];
       const subTrimmed = subLine.trimStart();
 
       if (/^\|/.test(subTrimmed)) {
