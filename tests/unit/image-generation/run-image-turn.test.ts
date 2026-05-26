@@ -128,6 +128,8 @@ describe("runImageTurn", () => {
         imageGenerationBackend: "google_nano_banana",
         googleNanoBananaModel: "gemini-3.1-flash-image-preview",
         googleNanoBananaApiKey: "google-secret",
+        titleGenerationMode: "same",
+        titleGenerationProfileId: null,
         updatedAt: new Date().toISOString()
       },
       assistantMessageId: "msg_assistant",
@@ -218,6 +220,8 @@ describe("runImageTurn", () => {
         imageGenerationBackend: "google_nano_banana",
         googleNanoBananaModel: "gemini-3.1-flash-image-preview",
         googleNanoBananaApiKey: "google-secret",
+        titleGenerationMode: "same",
+        titleGenerationProfileId: null,
         updatedAt: new Date().toISOString()
       },
       assistantMessageId: "msg_assistant",

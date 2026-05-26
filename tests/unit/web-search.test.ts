@@ -18,6 +18,8 @@ function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     imageGenerationBackend: "disabled",
     googleNanoBananaModel: "gemini-3.1-flash-image-preview",
     googleNanoBananaApiKey: "",
+    titleGenerationMode: "same",
+    titleGenerationProfileId: null,
     updatedAt: new Date().toISOString(),
     ...overrides
   };

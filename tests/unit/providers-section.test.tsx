@@ -61,6 +61,8 @@ type SettingsFixture = {
   imageGenerationBackend: "disabled" | "google_nano_banana";
   googleNanoBananaModel: "gemini-2.5-flash-image" | "gemini-3.1-flash-image-preview" | "gemini-3-pro-image-preview";
   googleNanoBananaApiKey: string;
+  titleGenerationMode: "same" | "specific" | "local";
+  titleGenerationProfileId: string | null;
   providerProfiles: ProviderProfileFixture[];
   updatedAt: string;
 };
@@ -82,6 +84,8 @@ function makeSettings(overrides: Partial<SettingsFixture> = {}): SettingsFixture
     imageGenerationBackend: "disabled",
     googleNanoBananaModel: "gemini-3.1-flash-image-preview",
     googleNanoBananaApiKey: "",
+    titleGenerationMode: "same",
+    titleGenerationProfileId: null,
     providerProfiles: [
       {
         id: "profile_default",
