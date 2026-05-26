@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, type MouseEvent as ReactMouseEvent } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect, type MouseEvent as ReactMouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -164,6 +165,44 @@ export function highlightMatch(text: string, query: string): string {
     .join("");
 }
 
+function DropdownPortal({
+  anchorRef,
+  children,
+  open,
+}: {
+  anchorRef: React.RefObject<HTMLElement | null>;
+  children: React.ReactNode;
+  open: boolean;
+}) {
+  const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!open || !anchorRef.current) return;
+    const rect = anchorRef.current.getBoundingClientRect();
+    setCoords({ top: rect.bottom + 4, left: rect.right - 224, width: 224 });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleScroll() {
+      if (!anchorRef.current) return;
+      const rect = anchorRef.current.getBoundingClientRect();
+      setCoords({ top: rect.bottom + 4, left: rect.right - 224, width: 224 });
+    }
+    window.addEventListener("scroll", handleScroll, true);
+    return () => window.removeEventListener("scroll", handleScroll, true);
+  }, [open]);
+
+  if (!open || !coords) return null;
+
+  return createPortal(
+    <div style={{ position: "fixed", top: coords.top, left: coords.left, width: coords.width, zIndex: 9999 }}>
+      {children}
+    </div>,
+    document.body
+  );
+}
+
 function ConversationItem({
   conversation,
   active,
@@ -188,6 +227,7 @@ function ConversationItem({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   const {
     attributes,
@@ -234,9 +274,13 @@ function ConversationItem({
   useEffect(() => {
     if (!menuOpen) return;
     function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false);
-      }
+      if (
+        menuRef.current && menuRef.current.contains(e.target as Node)
+      ) return;
+      if (
+        triggerRef.current && triggerRef.current.contains(e.target as Node)
+      ) return;
+      setMenuOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -337,6 +381,7 @@ function ConversationItem({
             onClick={(e) => e.preventDefault()}
           >
             <button
+              ref={triggerRef}
               type="button"
               aria-label={`Conversation actions for ${conversation.title}`}
               title={`Conversation actions for ${conversation.title}`}
@@ -354,11 +399,17 @@ function ConversationItem({
         </div>
       </Link>
 
-      {menuOpen && (
+      <DropdownPortal anchorRef={triggerRef} open={menuOpen}>
         <div
           ref={menuRef}
-          className="absolute right-0 z-50 mt-1 w-56 rounded-2xl border border-white/5 bg-[#121214] p-2 shadow-2xl backdrop-blur-xl animate-fade-in"
+          className="w-full rounded-2xl border border-white/5 bg-[#121214] p-2 shadow-2xl backdrop-blur-xl animate-fade-in relative"
         >
+          <button
+            onClick={() => setMenuOpen(false)}
+            className="absolute top-1.5 right-1.5 p-1 text-white/20 hover:text-white/60 transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
           {confirmDelete ? (
             <div className="px-2 py-2">
               <p className="text-xs text-white/40 mb-3 px-1">Delete conversation?</p>
@@ -418,7 +469,7 @@ function ConversationItem({
             </>
           )}
         </div>
-      )}
+      </DropdownPortal>
       <RenameModal
         open={renameOpen}
         onOpenChange={setRenameOpen}
@@ -463,6 +514,7 @@ function FolderItem({
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
   const [confirmDeleteFolder, setConfirmDeleteFolder] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
 
   const {
@@ -487,9 +539,13 @@ function FolderItem({
   useEffect(() => {
     if (!folderMenuOpen) return;
     function handleClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setFolderMenuOpen(false);
-      }
+      if (
+        menuRef.current && menuRef.current.contains(e.target as Node)
+      ) return;
+      if (
+        triggerRef.current && triggerRef.current.contains(e.target as Node)
+      ) return;
+      setFolderMenuOpen(false);
     }
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
@@ -562,8 +618,9 @@ function FolderItem({
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
-          <div className="relative">
+          <div>
             <button
+              ref={triggerRef}
               type="button"
               aria-label={`Folder actions for ${folder.name}`}
               title={`Folder actions for ${folder.name}`}
@@ -572,49 +629,6 @@ function FolderItem({
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
-            {folderMenuOpen && (
-              <div
-                ref={menuRef}
-                className="absolute right-0 top-full z-50 mt-1 w-48 rounded-2xl border border-white/5 bg-[#121214] p-2 shadow-2xl backdrop-blur-xl animate-fade-in"
-              >
-                {confirmDeleteFolder ? (
-                  <div className="px-2 py-2">
-                    <p className="text-xs text-white/40 mb-3 px-1">Delete folder?</p>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handleDeleteFolder}
-                        className="flex-1 rounded-xl bg-red-500/10 text-red-400 text-xs py-2 hover:bg-red-500/20 transition-colors duration-200 font-semibold"
-                      >
-                        Delete
-                      </button>
-                      <button
-                        onClick={() => { setConfirmDeleteFolder(false); setFolderMenuOpen(false); }}
-                        className="flex-1 rounded-xl bg-white/5 text-white/40 text-xs py-2 hover:bg-white/10 transition-colors duration-200"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => { setRenameOpen(true); setFolderMenuOpen(false); }}
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-white/40 hover:bg-white/[0.04] hover:text-white transition-colors duration-200"
-                    >
-                      <Pencil className="h-4 w-4 opacity-50" />
-                      Rename
-                    </button>
-                    <button
-                      onClick={handleDeleteFolder}
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-red-400/80 hover:bg-red-500/10 hover:text-red-400 transition-colors duration-200"
-                    >
-                      <Trash2 className="h-4 w-4 opacity-70" />
-                      Delete
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
           </div>
         </div>
         <button
@@ -626,6 +640,56 @@ function FolderItem({
           {collapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
         </button>
       </div>
+
+      <DropdownPortal anchorRef={triggerRef} open={folderMenuOpen}>
+        <div
+          ref={menuRef}
+          className="w-48 rounded-2xl border border-white/5 bg-[#121214] p-2 shadow-2xl backdrop-blur-xl animate-fade-in relative"
+        >
+          <button
+            onClick={() => setFolderMenuOpen(false)}
+            className="absolute top-1.5 right-1.5 p-1 text-white/20 hover:text-white/60 transition-colors"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+          {confirmDeleteFolder ? (
+            <div className="px-2 py-2">
+              <p className="text-xs text-white/40 mb-3 px-1">Delete folder?</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleDeleteFolder}
+                  className="flex-1 rounded-xl bg-red-500/10 text-red-400 text-xs py-2 hover:bg-red-500/20 transition-colors duration-200 font-semibold"
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => { setConfirmDeleteFolder(false); setFolderMenuOpen(false); }}
+                  className="flex-1 rounded-xl bg-white/5 text-white/40 text-xs py-2 hover:bg-white/10 transition-colors duration-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={() => { setRenameOpen(true); setFolderMenuOpen(false); }}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-white/40 hover:bg-white/[0.04] hover:text-white transition-colors duration-200"
+              >
+                <Pencil className="h-4 w-4 opacity-50" />
+                Rename
+              </button>
+              <button
+                onClick={handleDeleteFolder}
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-red-400/80 hover:bg-red-500/10 hover:text-red-400 transition-colors duration-200"
+              >
+                <Trash2 className="h-4 w-4 opacity-70" />
+                Delete
+              </button>
+            </>
+          )}
+        </div>
+      </DropdownPortal>
 
       <RenameModal
         open={renameOpen}
@@ -1373,7 +1437,7 @@ export function Sidebar({
           )}
         </div>
 
-        <div className="shrink-0">
+        <div className="shrink-0 mt-auto bg-white/[0.02] -mx-4 px-4 border-t border-white/[0.12]">
           <SidebarFooterNav onNavigateAction={navigateToHref} />
         </div>
       </div>
