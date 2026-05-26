@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, FileText } from "lucide-react";
+import { Plus, FileText, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
@@ -22,6 +23,8 @@ export function PersonasSection() {
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [isPersonaContentOpen, setIsPersonaContentOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const toast = useToastState();
 
   useEffect(() => {
@@ -96,6 +99,14 @@ export function PersonasSection() {
     } catch {
       toast.showToast("error", "Failed to delete persona.");
     }
+  }
+
+  function handleDeleteConfirm() {
+    if (pendingDeleteId) {
+      deletePersona(pendingDeleteId);
+    }
+    setDeleteConfirmOpen(false);
+    setPendingDeleteId(null);
   }
 
   function handleSelectPersona(persona: Persona) {
@@ -195,15 +206,6 @@ export function PersonasSection() {
                           : "Edit the name and system instructions for this persona."}
                       </p>
                     </div>
-                    {!isAddingNew && selectedPersona ? (
-                      <button
-                        type="button"
-                        onClick={() => deletePersona(selectedPersona.id)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
-                      >
-                        Delete
-                      </button>
-                    ) : null}
                   </div>
                 </div>
 
@@ -242,13 +244,28 @@ export function PersonasSection() {
 
                 {/* Actions */}
                 <div className={`${sectionDivider} py-5`}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button type="button" className="px-3 py-1.5 text-xs" onClick={savePersona}>
-                      Save
-                    </Button>
-                    <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={resetPersonaForm}>
-                      Cancel
-                    </Button>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="button" className="px-3 py-1.5 text-xs" onClick={savePersona}>
+                        Save
+                      </Button>
+                      <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={resetPersonaForm}>
+                        Cancel
+                      </Button>
+                    </div>
+                    {!isAddingNew && selectedPersona ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingDeleteId(selectedPersona.id);
+                          setDeleteConfirmOpen(true);
+                        }}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -278,6 +295,17 @@ export function PersonasSection() {
         visible={toast.visible}
         variant={toast.variant}
         message={toast.message}
+      />
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="Delete persona?"
+        description={
+          <>
+            <strong className="text-[var(--text)] font-medium">{selectedPersona?.name ?? "This persona"}</strong> will be permanently deleted. This action cannot be undone.
+          </>
+        }
+        onConfirm={handleDeleteConfirm}
       />
     </div>
   );
