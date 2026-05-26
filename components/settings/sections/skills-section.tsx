@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, FileText, Upload } from "lucide-react";
+import { Plus, FileText, Upload, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
@@ -26,6 +27,8 @@ export function SkillsSection() {
   const toast = useToastState();
   const [skillEnabledDraft, setSkillEnabledDraft] = useState(true);
   const [isInstructionsOpen, setIsInstructionsOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -137,6 +140,14 @@ export function SkillsSection() {
       setSelectedSkillId(null);
       setMobileDetailVisible(false);
     }
+  }
+
+  function handleDeleteConfirm() {
+    if (pendingDeleteId) {
+      deleteSkill(pendingDeleteId);
+    }
+    setDeleteConfirmOpen(false);
+    setPendingDeleteId(null);
   }
 
   function handleSelectSkill(skill: Skill) {
@@ -279,16 +290,6 @@ export function SkillsSection() {
                       </p>
                     ) : null}
                   </div>
-
-                  {!isAddingNew && !isBuiltin && selectedSkill ? (
-                    <button
-                      type="button"
-                      onClick={() => deleteSkill(selectedSkill.id)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
-                    >
-                      Delete
-                    </button>
-                  ) : null}
                 </div>
 
                 <div className={sectionDivider} />
@@ -362,13 +363,28 @@ export function SkillsSection() {
                   </div>
                 ) : null}
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" className="px-3 py-1.5 text-xs" onClick={saveSkill}>
-                    Save
-                  </Button>
-                  <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={resetSkillForm}>
-                    {isBuiltin ? "Close" : "Cancel"}
-                  </Button>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" className="px-3 py-1.5 text-xs" onClick={saveSkill}>
+                      Save
+                    </Button>
+                    <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={resetSkillForm}>
+                      {isBuiltin ? "Close" : "Cancel"}
+                    </Button>
+                  </div>
+                  {!isAddingNew && !isBuiltin && selectedSkill ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingDeleteId(selectedSkill.id);
+                        setDeleteConfirmOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete
+                    </button>
+                  ) : null}
                 </div>
                 <TextEditModal
                   open={isInstructionsOpen}
@@ -379,6 +395,17 @@ export function SkillsSection() {
                   subtitle="Skill instructions are applied when the skill is activated"
                   placeholder="Enter the full skill instructions..."
                   readOnly={isBuiltin}
+                />
+                <ConfirmDialog
+                  open={deleteConfirmOpen}
+                  onOpenChange={setDeleteConfirmOpen}
+                  title="Delete skill?"
+                  description={
+                    <>
+                      <strong className="text-[var(--text)] font-medium">{selectedSkill?.name || "This skill"}</strong> will be permanently deleted. This action cannot be undone.
+                    </>
+                  }
+                  onConfirm={handleDeleteConfirm}
                 />
                 <Toast
                   visible={toast.visible}

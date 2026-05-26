@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
@@ -94,6 +95,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [copilotModels, setCopilotModels] = useState<Array<{ id: string; name: string; maxContextWindowTokens: number | null }>>([]);
   const [isSystemPromptOpen, setIsSystemPromptOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const maskedApiKeyValue = "••••••••";
 
   useEffect(() => {
@@ -266,6 +269,14 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     if (defaultProviderProfileId === profileId) {
       setDefaultProviderProfileId(fallbackProfileId);
     }
+  }
+
+  function handleDeleteConfirm() {
+    if (pendingDeleteId) {
+      removeProviderProfile(pendingDeleteId);
+    }
+    setDeleteConfirmOpen(false);
+    setPendingDeleteId(null);
   }
 
   async function handleDuplicateProviderProfile() {
@@ -1039,7 +1050,10 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     </div>
                     <button
                       type="button"
-                      onClick={() => removeProviderProfile(activeProviderProfile.id)}
+                      onClick={() => {
+                        setPendingDeleteId(activeProviderProfile.id);
+                        setDeleteConfirmOpen(true);
+                      }}
                       disabled={providerProfiles.length === 1}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
                     >
@@ -1055,6 +1069,18 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     {testResult.text}
                   </p>
                 ) : null}
+
+                <ConfirmDialog
+                  open={deleteConfirmOpen}
+                  onOpenChange={setDeleteConfirmOpen}
+                  title="Delete provider?"
+                  description={
+                    <>
+                      <strong className="text-[var(--text)] font-medium">{activeProviderProfile?.name || "This provider"}</strong> will be permanently deleted. This action cannot be undone.
+                    </>
+                  }
+                  onConfirm={handleDeleteConfirm}
+                />
 
                 <TextEditModal
                   open={isSystemPromptOpen}
