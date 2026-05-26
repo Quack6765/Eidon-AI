@@ -360,8 +360,8 @@ describe("conversations extended", () => {
     const user = await createLocalUser({ username: "dedup@test.com", password: "Password123!", role: "user" });
     const conv = createConversation("Unique Dedup Title", null, undefined, user.id);
 
-    createMessage({ conversationId: conv.id, role: "user", content: "alpha bravo charlie", userId: user.id });
-    createMessage({ conversationId: conv.id, role: "assistant", content: "alpha bravo delta", userId: user.id });
+    createMessage({ conversationId: conv.id, role: "user", content: "alpha bravo charlie" });
+    createMessage({ conversationId: conv.id, role: "assistant", content: "alpha bravo delta" });
 
     const results = searchConversations("alpha bravo", user.id);
 

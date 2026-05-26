@@ -8,6 +8,13 @@ import { SettingRow } from "@/components/settings/setting-row";
 import { Shell } from "@/components/shell";
 import type { AppSettings, AuthUser, ConversationListPage } from "@/lib/types";
 
+type GeneralSectionSettings = AppSettings & {
+  hasExaApiKey?: boolean;
+  hasTavilyApiKey?: boolean;
+  hasGoogleNanoBananaApiKey?: boolean;
+  providerProfiles: Array<{ id: string; name: string; model: string; hasApiKey: boolean }>;
+};
+
 const mockRefresh = vi.fn();
 const mockPush = vi.fn();
 let mockPathname = "/settings/general";
@@ -45,7 +52,7 @@ vi.mock("@/lib/conversation-drafts", () => ({
   deleteConversationIfStillEmpty: vi.fn().mockResolvedValue(undefined)
 }));
 
-const settings: AppSettings = {
+const settings: GeneralSectionSettings = {
   defaultProviderProfileId: "profile_default",
   skillsEnabled: true,
   conversationRetention: "forever",
@@ -61,6 +68,11 @@ const settings: AppSettings = {
   imageGenerationBackend: "disabled",
   googleNanoBananaModel: "gemini-3.1-flash-image-preview",
   googleNanoBananaApiKey: "",
+  titleGenerationMode: "same",
+  titleGenerationProfileId: null,
+  providerProfiles: [
+    { id: "profile_default", name: "Default", model: "gpt-test", hasApiKey: true }
+  ],
   updatedAt: new Date().toISOString()
 };
 

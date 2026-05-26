@@ -33,25 +33,25 @@ function interceptNavigation(
 
 export function SidebarFooterNav({ onNavigateAction }: SidebarFooterNavProps) {
   return (
-    <div className="mt-6 flex flex-col gap-2 border-t border-white/5 pt-6">
-      <Link
-        href="/automations"
-        aria-label="Open automations"
-        className={baseLinkClassName}
-        onClick={(event) => interceptNavigation(event, "/automations", onNavigateAction)}
-      >
-        <Clock3 className="h-4.5 w-4.5 opacity-60" />
-        <span className="font-medium">Automations</span>
-      </Link>
-
+    <div className="flex flex-col gap-0.5 pt-2 pb-1">
       <Link
         href="/settings"
         aria-label="Open settings"
         className={baseLinkClassName}
         onClick={(event) => interceptNavigation(event, "/settings", onNavigateAction)}
       >
-        <Settings className="h-4.5 w-4.5 opacity-60" />
+        <Settings className="h-4.5 w-4.5 opacity-50" />
         <span className="font-medium">Settings</span>
+      </Link>
+
+      <Link
+        href="/automations"
+        aria-label="Open automations"
+        className={baseLinkClassName}
+        onClick={(event) => interceptNavigation(event, "/automations", onNavigateAction)}
+      >
+        <Clock3 className="h-4.5 w-4.5 opacity-50" />
+        <span className="font-medium">Automations</span>
       </Link>
     </div>
   );

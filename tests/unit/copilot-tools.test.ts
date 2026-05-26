@@ -130,6 +130,8 @@ function makeAppSettings(overrides: Partial<import("@/lib/types").AppSettings> =
     imageGenerationBackend: "disabled" as const,
     googleNanoBananaModel: "gemini-3.1-flash-image-preview" as const,
     googleNanoBananaApiKey: "",
+    titleGenerationMode: "same" as const,
+    titleGenerationProfileId: null,
     updatedAt: new Date().toISOString(),
     ...overrides
   };

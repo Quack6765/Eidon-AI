@@ -44,7 +44,7 @@ describe("SidebarFooterNav", () => {
     expect(automationsLink).toHaveAttribute("href", "/automations");
     expect(settingsLink).toHaveAttribute("href", "/settings");
     expect(
-      automationsLink.compareDocumentPosition(settingsLink) & Node.DOCUMENT_POSITION_FOLLOWING
+      settingsLink.compareDocumentPosition(automationsLink) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
   });
 
