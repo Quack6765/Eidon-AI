@@ -1127,27 +1127,6 @@ export function Sidebar({
   function renderConversationSections(enableDrag: boolean) {
     return (
       <>
-        {localFolders.map((folder) => {
-          const folderConvos = folderMap.get(folder.id) ?? [];
-          return (
-            <div key={folder.id} className="mb-1">
-              <FolderItem
-                folder={folder}
-                conversations={folderConvos}
-                activeConversationId={activeConversationId}
-                allFolders={localFolders}
-                onNavigate={navigateToHref}
-                onDeleteConversation={removeConversationFromState}
-                onMoveConversation={moveConversationInState}
-                onCreateInFolder={(fId) => handleCreate(fId)}
-                dragEnabled={enableDrag}
-                showCount={showFolderCounts}
-                searchQuery={searchQuery}
-              />
-            </div>
-          );
-        })}
-
         <div>
           <div
             ref={enableDrag ? setUnfiledDropRef : undefined}
@@ -1312,50 +1291,69 @@ export function Sidebar({
 
         <div
           ref={scrollContainerRef}
-          className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 -mr-1 space-y-4"
+          className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 -mr-1"
         >
-          <div>
-            <div className="flex items-center justify-between px-2 mb-2">
-              <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20">
-                Folders
-              </div>
-              {!showNewFolder && (
-                <button
-                  onClick={() => setShowNewFolder(true)}
-                  aria-label="New folder"
-                  title="New folder"
-                  className="p-1 text-white/20 hover:text-white/50 transition-colors"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
-              )}
-            </div>
-            <div className="flex flex-col gap-1">
-              {showNewFolder && (
-                <div className="flex items-center gap-2 px-2 py-1 mb-2 animate-fade-in">
-                  <input
-                    autoFocus
-                    value={newFolderName}
-                    onChange={(e) => setNewFolderName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleCreateFolder();
-                      if (e.key === "Escape") { setShowNewFolder(false); setNewFolderName(""); }
-                    }}
-                    placeholder="Folder name"
-                    className="flex-1 bg-transparent border-b border-white/10 text-sm text-white outline-none py-1 placeholder:text-white/20"
-                  />
-                  <button onClick={() => { setShowNewFolder(false); setNewFolderName(""); }} className="text-white/20 hover:text-white transition-colors">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
           {dragEnabled ? (
             <DndContext sensors={sensors} collisionDetection={collisionDetection} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
               <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-                {renderConversationSections(true)}
+                <div>
+                  <div className="flex items-center justify-between px-2 mb-2">
+                    <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20">
+                      Folders
+                    </div>
+                    {!showNewFolder && (
+                      <button
+                        onClick={() => setShowNewFolder(true)}
+                        aria-label="New folder"
+                        title="New folder"
+                        className="p-1 text-white/20 hover:text-white/50 transition-colors"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  {showNewFolder && (
+                    <div className="flex items-center gap-2 px-2 py-1 mb-2 animate-fade-in">
+                      <input
+                        autoFocus
+                        value={newFolderName}
+                        onChange={(e) => setNewFolderName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleCreateFolder();
+                          if (e.key === "Escape") { setShowNewFolder(false); setNewFolderName(""); }
+                        }}
+                        placeholder="Folder name"
+                        className="flex-1 bg-transparent border-b border-white/10 text-sm text-white outline-none py-1 placeholder:text-white/20"
+                      />
+                      <button onClick={() => { setShowNewFolder(false); setNewFolderName(""); }} className="text-white/20 hover:text-white transition-colors">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  )}
+                  {localFolders.map((folder) => {
+                    const folderConvos = folderMap.get(folder.id) ?? [];
+                    return (
+                      <div key={folder.id} className="mb-1">
+                        <FolderItem
+                          folder={folder}
+                          conversations={folderConvos}
+                          activeConversationId={activeConversationId}
+                          allFolders={localFolders}
+                          onNavigate={navigateToHref}
+                          onDeleteConversation={removeConversationFromState}
+                          onMoveConversation={moveConversationInState}
+                          onCreateInFolder={(fId) => handleCreate(fId)}
+                          dragEnabled
+                          showCount={showFolderCounts}
+                          searchQuery={searchQuery}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-4">
+                  {renderConversationSections(true)}
+                </div>
               </SortableContext>
               <DragOverlay>
                 {activeDragConversation ? (
@@ -1367,7 +1365,66 @@ export function Sidebar({
               </DragOverlay>
             </DndContext>
           ) : (
-            renderConversationSections(false)
+            <>
+              <div>
+                <div className="flex items-center justify-between px-2 mb-2">
+                  <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20">
+                    Folders
+                  </div>
+                  {!showNewFolder && (
+                    <button
+                      onClick={() => setShowNewFolder(true)}
+                      aria-label="New folder"
+                      title="New folder"
+                      className="p-1 text-white/20 hover:text-white/50 transition-colors"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                {showNewFolder && (
+                  <div className="flex items-center gap-2 px-2 py-1 mb-2 animate-fade-in">
+                    <input
+                      autoFocus
+                      value={newFolderName}
+                      onChange={(e) => setNewFolderName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleCreateFolder();
+                        if (e.key === "Escape") { setShowNewFolder(false); setNewFolderName(""); }
+                      }}
+                      placeholder="Folder name"
+                      className="flex-1 bg-transparent border-b border-white/10 text-sm text-white outline-none py-1 placeholder:text-white/20"
+                    />
+                    <button onClick={() => { setShowNewFolder(false); setNewFolderName(""); }} className="text-white/20 hover:text-white transition-colors">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
+                {localFolders.map((folder) => {
+                  const folderConvos = folderMap.get(folder.id) ?? [];
+                  return (
+                    <div key={folder.id} className="mb-1">
+                      <FolderItem
+                        folder={folder}
+                        conversations={folderConvos}
+                        activeConversationId={activeConversationId}
+                        allFolders={localFolders}
+                        onNavigate={navigateToHref}
+                        onDeleteConversation={removeConversationFromState}
+                        onMoveConversation={moveConversationInState}
+                        onCreateInFolder={(fId) => handleCreate(fId)}
+                        dragEnabled={false}
+                        showCount={showFolderCounts}
+                        searchQuery={searchQuery}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="mt-4">
+                {renderConversationSections(false)}
+              </div>
+            </>
           )}
         </div>
 
