@@ -17,7 +17,7 @@ export type GoogleNanoBananaModel =
 
 export type ChatInputMode = "chat" | "image";
 
-export type ReasoningEffort = "low" | "medium" | "high" | "xhigh";
+export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
 
 export type VisionMode = "none" | "native" | "mcp";
 

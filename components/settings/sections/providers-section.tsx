@@ -782,6 +782,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         }
                         className={selectLike}
                       >
+                        <option value="none">disabled</option>
                         <option value="low">low</option>
                         <option value="medium">medium</option>
                         <option value="high">high</option>
@@ -803,6 +804,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             <option value="chat_completions">chat_completions</option>
                           </select>
                         </div>
+                        {activeProviderProfile.reasoningEffort !== "none" && (
                         <div>
                           <label className={fieldLabel}>Reasoning summary</label>
                           <label className="flex h-[42px] items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 text-sm text-[var(--muted)] cursor-pointer">
@@ -816,6 +818,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             Show reasoning when supported
                           </label>
                         </div>
+                        )}
                       </>
                     )}
                     <div>

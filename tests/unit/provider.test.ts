@@ -268,11 +268,9 @@ describe("provider integration", () => {
 
     expect(chatCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        extra_body: {
-          reasoning_effort: "none",
-          reasoning: {
-            effort: "none"
-          }
+        reasoning_effort: "none",
+        reasoning: {
+          effort: "none"
         }
       })
     );
@@ -924,10 +922,8 @@ describe("provider integration", () => {
 
     expect(chatCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        extra_body: {
-          thinking: {
-            type: "enabled"
-          }
+        thinking: {
+          type: "enabled"
         }
       }),
       expect.objectContaining({
@@ -1182,11 +1178,9 @@ describe("provider integration", () => {
 
     expect(chatCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        extra_body: {
-          reasoning_effort: "medium",
-          reasoning: {
-            effort: "medium"
-          }
+        reasoning_effort: "medium",
+        reasoning: {
+          effort: "medium"
         }
       }),
       expect.objectContaining({
