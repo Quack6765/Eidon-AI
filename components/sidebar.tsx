@@ -1315,7 +1315,7 @@ export function Sidebar({
           className="scrollbar-thin min-h-0 flex-1 overflow-y-auto overflow-x-hidden pr-1 -mr-1 space-y-4"
         >
           <div>
-            <div className="flex items-center justify-between px-2 mb-0.5">
+            <div className="flex items-center justify-between px-2 mb-2">
               <div className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/20">
                 Folders
               </div>
