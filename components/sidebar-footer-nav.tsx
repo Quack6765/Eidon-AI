@@ -5,7 +5,7 @@ import type { MouseEvent as ReactMouseEvent } from "react";
 import { Clock3, Settings } from "lucide-react";
 
 const baseLinkClassName =
-  "flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm text-white/30 transition-all duration-300 hover:bg-white/[0.03] hover:text-white/60";
+  "flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm text-white/70 transition-all duration-300 hover:bg-white/[0.03] hover:text-white/90";
 
 type SidebarFooterNavProps = {
   onNavigateAction: (href: string) => void | Promise<void>;
@@ -40,7 +40,7 @@ export function SidebarFooterNav({ onNavigateAction }: SidebarFooterNavProps) {
         className={baseLinkClassName}
         onClick={(event) => interceptNavigation(event, "/settings", onNavigateAction)}
       >
-        <Settings className="h-4.5 w-4.5 opacity-50" />
+        <Settings className="h-4.5 w-4.5 opacity-60" />
         <span className="font-medium">Settings</span>
       </Link>
 
@@ -50,7 +50,7 @@ export function SidebarFooterNav({ onNavigateAction }: SidebarFooterNavProps) {
         className={baseLinkClassName}
         onClick={(event) => interceptNavigation(event, "/automations", onNavigateAction)}
       >
-        <Clock3 className="h-4.5 w-4.5 opacity-50" />
+        <Clock3 className="h-4.5 w-4.5 opacity-60" />
         <span className="font-medium">Automations</span>
       </Link>
     </div>
