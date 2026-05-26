@@ -116,6 +116,24 @@ describe("ConfirmDialog", () => {
     expect(screen.getByText("Remove")).toBeInTheDocument();
   });
 
+  it("renders default variant with primary styling when variant is default", () => {
+    render(
+      <ConfirmDialog
+        open={true}
+        onOpenChange={vi.fn()}
+        title="Confirm action?"
+        description="Are you sure?"
+        onConfirm={vi.fn()}
+        variant="default"
+        confirmLabel="Confirm"
+      />
+    );
+
+    const confirmButton = screen.getByText("Confirm");
+    expect(confirmButton).toBeInTheDocument();
+    expect(confirmButton.className).toContain("bg-[var(--accent)]");
+  });
+
   it("renders ReactNode description", () => {
     render(
       <ConfirmDialog

@@ -10,6 +10,7 @@ type ConfirmDialogProps = {
   description: ReactNode;
   confirmLabel?: string;
   onConfirm: () => void;
+  variant?: "danger" | "default";
 };
 
 export function ConfirmDialog({
@@ -19,6 +20,7 @@ export function ConfirmDialog({
   description,
   confirmLabel = "Delete",
   onConfirm,
+  variant = "danger",
 }: ConfirmDialogProps) {
   const titleId = useId();
 
@@ -72,7 +74,11 @@ export function ConfirmDialog({
           <button
             type="button"
             autoFocus
-            className="px-3.5 py-1.5 text-xs font-medium text-red-300 rounded-xl bg-red-500/15 border border-red-500/25 hover:bg-red-500/25 transition-colors"
+            className={
+              variant === "danger"
+                ? "px-3.5 py-1.5 text-xs font-medium text-red-300 rounded-xl bg-red-500/15 border border-red-500/25 hover:bg-red-500/25 transition-colors"
+                : "px-3.5 py-1.5 text-xs font-medium text-[var(--text)] rounded-xl bg-[var(--accent)] hover:opacity-90 transition-colors"
+            }
             onClick={onConfirm}
           >
             {confirmLabel}
