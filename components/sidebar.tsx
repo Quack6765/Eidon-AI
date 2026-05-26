@@ -347,13 +347,13 @@ function ConversationItem({
         className={`group relative flex items-center gap-3 rounded-2xl px-3 py-2 text-sm transition-all duration-300 ${
           active
             ? "bg-white/[0.05] text-white font-semibold"
-            : "text-white/30 hover:bg-white/[0.03] hover:text-white/60"
+            : "text-white/70 hover:bg-white/[0.03] hover:text-white/90"
         }`}
       >
         {(conversation.isActive || conversation.titleGenerationStatus === "pending") ? (
           <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--accent)]" />
         ) : (
-          <MessageSquare className={`h-4 w-4 shrink-0 transition-opacity duration-300 ${active ? "opacity-100 text-[var(--accent)]" : "opacity-40"}`} />
+          <MessageSquare className={`h-4 w-4 shrink-0 transition-opacity duration-300 ${active ? "opacity-100 text-[var(--accent)]" : "opacity-60"}`} />
         )}
 
         <div className="relative min-w-0 flex-1 overflow-hidden">
@@ -580,7 +580,7 @@ function FolderItem({
     <div ref={setNodeRef} style={style} {...(dragEnabled ? attributes : {})}>
       <div
         ref={dragEnabled ? setFolderDropRef : undefined}
-        className={`group flex items-center gap-3 rounded-2xl pl-1 pr-3 py-2 text-sm text-white/30 hover:bg-white/[0.03] transition-all duration-300 cursor-pointer ${
+        className={`group flex items-center gap-3 rounded-2xl pl-1 pr-3 py-2 text-sm text-white/70 hover:bg-white/[0.03] transition-all duration-300 cursor-pointer ${
           dragEnabled && isOverFolderDrop
             ? "bg-white/[0.05] border border-white/10 shadow-2xl"
             : "border border-transparent"
@@ -591,7 +591,7 @@ function FolderItem({
         {...(dragEnabled ? listeners : {})}
       >
         {collapsed ? (
-          <FolderIcon className="h-4 w-4 opacity-30" />
+          <FolderIcon className="h-4 w-4 opacity-60" />
         ) : (
           <FolderOpen className="h-4 w-4 text-[var(--accent)] opacity-60" />
         )}
