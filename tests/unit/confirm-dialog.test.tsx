@@ -131,7 +131,7 @@ describe("ConfirmDialog", () => {
 
     const confirmButton = screen.getByText("Confirm");
     expect(confirmButton).toBeInTheDocument();
-    expect(confirmButton.className).toContain("bg-[var(--accent)]");
+    expect(confirmButton.className).toContain("bg-primary");
   });
 
   it("renders ReactNode description", () => {

@@ -2,6 +2,7 @@
 
 import { type ReactNode, useEffect, useId } from "react";
 import { Trash2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
 type ConfirmDialogProps = {
   open: boolean;
@@ -23,6 +24,7 @@ export function ConfirmDialog({
   variant = "danger",
 }: ConfirmDialogProps) {
   const titleId = useId();
+  const descId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -43,6 +45,7 @@ export function ConfirmDialog({
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
+      aria-describedby={descId}
     >
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
@@ -50,9 +53,11 @@ export function ConfirmDialog({
       />
       <div className="relative w-full max-w-sm rounded-2xl border border-white/[0.08] bg-[#121214] p-6 shadow-2xl">
         <div className="flex items-center gap-3 mb-4">
-          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px] bg-red-500/10 border border-red-500/20">
-            <Trash2 className="h-[18px] w-[18px] text-red-400" />
-          </div>
+          {variant === "danger" && (
+            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px] bg-red-500/10 border border-red-500/20">
+              <Trash2 className="h-[18px] w-[18px] text-red-400" />
+            </div>
+          )}
           <h3
             id={titleId}
             className="text-sm font-semibold text-[var(--text)]"
@@ -60,29 +65,27 @@ export function ConfirmDialog({
             {title}
           </h3>
         </div>
-        <p className="text-sm text-[#71717a] leading-relaxed mb-5">
+        <p id={descId} className="text-sm text-[#71717a] leading-relaxed mb-5">
           {description}
         </p>
         <div className="flex items-center justify-end gap-2">
-          <button
+          <Button
             type="button"
-            className="px-3 py-1.5 text-xs text-[var(--muted)] rounded-xl hover:bg-white/5 transition-colors"
+            variant="ghost"
+            size="xs"
+            autoFocus
             onClick={() => onOpenChange(false)}
           >
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            autoFocus
-            className={
-              variant === "danger"
-                ? "px-3.5 py-1.5 text-xs font-medium text-red-300 rounded-xl bg-red-500/15 border border-red-500/25 hover:bg-red-500/25 transition-colors"
-                : "px-3.5 py-1.5 text-xs font-medium text-[var(--text)] rounded-xl bg-[var(--accent)] hover:opacity-90 transition-colors"
-            }
+            variant={variant === "danger" ? "destructive" : "default"}
+            size="xs"
             onClick={onConfirm}
           >
             {confirmLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
