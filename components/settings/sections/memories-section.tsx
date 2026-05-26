@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { Brain, Search, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Toast } from "@/components/ui/toast";
@@ -47,6 +48,8 @@ export function MemoriesSection() {
   const [editContent, setEditContent] = useState("");
   const [editCategory, setEditCategory] = useState<MemoryCategory>("other");
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const toast = useToastState();
 
   const fetchMemories = useCallback(async (params?: string) => {
@@ -138,6 +141,14 @@ export function MemoriesSection() {
     } catch {
       toast.showToast("error", "Failed to delete memory.");
     }
+  }
+
+  function handleDeleteConfirm() {
+    if (pendingDeleteId) {
+      deleteMemory(pendingDeleteId);
+    }
+    setDeleteConfirmOpen(false);
+    setPendingDeleteId(null);
   }
 
   function handleSelectMemory(memory: UserMemory) {
@@ -260,27 +271,14 @@ export function MemoriesSection() {
                 </div>
               ) : (
                 memories.map((memory) => (
-                  <div key={memory.id} className="group relative">
-                    <ProfileCard
-                      isActive={memory.id === selectedMemoryId}
-                      onClick={() => handleSelectMemory(memory)}
-                      title={memory.content.length > 80 ? `${memory.content.slice(0, 80)}...` : memory.content}
-                      subtitle={formatRelativeTime(memory.updatedAt)}
-                      badges={[{ variant: "violet", label: memory.category }]}
-                      rightSlot={
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteMemory(memory.id);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 flex h-6 w-6 items-center justify-center rounded-md text-[var(--muted)] hover:text-red-400 hover:bg-red-500/10 transition-all"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      }
-                    />
-                  </div>
+                  <ProfileCard
+                    key={memory.id}
+                    isActive={memory.id === selectedMemoryId}
+                    onClick={() => handleSelectMemory(memory)}
+                    title={memory.content.length > 80 ? `${memory.content.slice(0, 80)}...` : memory.content}
+                    subtitle={formatRelativeTime(memory.updatedAt)}
+                    badges={[{ variant: "violet", label: memory.category }]}
+                  />
                 ))
               )}
             </div>
@@ -293,20 +291,12 @@ export function MemoriesSection() {
             {selectedMemory ? (
               <>
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div>
                     <h3 className="text-base font-semibold text-[var(--text)]">Edit Memory</h3>
-                    <button
-                      type="button"
-                      onClick={() => deleteMemory(selectedMemory.id)}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                      Delete
-                    </button>
-                  </div>
-                  <div className="flex gap-4 text-xs text-[var(--muted)]">
-                    <span>Created {formatRelativeTime(selectedMemory.createdAt)}</span>
-                    <span>Updated {formatRelativeTime(selectedMemory.updatedAt)}</span>
+                    <div className="mt-1 flex gap-4 text-xs text-[var(--muted)]">
+                      <span>Created {formatRelativeTime(selectedMemory.createdAt)}</span>
+                      <span>Updated {formatRelativeTime(selectedMemory.updatedAt)}</span>
+                    </div>
                   </div>
                 </div>
 
@@ -336,21 +326,36 @@ export function MemoriesSection() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" className="px-3 py-1.5 text-xs" onClick={saveMemory}>
-                    Save
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    className="px-2.5 py-1.5 text-xs"
-                    onClick={() => {
-                      setSelectedMemoryId(null);
-                      setMobileDetailVisible(false);
-                    }}
-                  >
-                    Cancel
-                  </Button>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button type="button" className="px-3 py-1.5 text-xs" onClick={saveMemory}>
+                      Save
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="px-2.5 py-1.5 text-xs"
+                      onClick={() => {
+                        setSelectedMemoryId(null);
+                        setMobileDetailVisible(false);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                  {selectedMemory ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPendingDeleteId(selectedMemory.id);
+                        setDeleteConfirmOpen(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Delete
+                    </button>
+                  ) : null}
                 </div>
               </>
             ) : (
@@ -370,6 +375,17 @@ export function MemoriesSection() {
         visible={toast.visible}
         variant={toast.variant}
         message={toast.message}
+      />
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="Delete memory?"
+        description={
+          <>
+            <strong className="text-[var(--text)] font-medium">{selectedMemory?.content?.slice(0, 60) || "This memory"}</strong> will be permanently deleted. This action cannot be undone.
+          </>
+        }
+        onConfirm={handleDeleteConfirm}
       />
     </div>
   );
