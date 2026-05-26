@@ -13,6 +13,7 @@ import type {
   PromptMessage,
   ProviderProfile,
   ProviderProfileWithApiKey,
+  ReasoningEffort,
   ToolDefinition,
   ProviderToolCall
 } from "@/lib/types";
@@ -209,7 +210,10 @@ function buildChatCompletionMessages(messages: PromptMessage[], settings?: Provi
 
 function normalizeReasoningEffort(
   effort: ProviderProfile["reasoningEffort"]
-): "low" | "medium" | "high" {
+): "low" | "medium" | "high" | undefined {
+  if (effort === "none") {
+    return undefined;
+  }
   if (effort === "xhigh") {
     return "high";
   }
@@ -219,6 +223,10 @@ function normalizeReasoningEffort(
 
 function buildReasoningConfig(settings: ProviderProfile) {
   if (!supportsVisibleReasoning(settings.model, settings.apiMode)) {
+    return undefined;
+  }
+
+  if (settings.reasoningEffort === "none") {
     return undefined;
   }
 
@@ -242,17 +250,27 @@ function buildChatCompletionsOptions(settings: ProviderProfile) {
   }
 
   const caps = resolveCapabilities(settings.model, settings.apiMode);
+
+  if (settings.reasoningEffort === "none") {
+    if (caps.extraBody === "thinking") {
+      return {
+        thinking: {
+          type: "disabled"
+        }
+      } as const;
+    }
+    return {};
+  }
+
   const effort = normalizeReasoningEffort(settings.reasoningEffort);
 
   if (settings.apiBaseUrl.includes("ollama.com")) {
     const ollamaEffort = settings.reasoningSummaryEnabled ? effort : "none";
 
     return {
-      extra_body: {
-        reasoning_effort: ollamaEffort,
-        reasoning: {
-          effort: ollamaEffort
-        }
+      reasoning_effort: ollamaEffort,
+      reasoning: {
+        effort: ollamaEffort
       }
     } as const;
   }
@@ -263,10 +281,8 @@ function buildChatCompletionsOptions(settings: ProviderProfile) {
 
   if (caps.extraBody === "thinking") {
     return {
-      extra_body: {
-        thinking: {
-          type: settings.reasoningSummaryEnabled ? "enabled" : "disabled"
-        }
+      thinking: {
+        type: settings.reasoningSummaryEnabled ? "enabled" : "disabled"
       }
     } as const;
   }
@@ -385,7 +401,7 @@ export async function callProviderText(input: {
 }) {
   const { settings } = input;
   const profile = input.purpose === "title"
-    ? { ...settings, reasoningEffort: "low" as const, reasoningSummaryEnabled: false }
+    ? { ...settings, reasoningEffort: (settings.reasoningEffort === "none" ? "none" : "low") as ReasoningEffort, reasoningSummaryEnabled: false }
     : settings;
   const contextualPrompt = withDateContextSystemMessage([{
     role: "user",
@@ -429,7 +445,7 @@ export async function callProviderText(input: {
     temperature: profile.temperature,
     max_completion_tokens: Math.min(profile.maxOutputTokens, 4000),
     ...buildChatCompletionsOptions(profile)
-  });
+  } as any);
 
   const text = normalizeLineBreaks(
     typeof response.choices[0]?.message?.content === "string"

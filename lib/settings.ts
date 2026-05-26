@@ -26,7 +26,7 @@ const runtimeSettingsSchema = z.object({
   systemPrompt: z.string().min(0),
   temperature: z.coerce.number().min(0).max(2),
   maxOutputTokens: z.coerce.number().int().min(128).max(32768),
-  reasoningEffort: z.enum(["low", "medium", "high", "xhigh"]),
+  reasoningEffort: z.enum(["none", "low", "medium", "high", "xhigh"]),
   reasoningSummaryEnabled: z.coerce.boolean(),
   modelContextLimit: z.coerce.number().int().min(4096).max(2_000_000),
   compactionThreshold: z.coerce.number().min(0.5).max(0.95),

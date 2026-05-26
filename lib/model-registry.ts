@@ -15,7 +15,7 @@ export const MODEL_REGISTRY: ModelCapabilityOverride[] = [
   { prefix: "gpt-oss", reasoning: { apiModes: ["responses"] }, vision: { apiModes: ["responses"] }, extraBody: "thinking" },
   { prefix: "gpt-4.1", vision: true },
   { prefix: "gpt-4o", vision: true },
-  { prefix: "glm-5v", reasoning: true, vision: true },
+  { prefix: "glm-5v", reasoning: true, vision: true, extraBody: "thinking" },
   { prefix: "glm-5", reasoning: true, extraBody: "thinking" },
   { prefix: "glm-4.7", reasoning: true, extraBody: "thinking" },
   { prefix: "kimi-", reasoning: true, vision: true, strictExtraRejection: true },
