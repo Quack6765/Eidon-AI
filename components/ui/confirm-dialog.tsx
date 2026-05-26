@@ -72,8 +72,8 @@ export function ConfirmDialog({
           <Button
             type="button"
             variant="ghost"
-            size="xs"
             autoFocus
+            className="px-4 py-2 text-xs"
             onClick={() => onOpenChange(false)}
           >
             Cancel
@@ -81,7 +81,7 @@ export function ConfirmDialog({
           <Button
             type="button"
             variant={variant === "danger" ? "destructive" : "default"}
-            size="xs"
+            className="px-4 py-2 text-xs"
             onClick={onConfirm}
           >
             {confirmLabel}
