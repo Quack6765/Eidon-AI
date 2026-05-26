@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Toast } from "@/components/ui/toast";
@@ -31,6 +32,8 @@ export function McpServersSection() {
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/mcp-servers")
@@ -235,6 +238,14 @@ export function McpServersSection() {
       setIsAddingNew(false);
       setMobileDetailVisible(false);
     }
+  }
+
+  function handleDeleteConfirm() {
+    if (pendingDeleteId) {
+      deleteMcpServer(pendingDeleteId);
+    }
+    setDeleteConfirmOpen(false);
+    setPendingDeleteId(null);
   }
 
   function editMcpServer(server: McpServer) {
@@ -458,7 +469,10 @@ export function McpServersSection() {
                 {editingMcpId && (
                   <button
                     type="button"
-                    onClick={() => deleteMcpServer(editingMcpId)}
+                    onClick={() => {
+                      setPendingDeleteId(editingMcpId);
+                      setDeleteConfirmOpen(true);
+                    }}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -467,6 +481,18 @@ export function McpServersSection() {
                 )}
               </div>
               </div>
+
+              <ConfirmDialog
+                open={deleteConfirmOpen}
+                onOpenChange={setDeleteConfirmOpen}
+                title="Delete MCP server?"
+                description={
+                  <>
+                    <strong className="text-[var(--text)] font-medium">{selectedServer?.name || "This server"}</strong> will be permanently deleted. This action cannot be undone.
+                  </>
+                }
+                onConfirm={handleDeleteConfirm}
+              />
 
               <Toast
                 visible={toast.visible}
