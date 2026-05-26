@@ -322,14 +322,13 @@ export function Shell({
         <button
           type="button"
           onClick={() => setIsSidebarOpen((prev) => { if (prev) sessionStorage.setItem("eidon:sidebar:user-closed", "true"); else sessionStorage.removeItem("eidon:sidebar:user-closed"); return !prev; })}
-          className={`group/sidebar-toggle hidden md:flex fixed top-[72px] z-[80] h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-[var(--background)]/95 text-white/45 shadow-[0_2px_8px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-[left,background-color,border-color,color] duration-200 ease-out hover:border-white/18 hover:bg-[#171717] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 ${
+          className={`group/sidebar-toggle hidden md:flex fixed top-[72px] z-[80] h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)] transition-[left,opacity,transform] duration-200 ease-out hover:opacity-90 hover:scale-[0.98] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 ${
             isSidebarOpen ? "left-[262px]" : "left-3"
           }`}
           aria-label={sidebarToggleLabel}
           aria-pressed={isSidebarOpen}
           title={sidebarToggleLabel}
         >
-          <span className="absolute left-1.5 top-2 h-5 w-px rounded bg-white/12 transition-colors duration-150 group-hover/sidebar-toggle:bg-white/24" />
           {isSidebarOpen ? (
             <PanelLeftClose className="h-4 w-4" />
           ) : (
