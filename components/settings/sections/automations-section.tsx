@@ -6,6 +6,7 @@ import { CalendarDays, Clock3, Plus, Trash2 } from "lucide-react";
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Toast } from "@/components/ui/toast";
@@ -97,6 +98,7 @@ export function AutomationsSection() {
   const [isAddingNew, setIsAddingNew] = useState(false);
   const toast = useToastState();
   const [isLoading, setIsLoading] = useState(true);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
   async function loadData() {
     setIsLoading(true);
@@ -271,6 +273,11 @@ export function AutomationsSection() {
     resetSelection();
   }
 
+  function handleDeleteConfirm() {
+    deleteSelectedAutomation();
+    setDeleteConfirmOpen(false);
+  }
+
   const showDetail = isAddingNew || Boolean(selectedAutomationId);
 
   const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
@@ -345,16 +352,6 @@ export function AutomationsSection() {
                         Configure the prompt, execution profile, and cadence for this scheduled automation.
                       </p>
                     </div>
-                    {selectedAutomationId ? (
-                      <button
-                        type="button"
-                        onClick={deleteSelectedAutomation}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Delete
-                      </button>
-                    ) : null}
                   </div>
                 </div>
 
@@ -545,13 +542,25 @@ export function AutomationsSection() {
 
                 {/* Actions */}
                 <div className={`${sectionDivider} py-5`}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button type="button" className="px-3 py-1.5 text-xs" onClick={() => void saveAutomation()}>
-                      Save
-                    </Button>
-                    <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={resetSelection}>
-                      Cancel
-                    </Button>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="button" className="px-3 py-1.5 text-xs" onClick={() => void saveAutomation()}>
+                        Save
+                      </Button>
+                      <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={resetSelection}>
+                        Cancel
+                      </Button>
+                    </div>
+                    {selectedAutomationId ? (
+                      <button
+                        type="button"
+                        onClick={() => setDeleteConfirmOpen(true)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        Delete
+                      </button>
+                    ) : null}
                   </div>
                 </div>
 
@@ -559,6 +568,17 @@ export function AutomationsSection() {
                   visible={toast.visible}
                   variant={toast.variant}
                   message={toast.message}
+                />
+                <ConfirmDialog
+                  open={deleteConfirmOpen}
+                  onOpenChange={setDeleteConfirmOpen}
+                  title="Delete automation?"
+                  description={
+                    <>
+                      <strong className="text-[var(--text)] font-medium">{form.name || "This automation"}</strong> will be permanently deleted. This action cannot be undone.
+                    </>
+                  }
+                  onConfirm={handleDeleteConfirm}
                 />
               </div>
             ) : (
