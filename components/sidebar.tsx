@@ -751,6 +751,7 @@ export function Sidebar({
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const dragPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
 
   const navigateToHref = useCallback(
     async (href: string, nextConversationId?: string) => {
@@ -888,6 +889,24 @@ export function Sidebar({
       setIsLoadingMore(false);
     }
   }, [hasMoreConversations, isLoadingMore, nextCursor, searchResults]);
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    const scrollRoot = scrollContainerRef.current;
+    if (!sentinel || !scrollRoot || !hasMoreConversations) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          void loadMoreConversations();
+        }
+      },
+      { root: scrollRoot, rootMargin: "200px" }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreConversations, loadMoreConversations]);
 
   useEffect(() => {
     function handleConversationTitleUpdated(
@@ -1223,20 +1242,9 @@ export function Sidebar({
                 No conversations yet
               </div>
             ) : null}
-            {isLoadingMore ? (
-              <div className="px-3 py-3 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/20">
-                Loading older chats
-              </div>
-            ) : null}
             {hasMoreConversations && !searchResults ? (
-              <div className="flex justify-center px-3 py-1">
-                <button
-                  type="button"
-                  onClick={() => void loadMoreConversations()}
-                  className="inline-flex h-6 items-center rounded-md px-2 text-[10px] font-medium tracking-[0.08em] text-white/24 transition-colors duration-150 hover:bg-white/[0.03] hover:text-white/48"
-                >
-                  Load more
-                </button>
+              <div ref={loadMoreSentinelRef} className="px-3 py-3 text-[11px] font-semibold uppercase tracking-[0.15em] text-white/20">
+                {isLoadingMore ? "Loading older chats" : ""}
               </div>
             ) : null}
           </div>
