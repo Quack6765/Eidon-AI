@@ -1205,7 +1205,7 @@ export function Sidebar({
   return (
     <aside className="no-scrollbar flex h-full w-full flex-col bg-transparent text-gray-300">
       <div className="flex h-full min-h-0 flex-col px-4 py-6">
-        <div className="mb-8 px-2">
+        <div className="mb-4 px-2 flex items-center justify-between">
           <Link
             href="/"
             onClick={(event) => {
@@ -1244,6 +1244,19 @@ export function Sidebar({
               </span>
             </span>
           </Link>
+          <button
+            onClick={() => handleCreate()}
+            disabled={!mounted}
+            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-all duration-200 ${
+              mounted
+                ? "bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)] hover:opacity-90 hover:scale-[0.98] active:scale-[0.96]"
+                : "cursor-not-allowed bg-white/[0.04] text-white/30"
+            }`}
+            title="New chat"
+            aria-label="New chat"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
         </div>
 
         <div className="flex flex-col gap-2 mb-8">
@@ -1295,21 +1308,6 @@ export function Sidebar({
               <span>Search</span>
             </button>
           )}
-
-          <button
-            onClick={() => handleCreate()}
-            disabled={!mounted}
-            className={`mt-1 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-semibold transition-all duration-300 ${
-              mounted
-                ? "bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)] hover:opacity-90 hover:scale-[0.98] active:scale-[0.96]"
-                : "cursor-not-allowed bg-white/[0.04] text-white/30"
-            }`}
-            title="New chat"
-            aria-label="New chat"
-          >
-            <Plus className="h-4 w-4 stroke-[3px]" />
-            <span>New Chat</span>
-          </button>
         </div>
 
         <div
