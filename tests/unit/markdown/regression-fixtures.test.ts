@@ -98,6 +98,23 @@ describe("regression fixtures from production screenshots", () => {
     expect(out).toContain("- Sub-type: Deep space variants");
   });
 
+  it("fixture: thematic break glued to end of heading", () => {
+    const input = "# Annual Fantasy Realm Census Report 2026---\n## Executive Summary\nBody text";
+    const out = render(input);
+    expect(out).toContain("# Annual Fantasy Realm Census Report 2026");
+    expect(out).not.toMatch(/2026-{3}/);
+    expect(out).toContain("***");
+    expect(out).toContain("## Executive Summary");
+  });
+
+  it("fixture: thematic break glued to end of paragraph", () => {
+    const input = "Some paragraph ending in marker---\n\nNext paragraph";
+    const out = render(input);
+    expect(out).toContain("Some paragraph ending in marker");
+    expect(out).toContain("***");
+    expect(out).toContain("Next paragraph");
+  });
+
   it("fixture: code block closer glued to last code line, swallowing rest of response", () => {
     const input =
       "```yaml\nserver:\n  port: 8443\n  - user:email```\n\n### API Endpoint Documentation\n\n| Parameter | Type |\n|---|---|\n| grant_type | string |";
