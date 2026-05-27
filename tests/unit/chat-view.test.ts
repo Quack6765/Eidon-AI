@@ -3992,6 +3992,35 @@ describe("chat view", () => {
     expect(composerRow).not.toHaveClass("items-end");
   });
 
+  it("shows the context gauge immediately when loading a conversation with existing messages", async () => {
+    const payload = createPayload({
+      messages: [
+        createMessage({ id: "msg_user_1", role: "user", content: "Hello", estimatedTokens: 10 }),
+        createMessage({ id: "msg_assistant_1", role: "assistant", content: "Hi there", estimatedTokens: 20 })
+      ]
+    });
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    expect(screen.getByText("Context")).toBeInTheDocument();
+  });
+
+  it("hides the context gauge for a new conversation with no messages", async () => {
+    const payload = createPayload({ messages: [] });
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.queryByText("Context")).toBeNull();
+  });
+
   it("updates token usage gauge when usage event arrives", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
