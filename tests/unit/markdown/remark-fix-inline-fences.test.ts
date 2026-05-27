@@ -67,6 +67,27 @@ describe("remark-fix-inline-fences", () => {
     expect(out).not.toMatch(/```/);
   });
 
+  it("normalizes 'bash#' lang to 'bash' and prepends '#' to body", () => {
+    const input = "```bash#\necho hi\n```";
+    const out = runPlugin(input, remarkFixInlineFences);
+    expect(out).toMatch(/```bash\n/);
+    expect(out).toMatch(/^#/m);
+  });
+
+  it("normalizes 'json{' lang to 'json' and prepends '{' to body", () => {
+    const input = '```json{\n  "x": 1\n```';
+    const out = runPlugin(input, remarkFixInlineFences);
+    expect(out).toMatch(/```json\n/);
+    expect(out).toMatch(/^\{/m);
+  });
+
+  it("leaves valid lang identifiers alone", () => {
+    const input = "```typescript\nconst x = 1;\n```";
+    const out = runPlugin(input, remarkFixInlineFences);
+    expect(out).toMatch(/```typescript\n/);
+    expect(out).toContain("const x = 1;");
+  });
+
   it("does not touch mermaid blocks even if their content contains stray backticks", () => {
     const input = "```mermaid\ngraph TD\n  A[\"`tick`\"] --> B[end]\n```\n\nNext paragraph";
     const out = runPlugin(input, remarkFixInlineFences);

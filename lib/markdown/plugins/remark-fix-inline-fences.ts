@@ -7,7 +7,7 @@ import remarkGfm from "remark-gfm";
 
 const FENCE_GLUED_AFTER = /^([\s\S]*?)```([A-Za-z0-9_+-]*)?\s*\n([\s\S]*?)\n```([^\n][\s\S]*)$/;
 const INTERNAL_CLOSING_FENCE = /^([\s\S]*?)```([\s\S]*)$/;
-const LANG_PROMPT = /^([a-z]{1,15})([$>])\s*([\s\S]*)$/i;
+const LANG_PROMPT = /^([a-z]{1,15})([$>#])\s*([\s\S]*)$/i;
 const KNOWN_LANGS = new Set([
   "bash", "sh", "zsh", "fish", "ps", "powershell", "cmd",
   "python", "py", "ruby", "rb", "perl", "lua", "php",
@@ -79,6 +79,16 @@ const remarkFixInlineFences: Plugin<[], Root> = () => {
 
     visit(tree, "code", (node: Code, index, parent) => {
       if (index === undefined || !parent) return;
+
+      if (node.lang) {
+        const langSplit = node.lang.match(/^([a-zA-Z][a-zA-Z0-9_+-]{0,15})([^a-zA-Z0-9_+-].*)$/);
+        if (langSplit && KNOWN_LANGS.has(langSplit[1].toLowerCase())) {
+          node.lang = langSplit[1].toLowerCase();
+          const trailing = langSplit[2];
+          node.value = node.value ? `${trailing}\n${node.value}` : trailing;
+        }
+      }
+
       if (node.lang === "mermaid") return;
       const m = node.value.match(INTERNAL_CLOSING_FENCE);
       if (!m) return;
