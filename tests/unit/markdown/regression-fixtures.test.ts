@@ -172,6 +172,15 @@ describe("regression fixtures from production screenshots", () => {
     expect(out).toMatch(/^### Authentication Endpoint/m);
   });
 
+  it("fixture: --- glued after a period at end of a blockquote paragraph", () => {
+    const input = "> **Note:** This is a fictional project document. All data is made up.---\n\nNext block";
+    const out = render(input);
+    expect(out).toContain("made up.");
+    expect(out).not.toMatch(/made up\.-{3}/);
+    expect(out).toContain("***");
+    expect(out).toContain("Next block");
+  });
+
   it("fixture: code block closer glued to last code line, swallowing rest of response", () => {
     const input =
       "```yaml\nserver:\n  port: 8443\n  - user:email```\n\n### API Endpoint Documentation\n\n| Parameter | Type |\n|---|---|\n| grant_type | string |";

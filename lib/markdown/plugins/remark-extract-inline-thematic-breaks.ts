@@ -3,8 +3,8 @@ import type { Root, Paragraph, Heading, ThematicBreak, Text, RootContent } from 
 import { visit, SKIP } from "unist-util-visit";
 import { flattenInline, parseInline, parseFragment } from "../ast-helpers";
 
-const INLINE_HR = /(\w)([-*_])\2{2,}(?=[^|\s])/;
-const TRAILING_HR = /(\w)([-*_])\2{2,}\s*$/;
+const INLINE_HR = /([^\s|])([-*_])\2{2,}(?=[^|\s])/;
+const TRAILING_HR = /([^\s|])([-*_])\2{2,}\s*$/;
 const LEADING_HR = /^\s*([-*_])\1{2,}(?=[#*+-])/;
 const PURE_HR = /^\s*([-*_])\1{2,}\s*$/;
 
