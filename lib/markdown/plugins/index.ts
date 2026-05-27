@@ -7,6 +7,7 @@ import remarkExtractInlineThematicBreaks from "./remark-extract-inline-thematic-
 import remarkSplitInlineTable from "./remark-split-inline-table";
 import remarkFixInlineFences from "./remark-fix-inline-fences";
 import remarkMergeUnclosedInlineCode from "./remark-merge-unclosed-inline-code";
+import remarkCloseUnbalancedEmphasis from "./remark-close-unbalanced-emphasis";
 
 const REGISTRY: Record<PluginName, Pluggable | undefined> = {
   "fix-block-spacing": remarkFixBlockSpacing,
@@ -14,7 +15,7 @@ const REGISTRY: Record<PluginName, Pluggable | undefined> = {
   "split-inline-table": remarkSplitInlineTable,
   "fix-inline-fences": remarkFixInlineFences,
   "merge-unclosed-inline-code": remarkMergeUnclosedInlineCode,
-  "close-unbalanced-emphasis": undefined,
+  "close-unbalanced-emphasis": remarkCloseUnbalancedEmphasis,
   "normalize-mixed-emphasis": undefined,
   "normalize-list-indentation": undefined,
   "merge-orphaned-list-fragments": undefined,
