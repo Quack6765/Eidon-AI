@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { highlightMatch, Sidebar } from "@/components/sidebar";
-import type { ConversationListPage } from "@/lib/types";
+import type { Conversation, ConversationListPage } from "@/lib/types";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/chat/conversation-1",
@@ -47,6 +47,115 @@ describe("highlightMatch", () => {
     expect(result).toContain('<mark class="bg-[var(--accent)]/30 text-white rounded px-0.5">silver moon</mark>');
     expect(result).not.toContain("<img");
     expect(result).not.toContain('onerror="alert(1)"');
+  });
+});
+
+function buildConversation(overrides: Partial<Conversation> = {}): Conversation {
+  return {
+    id: "conversation-1",
+    title: "Mobile drawer layout",
+    titleGenerationStatus: "completed",
+    folderId: null,
+    providerProfileId: null,
+    automationId: null,
+    automationRunId: null,
+    conversationOrigin: "manual",
+    sortOrder: 0,
+    createdAt: "2026-05-07T12:00:00.000Z",
+    updatedAt: "2026-05-07T12:00:00.000Z",
+    isActive: false,
+    shareEnabled: false,
+    shareToken: null,
+    sharedAt: null,
+    isTemporary: false,
+    ...overrides
+  };
+}
+
+function getIconForConversation(title: string) {
+  const link = screen.getByText(title).closest("a");
+  return link?.querySelector("svg");
+}
+
+describe("Sidebar conversation row spinner", () => {
+  it("does not show a spinner for a freshly-created conversation with pending title generation", () => {
+    const page: ConversationListPage = {
+      conversations: [
+        buildConversation({
+          id: "conv-pending",
+          title: "Conversation",
+          titleGenerationStatus: "pending",
+          isActive: false
+        })
+      ],
+      hasMore: false,
+      nextCursor: null
+    };
+
+    render(<Sidebar conversationPage={page} folders={[]} />);
+
+    const icon = getIconForConversation("Conversation");
+    expect(icon).not.toHaveClass("animate-spin");
+  });
+
+  it("shows a spinner when title generation is running", () => {
+    const page: ConversationListPage = {
+      conversations: [
+        buildConversation({
+          id: "conv-running",
+          title: "Conversation",
+          titleGenerationStatus: "running",
+          isActive: false
+        })
+      ],
+      hasMore: false,
+      nextCursor: null
+    };
+
+    render(<Sidebar conversationPage={page} folders={[]} />);
+
+    const icon = getIconForConversation("Conversation");
+    expect(icon).toHaveClass("animate-spin");
+  });
+
+  it("shows a spinner when the conversation is active (agent working)", () => {
+    const page: ConversationListPage = {
+      conversations: [
+        buildConversation({
+          id: "conv-active",
+          title: "Working conversation",
+          titleGenerationStatus: "completed",
+          isActive: true
+        })
+      ],
+      hasMore: false,
+      nextCursor: null
+    };
+
+    render(<Sidebar conversationPage={page} folders={[]} />);
+
+    const icon = getIconForConversation("Working conversation");
+    expect(icon).toHaveClass("animate-spin");
+  });
+
+  it("does not show a spinner for an idle completed conversation", () => {
+    const page: ConversationListPage = {
+      conversations: [
+        buildConversation({
+          id: "conv-idle",
+          title: "Mobile drawer layout",
+          titleGenerationStatus: "completed",
+          isActive: false
+        })
+      ],
+      hasMore: false,
+      nextCursor: null
+    };
+
+    render(<Sidebar conversationPage={page} folders={[]} />);
+
+    const icon = getIconForConversation("Mobile drawer layout");
+    expect(icon).not.toHaveClass("animate-spin");
   });
 });
 
