@@ -906,7 +906,7 @@ export function Sidebar({
 
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMoreConversations, loadMoreConversations]);
+  }, [hasMoreConversations, loadMoreConversations, mounted]);
 
   useEffect(() => {
     function handleConversationTitleUpdated(
