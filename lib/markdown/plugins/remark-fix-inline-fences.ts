@@ -1,5 +1,5 @@
 import type { Plugin } from "unified";
-import type { Root, RootContent, Code, Paragraph, Text } from "mdast";
+import type { Root, RootContent, Code, Paragraph, Text, InlineCode } from "mdast";
 import { visit, SKIP } from "unist-util-visit";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
@@ -7,6 +7,18 @@ import remarkGfm from "remark-gfm";
 
 const FENCE_GLUED_AFTER = /^([\s\S]*?)```([A-Za-z0-9_+-]*)?\s*\n([\s\S]*?)\n```([^\n][\s\S]*)$/;
 const INTERNAL_CLOSING_FENCE = /^([\s\S]*?)```([\s\S]*)$/;
+const LANG_PROMPT = /^([a-z]{1,15})([$>])\s*([\s\S]*)$/i;
+const KNOWN_LANGS = new Set([
+  "bash", "sh", "zsh", "fish", "ps", "powershell", "cmd",
+  "python", "py", "ruby", "rb", "perl", "lua", "php",
+  "js", "javascript", "ts", "typescript", "jsx", "tsx",
+  "json", "yaml", "yml", "toml", "xml", "html", "css", "scss", "sass",
+  "sql", "graphql", "rust", "go", "java", "kotlin", "swift", "scala",
+  "c", "cpp", "cxx", "cs", "csharp", "fsharp", "objective", "dart",
+  "r", "matlab", "julia", "haskell", "ocaml", "elixir", "erlang",
+  "clojure", "elm", "nim", "crystal", "vim", "tex", "latex",
+  "diff", "dockerfile", "makefile", "ini", "conf", "log", "md", "markdown",
+]);
 
 function parseFragment(md: string): RootContent[] {
   if (!md.trim()) return [];
@@ -18,7 +30,25 @@ const remarkFixInlineFences: Plugin<[], Root> = () => {
   return (tree) => {
     visit(tree, "paragraph", (node: Paragraph, index, parent) => {
       if (index === undefined || !parent) return;
+
       const firstChild = node.children[0];
+
+      if (
+        firstChild &&
+        firstChild.type === "inlineCode" &&
+        node.children.length === 1
+      ) {
+        const ic = firstChild as InlineCode;
+        const langMatch = ic.value.match(LANG_PROMPT);
+        if (langMatch && KNOWN_LANGS.has(langMatch[1].toLowerCase())) {
+          const lang = langMatch[1].toLowerCase();
+          const body = `${langMatch[2]} ${langMatch[3]}`.trim();
+          const codeNode: Code = { type: "code", lang, value: body };
+          parent.children.splice(index, 1, codeNode);
+          return [SKIP, index + 1];
+        }
+      }
+
       if (!firstChild || firstChild.type !== "text") return;
       const raw = firstChild.value;
 

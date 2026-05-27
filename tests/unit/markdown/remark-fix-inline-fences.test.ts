@@ -51,6 +51,22 @@ describe("remark-fix-inline-fences", () => {
     expect(out).toContain("code();");
   });
 
+  it("promotes paragraph > inlineCode 'bash$ ...' to a real bash code block", () => {
+    const out = runPlugin(
+      "```bash$ phoenix apply -f phoenix.yaml```",
+      remarkFixInlineFences
+    );
+    expect(out).toMatch(/```bash\n/);
+    expect(out).toContain("$ phoenix apply -f phoenix.yaml");
+  });
+
+  it("does not promote arbitrary inline code spans to code blocks", () => {
+    const input = "see `myFunction()` for details";
+    const out = runPlugin(input, remarkFixInlineFences);
+    expect(out).toContain("`myFunction()`");
+    expect(out).not.toMatch(/```/);
+  });
+
   it("does not touch mermaid blocks even if their content contains stray backticks", () => {
     const input = "```mermaid\ngraph TD\n  A[\"`tick`\"] --> B[end]\n```\n\nNext paragraph";
     const out = runPlugin(input, remarkFixInlineFences);
