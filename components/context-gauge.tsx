@@ -107,12 +107,13 @@ export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGauge
 
       {showTooltip && (
         <div
-          className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1.5 rounded-lg bg-[#27272a] border border-white/10 shadow-lg whitespace-nowrap z-50"
+          className="absolute bottom-full right-0 mb-2 px-2.5 py-1.5 rounded-lg bg-[#27272a] border border-white/10 shadow-lg z-50"
           onMouseEnter={handleMouseEnter}
           onMouseLeave={handleMouseLeave}
         >
-          <div className="text-[11px] text-white/60 whitespace-nowrap">
-            {usedFormatted} used / {usableFormatted} usable ({thresholdPercent}% of {maxFormatted})
+          <div className="text-[11px] text-white/60 text-center">
+            <div className="whitespace-nowrap">{usedFormatted} used / {usableFormatted} usable</div>
+            <div className="whitespace-nowrap">({thresholdPercent}% of {maxFormatted})</div>
           </div>
         </div>
       )}

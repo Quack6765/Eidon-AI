@@ -497,7 +497,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
   const [compactionInProgress, setCompactionInProgress] = useState(false);
-  const [usedTokens, setUsedTokens] = useState<number | null>(null);
+  const [usedTokens, setUsedTokens] = useState<number | null>(() => {
+    const sanitized = sanitizeMessages(payload.messages);
+    if (sanitized.length === 0) return null;
+    return sanitized.reduce((sum, m) => sum + m.estimatedTokens, 0);
+  });
   const [isConversationActive, setIsConversationActive] = useState(payload.conversation.isActive);
   const hasInitializedTokensRef = useRef(false);
 
