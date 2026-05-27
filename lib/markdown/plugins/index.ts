@@ -3,10 +3,11 @@ import { defaultRemarkPlugins } from "streamdown";
 import { PLUGIN_ORDER, type PluginName } from "../types";
 import { isPluginEnabled } from "../feature-flags";
 import remarkFixBlockSpacing from "./remark-fix-block-spacing";
+import remarkExtractInlineThematicBreaks from "./remark-extract-inline-thematic-breaks";
 
 const REGISTRY: Record<PluginName, Pluggable | undefined> = {
   "fix-block-spacing": remarkFixBlockSpacing,
-  "extract-inline-thematic-breaks": undefined,
+  "extract-inline-thematic-breaks": remarkExtractInlineThematicBreaks,
   "split-inline-table": undefined,
   "fix-inline-fences": undefined,
   "merge-unclosed-inline-code": undefined,
