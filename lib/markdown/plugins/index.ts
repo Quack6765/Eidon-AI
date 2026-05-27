@@ -11,6 +11,7 @@ import remarkCloseUnbalancedEmphasis from "./remark-close-unbalanced-emphasis";
 import remarkNormalizeMixedEmphasis from "./remark-normalize-mixed-emphasis";
 import remarkNormalizeListIndentation from "./remark-normalize-list-indentation";
 import remarkMergeOrphanedListFragments from "./remark-merge-orphaned-list-fragments";
+import remarkRenumberOrderedLists from "./remark-renumber-ordered-lists";
 
 const REGISTRY: Record<PluginName, Pluggable | undefined> = {
   "fix-block-spacing": remarkFixBlockSpacing,
@@ -22,7 +23,7 @@ const REGISTRY: Record<PluginName, Pluggable | undefined> = {
   "normalize-mixed-emphasis": remarkNormalizeMixedEmphasis,
   "normalize-list-indentation": remarkNormalizeListIndentation,
   "merge-orphaned-list-fragments": remarkMergeOrphanedListFragments,
-  "renumber-ordered-lists": undefined,
+  "renumber-ordered-lists": remarkRenumberOrderedLists,
   "tighten-lists": undefined,
   "normalize-blockquote-nesting": undefined,
 };
