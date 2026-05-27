@@ -1,6 +1,7 @@
 import type { Plugin } from "unified";
-import type { Root, Paragraph, Heading, Text } from "mdast";
+import type { Root, Paragraph, Heading } from "mdast";
 import { visit, SKIP } from "unist-util-visit";
+import { parseInline } from "../ast-helpers";
 
 const HEADING_GLUED_PRE = /([^\s#])(#{1,6})(?=\s|[^#])/;
 const HEADING_NO_SPACE = /^(#{1,6})([^#\s])/;
@@ -23,7 +24,7 @@ const remarkFixBlockSpacing: Plugin<[], Root> = () => {
         const heading: Heading = {
           type: "heading",
           depth: level,
-          children: [{ type: "text", value: headingText } as Text],
+          children: parseInline(headingText),
         };
         parent.children.splice(index, 1, heading);
         return [SKIP, index + 1];
@@ -56,18 +57,18 @@ const remarkFixBlockSpacing: Plugin<[], Root> = () => {
         if (before.trim()) {
           replacements.push({
             type: "paragraph",
-            children: [{ type: "text", value: before } as Text],
+            children: parseInline(before),
           });
         }
         replacements.push({
           type: "heading",
           depth: level,
-          children: [{ type: "text", value: headingText } as Text],
+          children: parseInline(headingText),
         });
         if (trailingText) {
           replacements.push({
             type: "paragraph",
-            children: [{ type: "text", value: trailingText } as Text],
+            children: parseInline(trailingText),
           });
         }
 

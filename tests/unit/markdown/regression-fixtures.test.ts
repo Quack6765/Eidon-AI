@@ -115,6 +115,25 @@ describe("regression fixtures from production screenshots", () => {
     expect(out).toContain("Next paragraph");
   });
 
+  it("fixture: inline markdown preserved when split by ` * ` markers", () => {
+    const input =
+      "- A dragon warding system rated `Grade-A` or higher * Current count: `2` * **City** (50,000 residents)";
+    const out = render(input);
+    expect(out).toMatch(/`Grade-A`/);
+    expect(out).toMatch(/`2`/);
+    expect(out).toMatch(/\*\*City\*\*/);
+    expect(out).not.toMatch(/`Grade-A\\`/);
+  });
+
+  it("fixture: inline markdown preserved when split by inline thematic break", () => {
+    const input = "Some `code` ending---**Next** paragraph with `more code`";
+    const out = render(input);
+    expect(out).toMatch(/`code`/);
+    expect(out).toMatch(/\*\*Next\*\*/);
+    expect(out).toMatch(/`more code`/);
+    expect(out).toContain("***");
+  });
+
   it("fixture: code block closer glued to last code line, swallowing rest of response", () => {
     const input =
       "```yaml\nserver:\n  port: 8443\n  - user:email```\n\n### API Endpoint Documentation\n\n| Parameter | Type |\n|---|---|\n| grant_type | string |";

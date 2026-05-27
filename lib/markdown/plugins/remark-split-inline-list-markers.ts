@@ -1,7 +1,7 @@
 import type { Plugin } from "unified";
-import type { Root, ListItem, Paragraph, Text } from "mdast";
+import type { Root, ListItem, Paragraph } from "mdast";
 import { visit } from "unist-util-visit";
-import { flattenInline } from "../ast-helpers";
+import { flattenInline, parseInline } from "../ast-helpers";
 
 const INLINE_MARKER = /\s\*\s(?=\S)/g;
 const MIN_MARKERS = 2;
@@ -29,7 +29,7 @@ const remarkSplitInlineListMarkers: Plugin<[], Root> = () => {
         children: [
           {
             type: "paragraph",
-            children: [{ type: "text", value: seg } as Text],
+            children: parseInline(seg),
           } as Paragraph,
         ],
       }));

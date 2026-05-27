@@ -1,34 +1,34 @@
 import type { Plugin } from "unified";
 import type { Root, Paragraph, Heading, ThematicBreak, Text, RootContent } from "mdast";
 import { visit, SKIP } from "unist-util-visit";
+import { flattenInline, parseInline } from "../ast-helpers";
 
-const INLINE_HR = /(\w)([-*_])\2{2,}(\w)/;
+const INLINE_HR = /(\w)([-*_])\2{2,}(?=[^|\s])/;
 const TRAILING_HR = /(\w)([-*_])\2{2,}\s*$/;
 
 const remarkExtractInlineThematicBreaks: Plugin<[], Root> = () => {
   return (tree) => {
     visit(tree, "paragraph", (node: Paragraph, index, parent) => {
       if (index === undefined || !parent) return;
-      const firstChild = node.children[0];
-      if (!firstChild || firstChild.type !== "text") return;
-      const raw = firstChild.value;
+      const raw = flattenInline(node.children);
+      if (!raw) return;
 
       const midMatch = raw.match(INLINE_HR);
       if (midMatch && midMatch.index !== undefined) {
         const before = raw.slice(0, midMatch.index + 1);
-        const after = raw.slice(midMatch.index + midMatch[0].length - 1);
+        const after = raw.slice(midMatch.index + midMatch[0].length);
         const replacements: (Paragraph | ThematicBreak)[] = [];
         if (before.trim()) {
           replacements.push({
             type: "paragraph",
-            children: [{ type: "text", value: before } as Text],
+            children: parseInline(before),
           });
         }
         replacements.push({ type: "thematicBreak" });
         if (after.trim()) {
           replacements.push({
             type: "paragraph",
-            children: [{ type: "text", value: after } as Text],
+            children: parseInline(after),
           });
         }
         parent.children.splice(index, 1, ...replacements);
@@ -42,7 +42,7 @@ const remarkExtractInlineThematicBreaks: Plugin<[], Root> = () => {
         if (before.trim()) {
           replacements.push({
             type: "paragraph",
-            children: [{ type: "text", value: before } as Text],
+            children: parseInline(before),
           });
         }
         replacements.push({ type: "thematicBreak" });

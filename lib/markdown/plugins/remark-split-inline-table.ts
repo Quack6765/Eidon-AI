@@ -1,7 +1,7 @@
 import type { Plugin } from "unified";
-import type { Root, Paragraph, Table, TableRow, TableCell, Text } from "mdast";
+import type { Root, Paragraph, Table, TableRow, TableCell } from "mdast";
 import { visit, SKIP } from "unist-util-visit";
-import { flattenInline } from "../ast-helpers";
+import { flattenInline, parseInline } from "../ast-helpers";
 
 const SEPARATOR_RUN = /\|\s*(?::?-{3,}:?\s*\|\s*){1,}/;
 
@@ -59,7 +59,7 @@ const remarkSplitInlineTable: Plugin<[], Root> = () => {
             children: headerCells.map(
               (c): TableCell => ({
                 type: "tableCell",
-                children: [{ type: "text", value: c } as Text],
+                children: parseInline(c),
               })
             ),
           } as TableRow,
@@ -69,7 +69,7 @@ const remarkSplitInlineTable: Plugin<[], Root> = () => {
               children: cells.map(
                 (c): TableCell => ({
                   type: "tableCell",
-                  children: [{ type: "text", value: c } as Text],
+                  children: parseInline(c),
                 })
               ),
             })

@@ -27,7 +27,21 @@ export function endsWithSentenceTerminator(text: string): boolean {
   return TERMINATORS.has(trimmed[trimmed.length - 1]);
 }
 
-import type { PhrasingContent } from "mdast";
+import { unified } from "unified";
+import remarkParse from "remark-parse";
+import remarkGfm from "remark-gfm";
+import type { PhrasingContent, Root, Paragraph } from "mdast";
+
+export function parseInline(text: string): PhrasingContent[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  const tree = unified().use(remarkParse).use(remarkGfm).parse(trimmed) as Root;
+  const firstPara = tree.children.find(
+    (c) => c.type === "paragraph",
+  ) as Paragraph | undefined;
+  if (!firstPara) return [{ type: "text", value: text }];
+  return firstPara.children;
+}
 
 export function flattenInline(children: readonly PhrasingContent[]): string {
   let out = "";
