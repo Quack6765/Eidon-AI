@@ -30,7 +30,7 @@ export function endsWithSentenceTerminator(text: string): boolean {
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
-import type { PhrasingContent, Root, Paragraph } from "mdast";
+import type { PhrasingContent, Root, RootContent, Paragraph } from "mdast";
 
 export function parseInline(text: string): PhrasingContent[] {
   const trimmed = text.trim();
@@ -41,6 +41,12 @@ export function parseInline(text: string): PhrasingContent[] {
   ) as Paragraph | undefined;
   if (!firstPara) return [{ type: "text", value: text }];
   return firstPara.children;
+}
+
+export function parseFragment(md: string): RootContent[] {
+  if (!md.trim()) return [];
+  const tree = unified().use(remarkParse).use(remarkGfm).parse(md) as Root;
+  return tree.children;
 }
 
 export function flattenInline(children: readonly PhrasingContent[]): string {

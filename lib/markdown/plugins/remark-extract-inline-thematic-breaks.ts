@@ -1,10 +1,12 @@
 import type { Plugin } from "unified";
 import type { Root, Paragraph, Heading, ThematicBreak, Text, RootContent } from "mdast";
 import { visit, SKIP } from "unist-util-visit";
-import { flattenInline, parseInline } from "../ast-helpers";
+import { flattenInline, parseInline, parseFragment } from "../ast-helpers";
 
 const INLINE_HR = /(\w)([-*_])\2{2,}(?=[^|\s])/;
 const TRAILING_HR = /(\w)([-*_])\2{2,}\s*$/;
+const LEADING_HR = /^\s*([-*_])\1{2,}(?=[#*+-])/;
+const PURE_HR = /^\s*([-*_])\1{2,}\s*$/;
 
 const remarkExtractInlineThematicBreaks: Plugin<[], Root> = () => {
   return (tree) => {
@@ -12,6 +14,22 @@ const remarkExtractInlineThematicBreaks: Plugin<[], Root> = () => {
       if (index === undefined || !parent) return;
       const raw = flattenInline(node.children);
       if (!raw) return;
+
+      if (PURE_HR.test(raw)) {
+        parent.children.splice(index, 1, { type: "thematicBreak" });
+        return [SKIP, index + 1];
+      }
+
+      const leadMatch = raw.match(LEADING_HR);
+      if (leadMatch && leadMatch.index !== undefined) {
+        const after = raw.slice(leadMatch[0].length);
+        const replacements: RootContent[] = [{ type: "thematicBreak" }];
+        if (after.trim()) {
+          replacements.push(...parseFragment(after));
+        }
+        parent.children.splice(index, 1, ...replacements);
+        return [SKIP, index + replacements.length];
+      }
 
       const midMatch = raw.match(INLINE_HR);
       if (midMatch && midMatch.index !== undefined) {

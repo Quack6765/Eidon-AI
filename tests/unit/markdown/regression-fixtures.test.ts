@@ -134,6 +134,30 @@ describe("regression fixtures from production screenshots", () => {
     expect(out).toContain("***");
   });
 
+  it("fixture: leading --- glued to ## heading at line start", () => {
+    const input = "---## Troubleshooting\n\n### Common Issues";
+    const out = render(input);
+    expect(out).toContain("***");
+    expect(out).toContain("## Troubleshooting");
+    expect(out).toContain("### Common Issues");
+    expect(out).not.toMatch(/---##/);
+  });
+
+  it("fixture: single `* Capital` marker after glued asterisk", () => {
+    const input =
+      "- Contact support at <support@summitos.fake>* Network unreachable";
+    const out = render(input);
+    expect(out.split("\n").filter((l) => l.trim().startsWith("- ")).length).toBeGreaterThanOrEqual(2);
+    expect(out).toContain("Network unreachable");
+  });
+
+  it("fixture: ### heading marker after inline code in paragraph", () => {
+    const input = "Verify DNS settings in `/etc/summit/network.conf` ### Known Limitations";
+    const out = render(input);
+    expect(out).toContain("`/etc/summit/network.conf`");
+    expect(out).toMatch(/^### Known Limitations/m);
+  });
+
   it("fixture: code block closer glued to last code line, swallowing rest of response", () => {
     const input =
       "```yaml\nserver:\n  port: 8443\n  - user:email```\n\n### API Endpoint Documentation\n\n| Parameter | Type |\n|---|---|\n| grant_type | string |";
