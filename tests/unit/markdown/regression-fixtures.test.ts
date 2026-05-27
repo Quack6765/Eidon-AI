@@ -158,6 +158,20 @@ describe("regression fixtures from production screenshots", () => {
     expect(out).toMatch(/^### Known Limitations/m);
   });
 
+  it("fixture: multi-word title with capital words is not split by heading-from-text heuristic", () => {
+    const input = 'Roadmap### Q3 2026 — "Horizon" Release\n\nNext paragraph';
+    const out = render(input);
+    expect(out).toMatch(/### Q3 2026.*Horizon.*Release/);
+    expect(out).not.toMatch(/### Q3 2026 — "Horizon"\n\nRelease/);
+  });
+
+  it("fixture: nested ### inside an existing heading promotes a sub-heading", () => {
+    const input = "## API Reference### Authentication Endpoint";
+    const out = render(input);
+    expect(out).toMatch(/^## API Reference/m);
+    expect(out).toMatch(/^### Authentication Endpoint/m);
+  });
+
   it("fixture: code block closer glued to last code line, swallowing rest of response", () => {
     const input =
       "```yaml\nserver:\n  port: 8443\n  - user:email```\n\n### API Endpoint Documentation\n\n| Parameter | Type |\n|---|---|\n| grant_type | string |";

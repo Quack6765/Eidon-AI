@@ -1,17 +1,47 @@
 import type { Plugin } from "unified";
-import type { Root, Paragraph, Heading } from "mdast";
+import type { Root, Paragraph, Heading, RootContent } from "mdast";
 import { visit, SKIP } from "unist-util-visit";
-import { flattenInline, parseInline } from "../ast-helpers";
+import { flattenInline, parseInline, parseFragment } from "../ast-helpers";
+
+const HEADING_GLUED_IN_HEADING = /([^\s#])(#{1,6})(?=\s|[^#])/;
 
 const HEADING_GLUED_PRE = /([^\s#])(#{1,6})(?=\s|[^#])/;
 const HEADING_MID_LINE = /(\S)\s+(#{1,6})\s(?=\S)/;
 const HEADING_NO_SPACE = /^(#{1,6})([^#\s])/;
 const SENTENCE_END = /[.!?]\s+[A-Z]/;
-const CAPITAL_WORD_BOUNDARY = /\s+(?=[A-Z])/;
+const SENTENCE_STARTER = /\s+(?=[A-Z]\w*\s+[a-z])/;
 const MAX_HEADING_LEN = 80;
 
 const remarkFixBlockSpacing: Plugin<[], Root> = () => {
   return (tree) => {
+    visit(tree, "heading", (node: Heading, index, parent) => {
+      if (index === undefined || !parent) return;
+      const raw = flattenInline(node.children);
+      if (!raw) return;
+
+      const inner = raw.match(HEADING_GLUED_IN_HEADING);
+      if (!inner || inner.index === undefined) return;
+      const beforeText = raw.slice(0, inner.index + inner[1].length).trim();
+      const after = raw.slice(inner.index + inner[1].length);
+      const hashRun = after.match(/^(#{1,6})\s*/);
+      if (!hashRun) return;
+      const tail = after.slice(hashRun[0].length);
+      if (!tail.trim()) return;
+
+      const replacements: RootContent[] = [];
+      if (beforeText) {
+        replacements.push({
+          type: "heading",
+          depth: node.depth,
+          children: parseInline(beforeText),
+        });
+      }
+      const innerDepth = Math.min(hashRun[1].length, 6) as 1 | 2 | 3 | 4 | 5 | 6;
+      replacements.push(...parseFragment(`${"#".repeat(innerDepth)} ${tail}`));
+      parent.children.splice(index, 1, ...replacements);
+      return [SKIP, index + replacements.length];
+    });
+
     visit(tree, "paragraph", (node: Paragraph, index, parent) => {
       if (index === undefined || !parent) return;
       const raw = flattenInline(node.children);
@@ -74,12 +104,12 @@ const remarkFixBlockSpacing: Plugin<[], Root> = () => {
         const headingBody = after.slice(headingStart);
 
         const sentenceEnd = headingBody.search(SENTENCE_END);
-        const capitalBoundary = headingBody.search(CAPITAL_WORD_BOUNDARY);
+        const sentenceStart = headingBody.search(SENTENCE_STARTER);
         const cut =
           sentenceEnd >= 0
             ? sentenceEnd + 1
-            : capitalBoundary >= 0
-            ? capitalBoundary
+            : sentenceStart >= 0
+            ? sentenceStart
             : Math.min(headingBody.length, MAX_HEADING_LEN);
 
         const headingText = headingBody.slice(0, cut).trim();
