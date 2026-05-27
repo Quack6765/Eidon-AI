@@ -5,7 +5,8 @@ import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, GitFork, Loade
 import { Streamdown, parseMarkdownIntoBlocks } from "streamdown";
 import { code } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
-import { normalizeMarkdown } from "@/lib/markdown-normalization";
+import { MARKDOWN_REMARK_PLUGINS } from "@/lib/markdown/plugins";
+import { REMEND_OPTIONS } from "@/lib/markdown/remend-config";
 import {
   AttachmentPreviewModal,
   useAttachmentUrlBuilder,
@@ -36,9 +37,6 @@ const STREAMDOWN_PARSE_BLOCKS = (markdown: string) =>
   parseMarkdownIntoBlocks(markdown);
 const COPY_RESET_DELAY_MS = 1600;
 
-function md(content: string): string {
-  return normalizeMarkdown(content);
-}
 
 function getAnsiForegroundClassName(foregroundColor: ReturnType<typeof parseAnsiText>[number]["foregroundColor"]) {
   switch (foregroundColor) {
@@ -96,11 +94,14 @@ function renderAssistantMarkdown(content: string, isStreaming: boolean) {
   return (
     <Streamdown
       plugins={STREAMDOWN_PLUGINS}
+      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+      parseIncompleteMarkdown
+      remend={REMEND_OPTIONS}
       parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
       caret={isStreaming ? "block" : undefined}
       isAnimating={isStreaming}
     >
-      {md(content)}
+      {content}
     </Streamdown>
   );
 }
@@ -989,7 +990,7 @@ export function MessageBubble({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body">
-                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS} parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}>{md(content)}</Streamdown>
+                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS} remarkPlugins={MARKDOWN_REMARK_PLUGINS} parseIncompleteMarkdown remend={REMEND_OPTIONS} parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}>{content}</Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
@@ -1128,9 +1129,12 @@ export function MessageBubble({
                   >
                     <Streamdown
                       parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
+                      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                      parseIncompleteMarkdown
+                      remend={REMEND_OPTIONS}
                       caret={thinkingInProgress ? "block" : undefined}
                       isAnimating={thinkingInProgress}
-                    >{md(thinkingContent)}</Streamdown>
+                    >{thinkingContent}</Streamdown>
                   </div>
                 ) : null}
               </div>
