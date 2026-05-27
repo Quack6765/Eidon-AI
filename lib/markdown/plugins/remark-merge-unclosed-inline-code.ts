@@ -1,7 +1,7 @@
 // lib/markdown/plugins/remark-merge-unclosed-inline-code.ts
 import type { Plugin } from "unified";
 import type { Root, ListItem, Text, InlineCode } from "mdast";
-import { visit, SKIP } from "unist-util-visit";
+import { visit } from "unist-util-visit";
 
 const remarkMergeUnclosedInlineCode: Plugin<[], Root> = () => {
   return (tree) => {
