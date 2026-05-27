@@ -181,3 +181,35 @@ describe("Sidebar", () => {
     expect(footerWrapper).toHaveClass("shrink-0");
   });
 });
+
+describe("Sidebar infinite scroll", () => {
+  const pagedConversationPage: ConversationListPage = {
+    conversations: [
+      {
+        id: "conversation-1",
+        title: "First chat",
+        titleGenerationStatus: "completed",
+        folderId: null,
+        providerProfileId: null,
+        automationId: null,
+        automationRunId: null,
+        conversationOrigin: "manual",
+        sortOrder: 0,
+        createdAt: "2026-05-07T12:00:00.000Z",
+        updatedAt: "2026-05-07T12:00:00.000Z",
+        isActive: false,
+        shareEnabled: false,
+        shareToken: null,
+        sharedAt: null,
+        isTemporary: false
+      }
+    ],
+    hasMore: true,
+    nextCursor: "eyJ1cGRhdGVkQXQiOiIyMDI2LTA1LTA2VDEyOjAwOjAwLjAwMFoiLCJpZCI6ImNvbnZlcnNhdGlvbi0wIn0="
+  };
+
+  it("does not render a Load more button when hasMore is true", () => {
+    render(<Sidebar conversationPage={pagedConversationPage} folders={[]} />);
+    expect(screen.queryByRole("button", { name: /load more/i })).toBeNull();
+  });
+});

@@ -31,12 +31,7 @@ if (typeof window !== "undefined") {
         private callback: IntersectionObserverCallback,
         _options?: IntersectionObserverInit
       ) {}
-      observe() {
-        this.callback(
-          [{ isIntersecting: true, target: document.createElement("div") } as unknown as IntersectionObserverEntry],
-          this as unknown as IntersectionObserver
-        );
-      }
+      observe() {}
       unobserve() {}
       disconnect() {}
       takeRecords(): IntersectionObserverEntry[] {
