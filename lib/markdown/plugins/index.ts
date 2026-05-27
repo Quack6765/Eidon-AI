@@ -13,6 +13,7 @@ import remarkNormalizeListIndentation from "./remark-normalize-list-indentation"
 import remarkMergeOrphanedListFragments from "./remark-merge-orphaned-list-fragments";
 import remarkRenumberOrderedLists from "./remark-renumber-ordered-lists";
 import remarkTightenLists from "./remark-tighten-lists";
+import remarkNormalizeBlockquoteNesting from "./remark-normalize-blockquote-nesting";
 
 const REGISTRY: Record<PluginName, Pluggable | undefined> = {
   "fix-block-spacing": remarkFixBlockSpacing,
@@ -26,7 +27,7 @@ const REGISTRY: Record<PluginName, Pluggable | undefined> = {
   "merge-orphaned-list-fragments": remarkMergeOrphanedListFragments,
   "renumber-ordered-lists": remarkRenumberOrderedLists,
   "tighten-lists": remarkTightenLists,
-  "normalize-blockquote-nesting": undefined,
+  "normalize-blockquote-nesting": remarkNormalizeBlockquoteNesting,
 };
 
 const STREAMDOWN_DEFAULTS: PluggableList = Object.values(defaultRemarkPlugins) as PluggableList;
