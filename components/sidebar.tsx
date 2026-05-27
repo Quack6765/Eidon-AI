@@ -350,7 +350,7 @@ function ConversationItem({
             : "text-white/70 hover:bg-white/[0.03] hover:text-white/90"
         }`}
       >
-        {(conversation.isActive || conversation.titleGenerationStatus === "pending") ? (
+        {(conversation.isActive || conversation.titleGenerationStatus === "running") ? (
           <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--accent)]" />
         ) : (
           <MessageSquare className={`h-4 w-4 shrink-0 transition-opacity duration-300 ${active ? "opacity-100 text-[var(--accent)]" : "opacity-60"}`} />
