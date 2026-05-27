@@ -4,11 +4,12 @@ import { PLUGIN_ORDER, type PluginName } from "../types";
 import { isPluginEnabled } from "../feature-flags";
 import remarkFixBlockSpacing from "./remark-fix-block-spacing";
 import remarkExtractInlineThematicBreaks from "./remark-extract-inline-thematic-breaks";
+import remarkSplitInlineTable from "./remark-split-inline-table";
 
 const REGISTRY: Record<PluginName, Pluggable | undefined> = {
   "fix-block-spacing": remarkFixBlockSpacing,
   "extract-inline-thematic-breaks": remarkExtractInlineThematicBreaks,
-  "split-inline-table": undefined,
+  "split-inline-table": remarkSplitInlineTable,
   "fix-inline-fences": undefined,
   "merge-unclosed-inline-code": undefined,
   "close-unbalanced-emphasis": undefined,
