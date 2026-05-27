@@ -8,6 +8,7 @@ import remarkSplitInlineTable from "./remark-split-inline-table";
 import remarkFixInlineFences from "./remark-fix-inline-fences";
 import remarkMergeUnclosedInlineCode from "./remark-merge-unclosed-inline-code";
 import remarkCloseUnbalancedEmphasis from "./remark-close-unbalanced-emphasis";
+import remarkNormalizeMixedEmphasis from "./remark-normalize-mixed-emphasis";
 
 const REGISTRY: Record<PluginName, Pluggable | undefined> = {
   "fix-block-spacing": remarkFixBlockSpacing,
@@ -16,7 +17,7 @@ const REGISTRY: Record<PluginName, Pluggable | undefined> = {
   "fix-inline-fences": remarkFixInlineFences,
   "merge-unclosed-inline-code": remarkMergeUnclosedInlineCode,
   "close-unbalanced-emphasis": remarkCloseUnbalancedEmphasis,
-  "normalize-mixed-emphasis": undefined,
+  "normalize-mixed-emphasis": remarkNormalizeMixedEmphasis,
   "normalize-list-indentation": undefined,
   "merge-orphaned-list-fragments": undefined,
   "renumber-ordered-lists": undefined,
