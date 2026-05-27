@@ -1,13 +1,21 @@
-// lib/markdown/plugins/remark-fix-inline-fences.ts
 import type { Plugin } from "unified";
-import type { Root, Code, Paragraph, Text } from "mdast";
+import type { Root, RootContent, Code, Paragraph, Text } from "mdast";
 import { visit, SKIP } from "unist-util-visit";
+import { unified } from "unified";
+import remarkParse from "remark-parse";
+import remarkGfm from "remark-gfm";
 
 const FENCE_GLUED_AFTER = /^([\s\S]*?)```([A-Za-z0-9_+-]*)?\s*\n([\s\S]*?)\n```([^\n][\s\S]*)$/;
+const INTERNAL_CLOSING_FENCE = /^([\s\S]*?)```([\s\S]*)$/;
+
+function parseFragment(md: string): RootContent[] {
+  if (!md.trim()) return [];
+  const tree = unified().use(remarkParse).use(remarkGfm).parse(md) as Root;
+  return tree.children;
+}
 
 const remarkFixInlineFences: Plugin<[], Root> = () => {
   return (tree) => {
-    // (c)+(d): paragraph whose text contains a full fence + trailing prose
     visit(tree, "paragraph", (node: Paragraph, index, parent) => {
       if (index === undefined || !parent) return;
       const firstChild = node.children[0];
@@ -39,18 +47,16 @@ const remarkFixInlineFences: Plugin<[], Root> = () => {
       return [SKIP, index + replacements.length];
     });
 
-    // (c) on existing code nodes whose value contains an internal closing fence
     visit(tree, "code", (node: Code, index, parent) => {
       if (index === undefined || !parent) return;
-      const m = node.value.match(/^([\s\S]*?)\n```([^\n][\s\S]*)$/);
+      const m = node.value.match(INTERNAL_CLOSING_FENCE);
       if (!m) return;
       const [, body, tail] = m;
-      node.value = body;
-      const trailing: Paragraph = {
-        type: "paragraph",
-        children: [{ type: "text", value: tail.trim() } as Text],
-      };
-      parent.children.splice(index + 1, 0, trailing);
+      if (!tail.trim()) return;
+      node.value = body.replace(/\s+$/, "");
+      const tailNodes = parseFragment(tail);
+      if (tailNodes.length === 0) return;
+      parent.children.splice(index + 1, 0, ...tailNodes);
     });
   };
 };

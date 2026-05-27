@@ -1,4 +1,3 @@
-// lib/markdown/plugins/remark-split-inline-table.ts
 import type { Plugin } from "unified";
 import type { Root, Paragraph, Table, TableRow, TableCell, Text } from "mdast";
 import { visit, SKIP } from "unist-util-visit";
@@ -15,10 +14,6 @@ const remarkSplitInlineTable: Plugin<[], Root> = () => {
   return (tree) => {
     visit(tree, "paragraph", (node: Paragraph, index, parent) => {
       if (index === undefined || !parent) return;
-      // Flatten ALL inline children (text + inlineCode + strong + etc.) into a
-      // single source-like string. Required because the parser splits a single
-      // table line into multiple children whenever inline-code or other inline
-      // markup appears between cells (e.g. `| `code` | description |`).
       const raw = flattenInline(node.children);
 
       if (!raw.includes("|")) return;

@@ -29,12 +29,6 @@ export function endsWithSentenceTerminator(text: string): boolean {
 
 import type { PhrasingContent } from "mdast";
 
-/**
- * Reconstruct the source-like markdown string of a paragraph's inline content
- * so plugins can pattern-match across nodes the parser split (e.g. inline code
- * inside a row of pipes). The result re-applies the syntax wrappers (` for
- * inlineCode, ** for strong, etc.) so the consumer can re-parse or split it.
- */
 export function flattenInline(children: readonly PhrasingContent[]): string {
   let out = "";
   for (const c of children) {

@@ -97,4 +97,14 @@ describe("regression fixtures from production screenshots", () => {
     expect(out).toContain("- Class-A heavy freighters");
     expect(out).toContain("- Sub-type: Deep space variants");
   });
+
+  it("fixture: code block closer glued to last code line, swallowing rest of response", () => {
+    const input =
+      "```yaml\nserver:\n  port: 8443\n  - user:email```\n\n### API Endpoint Documentation\n\n| Parameter | Type |\n|---|---|\n| grant_type | string |";
+    const out = render(input);
+    expect(out).toContain("### API Endpoint Documentation");
+    expect(out).toContain("| Parameter");
+    expect(out).toMatch(/grant\\?_type/);
+    expect(out).toMatch(/```yaml[\s\S]*?```/);
+  });
 });
