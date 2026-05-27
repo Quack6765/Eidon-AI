@@ -33,4 +33,21 @@ describe("remark-fix-inline-fences", () => {
     const twice = runPlugin(once, remarkFixInlineFences);
     expect(twice).toBe(once);
   });
+
+  it("(d) inline fence with non-empty before text", () => {
+    const out = runPlugin(
+      "intro text\n```js\ncode();\n```tail text",
+      remarkFixInlineFences
+    );
+    expect(out).toContain("intro text");
+    expect(out).toContain("```js");
+    expect(out).toContain("code();");
+    expect(out).toContain("tail text");
+  });
+
+  it("(d) inline fence with no before or tail — only code block", () => {
+    const out = runPlugin("\n```js\ncode();\n```", remarkFixInlineFences);
+    expect(out).toContain("```js");
+    expect(out).toContain("code();");
+  });
 });

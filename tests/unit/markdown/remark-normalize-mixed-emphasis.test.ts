@@ -21,4 +21,14 @@ describe("remark-normalize-mixed-emphasis", () => {
     const twice = runPlugin(once, remarkNormalizeMixedEmphasis);
     expect(twice).toBe(once);
   });
+
+  it("strips literal ~~ marker left by mixed emphasis", () => {
+    const out = runPlugin("Some text ~~ more text", remarkNormalizeMixedEmphasis);
+    expect(out).not.toContain("~~");
+  });
+
+  it("leaves plain text without emphasis markers unchanged", () => {
+    const input = "Just plain text without markers.";
+    expect(runPlugin(input, remarkNormalizeMixedEmphasis)).toBe(input);
+  });
 });

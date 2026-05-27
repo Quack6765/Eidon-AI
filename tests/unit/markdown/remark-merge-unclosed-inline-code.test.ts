@@ -25,4 +25,33 @@ describe("remark-merge-unclosed-inline-code", () => {
     const twice = runPlugin(once, remarkMergeUnclosedInlineCode);
     expect(twice).toBe(once);
   });
+
+  it("handles tail text after closing backtick in sub-item", () => {
+    const out = runPlugin(
+      "- A: `open\n  - close` extra",
+      remarkMergeUnclosedInlineCode
+    );
+    expect(out).toContain("`open/close`");
+    expect(out).toContain("extra");
+  });
+
+  it("skips items with multiple sub-list children", () => {
+    const input = "- A: `text\n  - sub1\n  - sub2`";
+    const out = runPlugin(input, remarkMergeUnclosedInlineCode);
+    expect(out).toContain("A:");
+  });
+
+  it("skips items where sub-item paragraph text has no closing backtick", () => {
+    const out = runPlugin(
+      "- open `code\n  - no closing backtick here",
+      remarkMergeUnclosedInlineCode
+    );
+    expect(out).toContain("open");
+  });
+
+  it("skips single-child list items (no sub-list present)", () => {
+    const input = "- just text here";
+    const out = runPlugin(input, remarkMergeUnclosedInlineCode);
+    expect(out).toBe(input);
+  });
 });

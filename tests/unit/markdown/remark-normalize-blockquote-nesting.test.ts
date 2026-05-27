@@ -30,4 +30,16 @@ describe("remark-normalize-blockquote-nesting", () => {
     const twice = runPlugin(once, remarkNormalizeBlockquoteNesting);
     expect(twice).toBe(once);
   });
+
+  it("passes through blockquote with non-text first child unchanged", () => {
+    const input = "> **bold item**\n> > nested";
+    const out = runPlugin(input, remarkNormalizeBlockquoteNesting);
+    expect(out).toContain("> **bold item**");
+  });
+
+  it("handles blockquote with non-paragraph child (code block inside quote)", () => {
+    const input = "> ```\n> code\n> ```";
+    const out = runPlugin(input, remarkNormalizeBlockquoteNesting);
+    expect(out).toContain(">");
+  });
 });

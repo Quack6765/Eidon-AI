@@ -34,4 +34,21 @@ describe("remark-fix-block-spacing", () => {
     const twice = runPlugin(once, remarkFixBlockSpacing);
     expect(twice).toBe(once);
   });
+
+  it("(c) uses capital word boundary to split heading from following paragraph", () => {
+    const out = runPlugin(
+      "text.## Header Content More Content",
+      remarkFixBlockSpacing
+    );
+    expect(out).toContain("## Header");
+  });
+
+  it("(c) handles paragraph with multiple children after glued heading split", () => {
+    const out = runPlugin(
+      "end.## Heading. Rest of text **bold** end",
+      remarkFixBlockSpacing
+    );
+    expect(out).toContain("## Heading.");
+    expect(out).toContain("**bold**");
+  });
 });
