@@ -50,4 +50,14 @@ describe("remark-fix-inline-fences", () => {
     expect(out).toContain("```js");
     expect(out).toContain("code();");
   });
+
+  it("does not touch mermaid blocks even if their content contains stray backticks", () => {
+    const input = "```mermaid\ngraph TD\n  A[\"`tick`\"] --> B[end]\n```\n\nNext paragraph";
+    const out = runPlugin(input, remarkFixInlineFences);
+    expect(out).toContain("```mermaid");
+    expect(out).toContain("graph TD");
+    expect(out).toContain('A["`tick`"]');
+    expect(out).toContain("--> B[end]");
+    expect(out).toContain("Next paragraph");
+  });
 });

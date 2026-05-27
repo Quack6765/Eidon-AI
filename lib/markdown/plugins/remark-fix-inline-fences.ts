@@ -49,6 +49,7 @@ const remarkFixInlineFences: Plugin<[], Root> = () => {
 
     visit(tree, "code", (node: Code, index, parent) => {
       if (index === undefined || !parent) return;
+      if (node.lang === "mermaid") return;
       const m = node.value.match(INTERNAL_CLOSING_FENCE);
       if (!m) return;
       const [, body, tail] = m;
