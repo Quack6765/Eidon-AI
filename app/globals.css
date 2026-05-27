@@ -226,7 +226,7 @@ select {
 
 .markdown-body ul,
 .markdown-body ol {
-  margin: 0.85rem 0;
+  margin: 0.55rem 0;
   padding-left: 1.4rem;
 }
 
@@ -236,7 +236,7 @@ select {
 
 .markdown-body ul ul {
   list-style: circle;
-  margin: 0.35rem 0;
+  margin: 0.2rem 0;
 }
 
 .markdown-body ol {
@@ -245,11 +245,11 @@ select {
 
 .markdown-body ol ol {
   list-style: lower-alpha;
-  margin: 0.35rem 0;
+  margin: 0.2rem 0;
 }
 
 .markdown-body li {
-  margin: 0.18rem 0;
+  margin: 0.1rem 0;
   padding-left: 0.18rem;
 }
 
