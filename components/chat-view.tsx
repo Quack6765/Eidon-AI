@@ -527,11 +527,27 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const compactionInProgressRef = useRef(false);
   const thinkingStartTimeRef = useRef<number | null>(null);
   const [thinkingDuration, setThinkingDuration] = useState<number | undefined>(undefined);
+  function resolveProviderProfileId(
+    conversationProviderId: string | null,
+    profiles: ProviderProfileSummary[],
+    defaultId: string | null
+  ) {
+    const profileIds = new Set(profiles.map((p) => p.id));
+    if (conversationProviderId && profileIds.has(conversationProviderId)) {
+      return conversationProviderId;
+    }
+    if (defaultId && profileIds.has(defaultId)) {
+      return defaultId;
+    }
+    return profiles[0]?.id ?? "";
+  }
+
   const [providerProfileId, setProviderProfileId] = useState(
-    payload.conversation.providerProfileId ??
-      payload.defaultProviderProfileId ??
-      payload.providerProfiles[0]?.id ??
-      ""
+    () => resolveProviderProfileId(
+      payload.conversation.providerProfileId,
+      payload.providerProfiles,
+      payload.defaultProviderProfileId
+    )
   );
   const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
   const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
@@ -751,10 +767,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   useEffect(() => {
     setProviderProfileId(
-      payload.conversation.providerProfileId ??
-        payload.defaultProviderProfileId ??
-        payload.providerProfiles[0]?.id ??
-        ""
+      resolveProviderProfileId(
+        payload.conversation.providerProfileId,
+        payload.providerProfiles,
+        payload.defaultProviderProfileId
+      )
     );
   }, [payload.conversation.providerProfileId, payload.defaultProviderProfileId, payload.providerProfiles]);
 

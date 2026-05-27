@@ -271,12 +271,44 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     }
   }
 
-  function handleDeleteConfirm() {
-    if (pendingDeleteId) {
-      removeProviderProfile(pendingDeleteId);
+  async function handleDeleteConfirm() {
+    if (!pendingDeleteId) {
+      setDeleteConfirmOpen(false);
+      return;
     }
+
+    const profileId = pendingDeleteId;
     setDeleteConfirmOpen(false);
     setPendingDeleteId(null);
+
+    if (providerProfiles.length === 1) return;
+
+    const nextProfiles = providerProfiles.filter((p) => p.id !== profileId);
+    const nextDefault = defaultProviderProfileId === profileId
+      ? (nextProfiles.find((p) => p.id === defaultProviderProfileId)?.id ?? nextProfiles[0]?.id ?? "")
+      : defaultProviderProfileId;
+
+    const response = await fetch("/api/settings/providers", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(await buildSettingsPayload(nextDefault, nextProfiles))
+    });
+
+    if (response.ok) {
+      setProviderProfiles(nextProfiles);
+      setSelectedProviderProfileId(
+        selectedProviderProfileId === profileId
+          ? (nextProfiles.find((p) => p.id === nextDefault)?.id ?? nextProfiles[0]?.id ?? "")
+          : selectedProviderProfileId
+      );
+      if (defaultProviderProfileId === profileId) {
+        setDefaultProviderProfileId(nextDefault);
+      }
+      toast.showToast("success", "Provider deleted.");
+    } else {
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      toast.showToast("error", result.error ?? "Unable to delete provider");
+    }
   }
 
   async function handleDuplicateProviderProfile() {
@@ -322,14 +354,15 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     }
   }
 
-  async function buildSettingsPayload(defaultProviderProfileIdOverride?: string) {
+  async function buildSettingsPayload(defaultProviderProfileIdOverride?: string, profilesOverride?: ProviderProfileDraft[]) {
     const nextDefaultProviderProfileId = defaultProviderProfileIdOverride ?? defaultProviderProfileId;
+    const profilesToSave = profilesOverride ?? providerProfiles;
 
     return {
       ...settings,
       defaultProviderProfileId: nextDefaultProviderProfileId,
       skillsEnabled,
-      providerProfiles: providerProfiles.map((profile) => ({
+      providerProfiles: profilesToSave.map((profile) => ({
         id: profile.id,
         name: profile.name,
         providerKind: profile.providerKind ?? "openai_compatible",
@@ -366,11 +399,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     return saveSettingsWithDefault(defaultProviderProfileId);
   }
 
-  async function saveSettingsWithDefault(nextDefaultProviderProfileId: string) {
+  async function saveSettingsWithDefault(nextDefaultProviderProfileId: string, profilesOverride?: ProviderProfileDraft[]) {
     const response = await fetch("/api/settings/providers", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(await buildSettingsPayload(nextDefaultProviderProfileId))
+      body: JSON.stringify(await buildSettingsPayload(nextDefaultProviderProfileId, profilesOverride))
     });
 
     const result = (await response.json()) as { error?: string };

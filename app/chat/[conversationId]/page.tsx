@@ -53,6 +53,19 @@ export default async function ConversationPage({
     redirect(`/automations/${conversation.automationId}/runs/${conversation.automationRunId}`);
   }
 
+  const validProviderIds = new Set(settings.providerProfiles.map((p) => p.id));
+  const resolvedProviderProfileId =
+    conversation.providerProfileId && validProviderIds.has(conversation.providerProfileId)
+      ? conversation.providerProfileId
+      : settings.defaultProviderProfileId && validProviderIds.has(settings.defaultProviderProfileId)
+        ? settings.defaultProviderProfileId
+        : settings.providerProfiles[0]?.id ?? null;
+
+  const validatedConversation =
+    resolvedProviderProfileId !== conversation.providerProfileId
+      ? { ...conversation, providerProfileId: resolvedProviderProfileId }
+      : conversation;
+
   return (
     <Shell
       currentUser={user}
@@ -62,8 +75,9 @@ export default async function ConversationPage({
       currentConversation={conversation}
     >
       <ChatView
+        key={conversation.id}
         payload={{
-          conversation,
+          conversation: validatedConversation,
           messages: listVisibleMessages(conversation.id),
           queuedMessages: listQueuedMessages(conversation.id),
           settings: {
