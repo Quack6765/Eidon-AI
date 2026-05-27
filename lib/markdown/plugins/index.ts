@@ -1,4 +1,5 @@
 import type { Pluggable, PluggableList } from "unified";
+import { defaultRemarkPlugins } from "streamdown";
 import { PLUGIN_ORDER, type PluginName } from "../types";
 import { isPluginEnabled } from "../feature-flags";
 import remarkFixBlockSpacing from "./remark-fix-block-spacing";
@@ -30,12 +31,21 @@ const REGISTRY: Record<PluginName, Pluggable | undefined> = {
 };
 
 /**
- * Ordered list of remark AST normalization plugins applied to assistant markdown.
- * These are passed as `remarkPlugins` to Streamdown, which adds its own built-in
- * defaults (GFM, code-meta) separately. Each plugin is registered above in the
- * order it should run. The array filters out plugins disabled via the
- * NEXT_PUBLIC_MARKDOWN_DISABLED_PLUGINS env var.
+ * The 12 AST normalization plugins, in pipeline order, with disabled ones
+ * filtered out via the NEXT_PUBLIC_MARKDOWN_DISABLED_PLUGINS env var. Use this
+ * export in unit tests and any pipeline that explicitly adds remark-gfm.
  */
 export const MARKDOWN_REMARK_PLUGINS: PluggableList = PLUGIN_ORDER
   .filter((name) => isPluginEnabled(name) && REGISTRY[name] !== undefined)
   .map((name) => REGISTRY[name] as Pluggable);
+
+/**
+ * The runtime plugin list passed to Streamdown's `remarkPlugins` prop.
+ * Streamdown REPLACES its internal default plugins (GFM, code-meta) when this
+ * prop is provided, so we must explicitly prepend its defaults to retain
+ * GFM-only features (tables, strikethrough, task-list checkboxes, autolinks).
+ */
+export const STREAMDOWN_REMARK_PLUGINS: PluggableList = [
+  ...(Object.values(defaultRemarkPlugins) as PluggableList),
+  ...MARKDOWN_REMARK_PLUGINS,
+];

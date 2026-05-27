@@ -5,7 +5,7 @@ import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, GitFork, Loade
 import { Streamdown, parseMarkdownIntoBlocks } from "streamdown";
 import { code } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
-import { MARKDOWN_REMARK_PLUGINS } from "@/lib/markdown/plugins";
+import { STREAMDOWN_REMARK_PLUGINS } from "@/lib/markdown/plugins";
 import { REMEND_OPTIONS } from "@/lib/markdown/remend-config";
 import {
   AttachmentPreviewModal,
@@ -94,7 +94,7 @@ function renderAssistantMarkdown(content: string, isStreaming: boolean) {
   return (
     <Streamdown
       plugins={STREAMDOWN_PLUGINS}
-      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+      remarkPlugins={STREAMDOWN_REMARK_PLUGINS}
       parseIncompleteMarkdown
       remend={REMEND_OPTIONS}
       parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
@@ -990,7 +990,7 @@ export function MessageBubble({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body">
-                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS} remarkPlugins={MARKDOWN_REMARK_PLUGINS} parseIncompleteMarkdown remend={REMEND_OPTIONS} parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}>{content}</Streamdown>
+                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS} remarkPlugins={STREAMDOWN_REMARK_PLUGINS} parseIncompleteMarkdown remend={REMEND_OPTIONS} parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}>{content}</Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
@@ -1129,7 +1129,7 @@ export function MessageBubble({
                   >
                     <Streamdown
                       parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
-                      remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+                      remarkPlugins={STREAMDOWN_REMARK_PLUGINS}
                       parseIncompleteMarkdown
                       remend={REMEND_OPTIONS}
                       caret={thinkingInProgress ? "block" : undefined}
