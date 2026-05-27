@@ -78,4 +78,23 @@ describe("regression fixtures from production screenshots", () => {
     expect(out).toContain("40-60 range.");
     expect(out.split("\n").filter((l) => l.trim().startsWith("- ")).length).toBe(1);
   });
+
+  it("fixture: API endpoints table with inline code in cells", () => {
+    const input =
+      "| Endpoint | Method | Description | Status | |---|---|---|---| | `/api/v1/vessels` | GET | Retrieve all active vessels | Active | | `/api/v1/vessels/{id}` | GET | Get vessel details | Active |";
+    const out = render(input);
+    expect(out).toContain("| Endpoint");
+    expect(out).toContain("api/v1/vessels");
+    expect(out).toContain("api/v1/vessels/{id}");
+    expect(out.split("\n").filter((l) => l.startsWith("|")).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it("fixture: inline ` * ` list markers across sub-bullet text", () => {
+    const input =
+      "- Active Vessels\n  - Cargo haulers * Class-A heavy freighters * Sub-type: Deep space variants * Capacity: 50,000";
+    const out = render(input);
+    expect(out).toContain("- Cargo haulers");
+    expect(out).toContain("- Class-A heavy freighters");
+    expect(out).toContain("- Sub-type: Deep space variants");
+  });
 });

@@ -2,6 +2,7 @@
 import type { Plugin } from "unified";
 import type { Root, Paragraph, Table, TableRow, TableCell, Text } from "mdast";
 import { visit, SKIP } from "unist-util-visit";
+import { flattenInline } from "../ast-helpers";
 
 const SEPARATOR_RUN = /\|\s*(?::?-{3,}:?\s*\|\s*){1,}/;
 
@@ -14,9 +15,11 @@ const remarkSplitInlineTable: Plugin<[], Root> = () => {
   return (tree) => {
     visit(tree, "paragraph", (node: Paragraph, index, parent) => {
       if (index === undefined || !parent) return;
-      const firstChild = node.children[0];
-      if (!firstChild || firstChild.type !== "text") return;
-      const raw = firstChild.value;
+      // Flatten ALL inline children (text + inlineCode + strong + etc.) into a
+      // single source-like string. Required because the parser splits a single
+      // table line into multiple children whenever inline-code or other inline
+      // markup appears between cells (e.g. `| `code` | description |`).
+      const raw = flattenInline(node.children);
 
       if (!raw.includes("|")) return;
       const sepMatch = raw.match(SEPARATOR_RUN);

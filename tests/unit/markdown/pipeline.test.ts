@@ -22,8 +22,8 @@ function runPipeline(input: string): string {
 }
 
 describe("MARKDOWN_REMARK_PLUGINS pipeline", () => {
-  it("loads all 12 plugins in order", () => {
-    expect(MARKDOWN_REMARK_PLUGINS.length).toBe(12);
+  it("loads all enabled plugins in order", () => {
+    expect(MARKDOWN_REMARK_PLUGINS.length).toBe(13);
   });
 
   it("handles a mix of failure cases in one input", () => {

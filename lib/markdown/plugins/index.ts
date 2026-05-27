@@ -9,6 +9,7 @@ import remarkFixInlineFences from "./remark-fix-inline-fences";
 import remarkMergeUnclosedInlineCode from "./remark-merge-unclosed-inline-code";
 import remarkCloseUnbalancedEmphasis from "./remark-close-unbalanced-emphasis";
 import remarkNormalizeMixedEmphasis from "./remark-normalize-mixed-emphasis";
+import remarkSplitInlineListMarkers from "./remark-split-inline-list-markers";
 import remarkNormalizeListIndentation from "./remark-normalize-list-indentation";
 import remarkMergeOrphanedListFragments from "./remark-merge-orphaned-list-fragments";
 import remarkRenumberOrderedLists from "./remark-renumber-ordered-lists";
@@ -23,6 +24,7 @@ const REGISTRY: Record<PluginName, Pluggable | undefined> = {
   "merge-unclosed-inline-code": remarkMergeUnclosedInlineCode,
   "close-unbalanced-emphasis": remarkCloseUnbalancedEmphasis,
   "normalize-mixed-emphasis": remarkNormalizeMixedEmphasis,
+  "split-inline-list-markers": remarkSplitInlineListMarkers,
   "normalize-list-indentation": remarkNormalizeListIndentation,
   "merge-orphaned-list-fragments": remarkMergeOrphanedListFragments,
   "renumber-ordered-lists": remarkRenumberOrderedLists,

@@ -18,6 +18,7 @@ export type PluginName =
   | "merge-unclosed-inline-code"
   | "close-unbalanced-emphasis"
   | "normalize-mixed-emphasis"
+  | "split-inline-list-markers"
   | "normalize-list-indentation"
   | "merge-orphaned-list-fragments"
   | "renumber-ordered-lists"
@@ -32,6 +33,7 @@ export const PLUGIN_ORDER: readonly PluginName[] = [
   "merge-unclosed-inline-code",
   "close-unbalanced-emphasis",
   "normalize-mixed-emphasis",
+  "split-inline-list-markers",
   "normalize-list-indentation",
   "merge-orphaned-list-fragments",
   "renumber-ordered-lists",

@@ -26,3 +26,26 @@ export function endsWithSentenceTerminator(text: string): boolean {
   if (!trimmed) return false;
   return TERMINATORS.has(trimmed[trimmed.length - 1]);
 }
+
+import type { PhrasingContent } from "mdast";
+
+/**
+ * Reconstruct the source-like markdown string of a paragraph's inline content
+ * so plugins can pattern-match across nodes the parser split (e.g. inline code
+ * inside a row of pipes). The result re-applies the syntax wrappers (` for
+ * inlineCode, ** for strong, etc.) so the consumer can re-parse or split it.
+ */
+export function flattenInline(children: readonly PhrasingContent[]): string {
+  let out = "";
+  for (const c of children) {
+    if (c.type === "text") out += c.value;
+    else if (c.type === "inlineCode") out += "`" + c.value + "`";
+    else if (c.type === "strong") out += "**" + flattenInline(c.children) + "**";
+    else if (c.type === "emphasis") out += "*" + flattenInline(c.children) + "*";
+    else if (c.type === "delete") out += "~~" + flattenInline(c.children) + "~~";
+    else if ("value" in c && typeof c.value === "string") out += c.value;
+    else if ("children" in c && Array.isArray(c.children))
+      out += flattenInline(c.children as PhrasingContent[]);
+  }
+  return out;
+}
