@@ -2,9 +2,10 @@ import type { Pluggable, PluggableList } from "unified";
 import { defaultRemarkPlugins } from "streamdown";
 import { PLUGIN_ORDER, type PluginName } from "../types";
 import { isPluginEnabled } from "../feature-flags";
+import remarkFixBlockSpacing from "./remark-fix-block-spacing";
 
 const REGISTRY: Record<PluginName, Pluggable | undefined> = {
-  "fix-block-spacing": undefined,
+  "fix-block-spacing": remarkFixBlockSpacing,
   "extract-inline-thematic-breaks": undefined,
   "split-inline-table": undefined,
   "fix-inline-fences": undefined,
