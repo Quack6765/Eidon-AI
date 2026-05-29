@@ -13,6 +13,7 @@ import {
   toAnthropicMessages,
   toAnthropicTools
 } from "@/lib/anthropic";
+import { estimatePromptTokens } from "@/lib/tokenization";
 import type { ChatStreamEvent, ProviderProfileWithApiKey, PromptMessage, ToolDefinition } from "@/lib/types";
 
 function baseSettings(overrides: Partial<ProviderProfileWithApiKey> = {}): ProviderProfileWithApiKey {
@@ -317,6 +318,41 @@ describe("streamAnthropicResponse", () => {
 
     expect(next.value.usage.inputTokens).toBe(115);
     expect(next.value.usage.outputTokens).toBe(3);
+  });
+
+  it("floors inputTokens with the prompt estimate when the API under-reports (no cache fields)", async () => {
+    const promptMessages: PromptMessage[] = [
+      {
+        role: "user",
+        content:
+          "Please write a detailed multi-paragraph essay about the history of computing, covering the abacus, mechanical calculators, vacuum tubes, transistors, integrated circuits, and modern processors, with concrete examples and dates throughout."
+      }
+    ];
+    const expectedFloor = estimatePromptTokens(promptMessages);
+
+    const events = [
+      { type: "message_start", message: { usage: { input_tokens: 5 } } },
+      { type: "content_block_start", index: 0, content_block: { type: "text" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } },
+      { type: "message_delta", usage: { output_tokens: 4 } }
+    ];
+
+    const gen = streamAnthropicResponse({
+      settings: baseSettings({ apiKey: "k" }),
+      promptMessages,
+      client: fakeStreamClient(events)
+    });
+
+    const usageEvents: Array<{ inputTokens?: number }> = [];
+    let next = await gen.next();
+    while (!next.done) {
+      if (next.value.type === "usage") usageEvents.push(next.value as { inputTokens?: number });
+      next = await gen.next();
+    }
+
+    expect(expectedFloor).toBeGreaterThanOrEqual(50);
+    expect(usageEvents.at(-1)?.inputTokens).toBe(expectedFloor);
+    expect(next.value.usage.inputTokens).toBe(expectedFloor);
   });
 
   it("suppresses thinking deltas when reasoningSummaryEnabled is false", async () => {
