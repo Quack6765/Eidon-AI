@@ -1529,4 +1529,17 @@ describe("estimateContextUsage", () => {
     expect(usage!.compactionLimit).toBe(12000);
   });
 
+  it("estimateContextUsage matches ensureCompactedContext's first-pass promptTokens", async () => {
+    seedProfile();
+    const conversation = createConversation();
+    createMessage({ conversationId: conversation.id, role: "user", content: "Hello there, how are you today?" });
+    createMessage({ conversationId: conversation.id, role: "assistant", content: "I am well, thanks for asking." });
+
+    const settings = getDefaultProviderProfileWithApiKey()!;
+    const estimate = estimateContextUsage(conversation.id, settings);
+    const compacted = await ensureCompactedContext(conversation.id, settings, {});
+
+    expect(estimate.contextTokens).toBe(compacted.promptTokens);
+    expect(estimate.compactionLimit).toBe(12000);
+  });
 });

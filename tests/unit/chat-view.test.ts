@@ -4167,6 +4167,18 @@ describe("chat view", () => {
     expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
+  it("caps the gauge at 100% when context exceeds the compaction limit", async () => {
+    const payload = createPayload({ messages: [createMessage({ id: "a1", role: "assistant", content: "Hi" })] });
+    payload.conversation.id = "conv_ctx_over";
+    payload.contextTokens = 15000;
+    payload.compactionLimit = 12800;
+    renderWithProvider(React.createElement(ChatView, { payload }));
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+    expect(screen.getByText("100%")).toBeInTheDocument();
+  });
+
   it("replaces the assistant message with the finalized message from a done event", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
