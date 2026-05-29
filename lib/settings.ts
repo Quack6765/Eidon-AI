@@ -18,7 +18,7 @@ import type {
 } from "@/lib/types";
 
 const runtimeSettingsSchema = z.object({
-  providerKind: z.enum(["openai_compatible", "github_copilot"]).default("openai_compatible"),
+  providerKind: z.enum(["openai_compatible", "github_copilot", "anthropic"]).default("openai_compatible"),
   apiBaseUrl: z.string().default(""),
   apiKey: z.string().optional().default(""),
   model: z.string().min(0),
@@ -39,7 +39,7 @@ const runtimeSettingsSchema = z.object({
   mergedTargetTokens: z.coerce.number().int().min(128).max(16000).default(1600),
   visionMode: z.enum(["none", "native", "mcp"]).default("native"),
   visionMcpServerId: z.string().nullable().default(null),
-  providerPresetId: z.enum(["ollama_cloud", "glm_coding_plan", "openrouter", "opencode_go", "custom_openai_compatible"]).nullable().default(null),
+  providerPresetId: z.enum(["ollama_cloud", "glm_coding_plan", "openrouter", "opencode_go", "custom_openai_compatible", "anthropic_official", "opencode_go_anthropic"]).nullable().default(null),
   githubUserAccessTokenEncrypted: z.string().default(""),
   githubRefreshTokenEncrypted: z.string().default(""),
   githubAccountLogin: z.string().nullable().default(null),
@@ -52,7 +52,7 @@ const providerProfileInputSchema = runtimeSettingsSchema.extend({
   id: z.string().min(1),
   name: z.string().min(1)
 }).superRefine((value, context) => {
-  if (value.providerKind === "openai_compatible") {
+  if (value.providerKind !== "github_copilot") {
     if (!value.apiBaseUrl) {
       context.addIssue({
         code: z.ZodIssueCode.custom,

@@ -1286,4 +1286,30 @@ describe("settings storage", () => {
       "Provider profile not found"
     );
   });
+
+  it("persists an anthropic provider profile", () => {
+    const anthropic = {
+      ...buildProfile({
+        id: "profile_anthropic",
+        name: "Claude",
+        apiBaseUrl: "https://api.anthropic.com",
+        apiKey: "sk-ant-test",
+        model: "claude-opus-4-8",
+        apiMode: "chat_completions"
+      }),
+      providerKind: "anthropic",
+      providerPresetId: "anthropic_official"
+    };
+
+    updateSettings({
+      defaultProviderProfileId: anthropic.id,
+      skillsEnabled: true,
+      providerProfiles: [anthropic]
+    });
+
+    const saved = listProviderProfiles().find((p) => p.id === "profile_anthropic");
+    expect(saved?.providerKind).toBe("anthropic");
+    expect(saved?.providerPresetId).toBe("anthropic_official");
+    expect(getProviderProfileWithApiKey("profile_anthropic")?.apiKey).toBe("sk-ant-test");
+  });
 });
