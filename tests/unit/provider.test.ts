@@ -37,7 +37,7 @@ function createSettings(
   overrides: Partial<{
     id: string;
     name: string;
-    providerKind: "openai_compatible" | "github_copilot";
+    providerKind: "openai_compatible" | "github_copilot" | "anthropic";
     apiBaseUrl: string;
     apiKeyEncrypted: string;
     apiKey: string;
@@ -1766,5 +1766,43 @@ describe("provider integration", () => {
         }
       })
     );
+  });
+
+  it("routes anthropic profiles through the anthropic module", async () => {
+    vi.resetModules();
+
+    const callAnthropicText = vi.fn().mockResolvedValue("connected");
+
+    vi.doMock("@/lib/anthropic", () => ({
+      callAnthropicText,
+      streamAnthropicResponse: vi.fn(),
+      buildAnthropicRequest: vi.fn(),
+      toAnthropicMessages: vi.fn(),
+      toAnthropicTools: vi.fn(),
+      extractSystemPrompt: vi.fn(),
+      mapReasoningEffortToAnthropic: vi.fn()
+    }));
+
+    const { callProviderText } = await import("@/lib/provider");
+
+    await expect(
+      callProviderText({
+        settings: createSettings({
+          providerKind: "anthropic",
+          apiBaseUrl: "https://api.anthropic.com",
+          model: "claude-opus-4-8",
+          apiKey: "sk-ant-test"
+        }),
+        prompt: "ping",
+        purpose: "test"
+      })
+    ).resolves.toBe("connected");
+
+    expect(callAnthropicText).toHaveBeenCalledOnce();
+    expect(responsesCreate).not.toHaveBeenCalled();
+    expect(chatCreate).not.toHaveBeenCalled();
+
+    vi.doUnmock("@/lib/anthropic");
+    vi.resetModules();
   });
 });

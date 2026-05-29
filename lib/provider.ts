@@ -3,6 +3,7 @@ import OpenAI from "openai";
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
 import { ensureFreshGithubAccessToken, runGithubCopilotChat, streamGithubCopilotChat } from "@/lib/github-copilot";
+import { callAnthropicText, streamAnthropicResponse } from "@/lib/anthropic";
 import { buildCopilotTools, type CopilotToolContext } from "@/lib/copilot-tools";
 import { resolveCapabilities, supportsVisibleReasoning } from "@/lib/model-capabilities";
 import { estimatePromptTokens, setActiveTokenizer } from "@/lib/tokenization";
@@ -420,6 +421,16 @@ export async function callProviderText(input: {
     return typeof result === "string" ? result : JSON.stringify(result);
   }
 
+  if (profile.providerKind === "anthropic") {
+    const text = await callAnthropicText({ settings: profile, messages: contextualPrompt });
+
+    if (!text.trim()) {
+      throw new Error("Provider returned an empty response");
+    }
+
+    return text;
+  }
+
   const client = createClient(profile, profile.apiKey);
 
   if (profile.apiMode === "responses") {
@@ -469,7 +480,7 @@ export async function* streamProviderResponse(input: {
   copilotToolContext?: CopilotToolContext;
 }): AsyncGenerator<
   ChatStreamEvent,
-  { answer: string; thinking: string; toolCalls?: ProviderToolCall[]; usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number } },
+  { answer: string; thinking: string; toolCalls?: ProviderToolCall[]; reasoningSignature?: string; usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number } },
   void
 > {
   const { settings, promptMessages } = input;
@@ -648,6 +659,15 @@ export async function* streamProviderResponse(input: {
     }
 
     return { answer, thinking, usage: { inputTokens: estimatePromptTokens(contextualPromptMessages) } };
+  }
+
+  if (settings.providerKind === "anthropic") {
+    return yield* streamAnthropicResponse({
+      settings,
+      promptMessages: contextualPromptMessages,
+      tools: input.tools,
+      abortSignal: input.abortSignal
+    });
   }
 
   const client = createClient(settings, settings.apiKey);
