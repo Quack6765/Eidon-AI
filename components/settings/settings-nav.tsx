@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
@@ -220,13 +221,16 @@ export function SettingsNav({
           </div>
         </div>
       </div>
-      <UnsavedChangesDialog
-        open={unsavedDialogOpen}
-        onOpenChange={setUnsavedDialogOpen}
-        entityType={getUnsavedChangesGuard()?.entityType ?? "your settings"}
-        onSave={handleUnsavedSave}
-        onDiscard={handleUnsavedDiscard}
-      />
+      {createPortal(
+        <UnsavedChangesDialog
+          open={unsavedDialogOpen}
+          onOpenChange={setUnsavedDialogOpen}
+          entityType={getUnsavedChangesGuard()?.entityType ?? "your settings"}
+          onSave={handleUnsavedSave}
+          onDiscard={handleUnsavedDiscard}
+        />,
+        document.body
+      )}
     </aside>
   );
 }
