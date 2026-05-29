@@ -499,8 +499,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [compactionInProgress, setCompactionInProgress] = useState(false);
   const [usedTokens, setUsedTokens] = useState<number | null>(() => {
     const sanitized = sanitizeMessages(payload.messages);
-    if (sanitized.length === 0) return null;
-    return sanitized.reduce((sum, m) => sum + m.estimatedTokens, 0);
+    for (let i = sanitized.length - 1; i >= 0; i--) {
+      const message = sanitized[i];
+      if (message.role === "assistant" && message.status === "completed" && message.estimatedTokens > 0) {
+        return message.estimatedTokens;
+      }
+    }
+    return null;
   });
   const [isConversationActive, setIsConversationActive] = useState(payload.conversation.isActive);
   const hasInitializedTokensRef = useRef(false);

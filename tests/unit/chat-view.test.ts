@@ -4119,6 +4119,26 @@ describe("chat view", () => {
     expect(screen.queryByText("Context")).toBeNull();
   });
 
+  it("initializes the gauge from the latest completed assistant snapshot, not the sum", async () => {
+    const payload = createPayload({
+      messages: [
+        createMessage({ id: "m1", role: "user", content: "Q1", estimatedTokens: 100 }),
+        createMessage({ id: "m2", role: "assistant", content: "A1", status: "completed", estimatedTokens: 3200 }),
+        createMessage({ id: "m3", role: "user", content: "Q2", estimatedTokens: 100 }),
+        createMessage({ id: "m4", role: "assistant", content: "A2", status: "completed", estimatedTokens: 6400 })
+      ]
+    });
+    payload.conversation.id = "conv_reload_snapshot";
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("50%")).toBeInTheDocument();
+    expect(screen.queryByText("77%")).toBeNull();
+  });
+
   it("updates token usage gauge when usage event arrives", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
