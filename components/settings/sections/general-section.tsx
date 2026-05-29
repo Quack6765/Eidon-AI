@@ -274,7 +274,7 @@ export function GeneralSection({
           <select
             value={conversationRetention}
             onChange={(event) => setConversationRetention(event.target.value as ConversationRetention)}
-            className={`${selectLike} sm:w-auto`}
+            className={`${selectLike} sm:w-auto ${isFieldDirty("conversationRetention") ? "!border-amber-500/40" : ""}`}
           >
             <option value="forever">Forever</option>
             <option value="90d">90 days</option>
@@ -298,7 +298,7 @@ export function GeneralSection({
             max={600}
             value={Math.round(mcpTimeout / 1000)}
             onChange={(event) => setMcpTimeout(Number(event.target.value) * 1000)}
-            className={`${inputLike} sm:w-20`}
+            className={`${inputLike} sm:w-20 ${isFieldDirty("mcpTimeout") ? "!border-amber-500/40" : ""}`}
           />
         </div>
       </div>
@@ -318,7 +318,7 @@ export function GeneralSection({
               onChange={(event) =>
                 handleSpeechEngineChange(event.target.value as AppSettings["sttEngine"])
               }
-              className={`${selectLike} sm:w-auto`}
+              className={`${selectLike} sm:w-auto ${isFieldDirty("sttEngine") ? "!border-amber-500/40" : ""}`}
             >
               <option value="browser">Browser</option>
               <option value="embedded">Embedded model</option>
@@ -331,7 +331,7 @@ export function GeneralSection({
                 resetMessages();
                 setSttLanguage(event.target.value as AppSettings["sttLanguage"]);
               }}
-              className={`${selectLike} sm:w-auto`}
+              className={`${selectLike} sm:w-auto ${isFieldDirty("sttLanguage") ? "!border-amber-500/40" : ""}`}
             >
               {speechLanguageOptions.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -362,7 +362,7 @@ export function GeneralSection({
                 resetMessages();
                 setWebSearchEngine(event.target.value as AppSettings["webSearchEngine"]);
               }}
-              className={`${selectLike} w-full sm:w-[22rem]`}
+              className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("webSearchEngine") ? "!border-amber-500/40" : ""}`}
             >
               <option value="exa">Exa</option>
               <option value="tavily">Tavily</option>
@@ -395,7 +395,7 @@ export function GeneralSection({
                     setHasEditedExaApiKey(true);
                     setExaApiKey(event.target.value);
                   }}
-                  className={`${inputLike} w-full sm:w-[22rem]`}
+                  className={`${inputLike} w-full sm:w-[22rem] ${isFieldDirty("exaApiKey") ? "!border-amber-500/40" : ""}`}
                 />
               </div>
             </div>
@@ -420,7 +420,7 @@ export function GeneralSection({
                   setHasEditedTavilyApiKey(true);
                   setTavilyApiKey(event.target.value);
                 }}
-                className={`${inputLike} w-full sm:w-[22rem]`}
+                className={`${inputLike} w-full sm:w-[22rem] ${isFieldDirty("tavilyApiKey") ? "!border-amber-500/40" : ""}`}
               />
             </div>
           ) : null}
@@ -441,7 +441,7 @@ export function GeneralSection({
                   resetMessages();
                   setSearxngBaseUrl(event.target.value);
                 }}
-                className={`${inputLike} w-full sm:w-[22rem]`}
+                className={`${inputLike} w-full sm:w-[22rem] ${isFieldDirty("searxngBaseUrl") ? "!border-amber-500/40" : ""}`}
               />
             </div>
           ) : null}
@@ -484,7 +484,7 @@ export function GeneralSection({
                     event.target.value as ImageGenerationBackend
                   );
                 }}
-                className={`${selectLike} w-full sm:w-[22rem]`}
+                className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("imageGenerationBackend") ? "!border-amber-500/40" : ""}`}
               >
                 <option value="disabled">Disabled</option>
                 <option value="google_nano_banana">Google Nano Banana</option>
@@ -507,7 +507,7 @@ export function GeneralSection({
                         event.target.value as AppSettings["googleNanoBananaModel"]
                       );
                     }}
-                    className={`${selectLike} w-full sm:w-[22rem]`}
+                    className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("googleNanoBananaModel") ? "!border-amber-500/40" : ""}`}
                   >
                     <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
                     <option value="gemini-3.1-flash-image-preview">
@@ -538,7 +538,7 @@ export function GeneralSection({
                       setHasEditedGoogleNanoBananaApiKey(true);
                       setGoogleNanoBananaApiKey(event.target.value);
                     }}
-                    className={`${inputLike} w-full sm:w-[22rem]`}
+                    className={`${inputLike} w-full sm:w-[22rem] ${isFieldDirty("googleNanoBananaApiKey") ? "!border-amber-500/40" : ""}`}
                   />
                 </div>
               </div>
@@ -585,7 +585,7 @@ export function GeneralSection({
                     setTitleGenerationProfileId(settings.providerProfiles[0].id);
                   }
                 }}
-                className={`${selectLike} w-full sm:w-[22rem]`}
+                className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("titleGenerationMode") ? "!border-amber-500/40" : ""}`}
               >
                 <option value="local">Local model</option>
                 <option value="same">Same as conversation</option>
@@ -614,7 +614,7 @@ export function GeneralSection({
                       resetMessages();
                       setTitleGenerationProfileId(event.target.value || null);
                     }}
-                    className={`${selectLike} w-full sm:w-[22rem]`}
+                    className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("titleGenerationProfileId") ? "!border-amber-500/40" : ""}`}
                   >
                     {settings.providerProfiles.map((profile) => (
                       <option key={profile.id} value={profile.id}>
