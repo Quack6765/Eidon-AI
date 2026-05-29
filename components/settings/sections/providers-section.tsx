@@ -25,7 +25,7 @@ import {
   getProviderPreset,
   PROVIDER_PRESETS
 } from "@/lib/provider-presets";
-import type { AppSettings, ApiMode, McpServer, ProviderPresetId, ReasoningEffort, VisionMode } from "@/lib/types";
+import type { AppSettings, ApiMode, McpServer, ProviderKind, ProviderPresetId, ReasoningEffort, VisionMode } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
@@ -34,7 +34,7 @@ type SettingsPayload = AppSettings & {
   providerProfiles: Array<{
     id: string;
     name: string;
-    providerKind: "openai_compatible" | "github_copilot";
+    providerKind: ProviderKind;
     apiBaseUrl: string;
     model: string;
     apiMode: ApiMode;
@@ -591,7 +591,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         className={selectLike}
                         value={activeProviderProfile.providerKind ?? "openai_compatible"}
                         onChange={(event) => {
-                          const value = event.target.value as "openai_compatible" | "github_copilot";
+                          const value = event.target.value as ProviderKind;
                           if (value === "github_copilot") {
                             updateActiveProviderProfile({
                               providerKind: "github_copilot",

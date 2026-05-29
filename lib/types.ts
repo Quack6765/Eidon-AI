@@ -41,7 +41,7 @@ export type AutomationTriggerSource = "schedule" | "manual_run" | "manual_retry"
 
 export type ConversationOrigin = "manual" | "automation";
 
-export type ProviderKind = "openai_compatible" | "github_copilot";
+export type ProviderKind = "openai_compatible" | "github_copilot" | "anthropic";
 
 export type GithubConnectionStatus = "disconnected" | "connected" | "expired";
 
@@ -67,7 +67,14 @@ export type MemoryNodeType = "leaf_summary" | "merged_summary";
 
 export type SystemMessageKind = "compaction_notice";
 
-export type ProviderPresetId = "ollama_cloud" | "glm_coding_plan" | "openrouter" | "opencode_go" | "custom_openai_compatible";
+export type ProviderPresetId =
+  | "ollama_cloud"
+  | "glm_coding_plan"
+  | "openrouter"
+  | "opencode_go"
+  | "custom_openai_compatible"
+  | "anthropic_official"
+  | "opencode_go_anthropic";
 
 export type ProviderProfile = {
   id: string;
@@ -497,6 +504,7 @@ export type PromptMessage = {
   toolCallId?: string;
   toolCalls?: ProviderToolCall[];
   reasoningContent?: string;
+  reasoningSignature?: string;
 };
 
 export type ToolDefinition = {
