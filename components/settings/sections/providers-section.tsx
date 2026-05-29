@@ -103,6 +103,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
   const { isDirty, reset: resetDirty } = useDirtyState({
     providerProfiles: providerProfiles.map((p) => ({
+      providerKind: p.providerKind,
       name: p.name,
       apiBaseUrl: p.apiBaseUrl,
       apiKey: p.apiKey,
