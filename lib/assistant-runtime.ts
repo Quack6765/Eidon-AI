@@ -252,14 +252,6 @@ function getToolLabel(tool: McpTool) {
   return tool.title ?? tool.annotations?.title ?? tool.name;
 }
 
-function addUsage(total: Usage, next: Usage) {
-  return {
-    inputTokens: (total.inputTokens ?? 0) + (next.inputTokens ?? 0),
-    outputTokens: (total.outputTokens ?? 0) + (next.outputTokens ?? 0),
-    reasoningTokens: (total.reasoningTokens ?? 0) + (next.reasoningTokens ?? 0)
-  };
-}
-
 function buildArgumentsSummary(args: Record<string, unknown> | null | undefined) {
   if (!args || !Object.keys(args).length) return "";
   const firstScalar = Object.entries(args).find(([, v]) => typeof v === "string" || typeof v === "number" || typeof v === "boolean");
@@ -1342,7 +1334,6 @@ export async function resolveAssistantTurn(input: {
   };
   const loadedSkillIds = new Set<string>();
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
-  let totalUsage: Usage = {};
   let imageGenerationToolConsumed = false;
   let visibleImageActionStarted = false;
   let visibleImageActionHandle: string | undefined;
@@ -1441,7 +1432,6 @@ export async function resolveAssistantTurn(input: {
         reasoningSignature = next.value.reasoningSignature;
         usage = next.value.usage;
         toolCalls = next.value.toolCalls ?? [];
-        totalUsage = addUsage(totalUsage, usage);
         break;
       }
       input.onEvent?.(next.value);
@@ -1476,7 +1466,7 @@ export async function resolveAssistantTurn(input: {
         continue;
       }
       await commitAnswerSegment(answer);
-      return { answer, thinking, usage: totalUsage };
+      return { answer, thinking, usage };
     }
 
     if (answer) {
@@ -1503,8 +1493,7 @@ export async function resolveAssistantTurn(input: {
         onAnswerSegment: input.onAnswerSegment
       });
 
-      totalUsage = addUsage(totalUsage, forcedResult.usage);
-      return { answer: forcedResult.answer, thinking: forcedResult.thinking, usage: totalUsage };
+      return { answer: forcedResult.answer, thinking: forcedResult.thinking, usage: forcedResult.usage };
     }
 
     let imageGenerationToolAttemptedThisStep = false;
@@ -1556,7 +1545,7 @@ export async function resolveAssistantTurn(input: {
     }
 
     if (answer.trim() && toolCalls.every((toolCall) => isMemoryProposalToolCall(toolCall.name))) {
-      return { answer, thinking, usage: totalUsage };
+      return { answer, thinking, usage };
     }
   }
 
