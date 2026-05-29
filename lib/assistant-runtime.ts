@@ -1429,6 +1429,7 @@ export async function resolveAssistantTurn(input: {
 
     let answer = "";
     let thinking = "";
+    let reasoningSignature: string | undefined;
     let usage: Usage = {};
     let toolCalls: ProviderToolCall[] = [];
 
@@ -1437,6 +1438,7 @@ export async function resolveAssistantTurn(input: {
       if (next.done) {
         answer = next.value.answer;
         thinking = next.value.thinking;
+        reasoningSignature = next.value.reasoningSignature;
         usage = next.value.usage;
         toolCalls = next.value.toolCalls ?? [];
         totalUsage = addUsage(totalUsage, usage);
@@ -1487,6 +1489,7 @@ export async function resolveAssistantTurn(input: {
         role: "assistant",
         content: answer,
         reasoningContent: thinking || undefined,
+        reasoningSignature,
         toolCalls
       }
     ];
