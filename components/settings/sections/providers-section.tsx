@@ -17,6 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
 import { useToastState } from "@/hooks/use-toast-state";
+import { useDirtyState } from "@/hooks/use-dirty-state";
+import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import { createId } from "@/lib/ids";
 import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
 import {
@@ -98,6 +100,50 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const maskedApiKeyValue = "••••••••";
+
+  const { isDirty, reset: resetDirty } = useDirtyState({
+    providerProfiles: providerProfiles.map((p) => ({
+      name: p.name,
+      apiBaseUrl: p.apiBaseUrl,
+      apiKey: p.apiKey,
+      model: p.model,
+      apiMode: p.apiMode,
+      systemPrompt: p.systemPrompt,
+      temperature: p.temperature,
+      maxOutputTokens: p.maxOutputTokens,
+      reasoningEffort: p.reasoningEffort,
+      reasoningSummaryEnabled: p.reasoningSummaryEnabled,
+      modelContextLimit: p.modelContextLimit,
+      compactionThreshold: p.compactionThreshold,
+      freshTailCount: p.freshTailCount,
+      tokenizerModel: p.tokenizerModel,
+      safetyMarginTokens: p.safetyMarginTokens,
+      leafSourceTokenLimit: p.leafSourceTokenLimit,
+      leafMinMessageCount: p.leafMinMessageCount,
+      mergedMinNodeCount: p.mergedMinNodeCount,
+      mergedTargetTokens: p.mergedTargetTokens,
+      visionMode: p.visionMode,
+      visionMcpServerId: p.visionMcpServerId,
+      providerPresetId: p.providerPresetId,
+    })),
+    defaultProviderProfileId,
+    skillsEnabled,
+  });
+
+  useEffect(() => {
+    registerUnsavedChangesGuard(
+      isDirty
+        ? {
+            isDirty: () => isDirty,
+            save: () => { void handleSettings(new Event("submit") as unknown as FormEvent<HTMLFormElement>); },
+            discard: () => { resetDirty(); },
+            entityType: "your provider settings",
+          }
+        : null
+    );
+    return () => registerUnsavedChangesGuard(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty]);
 
   useEffect(() => {
     fetch("/api/mcp-servers")
@@ -422,6 +468,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
     if (await saveSettings()) {
       toast.showToast("success", "Provider saved.");
+      resetDirty();
     }
   }
 
@@ -1055,7 +1102,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                       </p>
                       <div
                         onClick={openSystemPrompt}
-                        className="cursor-pointer rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 hover:bg-white/[0.06] transition-colors"
+                        className={`cursor-pointer rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 hover:bg-white/[0.06] transition-colors ${isDirty ? "border-amber-500/40" : "border-white/6"}`}
                       >
                         {activeProviderProfile.systemPrompt || "No system prompt set"}
                       </div>
@@ -1075,6 +1122,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                 <div className={`${sectionDivider} py-5`}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
+                      {isDirty && (
+                        <span className="flex items-center gap-1 text-xs text-amber-400/80">
+                          <span className="text-[0.5rem]">●</span> Unsaved changes
+                        </span>
+                      )}
                       <Button type="submit" className="px-3 py-1.5 text-xs" disabled={isDuplicateName}>
                         Save
                       </Button>

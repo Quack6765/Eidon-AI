@@ -8,7 +8,9 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
+import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
+import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import type { Persona } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -26,6 +28,25 @@ export function PersonasSection() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const toast = useToastState();
+  const { isDirty, reset: resetDirty } = useDirtyState({
+    personaName,
+    personaContent,
+  });
+
+  useEffect(() => {
+    registerUnsavedChangesGuard(
+      isDirty
+        ? {
+            isDirty: () => isDirty,
+            save: () => { savePersona(); },
+            discard: () => { resetDirty(); },
+            entityType: "this persona",
+          }
+        : null
+    );
+    return () => registerUnsavedChangesGuard(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty]);
 
   useEffect(() => {
     fetch("/api/personas")
@@ -116,6 +137,7 @@ export function PersonasSection() {
     setSelectedPersonaId(persona.id);
     setIsAddingNew(false);
     setMobileDetailVisible(true);
+    resetDirty({ personaName: persona.name, personaContent: persona.content });
   }
 
   function handleAddNew() {
@@ -125,15 +147,18 @@ export function PersonasSection() {
     setSelectedPersonaId(null);
     setIsAddingNew(true);
     setMobileDetailVisible(true);
+    resetDirty({ personaName: "", personaContent: "" });
   }
 
   function resetPersonaForm() {
+    const empty = { personaName: "", personaContent: "" };
     setPersonaName("");
     setPersonaContent("");
     setEditingPersonaId(null);
     setSelectedPersonaId(null);
     setIsAddingNew(false);
     setMobileDetailVisible(false);
+    resetDirty(empty);
   }
 
   function openPersonaContent() {
@@ -234,7 +259,7 @@ export function PersonasSection() {
                       </div>
                       <div
                         onClick={openPersonaContent}
-                        className="cursor-pointer rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 hover:bg-white/[0.06] transition-colors"
+                        className={`cursor-pointer rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 hover:bg-white/[0.06] transition-colors ${isDirty ? "border-amber-500/40" : "border-white/6"}`}
                       >
                         {personaContent || "No system instructions set"}
                       </div>
@@ -246,6 +271,11 @@ export function PersonasSection() {
                 <div className={`${sectionDivider} py-5`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2">
+                      {isDirty && (
+                        <span className="flex items-center gap-1 text-xs text-amber-400/80">
+                          <span className="text-[0.5rem]">●</span> Unsaved changes
+                        </span>
+                      )}
                       <Button type="button" className="px-3 py-1.5 text-xs" onClick={savePersona}>
                         Save
                       </Button>

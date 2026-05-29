@@ -8,8 +8,10 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
+import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
+import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import type { Skill } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -30,6 +32,28 @@ export function SkillsSection() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { isDirty, reset: resetDirty } = useDirtyState({
+    skillName,
+    skillDescription,
+    skillContent,
+    skillEnabledDraft,
+  });
+
+  useEffect(() => {
+    registerUnsavedChangesGuard(
+      isDirty
+        ? {
+            isDirty: () => isDirty,
+            save: () => { saveSkill(); },
+            discard: () => { resetDirty(); },
+            entityType: "this skill",
+          }
+        : null
+    );
+    return () => registerUnsavedChangesGuard(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty]);
 
   useEffect(() => {
     fetch("/api/skills")
@@ -125,6 +149,7 @@ export function SkillsSection() {
     toast.showToast("success", "Skill saved.");
     setIsAddingNew(false);
     setMobileDetailVisible(true);
+    resetDirty({ skillName, skillDescription, skillContent, skillEnabledDraft });
   }
 
   function saveInstructions(value: string) {
@@ -160,6 +185,7 @@ export function SkillsSection() {
     setSelectedSkillId(skill.id);
     setIsAddingNew(false);
     setMobileDetailVisible(true);
+    resetDirty({ skillName: skill.name, skillDescription: skill.description, skillContent: skill.content, skillEnabledDraft: skill.enabled });
   }
 
   function handleAddNew() {
@@ -172,6 +198,7 @@ export function SkillsSection() {
     setSelectedSkillId(null);
     setIsAddingNew(true);
     setMobileDetailVisible(true);
+    resetDirty({ skillName: "", skillDescription: "", skillContent: "", skillEnabledDraft: true });
   }
 
   function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -195,6 +222,7 @@ export function SkillsSection() {
   }
 
   function resetSkillForm() {
+    const empty = { skillName: "", skillDescription: "", skillContent: "", skillEnabledDraft: true as boolean };
     setSkillName("");
     setSkillDescription("");
     setSkillContent("");
@@ -204,6 +232,7 @@ export function SkillsSection() {
     setIsAddingNew(false);
     setMobileDetailVisible(false);
     toast.dismissToast();
+    resetDirty(empty);
   }
 
   const selectedSkill = skills.find((s) => s.id === selectedSkillId);
@@ -340,9 +369,9 @@ export function SkillsSection() {
                     </div>
                     <div
                       onClick={() => { if (!isBuiltin) setIsInstructionsOpen(true); }}
-                      className={`rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 transition-colors ${
-                        isBuiltin ? "opacity-60 cursor-default" : "cursor-pointer hover:bg-white/[0.06]"
-                      }`}
+                      className={`rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 transition-colors ${
+                        isDirty ? "border-amber-500/40" : "border-white/6"
+                      } ${isBuiltin ? "opacity-60 cursor-default" : "cursor-pointer hover:bg-white/[0.06]"}`}
                     >
                       {skillContent || "No instructions set"}
                     </div>
@@ -365,6 +394,11 @@ export function SkillsSection() {
 
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
+                    {isDirty && (
+                      <span className="flex items-center gap-1 text-xs text-amber-400/80">
+                        <span className="text-[0.5rem]">●</span> Unsaved changes
+                      </span>
+                    )}
                     <Button type="button" className="px-3 py-1.5 text-xs" onClick={saveSkill}>
                       Save
                     </Button>
