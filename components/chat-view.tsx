@@ -938,9 +938,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "usage") {
       if (event.inputTokens !== undefined) {
-        console.log(`[ChatView] Usage event received for ${payload.conversation.id}: ${event.inputTokens} tokens`);
-        setUsedTokens(event.inputTokens);
-        setTokenUsage(payload.conversation.id, event.inputTokens);
+        const total = event.inputTokens + (event.outputTokens ?? 0) + (event.reasoningTokens ?? 0);
+        setUsedTokens(total);
+        setTokenUsage(payload.conversation.id, total);
       }
       return;
     }
