@@ -101,7 +101,10 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const maskedApiKeyValue = "••••••••";
 
+  const currentActiveProfile = providerProfiles.find((p) => p.id === selectedProviderProfileId) ?? providerProfiles[0];
+
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
+    activeSystemPrompt: currentActiveProfile?.systemPrompt ?? "",
     providerProfiles: providerProfiles.map((p) => ({
       providerKind: p.providerKind,
       name: p.name,
@@ -1103,7 +1106,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                       </p>
                       <div
                         onClick={openSystemPrompt}
-                        className={`cursor-pointer rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 hover:bg-white/[0.06] transition-colors ${isFieldDirty("providerProfiles") ? "border-amber-500/40" : "border-white/6"}`}
+                        className={`cursor-pointer rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 hover:bg-white/[0.06] transition-colors ${isFieldDirty("activeSystemPrompt") ? "border-amber-500/40" : "border-white/6"}`}
                       >
                         {activeProviderProfile.systemPrompt || "No system prompt set"}
                       </div>
