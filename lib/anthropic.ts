@@ -93,7 +93,7 @@ export function toAnthropicMessages(messages: PromptMessage[]): Anthropic.Messag
       return;
     }
 
-    result.push({ role, content: Array.isArray(content) ? content : content });
+    result.push({ role, content });
   }
 
   for (const message of messages) {
