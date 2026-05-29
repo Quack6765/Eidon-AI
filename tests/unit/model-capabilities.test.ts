@@ -79,6 +79,21 @@ describe("supportsVisibleReasoning", () => {
   it("treats kimi as reasoning-capable", () => {
     expect(supportsVisibleReasoning("kimi-k2.6", "chat_completions")).toBe(true);
   });
+
+  it("resolves reasoning and vision for claude-opus-4-8", () => {
+    expect(supportsVisibleReasoning("claude-opus-4-8", "chat_completions")).toBe(true);
+    expect(supportsImageInput("claude-opus-4-8", "chat_completions")).toBe(true);
+  });
+
+  it("resolves reasoning and vision for claude-sonnet-4-6", () => {
+    expect(supportsVisibleReasoning("claude-sonnet-4-6", "chat_completions")).toBe(true);
+    expect(supportsImageInput("claude-sonnet-4-6", "chat_completions")).toBe(true);
+  });
+
+  it("resolves reasoning and vision for claude-haiku-4-5", () => {
+    expect(supportsVisibleReasoning("claude-haiku-4-5", "chat_completions")).toBe(true);
+    expect(supportsImageInput("claude-haiku-4-5", "chat_completions")).toBe(true);
+  });
 });
 
 describe("supportsImageInput", () => {

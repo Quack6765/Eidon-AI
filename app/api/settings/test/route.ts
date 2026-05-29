@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       return badRequest("Provider profile not found");
     }
 
-    if (settings.providerKind === "openai_compatible" && !settings.apiKey) {
+    if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
       return badRequest("Set an API key before running a connection test");
     }
 

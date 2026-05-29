@@ -73,13 +73,14 @@ Use it as a private assistant, a day-to-day work companion, or a shared workspac
 Eidon currently supports these provider options:
 
 - OpenAI-compatible endpoints, including OpenAI and other compatible APIs
+- Anthropic-compatible endpoints, including the official Anthropic API
 - OpenRouter
 - Ollama Cloud
 - GLM Coding Plan
 - OpenCode Go
 - GitHub Copilot
 
-The OpenAI-compatible profile is manually configurable, so any service that exposes an OpenAI-compatible API can be connected through the same provider type.
+The OpenAI-compatible and Anthropic-compatible profiles are manually configurable, so any service that exposes an OpenAI-compatible or Anthropic Messages API can be connected through the matching provider type.
 
 ## Screenshots
 
