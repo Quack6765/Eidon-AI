@@ -77,7 +77,7 @@ Eidon currently supports these provider options:
 - OpenRouter
 - Ollama Cloud
 - GLM Coding Plan
-- OpenCode Go (OpenAI-compatible models, plus MiniMax / Qwen via the Anthropic-compatible endpoint)
+- OpenCode Go
 - GitHub Copilot
 
 The OpenAI-compatible and Anthropic-compatible profiles are manually configurable, so any service that exposes an OpenAI-compatible or Anthropic Messages API can be connected through the matching provider type.
