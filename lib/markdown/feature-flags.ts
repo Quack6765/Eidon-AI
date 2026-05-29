@@ -15,6 +15,10 @@ export function isPluginEnabled(name: PluginName): boolean {
   return !readDisabled().has(name);
 }
 
+export function isMarkdownRepairEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED === "true";
+}
+
 export function getDisabledPlugins(): PluginName[] {
   return Array.from(readDisabled()) as PluginName[];
 }

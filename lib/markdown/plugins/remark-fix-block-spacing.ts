@@ -3,13 +3,15 @@ import type { Root, Paragraph, Heading, RootContent } from "mdast";
 import { visit, SKIP } from "unist-util-visit";
 import { flattenInline, parseInline, parseFragment } from "../ast-helpers";
 
-const HEADING_GLUED_IN_HEADING = /([^\s#])(#{1,6})(?=\s|[^#])/;
+const HEADING_GLUED_IN_HEADING = /([^\s#])(#{1,6})(?=\s|[A-Z][a-z])/;
 
-const HEADING_GLUED_PRE = /([^\s#])(#{1,6})(?=\s|[^#])/;
+const HEADING_GLUED_PRE = /([^\s#])(#{1,6})(?=\s|[A-Z][a-z])/;
 const HEADING_MID_LINE = /(\S)\s+(#{1,6})\s(?=\S)/;
 const HEADING_NO_SPACE = /^(#{1,6})([^#\s])/;
 const SENTENCE_END = /[.!?]\s+[A-Z]/;
 const SENTENCE_STARTER = /\s+(?=[A-Z]\w*\s+[a-z])/;
+const CAMEL_BOUNDARY = /(?<=[a-z])(?=[A-Z][a-z]+\s+[a-z])/;
+const HEADING_PROSE_BOUNDARY = /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)([A-Z][a-z]+\s+[a-z][\s\S]*)$/;
 const MAX_HEADING_LEN = 80;
 
 const remarkFixBlockSpacing: Plugin<[], Root> = () => {
@@ -20,26 +22,47 @@ const remarkFixBlockSpacing: Plugin<[], Root> = () => {
       if (!raw) return;
 
       const inner = raw.match(HEADING_GLUED_IN_HEADING);
-      if (!inner || inner.index === undefined) return;
-      const beforeText = raw.slice(0, inner.index + inner[1].length).trim();
-      const after = raw.slice(inner.index + inner[1].length);
-      const hashRun = after.match(/^(#{1,6})\s*/);
-      if (!hashRun) return;
-      const tail = after.slice(hashRun[0].length);
-      if (!tail.trim()) return;
+      if (inner && inner.index !== undefined) {
+        const beforeText = raw.slice(0, inner.index + inner[1].length).trim();
+        const after = raw.slice(inner.index + inner[1].length);
+        const hashRun = after.match(/^(#{1,6})\s*/);
+        if (!hashRun) return;
+        const tail = after.slice(hashRun[0].length);
+        if (!tail.trim()) return;
 
-      const replacements: RootContent[] = [];
-      if (beforeText) {
-        replacements.push({
-          type: "heading",
-          depth: node.depth,
-          children: parseInline(beforeText),
-        });
+        const replacements: RootContent[] = [];
+        if (beforeText) {
+          replacements.push({
+            type: "heading",
+            depth: node.depth,
+            children: parseInline(beforeText),
+          });
+        }
+        const innerDepth = Math.min(hashRun[1].length, 6) as 1 | 2 | 3 | 4 | 5 | 6;
+        replacements.push(...parseFragment(`${"#".repeat(innerDepth)} ${tail}`));
+        parent.children.splice(index, 1, ...replacements);
+        return [SKIP, index + replacements.length];
       }
-      const innerDepth = Math.min(hashRun[1].length, 6) as 1 | 2 | 3 | 4 | 5 | 6;
-      replacements.push(...parseFragment(`${"#".repeat(innerDepth)} ${tail}`));
-      parent.children.splice(index, 1, ...replacements);
-      return [SKIP, index + replacements.length];
+
+      const proseMatch = raw.match(HEADING_PROSE_BOUNDARY);
+      if (proseMatch) {
+        const headingText = proseMatch[1].trim();
+        const proseText = proseMatch[2].trim();
+        if (!headingText || !proseText) return;
+        const replacements: RootContent[] = [
+          {
+            type: "heading",
+            depth: node.depth,
+            children: parseInline(headingText),
+          },
+          {
+            type: "paragraph",
+            children: parseInline(proseText),
+          },
+        ];
+        parent.children.splice(index, 1, ...replacements);
+        return [SKIP, index + replacements.length];
+      }
     });
 
     visit(tree, "paragraph", (node: Paragraph, index, parent) => {
@@ -104,10 +127,13 @@ const remarkFixBlockSpacing: Plugin<[], Root> = () => {
         const headingBody = after.slice(headingStart);
 
         const sentenceEnd = headingBody.search(SENTENCE_END);
+        const camelBoundary = headingBody.search(CAMEL_BOUNDARY);
         const sentenceStart = headingBody.search(SENTENCE_STARTER);
         const cut =
           sentenceEnd >= 0
             ? sentenceEnd + 1
+            : camelBoundary >= 0
+            ? camelBoundary
             : sentenceStart >= 0
             ? sentenceStart
             : Math.min(headingBody.length, MAX_HEADING_LEN);

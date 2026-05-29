@@ -42,4 +42,36 @@ describe("remark-normalize-blockquote-nesting", () => {
     const out = runPlugin(input, remarkNormalizeBlockquoteNesting);
     expect(out).toContain(">");
   });
+
+  it("splits inline > markers inside a blockquote paragraph into sibling paragraphs", () => {
+    const input =
+      "> Warning text here.> Historical Note: legacy system info here.";
+    const out = runPlugin(input, remarkNormalizeBlockquoteNesting);
+    expect(out).toMatch(/^> Warning text here\.\s*$/m);
+    expect(out).toMatch(/^> Historical Note: legacy system info here\.\s*$/m);
+  });
+
+  it("splits inline > > markers inside a blockquote into a nested sub-blockquote", () => {
+    const input =
+      "> Warning: deprecated soon.> > Additional Context: migrate now.";
+    const out = runPlugin(input, remarkNormalizeBlockquoteNesting);
+    expect(out).toMatch(/^> Warning: deprecated soon\./m);
+    expect(out).toMatch(/^> > Additional Context: migrate now\./m);
+  });
+
+  it("preserves italic emphasis when splitting inline blockquote markers", () => {
+    const input =
+      "> *Warning: deprecated by Jan 15, 2026.*> > *Additional Context: migrate now.*> *Historical Note: from Q2 2023.*";
+    const out = runPlugin(input, remarkNormalizeBlockquoteNesting);
+    expect(out).toMatch(/\*Warning: deprecated by Jan 15, 2026\.\*/);
+    expect(out).toMatch(/\*Additional Context: migrate now\.\*/);
+    expect(out).toMatch(/\*Historical Note: from Q2 2023\.\*/);
+    expect(out).toMatch(/^> > \*Additional Context/m);
+  });
+
+  it("does not split a paragraph with a single isolated > inside (comparison-like)", () => {
+    const input = "> If x > 5 then proceed";
+    const out = runPlugin(input, remarkNormalizeBlockquoteNesting);
+    expect(out.split("\n").filter((l) => l.trim().startsWith(">")).length).toBe(1);
+  });
 });

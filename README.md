@@ -214,12 +214,51 @@ If those three environment variables are not set, the GitHub Copilot profile typ
 | `EIDON_GITHUB_APP_CLIENT_ID` | GitHub App client ID for the Copilot provider | No |
 | `EIDON_GITHUB_APP_CLIENT_SECRET` | GitHub App client secret for the Copilot provider | No |
 | `EIDON_GITHUB_APP_CALLBACK_URL` | OAuth callback URL for Copilot | No |
+| `NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED` | Enables the custom Markdown repair pipeline (see below). **Build-time only.** | No (default `false`) |
 
 Useful defaults:
 
 - Default model: `gpt-5-mini`
 - Default API mode: `responses`
 - Default Docker data path: `/app/data`
+
+### Markdown repair pipeline (`NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED`)
+
+Eidon ships a set of custom remark plugins that repair malformed Markdown from
+models that don't always emit clean output (glued headings, collapsed tables,
+broken code fences, mermaid statements run together, etc.). It is **disabled by
+default** — most models produce valid Markdown, and the bare renderer is faster
+and avoids edge cases. Enable it as a fail-safe when you use a model that
+frequently emits broken Markdown.
+
+It also smooths out mermaid diagrams: mermaid can only render a *valid* diagram,
+so repairing each partial as it streams lets the diagram render progressively
+during streaming instead of waiting for the complete, valid block to arrive.
+
+Because this is a `NEXT_PUBLIC_*` variable, Next.js inlines it into the client
+bundle **at build time** — setting it with `docker run -e ...` has no effect.
+You must set it when the image is built:
+
+```bash
+# Build a local image with markdown repair turned on
+docker build \
+  --build-arg NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED=true \
+  -t eidon:markdown-repair .
+
+docker run -d \
+  --name eidon \
+  -p 3000:3000 \
+  -v eidon-data:/app/data \
+  -e EIDON_SESSION_SECRET="$EIDON_SESSION_SECRET" \
+  -e EIDON_ENCRYPTION_SECRET="$EIDON_ENCRYPTION_SECRET" \
+  eidon:markdown-repair
+```
+
+For local development, set it in `.env` before `npm run build`/`npm run dev`:
+
+```bash
+NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED=true
+```
 
 Generate secrets on macOS or Linux with:
 

@@ -28,4 +28,10 @@ describe("remark-tighten-lists", () => {
     const twice = runPlugin(once, remarkTightenLists);
     expect(twice).toBe(once);
   });
+
+  it("does not tighten a list whose item's only child is not a paragraph", () => {
+    const input = "- ```\n  code line\n  ```\n\n- B";
+    const out = runPlugin(input, remarkTightenLists);
+    expect(out).toContain("code line");
+  });
 });

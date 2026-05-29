@@ -1,7 +1,7 @@
 import type { Pluggable, PluggableList } from "unified";
 import { defaultRemarkPlugins } from "streamdown";
 import { PLUGIN_ORDER, type PluginName } from "../types";
-import { isPluginEnabled } from "../feature-flags";
+import { isPluginEnabled, isMarkdownRepairEnabled } from "../feature-flags";
 import remarkFixBlockSpacing from "./remark-fix-block-spacing";
 import remarkExtractInlineThematicBreaks from "./remark-extract-inline-thematic-breaks";
 import remarkSplitInlineTable from "./remark-split-inline-table";
@@ -49,5 +49,5 @@ export const MARKDOWN_REMARK_PLUGINS: PluggableList = PLUGIN_ORDER
  */
 export const STREAMDOWN_REMARK_PLUGINS: PluggableList = [
   ...(Object.values(defaultRemarkPlugins) as PluggableList),
-  ...MARKDOWN_REMARK_PLUGINS,
+  ...(isMarkdownRepairEnabled() ? MARKDOWN_REMARK_PLUGINS : []),
 ];

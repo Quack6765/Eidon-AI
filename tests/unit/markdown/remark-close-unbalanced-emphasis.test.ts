@@ -57,4 +57,9 @@ describe("remark-close-unbalanced-emphasis", () => {
     const out = runPlugin("word** end", remarkCloseUnbalancedEmphasis);
     expect(out).toContain("**word**");
   });
+
+  it("balances an opener fragment whose ** sits at the very end of the text", () => {
+    const out = runPlugin("This is bold text **", remarkCloseUnbalancedEmphasis);
+    expect(out).toContain("This is bold text");
+  });
 });

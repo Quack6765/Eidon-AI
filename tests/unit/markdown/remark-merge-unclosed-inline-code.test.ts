@@ -54,4 +54,17 @@ describe("remark-merge-unclosed-inline-code", () => {
     const out = runPlugin(input, remarkMergeUnclosedInlineCode);
     expect(out).toBe(input);
   });
+
+  it("skips loose list items whose second child is a paragraph, not a sub-list", () => {
+    const input = "- A: `x\n\n  more prose follows here";
+    const out = runPlugin(input, remarkMergeUnclosedInlineCode);
+    expect(out).toContain("more prose follows here");
+    expect(out).not.toContain("`x/");
+  });
+
+  it("skips when the sub-item paragraph starts with a non-text node", () => {
+    const input = "- A: `x\n  - `code` trailing";
+    const out = runPlugin(input, remarkMergeUnclosedInlineCode);
+    expect(out).toContain("`code`");
+  });
 });

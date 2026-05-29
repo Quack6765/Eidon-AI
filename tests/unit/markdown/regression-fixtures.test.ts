@@ -181,6 +181,339 @@ describe("regression fixtures from production screenshots", () => {
     expect(out).toContain("Next block");
   });
 
+  it("fixture: heading with glued inline list markers (Key Features* item* item)", () => {
+    const input =
+      "### Key Features* High Performance: Processes up to ~~1 million~~ 5 million events per second* Scalability: Horizontally scales from 1 to 10,000 nodes";
+    const out = render(input);
+    expect(out).toMatch(/^### Key Features\s*$/m);
+    expect(out).toMatch(/^- High Performance/m);
+    expect(out).toMatch(/^- Scalability/m);
+    expect(out).toContain("~~1 million~~");
+  });
+
+  it("fixture: bold label glued to inline list markers (**Key Features*** item* item)", () => {
+    const input =
+      "**Key Features*** High Performance: Processes up to ~~1 million~~ 5 million events per second* Scalability: Horizontally scales from 1 to 10,000 nodes";
+    const out = render(input);
+    expect(out).toMatch(/\*\*Key Features\*\*/);
+    expect(out).toMatch(/^- High Performance/m);
+    expect(out).toMatch(/^- Scalability/m);
+    expect(out).toContain("~~1 million~~");
+  });
+
+  it("fixture: ordered list item label with inline numbered sub-items (Ingestion Layer)", () => {
+    const input =
+      "1. **Ingestion Layer** 1. Raw data arrives via multiple channels 2. Schema validation occurs";
+    const out = render(input);
+    expect(out).toMatch(/\*\*Ingestion Layer\*\*/);
+    expect(out).toMatch(/Raw data arrives via multiple channels/);
+    expect(out).toMatch(/Schema validation occurs/);
+    expect(out.split("\n").filter((l) => /^\s+\d+\.\s/.test(l)).length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("fixture: bold label glued to ordered list (no space) — Processing Layer", () => {
+    const input =
+      "**Processing Layer**1. Stream processors handle real-time data 2. Batch processors run scheduled jobs";
+    const out = render(input);
+    expect(out).toMatch(/\*\*Processing Layer\*\*/);
+    expect(out).toMatch(/^1\.\s+Stream processors handle real-time data$/m);
+    expect(out).toMatch(/^2\.\s+Batch processors run scheduled jobs$/m);
+  });
+
+  it("fixture: bold label + inline ordered markers — Storage Layer", () => {
+    const input =
+      "**Storage Layer** 1. Hot storage (Redis cache) 2. Warm storage (PostgreSQL) 3. Cold storage (S3 Glacier)";
+    const out = render(input);
+    expect(out).toMatch(/\*\*Storage Layer\*\*/);
+    expect(out).toMatch(/^1\.\s+Hot storage \(Redis cache\)$/m);
+    expect(out).toMatch(/^2\.\s+Warm storage \(PostgreSQL\)$/m);
+    expect(out).toMatch(/^3\.\s+Cold storage \(S3 Glacier\)$/m);
+  });
+
+  it("fixture: Table of Contents heading glued to ordered markers without space", () => {
+    const input =
+      "## Table of Contents1. Architecture 2. Getting Started 3. API Reference 4. Contributing";
+    const out = render(input);
+    expect(out).toMatch(/^## Table of Contents\s*$/m);
+    expect(out).toMatch(/^1\.\s+Architecture$/m);
+    expect(out).toMatch(/^4\.\s+Contributing$/m);
+  });
+
+  it("fixture: heading word glued to prose paragraph via camelCase boundary", () => {
+    const input =
+      "## OverviewWelcome to the official documentation for *Project Nebula* — our next-generation platform";
+    const out = render(input);
+    expect(out).toMatch(/^## Overview\s*$/m);
+    expect(out).toMatch(/^Welcome to the official documentation/m);
+    expect(out).toContain("*Project Nebula*");
+  });
+
+  it("fixture: 4-column table with || row delimiter reconstructs without thematic-break interference", () => {
+    const input =
+      "| Header 1 | Header 2 | Header 3 | Header 4 ||---------|---------|---------|---------| | Cell 1A | Cell 2A | Cell3A | Cell 4A || Cell 1B | Cell 2B | Cell 3B | Cell4B || Cell 1C | Cell 2C | Cell 3C | Cell4C |";
+    const out = render(input);
+    expect(out).not.toContain("***");
+    expect(out).toContain("| Header 1");
+    expect(out).toContain("Cell 1A");
+    expect(out).toContain("Cell4C");
+    expect(out.split("\n").filter((l) => l.startsWith("|")).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("fixture: complex table with emojis + nested markdown stays intact", () => {
+    const input =
+      "| Feature | Status | Notes ||---------|--------|-------| | Authentication | ✅ Done | Implemented OAuth 2.0 || Database | 🔄 In Progress | *Optimization phase* |";
+    const out = render(input);
+    expect(out).not.toContain("***");
+    expect(out).toContain("Authentication");
+    expect(out).toContain("✅ Done");
+    expect(out).toContain("🔄 In Progress");
+    expect(out).toMatch(/\*Optimization phase\*/);
+  });
+
+  it("fixture: alignment table with :--- separators reconstructs without thematic-break interference", () => {
+    const input =
+      "| Left Aligned | Center Aligned | Right Aligned | No Alignment ||:-------------|:--------------:|--------------:|--------------| | Left 1 | Center1 | Right 1 | Normal 1 || Left 2 | Center 2 | Right 2 | Normal 2 |";
+    const out = render(input);
+    expect(out).not.toContain("***");
+    expect(out).toContain("Left Aligned");
+    expect(out).toContain("Center Aligned");
+    expect(out).toContain("Left 1");
+    expect(out).toContain("Center 2");
+  });
+
+  it("fixture: Database Schema Reference table with trailing |--- artifact", () => {
+    const input =
+      "| Field | Type | Constraints | Description ||-------|-------|------------|--------------| | user_id | UUID | PRIMARY KEY | Unique identifier || email | VARCHAR(255) | UNIQUE, NOT NULL | User email address || created_at | TIMESTAMP | DEFAULT NOW() | Account creation date || status | ENUM | DEFAULT 'active' | Account status |---";
+    const out = render(input);
+    expect(out).toContain("| Field");
+    expect(out).toMatch(/user\\?_id/);
+    expect(out).toContain("email");
+    expect(out).toMatch(/created\\?_at/);
+    expect(out).toContain("status");
+    expect(out).toContain("Account status");
+    expect(out.split("\n").filter((l) => l.startsWith("|")).length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("fixture: blockquote with inline > and > > markers splits into nested structure", () => {
+    const input =
+      "> *Warning: The legacy authentication system will be deprecated on January 15, 2026.*> > *Additional Context: Teams using the old JWT-based system should prioritize the migration.*> *Historical Note: The legacy system was originally implemented in Q2 2023 as a temporary solution.*";
+    const out = render(input);
+    expect(out).toMatch(/^>\s+\*Warning:/m);
+    expect(out).toMatch(/^>\s+>\s+\*Additional Context:/m);
+    expect(out).toMatch(/^>\s+\*Historical Note:/m);
+  });
+
+  it("fixture: API table followed by glued #### multi-word heading + prose", () => {
+    const input =
+      "| Method | Endpoint | Description | Rate Limit ||--------|---------|------------|------------|| `GET` | `/api/v4/projects` | List all projects | 1000/hr || `POST` | `/api/v4/projects` | Create a new project | 100/hr |#### Response FormatSuccessful responses return JSON in this structure:";
+    const out = render(input);
+    expect(out).toContain("| Method");
+    expect(out).toMatch(/`GET`/);
+    expect(out).toMatch(/^#### Response Format\s*$/m);
+    expect(out).toMatch(/^Successful responses return JSON in this structure:/m);
+  });
+
+  it("fixture: deployment checklist with inline task-list markers glued together", () => {
+    const input =
+      "- [x] Infrastructure provisioning completed\n- [x] DNS records configured\n- [ ] Database migrations applied- [ ] Load tests passed - [ ] < 200ms p95 latency";
+    const out = render(input);
+    expect(out).toMatch(/Database migrations applied/);
+    expect(out).toMatch(/Load tests passed/);
+    expect(out).toMatch(/< 200ms p95 latency/);
+    expect(out.split("\n").filter((l) => /^[-*]\s+\[/.test(l)).length).toBeGreaterThanOrEqual(5);
+  });
+
+  it("fixture: nested ordered list with all sub-items glued inline in the first sub-item", () => {
+    const input =
+      "1. First main step\n2. Second main step\n   1. Sub-step 2.1 2. Sub-step 2.2 1. Sub-sub-step 2.2.a 2. Sub-sub-step 2.2.b 1. Sub-sub-sub-step 2.2.b.i3. Sub-step 2.3\n3. Third main step\n   1. Sub-step 3.11. Deep sub-step 3.1.a 1. Very deep 3.1.a.i\n4. Fourth main step";
+    const out = render(input);
+    expect(out).toContain("Sub-step 2.1");
+    expect(out).toContain("Sub-step 2.2");
+    expect(out).toContain("Sub-sub-step 2.2.a");
+    expect(out).toContain("Sub-sub-step 2.2.b");
+    expect(out).toContain("Sub-sub-sub-step 2.2.b.i");
+    expect(out).toContain("Sub-step 2.3");
+    expect(out).toContain("Sub-step 3.1");
+    expect(out).toContain("Deep sub-step 3.1.a");
+    expect(out).toContain("Very deep 3.1.a.i");
+    expect(out).toContain("Fourth main step");
+  });
+
+  it("fixture: bash deploy script with comment line + glued env vars + echo", () => {
+    const input =
+      "```bash#!/bin/bash\n# Deploy script for Project Atlasset -euo pipefailENVIRONMENT=\"${1:-staging}\"VERSION=\"${2:-latest}\"echo \"Deploying Atlas v${VERSION} to ${ENVIRONMENT}\"\nkubectl apply -f ./manifests/${ENVIRONMENT}/\nkubectl rollout status deployment/atlas-api -n ${ENVIRONMENT}\n\necho \"Deployment complete!\"\n```";
+    const out = render(input);
+    expect(out).toMatch(/^#!\/bin\/bash$/m);
+    expect(out).toMatch(/^# Deploy script for Project Atlas$/m);
+    expect(out).toMatch(/^set -euo pipefail$/m);
+    expect(out).toMatch(/^ENVIRONMENT="\$\{1:-staging\}"$/m);
+    expect(out).toMatch(/^VERSION="\$\{2:-latest\}"$/m);
+    expect(out).toMatch(/^echo "Deploying Atlas v/m);
+  });
+
+  it("fixture: multi-word heading with glued prose paragraph (Executive Summary)", () => {
+    const input =
+      "## Executive SummaryThis document outlines the specifications for Project Nebula, a next-generation quantum computing dashboard.";
+    const out = render(input);
+    expect(out).toMatch(/^## Executive Summary\s*$/m);
+    expect(out).toMatch(/^This document outlines the specifications for Project Nebula/m);
+  });
+
+  it("fixture: typescriptinterface code block with glued meta+content (4.2 Error Rates)", () => {
+    const input =
+      "```typescriptinterface ErrorBudget {  service: string;  allowedErrors: number;  actualErrors: number;\n  remaining: number;\n}\n\nconst budget: ErrorBudget = {\n  service: \"atlas-api\",\n  allowedErrors:43200,\n  actualErrors: 12847, remaining: 30353,\n};\n```";
+    const out = render(input);
+    expect(out).toMatch(/```typescript\n/);
+    expect(out).toContain("interface ErrorBudget {");
+    expect(out).toContain("service: string;");
+    expect(out).toContain("remaining: number;");
+    expect(out).toContain("const budget: ErrorBudget = {");
+    expect(out).toContain('service: "atlas-api"');
+  });
+
+  it("fixture: truncated table after blockquote renders header even with no data rows", () => {
+    const input =
+      "> Cross-functional teams deliver 40% faster than siloed departments.\n\n| Squad | Focus | Lead | Members | |---|---";
+    const out = render(input);
+    expect(out).toContain("Cross-functional teams");
+    expect(out).toMatch(/\|\s*Squad\s*\|/);
+    expect(out).toMatch(/\|\s*Members\s*\|/);
+  });
+
+  it("fixture: mermaid code block recovered when heading glued to opening fence", () => {
+    const input =
+      "### Architecture Overview```mermaid\ngraph TD\nA[Client] --> B[Load Balancer]\nB --> C[Web Tier]\nC --> D[API Gateway]\n```";
+    const out = render(input);
+    expect(out).toMatch(/^### Architecture Overview\s*$/m);
+    expect(out).toMatch(/^```mermaid$/m);
+    expect(out).toContain("graph TD");
+    expect(out).toContain("A[Client] --> B[Load Balancer]");
+    expect(out).toContain("C --> D[API Gateway]");
+  });
+
+  it("fixture: paragraph glued to opening mermaid fence with orphan closer recovers code block", () => {
+    const input =
+      "## System Architecture\nThe following diagram illustrates our current system architecture:```mermaid\ngraph TD\nClient[Web/Mobile Client] --> CDN[CDN CloudFront]\nCDN --> LB[Load Balancer]\nLB --> API[API Gateway]\n```";
+    const out = render(input);
+    expect(out).toMatch(/^## System Architecture$/m);
+    expect(out).toContain("The following diagram illustrates our current system architecture");
+    expect(out).toMatch(/^```mermaid$/m);
+    expect(out).toContain("graph TD");
+    expect(out).toContain("Client[Web/Mobile Client] --> CDN[CDN CloudFront]");
+    expect(out).toContain("LB --> API[API Gateway]");
+  });
+
+  it("fixture: Nebula configuration paragraph glued to precedence table", () => {
+    const input =
+      "Nebula uses a hierarchical configuration system. Settings are loaded in the following order of precedence | Priority | Source | Example ||---------|---------|---------| | 1 | Default values | `config/defaults.yaml` | | 2 | Environment file | `.env` | | 3 | Environment vars | `NEBULA_PORT=4000` | | 4 | CLI flags | `--port 4000` |";
+    const out = render(input);
+    expect(out).toContain("Nebula uses a hierarchical configuration system");
+    expect(out).toContain("order of precedence");
+    expect(out).toMatch(/\|\s*Priority\s*\|\s*Source\s*\|/);
+    expect(out).toMatch(/\|\s*1\s*\|\s*Default values/);
+    expect(out).toMatch(/\|\s*4\s*\|\s*CLI flags/);
+  });
+
+  it("fixture: mermaid block with hex color values does not get shredded by # heuristic", () => {
+    const input =
+      "### Project Roadmap Visualization```mermaid\ngraph TD A[Q1] --> B[Q2] style A fill:#e1f5fe style G fill:#c8e6c9 style D fill:#ffcdd2\n```";
+    const out = render(input);
+    expect(out).toMatch(/^### Project Roadmap Visualization\s*$/m);
+    expect(out).toMatch(/^```mermaid$/m);
+    expect(out).toContain("graph TD");
+    expect(out).toContain("style A fill:#e1f5fe");
+    expect(out).toContain("style G fill:#c8e6c9");
+    expect(out).toContain("style D fill:#ffcdd2");
+    expect(out.split("\n").filter((l) => l.startsWith("#")).length).toBeLessThanOrEqual(1);
+  });
+
+  it("fixture: code block with Title-case lang 'Company' is not stripped to single letter", () => {
+    const input =
+      "```Company Organization\n├── Engineering\n│ ├── Frontend Team\n│ └── Backend Team\n├── Sales\n```";
+    const out = render(input);
+    expect(out).not.toMatch(/^```c$/m);
+    expect(out).toContain("Company");
+    expect(out).toContain("Engineering");
+  });
+
+  it("fixture: heading with glued table header + separator/rows on next line", () => {
+    const input =
+      "### Basic Table| Header 1 | Header 2 | Header 3 |\n|----------|----------|----------| | Cell 1.1 | Cell 1.2 | Cell 1.3 | | Cell 2.1 | Cell 2.2 | Cell 2.3 | | Cell 3.1 | Cell 3.2 | Cell 3.3 |";
+    const out = render(input);
+    expect(out).toMatch(/^### Basic Table\s*$/m);
+    expect(out).toMatch(/\|\s*Header 1\s*\|\s*Header 2\s*\|\s*Header 3\s*\|/);
+    expect(out).toMatch(/\|\s*Cell 1\.1\s*\|/);
+    expect(out).toMatch(/\|\s*Cell 3\.3\s*\|/);
+  });
+
+  it("fixture: Code Blocks heading glued to ### sub-heading splits cleanly", () => {
+    const input = "## Code Blocks### Python Example\n\nbody text";
+    const out = render(input);
+    expect(out).toMatch(/^## Code Blocks$/m);
+    expect(out).toMatch(/^### Python Example$/m);
+  });
+
+  it("fixture: glued mermaid lang (mermaidgraph TD...) reconstructs as mermaid code block", () => {
+    const input =
+      "## Architecture Overview\n\n```mermaidgraph TD A[Client] --> B[Server]\nstyle A fill:#e1f5\n```";
+    const out = render(input);
+    expect(out).toMatch(/^## Architecture Overview$/m);
+    expect(out).toMatch(/^```mermaid$/m);
+    expect(out).toContain("A[Client] --> B[Server]");
+    expect(out).toContain("style A fill:#e1f5");
+  });
+
+  it("fixture: paragraph 'mermaidgraph TD...' with orphan closer recovers mermaid code block", () => {
+    const input =
+      "## Architecture Overview\n\nmermaidgraph TD A[Client] --> B[Server]\nstyle A fill:#e1f5\n```";
+    const out = render(input);
+    expect(out).toMatch(/^## Architecture Overview$/m);
+    expect(out).toMatch(/^```mermaid$/m);
+    expect(out).toContain("A[Client] --> B[Server]");
+    expect(out).toContain("style A fill:#e1f5");
+  });
+
+  it("fixture: heading glued to json fence with trailing closing fence in body", () => {
+    const input =
+      '### API Response Example```json\n{ "status": "success", "data": { "user_id": "usr_8f7d6e5c4b3a", "plan": "enterprise" }, "timestamp": "2026-05-28T13:37:00Z" }```';
+    const out = render(input);
+    expect(out).toMatch(/^### API Response Example\s*$/m);
+    expect(out).toMatch(/^```json$/m);
+    expect(out).toContain('"user_id": "usr_8f7d6e5c4b3a"');
+    expect(out).toContain('"timestamp": "2026-05-28T13:37:00Z"');
+    expect(out).not.toMatch(/Z" \}```/);
+  });
+
+  it("fixture: mermaid diagram with all statements glued on one line is split into multiple lines", () => {
+    const input =
+      "```mermaid\ngraph TD A[Client] --> B[CloudFront CDN] CDN --> LB[Load Balancer] LB --> API[API Gateway]\nstyle A fill:#e1f5fe\n```";
+    const out = render(input);
+    expect(out).toMatch(/^```mermaid$/m);
+    expect(out).toMatch(/A\[Client\] --> B\[CloudFront CDN\]/);
+    expect(out).toMatch(/CDN --> LB\[Load Balancer\]/);
+    expect(out).toMatch(/LB --> API\[API Gateway\]/);
+    expect(out).toContain("style A fill:#e1f5fe");
+  });
+
+  it("fixture: sequenceDiagram with glued participants, arrows, alt/else/end produces valid mermaid", () => {
+    const input =
+      "```mermaid\nsequenceDiagram    participant User    participant LB as Load Balancer\n    participant GW as API Gateway\n\n    User->>LB: HTTPS Request\n    LB->>GW: Route to Gateway    GW->>Auth: Validate JWT Token Auth-->>GW: Token Valid / Invalid\n    alt Valid Token\n        GW->>MS: Forward Request\n        LB-->>User: 200 OK else Invalid Token\n        GW-->>User:401 Unauthorized    end\n```";
+    const out = render(input);
+    expect(out).toMatch(/^```mermaid$/m);
+    expect(out).toMatch(/^sequenceDiagram$/m);
+    expect(out).toMatch(/^\s*participant User$/m);
+    expect(out).toMatch(/^\s*participant LB as Load Balancer$/m);
+    expect(out).toMatch(/^\s*participant GW as API Gateway$/m);
+    expect(out).toMatch(/^\s*LB->>GW: Route to Gateway$/m);
+    expect(out).toMatch(/^\s*GW->>Auth: Validate JWT Token$/m);
+    expect(out).toMatch(/^\s*Auth-->>GW: Token Valid \/ Invalid$/m);
+    expect(out).toMatch(/^\s*alt Valid Token$/m);
+    expect(out).toMatch(/^\s*LB-->>User: 200 OK$/m);
+    expect(out).toMatch(/^\s*else Invalid Token$/m);
+    expect(out).toMatch(/^\s*GW-->>User: 401 Unauthorized$/m);
+    expect(out).toMatch(/^end$/m);
+  });
+
   it("fixture: code block closer glued to last code line, swallowing rest of response", () => {
     const input =
       "```yaml\nserver:\n  port: 8443\n  - user:email```\n\n### API Endpoint Documentation\n\n| Parameter | Type |\n|---|---|\n| grant_type | string |";
@@ -189,5 +522,21 @@ describe("regression fixtures from production screenshots", () => {
     expect(out).toContain("| Parameter");
     expect(out).toMatch(/grant\\?_type/);
     expect(out).toMatch(/```yaml[\s\S]*?```/);
+  });
+
+  it("fixture: malformed checkbox '[x ]' renders as a real checked task item", () => {
+    const input =
+      "- [x] Database migrations applied\n- [x ] DNS records configured\n- [ ] Load balancer health checks passing";
+    const out = render(input);
+    expect(out).toMatch(/^[-*]\s+\[x\]\s+DNS records configured$/m);
+    expect(out).not.toContain("[x ]");
+  });
+
+  it("fixture: glued single sub-marker in deployment steps nests instead of running inline", () => {
+    const input =
+      "1. Clone the repository\n2. Install dependencies   1. Run the package manager:\n3. Configure environment";
+    const out = render(input);
+    expect(out).not.toContain("Install dependencies   1.");
+    expect(out).toMatch(/^\s+\d+\.\s+Run the package manager:$/m);
   });
 });

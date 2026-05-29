@@ -7,6 +7,7 @@ import { code } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
 import { STREAMDOWN_REMARK_PLUGINS } from "@/lib/markdown/plugins";
 import { REMEND_OPTIONS } from "@/lib/markdown/remend-config";
+import { MarkdownErrorBoundary } from "@/components/markdown-error-boundary";
 import {
   AttachmentPreviewModal,
   useAttachmentUrlBuilder,
@@ -90,20 +91,29 @@ function AnsiText({
   );
 }
 
-function renderAssistantMarkdown(content: string, isStreaming: boolean) {
-  return (
-    <Streamdown
-      plugins={STREAMDOWN_PLUGINS}
-      remarkPlugins={STREAMDOWN_REMARK_PLUGINS}
-      parseIncompleteMarkdown
-      remend={REMEND_OPTIONS}
-      parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
-      caret={isStreaming ? "block" : undefined}
-      isAnimating={isStreaming}
-    >
-      {content}
-    </Streamdown>
+function AssistantMarkdown({ content, isStreaming }: { content: string; isStreaming: boolean }) {
+  const fallback = (
+    <pre className="whitespace-pre-wrap break-words text-sm">{content}</pre>
   );
+  return (
+    <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
+      <Streamdown
+        plugins={STREAMDOWN_PLUGINS}
+        remarkPlugins={STREAMDOWN_REMARK_PLUGINS}
+        parseIncompleteMarkdown
+        remend={REMEND_OPTIONS}
+        parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
+        caret={isStreaming ? "block" : undefined}
+        isAnimating={isStreaming}
+      >
+        {content}
+      </Streamdown>
+    </MarkdownErrorBoundary>
+  );
+}
+
+function renderAssistantMarkdown(content: string, isStreaming: boolean) {
+  return <AssistantMarkdown content={content} isStreaming={isStreaming} />;
 }
 
 export function TypingIndicator({ compact = false }: { compact?: boolean }) {

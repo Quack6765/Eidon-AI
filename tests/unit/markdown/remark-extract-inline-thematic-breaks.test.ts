@@ -35,4 +35,18 @@ describe("remark-extract-inline-thematic-breaks", () => {
     const twice = runPlugin(once, remarkExtractInlineThematicBreaks);
     expect(twice).toBe(once);
   });
+
+  it("does not eat dashes from inside an inline table separator run", () => {
+    const input =
+      "| Header 1 | Header 2 | Header 3 | Header 4 ||---------|---------|---------|---------| | Cell 1A | Cell 2A | Cell 3A | Cell 4A |";
+    const out = runPlugin(input, remarkExtractInlineThematicBreaks);
+    expect(out).not.toContain("***");
+    expect(out).toContain("|---------|");
+  });
+
+  it("still splits a real inline thematic break followed by emphasis text", () => {
+    const out = runPlugin("done---*emphasized text*", remarkExtractInlineThematicBreaks);
+    expect(out).toContain("***");
+    expect(out).toContain("*emphasized text*");
+  });
 });

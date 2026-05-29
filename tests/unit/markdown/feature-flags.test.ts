@@ -1,4 +1,8 @@
-import { isPluginEnabled, getDisabledPlugins } from "@/lib/markdown/feature-flags";
+import {
+  isPluginEnabled,
+  getDisabledPlugins,
+  isMarkdownRepairEnabled,
+} from "@/lib/markdown/feature-flags";
 
 describe("markdown feature flags", () => {
   const originalEnv = process.env.NEXT_PUBLIC_MARKDOWN_DISABLED_PLUGINS;
@@ -24,5 +28,33 @@ describe("markdown feature flags", () => {
     process.env.NEXT_PUBLIC_MARKDOWN_DISABLED_PLUGINS = "  tighten-lists  , unknown-plugin ";
     expect(isPluginEnabled("tighten-lists")).toBe(false);
     expect(getDisabledPlugins()).toEqual(["tighten-lists"]);
+  });
+
+  describe("isMarkdownRepairEnabled", () => {
+    const original = process.env.NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED;
+    afterEach(() => {
+      if (original === undefined) {
+        delete process.env.NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED;
+      } else {
+        process.env.NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED = original;
+      }
+    });
+
+    it("is disabled by default when env var is unset", () => {
+      delete process.env.NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED;
+      expect(isMarkdownRepairEnabled()).toBe(false);
+    });
+
+    it("is enabled only when set to exactly 'true'", () => {
+      process.env.NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED = "true";
+      expect(isMarkdownRepairEnabled()).toBe(true);
+    });
+
+    it("is disabled for any other value", () => {
+      for (const value of ["false", "1", "yes", "TRUE", "on", ""]) {
+        process.env.NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED = value;
+        expect(isMarkdownRepairEnabled()).toBe(false);
+      }
+    });
   });
 });
