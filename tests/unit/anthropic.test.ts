@@ -333,3 +333,149 @@ describe("callAnthropicText", () => {
     expect(text).toBe("connected");
   });
 });
+
+describe("anthropic conversion branch coverage", () => {
+  it("includes assistant text alongside tool_use blocks", () => {
+    const result = toAnthropicMessages([
+      { role: "user", content: "go" },
+      {
+        role: "assistant",
+        content: "Let me check.",
+        toolCalls: [{ id: "t1", name: "search", arguments: "{}" }]
+      }
+    ]);
+
+    expect(result[1].content).toEqual([
+      { type: "text", text: "Let me check." },
+      { type: "tool_use", id: "t1", name: "search", input: {} }
+    ]);
+  });
+
+  it("falls back to an empty object for invalid tool-call arguments", () => {
+    const result = toAnthropicMessages([
+      { role: "assistant", content: "", toolCalls: [{ id: "t1", name: "x", arguments: "not json" }] }
+    ]);
+
+    expect((result[0].content as Array<{ type: string; input?: unknown }>)[0].input).toEqual({});
+  });
+
+  it("merges consecutive tool results into a single user message", () => {
+    const result = toAnthropicMessages([
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          { id: "t1", name: "a", arguments: "{}" },
+          { id: "t2", name: "b", arguments: "{}" }
+        ]
+      },
+      { role: "tool", toolCallId: "t1", content: "r1" },
+      { role: "tool", toolCallId: "t2", content: "r2" }
+    ]);
+
+    const last = result[result.length - 1];
+    expect(last.role).toBe("user");
+    expect(Array.isArray(last.content)).toBe(true);
+    expect((last.content as unknown[]).length).toBe(2);
+  });
+
+  it("applies cache_control to the last block of the second-to-last message", () => {
+    const params = buildAnthropicRequest({
+      settings: baseSettings({ reasoningEffort: "none" }),
+      messages: [
+        { role: "system", content: "sys" },
+        { role: "user", content: "first" },
+        { role: "assistant", content: "answer" },
+        { role: "user", content: "second" }
+      ]
+    });
+
+    const messages = params.messages as Array<{ role: string; content: unknown }>;
+    const secondToLast = messages[messages.length - 2];
+    const blocks = secondToLast.content as Array<{ cache_control?: { type: string } }>;
+
+    expect(Array.isArray(blocks)).toBe(true);
+    expect(blocks[blocks.length - 1].cache_control).toEqual({ type: "ephemeral" });
+  });
+
+  it("keeps non-final blocks unmarked when caching a multi-block message", () => {
+    const params = buildAnthropicRequest({
+      settings: baseSettings({ reasoningEffort: "none" }),
+      messages: [
+        { role: "user", content: "go" },
+        {
+          role: "assistant",
+          content: "thinking out loud",
+          toolCalls: [{ id: "t1", name: "a", arguments: "{}" }]
+        },
+        { role: "tool", toolCallId: "t1", content: "res" }
+      ]
+    });
+
+    const messages = params.messages as Array<{ role: string; content: unknown }>;
+    const cached = messages[messages.length - 2];
+    const blocks = cached.content as Array<{ type: string; cache_control?: unknown }>;
+
+    expect(blocks.length).toBe(2);
+    expect(blocks[0].cache_control).toBeUndefined();
+    expect(blocks[1].cache_control).toEqual({ type: "ephemeral" });
+  });
+
+  it("merges consecutive user text messages, normalizing prior string content", () => {
+    const result = toAnthropicMessages([
+      { role: "user", content: "one" },
+      { role: "user", content: "two" }
+    ]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toEqual([
+      { type: "text", text: "one" },
+      { type: "text", text: "two" }
+    ]);
+  });
+
+  it("joins system messages with array content and drops empty ones", () => {
+    const text = extractSystemPrompt([
+      { role: "system", content: "  " },
+      { role: "system", content: [{ type: "text", text: "rules" }] },
+      { role: "user", content: "hi" }
+    ]);
+
+    expect(text).toBe("rules");
+  });
+
+  it("handles an abort signal, empty tool json, and orphan json deltas", async () => {
+    const events = [
+      { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "t9", name: "noop" } },
+      { type: "content_block_delta", index: 5, delta: { type: "input_json_delta", partial_json: "{}" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "ok" } }
+    ];
+    const controller = new AbortController();
+
+    const gen = streamAnthropicResponse({
+      settings: baseSettings({ apiKey: "k" }),
+      promptMessages: [{ role: "user", content: "hi" }],
+      abortSignal: controller.signal,
+      client: fakeStreamClient(events)
+    });
+
+    let next = await gen.next();
+    while (!next.done) {
+      next = await gen.next();
+    }
+
+    expect(next.value.answer).toBe("ok");
+    expect(next.value.toolCalls).toEqual([{ id: "t9", name: "noop", arguments: "{}" }]);
+    expect(next.value.usage.inputTokens).toBeGreaterThanOrEqual(0);
+  });
+
+  it("returns an empty string when the text response has no content", async () => {
+    const text = await callAnthropicText({
+      settings: baseSettings({ apiKey: "k" }),
+      messages: [{ role: "user", content: "hi" }],
+      client: { messages: { async create() { return {}; } } } as never
+    });
+
+    expect(text).toBe("");
+  });
+});
