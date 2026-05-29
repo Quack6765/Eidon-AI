@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
+import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
@@ -33,6 +34,8 @@ export function SkillsSection() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
     skillName,
     skillDescription,
@@ -176,6 +179,15 @@ export function SkillsSection() {
   }
 
   function handleSelectSkill(skill: Skill) {
+    if (isDirty && selectedSkillId !== skill.id) {
+      setPendingSwitch(() => () => selectSkill(skill));
+      setUnsavedDialogOpen(true);
+      return;
+    }
+    selectSkill(skill);
+  }
+
+  function selectSkill(skill: Skill) {
     setEditingSkillId(skill.id);
     setSkillName(skill.name);
     setSkillDescription(skill.description);
@@ -189,6 +201,15 @@ export function SkillsSection() {
   }
 
   function handleAddNew() {
+    if (isDirty) {
+      setPendingSwitch(() => () => addNewSkill());
+      setUnsavedDialogOpen(true);
+      return;
+    }
+    addNewSkill();
+  }
+
+  function addNewSkill() {
     setEditingSkillId(null);
     setSkillName("");
     setSkillDescription("");
@@ -199,6 +220,23 @@ export function SkillsSection() {
     setIsAddingNew(true);
     setMobileDetailVisible(true);
     resetDirty({ skillName: "", skillDescription: "", skillContent: "", skillEnabledDraft: true });
+  }
+
+  function handleUnsavedSave() {
+    setUnsavedDialogOpen(false);
+    if (pendingSwitch) {
+      saveSkill();
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
+  }
+
+  function handleUnsavedDiscard() {
+    setUnsavedDialogOpen(false);
+    if (pendingSwitch) {
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
   }
 
   function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -429,6 +467,13 @@ export function SkillsSection() {
                   subtitle="Skill instructions are applied when the skill is activated"
                   placeholder="Enter the full skill instructions..."
                   readOnly={isBuiltin}
+                />
+                <UnsavedChangesDialog
+                  open={unsavedDialogOpen}
+                  onOpenChange={setUnsavedDialogOpen}
+                  entityType="this skill"
+                  onSave={handleUnsavedSave}
+                  onDiscard={handleUnsavedDiscard}
                 />
                 <ConfirmDialog
                   open={deleteConfirmOpen}

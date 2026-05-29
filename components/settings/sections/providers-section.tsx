@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
+import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useToastState } from "@/hooks/use-toast-state";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
@@ -103,6 +104,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
   const currentActiveProfile = providerProfiles.find((p) => p.id === selectedProviderProfileId) ?? providerProfiles[0];
 
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
     activeProviderKind: currentActiveProfile?.providerKind,
     activeName: currentActiveProfile?.name ?? "",
@@ -506,6 +509,24 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     setIsSystemPromptOpen(false);
   }
 
+  function handleUnsavedSave() {
+    setUnsavedDialogOpen(false);
+    if (pendingSwitch) {
+      void handleSettings(new Event("submit") as unknown as FormEvent<HTMLFormElement>);
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
+  }
+
+  function handleUnsavedDiscard() {
+    setUnsavedDialogOpen(false);
+    resetDirty();
+    if (pendingSwitch) {
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
+  }
+
   const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
   const inputLike =
     "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
@@ -526,7 +547,14 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
             </div>
             <button
               type="button"
-              onClick={addProviderProfile}
+              onClick={() => {
+                if (isDirty) {
+                  setPendingSwitch(() => () => addProviderProfile());
+                  setUnsavedDialogOpen(true);
+                  return;
+                }
+                addProviderProfile();
+              }}
               className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/[0.07] transition-all duration-200"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -540,6 +568,14 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                 key={profile.id}
                 isActive={profile.id === selectedProviderProfileId}
                 onClick={() => {
+                  if (isDirty && selectedProviderProfileId !== profile.id) {
+                    setPendingSwitch(() => () => {
+                      setSelectedProviderProfileId(profile.id);
+                      setMobileDetailVisible(true);
+                    });
+                    setUnsavedDialogOpen(true);
+                    return;
+                  }
                   setSelectedProviderProfileId(profile.id);
                   setMobileDetailVisible(true);
                 }}
@@ -1185,6 +1221,14 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     {testResult.text}
                   </p>
                 ) : null}
+
+                <UnsavedChangesDialog
+                  open={unsavedDialogOpen}
+                  onOpenChange={setUnsavedDialogOpen}
+                  entityType="your provider settings"
+                  onSave={handleUnsavedSave}
+                  onDiscard={handleUnsavedDiscard}
+                />
 
                 <ConfirmDialog
                   open={deleteConfirmOpen}

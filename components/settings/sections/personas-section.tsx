@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
+import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
 import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
@@ -28,6 +29,8 @@ export function PersonasSection() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const toast = useToastState();
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
     personaName,
     personaContent,
@@ -131,6 +134,15 @@ export function PersonasSection() {
   }
 
   function handleSelectPersona(persona: Persona) {
+    if (isDirty && selectedPersonaId !== persona.id) {
+      setPendingSwitch(() => () => selectPersona(persona));
+      setUnsavedDialogOpen(true);
+      return;
+    }
+    selectPersona(persona);
+  }
+
+  function selectPersona(persona: Persona) {
     setEditingPersonaId(persona.id);
     setPersonaName(persona.name);
     setPersonaContent(persona.content);
@@ -141,6 +153,15 @@ export function PersonasSection() {
   }
 
   function handleAddNew() {
+    if (isDirty) {
+      setPendingSwitch(() => () => addNewPersona());
+      setUnsavedDialogOpen(true);
+      return;
+    }
+    addNewPersona();
+  }
+
+  function addNewPersona() {
     setEditingPersonaId(null);
     setPersonaName("");
     setPersonaContent("");
@@ -148,6 +169,23 @@ export function PersonasSection() {
     setIsAddingNew(true);
     setMobileDetailVisible(true);
     resetDirty({ personaName: "", personaContent: "" });
+  }
+
+  function handleUnsavedSave() {
+    setUnsavedDialogOpen(false);
+    if (pendingSwitch) {
+      savePersona();
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
+  }
+
+  function handleUnsavedDiscard() {
+    setUnsavedDialogOpen(false);
+    if (pendingSwitch) {
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
   }
 
   function resetPersonaForm() {
@@ -326,6 +364,13 @@ export function PersonasSection() {
         visible={toast.visible}
         variant={toast.variant}
         message={toast.message}
+      />
+      <UnsavedChangesDialog
+        open={unsavedDialogOpen}
+        onOpenChange={setUnsavedDialogOpen}
+        entityType="this persona"
+        onSave={handleUnsavedSave}
+        onDiscard={handleUnsavedDiscard}
       />
       <ConfirmDialog
         open={deleteConfirmOpen}
