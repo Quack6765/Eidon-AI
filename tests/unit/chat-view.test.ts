@@ -4119,6 +4119,24 @@ describe("chat view", () => {
     expect(screen.queryByText("Context")).toBeNull();
   });
 
+  it("hides the context gauge when no completed assistant message has a snapshot", async () => {
+    const payload = createPayload({
+      messages: [
+        createMessage({ id: "u1", role: "user", content: "Hi", estimatedTokens: 12 }),
+        createMessage({ id: "a1", role: "assistant", content: "partial", status: "stopped", estimatedTokens: 0 })
+      ]
+    });
+    payload.conversation.id = "conv_no_snapshot";
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByRole("progressbar")).toBeNull();
+    expect(screen.queryByText("Context")).toBeNull();
+  });
+
   it("initializes the gauge from the latest completed assistant snapshot, not the sum", async () => {
     const payload = createPayload({
       messages: [
