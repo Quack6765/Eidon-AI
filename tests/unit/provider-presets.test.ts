@@ -152,4 +152,52 @@ describe("provider presets", () => {
   it("throws for unknown preset id", () => {
     expect(() => getProviderPreset("nonexistent_preset" as any)).toThrow("Unknown provider preset");
   });
+
+  it("applies the Anthropic official preset to an anthropic profile", () => {
+    const profile = applyProviderPreset(
+      { ...createProfile(), providerKind: "anthropic" },
+      "anthropic_official"
+    );
+
+    expect(profile.apiBaseUrl).toBe("https://api.anthropic.com");
+    expect(profile.model).toBe("claude-opus-4-8");
+  });
+
+  it("applies the OpenCode Go Anthropic preset to an anthropic profile", () => {
+    const profile = applyProviderPreset(
+      { ...createProfile(), providerKind: "anthropic" },
+      "opencode_go_anthropic"
+    );
+
+    expect(profile.apiBaseUrl).toBe("https://opencode.ai/zen/go");
+    expect(profile.model).toBe("qwen3.7-max");
+  });
+
+  it("does not apply an anthropic preset to an openai_compatible profile", () => {
+    const original = { ...createProfile(), providerKind: "openai_compatible" as const };
+    const profile = applyProviderPreset(original, "anthropic_official");
+
+    expect(profile.apiBaseUrl).toBe(original.apiBaseUrl);
+    expect(profile.model).toBe(original.model);
+  });
+
+  it("matches an anthropic profile back to its preset", () => {
+    const profile = {
+      ...createProfile(),
+      providerKind: "anthropic" as const,
+      ...getProviderPreset("anthropic_official").values
+    };
+
+    expect(getMatchingProviderPresetId(profile)).toBe("anthropic_official");
+  });
+
+  it("does not match an openai_compatible profile to an anthropic preset", () => {
+    const profile = {
+      ...createProfile(),
+      providerKind: "openai_compatible" as const,
+      ...getProviderPreset("anthropic_official").values
+    };
+
+    expect(getMatchingProviderPresetId(profile)).toBeNull();
+  });
 });
