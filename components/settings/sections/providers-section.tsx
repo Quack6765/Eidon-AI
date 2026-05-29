@@ -104,32 +104,29 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const currentActiveProfile = providerProfiles.find((p) => p.id === selectedProviderProfileId) ?? providerProfiles[0];
 
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
+    activeProviderKind: currentActiveProfile?.providerKind,
+    activeName: currentActiveProfile?.name ?? "",
+    activeApiBaseUrl: currentActiveProfile?.apiBaseUrl ?? "",
+    activeApiKey: currentActiveProfile?.apiKey ?? "",
+    activeModel: currentActiveProfile?.model ?? "",
+    activeApiMode: currentActiveProfile?.apiMode,
     activeSystemPrompt: currentActiveProfile?.systemPrompt ?? "",
-    providerProfiles: providerProfiles.map((p) => ({
-      providerKind: p.providerKind,
-      name: p.name,
-      apiBaseUrl: p.apiBaseUrl,
-      apiKey: p.apiKey,
-      model: p.model,
-      apiMode: p.apiMode,
-      systemPrompt: p.systemPrompt,
-      temperature: p.temperature,
-      maxOutputTokens: p.maxOutputTokens,
-      reasoningEffort: p.reasoningEffort,
-      reasoningSummaryEnabled: p.reasoningSummaryEnabled,
-      modelContextLimit: p.modelContextLimit,
-      compactionThreshold: p.compactionThreshold,
-      freshTailCount: p.freshTailCount,
-      tokenizerModel: p.tokenizerModel,
-      safetyMarginTokens: p.safetyMarginTokens,
-      leafSourceTokenLimit: p.leafSourceTokenLimit,
-      leafMinMessageCount: p.leafMinMessageCount,
-      mergedMinNodeCount: p.mergedMinNodeCount,
-      mergedTargetTokens: p.mergedTargetTokens,
-      visionMode: p.visionMode,
-      visionMcpServerId: p.visionMcpServerId,
-      providerPresetId: p.providerPresetId,
-    })),
+    activeTemperature: currentActiveProfile?.temperature,
+    activeMaxOutputTokens: currentActiveProfile?.maxOutputTokens,
+    activeReasoningEffort: currentActiveProfile?.reasoningEffort,
+    activeReasoningSummaryEnabled: currentActiveProfile?.reasoningSummaryEnabled,
+    activeModelContextLimit: currentActiveProfile?.modelContextLimit,
+    activeCompactionThreshold: currentActiveProfile?.compactionThreshold,
+    activeFreshTailCount: currentActiveProfile?.freshTailCount,
+    activeTokenizerModel: currentActiveProfile?.tokenizerModel,
+    activeSafetyMarginTokens: currentActiveProfile?.safetyMarginTokens,
+    activeLeafSourceTokenLimit: currentActiveProfile?.leafSourceTokenLimit,
+    activeLeafMinMessageCount: currentActiveProfile?.leafMinMessageCount,
+    activeMergedMinNodeCount: currentActiveProfile?.mergedMinNodeCount,
+    activeMergedTargetTokens: currentActiveProfile?.mergedTargetTokens,
+    activeVisionMode: currentActiveProfile?.visionMode,
+    activeVisionMcpServerId: currentActiveProfile?.visionMcpServerId,
+    activeProviderPresetId: currentActiveProfile?.providerPresetId,
     defaultProviderProfileId,
     skillsEnabled,
   });
@@ -621,6 +618,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           updateActiveProviderProfile({ name: event.target.value })
                         }
                         required
+                        className={isFieldDirty("activeName") ? "!border-amber-500/40" : ""}
                       />
                       {isDuplicateName && (
                         <p className="mt-1 text-xs text-red-400">A profile with this name already exists</p>
@@ -642,7 +640,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     <div>
                       <label className={fieldLabel}>Provider type</label>
                       <select
-                        className={selectLike}
+                        className={`${selectLike} ${isFieldDirty("activeProviderKind") ? "!border-amber-500/40" : ""}`}
                         value={activeProviderProfile.providerKind ?? "openai_compatible"}
                         onChange={(event) => {
                           const value = event.target.value as ProviderKind;
@@ -691,7 +689,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             if (!nextPresetId) return;
                             applyPresetToActiveProviderProfile(nextPresetId);
                           }}
-                          className={selectLike}
+                          className={`${selectLike} ${isFieldDirty("activeProviderPresetId") ? "!border-amber-500/40" : ""}`}
                         >
                           <option value="">Manual configuration</option>
                           {PROVIDER_PRESETS.filter(
@@ -766,7 +764,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                                   : {})
                               });
                             }}
-                            className={selectLike}
+                            className={`${selectLike} ${isFieldDirty("activeModel") ? "!border-amber-500/40" : ""}`}
                           >
                             {copilotModels.map((model) => (
                               <option key={model.id} value={model.id}>{model.name}</option>
@@ -796,6 +794,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               updateActiveProviderProfile({ apiBaseUrl: event.target.value, providerPresetId: null })
                             }
                             required
+                            className={isFieldDirty("activeApiBaseUrl") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <div>
@@ -808,6 +807,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               updateActiveProviderProfile({ model: event.target.value })
                             }
                             required
+                            className={isFieldDirty("activeModel") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                       </div>
@@ -827,7 +827,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               })
                             }
                             placeholder={activeProviderProfile.hasApiKey ? maskedApiKeyValue : "sk-..."}
-                            className="pr-10"
+                            className={`pr-10 ${isFieldDirty("activeApiKey") ? "!border-amber-500/40" : ""}`}
                           />
                           <button
                             type="button"
@@ -868,6 +868,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ temperature: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeTemperature") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <div>
@@ -879,6 +880,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ maxOutputTokens: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeMaxOutputTokens") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                       </>
@@ -890,7 +892,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         onChange={(event) =>
                           updateActiveProviderProfile({ reasoningEffort: event.target.value as ReasoningEffort })
                         }
-                        className={selectLike}
+                        className={`${selectLike} ${isFieldDirty("activeReasoningEffort") ? "!border-amber-500/40" : ""}`}
                       >
                         <option value="none">disabled</option>
                         <option value="low">low</option>
@@ -909,7 +911,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               onChange={(event) =>
                                 updateActiveProviderProfile({ apiMode: event.target.value as ApiMode })
                               }
-                              className={selectLike}
+                              className={`${selectLike} ${isFieldDirty("activeApiMode") ? "!border-amber-500/40" : ""}`}
                             >
                               <option value="responses">responses</option>
                               <option value="chat_completions">chat_completions</option>
@@ -935,41 +937,44 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     )}
                     <div>
                       <label className={fieldLabel}>Model context limit</label>
-                      <Input
-                        name="provider-model-context-limit"
-                        type="number"
-                        value={activeProviderProfile.modelContextLimit}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ modelContextLimit: Number(event.target.value || 0) })
-                        }
-                      />
+                         <Input
+                            name="provider-model-context-limit"
+                            type="number"
+                            value={activeProviderProfile.modelContextLimit}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ modelContextLimit: Number(event.target.value || 0) })
+                            }
+                            className={isFieldDirty("activeModelContextLimit") ? "!border-amber-500/40" : ""}
+                          />
                     </div>
                     <div>
                       <label className={fieldLabel}>Compaction threshold %</label>
-                      <Input
-                        name="provider-compaction-threshold"
-                        type="number"
-                        step="1"
-                        min="50"
-                        max="95"
-                        value={Math.round(activeProviderProfile.compactionThreshold * 100)}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({
-                            compactionThreshold: Math.round(Number(event.target.value || 0)) / 100
-                          })
-                        }
-                      />
+                         <Input
+                            name="provider-compaction-threshold"
+                            type="number"
+                            step="1"
+                            min="50"
+                            max="95"
+                            value={Math.round(activeProviderProfile.compactionThreshold * 100)}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({
+                                compactionThreshold: Math.round(Number(event.target.value || 0)) / 100
+                              })
+                            }
+                            className={isFieldDirty("activeCompactionThreshold") ? "!border-amber-500/40" : ""}
+                          />
                     </div>
                     <div>
                       <label className={fieldLabel}>Fresh tail turns</label>
-                      <Input
-                        name="provider-fresh-tail-count"
-                        type="number"
-                        value={activeProviderProfile.freshTailCount}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ freshTailCount: Number(event.target.value || 0) })
-                        }
-                      />
+                         <Input
+                            name="provider-fresh-tail-count"
+                            type="number"
+                            value={activeProviderProfile.freshTailCount}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ freshTailCount: Number(event.target.value || 0) })
+                            }
+                            className={isFieldDirty("activeFreshTailCount") ? "!border-amber-500/40" : ""}
+                          />
                     </div>
                     {!isCopilot && (
                       <>
@@ -980,9 +985,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ tokenizerModel: event.target.value as "gpt-tokenizer" | "off" })
                             }
-                            className={selectLike}
-                          >
-                            <option value="gpt-tokenizer">gpt-tokenizer</option>
+                             className={`${selectLike} ${isFieldDirty("activeTokenizerModel") ? "!border-amber-500/40" : ""}`}
+                            >
+                              <option value="gpt-tokenizer">gpt-tokenizer</option>
                             <option value="off">Off (char / 4)</option>
                           </select>
                         </div>
@@ -995,6 +1000,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ safetyMarginTokens: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeSafetyMarginTokens") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <div>
@@ -1006,6 +1012,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ leafSourceTokenLimit: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeLeafSourceTokenLimit") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <div>
@@ -1017,6 +1024,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ leafMinMessageCount: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeLeafMinMessageCount") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <div>
@@ -1028,6 +1036,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ mergedMinNodeCount: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeMergedMinNodeCount") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <div>
@@ -1039,19 +1048,20 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ mergedTargetTokens: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeMergedTargetTokens") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                       </>
                     )}
                     <div>
                       <label className={fieldLabel}>Vision mode</label>
-                      <select
-                        value={activeProviderProfile.visionMode ?? "native"}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ visionMode: event.target.value as VisionMode })
-                        }
-                        className={selectLike}
-                      >
+                       <select
+                         value={activeProviderProfile.visionMode ?? "native"}
+                         onChange={(event) =>
+                           updateActiveProviderProfile({ visionMode: event.target.value as VisionMode })
+                         }
+                         className={`${selectLike} ${isFieldDirty("activeVisionMode") ? "!border-amber-500/40" : ""}`}
+                       >
                         <option value="native">native</option>
                         <option value="none">none</option>
                         <option value="mcp">mcp</option>
@@ -1060,13 +1070,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     {activeProviderProfile.visionMode === "mcp" && (
                       <div>
                         <label className={fieldLabel}>Vision MCP server</label>
-                        <select
-                          value={activeProviderProfile.visionMcpServerId ?? ""}
-                          onChange={(event) =>
-                            updateActiveProviderProfile({ visionMcpServerId: event.target.value || null })
-                          }
-                          className={selectLike}
-                        >
+                         <select
+                           value={activeProviderProfile.visionMcpServerId ?? ""}
+                           onChange={(event) =>
+                             updateActiveProviderProfile({ visionMcpServerId: event.target.value || null })
+                           }
+                           className={`${selectLike} ${isFieldDirty("activeVisionMcpServerId") ? "!border-amber-500/40" : ""}`}
+                         >
                           <option value="">Select a server...</option>
                           {mcpServers
                             .filter((server) => server.enabled)
