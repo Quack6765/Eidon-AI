@@ -5,7 +5,7 @@ import { Shell } from "@/components/shell";
 import { requireUser } from "@/lib/auth";
 import { getAutomationRun, listAutomations } from "@/lib/automations";
 import { getConversation, listConversationsPage, listQueuedMessages, listVisibleMessages } from "@/lib/conversations";
-import { getConversationDebugStats } from "@/lib/compaction";
+import { getConversationDebugStats, getConversationContextUsage } from "@/lib/compaction";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { listFolders } from "@/lib/folders";
 import { getSanitizedSettings } from "@/lib/settings";
@@ -31,6 +31,7 @@ export default async function AutomationRunPage({
   }
 
   const settings = getSanitizedSettings(user.id);
+  const contextUsage = getConversationContextUsage(conversation.id, user.id);
 
   return (
     <Shell
@@ -52,6 +53,8 @@ export default async function AutomationRunPage({
           },
           providerProfiles: settings.providerProfiles,
           defaultProviderProfileId: settings.defaultProviderProfileId,
+          contextTokens: contextUsage?.contextTokens ?? null,
+          compactionLimit: contextUsage?.compactionLimit ?? 0,
           debug: getConversationDebugStats(conversation.id)
         }}
       />

@@ -50,6 +50,8 @@ type ConversationPayload = {
   settings: Pick<AppSettings, "sttEngine" | "sttLanguage">;
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string | null;
+  contextTokens: number | null;
+  compactionLimit: number;
   debug: {
     rawTurnCount: number;
     memoryNodeCount: number;

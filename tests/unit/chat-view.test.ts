@@ -314,6 +314,8 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
       }
     ],
     defaultProviderProfileId: "profile_default",
+    contextTokens: null,
+    compactionLimit: 12800,
     debug: {
       rawTurnCount: 0,
       memoryNodeCount: 0,

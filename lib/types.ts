@@ -474,6 +474,7 @@ export type ChatStreamEvent =
       outputTokens?: number;
       reasoningTokens?: number;
     }
+  | { type: "context_usage"; contextTokens: number; compactionLimit: number }
   | { type: "done"; messageId: string; message?: Message }
   | { type: "error"; message: string };
 
