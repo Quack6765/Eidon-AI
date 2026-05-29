@@ -6,12 +6,14 @@ vi.mock("@/lib/attachments", () => ({
 
 import {
   buildAnthropicRequest,
+  callAnthropicText,
   extractSystemPrompt,
   mapReasoningEffortToAnthropic,
+  streamAnthropicResponse,
   toAnthropicMessages,
   toAnthropicTools
 } from "@/lib/anthropic";
-import type { ProviderProfileWithApiKey, PromptMessage, ToolDefinition } from "@/lib/types";
+import type { ChatStreamEvent, ProviderProfileWithApiKey, PromptMessage, ToolDefinition } from "@/lib/types";
 
 function baseSettings(overrides: Partial<ProviderProfileWithApiKey> = {}): ProviderProfileWithApiKey {
   return {
@@ -223,5 +225,111 @@ describe("buildAnthropicRequest", () => {
     });
     expect(Array.isArray(params.tools)).toBe(true);
     expect((params.tools as Array<{ name: string }>)[0].name).toBe("t");
+  });
+});
+
+function fakeStreamClient(events: unknown[]) {
+  return {
+    messages: {
+      stream() {
+        return {
+          async *[Symbol.asyncIterator]() {
+            for (const event of events) {
+              yield event;
+            }
+          }
+        };
+      }
+    }
+  } as never;
+}
+
+function fakeCreateClient(content: Array<{ type: string; text?: string }>) {
+  return {
+    messages: {
+      async create() {
+        return { content };
+      }
+    }
+  } as never;
+}
+
+describe("streamAnthropicResponse", () => {
+  it("yields answer/thinking/usage and returns toolCalls + signature", async () => {
+    const events = [
+      { type: "message_start", message: { usage: { input_tokens: 11 } } },
+      { type: "content_block_start", index: 0, content_block: { type: "thinking" } },
+      { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "reason" } },
+      { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "SIG" } },
+      { type: "content_block_start", index: 1, content_block: { type: "text" } },
+      { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "hello" } },
+      { type: "content_block_start", index: 2, content_block: { type: "tool_use", id: "t1", name: "search" } },
+      { type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: '{"q":"x"}' } },
+      { type: "message_delta", usage: { output_tokens: 5 } }
+    ];
+
+    const gen = streamAnthropicResponse({
+      settings: baseSettings({ apiKey: "k" }),
+      promptMessages: [
+        { role: "system", content: "sys" },
+        { role: "user", content: "hi" }
+      ],
+      client: fakeStreamClient(events)
+    });
+
+    const collected: ChatStreamEvent[] = [];
+    let next = await gen.next();
+    while (!next.done) {
+      collected.push(next.value);
+      next = await gen.next();
+    }
+
+    expect(collected).toContainEqual({ type: "answer_delta", text: "hello" });
+    expect(collected).toContainEqual({ type: "thinking_delta", text: "reason" });
+    expect(next.value.answer).toBe("hello");
+    expect(next.value.thinking).toBe("reason");
+    expect(next.value.reasoningSignature).toBe("SIG");
+    expect(next.value.toolCalls).toEqual([{ id: "t1", name: "search", arguments: '{"q":"x"}' }]);
+    expect(next.value.usage.outputTokens).toBe(5);
+  });
+
+  it("suppresses thinking deltas when reasoningSummaryEnabled is false", async () => {
+    const events = [
+      { type: "content_block_start", index: 0, content_block: { type: "thinking" } },
+      { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "secret" } },
+      { type: "content_block_start", index: 1, content_block: { type: "text" } },
+      { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "hi" } }
+    ];
+
+    const gen = streamAnthropicResponse({
+      settings: baseSettings({ apiKey: "k", reasoningSummaryEnabled: false }),
+      promptMessages: [{ role: "user", content: "hi" }],
+      client: fakeStreamClient(events)
+    });
+
+    const collected: ChatStreamEvent[] = [];
+    let next = await gen.next();
+    while (!next.done) {
+      collected.push(next.value);
+      next = await gen.next();
+    }
+
+    expect(collected.some((e) => e.type === "thinking_delta")).toBe(false);
+    expect(next.value.thinking).toBe("secret");
+  });
+});
+
+describe("callAnthropicText", () => {
+  it("concatenates text blocks from the response", async () => {
+    const text = await callAnthropicText({
+      settings: baseSettings({ apiKey: "k" }),
+      messages: [{ role: "user", content: "hi" }],
+      client: fakeCreateClient([
+        { type: "text", text: "con" },
+        { type: "text", text: "nected" }
+      ])
+    });
+
+    expect(text).toBe("connected");
   });
 });

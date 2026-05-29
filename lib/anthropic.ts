@@ -2,9 +2,14 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
+import { normalizeLineBreaks } from "@/lib/text-utils";
+import { estimatePromptTokens } from "@/lib/tokenization";
 import type {
+  ChatStreamEvent,
   PromptMessage,
   ProviderProfile,
+  ProviderProfileWithApiKey,
+  ProviderToolCall,
   ReasoningEffort,
   ToolDefinition
 } from "@/lib/types";
@@ -207,4 +212,119 @@ export function buildAnthropicRequest(input: {
   }
 
   return params;
+}
+
+type AnthropicStreamResult = {
+  answer: string;
+  thinking: string;
+  toolCalls?: ProviderToolCall[];
+  reasoningSignature?: string;
+  usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number };
+};
+
+function createAnthropicClient(settings: ProviderProfileWithApiKey): Anthropic {
+  return new Anthropic({ apiKey: settings.apiKey, baseURL: settings.apiBaseUrl });
+}
+
+export async function* streamAnthropicResponse(input: {
+  settings: ProviderProfileWithApiKey;
+  promptMessages: PromptMessage[];
+  tools?: ToolDefinition[];
+  abortSignal?: AbortSignal;
+  client?: Anthropic;
+}): AsyncGenerator<ChatStreamEvent, AnthropicStreamResult, void> {
+  const client = input.client ?? createAnthropicClient(input.settings);
+  const showThinking = input.settings.reasoningSummaryEnabled;
+  const params = buildAnthropicRequest({
+    settings: input.settings,
+    messages: input.promptMessages,
+    tools: input.tools
+  });
+
+  let answer = "";
+  let thinking = "";
+  let reasoningSignature: string | undefined;
+  const usage: AnthropicStreamResult["usage"] = {
+    inputTokens: estimatePromptTokens(input.promptMessages)
+  };
+  const toolUseBlocks = new Map<number, { id: string; name: string; json: string }>();
+
+  const stream = client.messages.stream(
+    params as never,
+    input.abortSignal ? { signal: input.abortSignal } : undefined
+  ) as AsyncIterable<Record<string, any>>;
+
+  for await (const event of stream) {
+    if (event.type === "message_start") {
+      usage.inputTokens = event.message?.usage?.input_tokens ?? usage.inputTokens;
+    } else if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
+      toolUseBlocks.set(event.index, {
+        id: event.content_block.id,
+        name: event.content_block.name,
+        json: ""
+      });
+    } else if (event.type === "content_block_delta") {
+      const delta = event.delta ?? {};
+      if (delta.type === "text_delta") {
+        const text = normalizeLineBreaks(String(delta.text ?? ""));
+        answer += text;
+        yield { type: "answer_delta", text };
+      } else if (delta.type === "thinking_delta") {
+        const text = String(delta.thinking ?? "");
+        thinking += text;
+        if (showThinking) {
+          yield { type: "thinking_delta", text: normalizeLineBreaks(text) };
+        }
+      } else if (delta.type === "signature_delta") {
+        reasoningSignature = String(delta.signature ?? "");
+      } else if (delta.type === "input_json_delta") {
+        const block = toolUseBlocks.get(event.index);
+        if (block) {
+          block.json += String(delta.partial_json ?? "");
+        }
+      }
+    } else if (event.type === "message_delta") {
+      usage.outputTokens = event.usage?.output_tokens ?? usage.outputTokens;
+    }
+  }
+
+  yield {
+    type: "usage",
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens
+  };
+
+  const toolCalls: ProviderToolCall[] = [...toolUseBlocks.values()].map((block) => ({
+    id: block.id,
+    name: block.name,
+    arguments: block.json || "{}"
+  }));
+
+  return {
+    answer,
+    thinking,
+    toolCalls: toolCalls.length ? toolCalls : undefined,
+    reasoningSignature,
+    usage
+  };
+}
+
+export async function callAnthropicText(input: {
+  settings: ProviderProfileWithApiKey;
+  messages: PromptMessage[];
+  client?: Anthropic;
+}): Promise<string> {
+  const client = input.client ?? createAnthropicClient(input.settings);
+  const params = buildAnthropicRequest({ settings: input.settings, messages: input.messages });
+  const response = (await client.messages.create({
+    ...params,
+    max_tokens: Math.min(input.settings.maxOutputTokens, 4000)
+  } as never)) as { content?: Array<{ type: string; text?: string }> };
+
+  return normalizeLineBreaks(
+    (response.content ?? [])
+      .filter((block) => block.type === "text")
+      .map((block) => block.text ?? "")
+      .join("")
+  );
 }
