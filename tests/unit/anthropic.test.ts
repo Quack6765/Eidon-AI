@@ -293,6 +293,32 @@ describe("streamAnthropicResponse", () => {
     expect(next.value.usage.outputTokens).toBe(5);
   });
 
+  it("sums cached prompt tokens into inputTokens usage", async () => {
+    const events = [
+      {
+        type: "message_start",
+        message: { usage: { input_tokens: 10, cache_read_input_tokens: 100, cache_creation_input_tokens: 5 } }
+      },
+      { type: "content_block_start", index: 0, content_block: { type: "text" } },
+      { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hi" } },
+      { type: "message_delta", usage: { output_tokens: 3 } }
+    ];
+
+    const gen = streamAnthropicResponse({
+      settings: baseSettings({ apiKey: "k" }),
+      promptMessages: [{ role: "user", content: "hi" }],
+      client: fakeStreamClient(events)
+    });
+
+    let next = await gen.next();
+    while (!next.done) {
+      next = await gen.next();
+    }
+
+    expect(next.value.usage.inputTokens).toBe(115);
+    expect(next.value.usage.outputTokens).toBe(3);
+  });
+
   it("suppresses thinking deltas when reasoningSummaryEnabled is false", async () => {
     const events = [
       { type: "content_block_start", index: 0, content_block: { type: "thinking" } },

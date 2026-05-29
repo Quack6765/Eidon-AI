@@ -256,7 +256,13 @@ export async function* streamAnthropicResponse(input: {
 
   for await (const event of stream) {
     if (event.type === "message_start") {
-      usage.inputTokens = event.message?.usage?.input_tokens ?? usage.inputTokens;
+      const startUsage = event.message?.usage;
+      if (startUsage) {
+        usage.inputTokens =
+          (startUsage.input_tokens ?? 0) +
+          (startUsage.cache_read_input_tokens ?? 0) +
+          (startUsage.cache_creation_input_tokens ?? 0);
+      }
     } else if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
       toolUseBlocks.set(event.index, {
         id: event.content_block.id,

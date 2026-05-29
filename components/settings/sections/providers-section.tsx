@@ -607,12 +607,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               providerPresetId: null
                             });
                           } else if (value === "anthropic") {
+                            const { name: _anthropicPresetName, ...anthropicPresetValues } =
+                              getProviderPreset("anthropic_official").values;
                             updateActiveProviderProfile({
                               providerKind: "anthropic",
-                              apiBaseUrl: "https://api.anthropic.com",
-                              model: "claude-opus-4-8",
+                              ...anthropicPresetValues,
                               apiKey: "",
-                              apiMode: "chat_completions",
                               providerPresetId: "anthropic_official"
                             });
                           } else {
