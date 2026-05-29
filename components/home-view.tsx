@@ -352,7 +352,7 @@ export function HomeView({
           textareaRef={textareaRef}
           usedTokens={null}
           modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
-          compactionThreshold={selectedProfile?.compactionThreshold ?? 0.8}
+          compactionLimit={0}
           hasMessages={false}
           canStop={false}
           isStopPending={false}

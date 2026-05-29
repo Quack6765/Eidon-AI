@@ -499,28 +499,22 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
   const [compactionInProgress, setCompactionInProgress] = useState(false);
-  const [usedTokens, setUsedTokens] = useState<number | null>(() => {
-    const sanitized = sanitizeMessages(payload.messages);
-    for (let i = sanitized.length - 1; i >= 0; i--) {
-      const message = sanitized[i];
-      if (message.role === "assistant" && message.status === "completed" && message.estimatedTokens > 0) {
-        return message.estimatedTokens;
-      }
-    }
-    return null;
-  });
+  const [usedTokens, setUsedTokens] = useState<number | null>(() => payload.contextTokens);
+  const [compactionLimit, setCompactionLimit] = useState<number>(payload.compactionLimit);
   const [isConversationActive, setIsConversationActive] = useState(payload.conversation.isActive);
   const hasInitializedTokensRef = useRef(false);
 
   useEffect(() => {
     if (!hasInitializedTokensRef.current) {
       hasInitializedTokensRef.current = true;
-      const tokens = getTokenUsage(payload.conversation.id);
-      if (tokens !== null) {
-        setUsedTokens(tokens);
+      if (payload.contextTokens === null) {
+        const tokens = getTokenUsage(payload.conversation.id);
+        if (tokens !== null) {
+          setUsedTokens(tokens);
+        }
       }
     }
-  }, [payload.conversation.id, getTokenUsage]);
+  }, [payload.conversation.id, payload.contextTokens, getTokenUsage]);
 
   useEffect(() => {
     if (activeConversationIdRef.current === payload.conversation.id) {
@@ -938,12 +932,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       return;
     }
 
-    if (event.type === "usage") {
-      if (event.inputTokens !== undefined) {
-        const total = event.inputTokens + (event.outputTokens ?? 0) + (event.reasoningTokens ?? 0);
-        setUsedTokens(total);
-        setTokenUsage(payload.conversation.id, total);
-      }
+    if (event.type === "context_usage") {
+      setUsedTokens(event.contextTokens);
+      setCompactionLimit(event.compactionLimit);
+      setTokenUsage(payload.conversation.id, event.contextTokens);
       return;
     }
 
@@ -2355,8 +2347,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             onPersonaChange={setPersonaId}
             textareaRef={inputRef}
             usedTokens={usedTokens}
+            compactionLimit={compactionLimit}
             modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
-            compactionThreshold={selectedProfile?.compactionThreshold ?? 0.8}
             hasMessages={messages.length > 0}
             canStop={!!streamMessageId && !isStopPending}
             isStopPending={isStopPending}
