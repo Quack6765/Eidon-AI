@@ -1009,6 +1009,104 @@ describe("chat view", () => {
     );
   });
 
+  it("blurs the composer after sending on touch devices so the mobile keyboard dismisses", async () => {
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 1
+    });
+
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    act(() => {
+      textarea.focus();
+    });
+    expect(textarea).toHaveFocus();
+
+    fireEvent.change(textarea, { target: { value: "Hello world" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "Hello world",
+        attachmentIds: []
+      });
+    });
+
+    expect(textarea).not.toHaveFocus();
+  });
+
+  it("blurs the composer after queuing a follow-up on touch devices", async () => {
+    Object.defineProperty(navigator, "maxTouchPoints", {
+      configurable: true,
+      value: 1
+    });
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          conversation: {
+            ...createPayload().conversation,
+            isActive: true
+          }
+        })
+      })
+    );
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    act(() => {
+      textarea.focus();
+    });
+    expect(textarea).toHaveFocus();
+
+    fireEvent.change(textarea, { target: { value: "Queued follow-up" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "queue_message",
+        conversationId: "conv_1",
+        content: "Queued follow-up"
+      });
+    });
+
+    expect(textarea).not.toHaveFocus();
+  });
+
+  it("keeps the composer focused after sending on non-touch devices", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByPlaceholderText(
+      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
+    );
+
+    await waitFor(() => {
+      expect(textarea).toHaveFocus();
+    });
+
+    fireEvent.change(textarea, { target: { value: "Hello world" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "Hello world",
+        attachmentIds: []
+      });
+    });
+
+    expect(textarea).toHaveFocus();
+  });
+
   it("shows an error instead of queuing a message when the websocket transport is unavailable", async () => {
     wsMock.connected = false;
     wsMock.failed = true;

@@ -88,6 +88,10 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+html.ios-pwa .app-shell {
+  height: calc(100dvh + env(safe-area-inset-top, 0px));
+}
+
 ::selection {
   background: rgba(139, 92, 246, 0.35);
   color: white;
@@ -598,6 +602,14 @@ select {
   }
   .h-mobile-header {
     height: calc(3.5rem + env(safe-area-inset-top, 0px));
+  }
+  .pb-composer-safe {
+    padding-bottom: max(0.5rem, calc(env(safe-area-inset-bottom, 0px) - 1rem));
+  }
+  @media (min-width: 768px) {
+    .pb-composer-safe {
+      padding-bottom: 0.75rem;
+    }
   }
 }
 
