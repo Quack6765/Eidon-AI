@@ -116,6 +116,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     ? activeProviderProfile.providerPresetId ?? getMatchingProviderPresetId(activeProviderProfile)
     : null;
   const isCopilot = activeProviderProfile?.providerKind === "github_copilot";
+  const isAnthropic = activeProviderProfile?.providerKind === "anthropic";
   const isDuplicateName = activeProviderProfile
     ? providerProfiles.some(
         (p) =>
@@ -549,7 +550,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   <p className="mt-1 text-xs text-[var(--muted)]">
                     {isCopilot
                       ? `GitHub Copilot${activeProviderProfile.model ? ` · ${activeProviderProfile.model}` : ""}`
-                      : `${activeProviderProfile.apiBaseUrl} · ${activeProviderProfile.model} · ${activeProviderProfile.apiMode}`}
+                      : isAnthropic
+                        ? `${activeProviderProfile.apiBaseUrl} · ${activeProviderProfile.model}`
+                        : `${activeProviderProfile.apiBaseUrl} · ${activeProviderProfile.model} · ${activeProviderProfile.apiMode}`}
                   </p>
                 </div>
 
@@ -603,6 +606,15 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               tokenizerModel: "off",
                               providerPresetId: null
                             });
+                          } else if (value === "anthropic") {
+                            updateActiveProviderProfile({
+                              providerKind: "anthropic",
+                              apiBaseUrl: "https://api.anthropic.com",
+                              model: "claude-opus-4-8",
+                              apiKey: "",
+                              apiMode: "chat_completions",
+                              providerPresetId: "anthropic_official"
+                            });
                           } else {
                             updateActiveProviderProfile({
                               providerKind: "openai_compatible",
@@ -614,6 +626,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         }}
                       >
                         <option value="openai_compatible">OpenAI compatible</option>
+                        <option value="anthropic">Anthropic compatible</option>
                         <option value="github_copilot">GitHub Copilot</option>
                       </select>
                     </div>
@@ -630,7 +643,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           className={selectLike}
                         >
                           <option value="">Manual configuration</option>
-                          {PROVIDER_PRESETS.map((preset) => (
+                          {PROVIDER_PRESETS.filter(
+                            (preset) => preset.providerKind === (activeProviderProfile.providerKind ?? "openai_compatible")
+                          ).map((preset) => (
                             <option key={preset.id} value={preset.id}>
                               {preset.label}
                             </option>
@@ -835,19 +850,21 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     </div>
                     {!isCopilot && (
                       <>
-                        <div>
-                          <label className={fieldLabel}>API mode</label>
-                          <select
-                            value={activeProviderProfile.apiMode}
-                            onChange={(event) =>
-                              updateActiveProviderProfile({ apiMode: event.target.value as ApiMode })
-                            }
-                            className={selectLike}
-                          >
-                            <option value="responses">responses</option>
-                            <option value="chat_completions">chat_completions</option>
-                          </select>
-                        </div>
+                        {!isAnthropic && (
+                          <div>
+                            <label className={fieldLabel}>API mode</label>
+                            <select
+                              value={activeProviderProfile.apiMode}
+                              onChange={(event) =>
+                                updateActiveProviderProfile({ apiMode: event.target.value as ApiMode })
+                              }
+                              className={selectLike}
+                            >
+                              <option value="responses">responses</option>
+                              <option value="chat_completions">chat_completions</option>
+                            </select>
+                          </div>
+                        )}
                         {activeProviderProfile.reasoningEffort !== "none" && (
                         <div>
                           <label className={fieldLabel}>Reasoning summary</label>

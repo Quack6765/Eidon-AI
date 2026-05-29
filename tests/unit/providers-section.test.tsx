@@ -13,7 +13,7 @@ vi.mock("next/navigation", () => ({
 
 type ProviderProfileFixture = {
   id: string;
-  providerKind: "openai_compatible" | "github_copilot";
+  providerKind: "openai_compatible" | "github_copilot" | "anthropic";
   name: string;
   apiBaseUrl: string;
   model: string;
@@ -34,7 +34,7 @@ type ProviderProfileFixture = {
   mergedTargetTokens: number;
   visionMode: "none" | "native" | "mcp";
   visionMcpServerId: string | null;
-  providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "opencode_go" | "custom_openai_compatible" | null;
+  providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "opencode_go" | "custom_openai_compatible" | "anthropic_official" | "opencode_go_anthropic" | null;
   githubAccountLogin: string | null;
   githubAccountName: string | null;
   githubTokenExpiresAt: string | null;
@@ -471,6 +471,45 @@ describe("providers section", () => {
     const body = JSON.parse(String(putCall?.[1]?.body));
 
     expect(body.providerProfiles[0].compactionThreshold).toBe(0.76);
+  });
+
+  it("offers the Anthropic compatible provider type", async () => {
+    render(React.createElement(ProvidersSection, { settings: makeSettings() }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.getByRole("option", { name: "Anthropic compatible" })).toBeInTheDocument();
+  });
+
+  it("hides the API mode control and lists only anthropic presets for an anthropic profile", async () => {
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          defaultProviderProfileId: "profile_anthropic",
+          providerProfiles: [
+            {
+              ...makeSettings().providerProfiles[0],
+              id: "profile_anthropic",
+              providerKind: "anthropic",
+              name: "Claude",
+              apiBaseUrl: "https://api.anthropic.com",
+              model: "claude-opus-4-8",
+              providerPresetId: "anthropic_official"
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.queryByRole("option", { name: "responses" })).toBeNull();
+    expect(screen.getByRole("option", { name: "Anthropic" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Ollama Cloud" })).toBeNull();
   });
 
   it("persists the default profile when clicking Set Default", async () => {
