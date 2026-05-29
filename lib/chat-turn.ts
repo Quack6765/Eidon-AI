@@ -18,7 +18,7 @@ import {
   updateMessage,
   updateMessageAction
 } from "@/lib/conversations";
-import { ensureCompactedContext } from "@/lib/compaction";
+import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compaction";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import { inferAssistantLocalAttachments, importAssistantLocalFileAttachment } from "@/lib/assistant-local-attachments";
 import { estimateTextTokens } from "@/lib/tokenization";
@@ -645,6 +645,18 @@ async function startAssistantTurn(
       conversationId,
       event: { type: "done", messageId: assistantMessageId, message: completedMessage ?? undefined }
     });
+    const contextUsage = getConversationContextUsage(conversationId);
+    if (contextUsage) {
+      manager.broadcast(conversationId, {
+        type: "delta",
+        conversationId,
+        event: {
+          type: "context_usage",
+          contextTokens: contextUsage.contextTokens ?? 0,
+          compactionLimit: contextUsage.compactionLimit
+        }
+      });
+    }
     return { status: "completed" };
   } catch (error) {
     if (error instanceof ChatTurnStoppedError && assistantMessageId) {

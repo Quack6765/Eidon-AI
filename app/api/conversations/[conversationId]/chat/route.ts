@@ -17,7 +17,7 @@ import {
   updateMessageAction,
 } from "@/lib/conversations";
 import { attachAssistantFilesFromCompletedAction, createAssistantContentPersistenceTracker } from "@/lib/chat-turn";
-import { ensureCompactedContext } from "@/lib/compaction";
+import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compaction";
 import { badRequest } from "@/lib/http";
 import {
   getSettings,
@@ -293,6 +293,14 @@ export async function POST(
           messageId: assistantMessage.id,
           message: getMessage(assistantMessage.id) ?? undefined
         });
+        const contextUsage = getConversationContextUsage(conversation.id);
+        if (contextUsage) {
+          write({
+            type: "context_usage",
+            contextTokens: contextUsage.contextTokens ?? 0,
+            compactionLimit: contextUsage.compactionLimit
+          });
+        }
         setConversationActive(conversation.id, false);
         controller.close();
       } catch (error) {
