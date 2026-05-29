@@ -5,6 +5,7 @@ import {
   AlertCircle,
   ArrowUp,
   Bot,
+  Check,
   ChevronDown,
   FileText,
   LoaderCircle,
@@ -73,15 +74,19 @@ function CustomDropdown<T extends { id: string; name: string }>({
   icon: Icon,
   placeholder,
   disabled,
-  accentColor = "cyan"
+  accentColor = "cyan",
+  mutedWhenEmpty = false,
+  allowDeselect = false
 }: {
   items: T[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   icon: React.ElementType;
-  placeholder: string;
+  placeholder?: string;
   disabled?: boolean;
   accentColor?: "cyan" | "violet";
+  mutedWhenEmpty?: boolean;
+  allowDeselect?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -97,20 +102,29 @@ function CustomDropdown<T extends { id: string; name: string }>({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  const noItems = mutedWhenEmpty && items.length === 0;
+  const isDisabled = disabled || noItems;
+  const isEmpty = mutedWhenEmpty && !selectedId;
+
   const accentClasses = {
     cyan: isOpen ? "text-cyan-400 bg-cyan-400/10" : "text-cyan-400/70 hover:text-cyan-400",
     violet: isOpen ? "text-violet-400 bg-violet-400/10" : "text-violet-400/70 hover:text-violet-400"
   };
 
+  const mutedClasses = noItems
+    ? "text-white/20 cursor-not-allowed"
+    : isOpen ? "text-white/50 bg-white/5" : "text-white/30 hover:text-white/50";
+
   return (
     <div className="relative" ref={containerRef}>
       <button
         type="button"
-        disabled={disabled}
-        onClick={() => setIsOpen(!isOpen)}
+        disabled={isDisabled}
+        onClick={() => { if (!isDisabled) setIsOpen(!isOpen); }}
         className={cn(
-          "flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-all duration-200 hover:bg-white/5",
-          accentClasses[accentColor as keyof typeof accentClasses],
+          "flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-all duration-200",
+          !isDisabled && "hover:bg-white/5",
+          isEmpty || noItems ? mutedClasses : accentClasses[accentColor as keyof typeof accentClasses],
           disabled && "opacity-50 cursor-not-allowed"
         )}
       >
@@ -127,16 +141,18 @@ function CustomDropdown<T extends { id: string; name: string }>({
             )}
           </div>
         )}
-        <ChevronDown className={cn("h-3 w-3 opacity-40 transition-transform duration-200", isOpen && "rotate-180")} />
+        {!noItems && (
+          <ChevronDown className={cn("h-3 w-3 opacity-40 transition-transform duration-200", isOpen && "rotate-180")} />
+        )}
       </button>
 
       <AnimatePresence>
-        {isOpen && (
+        {isOpen && !noItems && (
           <motion.div
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute bottom-full left-0 z-50 mb-2 min-w-[220px] overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/95 p-1.5 shadow-2xl backdrop-blur-xl"
+            className="absolute bottom-full left-0 z-50 mb-2 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/95 p-1.5 shadow-2xl backdrop-blur-xl"
           >
             <div className="max-h-[300px] overflow-y-auto scrollbar-thin">
               {placeholder && (
@@ -159,7 +175,11 @@ function CustomDropdown<T extends { id: string; name: string }>({
                   key={item.id}
                   type="button"
                   onClick={() => {
-                    onSelect(item.id);
+                    if (allowDeselect && selectedId === item.id) {
+                      onSelect(null);
+                    } else {
+                      onSelect(item.id);
+                    }
                     setIsOpen(false);
                   }}
                   className={cn(
@@ -167,15 +187,18 @@ function CustomDropdown<T extends { id: string; name: string }>({
                     selectedId === item.id ? "bg-white/10" : ""
                   )}
                 >
-                  <div className="flex flex-col gap-0.5">
+                  <div className="flex items-center gap-2">
                     <span className={cn(
-                      "text-[12.5px] font-semibold truncate",
+                      "text-[12.5px] font-semibold truncate whitespace-nowrap",
                       selectedId === item.id ? "text-white" : "text-white/80"
                     )}>
                       {item.name}
                     </span>
+                    {selectedId === item.id && allowDeselect && (
+                      <Check className="h-3.5 w-3.5 shrink-0 text-violet-400" />
+                    )}
                     {"model" in item && (
-                      <span className="text-[10px] text-white/40 truncate font-medium">
+                      <span className="text-[10px] text-white/40 truncate font-medium ml-auto">
                         {(item as any).model}
                       </span>
                     )}
@@ -560,9 +583,10 @@ export function ChatComposer({
             selectedId={personaId}
             onSelect={(id) => void onPersonaChange(id)}
             icon={Users}
-            placeholder="None"
             accentColor="violet"
             disabled={!mounted || isSending}
+            mutedWhenEmpty
+            allowDeselect
           />
         </div>
 
