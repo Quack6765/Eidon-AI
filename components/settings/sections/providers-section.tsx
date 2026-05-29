@@ -16,7 +16,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
+import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useToastState } from "@/hooks/use-toast-state";
+import { useDirtyState } from "@/hooks/use-dirty-state";
+import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import { createId } from "@/lib/ids";
 import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
 import {
@@ -99,6 +102,52 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const maskedApiKeyValue = "••••••••";
 
+  const currentActiveProfile = providerProfiles.find((p) => p.id === selectedProviderProfileId) ?? providerProfiles[0];
+
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
+  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
+    activeProviderKind: currentActiveProfile?.providerKind,
+    activeName: currentActiveProfile?.name ?? "",
+    activeApiBaseUrl: currentActiveProfile?.apiBaseUrl ?? "",
+    activeApiKey: currentActiveProfile?.apiKey ?? "",
+    activeModel: currentActiveProfile?.model ?? "",
+    activeApiMode: currentActiveProfile?.apiMode,
+    activeSystemPrompt: currentActiveProfile?.systemPrompt ?? "",
+    activeTemperature: currentActiveProfile?.temperature,
+    activeMaxOutputTokens: currentActiveProfile?.maxOutputTokens,
+    activeReasoningEffort: currentActiveProfile?.reasoningEffort,
+    activeReasoningSummaryEnabled: currentActiveProfile?.reasoningSummaryEnabled,
+    activeModelContextLimit: currentActiveProfile?.modelContextLimit,
+    activeCompactionThreshold: currentActiveProfile?.compactionThreshold,
+    activeFreshTailCount: currentActiveProfile?.freshTailCount,
+    activeTokenizerModel: currentActiveProfile?.tokenizerModel,
+    activeSafetyMarginTokens: currentActiveProfile?.safetyMarginTokens,
+    activeLeafSourceTokenLimit: currentActiveProfile?.leafSourceTokenLimit,
+    activeLeafMinMessageCount: currentActiveProfile?.leafMinMessageCount,
+    activeMergedMinNodeCount: currentActiveProfile?.mergedMinNodeCount,
+    activeMergedTargetTokens: currentActiveProfile?.mergedTargetTokens,
+    activeVisionMode: currentActiveProfile?.visionMode,
+    activeVisionMcpServerId: currentActiveProfile?.visionMcpServerId,
+    defaultProviderProfileId,
+    skillsEnabled,
+  });
+
+  useEffect(() => {
+    registerUnsavedChangesGuard(
+      isDirty
+        ? {
+            isDirty: () => isDirty,
+            save: () => { void handleSettings(new Event("submit") as unknown as FormEvent<HTMLFormElement>); },
+            discard: () => { resetDirty(); },
+            entityType: "your provider settings",
+          }
+        : null
+    );
+    return () => registerUnsavedChangesGuard(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty]);
+
   useEffect(() => {
     fetch("/api/mcp-servers")
       .then((res) => res.json())
@@ -151,6 +200,35 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     );
   }
 
+  function buildDirtySnapshot(profile: ProviderProfileDraft) {
+    return {
+      activeProviderKind: profile.providerKind,
+      activeName: profile.name ?? "",
+      activeApiBaseUrl: profile.apiBaseUrl ?? "",
+      activeApiKey: profile.apiKey ?? "",
+      activeModel: profile.model ?? "",
+      activeApiMode: profile.apiMode,
+      activeSystemPrompt: profile.systemPrompt ?? "",
+      activeTemperature: profile.temperature,
+      activeMaxOutputTokens: profile.maxOutputTokens,
+      activeReasoningEffort: profile.reasoningEffort,
+      activeReasoningSummaryEnabled: profile.reasoningSummaryEnabled,
+      activeModelContextLimit: profile.modelContextLimit,
+      activeCompactionThreshold: profile.compactionThreshold,
+      activeFreshTailCount: profile.freshTailCount,
+      activeTokenizerModel: profile.tokenizerModel,
+      activeSafetyMarginTokens: profile.safetyMarginTokens,
+      activeLeafSourceTokenLimit: profile.leafSourceTokenLimit,
+      activeLeafMinMessageCount: profile.leafMinMessageCount,
+      activeMergedMinNodeCount: profile.mergedMinNodeCount,
+      activeMergedTargetTokens: profile.mergedTargetTokens,
+      activeVisionMode: profile.visionMode,
+      activeVisionMcpServerId: profile.visionMcpServerId,
+      defaultProviderProfileId,
+      skillsEnabled,
+    };
+  }
+
   function addProviderProfile() {
     const template = activeProviderProfile ?? providerProfiles[0];
     const nextProfileId = createId("profile");
@@ -201,6 +279,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     setProviderProfiles((current) => [...current, nextProfile]);
     setSelectedProviderProfileId(nextProfile.id);
     setMobileDetailVisible(true);
+    resetDirty(buildDirtySnapshot(nextProfile));
   }
 
   function applyPresetToActiveProviderProfile(presetId: ProviderPresetId) {
@@ -422,6 +501,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
     if (await saveSettings()) {
       toast.showToast("success", "Provider saved.");
+      resetDirty();
     }
   }
 
@@ -458,6 +538,23 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     setIsSystemPromptOpen(false);
   }
 
+  function handleUnsavedSave() {
+    setUnsavedDialogOpen(false);
+    if (pendingSwitch) {
+      void handleSettings(new Event("submit") as unknown as FormEvent<HTMLFormElement>);
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
+  }
+
+  function handleUnsavedDiscard() {
+    setUnsavedDialogOpen(false);
+    if (pendingSwitch) {
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
+  }
+
   const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
   const inputLike =
     "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
@@ -478,7 +575,14 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
             </div>
             <button
               type="button"
-              onClick={addProviderProfile}
+              onClick={() => {
+                if (isDirty) {
+                  setPendingSwitch(() => () => addProviderProfile());
+                  setUnsavedDialogOpen(true);
+                  return;
+                }
+                addProviderProfile();
+              }}
               className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/[0.07] transition-all duration-200"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -492,8 +596,18 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                 key={profile.id}
                 isActive={profile.id === selectedProviderProfileId}
                 onClick={() => {
+                  if (isDirty && selectedProviderProfileId !== profile.id) {
+                    setPendingSwitch(() => () => {
+                      setSelectedProviderProfileId(profile.id);
+                      setMobileDetailVisible(true);
+                      resetDirty(buildDirtySnapshot(profile));
+                    });
+                    setUnsavedDialogOpen(true);
+                    return;
+                  }
                   setSelectedProviderProfileId(profile.id);
                   setMobileDetailVisible(true);
+                  resetDirty(buildDirtySnapshot(profile));
                 }}
                 title={profile.name}
                 subtitle={
@@ -570,6 +684,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           updateActiveProviderProfile({ name: event.target.value })
                         }
                         required
+                        className={isFieldDirty("activeName") ? "!border-amber-500/40" : ""}
                       />
                       {isDuplicateName && (
                         <p className="mt-1 text-xs text-red-400">A profile with this name already exists</p>
@@ -591,7 +706,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     <div>
                       <label className={fieldLabel}>Provider type</label>
                       <select
-                        className={selectLike}
+                        className={`${selectLike} ${isFieldDirty("activeProviderKind") ? "!border-amber-500/40" : ""}`}
                         value={activeProviderProfile.providerKind ?? "openai_compatible"}
                         onChange={(event) => {
                           const value = event.target.value as ProviderKind;
@@ -715,7 +830,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                                   : {})
                               });
                             }}
-                            className={selectLike}
+                            className={`${selectLike} ${isFieldDirty("activeModel") ? "!border-amber-500/40" : ""}`}
                           >
                             {copilotModels.map((model) => (
                               <option key={model.id} value={model.id}>{model.name}</option>
@@ -745,6 +860,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               updateActiveProviderProfile({ apiBaseUrl: event.target.value, providerPresetId: null })
                             }
                             required
+                            className={isFieldDirty("activeApiBaseUrl") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <div>
@@ -757,6 +873,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               updateActiveProviderProfile({ model: event.target.value })
                             }
                             required
+                            className={isFieldDirty("activeModel") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                       </div>
@@ -776,7 +893,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               })
                             }
                             placeholder={activeProviderProfile.hasApiKey ? maskedApiKeyValue : "sk-..."}
-                            className="pr-10"
+                            className={`pr-10 ${isFieldDirty("activeApiKey") ? "!border-amber-500/40" : ""}`}
                           />
                           <button
                             type="button"
@@ -817,6 +934,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ temperature: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeTemperature") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <div>
@@ -828,6 +946,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ maxOutputTokens: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeMaxOutputTokens") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                       </>
@@ -839,7 +958,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         onChange={(event) =>
                           updateActiveProviderProfile({ reasoningEffort: event.target.value as ReasoningEffort })
                         }
-                        className={selectLike}
+                        className={`${selectLike} ${isFieldDirty("activeReasoningEffort") ? "!border-amber-500/40" : ""}`}
                       >
                         <option value="none">disabled</option>
                         <option value="low">low</option>
@@ -858,7 +977,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               onChange={(event) =>
                                 updateActiveProviderProfile({ apiMode: event.target.value as ApiMode })
                               }
-                              className={selectLike}
+                              className={`${selectLike} ${isFieldDirty("activeApiMode") ? "!border-amber-500/40" : ""}`}
                             >
                               <option value="responses">responses</option>
                               <option value="chat_completions">chat_completions</option>
@@ -868,7 +987,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         {activeProviderProfile.reasoningEffort !== "none" && (
                         <div>
                           <label className={fieldLabel}>Reasoning summary</label>
-                          <label className="flex h-[42px] items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 text-sm text-[var(--muted)] cursor-pointer">
+                          <label className={`flex h-[42px] items-center gap-3 rounded-lg border bg-white/[0.03] px-3 text-sm text-[var(--muted)] cursor-pointer ${isFieldDirty("activeReasoningSummaryEnabled") ? "!border-amber-500/40" : "border-white/[0.06]"}`}>
                             <input
                               type="checkbox"
                               checked={activeProviderProfile.reasoningSummaryEnabled}
@@ -884,41 +1003,44 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     )}
                     <div>
                       <label className={fieldLabel}>Model context limit</label>
-                      <Input
-                        name="provider-model-context-limit"
-                        type="number"
-                        value={activeProviderProfile.modelContextLimit}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ modelContextLimit: Number(event.target.value || 0) })
-                        }
-                      />
+                         <Input
+                            name="provider-model-context-limit"
+                            type="number"
+                            value={activeProviderProfile.modelContextLimit}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ modelContextLimit: Number(event.target.value || 0) })
+                            }
+                            className={isFieldDirty("activeModelContextLimit") ? "!border-amber-500/40" : ""}
+                          />
                     </div>
                     <div>
                       <label className={fieldLabel}>Compaction threshold %</label>
-                      <Input
-                        name="provider-compaction-threshold"
-                        type="number"
-                        step="1"
-                        min="50"
-                        max="95"
-                        value={Math.round(activeProviderProfile.compactionThreshold * 100)}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({
-                            compactionThreshold: Math.round(Number(event.target.value || 0)) / 100
-                          })
-                        }
-                      />
+                         <Input
+                            name="provider-compaction-threshold"
+                            type="number"
+                            step="1"
+                            min="50"
+                            max="95"
+                            value={Math.round(activeProviderProfile.compactionThreshold * 100)}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({
+                                compactionThreshold: Math.round(Number(event.target.value || 0)) / 100
+                              })
+                            }
+                            className={isFieldDirty("activeCompactionThreshold") ? "!border-amber-500/40" : ""}
+                          />
                     </div>
                     <div>
                       <label className={fieldLabel}>Fresh tail turns</label>
-                      <Input
-                        name="provider-fresh-tail-count"
-                        type="number"
-                        value={activeProviderProfile.freshTailCount}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ freshTailCount: Number(event.target.value || 0) })
-                        }
-                      />
+                         <Input
+                            name="provider-fresh-tail-count"
+                            type="number"
+                            value={activeProviderProfile.freshTailCount}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ freshTailCount: Number(event.target.value || 0) })
+                            }
+                            className={isFieldDirty("activeFreshTailCount") ? "!border-amber-500/40" : ""}
+                          />
                     </div>
                     {!isCopilot && (
                       <>
@@ -929,9 +1051,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ tokenizerModel: event.target.value as "gpt-tokenizer" | "off" })
                             }
-                            className={selectLike}
-                          >
-                            <option value="gpt-tokenizer">gpt-tokenizer</option>
+                             className={`${selectLike} ${isFieldDirty("activeTokenizerModel") ? "!border-amber-500/40" : ""}`}
+                            >
+                              <option value="gpt-tokenizer">gpt-tokenizer</option>
                             <option value="off">Off (char / 4)</option>
                           </select>
                         </div>
@@ -944,6 +1066,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ safetyMarginTokens: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeSafetyMarginTokens") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <div>
@@ -955,6 +1078,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ leafSourceTokenLimit: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeLeafSourceTokenLimit") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <div>
@@ -966,6 +1090,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ leafMinMessageCount: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeLeafMinMessageCount") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <div>
@@ -977,6 +1102,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ mergedMinNodeCount: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeMergedMinNodeCount") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <div>
@@ -988,19 +1114,20 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({ mergedTargetTokens: Number(event.target.value || 0) })
                             }
+                            className={isFieldDirty("activeMergedTargetTokens") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                       </>
                     )}
                     <div>
                       <label className={fieldLabel}>Vision mode</label>
-                      <select
-                        value={activeProviderProfile.visionMode ?? "native"}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ visionMode: event.target.value as VisionMode })
-                        }
-                        className={selectLike}
-                      >
+                       <select
+                         value={activeProviderProfile.visionMode ?? "native"}
+                         onChange={(event) =>
+                           updateActiveProviderProfile({ visionMode: event.target.value as VisionMode })
+                         }
+                         className={`${selectLike} ${isFieldDirty("activeVisionMode") ? "!border-amber-500/40" : ""}`}
+                       >
                         <option value="native">native</option>
                         <option value="none">none</option>
                         <option value="mcp">mcp</option>
@@ -1009,13 +1136,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     {activeProviderProfile.visionMode === "mcp" && (
                       <div>
                         <label className={fieldLabel}>Vision MCP server</label>
-                        <select
-                          value={activeProviderProfile.visionMcpServerId ?? ""}
-                          onChange={(event) =>
-                            updateActiveProviderProfile({ visionMcpServerId: event.target.value || null })
-                          }
-                          className={selectLike}
-                        >
+                         <select
+                           value={activeProviderProfile.visionMcpServerId ?? ""}
+                           onChange={(event) =>
+                             updateActiveProviderProfile({ visionMcpServerId: event.target.value || null })
+                           }
+                           className={`${selectLike} ${isFieldDirty("activeVisionMcpServerId") ? "!border-amber-500/40" : ""}`}
+                         >
                           <option value="">Select a server...</option>
                           {mcpServers
                             .filter((server) => server.enabled)
@@ -1055,12 +1182,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                       </p>
                       <div
                         onClick={openSystemPrompt}
-                        className="cursor-pointer rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 hover:bg-white/[0.06] transition-colors"
+                        className={`cursor-pointer rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 hover:bg-white/[0.06] transition-colors ${isFieldDirty("activeSystemPrompt") ? "border-amber-500/40" : "border-white/6"}`}
                       >
                         {activeProviderProfile.systemPrompt || "No system prompt set"}
                       </div>
                     </div>
-                    <label className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2.5 text-sm text-[var(--muted)] cursor-pointer">
+                    <label className={`flex items-center gap-3 rounded-lg border bg-white/[0.03] px-3 py-2.5 text-sm text-[var(--muted)] cursor-pointer ${isFieldDirty("skillsEnabled") ? "!border-amber-500/40" : "border-white/[0.06]"}`}>
                       <input
                         type="checkbox"
                         checked={skillsEnabled}
@@ -1075,6 +1202,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                 <div className={`${sectionDivider} py-5`}>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
+                      {isDirty && (
+                        <span className="flex items-center gap-1 text-xs text-amber-400/80">
+                          <span className="text-[0.5rem]">●</span> Unsaved changes
+                        </span>
+                      )}
                       <Button type="submit" className="px-3 py-1.5 text-xs" disabled={isDuplicateName}>
                         Save
                       </Button>
@@ -1119,6 +1251,14 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     {testResult.text}
                   </p>
                 ) : null}
+
+                <UnsavedChangesDialog
+                  open={unsavedDialogOpen}
+                  onOpenChange={setUnsavedDialogOpen}
+                  entityType="your provider settings"
+                  onSave={handleUnsavedSave}
+                  onDiscard={handleUnsavedDiscard}
+                />
 
                 <ConfirmDialog
                   open={deleteConfirmOpen}

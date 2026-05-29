@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
@@ -18,6 +19,8 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
+import { getUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import type { AuthUser } from "@/lib/types";
 
 const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || "dev";
@@ -42,15 +45,13 @@ function NavSection({
   title,
   items,
   pathname,
-  onCloseAction
+  onNavigate,
 }: {
   title: string;
   items: ReadonlyArray<{ href: string; label: string; icon: typeof Settings }>;
   pathname: string;
-  onCloseAction: () => void;
+  onNavigate: (href: string, event: React.MouseEvent) => void;
 }) {
-  const router = useRouter();
-
   return (
     <div className="space-y-2">
       <p className="px-4 text-[10px] font-semibold uppercase tracking-[0.28em] text-white/30">
@@ -65,18 +66,7 @@ function NavSection({
             <Link
               key={item.href}
               href={item.href}
-              onClick={(event) => {
-                if (
-                  !event.defaultPrevented &&
-                  !event.metaKey &&
-                  !event.ctrlKey &&
-                  event.button === 0
-                ) {
-                  event.preventDefault();
-                  onCloseAction();
-                  router.push(item.href);
-                }
-              }}
+              onClick={(event) => onNavigate(item.href, event)}
               className={`flex items-center gap-3 rounded-2xl px-4 py-3 transition-all duration-300 ${
                 isActive
                   ? "bg-white/[0.05] text-white font-semibold"
@@ -111,6 +101,50 @@ export function SettingsNav({
   const pathname = usePathname();
   const router = useRouter();
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
+  const [pendingNavTarget, setPendingNavTarget] = useState<string | null>(null);
+
+  function navigateWithGuard(href: string, event: React.MouseEvent) {
+    if (
+      !event.defaultPrevented &&
+      !event.metaKey &&
+      !event.ctrlKey &&
+      event.button === 0
+    ) {
+      event.preventDefault();
+      const guard = getUnsavedChangesGuard();
+      if (guard && guard.isDirty()) {
+        setPendingNavTarget(href);
+        setUnsavedDialogOpen(true);
+        return;
+      }
+      onCloseAction();
+      router.push(href);
+    }
+  }
+
+  function handleUnsavedSave() {
+    const guard = getUnsavedChangesGuard();
+    if (guard) guard.save();
+    setUnsavedDialogOpen(false);
+    if (pendingNavTarget) {
+      onCloseAction();
+      router.push(pendingNavTarget);
+      setPendingNavTarget(null);
+    }
+  }
+
+  function handleUnsavedDiscard() {
+    const guard = getUnsavedChangesGuard();
+    if (guard) guard.discard();
+    setUnsavedDialogOpen(false);
+    if (pendingNavTarget) {
+      onCloseAction();
+      router.push(pendingNavTarget);
+      setPendingNavTarget(null);
+    }
+  }
+
   const serverItems =
     currentUser.role !== "admin"
       ? []
@@ -137,18 +171,7 @@ export function SettingsNav({
         <div className="flex items-center gap-3 mb-8 px-2">
           <Link
             href="/"
-            onClick={(event) => {
-              if (
-                !event.defaultPrevented &&
-                !event.metaKey &&
-                !event.ctrlKey &&
-                event.button === 0
-              ) {
-                event.preventDefault();
-                onCloseAction();
-                router.push("/");
-              }
-            }}
+            onClick={(event) => navigateWithGuard("/", event)}
             className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/5 hover:bg-white/10 transition-all duration-300"
             aria-label="Back to chat"
           >
@@ -164,7 +187,7 @@ export function SettingsNav({
             title="Workspace"
             items={PERSONAL_ITEMS}
             pathname={pathname}
-            onCloseAction={onCloseAction}
+            onNavigate={navigateWithGuard}
           />
 
           {serverItems.length > 0 ? (
@@ -172,7 +195,7 @@ export function SettingsNav({
               title="Server"
               items={serverItems}
               pathname={pathname}
-              onCloseAction={onCloseAction}
+              onNavigate={navigateWithGuard}
             />
           ) : null}
         </div>
@@ -198,6 +221,16 @@ export function SettingsNav({
           </div>
         </div>
       </div>
+      {createPortal(
+        <UnsavedChangesDialog
+          open={unsavedDialogOpen}
+          onOpenChange={setUnsavedDialogOpen}
+          entityType={getUnsavedChangesGuard()?.entityType ?? "your settings"}
+          onSave={handleUnsavedSave}
+          onDiscard={handleUnsavedDiscard}
+        />,
+        document.body
+      )}
     </aside>
   );
 }

@@ -4,8 +4,6 @@ import { useEffect, useId, useState } from "react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Toast } from "@/components/ui/toast";
-import { useToastState } from "@/hooks/use-toast-state";
 
 type TextEditModalProps = {
   open: boolean;
@@ -30,23 +28,20 @@ export function TextEditModal({
 }: TextEditModalProps) {
   const titleId = useId();
   const [draft, setDraft] = useState(value);
-  const toast = useToastState();
 
   useEffect(() => {
     if (open) {
       setDraft(value);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, value]);
 
   function handleClose() {
     onOpenChange(false);
   }
 
-  function handleSave() {
+  function handleDone() {
     onChange(draft);
     onOpenChange(false);
-    toast.showToast("success", "Saved successfully !");
   }
 
   return (
@@ -93,20 +88,15 @@ export function TextEditModal({
               <Button
                 type="button"
                 className="px-3 py-1.5 text-xs"
-                onClick={handleSave}
+                onClick={handleDone}
                 disabled={readOnly}
               >
-                Save
+                Done
               </Button>
             </div>
           </div>
         </div>
       )}
-      <Toast
-        visible={toast.visible}
-        variant={toast.variant}
-        message={toast.message}
-      />
     </>
   );
 }

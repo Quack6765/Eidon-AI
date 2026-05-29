@@ -8,8 +8,11 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
+import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
+import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
+import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import type { Skill } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -30,6 +33,30 @@ export function SkillsSection() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
+  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
+    skillName,
+    skillDescription,
+    skillContent,
+    skillEnabledDraft,
+  });
+
+  useEffect(() => {
+    registerUnsavedChangesGuard(
+      isDirty
+        ? {
+            isDirty: () => isDirty,
+            save: () => { saveSkill(); },
+            discard: () => { resetDirty(); },
+            entityType: "this skill",
+          }
+        : null
+    );
+    return () => registerUnsavedChangesGuard(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty]);
 
   useEffect(() => {
     fetch("/api/skills")
@@ -125,6 +152,7 @@ export function SkillsSection() {
     toast.showToast("success", "Skill saved.");
     setIsAddingNew(false);
     setMobileDetailVisible(true);
+    resetDirty({ skillName, skillDescription, skillContent, skillEnabledDraft });
   }
 
   function saveInstructions(value: string) {
@@ -151,6 +179,15 @@ export function SkillsSection() {
   }
 
   function handleSelectSkill(skill: Skill) {
+    if (isDirty && selectedSkillId !== skill.id) {
+      setPendingSwitch(() => () => selectSkill(skill));
+      setUnsavedDialogOpen(true);
+      return;
+    }
+    selectSkill(skill);
+  }
+
+  function selectSkill(skill: Skill) {
     setEditingSkillId(skill.id);
     setSkillName(skill.name);
     setSkillDescription(skill.description);
@@ -160,9 +197,19 @@ export function SkillsSection() {
     setSelectedSkillId(skill.id);
     setIsAddingNew(false);
     setMobileDetailVisible(true);
+    resetDirty({ skillName: skill.name, skillDescription: skill.description, skillContent: skill.content, skillEnabledDraft: skill.enabled });
   }
 
   function handleAddNew() {
+    if (isDirty) {
+      setPendingSwitch(() => () => addNewSkill());
+      setUnsavedDialogOpen(true);
+      return;
+    }
+    addNewSkill();
+  }
+
+  function addNewSkill() {
     setEditingSkillId(null);
     setSkillName("");
     setSkillDescription("");
@@ -172,6 +219,24 @@ export function SkillsSection() {
     setSelectedSkillId(null);
     setIsAddingNew(true);
     setMobileDetailVisible(true);
+    resetDirty({ skillName: "", skillDescription: "", skillContent: "", skillEnabledDraft: true });
+  }
+
+  function handleUnsavedSave() {
+    setUnsavedDialogOpen(false);
+    if (pendingSwitch) {
+      saveSkill();
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
+  }
+
+  function handleUnsavedDiscard() {
+    setUnsavedDialogOpen(false);
+    if (pendingSwitch) {
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
   }
 
   function handleImportFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -195,6 +260,7 @@ export function SkillsSection() {
   }
 
   function resetSkillForm() {
+    const empty = { skillName: "", skillDescription: "", skillContent: "", skillEnabledDraft: true as boolean };
     setSkillName("");
     setSkillDescription("");
     setSkillContent("");
@@ -204,6 +270,7 @@ export function SkillsSection() {
     setIsAddingNew(false);
     setMobileDetailVisible(false);
     toast.dismissToast();
+    resetDirty(empty);
   }
 
   const selectedSkill = skills.find((s) => s.id === selectedSkillId);
@@ -313,7 +380,7 @@ export function SkillsSection() {
                       onChange={(e) => setSkillName(e.target.value)}
                       placeholder="Skill name"
                       disabled={isBuiltin}
-                      className={inputLike}
+                      className={`${inputLike} ${isFieldDirty("skillName") ? "!border-amber-500/40" : ""}`}
                     />
                   </div>
                   <div>
@@ -323,7 +390,7 @@ export function SkillsSection() {
                       onChange={(e) => setSkillDescription(e.target.value)}
                       placeholder="Explain when this skill should and should not trigger"
                       disabled={isBuiltin}
-                      className={inputLike}
+                      className={`${inputLike} ${isFieldDirty("skillDescription") ? "!border-amber-500/40" : ""}`}
                     />
                   </div>
                   <div>
@@ -340,9 +407,9 @@ export function SkillsSection() {
                     </div>
                     <div
                       onClick={() => { if (!isBuiltin) setIsInstructionsOpen(true); }}
-                      className={`rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 transition-colors ${
-                        isBuiltin ? "opacity-60 cursor-default" : "cursor-pointer hover:bg-white/[0.06]"
-                      }`}
+                      className={`rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 transition-colors ${
+                        isFieldDirty("skillContent") ? "border-amber-500/40" : "border-white/6"
+                      } ${isBuiltin ? "opacity-60 cursor-default" : "cursor-pointer hover:bg-white/[0.06]"}`}
                     >
                       {skillContent || "No instructions set"}
                     </div>
@@ -351,7 +418,7 @@ export function SkillsSection() {
 
                 {selectedSkill ? (
                   <div className="flex gap-2 pt-2">
-                    <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--muted)] transition-colors hover:border-white/15">
+                    <label className={`flex cursor-pointer items-center gap-2 rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] transition-colors hover:border-white/15 ${isFieldDirty("skillEnabledDraft") ? "!border-amber-500/40" : "border-white/6"}`}>
                       <input
                         type="checkbox"
                         checked={skillEnabledDraft}
@@ -365,6 +432,11 @@ export function SkillsSection() {
 
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2">
+                    {isDirty && (
+                      <span className="flex items-center gap-1 text-xs text-amber-400/80">
+                        <span className="text-[0.5rem]">●</span> Unsaved changes
+                      </span>
+                    )}
                     <Button type="button" className="px-3 py-1.5 text-xs" onClick={saveSkill}>
                       Save
                     </Button>
@@ -395,6 +467,13 @@ export function SkillsSection() {
                   subtitle="Skill instructions are applied when the skill is activated"
                   placeholder="Enter the full skill instructions..."
                   readOnly={isBuiltin}
+                />
+                <UnsavedChangesDialog
+                  open={unsavedDialogOpen}
+                  onOpenChange={setUnsavedDialogOpen}
+                  entityType="this skill"
+                  onSave={handleUnsavedSave}
+                  onDiscard={handleUnsavedDiscard}
                 />
                 <ConfirmDialog
                   open={deleteConfirmOpen}
