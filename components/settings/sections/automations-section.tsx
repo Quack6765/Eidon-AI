@@ -11,6 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Toast } from "@/components/ui/toast";
 import { useToastState } from "@/hooks/use-toast-state";
+import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
+import { useDirtyState } from "@/hooks/use-dirty-state";
+import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import type { Automation, Persona } from "@/lib/types";
 
 type SettingsPayload = {
@@ -99,6 +102,25 @@ export function AutomationsSection() {
   const toast = useToastState();
   const [isLoading, setIsLoading] = useState(true);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState(form);
+
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
+
+  useEffect(() => {
+    registerUnsavedChangesGuard(
+      isDirty
+        ? {
+            isDirty: () => isDirty,
+            save: () => { void saveAutomation(); },
+            discard: () => { resetDirty(); },
+            entityType: "this automation",
+          }
+        : null
+    );
+    return () => registerUnsavedChangesGuard(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty]);
 
   async function loadData() {
     setIsLoading(true);
@@ -149,19 +171,40 @@ export function AutomationsSection() {
   }, [defaultProviderProfileId, form.providerProfileId, isAddingNew, providerProfiles]);
 
   function openAutomation(automation: Automation) {
+    if (isDirty && selectedAutomationId !== automation.id) {
+      setPendingSwitch(() => () => selectAutomation(automation));
+      setUnsavedDialogOpen(true);
+      return;
+    }
+    selectAutomation(automation);
+  }
+
+  function selectAutomation(automation: Automation) {
     setSelectedAutomationId(automation.id);
     setIsAddingNew(false);
     setForm(automationToForm(automation));
     toast.dismissToast();
     setMobileDetailVisible(true);
+    resetDirty(automationToForm(automation));
   }
 
   function openNewAutomation() {
+    if (isDirty) {
+      setPendingSwitch(() => () => newAutomation());
+      setUnsavedDialogOpen(true);
+      return;
+    }
+    newAutomation();
+  }
+
+  function newAutomation() {
     setSelectedAutomationId(null);
     setIsAddingNew(true);
-    setForm(createDefaultForm(defaultProviderProfileId || providerProfiles[0]?.id || ""));
+    const defaults = createDefaultForm(defaultProviderProfileId || providerProfiles[0]?.id || "");
+    setForm(defaults);
     toast.dismissToast();
     setMobileDetailVisible(true);
+    resetDirty(defaults);
   }
 
   function resetSelection() {
@@ -169,7 +212,9 @@ export function AutomationsSection() {
     setIsAddingNew(false);
     toast.dismissToast();
     setMobileDetailVisible(false);
-    setForm(createDefaultForm(defaultProviderProfileId || providerProfiles[0]?.id || ""));
+    const defaults = createDefaultForm(defaultProviderProfileId || providerProfiles[0]?.id || "");
+    setForm(defaults);
+    resetDirty(defaults);
   }
 
   function toggleWeekday(day: number) {
@@ -250,6 +295,7 @@ export function AutomationsSection() {
     setForm(automationToForm(data.automation));
     setMobileDetailVisible(true);
     toast.showToast("success", "Automation saved.");
+    resetDirty(automationToForm(data.automation));
   }
 
   async function deleteSelectedAutomation() {
@@ -276,6 +322,24 @@ export function AutomationsSection() {
   function handleDeleteConfirm() {
     deleteSelectedAutomation();
     setDeleteConfirmOpen(false);
+  }
+
+  function handleUnsavedSave() {
+    setUnsavedDialogOpen(false);
+    if (pendingSwitch) {
+      saveAutomation();
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
+  }
+
+  function handleUnsavedDiscard() {
+    setUnsavedDialogOpen(false);
+    resetDirty();
+    if (pendingSwitch) {
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
   }
 
   const showDetail = isAddingNew || Boolean(selectedAutomationId);
@@ -366,6 +430,7 @@ export function AutomationsSection() {
                         value={form.name}
                         onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
                         placeholder="Morning summary"
+                        className={isFieldDirty("name") ? "!border-amber-500/40" : ""}
                       />
                     </div>
 
@@ -377,6 +442,7 @@ export function AutomationsSection() {
                         onChange={(event) => setForm((current) => ({ ...current, prompt: event.target.value }))}
                         placeholder="Summarize priorities, blockers, and open follow-ups."
                         rows={7}
+                        className={isFieldDirty("prompt") ? "!border-amber-500/40" : ""}
                       />
                     </div>
 
@@ -385,7 +451,7 @@ export function AutomationsSection() {
                         <label className={fieldLabel}>Provider profile</label>
                         <select
                           aria-label="Provider profile"
-                          className={selectLike}
+                          className={`${selectLike} ${isFieldDirty("providerProfileId") ? "!border-amber-500/40" : ""}`}
                           value={form.providerProfileId}
                           onChange={(event) => setForm((current) => ({ ...current, providerProfileId: event.target.value }))}
                         >
@@ -402,7 +468,7 @@ export function AutomationsSection() {
                         <label className={fieldLabel}>Persona</label>
                         <select
                           aria-label="Persona"
-                          className={selectLike}
+                          className={`${selectLike} ${isFieldDirty("personaId") ? "!border-amber-500/40" : ""}`}
                           value={form.personaId ?? ""}
                           onChange={(event) =>
                             setForm((current) => ({
@@ -432,7 +498,7 @@ export function AutomationsSection() {
                         <label className={fieldLabel}>Cadence</label>
                         <select
                           aria-label="Schedule type"
-                          className={selectLike}
+                          className={`${selectLike} ${isFieldDirty("scheduleKind") ? "!border-amber-500/40" : ""}`}
                           value={form.scheduleKind}
                           onChange={(event) =>
                             setForm((current) => ({
@@ -446,7 +512,7 @@ export function AutomationsSection() {
                         </select>
                       </div>
 
-                      <label className="flex items-center gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] cursor-pointer">
+                      <label className={`flex items-center gap-3 rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--text)] cursor-pointer ${isFieldDirty("enabled") ? "!border-amber-500/40" : "border-white/6"}`}>
                         <input
                           type="checkbox"
                           checked={form.enabled}
@@ -472,6 +538,7 @@ export function AutomationsSection() {
                                 intervalMinutes: Number(event.target.value) || 0
                               }))
                             }
+                            className={isFieldDirty("intervalMinutes") ? "!border-amber-500/40" : ""}
                           />
                         </div>
                         <p className="pb-3 text-sm text-[var(--muted)]">
@@ -485,7 +552,7 @@ export function AutomationsSection() {
                             <label className={fieldLabel}>Frequency</label>
                             <select
                               aria-label="Calendar frequency"
-                              className={selectLike}
+                              className={`${selectLike} ${isFieldDirty("calendarFrequency") ? "!border-amber-500/40" : ""}`}
                               value={form.calendarFrequency}
                               onChange={(event) =>
                                 setForm((current) => ({
@@ -506,6 +573,7 @@ export function AutomationsSection() {
                               type="time"
                               value={form.timeOfDay}
                               onChange={(event) => setForm((current) => ({ ...current, timeOfDay: event.target.value }))}
+                              className={isFieldDirty("timeOfDay") ? "!border-amber-500/40" : ""}
                             />
                           </div>
                         </div>
@@ -544,6 +612,11 @@ export function AutomationsSection() {
                 <div className={`${sectionDivider} py-5`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex flex-wrap items-center gap-2">
+                      {isDirty && (
+                        <span className="flex items-center gap-1 text-xs text-amber-400/80">
+                          <span className="text-[0.5rem]">●</span> Unsaved changes
+                        </span>
+                      )}
                       <Button type="button" className="px-3 py-1.5 text-xs" onClick={() => void saveAutomation()}>
                         Save
                       </Button>
@@ -568,6 +641,13 @@ export function AutomationsSection() {
                   visible={toast.visible}
                   variant={toast.variant}
                   message={toast.message}
+                />
+                <UnsavedChangesDialog
+                  open={unsavedDialogOpen}
+                  onOpenChange={setUnsavedDialogOpen}
+                  entityType="this automation"
+                  onSave={handleUnsavedSave}
+                  onDiscard={handleUnsavedDiscard}
                 />
                 <ConfirmDialog
                   open={deleteConfirmOpen}

@@ -8,7 +8,10 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Toast } from "@/components/ui/toast";
+import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
+import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
+import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import type { McpServer, McpTransport } from "@/lib/types";
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
@@ -34,6 +37,34 @@ export function McpServersSection() {
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
+
+  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
+    mcpName,
+    mcpTransport,
+    mcpUrl,
+    mcpHeaders,
+    mcpCommand,
+    mcpArgs,
+    mcpEnv,
+    mcpEnabledDraft,
+  });
+
+  useEffect(() => {
+    registerUnsavedChangesGuard(
+      isDirty
+        ? {
+            isDirty: () => isDirty,
+            save: () => { saveMcpServer(); },
+            discard: () => { resetDirty(); },
+            entityType: "this server",
+          }
+        : null
+    );
+    return () => registerUnsavedChangesGuard(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty]);
 
   useEffect(() => {
     fetch("/api/mcp-servers")
@@ -150,6 +181,16 @@ export function McpServersSection() {
     }
 
     toast.showToast("success", "MCP saved.");
+    resetDirty({
+      mcpName,
+      mcpTransport,
+      mcpUrl,
+      mcpHeaders,
+      mcpCommand,
+      mcpArgs,
+      mcpEnv,
+      mcpEnabledDraft,
+    });
   }
 
   async function testMcpServer(serverId?: string) {
@@ -259,9 +300,29 @@ export function McpServersSection() {
     setMcpEnv(server.env ? JSON.stringify(server.env, null, 2) : "");
     setMcpDraftTestResult(mcpRowTestResults[server.id] ?? null);
     setMcpEnabledDraft(server.enabled);
+    resetDirty({
+      mcpName: server.name,
+      mcpTransport: server.transport ?? "streamable_http",
+      mcpUrl: server.url,
+      mcpHeaders: JSON.stringify(server.headers, null, 2),
+      mcpCommand: server.command ?? "",
+      mcpArgs: server.args ? JSON.stringify(server.args) : "",
+      mcpEnv: server.env ? JSON.stringify(server.env, null, 2) : "",
+      mcpEnabledDraft: server.enabled,
+    });
   }
 
   function resetMcpForm() {
+    const empty = {
+      mcpName: "",
+      mcpTransport: "streamable_http" as McpTransport,
+      mcpUrl: "",
+      mcpHeaders: "",
+      mcpCommand: "",
+      mcpArgs: "",
+      mcpEnv: "",
+      mcpEnabledDraft: true as boolean,
+    };
     setMcpTransport("streamable_http");
     setMcpName("");
     setMcpUrl("");
@@ -274,9 +335,20 @@ export function McpServersSection() {
     setMcpDraftTestResult(null);
     setSelectedServerId(null);
     setIsAddingNew(false);
+    resetDirty(empty);
   }
 
   function handleSelectServer(server: McpServer) {
+    if (isDirty && selectedServerId !== server.id) {
+      setPendingSwitch(() => () => {
+        editMcpServer(server);
+        setSelectedServerId(server.id);
+        setIsAddingNew(false);
+        setMobileDetailVisible(true);
+      });
+      setUnsavedDialogOpen(true);
+      return;
+    }
     editMcpServer(server);
     setSelectedServerId(server.id);
     setIsAddingNew(false);
@@ -284,10 +356,37 @@ export function McpServersSection() {
   }
 
   function handleAddNew() {
+    if (isDirty) {
+      setPendingSwitch(() => () => {
+        resetMcpForm();
+        setIsAddingNew(true);
+        setSelectedServerId(null);
+        setMobileDetailVisible(true);
+      });
+      setUnsavedDialogOpen(true);
+      return;
+    }
     resetMcpForm();
     setIsAddingNew(true);
     setSelectedServerId(null);
     setMobileDetailVisible(true);
+  }
+
+  function handleUnsavedSave() {
+    setUnsavedDialogOpen(false);
+    if (pendingSwitch) {
+      saveMcpServer();
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
+  }
+
+  function handleUnsavedDiscard() {
+    setUnsavedDialogOpen(false);
+    if (pendingSwitch) {
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
   }
 
   const selectedServer = mcpServers.find((s) => s.id === selectedServerId);
@@ -365,6 +464,7 @@ export function McpServersSection() {
                     value={mcpName}
                     onChange={(e) => setMcpName(e.target.value)}
                     placeholder="My MCP Server"
+                    className={isFieldDirty("mcpName") ? "!border-amber-500/40" : ""}
                   />
                 </div>
                 <div>
@@ -372,7 +472,7 @@ export function McpServersSection() {
                   <select
                     value={mcpTransport}
                     onChange={(e) => setMcpTransport(e.target.value as McpTransport)}
-                    className={selectLike}
+                    className={`${selectLike} ${isFieldDirty("mcpTransport") ? "!border-amber-500/40" : ""}`}
                   >
                     <option value="streamable_http">Streamable HTTP</option>
                     <option value="stdio">Local stdio</option>
@@ -386,6 +486,7 @@ export function McpServersSection() {
                         value={mcpUrl}
                         onChange={(e) => setMcpUrl(e.target.value)}
                         placeholder="https://..."
+                        className={isFieldDirty("mcpUrl") ? "!border-amber-500/40" : ""}
                       />
                     </div>
                     <div>
@@ -395,6 +496,7 @@ export function McpServersSection() {
                         onChange={(e) => setMcpHeaders(e.target.value)}
                         placeholder='{"Authorization": "Bearer ..."}'
                         rows={2}
+                        className={isFieldDirty("mcpHeaders") ? "!border-amber-500/40" : ""}
                       />
                     </div>
                   </>
@@ -406,6 +508,7 @@ export function McpServersSection() {
                         value={mcpCommand}
                         onChange={(e) => setMcpCommand(e.target.value)}
                         placeholder="uvx or npx"
+                        className={isFieldDirty("mcpCommand") ? "!border-amber-500/40" : ""}
                       />
                       <p className="mt-1 text-xs text-[var(--muted)]">
                         Use &quot;uvx&quot; for Python-based servers or &quot;npx&quot; for Node.js-based servers.
@@ -421,6 +524,7 @@ export function McpServersSection() {
                             ? "-y @modelcontextprotocol/server-fetch"
                             : "mcp-server-fetch"
                         }
+                        className={isFieldDirty("mcpArgs") ? "!border-amber-500/40" : ""}
                       />
                     </div>
                     <div>
@@ -430,6 +534,7 @@ export function McpServersSection() {
                         onChange={(e) => setMcpEnv(e.target.value)}
                         placeholder='{"API_KEY": "..."}'
                         rows={2}
+                        className={isFieldDirty("mcpEnv") ? "!border-amber-500/40" : ""}
                       />
                     </div>
                   </>
@@ -438,7 +543,7 @@ export function McpServersSection() {
 
               {editingMcpId ? (
                 <div className="flex items-center gap-2">
-                  <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)]">
+                  <label className={`flex cursor-pointer items-center gap-3 rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--text)] transition-colors ${isFieldDirty("mcpEnabledDraft") ? "border-amber-500/40" : "border-white/6"}`}>
                     <input
                       type="checkbox"
                       checked={mcpEnabledDraft}
@@ -453,6 +558,11 @@ export function McpServersSection() {
               <div className={`${sectionDivider} py-5`}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
+                  {isDirty && (
+                    <span className="flex items-center gap-1 text-xs text-amber-400/80">
+                      <span className="text-[0.5rem]">●</span> Unsaved changes
+                    </span>
+                  )}
                   <Button type="button" className="px-3 py-1.5 text-xs" onClick={() => void saveMcpServer()}>
                     Save
                   </Button>
@@ -505,6 +615,13 @@ export function McpServersSection() {
                   {mcpDraftTestResult.text}
                 </p>
               )}
+              <UnsavedChangesDialog
+                open={unsavedDialogOpen}
+                onOpenChange={setUnsavedDialogOpen}
+                entityType="this server"
+                onSave={handleUnsavedSave}
+                onDiscard={handleUnsavedDiscard}
+              />
             </div>
           ) : (
             <div className="flex h-full items-center justify-center">

@@ -418,7 +418,7 @@ export function SkillsSection() {
 
                 {selectedSkill ? (
                   <div className="flex gap-2 pt-2">
-                    <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--muted)] transition-colors hover:border-white/15">
+                    <label className={`flex cursor-pointer items-center gap-2 rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] transition-colors hover:border-white/15 ${isFieldDirty("skillEnabledDraft") ? "!border-amber-500/40" : "border-white/6"}`}>
                       <input
                         type="checkbox"
                         checked={skillEnabledDraft}

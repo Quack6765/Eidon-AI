@@ -129,7 +129,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     activeMergedTargetTokens: currentActiveProfile?.mergedTargetTokens,
     activeVisionMode: currentActiveProfile?.visionMode,
     activeVisionMcpServerId: currentActiveProfile?.visionMcpServerId,
-    activeProviderPresetId: currentActiveProfile?.providerPresetId,
     defaultProviderProfileId,
     skillsEnabled,
   });
@@ -201,6 +200,35 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     );
   }
 
+  function buildDirtySnapshot(profile: ProviderProfileDraft) {
+    return {
+      activeProviderKind: profile.providerKind,
+      activeName: profile.name ?? "",
+      activeApiBaseUrl: profile.apiBaseUrl ?? "",
+      activeApiKey: profile.apiKey ?? "",
+      activeModel: profile.model ?? "",
+      activeApiMode: profile.apiMode,
+      activeSystemPrompt: profile.systemPrompt ?? "",
+      activeTemperature: profile.temperature,
+      activeMaxOutputTokens: profile.maxOutputTokens,
+      activeReasoningEffort: profile.reasoningEffort,
+      activeReasoningSummaryEnabled: profile.reasoningSummaryEnabled,
+      activeModelContextLimit: profile.modelContextLimit,
+      activeCompactionThreshold: profile.compactionThreshold,
+      activeFreshTailCount: profile.freshTailCount,
+      activeTokenizerModel: profile.tokenizerModel,
+      activeSafetyMarginTokens: profile.safetyMarginTokens,
+      activeLeafSourceTokenLimit: profile.leafSourceTokenLimit,
+      activeLeafMinMessageCount: profile.leafMinMessageCount,
+      activeMergedMinNodeCount: profile.mergedMinNodeCount,
+      activeMergedTargetTokens: profile.mergedTargetTokens,
+      activeVisionMode: profile.visionMode,
+      activeVisionMcpServerId: profile.visionMcpServerId,
+      defaultProviderProfileId,
+      skillsEnabled,
+    };
+  }
+
   function addProviderProfile() {
     const template = activeProviderProfile ?? providerProfiles[0];
     const nextProfileId = createId("profile");
@@ -251,6 +279,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     setProviderProfiles((current) => [...current, nextProfile]);
     setSelectedProviderProfileId(nextProfile.id);
     setMobileDetailVisible(true);
+    resetDirty(buildDirtySnapshot(nextProfile));
   }
 
   function applyPresetToActiveProviderProfile(presetId: ProviderPresetId) {
@@ -520,7 +549,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
   function handleUnsavedDiscard() {
     setUnsavedDialogOpen(false);
-    resetDirty();
     if (pendingSwitch) {
       pendingSwitch();
       setPendingSwitch(null);
@@ -572,12 +600,14 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     setPendingSwitch(() => () => {
                       setSelectedProviderProfileId(profile.id);
                       setMobileDetailVisible(true);
+                      resetDirty(buildDirtySnapshot(profile));
                     });
                     setUnsavedDialogOpen(true);
                     return;
                   }
                   setSelectedProviderProfileId(profile.id);
                   setMobileDetailVisible(true);
+                  resetDirty(buildDirtySnapshot(profile));
                 }}
                 title={profile.name}
                 subtitle={
@@ -725,7 +755,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             if (!nextPresetId) return;
                             applyPresetToActiveProviderProfile(nextPresetId);
                           }}
-                          className={`${selectLike} ${isFieldDirty("activeProviderPresetId") ? "!border-amber-500/40" : ""}`}
+                          className={selectLike}
                         >
                           <option value="">Manual configuration</option>
                           {PROVIDER_PRESETS.filter(
@@ -957,7 +987,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         {activeProviderProfile.reasoningEffort !== "none" && (
                         <div>
                           <label className={fieldLabel}>Reasoning summary</label>
-                          <label className="flex h-[42px] items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 text-sm text-[var(--muted)] cursor-pointer">
+                          <label className={`flex h-[42px] items-center gap-3 rounded-lg border bg-white/[0.03] px-3 text-sm text-[var(--muted)] cursor-pointer ${isFieldDirty("activeReasoningSummaryEnabled") ? "!border-amber-500/40" : "border-white/[0.06]"}`}>
                             <input
                               type="checkbox"
                               checked={activeProviderProfile.reasoningSummaryEnabled}
@@ -1157,7 +1187,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         {activeProviderProfile.systemPrompt || "No system prompt set"}
                       </div>
                     </div>
-                    <label className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2.5 text-sm text-[var(--muted)] cursor-pointer">
+                    <label className={`flex items-center gap-3 rounded-lg border bg-white/[0.03] px-3 py-2.5 text-sm text-[var(--muted)] cursor-pointer ${isFieldDirty("skillsEnabled") ? "!border-amber-500/40" : "border-white/[0.06]"}`}>
                       <input
                         type="checkbox"
                         checked={skillsEnabled}
