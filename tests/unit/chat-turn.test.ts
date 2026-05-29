@@ -1618,4 +1618,93 @@ describe("chat-turn", () => {
     expect(typeof contextEvent!.compactionLimit).toBe("number");
   });
 
+  it("does not broadcast context_usage when usage is unavailable", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+    const { getConversationContextUsage } = await import("@/lib/compaction");
+
+    const manager = createConversationManager();
+    const sent: unknown[] = [];
+    const mockWs = createMockSocket(vi.fn((data: string) => sent.push(JSON.parse(data))));
+
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+    manager.subscribe(conv.id, mockWs);
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+    vi.mocked(getConversationContextUsage).mockReturnValueOnce(null);
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Hi", []);
+
+    const contextEvent = (sent.filter(
+      (s: unknown) => (s as { type: string }).type === "delta"
+    ) as Array<{ event: { type: string } }>)
+      .map((m) => m.event)
+      .find((e) => e?.type === "context_usage");
+    expect(contextEvent).toBeUndefined();
+  });
+
+  it("broadcasts context_usage with zero when contextTokens is null", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateSettings } = await import("@/lib/settings");
+    const { getConversationContextUsage } = await import("@/lib/compaction");
+
+    const manager = createConversationManager();
+    const sent: unknown[] = [];
+    const mockWs = createMockSocket(vi.fn((data: string) => sent.push(JSON.parse(data))));
+
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+    manager.subscribe(conv.id, mockWs);
+
+    mockedStreamProviderResponse.mockReturnValueOnce(
+      (async function* () {
+        yield { type: "answer_delta", text: "Hello" };
+        return { answer: "Hello", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+    vi.mocked(getConversationContextUsage).mockReturnValueOnce({ contextTokens: null, compactionLimit: 8192 });
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "Hi", []);
+
+    const contextEvent = (sent.filter(
+      (s: unknown) => (s as { type: string }).type === "delta"
+    ) as Array<{ event: { type: string; contextTokens?: number; compactionLimit?: number } }>)
+      .map((m) => m.event)
+      .find((e) => e?.type === "context_usage");
+    expect(contextEvent!.contextTokens).toBe(0);
+    expect(contextEvent!.compactionLimit).toBe(8192);
+  });
+
 });

@@ -2,6 +2,7 @@ import {
   buildPromptMessages,
   ensureCompactedContext,
   estimateContextUsage,
+  getConversationContextUsage,
   getConversationDebugStats
 } from "@/lib/compaction";
 import { getDb } from "@/lib/db";
@@ -1499,4 +1500,33 @@ describe("estimateContextUsage", () => {
       estimateContextUsage(withoutAction.id, settings).contextTokens
     );
   });
+
+  it("getConversationContextUsage returns null for a missing conversation", () => {
+    seedProfile();
+    expect(getConversationContextUsage("conv_does_not_exist")).toBeNull();
+  });
+
+  it("getConversationContextUsage returns numeric contextTokens for a conversation with messages", () => {
+    seedProfile();
+    const conversation = createConversation();
+    createMessage({ conversationId: conversation.id, role: "user", content: "Hello there" });
+    createMessage({ conversationId: conversation.id, role: "assistant", content: "Hi, how can I help?" });
+
+    const usage = getConversationContextUsage(conversation.id);
+    expect(usage).not.toBeNull();
+    expect(usage!.compactionLimit).toBe(12000);
+    expect(typeof usage!.contextTokens).toBe("number");
+    expect(usage!.contextTokens as number).toBeGreaterThan(0);
+  });
+
+  it("getConversationContextUsage returns null contextTokens for a conversation with no content messages", () => {
+    seedProfile();
+    const conversation = createConversation();
+
+    const usage = getConversationContextUsage(conversation.id);
+    expect(usage).not.toBeNull();
+    expect(usage!.contextTokens).toBeNull();
+    expect(usage!.compactionLimit).toBe(12000);
+  });
+
 });
