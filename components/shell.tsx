@@ -16,6 +16,7 @@ import type { AuthUser, Automation, Conversation, ConversationListPage, Folder }
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { consumeHomeSubmitSidebarAutoHide } from "@/lib/chat-bootstrap";
 import { useGlobalWebSocket } from "@/lib/ws-client";
+import { useIosPwa } from "@/lib/use-ios-pwa";
 
 const COPY_RESET_DELAY_MS = 1600;
 const COPY_FADE_DURATION_MS = 200;
@@ -60,6 +61,7 @@ export function Shell({
   const pathname = usePathname();
   const router = useRouter();
   useGlobalWebSocket();
+  useIosPwa();
   const activeConversationId = pathname.startsWith("/chat/")
     ? pathname.split("/chat/")[1]
     : null;
@@ -282,7 +284,7 @@ export function Shell({
   }, [isSettingsPage, isAutomationsPage, pathname]);
 
   return (
-    <div className="flex h-[100dvh] w-full bg-[var(--background)] overflow-hidden">
+    <div className="app-shell flex h-[100dvh] w-full bg-[var(--background)] overflow-hidden">
       <AnimatePresence>
         {isSidebarOpen && (
           <motion.div
