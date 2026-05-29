@@ -246,6 +246,40 @@ ${JSON.stringify({
     expect(result.answer).toBe("Done");
   });
 
+  it("reports the final provider call's usage, not the sum across tool steps", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }],
+          usage: { inputTokens: 100 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done",
+          thinking: "",
+          usage: { inputTokens: 5000, outputTokens: 200 }
+        })
+      );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Write release notes" }],
+      skills: [createSkill()],
+      mcpToolSets: [],
+      onEvent: () => {},
+      onActionStart: () => "act_skill",
+      onActionComplete: () => {}
+    });
+
+    expect(result.usage.inputTokens).toBe(5000);
+    expect(result.usage.outputTokens).toBe(200);
+  });
+
   it("keeps assistant reasoning on the replayed tool-call message", async () => {
     streamProviderResponse
       .mockReturnValueOnce(

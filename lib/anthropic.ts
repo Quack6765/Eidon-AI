@@ -258,10 +258,11 @@ export async function* streamAnthropicResponse(input: {
     if (event.type === "message_start") {
       const startUsage = event.message?.usage;
       if (startUsage) {
-        usage.inputTokens =
+        const reportedInputTokens =
           (startUsage.input_tokens ?? 0) +
           (startUsage.cache_read_input_tokens ?? 0) +
           (startUsage.cache_creation_input_tokens ?? 0);
+        usage.inputTokens = Math.max(reportedInputTokens, usage.inputTokens ?? 0);
       }
     } else if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
       toolUseBlocks.set(event.index, {

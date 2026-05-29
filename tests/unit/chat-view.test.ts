@@ -314,6 +314,8 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
       }
     ],
     defaultProviderProfileId: "profile_default",
+    contextTokens: null,
+    compactionLimit: 12800,
     debug: {
       rawTurnCount: 0,
       memoryNodeCount: 0,
@@ -4097,6 +4099,7 @@ describe("chat view", () => {
         createMessage({ id: "msg_assistant_1", role: "assistant", content: "Hi there", estimatedTokens: 20 })
       ]
     });
+    payload.contextTokens = 20;
     renderWithProvider(React.createElement(ChatView, { payload }));
 
     await waitFor(() => {
@@ -4119,106 +4122,61 @@ describe("chat view", () => {
     expect(screen.queryByText("Context")).toBeNull();
   });
 
-  it("updates token usage gauge when usage event arrives", async () => {
-    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
+  it("shows the gauge on load from payload.contextTokens with no usage event", async () => {
+    const payload = createPayload({ messages: [createMessage({ id: "a1", role: "assistant", content: "Hi" })] });
+    payload.conversation.id = "conv_ctx_load";
+    payload.contextTokens = 6400;
+    payload.compactionLimit = 12800;
+    renderWithProvider(React.createElement(ChatView, { payload }));
     await waitFor(() => {
       expect(screen.getByText("Test conversation")).toBeInTheDocument();
     });
-
-    const input = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
-    fireEvent.change(input, { target: { value: "Hello" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => {
-      expect(screen.getByText("Hello")).toBeInTheDocument();
-    });
-
-    act(() => {
-      wsMock.onMessage!({
-        type: "snapshot",
-        conversationId: "conv_1",
-        messages: [
-          {
-            id: "msg_user",
-            conversationId: "conv_1",
-            role: "user",
-            content: "Hello",
-            thinkingContent: "",
-            status: "completed",
-            estimatedTokens: 5,
-            systemKind: null,
-            compactedAt: null,
-            createdAt: new Date().toISOString()
-          }
-        ]
-      });
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "message_start", messageId: "msg_assistant" }
-      });
-    });
-
-    act(() => {
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "usage", inputTokens: 50000 }
-      });
-    });
-
-    await waitFor(() => {
-      expect(screen.getByRole("progressbar")).toBeInTheDocument();
-    });
-
-    expect(screen.getByText("100%")).toBeInTheDocument();
+    expect(screen.getByText("50%")).toBeInTheDocument();
   });
 
-  it("keeps the context label hidden until usage data arrives", async () => {
-    const payload = createPayload();
-    payload.conversation.id = "conv_no_usage";
+  it("updates the gauge from a context_usage event using the compaction limit denominator", async () => {
+    const payload = createPayload({ messages: [createMessage({ id: "a1", role: "assistant", content: "Hi" })] });
+    payload.conversation.id = "conv_ctx_event";
+    payload.compactionLimit = 12800;
     renderWithProvider(React.createElement(ChatView, { payload }));
-
     await waitFor(() => {
       expect(screen.getByText("Test conversation")).toBeInTheDocument();
     });
-
-    const input = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
-    fireEvent.change(input, { target: { value: "Hello" } });
-    fireEvent.keyDown(input, { key: "Enter" });
-
-    await waitFor(() => {
-      expect(screen.getByText("Hello")).toBeInTheDocument();
-    });
-
     act(() => {
       wsMock.onMessage!({
-        type: "snapshot",
-        conversationId: "conv_no_usage",
-        messages: [
-          {
-            id: "msg_user",
-            conversationId: "conv_no_usage",
-            role: "user",
-            content: "Hello",
-            thinkingContent: "",
-            status: "completed",
-            estimatedTokens: 5,
-            systemKind: null,
-            compactedAt: null,
-            createdAt: new Date().toISOString()
-          }
-        ]
+        type: "delta",
+        conversationId: "conv_ctx_event",
+        event: { type: "context_usage", contextTokens: 9600, compactionLimit: 12800 }
       });
     });
+    await waitFor(() => {
+      expect(screen.getByText("75%")).toBeInTheDocument();
+    });
+  });
 
-    expect(screen.queryByText("Context")).toBeNull();
-    expect(screen.queryByRole("progressbar")).toBeNull();
+  it("uses compactionLimit as the gauge denominator independent of modelContextLimit", async () => {
+    const payload = createPayload({ messages: [createMessage({ id: "a1", role: "assistant", content: "Hi" })] });
+    payload.conversation.id = "conv_ctx_denom";
+    payload.contextTokens = 5000;
+    payload.compactionLimit = 10000;
+    renderWithProvider(React.createElement(ChatView, { payload }));
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+    expect(screen.getByText("50%")).toBeInTheDocument();
+  });
+
+  it("caps the gauge at 100% when context exceeds the compaction limit", async () => {
+    const payload = createPayload({ messages: [createMessage({ id: "a1", role: "assistant", content: "Hi" })] });
+    payload.conversation.id = "conv_ctx_over";
+    payload.contextTokens = 15000;
+    payload.compactionLimit = 12800;
+    renderWithProvider(React.createElement(ChatView, { payload }));
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+    expect(screen.getByText("100%")).toBeInTheDocument();
   });
 
   it("replaces the assistant message with the finalized message from a done event", async () => {

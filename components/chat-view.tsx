@@ -50,6 +50,8 @@ type ConversationPayload = {
   settings: Pick<AppSettings, "sttEngine" | "sttLanguage">;
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string | null;
+  contextTokens: number | null;
+  compactionLimit: number;
   debug: {
     rawTurnCount: number;
     memoryNodeCount: number;
@@ -497,23 +499,22 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
   const [compactionInProgress, setCompactionInProgress] = useState(false);
-  const [usedTokens, setUsedTokens] = useState<number | null>(() => {
-    const sanitized = sanitizeMessages(payload.messages);
-    if (sanitized.length === 0) return null;
-    return sanitized.reduce((sum, m) => sum + m.estimatedTokens, 0);
-  });
+  const [usedTokens, setUsedTokens] = useState<number | null>(() => payload.contextTokens);
+  const [compactionLimit, setCompactionLimit] = useState<number>(payload.compactionLimit);
   const [isConversationActive, setIsConversationActive] = useState(payload.conversation.isActive);
   const hasInitializedTokensRef = useRef(false);
 
   useEffect(() => {
     if (!hasInitializedTokensRef.current) {
       hasInitializedTokensRef.current = true;
-      const tokens = getTokenUsage(payload.conversation.id);
-      if (tokens !== null) {
-        setUsedTokens(tokens);
+      if (payload.contextTokens === null) {
+        const tokens = getTokenUsage(payload.conversation.id);
+        if (tokens !== null) {
+          setUsedTokens(tokens);
+        }
       }
     }
-  }, [payload.conversation.id, getTokenUsage]);
+  }, [payload.conversation.id, payload.contextTokens, getTokenUsage]);
 
   useEffect(() => {
     if (activeConversationIdRef.current === payload.conversation.id) {
@@ -931,12 +932,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       return;
     }
 
-    if (event.type === "usage") {
-      if (event.inputTokens !== undefined) {
-        console.log(`[ChatView] Usage event received for ${payload.conversation.id}: ${event.inputTokens} tokens`);
-        setUsedTokens(event.inputTokens);
-        setTokenUsage(payload.conversation.id, event.inputTokens);
-      }
+    if (event.type === "context_usage") {
+      setUsedTokens(event.contextTokens);
+      setCompactionLimit(event.compactionLimit);
+      setTokenUsage(payload.conversation.id, event.contextTokens);
       return;
     }
 
@@ -2348,8 +2347,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             onPersonaChange={setPersonaId}
             textareaRef={inputRef}
             usedTokens={usedTokens}
+            compactionLimit={compactionLimit}
             modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
-            compactionThreshold={selectedProfile?.compactionThreshold ?? 0.8}
             hasMessages={messages.length > 0}
             canStop={!!streamMessageId && !isStopPending}
             isStopPending={isStopPending}

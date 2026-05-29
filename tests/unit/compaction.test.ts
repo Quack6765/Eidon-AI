@@ -1,10 +1,12 @@
 import {
   buildPromptMessages,
   ensureCompactedContext,
+  estimateContextUsage,
+  getConversationContextUsage,
   getConversationDebugStats
 } from "@/lib/compaction";
 import { getDb } from "@/lib/db";
-import { createConversation, createMessage, listMessages } from "@/lib/conversations";
+import { createConversation, createMessage, createMessageAction, listMessages } from "@/lib/conversations";
 import { getDefaultProviderProfileWithApiKey, updateSettings } from "@/lib/settings";
 import { createMemory, deleteMemory } from "@/lib/memories";
 import type { PromptMessage } from "@/lib/types";
@@ -1424,5 +1426,120 @@ describe("getConversationDebugStats", () => {
     expect(stats.rawTurnCount).toBe(2);
     expect(stats.memoryNodeCount).toBe(0);
     expect(stats.latestCompactionAt).toBeNull();
+  });
+});
+
+describe("estimateContextUsage", () => {
+  function seedProfile() {
+    updateSettings({
+      defaultProviderProfileId: "profile_default",
+      skillsEnabled: true,
+      providerProfiles: [
+        {
+          id: "profile_default",
+          name: "Default",
+          apiBaseUrl: "https://api.example.com/v1",
+          apiKey: "sk-test",
+          model: "gpt-test",
+          apiMode: "responses",
+          systemPrompt: "You are a helpful assistant.",
+          temperature: 0.2,
+          maxOutputTokens: 4000,
+          reasoningEffort: "medium",
+          reasoningSummaryEnabled: true,
+          modelContextLimit: 20000,
+          compactionThreshold: 0.8,
+          freshTailCount: 8,
+          safetyMarginTokens: 1000
+        }
+      ]
+    });
+  }
+
+  it("returns the compaction limit and prompt-token estimate", () => {
+    seedProfile();
+
+    const userContent = "Hello there";
+    const assistantContent = "Hi, how can I help?";
+    const conversation = createConversation();
+    createMessage({ conversationId: conversation.id, role: "user", content: userContent });
+    createMessage({ conversationId: conversation.id, role: "assistant", content: assistantContent });
+
+    const settings = getDefaultProviderProfileWithApiKey()!;
+    const { contextTokens, compactionLimit } = estimateContextUsage(conversation.id, settings);
+
+    expect(compactionLimit).toBe(12000);
+    const charFloor = Math.floor((userContent.length + assistantContent.length) / 4);
+    expect(contextTokens).toBeGreaterThanOrEqual(charFloor);
+  });
+
+  it("does not count transient tool results", () => {
+    seedProfile();
+    const settings = getDefaultProviderProfileWithApiKey()!;
+
+    const withoutAction = createConversation();
+    createMessage({ conversationId: withoutAction.id, role: "user", content: "Run a search" });
+    createMessage({ conversationId: withoutAction.id, role: "assistant", content: "Done." });
+
+    const withAction = createConversation();
+    createMessage({ conversationId: withAction.id, role: "user", content: "Run a search" });
+    const assistantMsg = createMessage({
+      conversationId: withAction.id,
+      role: "assistant",
+      content: "Done."
+    });
+    createMessageAction({
+      messageId: assistantMsg.id,
+      kind: "mcp_tool_call",
+      status: "completed",
+      label: "search",
+      resultSummary: "result ".repeat(10000)
+    });
+
+    expect(estimateContextUsage(withAction.id, settings).contextTokens).toBe(
+      estimateContextUsage(withoutAction.id, settings).contextTokens
+    );
+  });
+
+  it("getConversationContextUsage returns null for a missing conversation", () => {
+    seedProfile();
+    expect(getConversationContextUsage("conv_does_not_exist")).toBeNull();
+  });
+
+  it("getConversationContextUsage returns numeric contextTokens for a conversation with messages", () => {
+    seedProfile();
+    const conversation = createConversation();
+    createMessage({ conversationId: conversation.id, role: "user", content: "Hello there" });
+    createMessage({ conversationId: conversation.id, role: "assistant", content: "Hi, how can I help?" });
+
+    const usage = getConversationContextUsage(conversation.id);
+    expect(usage).not.toBeNull();
+    expect(usage!.compactionLimit).toBe(12000);
+    expect(typeof usage!.contextTokens).toBe("number");
+    expect(usage!.contextTokens as number).toBeGreaterThan(0);
+  });
+
+  it("getConversationContextUsage returns null contextTokens for a conversation with no content messages", () => {
+    seedProfile();
+    const conversation = createConversation();
+
+    const usage = getConversationContextUsage(conversation.id);
+    expect(usage).not.toBeNull();
+    expect(usage!.contextTokens).toBeNull();
+    expect(usage!.compactionLimit).toBe(12000);
+  });
+
+  it("estimateContextUsage matches ensureCompactedContext's first-pass promptTokens", async () => {
+    seedProfile();
+    const conversation = createConversation();
+    createMessage({ conversationId: conversation.id, role: "user", content: "Hello there, how are you today?" });
+    createMessage({ conversationId: conversation.id, role: "assistant", content: "I am well, thanks for asking." });
+
+    const settings = getDefaultProviderProfileWithApiKey()!;
+    const estimate = estimateContextUsage(conversation.id, settings);
+    const compacted = await ensureCompactedContext(conversation.id, settings, {});
+
+    expect(estimate.contextTokens).toBe(compacted.promptTokens);
+    expect(estimate.compactionLimit).toBe(12000);
   });
 });

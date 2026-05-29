@@ -4,7 +4,7 @@ import { ChatView } from "@/components/chat-view";
 import { Shell } from "@/components/shell";
 import { requireUser } from "@/lib/auth";
 import { getConversation, listConversationsPage, listQueuedMessages, listVisibleMessages } from "@/lib/conversations";
-import { getConversationDebugStats } from "@/lib/compaction";
+import { getConversationDebugStats, getConversationContextUsage } from "@/lib/compaction";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { listFolders } from "@/lib/folders";
 import { getSanitizedSettings } from "@/lib/settings";
@@ -66,6 +66,8 @@ export default async function ConversationPage({
       ? { ...conversation, providerProfileId: resolvedProviderProfileId }
       : conversation;
 
+  const contextUsage = getConversationContextUsage(conversation.id, user.id);
+
   return (
     <Shell
       currentUser={user}
@@ -86,6 +88,8 @@ export default async function ConversationPage({
           },
           providerProfiles: settings.providerProfiles,
           defaultProviderProfileId: settings.defaultProviderProfileId,
+          contextTokens: contextUsage?.contextTokens ?? null,
+          compactionLimit: contextUsage?.compactionLimit ?? 0,
           debug: getConversationDebugStats(conversation.id)
         }}
       />

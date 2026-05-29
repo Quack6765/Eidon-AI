@@ -49,7 +49,7 @@ type ChatComposerProps = {
   className?: string;
   usedTokens: number | null;
   modelContextLimit: number;
-  compactionThreshold: number;
+  compactionLimit: number;
   hasMessages: boolean;
   canStop: boolean;
   isStopPending: boolean;
@@ -233,7 +233,7 @@ export function ChatComposer({
   className,
   usedTokens,
   modelContextLimit,
-  compactionThreshold,
+  compactionLimit,
   hasMessages,
   canStop,
   isStopPending,
@@ -596,7 +596,7 @@ export function ChatComposer({
               <span className="text-[10px] text-white/20 font-medium tracking-wider uppercase hidden md:inline-block">Context</span>
               <ContextGauge
                 usedTokens={usedTokens}
-                usableLimit={Math.floor(modelContextLimit * compactionThreshold)}
+                usableLimit={compactionLimit}
                 maxLimit={modelContextLimit}
               />
             </div>

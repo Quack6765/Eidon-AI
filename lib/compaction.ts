@@ -1,6 +1,6 @@
 import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
 import { listMemories } from "@/lib/memories";
-import { getSettings } from "@/lib/settings";
+import { getDefaultProviderProfileWithApiKey, getProviderProfileWithApiKey, getSettings, getSettingsForUser } from "@/lib/settings";
 import {
   bumpConversation,
   getConversation,
@@ -686,6 +686,42 @@ export function buildPromptMessages(input: {
   return promptMessages;
 }
 
+function computeCompactionLimit(settings: ProviderProfileWithApiKey): number {
+  const allowedPromptTokens =
+    settings.modelContextLimit - settings.maxOutputTokens - settings.safetyMarginTokens;
+  return Math.floor(allowedPromptTokens * settings.compactionThreshold);
+}
+
+function computeFirstPassContext(
+  conversationId: string,
+  settings: ProviderProfileWithApiKey,
+  personaContent: string | undefined,
+  freshTailCount: number,
+  activeMemoryNodes: MemoryNode[],
+  memoriesEnabled: boolean
+): { promptMessages: PromptMessage[]; contextTokens: number; compactionLimit: number } {
+  const conversationOwnerId = getConversationOwnerId(conversationId);
+  const compactionLimit = computeCompactionLimit(settings);
+
+  const messages = listMessages(conversationId);
+  const visibleMessages = getVisibleConversationMessages(messages);
+  const visibleSystemMessages = visibleMessages.filter((message) => message.role === "system");
+  const freshMessages = getFreshConversationMessages(messages, freshTailCount);
+  const promptHistoryMessages = [...visibleSystemMessages, ...freshMessages];
+
+  const promptMessages = buildPromptMessages({
+    systemPrompt: settings.systemPrompt,
+    personaContent,
+    messages: promptHistoryMessages,
+    activeMemoryNodes,
+    maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
+    memoriesEnabled,
+    memoryUserId: conversationOwnerId ?? undefined
+  });
+
+  return { promptMessages, contextTokens: estimatePromptTokens(promptMessages), compactionLimit };
+}
+
 export async function ensureCompactedContext(
   conversationId: string,
   settings: ProviderProfileWithApiKey,
@@ -703,9 +739,7 @@ export async function ensureCompactedContext(
   const persona = personaId ? getPersona(personaId, conversationOwnerId ?? undefined) : null;
   const personaContent = persona?.content;
 
-  const allowedPromptTokens =
-    settings.modelContextLimit - settings.maxOutputTokens - settings.safetyMarginTokens;
-  const compactionLimit = Math.floor(allowedPromptTokens * settings.compactionThreshold);
+  const compactionLimit = computeCompactionLimit(settings);
 
   let effectiveFreshTail = settings.freshTailCount;
   const MIN_FRESH_TAIL = 2;
@@ -743,8 +777,14 @@ export async function ensureCompactedContext(
       const visibleSystemMessages = visibleMessages.filter((message) => message.role === "system");
       const freshMessages = getFreshConversationMessages(messages, effectiveFreshTail);
       const promptHistoryMessages = [...visibleSystemMessages, ...freshMessages];
-      const promptMessages = buildPrompt(promptHistoryMessages, activeMemoryNodes);
-      const promptTokens = estimatePromptTokens(promptMessages);
+      const { promptMessages, contextTokens: promptTokens } = computeFirstPassContext(
+        conversationId,
+        settings,
+        personaContent,
+        effectiveFreshTail,
+        activeMemoryNodes,
+        memoriesEnabled
+      );
 
       if (promptTokens <= compactionLimit) {
         return {
@@ -839,6 +879,58 @@ export async function ensureCompactedContext(
   } finally {
     endCompaction();
   }
+}
+
+export function estimateContextUsage(
+  conversationId: string,
+  settings: ProviderProfileWithApiKey,
+  personaId?: string,
+  memoriesEnabled: boolean = false
+): { contextTokens: number; compactionLimit: number } {
+  const conversationOwnerId = getConversationOwnerId(conversationId);
+  const persona = personaId ? getPersona(personaId, conversationOwnerId ?? undefined) : null;
+  const personaContent = persona?.content;
+  const activeMemoryNodes = getActiveMemoryNodes(conversationId);
+
+  const { contextTokens, compactionLimit } = computeFirstPassContext(
+    conversationId,
+    settings,
+    personaContent,
+    settings.freshTailCount,
+    activeMemoryNodes,
+    memoriesEnabled
+  );
+
+  return { contextTokens, compactionLimit };
+}
+
+export function getConversationContextUsage(
+  conversationId: string,
+  userId?: string
+): { contextTokens: number | null; compactionLimit: number } | null {
+  const conversation = getConversation(conversationId, userId);
+  if (!conversation) return null;
+
+  const settings =
+    (conversation.providerProfileId
+      ? getProviderProfileWithApiKey(conversation.providerProfileId)
+      : null) ?? getDefaultProviderProfileWithApiKey();
+  if (!settings) return null;
+
+  const conversationOwnerId = getConversationOwnerId(conversationId);
+  const appSettings = conversationOwnerId ? getSettingsForUser(conversationOwnerId) : getSettings();
+
+  const messages = listMessages(conversationId);
+  const hasContentMessages = messages.some((message) => message.role !== "system");
+
+  const { contextTokens, compactionLimit } = estimateContextUsage(
+    conversationId,
+    settings,
+    undefined,
+    appSettings.memoriesEnabled
+  );
+
+  return { contextTokens: hasContentMessages ? contextTokens : null, compactionLimit };
 }
 
 export function getConversationDebugStats(conversationId: string) {
