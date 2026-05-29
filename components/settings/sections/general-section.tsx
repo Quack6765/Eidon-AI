@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Toast } from "@/components/ui/toast";
+import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
+import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import type { AppSettings, ConversationRetention, ImageGenerationBackend } from "@/lib/types";
 
 type GeneralSectionSettings = AppSettings & {
@@ -60,6 +62,37 @@ export function GeneralSection({
   const [titleGenerationProfileId, setTitleGenerationProfileId] = useState<string | null>(
     settings.titleGenerationProfileId
   );
+
+  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
+    conversationRetention,
+    mcpTimeout,
+    sttEngine,
+    sttLanguage,
+    webSearchEngine,
+    exaApiKey,
+    tavilyApiKey,
+    searxngBaseUrl,
+    imageGenerationBackend,
+    googleNanoBananaModel,
+    googleNanoBananaApiKey,
+    titleGenerationMode,
+    titleGenerationProfileId,
+  });
+
+  useEffect(() => {
+    registerUnsavedChangesGuard(
+      isDirty
+        ? {
+            isDirty: () => isDirty,
+            save: () => { void save(); },
+            discard: () => { resetDirty(); },
+            entityType: "these settings",
+          }
+        : null
+    );
+    return () => registerUnsavedChangesGuard(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDirty]);
 
   const speechLanguageOptions =
     sttEngine === "browser"
@@ -217,6 +250,7 @@ export function GeneralSection({
       }
 
       toast.showToast("success", "Settings saved.");
+      resetDirty();
       router.refresh();
     } finally {
       setIsSaving(false);
@@ -598,6 +632,11 @@ export function GeneralSection({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        {isDirty && (
+          <span className="flex items-center gap-1 text-xs text-amber-400/80">
+            <span className="text-[0.5rem]">●</span> Unsaved changes
+          </span>
+        )}
         <Button className="px-3 py-1.5 text-xs" onClick={() => void save()} disabled={isSaving}>
           Save
         </Button>

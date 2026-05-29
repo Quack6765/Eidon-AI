@@ -33,7 +33,7 @@ export function SkillsSection() {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const { isDirty, reset: resetDirty } = useDirtyState({
+  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
     skillName,
     skillDescription,
     skillContent,
@@ -342,7 +342,7 @@ export function SkillsSection() {
                       onChange={(e) => setSkillName(e.target.value)}
                       placeholder="Skill name"
                       disabled={isBuiltin}
-                      className={inputLike}
+                      className={`${inputLike} ${isFieldDirty("skillName") ? "!border-amber-500/40" : ""}`}
                     />
                   </div>
                   <div>
@@ -352,7 +352,7 @@ export function SkillsSection() {
                       onChange={(e) => setSkillDescription(e.target.value)}
                       placeholder="Explain when this skill should and should not trigger"
                       disabled={isBuiltin}
-                      className={inputLike}
+                      className={`${inputLike} ${isFieldDirty("skillDescription") ? "!border-amber-500/40" : ""}`}
                     />
                   </div>
                   <div>
@@ -370,7 +370,7 @@ export function SkillsSection() {
                     <div
                       onClick={() => { if (!isBuiltin) setIsInstructionsOpen(true); }}
                       className={`rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 transition-colors ${
-                        isDirty ? "border-amber-500/40" : "border-white/6"
+                        isFieldDirty("skillContent") ? "border-amber-500/40" : "border-white/6"
                       } ${isBuiltin ? "opacity-60 cursor-default" : "cursor-pointer hover:bg-white/[0.06]"}`}
                     >
                       {skillContent || "No instructions set"}

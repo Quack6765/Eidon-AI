@@ -28,7 +28,7 @@ export function PersonasSection() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const toast = useToastState();
-  const { isDirty, reset: resetDirty } = useDirtyState({
+  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
     personaName,
     personaContent,
   });
@@ -244,6 +244,7 @@ export function PersonasSection() {
                         value={personaName}
                         onChange={(e) => setPersonaName(e.target.value)}
                         placeholder="Persona name"
+                        className={isFieldDirty("personaName") ? "border-amber-500/40" : ""}
                       />
                     </div>
                     <div>
@@ -259,7 +260,7 @@ export function PersonasSection() {
                       </div>
                       <div
                         onClick={openPersonaContent}
-                        className={`cursor-pointer rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 hover:bg-white/[0.06] transition-colors ${isDirty ? "border-amber-500/40" : "border-white/6"}`}
+                        className={`cursor-pointer rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 hover:bg-white/[0.06] transition-colors ${isFieldDirty("personaContent") ? "border-amber-500/40" : "border-white/6"}`}
                       >
                         {personaContent || "No system instructions set"}
                       </div>
