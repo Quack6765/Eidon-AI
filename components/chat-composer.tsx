@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   AlertCircle,
   ArrowUp,
@@ -24,6 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import type { SpeechPhase } from "@/lib/speech/types";
 import { cn } from "@/lib/utils";
 import { useAutoResize } from "@/lib/use-auto-resize";
+import { useCollapsibleToolbar } from "@/lib/use-collapsible-toolbar";
 import type {
   MessageAttachment,
   ProviderProfileSummary
@@ -65,6 +66,7 @@ type ChatComposerProps = {
   onTemporaryChange?: (value: boolean) => void;
   isAtBottom?: boolean;
   onJumpToBottom?: () => void;
+  collapsibleToolbarOnMobile?: boolean;
 };
 
 function CustomDropdown<T extends { id: string; name: string }>({
@@ -76,7 +78,8 @@ function CustomDropdown<T extends { id: string; name: string }>({
   disabled,
   accentColor = "cyan",
   mutedWhenEmpty = false,
-  allowDeselect = false
+  allowDeselect = false,
+  onOpenChange
 }: {
   items: T[];
   selectedId: string | null;
@@ -87,20 +90,32 @@ function CustomDropdown<T extends { id: string; name: string }>({
   accentColor?: "cyan" | "violet";
   mutedWhenEmpty?: boolean;
   allowDeselect?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const selectedItem = items.find((item) => item.id === selectedId);
 
+  const updateOpen = useCallback(
+    (next: boolean) => {
+      setIsOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange]
+  );
+
   useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
     const handleClickOutside = (event: MouseEvent) => {
       if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+        updateOpen(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [isOpen, updateOpen]);
 
   const noItems = mutedWhenEmpty && items.length === 0;
   const isDisabled = disabled || noItems;
@@ -120,7 +135,7 @@ function CustomDropdown<T extends { id: string; name: string }>({
       <button
         type="button"
         disabled={isDisabled}
-        onClick={() => { if (!isDisabled) setIsOpen(!isOpen); }}
+        onClick={() => { if (!isDisabled) updateOpen(!isOpen); }}
         className={cn(
           "flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-all duration-200",
           !isDisabled && "hover:bg-white/5",
@@ -160,7 +175,7 @@ function CustomDropdown<T extends { id: string; name: string }>({
                   type="button"
                   onClick={() => {
                     onSelect(null);
-                    setIsOpen(false);
+                    updateOpen(false);
                   }}
                   className={cn(
                     "w-full rounded-xl px-3 py-2 text-left text-xs transition-colors hover:bg-white/5",
@@ -180,7 +195,7 @@ function CustomDropdown<T extends { id: string; name: string }>({
                     } else {
                       onSelect(item.id);
                     }
-                    setIsOpen(false);
+                    updateOpen(false);
                   }}
                   className={cn(
                     "w-full rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-white/5",
@@ -249,6 +264,7 @@ export function ChatComposer({
   onTemporaryChange,
   isAtBottom = true,
   onJumpToBottom,
+  collapsibleToolbarOnMobile = false,
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -257,6 +273,10 @@ export function ChatComposer({
     value: input
   });
   const isExpanded = textareaHeight > 60;
+  const { showToolbar, inputFocusProps, onControlOpenChange } = useCollapsibleToolbar({
+    enabled: collapsibleToolbarOnMobile
+  });
+  const [toolbarOverflow, setToolbarOverflow] = useState<"hidden" | "visible">("visible");
 
   useEffect(() => {
     setMounted(true);
@@ -413,6 +433,7 @@ export function ChatComposer({
           <Textarea
             ref={textareaRef}
             value={input}
+            {...inputFocusProps}
             onChange={(event) => onInputChange(event.target.value)}
             placeholder="Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
             className="max-h-[60vh] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 py-3.5 text-[15px] text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin placeholder:text-white/20 caret-[var(--accent)] overflow-y-auto"
@@ -554,55 +575,72 @@ export function ChatComposer({
         </motion.div>
       ) : null}
 
-      <div className="flex items-center justify-between px-1.5 pb-1 pt-1.5 border-t border-white/5">
-        <div className="flex items-center gap-0.5">
-          <button
-            className="p-2 text-white/30 hover:text-white/60 transition-all duration-200 rounded-xl hover:bg-white/5 shrink-0"
-            aria-label="Attach files"
-            type="button"
-            disabled={!mounted}
-            onClick={() => fileInputRef.current?.click()}
+      <AnimatePresence initial={false}>
+        {showToolbar && (
+          <motion.div
+            key="composer-toolbar"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            style={{ overflow: toolbarOverflow }}
+            onAnimationStart={() => setToolbarOverflow("hidden")}
+            onAnimationComplete={() => setToolbarOverflow("visible")}
           >
-            <Paperclip className="h-4.5 w-4.5" />
-          </button>
+            <div className="flex items-center justify-between px-1.5 pb-1 pt-1.5 border-t border-white/5">
+              <div className="flex items-center gap-0.5">
+                <button
+                  className="p-2 text-white/30 hover:text-white/60 transition-all duration-200 rounded-xl hover:bg-white/5 shrink-0"
+                  aria-label="Attach files"
+                  type="button"
+                  disabled={!mounted}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Paperclip className="h-4.5 w-4.5" />
+                </button>
 
-          <div className="h-4 w-px bg-white/5 mx-1" />
+                <div className="h-4 w-px bg-white/5 mx-1" />
 
-          <CustomDropdown
-            items={displayModels}
-            selectedId={providerProfileId}
-            onSelect={(id) => id && void onProviderProfileChange(id)}
-            icon={Bot}
-            placeholder=""
-            accentColor="cyan"
-            disabled={!mounted || isSending}
-          />
+                <CustomDropdown
+                  items={displayModels}
+                  selectedId={providerProfileId}
+                  onSelect={(id) => id && void onProviderProfileChange(id)}
+                  icon={Bot}
+                  placeholder=""
+                  accentColor="cyan"
+                  disabled={!mounted || isSending}
+                  onOpenChange={onControlOpenChange}
+                />
 
-          <CustomDropdown
-            items={personas}
-            selectedId={personaId}
-            onSelect={(id) => void onPersonaChange(id)}
-            icon={Users}
-            accentColor="violet"
-            disabled={!mounted || isSending}
-            mutedWhenEmpty
-            allowDeselect
-          />
-        </div>
+                <CustomDropdown
+                  items={personas}
+                  selectedId={personaId}
+                  onSelect={(id) => void onPersonaChange(id)}
+                  icon={Users}
+                  accentColor="violet"
+                  disabled={!mounted || isSending}
+                  mutedWhenEmpty
+                  allowDeselect
+                  onOpenChange={onControlOpenChange}
+                />
+              </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
-          {showContextUsage && (
-            <div className="flex items-center gap-2 px-1">
-              <span className="text-[10px] text-white/20 font-medium tracking-wider uppercase hidden md:inline-block">Context</span>
-              <ContextGauge
-                usedTokens={usedTokens}
-                usableLimit={compactionLimit}
-                maxLimit={modelContextLimit}
-              />
+              <div className="flex items-center gap-2 sm:gap-3">
+                {showContextUsage && (
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="text-[10px] text-white/20 font-medium tracking-wider uppercase hidden md:inline-block">Context</span>
+                    <ContextGauge
+                      usedTokens={usedTokens}
+                      usableLimit={compactionLimit}
+                      maxLimit={modelContextLimit}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
-          )}
-        </div>
-      </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
     </div>
   );
