@@ -21,8 +21,19 @@ export function useIosPwa() {
     const root = document.documentElement;
     root.classList.add(IOS_PWA_CLASS);
 
+    const applyHeight = () => {
+      root.style.setProperty("--ios-app-height", `${window.innerHeight}px`);
+    };
+
+    applyHeight();
+    window.addEventListener("resize", applyHeight);
+    window.addEventListener("orientationchange", applyHeight);
+
     return () => {
       root.classList.remove(IOS_PWA_CLASS);
+      root.style.removeProperty("--ios-app-height");
+      window.removeEventListener("resize", applyHeight);
+      window.removeEventListener("orientationchange", applyHeight);
     };
   }, []);
 }
