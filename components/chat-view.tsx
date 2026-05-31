@@ -2369,6 +2369,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             }}
             isAtBottom={isAtBottom}
             onJumpToBottom={jumpToBottom}
+            collapsibleToolbarOnMobile
             onStartSpeech={() => {
               setError("");
               void startSpeech();

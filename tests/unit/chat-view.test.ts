@@ -658,6 +658,35 @@ describe("chat view", () => {
     ).not.toHaveFocus();
   });
 
+  it("collapses the composer toolbar at rest on mobile (collapsibleToolbarOnMobile wired)", () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query === "(max-width: 767px)",
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn()
+      }))
+    });
+
+    try {
+      renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+      expect(screen.queryByLabelText("Attach files")).toBeNull();
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia
+      });
+    }
+  });
+
   it("shows a drop overlay and uploads dropped files", async () => {
     const attachment = createAttachment({
       id: "att_2",
