@@ -65,12 +65,14 @@ const globalEmitter = createEmitter<{
 const ACTIVE_TURN_ERROR_MESSAGE = "Conversation already has an active assistant turn";
 
 function appendFailureNotes(content: string, failureNotes: string[]) {
+  const trimmed = content.trim();
+
   if (failureNotes.length === 0) {
-    return content;
+    return trimmed;
   }
 
   const appendedNotes = failureNotes.join("\n\n");
-  return content ? `${content}\n\n${appendedNotes}` : appendedNotes;
+  return trimmed ? `${trimmed}\n\n${appendedNotes}` : appendedNotes;
 }
 
 function sanitizeAssistantContent(
@@ -82,7 +84,8 @@ function sanitizeAssistantContent(
     conversationId,
     content,
     workspaceRoot: process.cwd(),
-    existingAttachments: getMessage(messageId)?.attachments ?? []
+    existingAttachments: getMessage(messageId)?.attachments ?? [],
+    tidyWhitespace: false
   });
 
   if (inferred.attachments.length > 0) {

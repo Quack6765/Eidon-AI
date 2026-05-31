@@ -581,6 +581,55 @@ describe("message bubble", () => {
     expect(bubbles[0]?.textContent).not.toContain("\\n");
   });
 
+  it("does not splice a divergent message.content tail onto the timeline segments", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Completely different finalized answer.",
+          timeline: [
+            {
+              id: "txt_streamed",
+              timelineKind: "text",
+              sortOrder: 0,
+              createdAt: new Date().toISOString(),
+              content: "Streamed answer."
+            }
+          ]
+        }
+      })
+    );
+
+    const bubbles = container.querySelectorAll('[data-testid="assistant-message-bubble"]');
+
+    expect(bubbles).toHaveLength(1);
+    expect(bubbles[0]?.textContent).toContain("Streamed answer.");
+    expect(container.textContent).not.toContain("finalized answer");
+  });
+
+  it("appends the message.content tail only when it extends the timeline segments", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Streamed answer.\n\nExtra finalized paragraph.",
+          timeline: [
+            {
+              id: "txt_streamed",
+              timelineKind: "text",
+              sortOrder: 0,
+              createdAt: new Date().toISOString(),
+              content: "Streamed answer."
+            }
+          ]
+        }
+      })
+    );
+
+    expect(screen.getByText("Streamed answer.")).toBeInTheDocument();
+    expect(screen.getByText("Extra finalized paragraph.")).toBeInTheDocument();
+  });
+
   it("renders memory proposal cards after the full assistant answer", () => {
     const { container } = render(
       React.createElement(MessageBubble, {

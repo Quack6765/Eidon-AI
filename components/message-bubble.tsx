@@ -2,11 +2,9 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Copy, FileText, GitFork, LoaderCircle, Pencil, RefreshCw, Square, X } from "lucide-react";
-import { Streamdown, parseMarkdownIntoBlocks } from "streamdown";
+import { Streamdown } from "streamdown";
 import { code } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
-import { STREAMDOWN_REMARK_PLUGINS } from "@/lib/markdown/plugins";
-import { REMEND_OPTIONS } from "@/lib/markdown/remend-config";
 import { MarkdownErrorBoundary } from "@/components/markdown-error-boundary";
 import {
   AttachmentPreviewModal,
@@ -34,8 +32,6 @@ import {
 } from "@/components/ai-elements/message";
 
 const STREAMDOWN_PLUGINS = { code, mermaid };
-const STREAMDOWN_PARSE_BLOCKS = (markdown: string) =>
-  parseMarkdownIntoBlocks(markdown);
 const COPY_RESET_DELAY_MS = 1600;
 
 
@@ -99,10 +95,6 @@ function AssistantMarkdown({ content, isStreaming }: { content: string; isStream
     <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
       <Streamdown
         plugins={STREAMDOWN_PLUGINS}
-        remarkPlugins={STREAMDOWN_REMARK_PLUGINS}
-        parseIncompleteMarkdown
-        remend={REMEND_OPTIONS}
-        parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
         caret={isStreaming ? "block" : undefined}
         isAnimating={isStreaming}
       >
@@ -753,14 +745,6 @@ export function MessageBubble({
   }
 
   function mergeText(current: string, next: string) {
-    if (!current) {
-      return next;
-    }
-
-    if (next.startsWith(current)) {
-      return next;
-    }
-
     return `${current}${next}`;
   }
 
@@ -800,7 +784,11 @@ export function MessageBubble({
     .join("");
   const normalizedConsumedText = normalizeLineBreaks(consumedText);
 
-  if (contentForComparison && contentForComparison.length > normalizedConsumedText.length) {
+  if (
+    contentForComparison &&
+    contentForComparison.length > normalizedConsumedText.length &&
+    contentForComparison.startsWith(normalizedConsumedText)
+  ) {
     assistantBlocks.push({
       id: `content_${message.id}_remaining`,
       timelineKind: "text",
@@ -1000,7 +988,7 @@ export function MessageBubble({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body">
-                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS} remarkPlugins={STREAMDOWN_REMARK_PLUGINS} parseIncompleteMarkdown remend={REMEND_OPTIONS} parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}>{content}</Streamdown>
+                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS}>{content}</Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
@@ -1138,10 +1126,6 @@ export function MessageBubble({
                     }}
                   >
                     <Streamdown
-                      parseMarkdownIntoBlocksFn={STREAMDOWN_PARSE_BLOCKS}
-                      remarkPlugins={STREAMDOWN_REMARK_PLUGINS}
-                      parseIncompleteMarkdown
-                      remend={REMEND_OPTIONS}
                       caret={thinkingInProgress ? "block" : undefined}
                       isAnimating={thinkingInProgress}
                     >{thinkingContent}</Streamdown>
