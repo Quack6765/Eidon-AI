@@ -20,6 +20,7 @@ type InferAssistantLocalAttachmentsInput = {
   content: string;
   workspaceRoot: string;
   existingAttachments?: MessageAttachment[];
+  tidyWhitespace?: boolean;
 };
 
 type InferAssistantLocalAttachmentsResult = {
@@ -250,7 +251,7 @@ export function inferAssistantLocalAttachments(
   const sanitizedContent = sanitizeProseSegment(input.content);
 
   return {
-    content: collapseWhitespace(sanitizedContent),
+    content: input.tidyWhitespace === false ? sanitizedContent : collapseWhitespace(sanitizedContent),
     attachments,
     failureNote: buildFailureNote(deniedNames, failedNames)
   };

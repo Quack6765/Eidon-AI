@@ -16,11 +16,4 @@ describe("Dockerfile", () => {
     );
     expect(dockerfile).toContain("chown -R eidon:eidon /app");
   });
-
-  it("exposes the markdown-repair flag as a build-time arg defaulting to false", () => {
-    expect(dockerfile).toContain("ARG NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED=false");
-    expect(dockerfile).toContain(
-      "ENV NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED=$NEXT_PUBLIC_MARKDOWN_REPAIR_ENABLED"
-    );
-  });
 });

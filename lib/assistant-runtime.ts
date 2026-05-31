@@ -16,6 +16,7 @@ import { extractEnumHints, coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { streamProviderResponse } from "@/lib/provider";
 import { getWebSearchActionLabel, isBuiltinWebSearchServer } from "@/lib/web-search";
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
+import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
 import { isFreshImageGenerationRequest } from "@/lib/image-generation/follow-up-context";
 import { supportsImageInput } from "@/lib/model-capabilities";
 import type {
@@ -85,53 +86,6 @@ const NON_NATIVE_VISION_DIRECTIVE =
   "The current model configuration cannot inspect attached images directly in this turn. Attached images were provided only as text placeholders. Do not claim to have viewed image contents directly. If image analysis is required, explain the limitation or use the configured vision MCP server when available.";
 const MERMAID_DIAGRAM_DIRECTIVE =
   "When you need to present diagrams (flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, Gantt charts, pie charts, mind maps, or any other diagram type), use mermaid.js syntax inside a fenced code block with the `mermaid` language identifier. For example:\n\n```mermaid\ngraph TD\n    A[Start] --> B{Decision}\n    B -->|Yes| C[Success]\n    B -->|No| D[Try Again]\n```\n\nAlways prefer mermaid diagrams over ASCII art or text-based diagrams.";
-
-const MARKDOWN_FORMATTING_DIRECTIVE =
-  "You MUST follow these markdown formatting rules in EVERY response. Violations break the rendering:\n\
-\n\
-1. **Block elements MUST start on a new line.** Headings (`#`, `##`, `###`), bullet lists (`*`, `-`, `+`), numbered lists (`1.`, `2.`), blockquotes (`>`), tables (`|`), horizontal rules (`---`), and fenced code blocks (```) must ALWAYS begin on their own line — NEVER on the same line as other text.\n\
-   - WRONG: `Here is my list:* item1* item2`\n\
-   - RIGHT: `Here is my list:\\n\\n* item1\\n* item2`\n\
-   - WRONG: `Some text### Next Section`\n\
-   - RIGHT: `Some text\\n\\n### Next Section`\n\
-\n\
-2. **Blank lines are mandatory between block elements.** Every heading, list, table, blockquote, code block, and horizontal rule MUST be separated from adjacent content by a blank line (two newlines). There are no exceptions.\n\
-\n\
-3. **Headings require a space after the # markers.** Write `## Title`, NEVER `##Title`. The space is not optional.\n\
-\n\
-4. **Horizontal rules must stand alone.** `---`, `***`, and `___` must appear on their own line with blank lines before and after. `text---` and `---text` are invalid.\n\
-\n\
-5. **Tables must use proper GFM syntax.** Include a header row, a separator row (`|---|`), and consistent column counts. Never collapse multiple rows onto one line.\n\
-\n\
-6. **Code blocks must be closed.** Every opening fence (``` or ~~~) must have a matching closing fence. Never leave a code block open.\n\
-\n\
-7. **List items must each be on their own line.** Never place multiple list items on the same line. Nested list items must be indented on their own line.\n\
-\n\
-8. **Blockquotes must start on a new line.** The `>` character must be at the start of a line, never inline with other text.\n\
-\n\
-9. **Always output valid GitHub Flavored Markdown.** Do not use raw HTML when a markdown equivalent exists.\n\
-\n\
----\n\
-\n\
-Further guidelines:\n\
-\n\
-**I. Response Guiding Principles**\n\
-\n\
-* **Use the Formatting Toolkit given below effectively:** Use the formatting tools to create a clear, scannable, organized and easy to digest response, avoiding dense walls of text. Prioritize scannability that achieves clarity at a glance.\n\
-\n\
-**II. Your Formatting Toolkit**\n\
-\n\
-* **Headings (##, ###):** To create a clear hierarchy.\n\
-\n\
-* **Horizontal Rules (---):** To visually separate distinct sections or ideas.\n\
-\n\
-* **Bolding (**...**):** To emphasize key phrases and guide the user's eye. Use it judiciously.\n\
-\n\
-* **Bullet Points (*):** To break down information into digestible lists.\n\
-\n\
-* **Tables:** To organize and compare data for quick reference.\n\
-\n\
-* **Blockquotes (>):** To highlight important notes, examples, or quotes.";
 
 function mcpToolFunctionName(serverSlug: string, toolName: string) {
   return `mcp_${serverSlug}_${toolName}`;
@@ -1352,7 +1306,7 @@ export async function resolveAssistantTurn(input: {
   }
 
   promptMessages = mergeSystemMessage(promptMessages, MERMAID_DIAGRAM_DIRECTIVE);
-  promptMessages = mergeSystemMessage(promptMessages, MARKDOWN_FORMATTING_DIRECTIVE);
+  promptMessages = mergeSystemMessage(promptMessages, MARKDOWN_FORMATTING_RULES);
 
   let timelineSortOrder = 0;
 

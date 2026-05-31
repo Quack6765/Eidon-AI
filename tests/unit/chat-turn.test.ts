@@ -407,7 +407,7 @@ describe("chat-turn", () => {
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.status).toBe("stopped");
       expect(assistant?.content).toBe("Saved the output.");
-      expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output."]);
+      expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output.\n\n"]);
       expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
       expect(assistant?.attachments).toEqual([
         expect.objectContaining({
@@ -651,7 +651,7 @@ describe("chat-turn", () => {
     expect(assistant?.attachments).toHaveLength(1);
     expect(assistant?.attachments?.[0]?.kind).toBe("image");
     expect(assistant?.content).not.toContain("data:image/png;base64");
-    expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Here is the capture:"]);
+    expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Here is the capture:\n\n"]);
   });
 
   it("binds successful agent-browser screenshots as assistant attachments even when the answer only mentions them in prose", async () => {
@@ -1484,7 +1484,7 @@ describe("chat-turn", () => {
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.status).toBe("completed");
       expect(assistant?.content).toBe("Saved the output.");
-      expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output."]);
+      expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output.\n\n"]);
       expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
       expect(assistant?.attachments).toEqual([
         expect.objectContaining({

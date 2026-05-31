@@ -1,7 +1,6 @@
 import OpenAI from "openai";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
-import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
 import { ensureFreshGithubAccessToken, runGithubCopilotChat, streamGithubCopilotChat } from "@/lib/github-copilot";
 import { callAnthropicText, streamAnthropicResponse } from "@/lib/anthropic";
 import { buildCopilotTools, type CopilotToolContext } from "@/lib/copilot-tools";
@@ -63,7 +62,7 @@ function withDateContextSystemMessage(messages: PromptMessage[]): PromptMessage[
 
 function withDateContextSystemPrompt(systemPrompt: string) {
   const context = buildDateContextSystemContent();
-  return `${systemPrompt.trim()}\n\n${context}\n\n${MARKDOWN_FORMATTING_RULES}`;
+  return `${systemPrompt.trim()}\n\n${context}`;
 }
 
 function createClient(settings: ProviderProfile, apiKey: string) {
