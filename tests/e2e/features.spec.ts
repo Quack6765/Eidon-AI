@@ -449,8 +449,7 @@ async function configureMockProvider(
         leafMinMessageCount: 6,
         mergedMinNodeCount: 4,
         mergedTargetTokens: 1600,
-        visionMode: "native",
-        visionMcpServerId: null
+        visionMode: "native"
       }
     ]
   };

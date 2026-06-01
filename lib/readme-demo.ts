@@ -53,7 +53,6 @@ function buildProviderProfile(
     mergedMinNodeCount: number;
     mergedTargetTokens: number;
     visionMode: "none" | "native" | "mcp";
-    visionMcpServerId: string | null;
     providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "opencode_go" | "custom_openai_compatible" | null;
     githubUserAccessTokenEncrypted: string;
     githubRefreshTokenEncrypted: string;
@@ -93,7 +92,6 @@ function buildProviderProfile(
     mergedTargetTokens:
       overrides.mergedTargetTokens ?? defaults.mergedTargetTokens,
     visionMode: overrides.visionMode ?? defaults.visionMode,
-    visionMcpServerId: overrides.visionMcpServerId ?? defaults.visionMcpServerId,
     providerPresetId: overrides.providerPresetId ?? null,
     githubUserAccessTokenEncrypted:
       overrides.githubUserAccessTokenEncrypted ?? "",

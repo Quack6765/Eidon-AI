@@ -41,7 +41,6 @@ function baseSettings(overrides: Partial<ProviderProfileWithApiKey> = {}): Provi
     mergedMinNodeCount: 4,
     mergedTargetTokens: 1600,
     visionMode: "native",
-    visionMcpServerId: null,
     providerPresetId: "anthropic_official",
     githubUserAccessTokenEncrypted: "",
     githubRefreshTokenEncrypted: "",

@@ -113,6 +113,7 @@ function createHttpServer(): McpServer {
     args: null,
     env: null,
     enabled: true,
+    isVisionMcp: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
@@ -130,6 +131,7 @@ function createStdioServer(): McpServer {
     args: ["server.js"],
     env: { TOKEN: "test" },
     enabled: true,
+    isVisionMcp: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };

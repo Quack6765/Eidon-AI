@@ -1,3 +1,10 @@
+import fs from "node:fs";
+import path from "node:path";
+
+import Database from "better-sqlite3";
+import { describe, expect, it } from "vitest";
+
+import { getDb, backfillVisionMcpServers } from "@/lib/db";
 import {
   createMcpServer,
   deleteMcpServer,
@@ -6,6 +13,7 @@ import {
   listEnabledMcpServers,
   updateMcpServer
 } from "@/lib/mcp-servers";
+import { updateSettings } from "@/lib/settings";
 
 describe("mcp servers", () => {
   it("creates, lists, updates, and deletes MCP servers", () => {
@@ -109,5 +117,122 @@ describe("mcp servers", () => {
     expect(() => {
       createMcpServer({ name: "exa", url: "https://b.com" });
     }).toThrow();
+  });
+});
+
+describe("mcp servers isVisionMcp", () => {
+  it("defaults isVisionMcp to false on create", () => {
+    const server = createMcpServer({ name: "Plain Server", url: "https://example.com" });
+    expect(server.isVisionMcp).toBe(false);
+    expect(getMcpServer(server.id)?.isVisionMcp).toBe(false);
+  });
+
+  it("persists isVisionMcp on create and update", () => {
+    const server = createMcpServer({ name: "Vision One", url: "https://example.com", isVisionMcp: true });
+    expect(server.isVisionMcp).toBe(true);
+
+    const updated = updateMcpServer(server.id, { isVisionMcp: false });
+    expect(updated?.isVisionMcp).toBe(false);
+    expect(getMcpServer(server.id)?.isVisionMcp).toBe(false);
+  });
+
+  it("preserves isVisionMcp when an update omits it", () => {
+    const server = createMcpServer({ name: "Vision Two", url: "https://example.com", isVisionMcp: true });
+    const updated = updateMcpServer(server.id, { name: "Vision Two Renamed" });
+    expect(updated?.isVisionMcp).toBe(true);
+  });
+
+  it("backfills isVisionMcp for servers referenced by a profile's vision_mcp_server_id", () => {
+    const visionServer = createMcpServer({ name: "Legacy Vision", url: "https://example.com" });
+    const otherServer = createMcpServer({ name: "Other", url: "https://example.com" });
+
+    updateSettings({
+      defaultProviderProfileId: "profile_a",
+      skillsEnabled: true,
+      providerProfiles: [
+        {
+          id: "profile_a",
+          name: "A",
+          apiBaseUrl: "https://api.example.com/v1",
+          apiKey: "",
+          model: "gpt-test",
+          apiMode: "responses",
+          systemPrompt: "Be exact.",
+          temperature: 0.4,
+          maxOutputTokens: 512,
+          reasoningEffort: "medium",
+          reasoningSummaryEnabled: true,
+          modelContextLimit: 16384,
+          compactionThreshold: 0.8,
+          freshTailCount: 28,
+          providerPresetId: null
+        }
+      ]
+    });
+
+    getDb()
+      .prepare("UPDATE provider_profiles SET vision_mcp_server_id = ? WHERE id = ?")
+      .run(visionServer.id, "profile_a");
+
+    backfillVisionMcpServers(getDb());
+
+    expect(getMcpServer(visionServer.id)?.isVisionMcp).toBe(true);
+    expect(getMcpServer(otherServer.id)?.isVisionMcp).toBe(false);
+    expect(listMcpServers().filter((s) => s.isVisionMcp)).toHaveLength(1);
+  });
+
+  it("backfillVisionMcpServers is a no-op when vision_mcp_server_id column does not exist", () => {
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE provider_profiles (id TEXT PRIMARY KEY, name TEXT NOT NULL);
+      CREATE TABLE mcp_servers (id TEXT PRIMARY KEY, name TEXT NOT NULL, is_vision_mcp INTEGER NOT NULL DEFAULT 0);
+      INSERT INTO mcp_servers VALUES ('s1', 'Server One', 0);
+    `);
+    backfillVisionMcpServers(db);
+    const row = db.prepare("SELECT is_vision_mcp FROM mcp_servers WHERE id = 's1'").get() as { is_vision_mcp: number };
+    expect(row.is_vision_mcp).toBe(0);
+    db.close();
+  });
+
+  it("adds is_vision_mcp and preserves data when migrating a pre-slug schema", () => {
+    const dataDir = path.resolve(".test-data");
+    fs.mkdirSync(dataDir, { recursive: true });
+    const dbPath = path.join(dataDir, "eidon.db");
+
+    const legacyDb = new Database(dbPath);
+    const now = new Date().toISOString();
+    legacyDb.exec(`
+      CREATE TABLE mcp_servers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL,
+        headers TEXT NOT NULL DEFAULT '{}',
+        transport TEXT NOT NULL DEFAULT 'streamable_http',
+        command TEXT,
+        args TEXT,
+        env TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+    legacyDb
+      .prepare(
+        "INSERT INTO mcp_servers (id, name, url, headers, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      )
+      .run("mcp_legacy", "Legacy Server", "https://legacy.example.com", "{}", 1, now, now);
+    legacyDb.close();
+
+    const db = getDb();
+
+    const columns = (db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>).map(
+      (column) => column.name
+    );
+    expect(columns).toEqual(expect.arrayContaining(["slug", "is_vision_mcp"]));
+
+    const survived = getMcpServer("mcp_legacy");
+    expect(survived?.name).toBe("Legacy Server");
+    expect(survived?.url).toBe("https://legacy.example.com");
+    expect(survived?.isVisionMcp).toBe(false);
   });
 });

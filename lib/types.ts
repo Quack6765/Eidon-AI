@@ -99,7 +99,6 @@ export type ProviderProfile = {
   mergedMinNodeCount: number;
   mergedTargetTokens: number;
   visionMode: VisionMode;
-  visionMcpServerId: string | null;
   providerPresetId: ProviderPresetId | null;
   githubUserAccessTokenEncrypted: string;
   githubRefreshTokenEncrypted: string;
@@ -243,6 +242,7 @@ export type McpServer = {
   args: string[] | null;
   env: Record<string, string> | null;
   enabled: boolean;
+  isVisionMcp: boolean;
   createdAt: string;
   updatedAt: string;
 };

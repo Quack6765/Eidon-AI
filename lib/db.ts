@@ -260,6 +260,7 @@ function migrate(db: Database.Database) {
       url TEXT NOT NULL,
       headers TEXT NOT NULL DEFAULT '{}',
       enabled INTEGER NOT NULL DEFAULT 1,
+      is_vision_mcp INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -657,6 +658,10 @@ function migrate(db: Database.Database) {
       ALTER TABLE mcp_servers_new RENAME TO mcp_servers;
     `);
   }
+  if (!mcpColNames.includes("is_vision_mcp")) {
+    db.exec("ALTER TABLE mcp_servers ADD COLUMN is_vision_mcp INTEGER NOT NULL DEFAULT 0");
+    backfillVisionMcpServers(db);
+  }
 
   const skillCols = db.prepare("PRAGMA table_info(skills)").all() as Array<{ name: string }>;
   const skillColNames = skillCols.map((c) => c.name);
@@ -1000,6 +1005,18 @@ function migrate(db: Database.Database) {
   for (const skill of builtinSkills) {
     upsertSkill.run(skill.id, skill.name, skill.description, skill.content, now, now);
   }
+}
+
+export function backfillVisionMcpServers(db: Database.Database) {
+  const profileCols = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
+  if (!profileCols.some((c) => c.name === "vision_mcp_server_id")) return;
+  db.exec(`
+    UPDATE mcp_servers SET is_vision_mcp = 1
+    WHERE id IN (
+      SELECT DISTINCT vision_mcp_server_id FROM provider_profiles
+      WHERE vision_mcp_server_id IS NOT NULL
+    )
+  `);
 }
 
 export function getDb() {

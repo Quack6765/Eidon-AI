@@ -30,6 +30,7 @@ export function McpServersSection() {
   const [mcpRowTestResults, setMcpRowTestResults] = useState<Record<string, { text: string; isSuccess: boolean }>>({});
   const [mcpTestingTarget, setMcpTestingTarget] = useState<string | null>(null);
   const [mcpEnabledDraft, setMcpEnabledDraft] = useState(true);
+  const [mcpIsVisionMcpDraft, setMcpIsVisionMcpDraft] = useState(false);
   const toast = useToastState();
 
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
@@ -49,6 +50,7 @@ export function McpServersSection() {
     mcpArgs,
     mcpEnv,
     mcpEnabledDraft,
+    mcpIsVisionMcpDraft,
   });
 
   useEffect(() => {
@@ -111,7 +113,8 @@ export function McpServersSection() {
     const payload: Record<string, unknown> = {
       name: mcpName,
       transport: mcpTransport,
-      enabled: mcpEnabledDraft
+      enabled: mcpEnabledDraft,
+      isVisionMcp: mcpIsVisionMcpDraft,
     };
 
     if (mcpTransport === "streamable_http") {
@@ -175,6 +178,7 @@ export function McpServersSection() {
       setMcpArgs(savedServer.args ? JSON.stringify(savedServer.args) : "");
       setMcpEnv(savedServer.env ? JSON.stringify(savedServer.env, null, 2) : "");
       setMcpEnabledDraft(savedServer.enabled);
+      setMcpIsVisionMcpDraft(savedServer.isVisionMcp);
       setMcpDraftTestResult(null);
       setIsAddingNew(false);
       setMobileDetailVisible(true);
@@ -190,6 +194,7 @@ export function McpServersSection() {
       mcpArgs,
       mcpEnv,
       mcpEnabledDraft,
+      mcpIsVisionMcpDraft,
     });
   }
 
@@ -300,6 +305,7 @@ export function McpServersSection() {
     setMcpEnv(server.env ? JSON.stringify(server.env, null, 2) : "");
     setMcpDraftTestResult(mcpRowTestResults[server.id] ?? null);
     setMcpEnabledDraft(server.enabled);
+    setMcpIsVisionMcpDraft(server.isVisionMcp);
     resetDirty({
       mcpName: server.name,
       mcpTransport: server.transport ?? "streamable_http",
@@ -309,6 +315,7 @@ export function McpServersSection() {
       mcpArgs: server.args ? JSON.stringify(server.args) : "",
       mcpEnv: server.env ? JSON.stringify(server.env, null, 2) : "",
       mcpEnabledDraft: server.enabled,
+      mcpIsVisionMcpDraft: server.isVisionMcp,
     });
   }
 
@@ -322,6 +329,7 @@ export function McpServersSection() {
       mcpArgs: "",
       mcpEnv: "",
       mcpEnabledDraft: true as boolean,
+      mcpIsVisionMcpDraft: false as boolean,
     };
     setMcpTransport("streamable_http");
     setMcpName("");
@@ -331,6 +339,7 @@ export function McpServersSection() {
     setMcpArgs("");
     setMcpEnv("");
     setMcpEnabledDraft(true);
+    setMcpIsVisionMcpDraft(false);
     setEditingMcpId(null);
     setMcpDraftTestResult(null);
     setSelectedServerId(null);
@@ -550,6 +559,14 @@ export function McpServersSection() {
                       onChange={(e) => setMcpEnabledDraft(e.target.checked)}
                     />
                     Enabled
+                  </label>
+                  <label className={`flex cursor-pointer items-center gap-3 rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--text)] transition-colors ${isFieldDirty("mcpIsVisionMcpDraft") ? "border-amber-500/40" : "border-white/6"}`}>
+                    <input
+                      type="checkbox"
+                      checked={mcpIsVisionMcpDraft}
+                      onChange={(e) => setMcpIsVisionMcpDraft(e.target.checked)}
+                    />
+                    Vision MCP
                   </label>
                 </div>
               ) : null}

@@ -21,7 +21,8 @@ const createSchema = z.discriminatedUnion("transport", [
     transport: z.literal("streamable_http"),
     name: z.string().trim().min(1).max(100),
     url: z.string().url(),
-    headers: z.record(z.string()).optional()
+    headers: z.record(z.string()).optional(),
+    isVisionMcp: z.boolean().optional()
   }),
   z.object({
     transport: z.literal("stdio"),
@@ -30,7 +31,8 @@ const createSchema = z.discriminatedUnion("transport", [
     args: z.array(z.string()).optional(),
     env: z.record(z.string()).optional(),
     url: z.string().optional(),
-    headers: z.record(z.string()).optional()
+    headers: z.record(z.string()).optional(),
+    isVisionMcp: z.boolean().optional()
   })
 ]);
 

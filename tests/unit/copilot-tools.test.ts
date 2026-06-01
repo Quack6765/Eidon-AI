@@ -67,6 +67,7 @@ function makeMcpServer(overrides: Partial<McpServer> = {}): McpServer {
     args: null,
     env: null,
     enabled: true,
+    isVisionMcp: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides
@@ -106,6 +107,7 @@ function makeCtx(overrides: Partial<Parameters<typeof buildCopilotTools>[0]> = {
     skills: [],
     loadedSkillIds: new Set<string>(),
     memoriesEnabled: false,
+    effectiveVisionMode: "none" as const,
     onActionStart: vi.fn(),
     onActionComplete: vi.fn(),
     onActionError: vi.fn(),
@@ -933,5 +935,49 @@ describe("buildCopilotTools", () => {
     );
 
     expect(result).toBe("Error: id is required");
+  });
+
+  it("excludes vision-flagged MCP tools when effective vision mode is not mcp", () => {
+    const ctx = makeCtx({
+      effectiveVisionMode: "native",
+      mcpToolSets: [
+        {
+          server: makeMcpServer({ id: "vision_server", isVisionMcp: true }),
+          tools: [makeMcpTool({ name: "analyze_image" })]
+        },
+        {
+          server: makeMcpServer({ id: "plain_server", isVisionMcp: false }),
+          tools: [makeMcpTool({ name: "do_thing" })]
+        }
+      ]
+    });
+
+    const tools = buildCopilotTools(ctx);
+    const names = tools.map((t) => t.name);
+
+    expect(names.some((n) => n.includes("analyze_image"))).toBe(false);
+    expect(names.some((n) => n.includes("do_thing"))).toBe(true);
+  });
+
+  it("includes vision-flagged MCP tools when effective vision mode is mcp", () => {
+    const ctx = makeCtx({
+      effectiveVisionMode: "mcp",
+      mcpToolSets: [
+        {
+          server: makeMcpServer({ id: "vision_server", isVisionMcp: true }),
+          tools: [makeMcpTool({ name: "analyze_image" })]
+        },
+        {
+          server: makeMcpServer({ id: "plain_server", isVisionMcp: false }),
+          tools: [makeMcpTool({ name: "do_thing" })]
+        }
+      ]
+    });
+
+    const tools = buildCopilotTools(ctx);
+    const names = tools.map((t) => t.name);
+
+    expect(names.some((n) => n.includes("analyze_image"))).toBe(true);
+    expect(names.some((n) => n.includes("do_thing"))).toBe(true);
   });
 });

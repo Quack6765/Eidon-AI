@@ -32,6 +32,7 @@ export async function PATCH(
     args?: string[] | null;
     env?: Record<string, string> | null;
     enabled?: boolean;
+    isVisionMcp?: boolean;
   };
 
   if (body.name !== undefined) {
