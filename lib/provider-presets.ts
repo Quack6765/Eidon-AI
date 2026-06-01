@@ -11,6 +11,8 @@ type ProviderPresetValues = {
   reasoningEffort: ReasoningEffort;
   reasoningSummaryEnabled: boolean;
   modelContextLimit: number;
+  temperature?: number;
+  maxOutputTokens?: number;
 };
 
 type ProviderPresetDefinition = {
@@ -29,6 +31,8 @@ type PresetCompatibleProfile = {
   reasoningEffort: ReasoningEffort;
   reasoningSummaryEnabled: boolean;
   modelContextLimit: number;
+  temperature?: number;
+  maxOutputTokens?: number;
 };
 
 export const PROVIDER_PRESETS: ProviderPresetDefinition[] = [
@@ -86,6 +90,22 @@ export const PROVIDER_PRESETS: ProviderPresetDefinition[] = [
       reasoningEffort: "medium",
       reasoningSummaryEnabled: true,
       modelContextLimit: 200000
+    }
+  },
+  {
+    id: "deepseek",
+    label: "DeepSeek",
+    providerKind: "openai_compatible",
+    values: {
+      name: "DeepSeek",
+      apiBaseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      apiMode: "chat_completions",
+      reasoningEffort: "medium",
+      reasoningSummaryEnabled: true,
+      modelContextLimit: 1_000_000,
+      temperature: 1.3,
+      maxOutputTokens: 8192
     }
   },
   {
@@ -175,15 +195,33 @@ export function getMatchingProviderPresetId(
     }
 
     const { values } = entry;
+    const required: Array<keyof typeof values> = [
+      "apiBaseUrl",
+      "model",
+      "apiMode",
+      "reasoningEffort",
+      "reasoningSummaryEnabled",
+      "modelContextLimit"
+    ];
 
-    return (
-      values.apiBaseUrl === profile.apiBaseUrl &&
-      values.model === profile.model &&
-      values.apiMode === profile.apiMode &&
-      values.reasoningEffort === profile.reasoningEffort &&
-      values.reasoningSummaryEnabled === profile.reasoningSummaryEnabled &&
-      values.modelContextLimit === profile.modelContextLimit
-    );
+    for (const key of required) {
+      if (values[key] !== profile[key]) {
+        return false;
+      }
+    }
+
+    if (values.temperature !== undefined && values.temperature !== profile.temperature) {
+      return false;
+    }
+
+    if (
+      values.maxOutputTokens !== undefined &&
+      values.maxOutputTokens !== profile.maxOutputTokens
+    ) {
+      return false;
+    }
+
+    return true;
   });
 
   return preset?.id ?? null;
