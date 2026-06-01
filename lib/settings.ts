@@ -25,7 +25,7 @@ const runtimeSettingsSchema = z.object({
   apiMode: z.enum(["responses", "chat_completions"]),
   systemPrompt: z.string().min(0),
   temperature: z.coerce.number().min(0).max(2),
-  maxOutputTokens: z.coerce.number().int().min(128).max(32768),
+  maxOutputTokens: z.coerce.number().int().min(128),
   reasoningEffort: z.enum(["none", "low", "medium", "high", "xhigh"]),
   reasoningSummaryEnabled: z.coerce.boolean(),
   modelContextLimit: z.coerce.number().int().min(4096).max(2_000_000),
@@ -73,6 +73,14 @@ const providerProfileInputSchema = runtimeSettingsSchema.extend({
         path: ["systemPrompt"]
       });
     }
+  }
+
+  if (value.maxOutputTokens + value.safetyMarginTokens >= value.modelContextLimit) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: `maxOutputTokens (${value.maxOutputTokens}) plus safetyMarginTokens (${value.safetyMarginTokens}) must be less than modelContextLimit (${value.modelContextLimit})`,
+      path: ["maxOutputTokens"]
+    });
   }
 });
 
