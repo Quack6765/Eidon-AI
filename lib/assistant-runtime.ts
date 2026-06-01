@@ -1369,6 +1369,7 @@ export async function resolveAssistantTurn(input: {
         skills: turnSkills,
         loadedSkillIds,
         memoriesEnabled: input.memoriesEnabled ?? false,
+        effectiveVisionMode,
         searxngBaseUrl: input.searxngBaseUrl,
         memoryUserId: input.memoryUserId,
         onActionStart: input.onActionStart,

@@ -1379,7 +1379,8 @@ describe("provider integration", () => {
         mcpToolSets: [],
         skills: [],
         loadedSkillIds: new Set(),
-        memoriesEnabled: false
+        memoriesEnabled: false,
+        effectiveVisionMode: "none" as const
       }
     });
 
@@ -1473,7 +1474,8 @@ describe("provider integration", () => {
         mcpToolSets: [],
         skills: [],
         loadedSkillIds: new Set(),
-        memoriesEnabled: false
+        memoriesEnabled: false,
+        effectiveVisionMode: "none" as const
       }
     });
 
@@ -1570,7 +1572,8 @@ describe("provider integration", () => {
         mcpToolSets: [],
         skills: [],
         loadedSkillIds: new Set(),
-        memoriesEnabled: false
+        memoriesEnabled: false,
+        effectiveVisionMode: "none" as const
       }
     });
 
@@ -1668,7 +1671,8 @@ describe("provider integration", () => {
         mcpToolSets: [],
         skills: [],
         loadedSkillIds: new Set(),
-        memoriesEnabled: false
+        memoriesEnabled: false,
+        effectiveVisionMode: "none" as const
       }
     });
 

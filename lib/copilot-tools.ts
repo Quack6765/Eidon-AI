@@ -20,7 +20,8 @@ import type {
   MessageActionKind,
   MessageActionStatus,
   MemoryProposalPayload,
-  MemoryProposalState
+  MemoryProposalState,
+  VisionMode
 } from "@/lib/types";
 
 type ToolSet = {
@@ -46,6 +47,7 @@ export type CopilotToolContext = {
   skills: Skill[];
   loadedSkillIds: Set<string>;
   memoriesEnabled: boolean;
+  effectiveVisionMode: VisionMode;
   searxngBaseUrl?: string | null;
   memoryUserId?: string;
   onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
@@ -413,6 +415,9 @@ export function buildCopilotTools(ctx: CopilotToolContext): Tool[] {
   const tools: Tool[] = [];
 
   for (const { server, tools: mcpTools } of ctx.mcpToolSets) {
+    if (server.isVisionMcp && ctx.effectiveVisionMode !== "mcp") {
+      continue;
+    }
     for (const mcpTool of mcpTools) {
       tools.push(buildMcpCopilotTool(server, mcpTool, ctx));
     }
