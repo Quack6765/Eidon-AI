@@ -461,9 +461,11 @@ function StickToBottomBridge({
 }) {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
 
-  useEffect(() => {
+  const prevRef = useRef(isAtBottom);
+  if (prevRef.current !== isAtBottom) {
+    prevRef.current = isAtBottom;
     onAtBottomChange(isAtBottom);
-  }, [isAtBottom, onAtBottomChange]);
+  }
 
   useEffect(() => {
     scrollToBottomRef.current = scrollToBottom;
@@ -558,8 +560,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const scrollToBottomRef = useRef<(() => void) | null>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const queueBannerRef = useRef<HTMLDivElement>(null);
-  const [viewportHeight, setViewportHeight] = useState(800);
-  const [isAnchoring, setIsAnchoring] = useState(false);
+  const viewportHeightRef = useRef(800);
+  const anchorSpacerRef = useRef<HTMLDivElement>(null);
   const composerAreaRef = useRef<HTMLDivElement>(null);
   const [composerAreaHeight, setComposerAreaHeight] = useState(160);
   const [queueBannerHeight, setQueueBannerHeight] = useState(0);
@@ -597,6 +599,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const titlePollAttemptsRef = useRef(0);
   const messageSyncTimeoutRef = useRef<number | null>(null);
   const pendingLocalSubmissionsRef = useRef<PendingLocalSubmission[]>([]);
+  const initialMessageIdsRef = useRef<Set<string> | null>(null);
+  const animatedMessageIdsRef = useRef<Set<string>>(new Set());
 
   const pendingAnchorMessageIdRef = useRef<string | null>(null);
   const bootstrapPayloadRef = useRef<{
@@ -820,13 +824,17 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     const exists = renderableMessages.some((m) => m.id === messageId);
     if (!exists) return;
 
-    setIsAnchoring(true);
     pendingAnchorMessageIdRef.current = null;
     requestAnimationFrame(() => {
+      if (anchorSpacerRef.current) {
+        anchorSpacerRef.current.style.height = `${viewportHeightRef.current}px`;
+      }
       const targetEl = document.querySelector(`[data-message-id="${messageId}"]`);
       targetEl?.scrollIntoView({ block: "start", behavior: "auto" });
       requestAnimationFrame(() => {
-        setIsAnchoring(false);
+        if (anchorSpacerRef.current) {
+          anchorSpacerRef.current.style.height = "";
+        }
       });
     });
   }, [renderableMessages]);
@@ -1194,6 +1202,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
             }
             pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
+            for (const serverId of reconciliation.anchorMessageIdRemap.values()) {
+              animatedMessageIdsRef.current.add(serverId);
+            }
             return reconciliation.messages;
           });
           break;
@@ -1478,6 +1489,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
           }
           pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
+          for (const serverId of reconciliation.anchorMessageIdRemap.values()) {
+            animatedMessageIdsRef.current.add(serverId);
+          }
           return reconciliation.messages;
         });
         setConversationTitle(result.conversation.title);
@@ -2252,6 +2266,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         <ConversationContent
           className="no-scrollbar overscroll-y-contain gap-2.5 px-2 pt-4 md:gap-4 md:px-8"
         >
+          {(() => {
+            if (initialMessageIdsRef.current === null) {
+              initialMessageIdsRef.current = new Set(renderableMessages.map((m) => m.id));
+            }
+            return null;
+          })()}
           {renderableMessages.map((message, index) => {
             const isStreamingMessage = message.id === streamMessageId;
             const hasRunningStreamingAction = Boolean(
@@ -2260,12 +2280,19 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               )
             );
 
+            const wasPresentOnInit = initialMessageIdsRef.current!.has(message.id);
+            const hasBeenAnimated = animatedMessageIdsRef.current.has(message.id);
+            const shouldAnimate = hasBeenAnimated || (!wasPresentOnInit && message.role === "assistant");
+            if (shouldAnimate && !hasBeenAnimated) {
+              animatedMessageIdsRef.current.add(message.id);
+            }
+
             return (
               <div
                 key={message.id}
                 data-message-id={message.id}
-                className="animate-slide-up"
-                style={{ animationFillMode: "forwards" }}
+                className={shouldAnimate ? "animate-slide-up" : ""}
+                style={shouldAnimate ? { animationFillMode: "forwards" } : undefined}
               >
                 <MessageBubble
                   message={message}
@@ -2313,7 +2340,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               {error}
             </div>
           ) : null}
-          <div style={{ height: isAnchoring ? viewportHeight : (streamMessageId ? Math.max(80, composerAreaHeight + 40) : Math.max(24, composerAreaHeight)) }} />
+          <div ref={anchorSpacerRef} style={{ height: streamMessageId ? Math.max(80, composerAreaHeight + 40) : Math.max(24, composerAreaHeight) }} />
         </ConversationContent>
         <ConversationScrollButton />
       </ConversationContainer>
