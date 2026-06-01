@@ -556,10 +556,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
   const [personaId, setPersonaId] = useState<string | null>(null);
   const scrollToBottomRef = useRef<(() => void) | null>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
+  const isAtBottomRef = useRef(true);
   const queueBannerRef = useRef<HTMLDivElement>(null);
-  const [viewportHeight, setViewportHeight] = useState(800);
-  const [isAnchoring, setIsAnchoring] = useState(false);
+  const viewportHeightRef = useRef(800);
+  const anchorSpacerRef = useRef<HTMLDivElement>(null);
   const composerAreaRef = useRef<HTMLDivElement>(null);
   const [composerAreaHeight, setComposerAreaHeight] = useState(160);
   const [queueBannerHeight, setQueueBannerHeight] = useState(0);
@@ -597,6 +597,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const titlePollAttemptsRef = useRef(0);
   const messageSyncTimeoutRef = useRef<number | null>(null);
   const pendingLocalSubmissionsRef = useRef<PendingLocalSubmission[]>([]);
+  const seenMessageIdsRef = useRef<Set<string> | null>(null);
 
   const pendingAnchorMessageIdRef = useRef<string | null>(null);
   const bootstrapPayloadRef = useRef<{
@@ -787,7 +788,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   useEffect(() => {
     scrollToBottomRef.current?.();
-    setIsAtBottom(true);
+    isAtBottomRef.current = true;
   }, [payload.conversation.id]);
 
   const jumpToBottom = useCallback(() => {
@@ -820,13 +821,17 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     const exists = renderableMessages.some((m) => m.id === messageId);
     if (!exists) return;
 
-    setIsAnchoring(true);
     pendingAnchorMessageIdRef.current = null;
     requestAnimationFrame(() => {
+      if (anchorSpacerRef.current) {
+        anchorSpacerRef.current.style.height = `${viewportHeightRef.current}px`;
+      }
       const targetEl = document.querySelector(`[data-message-id="${messageId}"]`);
       targetEl?.scrollIntoView({ block: "start", behavior: "auto" });
       requestAnimationFrame(() => {
-        setIsAnchoring(false);
+        if (anchorSpacerRef.current) {
+          anchorSpacerRef.current.style.height = "";
+        }
       });
     });
   }, [renderableMessages]);
@@ -1194,6 +1199,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
             }
             pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
+            if (seenMessageIdsRef.current) {
+              for (const serverId of reconciliation.anchorMessageIdRemap.values()) {
+                seenMessageIdsRef.current.add(serverId);
+              }
+            }
             return reconciliation.messages;
           });
           break;
@@ -1478,6 +1488,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
           }
           pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
+          if (seenMessageIdsRef.current) {
+            for (const serverId of reconciliation.anchorMessageIdRemap.values()) {
+              seenMessageIdsRef.current.add(serverId);
+            }
+          }
           return reconciliation.messages;
         });
         setConversationTitle(result.conversation.title);
@@ -2246,7 +2261,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       <div className="relative flex min-h-0 flex-1 flex-col">
       <ConversationContainer>
         <StickToBottomBridge
-          onAtBottomChange={setIsAtBottom}
+          onAtBottomChange={(atBottom) => { isAtBottomRef.current = atBottom; }}
           scrollToBottomRef={scrollToBottomRef}
         />
         <ConversationContent
@@ -2260,12 +2275,21 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               )
             );
 
+            if (seenMessageIdsRef.current === null) {
+              seenMessageIdsRef.current = new Set(renderableMessages.map((m) => m.id));
+            }
+            const isNewMessage = !seenMessageIdsRef.current.has(message.id);
+            if (isNewMessage) {
+              seenMessageIdsRef.current.add(message.id);
+            }
+            const shouldAnimate = isNewMessage && message.role === "assistant";
+
             return (
               <div
                 key={message.id}
                 data-message-id={message.id}
-                className="animate-slide-up"
-                style={{ animationFillMode: "forwards" }}
+                className={shouldAnimate ? "animate-slide-up" : ""}
+                style={shouldAnimate ? { animationFillMode: "forwards" } : undefined}
               >
                 <MessageBubble
                   message={message}
@@ -2313,7 +2337,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               {error}
             </div>
           ) : null}
-          <div style={{ height: isAnchoring ? viewportHeight : (streamMessageId ? Math.max(80, composerAreaHeight + 40) : Math.max(24, composerAreaHeight)) }} />
+          <div ref={anchorSpacerRef} style={{ height: streamMessageId ? Math.max(80, composerAreaHeight + 40) : Math.max(24, composerAreaHeight) }} />
         </ConversationContent>
         <ConversationScrollButton />
       </ConversationContainer>
@@ -2367,7 +2391,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 body: JSON.stringify({ isTemporary: value })
               }).catch(() => {});
             }}
-            isAtBottom={isAtBottom}
+            isAtBottom={isAtBottomRef.current}
             onJumpToBottom={jumpToBottom}
             collapsibleToolbarOnMobile
             onStartSpeech={() => {

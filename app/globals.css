@@ -172,7 +172,8 @@ select {
 }
 
 .animate-slide-up {
-  animation: slide-up 0.4s ease-out forwards;
+  animation: slide-up 0.25s ease-out forwards;
+  will-change: transform, opacity;
 }
 
 .animate-slide-in-left {
