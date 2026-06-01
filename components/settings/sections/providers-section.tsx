@@ -368,15 +368,24 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     });
 
     if (response.ok) {
+      const newSelectedId = selectedProviderProfileId === profileId
+        ? (nextProfiles.find((p) => p.id === nextDefault)?.id ?? nextProfiles[0]?.id ?? "")
+        : selectedProviderProfileId;
+      const newActiveProfile = nextProfiles.find((p) => p.id === newSelectedId) ?? nextProfiles[0];
+
       setProviderProfiles(nextProfiles);
-      setSelectedProviderProfileId(
-        selectedProviderProfileId === profileId
-          ? (nextProfiles.find((p) => p.id === nextDefault)?.id ?? nextProfiles[0]?.id ?? "")
-          : selectedProviderProfileId
-      );
+      setSelectedProviderProfileId(newSelectedId);
       if (defaultProviderProfileId === profileId) {
         setDefaultProviderProfileId(nextDefault);
       }
+
+      if (newActiveProfile) {
+        resetDirty({
+          ...buildDirtySnapshot(newActiveProfile),
+          defaultProviderProfileId: defaultProviderProfileId === profileId ? nextDefault : defaultProviderProfileId,
+        });
+      }
+
       toast.showToast("success", "Provider deleted.");
     } else {
       const result = (await response.json().catch(() => ({}))) as { error?: string };
