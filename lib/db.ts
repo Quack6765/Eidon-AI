@@ -618,10 +618,6 @@ function migrate(db: Database.Database) {
   if (!mcpColNames.includes("env")) {
     db.exec("ALTER TABLE mcp_servers ADD COLUMN env TEXT");
   }
-  if (!mcpColNames.includes("is_vision_mcp")) {
-    db.exec("ALTER TABLE mcp_servers ADD COLUMN is_vision_mcp INTEGER NOT NULL DEFAULT 0");
-    backfillVisionMcpServers(db);
-  }
   if (!mcpColNames.includes("slug")) {
     db.exec("ALTER TABLE mcp_servers ADD COLUMN slug TEXT");
     const existingServers = db.prepare("SELECT id, name FROM mcp_servers").all() as Array<{ id: string; name: string }>;
@@ -661,6 +657,10 @@ function migrate(db: Database.Database) {
       DROP TABLE mcp_servers;
       ALTER TABLE mcp_servers_new RENAME TO mcp_servers;
     `);
+  }
+  if (!mcpColNames.includes("is_vision_mcp")) {
+    db.exec("ALTER TABLE mcp_servers ADD COLUMN is_vision_mcp INTEGER NOT NULL DEFAULT 0");
+    backfillVisionMcpServers(db);
   }
 
   const skillCols = db.prepare("PRAGMA table_info(skills)").all() as Array<{ name: string }>;
