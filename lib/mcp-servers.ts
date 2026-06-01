@@ -25,6 +25,7 @@ type McpServerRow = {
   args: string | null;
   env: string | null;
   enabled: number;
+  is_vision_mcp: number;
   created_at: string;
   updated_at: string;
 };
@@ -41,12 +42,13 @@ function rowToMcpServer(row: McpServerRow): McpServer {
     args: row.args ? (JSON.parse(row.args) as string[]) : null,
     env: row.env ? (JSON.parse(row.env) as Record<string, string>) : null,
     enabled: Boolean(row.enabled),
+    isVisionMcp: Boolean(row.is_vision_mcp),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
 }
 
-const SELECT_COLUMNS = `id, name, slug, url, headers, transport, command, args, env, enabled, created_at, updated_at`;
+const SELECT_COLUMNS = `id, name, slug, url, headers, transport, command, args, env, enabled, is_vision_mcp, created_at, updated_at`;
 
 export function listMcpServers() {
   const rows = getDb()
@@ -92,6 +94,7 @@ type CreateMcpServerInput = {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  isVisionMcp?: boolean;
 };
 
 export function createMcpServer(input: CreateMcpServerInput) {
@@ -109,14 +112,15 @@ export function createMcpServer(input: CreateMcpServerInput) {
     args: input.args ?? null,
     env: input.env ?? null,
     enabled: true,
+    isVisionMcp: input.isVisionMcp ?? false,
     createdAt: timestamp,
     updatedAt: timestamp
   };
 
   getDb()
     .prepare(
-      `INSERT INTO mcp_servers (id, name, slug, url, headers, transport, command, args, env, enabled, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO mcp_servers (id, name, slug, url, headers, transport, command, args, env, enabled, is_vision_mcp, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       server.id,
@@ -129,6 +133,7 @@ export function createMcpServer(input: CreateMcpServerInput) {
       server.args ? JSON.stringify(server.args) : null,
       server.env ? JSON.stringify(server.env) : null,
       server.enabled ? 1 : 0,
+      server.isVisionMcp ? 1 : 0,
       server.createdAt,
       server.updatedAt
     );
@@ -145,6 +150,7 @@ type UpdateMcpServerInput = {
   args?: string[] | null;
   env?: Record<string, string> | null;
   enabled?: boolean;
+  isVisionMcp?: boolean;
 };
 
 export function updateMcpServer(
@@ -164,11 +170,12 @@ export function updateMcpServer(
   const args = input.args !== undefined ? input.args : current.args;
   const env = input.env !== undefined ? input.env : current.env;
   const enabled = input.enabled ?? current.enabled;
+  const isVisionMcp = input.isVisionMcp ?? current.isVisionMcp;
 
   getDb()
     .prepare(
       `UPDATE mcp_servers
-       SET name = ?, slug = ?, url = ?, headers = ?, transport = ?, command = ?, args = ?, env = ?, enabled = ?, updated_at = ?
+       SET name = ?, slug = ?, url = ?, headers = ?, transport = ?, command = ?, args = ?, env = ?, enabled = ?, is_vision_mcp = ?, updated_at = ?
        WHERE id = ?`
     )
     .run(
@@ -181,6 +188,7 @@ export function updateMcpServer(
       args ? JSON.stringify(args) : null,
       env ? JSON.stringify(env) : null,
       enabled ? 1 : 0,
+      isVisionMcp ? 1 : 0,
       timestamp,
       serverId
     );

@@ -26,6 +26,7 @@ function buildBuiltinServer(
     args: null,
     env: null,
     enabled: true,
+    isVisionMcp: false,
     createdAt: timestamp,
     updatedAt: timestamp
   };

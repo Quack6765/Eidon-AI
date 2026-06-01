@@ -37,6 +37,7 @@ function makeServer(overrides: Partial<McpServer> = {}): McpServer {
     args: null,
     env: null,
     enabled: true,
+    isVisionMcp: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides

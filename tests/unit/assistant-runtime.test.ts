@@ -343,7 +343,7 @@ ${JSON.stringify({
       promptMessages: [{ role: "user", content: "Search" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_exa", slug: "exa", name: "Exa", url: "https://exa.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_exa", slug: "exa", name: "Exa", url: "https://exa.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{
           name: "web_search",
           title: "Web Search",
@@ -425,7 +425,7 @@ ${JSON.stringify({
       promptMessages: [{ role: "user", content: "Find MCP docs" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", title: "Search docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
       }],
       onEvent: () => {},
@@ -535,6 +535,7 @@ ${JSON.stringify({
           args: null,
           env: null,
           enabled: true,
+          isVisionMcp: false,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString()
         },
@@ -1295,6 +1296,7 @@ ${JSON.stringify({
         args: null,
         env: null,
         enabled: true,
+        isVisionMcp: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       }
@@ -1361,6 +1363,7 @@ ${JSON.stringify({
         args: null,
         env: null,
         enabled: true,
+        isVisionMcp: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       }
@@ -1545,7 +1548,7 @@ Run browser commands.`
       promptMessages: [{ role: "user", content: "Use MCP" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
       }],
       onActionStart: () => "act_tool",
@@ -1591,7 +1594,7 @@ Run browser commands.`
       promptMessages: [{ role: "user", content: "Use MCP" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
       }]
     });
@@ -1637,7 +1640,7 @@ Run browser commands.`
       promptMessages: [{ role: "user", content: "Use MCP" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
       }],
       onActionStart: (action) => {
@@ -1721,6 +1724,7 @@ Run browser commands.`
             args: null,
             env: null,
             enabled: true,
+            isVisionMcp: false,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
           },
@@ -1738,6 +1742,7 @@ Run browser commands.`
             args: null,
             env: null,
             enabled: true,
+            isVisionMcp: false,
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString()
           },
@@ -1810,7 +1815,7 @@ Run browser commands.`
         promptMessages: [{ role: "user", content: "Loop forever" }],
         skills: [],
         mcpToolSets: [{
-          server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+          server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
           tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
         }]
       })
@@ -1851,7 +1856,7 @@ Run browser commands.`
       skills: [],
       onAnswerSegment,
       mcpToolSets: [{
-        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" } }]
       }]
     });
@@ -1971,7 +1976,7 @@ Run browser commands.`
       promptMessages: [{ role: "user", content: "Search recent" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_exa", slug: "exa", name: "Exa", url: "https://exa.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_exa", slug: "exa", name: "Exa", url: "https://exa.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{
           name: "search",
           title: "Search",
@@ -2043,7 +2048,7 @@ Run browser commands.`
       promptMessages: [{ role: "user", content: "Find MCP docs" }],
       skills: [],
       mcpToolSets: [{
-        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
       }],
       onEvent: () => {},

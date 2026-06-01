@@ -243,6 +243,7 @@ export type McpServer = {
   args: string[] | null;
   env: Record<string, string> | null;
   enabled: boolean;
+  isVisionMcp: boolean;
   createdAt: string;
   updatedAt: string;
 };
