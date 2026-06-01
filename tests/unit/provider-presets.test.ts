@@ -108,15 +108,26 @@ describe("provider presets", () => {
     expect(getMatchingProviderPresetId(profile)).toBe("ollama_cloud");
   });
 
-  it("preserves non-provider tuning and secrets when applying a preset", () => {
+  it("preserves profile secrets and non-preset tuning when applying a preset", () => {
     const original = createProfile();
     const profile = applyProviderPreset(original, "glm_coding_plan");
 
     expect(profile.apiKey).toBe(original.apiKey);
     expect(profile.hasApiKey).toBe(original.hasApiKey);
     expect(profile.systemPrompt).toBe(original.systemPrompt);
+    expect(profile.compactionThreshold).toBe(original.compactionThreshold);
+    expect(profile.freshTailCount).toBe(original.freshTailCount);
     expect(profile.temperature).toBe(original.temperature);
     expect(profile.maxOutputTokens).toBe(original.maxOutputTokens);
+  });
+
+  it("overwrites temperature and maxOutputTokens when the preset defines them", () => {
+    const original = createProfile();
+    const profile = applyProviderPreset(original, "deepseek");
+
+    expect(profile.temperature).toBe(1.3);
+    expect(profile.maxOutputTokens).toBe(8192);
+    expect(profile.systemPrompt).toBe(original.systemPrompt);
     expect(profile.compactionThreshold).toBe(original.compactionThreshold);
     expect(profile.freshTailCount).toBe(original.freshTailCount);
   });
@@ -199,5 +210,39 @@ describe("provider presets", () => {
     };
 
     expect(getMatchingProviderPresetId(profile)).toBeNull();
+  });
+
+  it("applies the DeepSeek preset values without overwriting the name", () => {
+    const profile = applyProviderPreset(createProfile(), "deepseek");
+
+    expect(profile.name).toBe("Original profile");
+    expect(profile.apiBaseUrl).toBe("https://api.deepseek.com");
+    expect(profile.model).toBe("deepseek-v4-flash");
+    expect(profile.apiMode).toBe("chat_completions");
+    expect(profile.reasoningEffort).toBe("medium");
+    expect(profile.reasoningSummaryEnabled).toBe(true);
+    expect(profile.modelContextLimit).toBe(1_000_000);
+    expect(profile.temperature).toBe(1.3);
+    expect(profile.maxOutputTokens).toBe(8192);
+  });
+
+  it("matches a profile back to the DeepSeek preset when the provider fields align", () => {
+    const profile = {
+      ...createProfile(),
+      ...getProviderPreset("deepseek").values
+    };
+
+    expect(getMatchingProviderPresetId(profile)).toBe("deepseek");
+  });
+
+  it("matches an OpenRouter profile even when temperature and maxOutputTokens differ from defaults", () => {
+    const profile = {
+      ...createProfile(),
+      ...getProviderPreset("openrouter").values,
+      temperature: 0.9,
+      maxOutputTokens: 4096
+    };
+
+    expect(getMatchingProviderPresetId(profile)).toBe("openrouter");
   });
 });
