@@ -72,6 +72,7 @@ export type ProviderPresetId =
   | "glm_coding_plan"
   | "openrouter"
   | "opencode_go"
+  | "deepseek"
   | "custom_openai_compatible"
   | "anthropic_official"
   | "opencode_go_anthropic";

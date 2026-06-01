@@ -36,12 +36,13 @@ function buildProfile(
     systemPrompt: string;
     temperature: number;
     maxOutputTokens: number;
-    reasoningEffort: "low" | "medium" | "high" | "xhigh";
+    reasoningEffort: "none" | "low" | "medium" | "high" | "xhigh";
     reasoningSummaryEnabled: boolean;
     modelContextLimit: number;
     compactionThreshold: number;
     freshTailCount: number;
-    providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "opencode_go" | "custom_openai_compatible" | null;
+    safetyMarginTokens: number;
+    providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "opencode_go" | "deepseek" | "custom_openai_compatible" | "anthropic_official" | "opencode_go_anthropic" | null;
   }> = {}
 ) {
   return {
@@ -59,6 +60,7 @@ function buildProfile(
     modelContextLimit: overrides.modelContextLimit ?? 16384,
     compactionThreshold: overrides.compactionThreshold ?? 0.8,
     freshTailCount: overrides.freshTailCount ?? 12,
+    safetyMarginTokens: overrides.safetyMarginTokens ?? 1200,
     providerPresetId: overrides.providerPresetId ?? null
   };
 }
@@ -1310,5 +1312,41 @@ describe("settings storage", () => {
     expect(saved?.providerKind).toBe("anthropic");
     expect(saved?.providerPresetId).toBe("anthropic_official");
     expect(getProviderProfileWithApiKey("profile_anthropic")?.apiKey).toBe("sk-ant-test");
+  });
+
+  it("rejects maxOutputTokens that, combined with safetyMarginTokens, reaches modelContextLimit", () => {
+    const profile = buildProfile({
+      id: "profile_invalid_output",
+      name: "Invalid Output",
+      modelContextLimit: 10_000,
+      safetyMarginTokens: 1200,
+      maxOutputTokens: 9000
+    });
+
+    expect(() =>
+      updateSettings({
+        defaultProviderProfileId: profile.id,
+        skillsEnabled: true,
+        providerProfiles: [profile]
+      })
+    ).toThrow(/must be less than modelContextLimit/);
+  });
+
+  it("accepts maxOutputTokens above the previous 32768 hard cap when modelContextLimit allows it", () => {
+    const profile = buildProfile({
+      id: "profile_large_output",
+      name: "Large Output",
+      modelContextLimit: 1_000_000,
+      safetyMarginTokens: 1200,
+      maxOutputTokens: 384_000
+    });
+
+    expect(() =>
+      updateSettings({
+        defaultProviderProfileId: profile.id,
+        skillsEnabled: true,
+        providerProfiles: [profile]
+      })
+    ).not.toThrow();
   });
 });
