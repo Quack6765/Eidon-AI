@@ -8,7 +8,7 @@ type UseAutoResizeOptions = {
   minHeight?: number;
 };
 
-export function useAutoResize({ ref, value, minHeight = 52 }: UseAutoResizeOptions) {
+export function useAutoResize({ ref, value, minHeight = 40 }: UseAutoResizeOptions) {
   const [height, setHeight] = useState<number>(minHeight);
 
   const adjustHeight = useCallback(() => {

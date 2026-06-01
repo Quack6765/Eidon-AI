@@ -272,7 +272,7 @@ export function ChatComposer({
     ref: textareaRef as React.RefObject<HTMLTextAreaElement | null>,
     value: input
   });
-  const isExpanded = textareaHeight > 60;
+  const isExpanded = textareaHeight > 52;
   const { showToolbar, inputFocusProps, onControlOpenChange } = useCollapsibleToolbar({
     enabled: collapsibleToolbarOnMobile
   });
@@ -428,15 +428,19 @@ export function ChatComposer({
         ) : null}
       </AnimatePresence>
 
-      <div className={cn("flex w-full gap-2 pb-1 pr-1.5", isExpanded ? "items-end" : "items-center")}>
+      <div className={cn("flex w-full gap-2 pr-1.5", isExpanded ? "items-end" : "items-start")}>
         <div className="flex-1 min-w-0">
           <Textarea
             ref={textareaRef}
             value={input}
             {...inputFocusProps}
             onChange={(event) => onInputChange(event.target.value)}
-            placeholder="Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-            className="max-h-[60vh] min-h-[52px] w-full resize-none border-0 bg-transparent px-4 py-3.5 text-[15px] text-[var(--text)] focus-visible:ring-0 focus:outline-none scrollbar-thin placeholder:text-white/20 caret-[var(--accent)] overflow-y-auto"
+            placeholder=""
+            rows={1}
+            className={cn(
+              "block max-h-[60vh] min-h-[40px] w-full resize-none border border-white/[0.06] rounded-2xl bg-white/[0.03] px-4 py-2 text-[15px] text-[var(--text)] focus-visible:ring-0 focus:outline-none focus:border-[var(--accent)]/30 focus:bg-white/[0.05] placeholder:text-white/20 caret-[var(--accent)]",
+              isExpanded ? "overflow-y-auto scrollbar-thin" : "overflow-hidden"
+            )}
             style={{ height: `${textareaHeight}px`, transition: "height 150ms ease" }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -587,7 +591,7 @@ export function ChatComposer({
             onAnimationStart={() => setToolbarOverflow("hidden")}
             onAnimationComplete={() => setToolbarOverflow("visible")}
           >
-            <div className="flex items-center justify-between px-1.5 pb-1 pt-1.5 border-t border-white/5">
+            <div className="flex items-center justify-between px-1.5 pb-1 pt-1.5 mt-1.5 sm:mt-2 border-t border-white/5">
               <div className="flex items-center gap-0.5">
                 <button
                   className="p-2 text-white/30 hover:text-white/60 transition-all duration-200 rounded-xl hover:bg-white/5 shrink-0"
