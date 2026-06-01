@@ -22,7 +22,7 @@ import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compa
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import { inferAssistantLocalAttachments, importAssistantLocalFileAttachment } from "@/lib/assistant-local-attachments";
 import { estimateTextTokens } from "@/lib/tokenization";
-import { listEnabledMcpServers, getMcpServer } from "@/lib/mcp-servers";
+import { listEnabledMcpServers } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
 import {
   getSettings,
@@ -500,15 +500,7 @@ async function startAssistantTurn(
       mcpToolSets = await gatherAllMcpTools(mcpServers);
     }
 
-    // Resolve vision MCP server if configured so runtime can use MCP mode directly
-    // or downgrade unsupported native-vision profiles automatically.
-    let visionMcpServer: (typeof mcpServers)[number] | null = null;
-    if (settings.visionMcpServerId) {
-      const server = getMcpServer(settings.visionMcpServerId);
-      if (server && server.enabled) {
-        visionMcpServer = server;
-      }
-    }
+    const visionMcpServers = mcpServers.filter((server) => server.enabled && server.isVisionMcp);
 
     const providerResult = await resolveAssistantTurn({
       settings,
@@ -516,7 +508,7 @@ async function startAssistantTurn(
       skills,
       mcpServers,
       mcpToolSets,
-      visionMcpServer,
+      visionMcpServers,
       memoriesEnabled: appSettings.memoriesEnabled,
       searxngBaseUrl:
         appSettings.webSearchEngine === "searxng" ? appSettings.searxngBaseUrl : null,

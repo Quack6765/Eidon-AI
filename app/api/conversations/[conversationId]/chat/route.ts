@@ -27,7 +27,7 @@ import {
 } from "@/lib/settings";
 import { encodeSseEvent, encodeSseFlushMarker, encodeSsePrelude } from "@/lib/sse";
 import { estimateTextTokens } from "@/lib/tokenization";
-import { listEnabledMcpServers, getMcpServer } from "@/lib/mcp-servers";
+import { listEnabledMcpServers } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
 import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
 import type { ChatStreamEvent } from "@/lib/types";
@@ -162,13 +162,7 @@ export async function POST(
           mcpToolSets = await gatherAllMcpTools(mcpServers);
         }
 
-        let visionMcpServer: (typeof mcpServers)[number] | null = null;
-        if (settings.visionMcpServerId) {
-          const server = getMcpServer(settings.visionMcpServerId);
-          if (server && server.enabled) {
-            visionMcpServer = server;
-          }
-        }
+        const visionMcpServers = mcpServers.filter((server) => server.enabled && server.isVisionMcp);
 
         let timelineSortOrder = 0;
 
@@ -178,7 +172,7 @@ export async function POST(
           skills,
           mcpServers,
           mcpToolSets,
-          visionMcpServer,
+          visionMcpServers,
           searxngBaseUrl:
             appSettings.webSearchEngine === "searxng" ? appSettings.searxngBaseUrl : null,
           mcpTimeout: appSettings.mcpTimeout,

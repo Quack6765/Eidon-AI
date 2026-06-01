@@ -227,6 +227,7 @@ function buildToolDefinitions(input: {
   imageGenerationBackend?: string | null;
   imageGenerationToolEnabled?: boolean;
   restrictToGenerateImage?: boolean;
+  effectiveVisionMode: VisionMode;
 }): ToolDefinition[] {
   const imageTool =
     input.imageGenerationToolEnabled !== false &&
@@ -264,6 +265,9 @@ function buildToolDefinitions(input: {
   const webSearchDirective = "Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently.";
 
   for (const { server, tools: mcpTools } of input.mcpToolSets) {
+    if (server.isVisionMcp && input.effectiveVisionMode !== "mcp") {
+      continue;
+    }
     for (const tool of mcpTools) {
       const enumHints = extractEnumHints(tool.inputSchema ?? {});
       tools.push({
@@ -437,17 +441,19 @@ function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[]
 }
 
 function buildVisionMcpDirective(
-  mcpServer: McpServer,
+  servers: McpServer[],
   attachments: Array<{ id: string; filename: string; absolutePath: string }>
 ): string {
+  const serverList = servers.map((s) => `- ${s.name}`).join("\n");
   const attachmentList = attachments
     .map((a) => `- ${a.filename} (path: ${a.absolutePath})`)
     .join("\n");
 
   return [
-    "This model cannot process images directly. When the user provides images, use the MCP server to analyze them.",
+    "This model cannot view images or videos directly. When the user provides images or videos, use one of the configured vision MCP servers to analyze them.",
     "",
-    `Vision MCP server: ${mcpServer.name}`,
+    "Vision MCP servers:",
+    serverList,
     "",
     "User attachments in this conversation (use the file path when calling vision tools):",
     attachmentList
@@ -504,43 +510,39 @@ function mergeSystemMessage(promptMessages: PromptMessage[], content: string): P
 
 function getEffectiveVisionMode(
   settings: ProviderProfileWithApiKey,
-  visionMcpServer?: McpServer | null
+  hasVisionServers: boolean
 ): VisionMode {
-  if (settings.visionMode === "native" && supportsImageInput(settings.model, settings.apiMode)) {
-    return "native";
+  if (settings.visionMode === "native") {
+    return supportsImageInput(settings.model, settings.apiMode) ? "native" : "none";
   }
-
-  if (
-    (settings.visionMode === "mcp" || settings.visionMode === "native") &&
-    visionMcpServer
-  ) {
-    return "mcp";
+  if (settings.visionMode === "mcp") {
+    return hasVisionServers ? "mcp" : "none";
   }
-
   return "none";
 }
 
 function prepareProviderPromptMessages(input: {
   promptMessages: PromptMessage[];
   settings: ProviderProfileWithApiKey;
-  visionMcpServer?: McpServer | null;
+  visionMcpServers?: McpServer[];
 }) {
   const imageAttachments = extractImageAttachments(input.promptMessages);
   if (imageAttachments.length === 0) {
     return input.promptMessages;
   }
 
-  const effectiveVisionMode = getEffectiveVisionMode(input.settings, input.visionMcpServer);
+  const visionServers = input.visionMcpServers ?? [];
+  const effectiveVisionMode = getEffectiveVisionMode(input.settings, visionServers.length > 0);
   if (effectiveVisionMode === "native") {
     return input.promptMessages;
   }
 
   const providerPromptMessages = replaceImagesWithTextPlaceholders(input.promptMessages);
 
-  if (effectiveVisionMode === "mcp" && input.visionMcpServer) {
+  if (effectiveVisionMode === "mcp" && visionServers.length > 0) {
     return mergeSystemMessage(
       providerPromptMessages,
-      buildVisionMcpDirective(input.visionMcpServer, imageAttachments)
+      buildVisionMcpDirective(visionServers, imageAttachments)
     );
   }
 
@@ -1196,7 +1198,7 @@ async function executeToolCall(
 async function forceDirectAnswerAfterToolLoop(input: {
   settings: ProviderProfileWithApiKey;
   promptMessages: PromptMessage[];
-  visionMcpServer?: McpServer | null;
+  visionMcpServers?: McpServer[];
   onEvent?: (event: ChatStreamEvent) => void;
   onAnswerSegment?: (segment: string) => Promise<void> | void;
 }) {
@@ -1206,7 +1208,7 @@ async function forceDirectAnswerAfterToolLoop(input: {
       "Stop using tools now. Answer the user directly from the information already gathered. Do not call any more tools."
     ),
     settings: input.settings,
-    visionMcpServer: input.visionMcpServer
+    visionMcpServers: input.visionMcpServers
   });
 
   const providerStream = streamProviderResponse({
@@ -1248,7 +1250,7 @@ export async function resolveAssistantTurn(input: {
   skills: Skill[];
   mcpServers?: McpServer[];
   mcpToolSets: ToolSet[];
-  visionMcpServer?: McpServer | null;
+  visionMcpServers?: McpServer[];
   memoriesEnabled?: boolean;
   searxngBaseUrl?: string | null;
   memoryUserId?: string;
@@ -1280,6 +1282,9 @@ export async function resolveAssistantTurn(input: {
   };
 
   let promptMessages = input.promptMessages;
+
+  const visionMcpServers = input.visionMcpServers ?? [];
+  const effectiveVisionMode = getEffectiveVisionMode(input.settings, visionMcpServers.length > 0);
 
   const turnSkills = filterSkillsForTurn(input.skills, promptMessages);
   const toolRuntimeInput = {
@@ -1344,13 +1349,14 @@ export async function resolveAssistantTurn(input: {
       searxngBaseUrl: input.searxngBaseUrl,
       imageGenerationBackend: input.appSettings?.imageGenerationBackend,
       imageGenerationToolEnabled: !imageGenerationToolConsumed,
-      restrictToGenerateImage
+      restrictToGenerateImage,
+      effectiveVisionMode
     });
 
     const providerPromptMessages = prepareProviderPromptMessages({
       promptMessages,
       settings: input.settings,
-      visionMcpServer: input.visionMcpServer
+      visionMcpServers
     });
 
     const providerStream = streamProviderResponse({
@@ -1442,7 +1448,7 @@ export async function resolveAssistantTurn(input: {
       const forcedResult = await forceDirectAnswerAfterToolLoop({
         settings: input.settings,
         promptMessages,
-        visionMcpServer: input.visionMcpServer,
+        visionMcpServers,
         onEvent: input.onEvent,
         onAnswerSegment: input.onAnswerSegment
       });
