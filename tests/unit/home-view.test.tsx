@@ -237,9 +237,7 @@ describe("home view", () => {
     );
 
     fireEvent.change(
-      screen.getByPlaceholderText(
-        "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-      ),
+      screen.getByRole("textbox"),
       {
         target: {
           value: "Start this thread"
@@ -289,9 +287,7 @@ describe("home view", () => {
     );
 
     expect(
-      screen.getByPlaceholderText(
-        "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-      )
+      screen.getByRole("textbox")
     ).not.toHaveFocus();
   });
 
@@ -319,9 +315,7 @@ describe("home view", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByPlaceholderText(
-          "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-        )
+        screen.getByRole("textbox")
       ).toHaveValue("home transcript");
     });
 

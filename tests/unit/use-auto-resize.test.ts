@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, renderHook } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
 
 import { useAutoResize } from "@/lib/use-auto-resize";
 
@@ -32,11 +32,11 @@ describe("useAutoResize", () => {
     const ref = { current: textarea };
 
     const { result } = renderHook(() =>
-      useAutoResize({ ref, value: "hi", minHeight: 52 })
+      useAutoResize({ ref, value: "hi", minHeight: 40 })
     );
 
-    expect(result.current.height).toBe(52);
-    expect(textarea.style.height).toBe("52px");
+    expect(result.current.height).toBe(40);
+    expect(textarea.style.height).toBe("40px");
   });
 
   it("adjusts height when value changes", () => {
@@ -74,7 +74,7 @@ describe("useAutoResize", () => {
     expect(result.current.height).toBe(80);
   });
 
-  it("uses default minHeight of 52", () => {
+  it("uses default minHeight of 40", () => {
     const textarea = createTextarea(30);
     const ref = { current: textarea };
 
@@ -82,7 +82,7 @@ describe("useAutoResize", () => {
       useAutoResize({ ref, value: "" })
     );
 
-    expect(result.current.height).toBe(52);
+    expect(result.current.height).toBe(40);
   });
 
   it("does nothing when ref.current is null", () => {
@@ -92,6 +92,6 @@ describe("useAutoResize", () => {
       useAutoResize({ ref, value: "hello" })
     );
 
-    expect(result.current.height).toBe(52);
+    expect(result.current.height).toBe(40);
   });
 });
