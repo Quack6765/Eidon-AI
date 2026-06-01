@@ -64,7 +64,6 @@ function createProfile(overrides: Record<string, unknown> = {}) {
     mergedMinNodeCount: 4,
     mergedTargetTokens: 1600,
     visionMode: "native" as const,
-    visionMcpServerId: null,
     providerPresetId: null,
     githubUserAccessTokenEncrypted: encryptValue("ghu_access"),
     githubRefreshTokenEncrypted: encryptValue("ghr_refresh"),

@@ -38,7 +38,6 @@ const runtimeSettingsSchema = z.object({
   mergedMinNodeCount: z.coerce.number().int().min(2).max(20).default(4),
   mergedTargetTokens: z.coerce.number().int().min(128).max(16000).default(1600),
   visionMode: z.enum(["none", "native", "mcp"]).default("native"),
-  visionMcpServerId: z.string().nullable().default(null),
   providerPresetId: z.enum(["ollama_cloud", "glm_coding_plan", "openrouter", "opencode_go", "custom_openai_compatible", "anthropic_official", "opencode_go_anthropic"]).nullable().default(null),
   githubUserAccessTokenEncrypted: z.string().default(""),
   githubRefreshTokenEncrypted: z.string().default(""),
@@ -277,7 +276,6 @@ type ProviderProfileRow = {
   merged_min_node_count: number;
   merged_target_tokens: number;
   vision_mode: string;
-  vision_mcp_server_id: string | null;
   provider_kind: string;
   provider_preset_id: string | null;
   github_user_access_token_encrypted: string;
@@ -452,7 +450,6 @@ function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
     mergedMinNodeCount: row.merged_min_node_count,
     mergedTargetTokens: row.merged_target_tokens,
     visionMode: row.vision_mode as VisionMode,
-    visionMcpServerId: row.vision_mcp_server_id,
     providerPresetId: row.provider_preset_id as ProviderProfile["providerPresetId"],
     githubUserAccessTokenEncrypted: row.github_user_access_token_encrypted,
     githubRefreshTokenEncrypted: row.github_refresh_token_encrypted,
@@ -490,7 +487,6 @@ function listProviderProfileRows() {
         merged_min_node_count,
         merged_target_tokens,
         vision_mode,
-        vision_mcp_server_id,
         provider_kind,
         provider_preset_id,
         github_user_access_token_encrypted,
@@ -532,7 +528,6 @@ function getProviderProfileRow(profileId: string) {
         merged_min_node_count,
         merged_target_tokens,
         vision_mode,
-        vision_mcp_server_id,
         provider_kind,
         provider_preset_id,
         github_user_access_token_encrypted,
@@ -872,7 +867,6 @@ export function duplicateProviderProfile(sourceProfileId: string) {
         merged_min_node_count,
         merged_target_tokens,
         vision_mode,
-        vision_mcp_server_id,
         provider_kind,
         provider_preset_id,
         github_user_access_token_encrypted,
@@ -887,7 +881,7 @@ export function duplicateProviderProfile(sourceProfileId: string) {
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-        ?, ?
+        ?
       )`
     )
     .run(
@@ -912,7 +906,6 @@ export function duplicateProviderProfile(sourceProfileId: string) {
       source.merged_min_node_count,
       source.merged_target_tokens,
       source.vision_mode,
-      source.vision_mcp_server_id,
       source.provider_kind,
       source.provider_preset_id,
       source.github_user_access_token_encrypted,
@@ -1117,7 +1110,6 @@ export function updateSettings(input: unknown) {
         merged_min_node_count,
         merged_target_tokens,
         vision_mode,
-        vision_mcp_server_id,
         provider_kind,
         provider_preset_id,
         github_user_access_token_encrypted,
@@ -1150,7 +1142,6 @@ export function updateSettings(input: unknown) {
         @mergedMinNodeCount,
         @mergedTargetTokens,
         @visionMode,
-        @visionMcpServerId,
         @providerKind,
         @providerPresetId,
         @githubUserAccessTokenEncrypted,
@@ -1183,7 +1174,6 @@ export function updateSettings(input: unknown) {
         merged_min_node_count = excluded.merged_min_node_count,
         merged_target_tokens = excluded.merged_target_tokens,
         vision_mode = excluded.vision_mode,
-        vision_mcp_server_id = excluded.vision_mcp_server_id,
         provider_kind = excluded.provider_kind,
         provider_preset_id = excluded.provider_preset_id,
         github_user_access_token_encrypted = excluded.github_user_access_token_encrypted,
@@ -1227,7 +1217,6 @@ export function updateSettings(input: unknown) {
         mergedMinNodeCount: profile.mergedMinNodeCount,
         mergedTargetTokens: profile.mergedTargetTokens,
         visionMode: profile.visionMode ?? "native",
-        visionMcpServerId: profile.visionMcpServerId ?? null,
         providerKind: profile.providerKind,
         providerPresetId: profile.providerPresetId ?? null,
         githubUserAccessTokenEncrypted,

@@ -111,7 +111,6 @@ function createSettings(): ProviderProfileWithApiKey {
     mergedMinNodeCount: 4,
     mergedTargetTokens: 1600,
     visionMode: "native" as const,
-    visionMcpServerId: null,
     providerPresetId: null,
     providerKind: "openai_compatible",
     githubUserAccessTokenEncrypted: "",

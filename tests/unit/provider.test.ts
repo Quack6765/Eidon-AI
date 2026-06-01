@@ -85,7 +85,6 @@ function createSettings(
     mergedMinNodeCount: 4,
     mergedTargetTokens: 1600,
     visionMode: "native" as const,
-    visionMcpServerId: null,
     providerPresetId: null,
     githubUserAccessTokenEncrypted: "",
     githubRefreshTokenEncrypted: "",

@@ -33,7 +33,6 @@ type ProviderProfileFixture = {
   mergedMinNodeCount: number;
   mergedTargetTokens: number;
   visionMode: "none" | "native" | "mcp";
-  visionMcpServerId: string | null;
   providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "opencode_go" | "custom_openai_compatible" | "anthropic_official" | "opencode_go_anthropic" | null;
   githubAccountLogin: string | null;
   githubAccountName: string | null;
@@ -110,7 +109,6 @@ function makeSettings(overrides: Partial<SettingsFixture> = {}): SettingsFixture
         mergedMinNodeCount: 4,
         mergedTargetTokens: 1600,
         visionMode: "native",
-        visionMcpServerId: null,
         githubTokenExpiresAt: null,
         githubRefreshTokenExpiresAt: null,
         githubAccountLogin: null,
@@ -187,7 +185,6 @@ describe("providers section", () => {
               mergedMinNodeCount: 4,
               mergedTargetTokens: 1600,
               visionMode: "native",
-              visionMcpServerId: null,
               providerPresetId: null,
               githubAccountLogin: null,
               githubAccountName: null,
@@ -264,7 +261,6 @@ describe("providers section", () => {
               mergedMinNodeCount: 4,
               mergedTargetTokens: 1600,
               visionMode: "native",
-              visionMcpServerId: null,
               providerPresetId: null,
               githubAccountLogin: "octocat",
               githubAccountName: "The Octocat",
@@ -638,7 +634,6 @@ describe("providers section", () => {
           mergedMinNodeCount: 4,
           mergedTargetTokens: 1600,
           visionMode: "native",
-          visionMcpServerId: null,
           providerPresetId: null,
           githubTokenExpiresAt: null,
           githubRefreshTokenExpiresAt: null,
@@ -671,7 +666,6 @@ describe("providers section", () => {
           mergedMinNodeCount: 4,
           mergedTargetTokens: 1600,
           visionMode: "native",
-          visionMcpServerId: null,
           providerPresetId: null,
           githubTokenExpiresAt: null,
           githubRefreshTokenExpiresAt: null,

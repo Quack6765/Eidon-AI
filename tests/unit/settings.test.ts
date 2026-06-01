@@ -212,7 +212,6 @@ describe("settings storage", () => {
 
     expect(defaults.name).toBe("Default profile");
     expect(defaults.visionMode).toBe("native");
-    expect(defaults.visionMcpServerId).toBeNull();
   });
 
   it("returns the default compaction threshold as eighty percent", () => {

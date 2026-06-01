@@ -300,7 +300,6 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
         mergedMinNodeCount: 4,
         mergedTargetTokens: 1600,
         visionMode: "native" as const,
-        visionMcpServerId: null,
         providerPresetId: null,
         providerKind: "openai_compatible" as "openai_compatible" | "github_copilot",
         githubTokenExpiresAt: null,
