@@ -144,6 +144,7 @@ vi.mock("@/lib/speech/speech-controller", () => ({
 const stickToBottomMock = vi.hoisted(() => ({
   isAtBottomValue: true,
   scrollToBottom: vi.fn(),
+  _forceRender: null as (() => void) | null,
 }));
 
 vi.mock("use-stick-to-bottom", () => ({
@@ -151,8 +152,14 @@ vi.mock("use-stick-to-bottom", () => ({
     props: Record<string, unknown>,
     ref: React.Ref<unknown>
   ) {
-    require("react").useImperativeHandle(ref, () => ({}));
-    return require("react").createElement("div", null, props.children as React.ReactNode);
+    const React = require("react");
+    const [, setTick] = React.useState(0);
+    React.useImperativeHandle(ref, () => ({}));
+    React.useEffect(() => {
+      stickToBottomMock._forceRender = () => setTick((n: number) => n + 1);
+      return () => { stickToBottomMock._forceRender = null; };
+    }, []);
+    return React.createElement("div", null, props.children as React.ReactNode);
   }),
   useStickToBottomContext: () => ({
     get isAtBottom() { return stickToBottomMock.isAtBottomValue; },
@@ -576,6 +583,11 @@ describe("chat view", () => {
         callback([], {} as ResizeObserver);
       }
     });
+    if (stickToBottomMock._forceRender) {
+      act(() => {
+        stickToBottomMock._forceRender!();
+      });
+    }
   }
 
   it("places the desktop share control in the conversation title header", () => {
@@ -2915,8 +2927,9 @@ describe("chat view", () => {
     });
 
     simulateAtBottomState(true);
-    await flushAnimationFrame();
-    expect(screen.queryByRole("button", { name: "Scroll to latest messages" })).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Scroll to latest messages" })).toBeNull();
+    });
   });
 
   it("positions the Latest Messages pill to the right of the composer on desktop", async () => {
