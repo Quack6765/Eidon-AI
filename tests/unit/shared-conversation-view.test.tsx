@@ -197,7 +197,7 @@ describe("SharedConversationView", () => {
       "linear-gradient(to bottom, #FFFFFF 0%, #D4C8FF 40%, #8b5cf6 100%)"
     );
     expect(screen.getByText("Shared UI thread")).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText(/Ask, create, or start a task/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.queryByText("New Chat")).not.toBeInTheDocument();
     expect(screen.queryByText("Search")).not.toBeInTheDocument();
     expect(container.querySelector('img[src="/agent-icon.png"]')).not.toBeNull();

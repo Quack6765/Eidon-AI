@@ -634,9 +634,7 @@ describe("chat view", () => {
   it("focuses the composer textarea when the conversation loads", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     await waitFor(() => {
       expect(textarea).toHaveFocus();
@@ -652,9 +650,7 @@ describe("chat view", () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     expect(
-      screen.getByPlaceholderText(
-        "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-      )
+      screen.getByRole("textbox")
     ).not.toHaveFocus();
   });
 
@@ -989,9 +985,7 @@ describe("chat view", () => {
   it("sends a message via WebSocket when the user submits", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(textarea, { target: { value: "Hello world" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -1018,9 +1012,7 @@ describe("chat view", () => {
       })
     );
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(textarea, { target: { value: "Queued follow-up" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -1048,9 +1040,7 @@ describe("chat view", () => {
 
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     act(() => {
       textarea.focus();
@@ -1089,9 +1079,7 @@ describe("chat view", () => {
       })
     );
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     act(() => {
       textarea.focus();
@@ -1115,9 +1103,7 @@ describe("chat view", () => {
   it("keeps the composer focused after sending on non-touch devices", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     await waitFor(() => {
       expect(textarea).toHaveFocus();
@@ -1144,9 +1130,7 @@ describe("chat view", () => {
 
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(textarea, { target: { value: "Hello world" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -1165,9 +1149,7 @@ describe("chat view", () => {
   it("appends dictated text into the draft without sending a message", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
     expect(screen.queryByRole("combobox", { name: "Speech language" })).toBeNull();
 
     fireEvent.change(textarea, { target: { value: "Existing draft   " } });
@@ -1189,9 +1171,7 @@ describe("chat view", () => {
   it("does not submit when Enter is pressed during active voice input", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(textarea, { target: { value: "Keep this draft" } });
     fireEvent.click(screen.getByRole("button", { name: "Start voice input" }));
@@ -1611,9 +1591,7 @@ describe("chat view", () => {
   it("shows a provisional generate image row immediately after message_start for image requests", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(textarea, { target: { value: "Generate an image of a yellow star" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -1978,9 +1956,7 @@ describe("chat view", () => {
   it("ignores stale empty snapshots after a local send has started", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(textarea, { target: { value: "hello" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2025,9 +2001,7 @@ describe("chat view", () => {
   it("keeps an optimistic user message visible when an unrelated server user message arrives first", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(textarea, { target: { value: "keep this attachment" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -2083,9 +2057,7 @@ describe("chat view", () => {
 
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(input, {
       target: {
@@ -2177,9 +2149,7 @@ describe("chat view", () => {
 
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(input, {
       target: {
@@ -2335,9 +2305,7 @@ describe("chat view", () => {
 
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(input, {
       target: {
@@ -2468,9 +2436,7 @@ describe("chat view", () => {
       React.createElement(ChatView, { payload: createPayload() })
     );
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(input, {
       target: {
@@ -2535,9 +2501,7 @@ describe("chat view", () => {
 
     const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(input, {
       target: {
@@ -2687,9 +2651,7 @@ describe("chat view", () => {
       React.createElement(ChatView, { payload: createPayload() })
     );
     const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(input, {
       target: {
@@ -2870,9 +2832,7 @@ describe("chat view", () => {
         })
       })
     );
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     act(() => {
       wsMock.onMessage!({
@@ -2932,9 +2892,7 @@ describe("chat view", () => {
 
   it("hides the scroll-to-newest pill when the user sends from a scrolled-up conversation", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     await flushAnimationFrame();
 
@@ -2979,9 +2937,7 @@ describe("chat view", () => {
 
   it("follows streaming overflow after sending", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(textarea, { target: { value: "Track the next reply" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -3038,9 +2994,7 @@ describe("chat view", () => {
       } as Response);
 
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(textarea, { target: { value: "Server-backed prompt" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -3060,9 +3014,7 @@ describe("chat view", () => {
 
   it("scrolls to anchor the user message near the top after sending", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     const scrollIntoViewSpy2 = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
 
@@ -3093,9 +3045,7 @@ describe("chat view", () => {
         })
       })
     );
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     act(() => {
       wsMock.onMessage!({
@@ -3127,9 +3077,7 @@ describe("chat view", () => {
 
   it("cancels streaming follow immediately when the user wheels away", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(textarea, { target: { value: "Track then interrupt" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -3476,9 +3424,7 @@ describe("chat view", () => {
 
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(textarea, { target: { value: "hello" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -4096,9 +4042,7 @@ describe("chat view", () => {
       });
     });
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
 
     fireEvent.change(textarea, { target: { value: "Queued while streaming" } });
 
@@ -4107,17 +4051,15 @@ describe("chat view", () => {
     expect(screen.getByText("Agent working - send still queues")).toBeInTheDocument();
   });
 
-  it("centers the composer controls against the textarea body", async () => {
+  it("aligns the composer controls with the top of the textarea", async () => {
     await act(async () => {
       renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     });
 
-    const textarea = screen.getByPlaceholderText(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const textarea = screen.getByRole("textbox");
     const composerRow = textarea.parentElement?.parentElement;
 
-    expect(composerRow).toHaveClass("items-center");
+    expect(composerRow).toHaveClass("items-start");
     expect(composerRow).not.toHaveClass("items-end");
   });
 

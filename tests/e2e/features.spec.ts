@@ -781,9 +781,7 @@ test.describe("Feature: Create and delete conversations", () => {
         hasMediaDevices: "function"
       });
 
-    const composer = page.getByPlaceholder(
-      "Ask, create, or start a task. Press ⌘ ⏎ to insert a line break..."
-    );
+    const composer = page.getByRole("textbox");
     const startVoiceInputButton = page.getByRole("button", { name: "Start voice input" });
 
     await expect(composer).toBeVisible({ timeout: 5000 });
@@ -1172,7 +1170,7 @@ test.describe("Feature: Automations workspace", () => {
     });
     await page.getByRole("link", { name: /Open transcript/ }).first().click();
     await expect(page).toHaveURL(/\/automations\/[^/]+\/runs\/[^/]+$/, { timeout: 10000 });
-    await expect(page.getByPlaceholder(/Ask, create, or start a task/i)).toBeVisible({
+    await expect(page.getByRole("textbox")).toBeVisible({
       timeout: 10000
     });
   });
@@ -1210,7 +1208,7 @@ test.describe("Feature: Chat attachments", () => {
     await expect(page.getByRole("button", { name: "Remove photo.png" })).toBeVisible({
       timeout: 5000
     });
-    await page.getByPlaceholder(/Ask, create, or start a task/i).fill("Please inspect this");
+    await page.getByRole("textbox").fill("Please inspect this");
     await expect(page.getByAltText("photo.png")).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled({
       timeout: 5000
@@ -1285,7 +1283,7 @@ test.describe("Feature: Chat attachments", () => {
     ]);
     await uploadResponsePromise;
 
-    await page.getByPlaceholder(/Ask, create, or start a task/i).fill("hello");
+    await page.getByRole("textbox").fill("hello");
     await page.getByRole("button", { name: "Send message" }).click();
 
     await expect(page.getByText("hello", { exact: true })).toHaveCount(1, {
@@ -1319,7 +1317,7 @@ test.describe("Feature: Chat attachments", () => {
     await chooser.setFiles({ name: "photo.png", mimeType: "image/png", buffer: TINY_PNG });
     await uploadResponsePromise;
 
-    await page.getByPlaceholder(/Ask, create, or start a task/i).fill("Keep this image");
+    await page.getByRole("textbox").fill("Keep this image");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.getByRole("button", { name: "Preview photo.png" }).last()).toBeVisible({
       timeout: 1000
@@ -1361,7 +1359,7 @@ test.describe("Feature: Chat attachments", () => {
     await chooser.setFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello") });
     await uploadResponsePromise;
 
-    await page.getByPlaceholder(/Ask, create, or start a task/i).fill("Keep these notes");
+    await page.getByRole("textbox").fill("Keep these notes");
     await page.getByRole("button", { name: "Send message" }).click();
     await expect(page.getByRole("button", { name: "Preview notes.txt" }).last()).toBeVisible({
       timeout: 1000
@@ -1406,7 +1404,7 @@ test.describe("Feature: Chat attachments", () => {
       await createNewChat(page);
       await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
-      const composer = page.getByPlaceholder(/Ask, create, or start a task/i);
+      const composer = page.getByRole("textbox");
       const sendMessageButtons = page.getByRole("button", { name: "Send message" });
       const startVoiceInputButton = page.getByRole("button", { name: "Start voice input" });
 
@@ -1488,7 +1486,7 @@ test.describe("Feature: Chat attachments", () => {
       await createNewChat(page);
       await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
 
-      const composer = page.getByPlaceholder(/Ask, create, or start a task/i);
+      const composer = page.getByRole("textbox");
       const sendMessageButton = page.getByRole("button", { name: "Send message" });
       const startVoiceInputButton = page.getByRole("button", { name: "Start voice input" });
       await expect(composer).toBeEditable({ timeout: 10000 });
@@ -1570,7 +1568,7 @@ test.describe("Feature: Queued chat follow-ups", () => {
         .listChatRequests()
         .filter((request) => request.stream && !request.isTitleRequest).length;
 
-      const composer = page.getByPlaceholder(/Ask, create, or start a task/i);
+      const composer = page.getByRole("textbox");
       const sendMessageButton = page.getByRole("button", { name: "Send message" });
       const startVoiceInputButton = page.getByRole("button", { name: "Start voice input" });
 
@@ -1617,7 +1615,7 @@ test.describe("Feature: Queued chat follow-ups", () => {
       const reconnectedPage = await page.context().newPage();
       await reconnectedPage.goto(page.url(), { waitUntil: "domcontentloaded" });
 
-      const reconnectedComposer = reconnectedPage.getByPlaceholder(/Ask, create, or start a task/i);
+      const reconnectedComposer = reconnectedPage.getByRole("textbox");
       const reconnectedQueueHeader = reconnectedPage.getByText("3 queued follow-ups");
 
       await expect(reconnectedComposer).toBeEditable({ timeout: 10000 });
@@ -1652,7 +1650,7 @@ test.describe("Feature: Queued chat follow-ups", () => {
         .listChatRequests()
         .filter((request) => request.stream && !request.isTitleRequest).length;
 
-      const composer = page.getByPlaceholder(/Ask, create, or start a task/i);
+      const composer = page.getByRole("textbox");
       const sendMessageButton = page.getByRole("button", { name: "Send message" });
       const startVoiceInputButton = page.getByRole("button", { name: "Start voice input" });
 
