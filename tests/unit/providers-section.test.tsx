@@ -512,6 +512,106 @@ describe("providers section", () => {
     expect(screen.queryByRole("option", { name: "Ollama Cloud" })).toBeNull();
   });
 
+  it("shows amber warning when visionMode is mcp and no enabled server has isVisionMcp", async () => {
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      const url = String(input);
+      if (url === "/api/mcp-servers") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            servers: [
+              {
+                id: "mcp_plain",
+                name: "Plain Server",
+                slug: "plain",
+                url: "https://plain.example.com",
+                headers: {},
+                transport: "streamable_http",
+                command: null,
+                args: null,
+                env: null,
+                enabled: true,
+                isVisionMcp: false,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              }
+            ]
+          })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+    });
+
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [
+            {
+              ...makeSettings().providerProfiles[0],
+              visionMode: "mcp"
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.getByText(/no MCP server is marked as a Vision MCP/i)).toBeInTheDocument();
+  });
+
+  it("does not show amber warning when visionMode is mcp and an enabled server has isVisionMcp", async () => {
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      const url = String(input);
+      if (url === "/api/mcp-servers") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            servers: [
+              {
+                id: "mcp_vision",
+                name: "Vision Server",
+                slug: "vision",
+                url: "https://vision.example.com",
+                headers: {},
+                transport: "streamable_http",
+                command: null,
+                args: null,
+                env: null,
+                enabled: true,
+                isVisionMcp: true,
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+              }
+            ]
+          })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+    });
+
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [
+            {
+              ...makeSettings().providerProfiles[0],
+              visionMode: "mcp"
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.queryByText(/no MCP server is marked as a Vision MCP/i)).toBeNull();
+  });
+
   it("persists the default profile when clicking Set Default", async () => {
     const fetchMock = vi.mocked(global.fetch);
     const settings = makeSettings({

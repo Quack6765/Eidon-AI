@@ -56,7 +56,6 @@ type SettingsPayload = AppSettings & {
     mergedMinNodeCount: number;
     mergedTargetTokens: number;
     visionMode: VisionMode;
-    visionMcpServerId: string | null;
     providerPresetId: ProviderPresetId | null;
     githubAccountLogin: string | null;
     githubAccountName: string | null;
@@ -73,7 +72,6 @@ type SettingsPayload = AppSettings & {
 type ProviderProfileDraft = SettingsPayload["providerProfiles"][number] & {
   apiKey: string;
   visionMode: VisionMode;
-  visionMcpServerId: string | null;
   githubConnectionStatus: "disconnected" | "connected" | "expired";
 };
 
@@ -128,7 +126,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     activeMergedMinNodeCount: currentActiveProfile?.mergedMinNodeCount,
     activeMergedTargetTokens: currentActiveProfile?.mergedTargetTokens,
     activeVisionMode: currentActiveProfile?.visionMode,
-    activeVisionMcpServerId: currentActiveProfile?.visionMcpServerId,
     defaultProviderProfileId,
     skillsEnabled,
   });
@@ -223,7 +220,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       activeMergedMinNodeCount: profile.mergedMinNodeCount,
       activeMergedTargetTokens: profile.mergedTargetTokens,
       activeVisionMode: profile.visionMode,
-      activeVisionMcpServerId: profile.visionMcpServerId,
       defaultProviderProfileId,
       skillsEnabled,
     };
@@ -252,7 +248,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         mergedMinNodeCount: 4,
         mergedTargetTokens: 1600,
         visionMode: "native" as VisionMode,
-        visionMcpServerId: null,
         providerPresetId: null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
@@ -266,7 +261,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       hasApiKey: false,
       apiKey: "",
       visionMode: template?.visionMode ?? "native" as VisionMode,
-      visionMcpServerId: template?.visionMcpServerId ?? null,
       githubAccountLogin: null,
       githubAccountName: null,
       githubTokenExpiresAt: null,
@@ -310,8 +304,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       modelContextLimit: DEFAULT_PROVIDER_SETTINGS.modelContextLimit,
       compactionThreshold: DEFAULT_PROVIDER_SETTINGS.compactionThreshold,
       freshTailCount: DEFAULT_PROVIDER_SETTINGS.freshTailCount,
-      visionMode: DEFAULT_PROVIDER_SETTINGS.visionMode,
-      visionMcpServerId: DEFAULT_PROVIDER_SETTINGS.visionMcpServerId
+      visionMode: DEFAULT_PROVIDER_SETTINGS.visionMode
     };
 
     if (activeProviderProfile.providerKind !== "github_copilot") {
@@ -465,7 +458,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         mergedMinNodeCount: profile.mergedMinNodeCount,
         mergedTargetTokens: profile.mergedTargetTokens,
         visionMode: profile.visionMode ?? "native",
-        visionMcpServerId: profile.visionMcpServerId ?? null,
         providerPresetId: profile.providerPresetId ?? null,
         githubAccountLogin: profile.githubAccountLogin ?? null,
         githubAccountName: profile.githubAccountName ?? null,
@@ -1133,32 +1125,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         <option value="mcp">mcp</option>
                       </select>
                     </div>
-                    {activeProviderProfile.visionMode === "mcp" && (
-                      <div>
-                        <label className={fieldLabel}>Vision MCP server</label>
-                         <select
-                           value={activeProviderProfile.visionMcpServerId ?? ""}
-                           onChange={(event) =>
-                             updateActiveProviderProfile({ visionMcpServerId: event.target.value || null })
-                           }
-                           className={`${selectLike} ${isFieldDirty("activeVisionMcpServerId") ? "!border-amber-500/40" : ""}`}
-                         >
-                          <option value="">Select a server...</option>
-                          {mcpServers
-                            .filter((server) => server.enabled)
-                            .map((server) => (
-                              <option key={server.id} value={server.id}>
-                                {server.name}
-                              </option>
-                            ))}
-                        </select>
-                        {activeProviderProfile.visionMcpServerId === null && (
-                          <p className="mt-1.5 text-xs text-amber-400">
-                            Select an MCP server for image analysis
-                          </p>
-                        )}
-                      </div>
-                    )}
+                    {activeProviderProfile.visionMode === "mcp" &&
+                      !mcpServers.some((server) => server.enabled && server.isVisionMcp) && (
+                        <p className="mt-1.5 text-xs text-amber-400">
+                          No MCP server is marked as a Vision MCP. Images won&apos;t be analyzed
+                          until you enable one in the MCP servers settings.
+                        </p>
+                      )}
                   </div>
                 </div>
 
