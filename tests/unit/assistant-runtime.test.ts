@@ -1415,6 +1415,71 @@ ${JSON.stringify({
     expect(toolNames.some((n: string) => n.includes("analyze_image"))).toBe(true);
   });
 
+  it("omits vision-flagged servers from the capabilities message in native mode", async () => {
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "done" }], {
+        answer: "done", thinking: "", usage: { inputTokens: 1, outputTokens: 1 }
+      })
+    );
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const visionServer = { id: "v", slug: "vision", name: "Vision MCP", url: "", headers: {}, transport: "streamable_http" as const, command: null, args: null, env: null, enabled: true, isVisionMcp: true, createdAt: "t", updatedAt: "t" };
+    const plainServer = { ...visionServer, id: "p", slug: "plain", name: "Plain", isVisionMcp: false };
+
+    await resolveAssistantTurn({
+      settings: { ...createSettings(), visionMode: "native" as const },
+      promptMessages: [
+        { role: "user", content: [
+          { type: "text", text: "hi" },
+          { type: "image", attachmentId: "a", filename: "p.png", mimeType: "image/png", relativePath: "c/p.png" }
+        ] }
+      ],
+      skills: [],
+      mcpToolSets: [
+        { server: visionServer, tools: [{ name: "analyze_image", description: "analyze", inputSchema: { type: "object", properties: {} } }] },
+        { server: plainServer, tools: [{ name: "do_thing", description: "do", inputSchema: { type: "object", properties: {} } }] }
+      ],
+      visionMcpServers: [visionServer]
+    });
+
+    const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
+    const content: string = firstCall.promptMessages[0].content;
+    expect(content).toContain("- Plain");
+    expect(content).not.toContain("- Vision MCP");
+  });
+
+  it("includes vision-flagged servers in the capabilities message in mcp mode", async () => {
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "done" }], {
+        answer: "done", thinking: "", usage: { inputTokens: 1, outputTokens: 1 }
+      })
+    );
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const visionServer = { id: "v", slug: "vision", name: "Vision MCP", url: "", headers: {}, transport: "streamable_http" as const, command: null, args: null, env: null, enabled: true, isVisionMcp: true, createdAt: "t", updatedAt: "t" };
+    const plainServer = { ...visionServer, id: "p", slug: "plain", name: "Plain", isVisionMcp: false };
+
+    await resolveAssistantTurn({
+      settings: { ...createSettings(), visionMode: "mcp" as const },
+      promptMessages: [
+        { role: "user", content: [
+          { type: "text", text: "hi" },
+          { type: "image", attachmentId: "a", filename: "p.png", mimeType: "image/png", relativePath: "c/p.png" }
+        ] }
+      ],
+      skills: [],
+      mcpToolSets: [
+        { server: visionServer, tools: [{ name: "analyze_image", description: "analyze", inputSchema: { type: "object", properties: {} } }] },
+        { server: plainServer, tools: [{ name: "do_thing", description: "do", inputSchema: { type: "object", properties: {} } }] }
+      ],
+      visionMcpServers: [visionServer]
+    });
+
+    const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
+    const content: string = firstCall.promptMessages[0].content;
+    expect(content).toContain("- Vision MCP");
+  });
+
   it("passes copilot tool context only for github copilot profiles", async () => {
     streamProviderResponse.mockReturnValueOnce(
       createProviderStream([{ type: "answer_delta", text: "Done" }], {

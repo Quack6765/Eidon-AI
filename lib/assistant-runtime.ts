@@ -1299,8 +1299,12 @@ export async function resolveAssistantTurn(input: {
 
   const hasWebSearch = mcpServers.some(isBuiltinWebSearchServer) || !!input.searxngBaseUrl;
 
-  promptMessages = turnSkills.length || mcpServers.length || input.mcpToolSets.length
-    ? mergeSystemMessage(promptMessages, buildCapabilitiesSystemMessage(turnSkills, mcpServers, hasWebSearch))
+  const visibleMcpServers = mcpServers.filter(
+    (server) => !(server.isVisionMcp && effectiveVisionMode !== "mcp")
+  );
+
+  promptMessages = turnSkills.length || visibleMcpServers.length || input.mcpToolSets.length
+    ? mergeSystemMessage(promptMessages, buildCapabilitiesSystemMessage(turnSkills, visibleMcpServers, hasWebSearch))
     : promptMessages;
   if (shouldAddInlineAttachmentDirective(promptMessages)) {
     promptMessages = mergeSystemMessage(promptMessages, INLINE_ATTACHMENT_DIRECTIVE);
