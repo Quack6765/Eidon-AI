@@ -13,7 +13,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
@@ -321,27 +320,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     }
 
     updateActiveProviderProfile(patch);
-  }
-
-  function removeProviderProfile(profileId: string) {
-    if (providerProfiles.length === 1) {
-      return;
-    }
-
-    const nextProfiles = providerProfiles.filter((profile) => profile.id !== profileId);
-    const fallbackProfileId =
-      nextProfiles.find((profile) => profile.id === defaultProviderProfileId)?.id ??
-      nextProfiles[0]?.id ??
-      "";
-
-    setProviderProfiles(nextProfiles);
-    setSelectedProviderProfileId(
-      selectedProviderProfileId === profileId ? fallbackProfileId : selectedProviderProfileId
-    );
-
-    if (defaultProviderProfileId === profileId) {
-      setDefaultProviderProfileId(fallbackProfileId);
-    }
   }
 
   async function handleDeleteConfirm() {

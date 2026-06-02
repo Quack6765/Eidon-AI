@@ -8,7 +8,6 @@ import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 import { Badge } from "@/components/settings/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Toast } from "@/components/ui/toast";
 import { useToastState } from "@/hooks/use-toast-state";
 import type { PersistedUser, UserRole } from "@/lib/types";

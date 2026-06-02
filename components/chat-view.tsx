@@ -29,7 +29,7 @@ import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { appendTranscriptToDraft } from "@/lib/speech/append-transcript-to-draft";
 import { useSpeechInput } from "@/lib/speech/use-speech-input";
-import { cn, shouldAutofocusTextInput } from "@/lib/utils";
+import { shouldAutofocusTextInput } from "@/lib/utils";
 import type { AppSettings } from "@/lib/types";
 import type {
   ChatStreamEvent,
@@ -651,9 +651,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
     return -1;
   }, [renderableMessages]);
-  const hasOptimisticLocalMessage = renderableMessages.some((message) =>
-    message.id.startsWith("local_")
-  );
   const needsMessageSync =
     isSending ||
     hasPendingLocalSubmission ||

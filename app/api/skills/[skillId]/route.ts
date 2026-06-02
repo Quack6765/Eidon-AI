@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { requireAdminUser } from "@/lib/auth";
-import { deleteSkill, getSkill, updateSkill } from "@/lib/skills";
+import { deleteSkill, updateSkill } from "@/lib/skills";
 import { badRequest, forbidden, ok } from "@/lib/http";
 
 const paramsSchema = z.object({ skillId: z.string().min(1) });

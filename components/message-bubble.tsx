@@ -27,7 +27,6 @@ import { normalizeLineBreaks } from "@/lib/text-utils";
 import {
   Message,
   MessageContent,
-  MessageActions,
   MessageAction
 } from "@/components/ai-elements/message";
 
