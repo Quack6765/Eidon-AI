@@ -17,7 +17,7 @@ export async function PATCH(
     const params = await parseRouteParams(context, paramsSchema, "skill id");
   if (params instanceof NextResponse) return params;
 
-  const { skillId } = params.data;
+  const { skillId } = params;
   const body = await request.json() as {
     name?: string;
     description?: string;

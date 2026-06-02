@@ -16,7 +16,7 @@ export async function PATCH(
     const params = await parseRouteParams(context, paramsSchema, "memory id");
   if (params instanceof NextResponse) return params;
 
-  const { memoryId } = params.data;
+  const { memoryId } = params;
   const body = await request.json() as {
     content?: string;
     category?: MemoryCategory;
