@@ -65,11 +65,6 @@ import { RenameModal } from "@/components/ui/rename-modal";
 
 type SidebarConversation = ConversationSearchResult;
 
-type ConversationSection = {
-  label: string;
-  conversations: SidebarConversation[];
-};
-
 function compareConversations(left: Conversation, right: Conversation) {
   if (left.updatedAt === right.updatedAt) {
     return right.id.localeCompare(left.id);
