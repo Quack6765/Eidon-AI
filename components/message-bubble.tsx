@@ -988,7 +988,7 @@ export function MessageBubble({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body">
-                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS}>{content}</Streamdown>
+                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS}>{content.replace(/\n/g, "  \n")}</Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
