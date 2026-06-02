@@ -55,7 +55,7 @@ export function DropdownPortal({
     return () => window.removeEventListener("scroll", handleScroll, true);
   }, [open]);
 
-  if (!open || !coords) return null;
+  if (!open || !coords || typeof document === "undefined") return null;
 
   return createPortal(
     <div style={{ position: "fixed", top: coords.top, left: coords.left, width: coords.width, zIndex: 9999 }}>
