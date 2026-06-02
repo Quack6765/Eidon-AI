@@ -318,7 +318,7 @@ function getGithubConnectionStatus(profile: ProviderProfile): GithubConnectionSt
   return Number.isNaN(expiresAt) ? "disconnected" : "connected";
 }
 
-function decryptSearchSetting(userSetting: "exaApiKey" | "tavilyApiKey", encryptedValue?: string) {
+function decryptSetting(label: string, encryptedValue?: string) {
   if (!encryptedValue) {
     return "";
   }
@@ -327,26 +327,7 @@ function decryptSearchSetting(userSetting: "exaApiKey" | "tavilyApiKey", encrypt
     return decryptValue(encryptedValue);
   } catch (e) {
     console.error(
-      `[settings] Failed to decrypt ${userSetting}:`,
-      e instanceof Error ? e.message : e
-    );
-    return "";
-  }
-}
-
-function decryptImageGenerationSecret(
-  settingName: string,
-  encryptedValue?: string
-) {
-  if (!encryptedValue) {
-    return "";
-  }
-
-  try {
-    return decryptValue(encryptedValue);
-  } catch (e) {
-    console.error(
-      `[settings] Failed to decrypt ${settingName}:`,
+      `[settings] Failed to decrypt ${label}:`,
       e instanceof Error ? e.message : e
     );
     return "";
@@ -412,13 +393,13 @@ function rowToSettings(row: AppSettingsRow | UserSettingsRow): AppSettings {
     sttEngine: (row.stt_engine ?? "browser") as AppSettings["sttEngine"],
     sttLanguage: (row.stt_language ?? "auto") as AppSettings["sttLanguage"],
     webSearchEngine: (row.web_search_engine ?? "exa") as AppSettings["webSearchEngine"],
-    exaApiKey: decryptSearchSetting("exaApiKey", row.exa_api_key_encrypted),
-    tavilyApiKey: decryptSearchSetting("tavilyApiKey", row.tavily_api_key_encrypted),
+    exaApiKey: decryptSetting("exaApiKey", row.exa_api_key_encrypted),
+    tavilyApiKey: decryptSetting("tavilyApiKey", row.tavily_api_key_encrypted),
     searxngBaseUrl: normalizeSearxngBaseUrl(row.searxng_base_url ?? ""),
     imageGenerationBackend: normalizeImageGenerationBackend(row.image_generation_backend),
     googleNanoBananaModel:
       (row.google_nano_banana_model ?? "gemini-3.1-flash-image-preview") as AppSettings["googleNanoBananaModel"],
-    googleNanoBananaApiKey: decryptImageGenerationSecret(
+    googleNanoBananaApiKey: decryptSetting(
       "googleNanoBananaApiKey",
       row.google_nano_banana_api_key_encrypted
     ),
@@ -470,41 +451,21 @@ function rowToProviderProfile(row: ProviderProfileRow): ProviderProfile {
   };
 }
 
+const PROVIDER_PROFILE_COLUMNS = `
+  id, name, api_base_url, api_key_encrypted, model, api_mode,
+  system_prompt, temperature, max_output_tokens, reasoning_effort,
+  reasoning_summary_enabled, model_context_limit, compaction_threshold,
+  fresh_tail_count, tokenizer_model, safety_margin_tokens,
+  leaf_source_token_limit, leaf_min_message_count, merged_min_node_count,
+  merged_target_tokens, vision_mode, provider_kind, provider_preset_id,
+  github_user_access_token_encrypted, github_refresh_token_encrypted,
+  github_token_expires_at, github_refresh_token_expires_at,
+  github_account_login, github_account_name, created_at, updated_at`;
+
 function listProviderProfileRows() {
   return getDb()
     .prepare(
-      `SELECT
-        id,
-        name,
-        api_base_url,
-        api_key_encrypted,
-        model,
-        api_mode,
-        system_prompt,
-        temperature,
-        max_output_tokens,
-        reasoning_effort,
-        reasoning_summary_enabled,
-        model_context_limit,
-        compaction_threshold,
-        fresh_tail_count,
-        tokenizer_model,
-        safety_margin_tokens,
-        leaf_source_token_limit,
-        leaf_min_message_count,
-        merged_min_node_count,
-        merged_target_tokens,
-        vision_mode,
-        provider_kind,
-        provider_preset_id,
-        github_user_access_token_encrypted,
-        github_refresh_token_encrypted,
-        github_token_expires_at,
-        github_refresh_token_expires_at,
-        github_account_login,
-        github_account_name,
-        created_at,
-        updated_at
+      `SELECT ${PROVIDER_PROFILE_COLUMNS}
       FROM provider_profiles
       ORDER BY created_at ASC`
     )
@@ -514,38 +475,7 @@ function listProviderProfileRows() {
 function getProviderProfileRow(profileId: string) {
   return getDb()
     .prepare(
-      `SELECT
-        id,
-        name,
-        api_base_url,
-        api_key_encrypted,
-        model,
-        api_mode,
-        system_prompt,
-        temperature,
-        max_output_tokens,
-        reasoning_effort,
-        reasoning_summary_enabled,
-        model_context_limit,
-        compaction_threshold,
-        fresh_tail_count,
-        tokenizer_model,
-        safety_margin_tokens,
-        leaf_source_token_limit,
-        leaf_min_message_count,
-        merged_min_node_count,
-        merged_target_tokens,
-        vision_mode,
-        provider_kind,
-        provider_preset_id,
-        github_user_access_token_encrypted,
-        github_refresh_token_encrypted,
-        github_token_expires_at,
-        github_refresh_token_expires_at,
-        github_account_login,
-        github_account_name,
-        created_at,
-        updated_at
+      `SELECT ${PROVIDER_PROFILE_COLUMNS}
       FROM provider_profiles
       WHERE id = ?`
     )
