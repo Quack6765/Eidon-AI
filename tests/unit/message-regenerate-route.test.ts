@@ -3,9 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createConversation,
   createMessage,
-  getMessage,
-  listMessages,
-  setConversationActive
+  getMessage
 } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
 

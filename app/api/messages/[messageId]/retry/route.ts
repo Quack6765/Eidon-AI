@@ -18,7 +18,7 @@ const paramsSchema = z.object({
 });
 
 export async function POST(
-  request: Request,
+  _request: Request,
   context: { params: Promise<{ messageId: string }> }
 ) {
   const user = await requireUser();
