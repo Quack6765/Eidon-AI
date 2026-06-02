@@ -1,6 +1,6 @@
 import { extractEnumHints } from "@/lib/tool-schema-helpers";
-import { getWebSearchActionLabel, isBuiltinWebSearchServer } from "@/lib/web-search";
-import { getSkillResolvedName, getSkillResolvedDescription } from "./prompt-analysis";
+import { isBuiltinWebSearchServer } from "@/lib/web-search";
+import { getSkillResolvedName } from "./prompt-analysis";
 import type { McpServer, McpTool, Skill, ToolDefinition, VisionMode } from "@/lib/types";
 
 export type ToolSet = {

@@ -13,7 +13,7 @@ import { searchSearxng } from "@/lib/searxng";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { getWebSearchActionLabel } from "@/lib/web-search";
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent } from "./prompt-analysis";
-import { type ToolSet, mcpToolFunctionName, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
+import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
 import type {
   McpServer,
   McpTool,

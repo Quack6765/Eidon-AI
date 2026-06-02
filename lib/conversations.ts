@@ -38,7 +38,6 @@ import type {
   MessageStatus,
   MemoryProposalPayload,
   MemoryProposalState,
-  QueuedMessage,
   SystemMessageKind
 } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
