@@ -49,7 +49,6 @@ import type { Conversation, ConversationListPage, ConversationSearchResult, Fold
 import {
   mergeConversations,
   buildConversationSections,
-  highlightMatch,
   type SidebarConversation
 } from "@/lib/sidebar-helpers";
 import { ConversationItem } from "@/components/conversation-item";
