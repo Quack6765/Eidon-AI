@@ -1,12 +1,10 @@
 import { z } from "zod";
 
 import {
-  AttachmentTextPreviewUnsupportedError,
   deleteAttachmentById,
-  getAttachment,
-  readAttachmentBuffer,
-  readAttachmentText
+  getAttachment
 } from "@/lib/attachments";
+import { buildAttachmentResponse } from "@/lib/attachment-response";
 import { requireUser } from "@/lib/auth";
 import { badRequest } from "@/lib/http";
 
@@ -39,36 +37,7 @@ export async function GET(
   const format = new URL(request.url).searchParams.get("format");
   const download = new URL(request.url).searchParams.get("download") === "1";
 
-  if (format === "text") {
-    try {
-      return Response.json({
-        id: attachment.id,
-        filename: attachment.filename,
-        mimeType: attachment.mimeType,
-        content: readAttachmentText(attachment)
-      });
-    } catch (error) {
-      if (error instanceof AttachmentTextPreviewUnsupportedError) {
-        return badRequest("Attachment cannot be previewed as text", 415);
-      }
-
-      return badRequest("Internal server error", 500);
-    }
-  }
-
-  try {
-    const buffer = readAttachmentBuffer(attachment);
-
-    return new Response(buffer, {
-      headers: {
-        "Content-Type": attachment.mimeType,
-        "Content-Length": String(buffer.length),
-        "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${attachment.filename}"`
-      }
-    });
-  } catch {
-    return badRequest("Attachment file not found", 404);
-  }
+  return buildAttachmentResponse(attachment, format, download);
 }
 
 export async function DELETE(
