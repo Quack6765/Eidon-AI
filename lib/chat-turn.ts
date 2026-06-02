@@ -12,12 +12,16 @@ import {
   createMessageAction,
   generateConversationTitleFromFirstUserMessage,
   getConversation,
+  getConversationSnapshot,
   getMessage,
   getConversationOwnerId,
   setConversationActive,
   updateMessage,
   updateMessageAction
 } from "@/lib/conversations";
+import { badRequest } from "@/lib/http";
+import { NextResponse } from "next/server";
+import { getConversationManager } from "@/lib/ws-singleton";
 import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compaction";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import { inferAssistantLocalAttachments, importAssistantLocalFileAttachment } from "@/lib/assistant-local-attachments";
@@ -848,4 +852,50 @@ export async function startChatTurn(
     releaseChatTurnStart(conversationId, claimed.control);
     throw error;
   }
+}
+
+export type ClaimedTurnContext = {
+  snapshot: import("@/lib/types").ConversationSnapshot;
+  preflight: AssistantTurnStartReady;
+  control: ChatTurnControl;
+};
+
+export function prepareMessageManipulationTurn(params: {
+  conversationId: string;
+  userId: string;
+  busyErrorMessage: string;
+}): ClaimedTurnContext | NextResponse {
+  const { conversationId, userId, busyErrorMessage } = params;
+
+  const snapshot = getConversationSnapshot(conversationId, userId);
+  if (!snapshot) return badRequest("Conversation not found", 404);
+  if (snapshot.conversation.isActive) return badRequest(busyErrorMessage, 409);
+
+  const preflight = getAssistantTurnStartPreflight(conversationId);
+  if (!preflight.ok) return badRequest(preflight.errorMessage, preflight.statusCode);
+
+  const claimed = claimChatTurnStart(conversationId);
+  if (!claimed.ok) return badRequest(busyErrorMessage, 409);
+
+  return { snapshot, preflight, control: claimed.control };
+}
+
+export function startManipulationTurn(params: {
+  conversationId: string;
+  userMessageId: string;
+  preflight: AssistantTurnStartReady;
+  control: ChatTurnControl;
+  logTag: string;
+}) {
+  const { conversationId, userMessageId, preflight, control, logTag } = params;
+  void startAssistantTurnFromExistingUserMessage(
+    getConversationManager(),
+    conversationId,
+    userMessageId,
+    undefined,
+    { control, preflight }
+  ).catch((error) => {
+    releaseChatTurnStart(conversationId, control);
+    console.error(`[${logTag}] continuation failed:`, error);
+  });
 }
