@@ -4,7 +4,7 @@ import path from "node:path";
 import Database from "better-sqlite3";
 
 import { env } from "@/lib/env";
-import { migrate, backfillVisionMcpServers } from "@/lib/db-migrations";
+import { migrate } from "@/lib/db-migrations";
 
 export { migrate, backfillVisionMcpServers } from "@/lib/db-migrations";
 

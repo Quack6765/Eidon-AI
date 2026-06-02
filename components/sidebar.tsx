@@ -1,14 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect, useCallback, useLayoutEffect, type MouseEvent as ReactMouseEvent } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   Plus,
   Search,
-  FolderIcon,
-  ChevronDown,
-  LoaderCircle,
   X,
   MessageSquare
 } from "lucide-react";
@@ -41,8 +38,6 @@ import {
   CONVERSATION_ACTIVITY_UPDATED_EVENT,
   CONVERSATION_REMOVED_EVENT,
   CONVERSATION_TITLE_UPDATED_EVENT,
-  dispatchConversationRemoved,
-  dispatchConversationTitleUpdated,
   type ConversationActivityUpdatedDetail,
   type ConversationRemovedDetail,
   type ConversationTitleUpdatedDetail
@@ -52,7 +47,6 @@ import { addGlobalWsListener } from "@/lib/ws-client";
 import type { ServerMessage } from "@/lib/ws-protocol";
 import type { Conversation, ConversationListPage, ConversationSearchResult, Folder } from "@/lib/types";
 import {
-  compareConversations,
   mergeConversations,
   buildConversationSections,
   highlightMatch,

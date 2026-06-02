@@ -12,7 +12,6 @@ import {
 import { getDb } from "@/lib/db";
 import { getPersona } from "@/lib/personas";
 import {
-  buildCompactionSummaryPromptBody,
   extractOpenTasks,
   selectCompactionMemoryNodes
 } from "@/lib/compaction-summary";
@@ -24,12 +23,13 @@ import {
 import { referencesEarlierImageInChat } from "@/lib/image-generation/follow-up-context";
 import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
 import { getActiveMemoryNodes, getRenderableMemoryNodes, insertCompactionEvent, insertMemoryNode, renderMemoryNode, supersedeNodes } from "./compaction-memory-nodes";
-import { getVisibleConversationMessages, getCompletedTurns, getLatestVisibleUserMessage, getFreshConversationMessages, getCompactionEligibleMessages } from "./compaction-message-slicing";
+import { getVisibleConversationMessages, getLatestVisibleUserMessage, getFreshConversationMessages, getCompactionEligibleMessages } from "./compaction-message-slicing";
 import { buildSummaryPrompt, summarizeBlocks, buildUserPromptContent, getLatestUserMessageIndex, getMostRecentAssistantImageAttachments } from "./compaction-prompt-building";
 import type {
   EnsureCompactedContextResult,
   MemoryNode,
   Message,
+  PromptMessage,
   ProviderProfileWithApiKey
 } from "@/lib/types";
 
