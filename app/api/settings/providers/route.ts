@@ -1,18 +1,12 @@
 import { z } from "zod";
 
-import { requireAdminUser } from "@/lib/auth";
+import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden, ok } from "@/lib/http";
 import { updateProviderCatalog } from "@/lib/settings";
 
 export async function PUT(request: Request) {
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
 
   try {
     const payload = await request.json();

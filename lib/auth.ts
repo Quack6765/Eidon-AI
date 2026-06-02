@@ -272,6 +272,17 @@ export async function requireAdminUser() {
   return user;
 }
 
+export async function requireAdminResponse() {
+  try {
+    return await requireAdminUser();
+  } catch (error) {
+    if (error instanceof Error && error.message === "forbidden") {
+      return null;
+    }
+    throw error;
+  }
+}
+
 export async function invalidateSession(sessionId: string) {
   getDb().prepare("DELETE FROM auth_sessions WHERE id = ?").run(sessionId);
 }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireAdminUser } from "@/lib/auth";
+import { requireAdminResponse } from "@/lib/auth";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { badRequest, forbidden, notFoundResponse, ok } from "@/lib/http";
 import type { AuthUser } from "@/lib/types";
@@ -30,14 +30,8 @@ export async function PATCH(
     return notFoundResponse();
   }
 
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
 
   const params = paramsSchema.safeParse(await context.params);
 
@@ -76,15 +70,8 @@ export async function DELETE(
     return notFoundResponse();
   }
 
-  let adminUser: AuthUser;
-  try {
-    adminUser = await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const adminUser = await requireAdminResponse();
+  if (!adminUser) return forbidden();
 
   const params = paramsSchema.safeParse(await context.params);
 

@@ -1,21 +1,14 @@
 import { redirect } from "next/navigation";
 
-import { requireAdminUser } from "@/lib/auth";
+import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden } from "@/lib/http";
 import type { AuthUser } from "@/lib/types";
 import { createGithubOauthState, getGithubAuthorizeUrl } from "@/lib/github-copilot";
 import { getProviderProfile } from "@/lib/settings";
 
 export async function GET(request: Request) {
-  let user: AuthUser;
-  try {
-    user = await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const user = await requireAdminResponse();
+  if (!user) return forbidden();
 
   const url = new URL(request.url);
   const providerProfileId = url.searchParams.get("providerProfileId");

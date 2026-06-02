@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireAdminUser } from "@/lib/auth";
+import { requireAdminResponse } from "@/lib/auth";
 import { deleteMcpServer, getMcpServer, getMcpServerBySlug, updateMcpServer, slugify } from "@/lib/mcp-servers";
 import { disconnectMcpServer, getConnectedClient } from "@/lib/mcp-client";
 import { badRequest, forbidden, ok } from "@/lib/http";
@@ -11,14 +11,8 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ serverId: string }> }
 ) {
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
 
   const params = paramsSchema.safeParse(await context.params);
   if (!params.success) return badRequest("Invalid server id");
@@ -69,14 +63,8 @@ export async function DELETE(
   _request: Request,
   context: { params: Promise<{ serverId: string }> }
 ) {
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
 
   const params = paramsSchema.safeParse(await context.params);
   if (!params.success) return badRequest("Invalid server id");
