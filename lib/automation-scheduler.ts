@@ -416,5 +416,4 @@ export function createAutomationScheduler(dependencies: SchedulerDependencies = 
   };
 }
 
-export type AutomationScheduler = ReturnType<typeof createAutomationScheduler>;
 export { getNextAutomationRunAt };

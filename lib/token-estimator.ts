@@ -2,8 +2,6 @@ import { encode } from "gpt-tokenizer";
 
 import type { Message, MessageAttachment, PromptMessage } from "@/lib/types";
 
-export type TokenizerEngine = "gpt-tokenizer" | "off";
-
 export type Tokenizer = {
   estimateTextTokens: (text: string) => number;
   estimatePromptTokens: (messages: PromptMessage[]) => number;

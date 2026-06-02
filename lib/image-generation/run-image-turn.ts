@@ -13,8 +13,6 @@ export type RunImageTurnInput = {
   promptMessages: PromptMessage[];
 };
 
-export type RunImageTurnFn = (input: RunImageTurnInput) => Promise<{ assistantMessage: Message }>;
-
 export async function runImageTurn(input: RunImageTurnInput): Promise<{ assistantMessage: Message }> {
   const compiled: CompiledImageInstruction = await compileImageInstruction({
     settings: input.settings,

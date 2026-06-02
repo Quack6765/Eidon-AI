@@ -8,11 +8,6 @@ const SHELL_SEGMENT_SEPARATOR_PATTERN = /&&|\|\||[;|\n]/;
 const WEB_BROWSER_COMMAND_SEGMENT_PATTERN =
   /^(?:(?:env)\s+)?(?:(?:[A-Z_][A-Z0-9_]*=(?:"[^"]*"|'[^']*'|[^\s]+))\s+)*(?:(?:npx|bunx)\s+|pnpm\s+(?:exec|dlx)\s+|yarn\s+dlx\s+)?(?:(?:\.{1,2}\/|\/)?(?:[^\s/]+\/)*agent-browser)(?:\s|$)/i;
 
-export type ShellCallPayload = {
-  command: string;
-  timeoutMs?: number;
-};
-
 export type ShellExecutionResult = {
   stdout: string;
   stderr: string;
