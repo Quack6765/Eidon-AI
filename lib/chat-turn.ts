@@ -35,7 +35,7 @@ import {
 import { createEmitter } from "@/lib/emitter";
 import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
 import { createAssistantContentPersistenceTracker as createAssistantContentPersistenceTrackerImpl, attachAssistantFilesFromCompletedAction as attachAssistantFilesFromCompletedActionImpl } from "./content-persistence";
-import type { ChatStreamEvent, MessageAction } from "@/lib/types";
+import type { ChatStreamEvent } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export { tokenizeShellCommand, isAgentBrowserToken, extractAgentBrowserScreenshotPaths } from "./shell-tokenizer";
