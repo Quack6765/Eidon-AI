@@ -1,10 +1,8 @@
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import type { Folder } from "@/lib/types";
+import { nowIso } from "@/lib/utils";
 
-function nowIso() {
-  return new Date().toISOString();
-}
 
 function rowToFolder(row: {
   id: string;

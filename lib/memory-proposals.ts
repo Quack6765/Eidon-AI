@@ -14,6 +14,7 @@ import type {
   MessageAction,
   UserMemory
 } from "@/lib/types";
+import { nowIso } from "@/lib/utils";
 
 const VALID_MEMORY_CATEGORIES: MemoryCategory[] = [
   "personal",
@@ -53,9 +54,6 @@ type PendingMemoryProposalActionRow = {
   proposal_updated_at: string | null;
 };
 
-function nowIso() {
-  return new Date().toISOString();
-}
 
 function parseProposalPayload(rawPayload: string | null): MemoryProposalPayload | null {
   if (!rawPayload) {

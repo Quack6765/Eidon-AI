@@ -43,6 +43,7 @@ import type {
   QueuedMessageStatus,
   SystemMessageKind
 } from "@/lib/types";
+import { nowIso } from "@/lib/utils";
 
 export const DEFAULT_CONVERSATION_PAGE_SIZE = 10;
 
@@ -81,9 +82,6 @@ function conversationActivityTimestampSql(alias: string) {
   ), ''), ${alias}.updated_at)`;
 }
 
-function nowIso() {
-  return new Date().toISOString();
-}
 
 function rowToConversation(row: ConversationRow): Conversation {
   return {

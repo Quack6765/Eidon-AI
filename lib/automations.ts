@@ -10,6 +10,7 @@ import type {
   AutomationScheduleKind,
   AutomationTriggerSource
 } from "@/lib/types";
+import { nowIso } from "@/lib/utils";
 
 type AutomationRow = {
   id: string;
@@ -77,9 +78,6 @@ type UpdateAutomationRunStatusInput = {
   finishedAt?: string | null;
 };
 
-function nowIso() {
-  return new Date().toISOString();
-}
 
 function parseDaysOfWeek(value: string): number[] {
   try {

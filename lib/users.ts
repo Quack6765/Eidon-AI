@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
 import type { PersistedUser, UserRole } from "@/lib/types";
+import { nowIso } from "@/lib/utils";
 
 type UserRow = {
   id: string;
@@ -15,9 +16,6 @@ type UserRow = {
   updated_at: string;
 };
 
-function nowIso() {
-  return new Date().toISOString();
-}
 
 function rowToUser(row: UserRow): PersistedUser {
   return {
