@@ -1,8 +1,9 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import { getAutomation, listAutomationRuns } from "@/lib/automations";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({
   automationId: z.string().min(1)
@@ -13,15 +14,12 @@ export async function GET(
   context: { params: Promise<{ automationId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
+    const params = await parseRouteParams(context, paramsSchema, "automation id");
+  if (params instanceof NextResponse) return params;
 
-  if (!params.success) {
-    return badRequest("Invalid automation id");
-  }
-
-  if (!getAutomation(params.data.automationId, user.id)) {
+  if (!getAutomation(params.automationId, user.id)) {
     return badRequest("Automation not found", 404);
   }
 
-  return ok({ runs: listAutomationRuns(params.data.automationId, user.id) });
+  return ok({ runs: listAutomationRuns(params.automationId, user.id) });
 }

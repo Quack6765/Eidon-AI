@@ -1,9 +1,10 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireAdminResponse } from "@/lib/auth";
 import { deleteMcpServer, getMcpServer, getMcpServerBySlug, updateMcpServer, slugify } from "@/lib/mcp-servers";
 import { disconnectMcpServer, getConnectedClient } from "@/lib/mcp-client";
-import { badRequest, forbidden, ok } from "@/lib/http";
+import { badRequest, forbidden, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({ serverId: z.string().min(1) });
 
@@ -14,8 +15,8 @@ export async function PATCH(
   const admin = await requireAdminResponse();
   if (!admin) return forbidden();
 
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) return badRequest("Invalid server id");
+    const params = await parseRouteParams(context, paramsSchema, "server id");
+  if (params instanceof NextResponse) return params;
 
   const body = await request.json() as {
     name?: string;
@@ -37,19 +38,19 @@ export async function PATCH(
     body.name = trimmedName;
     const slug = slugify(trimmedName);
     const conflicting = getMcpServerBySlug(slug);
-    if (conflicting && conflicting.id !== params.data.serverId) {
+    if (conflicting && conflicting.id !== params.serverId) {
       return badRequest("An MCP server with a similar name already exists.");
     }
   }
 
   if (body.enabled === false) {
-    const current = getMcpServer(params.data.serverId);
+    const current = getMcpServer(params.serverId);
     if (current) {
       disconnectMcpServer(current).catch(() => {});
     }
   }
 
-  const updated = updateMcpServer(params.data.serverId, body);
+  const updated = updateMcpServer(params.serverId, body);
   if (!updated) return badRequest("Server not found", 404);
 
   if (updated.enabled && body.enabled === true) {
@@ -66,14 +67,14 @@ export async function DELETE(
   const admin = await requireAdminResponse();
   if (!admin) return forbidden();
 
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) return badRequest("Invalid server id");
+    const params = await parseRouteParams(context, paramsSchema, "server id");
+  if (params instanceof NextResponse) return params;
 
-  const server = getMcpServer(params.data.serverId);
+  const server = getMcpServer(params.serverId);
   if (server) {
     disconnectMcpServer(server).catch(() => {});
   }
 
-  deleteMcpServer(params.data.serverId);
+  deleteMcpServer(params.serverId);
   return ok({ success: true });
 }

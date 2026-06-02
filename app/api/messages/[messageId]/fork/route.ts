@@ -1,8 +1,9 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import { forkConversationFromMessage } from "@/lib/conversations";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({
   messageId: z.string().min(1)
@@ -13,14 +14,11 @@ export async function POST(
   context: { params: Promise<{ messageId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-
-  if (!params.success) {
-    return badRequest("Invalid message id");
-  }
+    const params = await parseRouteParams(context, paramsSchema, "message id");
+  if (params instanceof NextResponse) return params;
 
   try {
-    const conversation = forkConversationFromMessage(params.data.messageId, user.id);
+    const conversation = forkConversationFromMessage(params.messageId, user.id);
     return ok({ conversation }, { status: 201 });
   } catch (error) {
     if (error instanceof Error) {

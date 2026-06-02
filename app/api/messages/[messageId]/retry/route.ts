@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
@@ -11,7 +12,7 @@ import {
   getMessage,
   listMessages
 } from "@/lib/conversations";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({
   messageId: z.string().min(1)
@@ -22,12 +23,10 @@ export async function POST(
   context: { params: Promise<{ messageId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) {
-    return badRequest("Invalid message id");
-  }
+  const params = await parseRouteParams(context, paramsSchema, "message id");
+  if (params instanceof NextResponse) return params;
 
-  const message = getMessage(params.data.messageId, user.id);
+  const message = getMessage(params.messageId, user.id);
   if (!message) {
     return badRequest("Message not found", 404);
   }

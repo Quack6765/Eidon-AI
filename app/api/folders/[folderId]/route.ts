@@ -1,9 +1,10 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import { deleteFolder, getFolder, renameFolder } from "@/lib/folders";
 import { moveConversationToFolder } from "@/lib/conversations";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({ folderId: z.string().min(1) });
 
@@ -12,20 +13,20 @@ export async function PATCH(
   context: { params: Promise<{ folderId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) return badRequest("Invalid folder id");
+    const params = await parseRouteParams(context, paramsSchema, "folder id");
+  if (params instanceof NextResponse) return params;
 
-  const folder = getFolder(params.data.folderId, user.id);
+  const folder = getFolder(params.folderId, user.id);
   if (!folder) return badRequest("Folder not found", 404);
 
   const body = await request.json() as { name?: string; sortOrder?: number; conversationId?: string; moveConversationTo?: string | null };
 
   if (body.name) {
-    renameFolder(params.data.folderId, body.name, user.id);
+    renameFolder(params.folderId, body.name, user.id);
   }
 
   if (body.conversationId) {
-    moveConversationToFolder(body.conversationId, params.data.folderId, user.id);
+    moveConversationToFolder(body.conversationId, params.folderId, user.id);
   }
 
   if (typeof body.moveConversationTo === "string") {
@@ -40,9 +41,9 @@ export async function DELETE(
   context: { params: Promise<{ folderId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) return badRequest("Invalid folder id");
+    const params = await parseRouteParams(context, paramsSchema, "folder id");
+  if (params instanceof NextResponse) return params;
 
-  deleteFolder(params.data.folderId, user.id);
+  deleteFolder(params.folderId, user.id);
   return ok({ success: true });
 }

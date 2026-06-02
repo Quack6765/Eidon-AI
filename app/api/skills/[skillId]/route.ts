@@ -1,8 +1,9 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireAdminResponse } from "@/lib/auth";
 import { deleteSkill, updateSkill } from "@/lib/skills";
-import { badRequest, forbidden, ok } from "@/lib/http";
+import { badRequest, forbidden, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({ skillId: z.string().min(1) });
 
@@ -13,8 +14,8 @@ export async function PATCH(
   const admin = await requireAdminResponse();
   if (!admin) return forbidden();
 
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) return badRequest("Invalid skill id");
+    const params = await parseRouteParams(context, paramsSchema, "skill id");
+  if (params instanceof NextResponse) return params;
 
   const { skillId } = params.data;
   const body = await request.json() as {
@@ -42,13 +43,13 @@ export async function DELETE(
   const admin = await requireAdminResponse();
   if (!admin) return forbidden();
 
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) return badRequest("Invalid skill id");
+    const params = await parseRouteParams(context, paramsSchema, "skill id");
+  if (params instanceof NextResponse) return params;
 
-  if (params.data.skillId.startsWith("builtin-")) {
+  if (params.skillId.startsWith("builtin-")) {
     return badRequest("Cannot delete built-in skills");
   }
 
-  deleteSkill(params.data.skillId);
+  deleteSkill(params.skillId);
   return ok({ success: true });
 }

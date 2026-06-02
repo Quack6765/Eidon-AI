@@ -14,7 +14,6 @@ export async function GET(
   context: { params: Promise<{ shareToken: string; attachmentId: string }> }
 ) {
   const params = paramsSchema.safeParse(await context.params);
-
   if (!params.success) {
     return badRequest("Attachment not found", 404);
   }
