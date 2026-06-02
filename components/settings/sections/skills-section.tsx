@@ -8,6 +8,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
+import { fieldLabel, inputLike, sectionTitle, sectionDivider } from "@/lib/settings-styles";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
@@ -277,10 +278,6 @@ export function SkillsSection() {
   const isBuiltin = selectedSkill?.id.startsWith("builtin-") ?? false;
   const showDetail = selectedSkill || isAddingNew;
 
-  const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
-  const inputLike = "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
-  const sectionTitle = "text-sm font-semibold text-[var(--text)]";
-  const sectionDivider = "border-t border-white/[0.06]";
 
   return (
     <div className="min-h-0 p-4 md:h-full md:p-8">
