@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { requireAdminUserMock } = vi.hoisted(() => ({
-  requireAdminUserMock: vi.fn()
+const { requireAdminResponseMock } = vi.hoisted(() => ({
+  requireAdminResponseMock: vi.fn()
 }));
 
 vi.mock("@/lib/auth", () => ({
-  requireAdminUser: requireAdminUserMock
+  requireAdminResponse: requireAdminResponseMock
 }));
 
 describe("mcp server routes", () => {
   beforeEach(() => {
     vi.resetModules();
-    requireAdminUserMock.mockReset();
-    requireAdminUserMock.mockResolvedValue({
+    requireAdminResponseMock.mockReset();
+    requireAdminResponseMock.mockResolvedValue({
       id: "user_admin",
       username: "admin",
       role: "admin",
@@ -79,7 +79,7 @@ describe("mcp server routes", () => {
   });
 
   it("returns forbidden for non-admin users", async () => {
-    requireAdminUserMock.mockRejectedValueOnce(new Error("forbidden"));
+    requireAdminResponseMock.mockResolvedValueOnce(null);
 
     const { POST } = await import("@/app/api/mcp-servers/route");
     const response = await POST(

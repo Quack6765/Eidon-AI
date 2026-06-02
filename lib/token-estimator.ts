@@ -2,8 +2,6 @@ import { encode } from "gpt-tokenizer";
 
 import type { Message, MessageAttachment, PromptMessage } from "@/lib/types";
 
-export type TokenizerEngine = "gpt-tokenizer" | "off";
-
 export type Tokenizer = {
   estimateTextTokens: (text: string) => number;
   estimatePromptTokens: (messages: PromptMessage[]) => number;
@@ -25,7 +23,6 @@ function buildGptTokenizer(): Tokenizer {
     },
     estimatePromptContentTokens: (content) => {
       if (typeof content === "string") return encode(content).length;
-      const tok = buildGptTokenizer();
       return content.reduce((total, part) => {
         if (part.type === "text") return total + encode(part.text).length;
         return total + encode(`[Image attachment: ${part.filename}]`).length;

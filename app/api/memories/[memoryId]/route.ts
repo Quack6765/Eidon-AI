@@ -1,9 +1,10 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import { updateMemory, deleteMemory } from "@/lib/memories";
 import type { MemoryCategory } from "@/lib/types";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({ memoryId: z.string().min(1) });
 
@@ -12,10 +13,10 @@ export async function PATCH(
   context: { params: Promise<{ memoryId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) return badRequest("Invalid memory id");
+    const params = await parseRouteParams(context, paramsSchema, "memory id");
+  if (params instanceof NextResponse) return params;
 
-  const { memoryId } = params.data;
+  const { memoryId } = params;
   const body = await request.json() as {
     content?: string;
     category?: MemoryCategory;
@@ -32,9 +33,9 @@ export async function DELETE(
   context: { params: Promise<{ memoryId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) return badRequest("Invalid memory id");
+    const params = await parseRouteParams(context, paramsSchema, "memory id");
+  if (params instanceof NextResponse) return params;
 
-  deleteMemory(params.data.memoryId, user.id);
+  deleteMemory(params.memoryId, user.id);
   return ok({ success: true });
 }

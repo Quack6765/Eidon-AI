@@ -1,24 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createConversation, createMessage, getMessage, setConversationActive } from "@/lib/conversations";
+import { createConversation, createMessage, getMessage } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
 
 const { requireUserMock } = vi.hoisted(() => ({
   requireUserMock: vi.fn()
 }));
 
-const { startAssistantTurnFromExistingUserMessageMock } = vi.hoisted(() => ({
-  startAssistantTurnFromExistingUserMessageMock: vi.fn()
+const { startManipulationTurnMock } = vi.hoisted(() => ({
+  startManipulationTurnMock: vi.fn()
 }));
 
-const { getAssistantTurnStartPreflightMock } = vi.hoisted(() => ({
-  getAssistantTurnStartPreflightMock: vi.fn()
+const { prepareMessageManipulationTurnMock } = vi.hoisted(() => ({
+  prepareMessageManipulationTurnMock: vi.fn()
 }));
 
 const claimTurnControl = { id: "claim-control" };
 
-const { claimChatTurnStartMock, releaseChatTurnStartMock } = vi.hoisted(() => ({
-  claimChatTurnStartMock: vi.fn(),
+const { releaseChatTurnStartMock } = vi.hoisted(() => ({
   releaseChatTurnStartMock: vi.fn()
 }));
 
@@ -27,30 +26,27 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 vi.mock("@/lib/chat-turn", () => ({
-  startAssistantTurnFromExistingUserMessage: startAssistantTurnFromExistingUserMessageMock,
-  getAssistantTurnStartPreflight: getAssistantTurnStartPreflightMock
+  prepareMessageManipulationTurn: prepareMessageManipulationTurnMock,
+  startManipulationTurn: startManipulationTurnMock
 }));
 
 vi.mock("@/lib/chat-turn-control", () => ({
-  claimChatTurnStart: claimChatTurnStartMock,
   releaseChatTurnStart: releaseChatTurnStartMock
 }));
 
 describe("message edit restart route", () => {
+  const defaultPreflight = { ok: true as const, context: {} };
+  const defaultTurnContext = {
+    snapshot: null as any,
+    preflight: defaultPreflight,
+    control: claimTurnControl
+  };
+
   beforeEach(() => {
     requireUserMock.mockReset();
-    startAssistantTurnFromExistingUserMessageMock.mockReset();
-    startAssistantTurnFromExistingUserMessageMock.mockResolvedValue({ status: "completed" });
-    getAssistantTurnStartPreflightMock.mockReset();
-    getAssistantTurnStartPreflightMock.mockReturnValue({
-      ok: true,
-      context: {}
-    });
-    claimChatTurnStartMock.mockReset();
-    claimChatTurnStartMock.mockReturnValue({
-      ok: true,
-      control: claimTurnControl
-    });
+    startManipulationTurnMock.mockReset();
+    prepareMessageManipulationTurnMock.mockReset();
+    prepareMessageManipulationTurnMock.mockReturnValue(defaultTurnContext);
     releaseChatTurnStartMock.mockReset();
   });
 
@@ -92,19 +88,13 @@ describe("message edit restart route", () => {
         ]
       })
     );
-    expect(startAssistantTurnFromExistingUserMessageMock).toHaveBeenCalledWith(
-      expect.anything(),
-      conversation.id,
-      message.id,
-      undefined,
-      {
-        control: claimTurnControl,
-        preflight: {
-          ok: true,
-          context: {}
-        }
-      }
-    );
+    expect(startManipulationTurnMock).toHaveBeenCalledWith({
+      conversationId: conversation.id,
+      userMessageId: message.id,
+      preflight: defaultPreflight,
+      control: claimTurnControl,
+      logTag: "message-edit-restart-route"
+    });
   });
 
   it("rejects assistant messages", async () => {
@@ -150,7 +140,10 @@ describe("message edit restart route", () => {
       role: "user",
       content: "Retry this"
     });
-    setConversationActive(conversation.id, true);
+
+    prepareMessageManipulationTurnMock.mockReturnValue(
+      new Response(JSON.stringify({ error: "Wait for the current assistant response to finish before editing this conversation" }), { status: 409 })
+    );
 
     const { POST } = await import("@/app/api/messages/[messageId]/edit-restart/route");
     const response = await POST(
@@ -163,9 +156,6 @@ describe("message edit restart route", () => {
     );
 
     expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
-      error: "Wait for the current assistant response to finish before editing this conversation"
-    });
   });
 
   it("returns 400 for malformed json bodies", async () => {
@@ -204,12 +194,9 @@ describe("message edit restart route", () => {
       role: "user"
     });
     requireUserMock.mockResolvedValue(user);
-    getAssistantTurnStartPreflightMock.mockReturnValue({
-      ok: false,
-      status: "failed",
-      statusCode: 400,
-      errorMessage: "No provider profile configured"
-    });
+    prepareMessageManipulationTurnMock.mockReturnValue(
+      new Response(JSON.stringify({ error: "No provider profile configured" }), { status: 400 })
+    );
 
     const conversation = createConversation("Preflight failure", null, {}, user.id);
     const message = createMessage({
@@ -229,24 +216,19 @@ describe("message edit restart route", () => {
     );
 
     expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toEqual({ error: "No provider profile configured" });
     expect(getMessage(message.id)?.content).toBe("Old content");
-    expect(startAssistantTurnFromExistingUserMessageMock).not.toHaveBeenCalled();
-    expect(claimChatTurnStartMock).not.toHaveBeenCalled();
+    expect(startManipulationTurnMock).not.toHaveBeenCalled();
   });
 
   it("returns the rewritten snapshot without waiting for assistant completion", async () => {
     const user = await createLocalUser({
-      username: "edit-route-restart-fail",
+      username: "edit-route-no-wait",
       password: "Password123!",
       role: "user"
     });
     requireUserMock.mockResolvedValue(user);
-    startAssistantTurnFromExistingUserMessageMock.mockRejectedValue(
-      new Error("Chat stream failed")
-    );
 
-    const conversation = createConversation("Restart failure", null, {}, user.id);
+    const conversation = createConversation("No wait", null, {}, user.id);
     const message = createMessage({
       conversationId: conversation.id,
       role: "user",
@@ -277,8 +259,6 @@ describe("message edit restart route", () => {
       })
     );
     expect(getMessage(message.id)?.content).toBe("New content");
-    await Promise.resolve();
-    expect(releaseChatTurnStartMock).toHaveBeenCalledWith(conversation.id, claimTurnControl);
   });
 
   it("returns 404 when the message does not exist", async () => {
@@ -310,9 +290,9 @@ describe("message edit restart route", () => {
       role: "user"
     });
     requireUserMock.mockResolvedValue(user);
-    claimChatTurnStartMock.mockReturnValue({
-      ok: false
-    });
+    prepareMessageManipulationTurnMock.mockReturnValue(
+      new Response(JSON.stringify({ error: "Wait for the current assistant response to finish before editing this conversation" }), { status: 409 })
+    );
 
     const conversation = createConversation("Claimed conversation", null, {}, user.id);
     const message = createMessage({
@@ -332,10 +312,7 @@ describe("message edit restart route", () => {
     );
 
     expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
-      error: "Wait for the current assistant response to finish before editing this conversation"
-    });
     expect(getMessage(message.id)?.content).toBe("Old content");
-    expect(startAssistantTurnFromExistingUserMessageMock).not.toHaveBeenCalled();
+    expect(startManipulationTurnMock).not.toHaveBeenCalled();
   });
 });

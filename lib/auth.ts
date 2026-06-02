@@ -15,6 +15,7 @@ import {
   getUserRecordById
 } from "@/lib/users";
 import type { AuthSession, AuthUser } from "@/lib/types";
+import { nowIso } from "@/lib/utils";
 
 const encoder = new TextEncoder();
 const sessionDurationMs = 1000 * 60 * 60 * 24 * 30;
@@ -23,9 +24,6 @@ function getSessionSecret() {
   return encoder.encode(env.EIDON_SESSION_SECRET);
 }
 
-function nowIso() {
-  return new Date().toISOString();
-}
 
 function rowToUser(row: {
   id: string;
@@ -270,6 +268,17 @@ export async function requireAdminUser() {
     throw new Error("forbidden");
   }
   return user;
+}
+
+export async function requireAdminResponse() {
+  try {
+    return await requireAdminUser();
+  } catch (error) {
+    if (error instanceof Error && error.message === "forbidden") {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function invalidateSession(sessionId: string) {

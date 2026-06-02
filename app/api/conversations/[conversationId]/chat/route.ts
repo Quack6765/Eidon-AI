@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { resolveAssistantTurn } from "@/lib/assistant-runtime";
@@ -18,7 +19,7 @@ import {
 } from "@/lib/conversations";
 import { attachAssistantFilesFromCompletedAction, createAssistantContentPersistenceTracker } from "@/lib/chat-turn";
 import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compaction";
-import { badRequest } from "@/lib/http";
+import { badRequest, parseRouteParams } from "@/lib/http";
 import {
   getSettings,
   getSettingsForUser,
@@ -55,11 +56,8 @@ export async function POST(
   if (!user) {
     return badRequest("Authentication required", 401);
   }
-  const params = paramsSchema.safeParse(await context.params);
-
-  if (!params.success) {
-    return badRequest("Invalid conversation id");
-  }
+    const params = await parseRouteParams(context, paramsSchema, "conversation id");
+  if (params instanceof NextResponse) return params;
 
   const payload = bodySchema.safeParse(await request.json());
 
@@ -67,7 +65,7 @@ export async function POST(
     return badRequest("Invalid chat payload");
   }
 
-  const conversation = getConversation(params.data.conversationId, user.id);
+  const conversation = getConversation(params.conversationId, user.id);
 
   if (!conversation) {
     return badRequest("Conversation not found", 404);

@@ -1,10 +1,8 @@
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import type { Persona } from "@/lib/types";
+import { nowIso } from "@/lib/utils";
 
-function nowIso() {
-  return new Date().toISOString();
-}
 
 function rowToPersona(row: {
   id: string;

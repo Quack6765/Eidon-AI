@@ -8,6 +8,7 @@ import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import type { AttachmentKind, MessageAttachment } from "@/lib/types";
+import { nowIso } from "@/lib/utils";
 
 const IMAGE_EXTENSION_TO_MIME = new Map<string, string>([
   [".png", "image/png"],
@@ -74,9 +75,6 @@ export class AttachmentTextPreviewUnsupportedError extends Error {
   }
 }
 
-function nowIso() {
-  return new Date().toISOString();
-}
 
 function getAttachmentsRoot() {
   const root = path.resolve(env.EIDON_DATA_DIR, "attachments");

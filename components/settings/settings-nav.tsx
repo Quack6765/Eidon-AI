@@ -221,7 +221,7 @@ export function SettingsNav({
           </div>
         </div>
       </div>
-      {createPortal(
+      {typeof document !== "undefined" && createPortal(
         <UnsavedChangesDialog
           open={unsavedDialogOpen}
           onOpenChange={setUnsavedDialogOpen}

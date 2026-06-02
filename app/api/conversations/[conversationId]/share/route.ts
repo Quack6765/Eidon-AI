@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
@@ -6,7 +7,7 @@ import {
   enableConversationShare,
   getConversationShare
 } from "@/lib/conversations";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({
   conversationId: z.string().min(1)
@@ -37,13 +38,10 @@ export async function GET(
   context: { params: Promise<{ conversationId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
+    const params = await parseRouteParams(context, paramsSchema, "conversation id");
+  if (params instanceof NextResponse) return params;
 
-  if (!params.success) {
-    return badRequest("Invalid conversation id");
-  }
-
-  const share = getConversationShare(params.data.conversationId, user.id);
+  const share = getConversationShare(params.conversationId, user.id);
 
   if (!share) {
     return badRequest("Conversation not found", 404);
@@ -57,11 +55,8 @@ export async function PATCH(
   context: { params: Promise<{ conversationId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-
-  if (!params.success) {
-    return badRequest("Invalid conversation id");
-  }
+    const params = await parseRouteParams(context, paramsSchema, "conversation id");
+  if (params instanceof NextResponse) return params;
 
   const body = updateSchema.safeParse(await request.json());
 
@@ -70,8 +65,8 @@ export async function PATCH(
   }
 
   const share = body.data.enabled
-    ? enableConversationShare(params.data.conversationId, user.id)
-    : disableConversationShare(params.data.conversationId, user.id);
+    ? enableConversationShare(params.conversationId, user.id)
+    : disableConversationShare(params.conversationId, user.id);
 
   if (!share) {
     return badRequest("Conversation not found", 404);

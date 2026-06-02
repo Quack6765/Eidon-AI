@@ -1,10 +1,8 @@
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import type { McpServer, McpTransport } from "@/lib/types";
+import { nowIso } from "@/lib/utils";
 
-function nowIso() {
-  return new Date().toISOString();
-}
 
 export function slugify(value: string) {
   return value

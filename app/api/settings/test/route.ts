@@ -1,4 +1,4 @@
-import { requireAdminUser } from "@/lib/auth";
+import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden, ok } from "@/lib/http";
 import { callProviderText } from "@/lib/provider";
 import {
@@ -7,14 +7,8 @@ import {
 } from "@/lib/settings";
 
 export async function POST(request: Request) {
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
 
   try {
     const body = (await request.json().catch(() => ({}))) as {

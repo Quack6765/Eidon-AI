@@ -286,7 +286,6 @@ export function ChatComposer({
   const canQueueDraft = queueingEnabled && hasTextDraft;
   const canImmediateDraft = !queueingEnabled && (hasTextDraft || pendingAttachments.length > 0);
   const showStopButton = canStop && !isUploadingAttachments;
-  const busyButtonQueues = showStopButton && canQueueDraft;
   const busyButtonStops = showStopButton && !canQueueDraft;
   const isSubmitDisabled =
     !mounted ||

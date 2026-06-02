@@ -2,10 +2,8 @@ import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import type { Skill } from "@/lib/types";
+import { nowIso } from "@/lib/utils";
 
-function nowIso() {
-  return new Date().toISOString();
-}
 
 function rowToSkill(row: {
   id: string;

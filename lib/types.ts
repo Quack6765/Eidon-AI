@@ -423,16 +423,6 @@ export type MemoryNode = {
   createdAt: string;
 };
 
-export type CompactionEvent = {
-  id: string;
-  conversationId: string;
-  nodeId: string;
-  sourceStartMessageId: string;
-  sourceEndMessageId: string;
-  noticeMessageId: string | null;
-  createdAt: string;
-};
-
 export type AuthUser = {
   id: string;
   username: string;

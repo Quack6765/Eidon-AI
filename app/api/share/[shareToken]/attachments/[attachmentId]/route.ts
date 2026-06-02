@@ -1,10 +1,6 @@
 import { z } from "zod";
 
-import {
-  AttachmentTextPreviewUnsupportedError,
-  readAttachmentBuffer,
-  readAttachmentText
-} from "@/lib/attachments";
+import { buildAttachmentResponse } from "@/lib/attachment-response";
 import { getSharedConversationSnapshot } from "@/lib/conversations";
 import { badRequest } from "@/lib/http";
 
@@ -18,7 +14,6 @@ export async function GET(
   context: { params: Promise<{ shareToken: string; attachmentId: string }> }
 ) {
   const params = paramsSchema.safeParse(await context.params);
-
   if (!params.success) {
     return badRequest("Attachment not found", 404);
   }
@@ -41,34 +36,5 @@ export async function GET(
   const format = url.searchParams.get("format");
   const download = url.searchParams.get("download") === "1";
 
-  if (format === "text") {
-    try {
-      return Response.json({
-        id: attachment.id,
-        filename: attachment.filename,
-        mimeType: attachment.mimeType,
-        content: readAttachmentText(attachment)
-      });
-    } catch (error) {
-      if (error instanceof AttachmentTextPreviewUnsupportedError) {
-        return badRequest("Attachment cannot be previewed as text", 415);
-      }
-
-      return badRequest("Internal server error", 500);
-    }
-  }
-
-  try {
-    const buffer = readAttachmentBuffer(attachment);
-
-    return new Response(buffer, {
-      headers: {
-        "Content-Type": attachment.mimeType,
-        "Content-Length": String(buffer.length),
-        "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${attachment.filename}"`
-      }
-    });
-  } catch {
-    return badRequest("Attachment file not found", 404);
-  }
+  return buildAttachmentResponse(attachment, format, download);
 }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireAdminUser } from "@/lib/auth";
+import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden, ok } from "@/lib/http";
 import { duplicateProviderProfile } from "@/lib/settings";
 
@@ -9,14 +9,8 @@ const duplicateSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
 
   try {
     const body = duplicateSchema.parse(await request.json());

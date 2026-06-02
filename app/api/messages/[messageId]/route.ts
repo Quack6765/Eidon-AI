@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
@@ -5,7 +6,7 @@ import {
   getMessage,
   updateMessage
 } from "@/lib/conversations";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, ok, parseRouteParams } from "@/lib/http";
 import { estimateTextTokens } from "@/lib/tokenization";
 
 const paramsSchema = z.object({
@@ -21,11 +22,8 @@ export async function PATCH(
   context: { params: Promise<{ messageId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-
-  if (!params.success) {
-    return badRequest("Invalid message id");
-  }
+    const params = await parseRouteParams(context, paramsSchema, "message id");
+  if (params instanceof NextResponse) return params;
 
   const body = updateSchema.safeParse(await request.json());
 
@@ -33,7 +31,7 @@ export async function PATCH(
     return badRequest("Invalid message update");
   }
 
-  const message = getMessage(params.data.messageId, user.id);
+  const message = getMessage(params.messageId, user.id);
 
   if (!message) {
     return badRequest("Message not found", 404);

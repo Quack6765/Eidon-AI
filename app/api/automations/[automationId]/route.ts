@@ -1,8 +1,9 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import { deleteAutomation, getAutomation, updateAutomation } from "@/lib/automations";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, ok, parseRouteParams } from "@/lib/http";
 import { getPersona } from "@/lib/personas";
 import { getProviderProfile } from "@/lib/settings";
 
@@ -31,13 +32,10 @@ export async function GET(
   context: { params: Promise<{ automationId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
+    const params = await parseRouteParams(context, paramsSchema, "automation id");
+  if (params instanceof NextResponse) return params;
 
-  if (!params.success) {
-    return badRequest("Invalid automation id");
-  }
-
-  const automation = getAutomation(params.data.automationId, user.id);
+  const automation = getAutomation(params.automationId, user.id);
 
   if (!automation) {
     return badRequest("Automation not found", 404);
@@ -51,11 +49,8 @@ export async function PATCH(
   context: { params: Promise<{ automationId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-
-  if (!params.success) {
-    return badRequest("Invalid automation id");
-  }
+    const params = await parseRouteParams(context, paramsSchema, "automation id");
+  if (params instanceof NextResponse) return params;
 
   const body = updateSchema.safeParse(await request.json());
 
@@ -63,7 +58,7 @@ export async function PATCH(
     return badRequest("Invalid automation update");
   }
 
-  const automation = getAutomation(params.data.automationId, user.id);
+  const automation = getAutomation(params.automationId, user.id);
 
   if (!automation) {
     return badRequest("Automation not found", 404);
@@ -90,13 +85,10 @@ export async function DELETE(
   context: { params: Promise<{ automationId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
+    const params = await parseRouteParams(context, paramsSchema, "automation id");
+  if (params instanceof NextResponse) return params;
 
-  if (!params.success) {
-    return badRequest("Invalid automation id");
-  }
-
-  const deleted = deleteAutomation(params.data.automationId, user.id);
+  const deleted = deleteAutomation(params.automationId, user.id);
   if (!deleted) {
     return badRequest("Automation not found", 404);
   }

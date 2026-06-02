@@ -1,18 +1,12 @@
 import { z } from "zod";
 
-import { requireAdminUser } from "@/lib/auth";
+import { requireAdminResponse } from "@/lib/auth";
 import { createSkill, listSkills } from "@/lib/skills";
 import { badRequest, forbidden, ok } from "@/lib/http";
 
 export async function GET() {
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
   return ok({ skills: listSkills() });
 }
 
@@ -23,14 +17,8 @@ const createSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
 
   const body = createSchema.safeParse(await request.json());
   if (!body.success) return badRequest("Invalid skill data");

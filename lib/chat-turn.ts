@@ -12,15 +12,17 @@ import {
   createMessageAction,
   generateConversationTitleFromFirstUserMessage,
   getConversation,
+  getConversationSnapshot,
   getMessage,
   getConversationOwnerId,
   setConversationActive,
   updateMessage,
   updateMessageAction
 } from "@/lib/conversations";
+import { badRequest } from "@/lib/http";
+import { NextResponse } from "next/server";
+import { getConversationManager } from "@/lib/ws-singleton";
 import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compaction";
-import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
-import { inferAssistantLocalAttachments, importAssistantLocalFileAttachment } from "@/lib/assistant-local-attachments";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
@@ -32,8 +34,12 @@ import {
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
 import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
-import type { ChatStreamEvent, MessageAction } from "@/lib/types";
+import { createAssistantContentPersistenceTracker as createAssistantContentPersistenceTrackerImpl, attachAssistantFilesFromCompletedAction as attachAssistantFilesFromCompletedActionImpl } from "./content-persistence";
+import type { ChatStreamEvent } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
+
+export { tokenizeShellCommand, isAgentBrowserToken, extractAgentBrowserScreenshotPaths } from "./shell-tokenizer";
+export { attachAssistantFilesFromCompletedAction, createAssistantContentPersistenceTracker } from "./content-persistence";
 
 export type ChatEmitter = ReturnType<typeof createEmitter<{
   delta: [string, unknown];
@@ -64,267 +70,8 @@ const globalEmitter = createEmitter<{
 
 const ACTIVE_TURN_ERROR_MESSAGE = "Conversation already has an active assistant turn";
 
-function appendFailureNotes(content: string, failureNotes: string[]) {
-  const trimmed = content.trim();
-
-  if (failureNotes.length === 0) {
-    return trimmed;
-  }
-
-  const appendedNotes = failureNotes.join("\n\n");
-  return trimmed ? `${trimmed}\n\n${appendedNotes}` : appendedNotes;
-}
-
-function sanitizeAssistantContent(
-  conversationId: string,
-  messageId: string,
-  content: string
-) {
-  const inferred = inferAssistantLocalAttachments({
-    conversationId,
-    content,
-    workspaceRoot: process.cwd(),
-    existingAttachments: getMessage(messageId)?.attachments ?? [],
-    tidyWhitespace: false
-  });
-
-  if (inferred.attachments.length > 0) {
-    bindAttachmentsToMessage(
-      conversationId,
-      messageId,
-      inferred.attachments.map((attachment) => attachment.id)
-    );
-  }
-
-  const sanitizedContent = stripAttachmentStyleImageMarkdown(
-    inferred.content,
-    getMessage(messageId)?.attachments ?? []
-  );
-
-  return {
-    content: sanitizedContent,
-    failureNote: inferred.failureNote
-  };
-}
-
-function tokenizeShellCommand(command: string) {
-  const tokens: string[] = [];
-  let current = "";
-  let quote: "'" | '"' | null = null;
-  let escaped = false;
-
-  const pushCurrent = () => {
-    if (!current) {
-      return;
-    }
-
-    tokens.push(current);
-    current = "";
-  };
-
-  for (let index = 0; index < command.length; index += 1) {
-    const character = command[index];
-
-    if (escaped) {
-      current += character;
-      escaped = false;
-      continue;
-    }
-
-    if (quote) {
-      if (character === quote) {
-        quote = null;
-        continue;
-      }
-
-      if (character === "\\" && quote === '"') {
-        escaped = true;
-        continue;
-      }
-
-      current += character;
-      continue;
-    }
-
-    if (character === "'" || character === '"') {
-      quote = character;
-      continue;
-    }
-
-    if (character === "\\") {
-      escaped = true;
-      continue;
-    }
-
-    if (/\s/.test(character)) {
-      pushCurrent();
-      continue;
-    }
-
-    if (character === ";" || character === "|" || character === "&") {
-      pushCurrent();
-      const nextCharacter = command[index + 1];
-      if ((character === "|" || character === "&") && nextCharacter === character) {
-        tokens.push(character + nextCharacter);
-        index += 1;
-      } else {
-        tokens.push(character);
-      }
-      continue;
-    }
-
-    current += character;
-  }
-
-  pushCurrent();
-  return tokens;
-}
-
-function isAgentBrowserToken(token: string) {
-  const normalized = token.trim().replace(/\\/g, "/");
-  const basename = normalized.split("/").at(-1)?.toLowerCase();
-  return basename === "agent-browser";
-}
-
-function extractAgentBrowserScreenshotPaths(command: string) {
-  const tokens = tokenizeShellCommand(command);
-  const screenshotPaths = new Set<string>();
-
-  for (let index = 0; index < tokens.length; index += 1) {
-    if (!isAgentBrowserToken(tokens[index] ?? "")) {
-      continue;
-    }
-
-    if ((tokens[index + 1] ?? "").toLowerCase() !== "screenshot") {
-      continue;
-    }
-
-    for (let candidateIndex = index + 2; candidateIndex < tokens.length; candidateIndex += 1) {
-      const candidate = tokens[candidateIndex] ?? "";
-      if (
-        !candidate ||
-        candidate === ";" ||
-        candidate === "|" ||
-        candidate === "||" ||
-        candidate === "&" ||
-        candidate === "&&"
-      ) {
-        break;
-      }
-
-      if (candidate.startsWith("-")) {
-        continue;
-      }
-
-      screenshotPaths.add(candidate);
-      break;
-    }
-  }
-
-  return [...screenshotPaths];
-}
-
-export function attachAssistantFilesFromCompletedAction(conversationId: string, messageId: string, action: MessageAction) {
-  if (action.kind !== "shell_command") {
-    return;
-  }
-
-  const command =
-    typeof action.arguments?.command === "string"
-      ? action.arguments.command.trim()
-      : action.detail.trim();
-
-  if (!command) {
-    return;
-  }
-
-  const screenshotPaths = extractAgentBrowserScreenshotPaths(command);
-  if (!screenshotPaths.length) {
-    return;
-  }
-
-  const attachmentIds: string[] = [];
-  const existingAttachments = [...(getMessage(messageId)?.attachments ?? [])];
-
-  for (const screenshotPath of screenshotPaths) {
-    const outcome = importAssistantLocalFileAttachment({
-      conversationId,
-      sourcePath: screenshotPath,
-      workspaceRoot: process.cwd(),
-      existingAttachments
-    });
-
-    if (outcome.type !== "attach") {
-      continue;
-    }
-
-    attachmentIds.push(outcome.attachment.id);
-    existingAttachments.push(outcome.attachment);
-  }
-
-  if (attachmentIds.length > 0) {
-    bindAttachmentsToMessage(conversationId, messageId, attachmentIds);
-  }
-}
-
-export function createAssistantContentPersistenceTracker(
-  conversationId: string,
-  messageId: string
-) {
-  let persistedRawContent = "";
-  let persistedSanitizedContent = "";
-  const failureNotes: string[] = [];
-  const failureNoteSet = new Set<string>();
-
-  const recordFailureNote = (failureNote: string) => {
-    if (!failureNote || failureNoteSet.has(failureNote)) {
-      return;
-    }
-
-    failureNoteSet.add(failureNote);
-    failureNotes.push(failureNote);
-  };
-
-  return {
-    appendSegment(content: string) {
-      if (!content) {
-        return "";
-      }
-
-      const sanitized = sanitizeAssistantContent(conversationId, messageId, content);
-      persistedRawContent += content;
-      persistedSanitizedContent += sanitized.content;
-      recordFailureNote(sanitized.failureNote);
-      return sanitized.content;
-    },
-    finalize(content: string) {
-      if (!content) {
-        return appendFailureNotes(persistedSanitizedContent, failureNotes);
-      }
-
-      if (content.startsWith(persistedRawContent)) {
-        const remainder = content.slice(persistedRawContent.length);
-        if (remainder) {
-          const sanitized = sanitizeAssistantContent(conversationId, messageId, remainder);
-          persistedRawContent += remainder;
-          persistedSanitizedContent += sanitized.content;
-          recordFailureNote(sanitized.failureNote);
-        }
-
-        return appendFailureNotes(persistedSanitizedContent, failureNotes);
-      }
-
-      if (!persistedRawContent) {
-        const sanitized = sanitizeAssistantContent(conversationId, messageId, content);
-        persistedRawContent = content;
-        persistedSanitizedContent = sanitized.content;
-        recordFailureNote(sanitized.failureNote);
-      }
-
-      return appendFailureNotes(persistedSanitizedContent, failureNotes);
-    }
-  };
-}
+const createAssistantContentPersistenceTracker = createAssistantContentPersistenceTrackerImpl;
+const attachAssistantFilesFromCompletedAction = attachAssistantFilesFromCompletedActionImpl;
 
 export function getChatEmitter(): ChatEmitter {
   return globalEmitter;
@@ -848,4 +595,50 @@ export async function startChatTurn(
     releaseChatTurnStart(conversationId, claimed.control);
     throw error;
   }
+}
+
+export type ClaimedTurnContext = {
+  snapshot: import("@/lib/types").ConversationSnapshot;
+  preflight: AssistantTurnStartReady;
+  control: ChatTurnControl;
+};
+
+export function prepareMessageManipulationTurn(params: {
+  conversationId: string;
+  userId: string;
+  busyErrorMessage: string;
+}): ClaimedTurnContext | NextResponse {
+  const { conversationId, userId, busyErrorMessage } = params;
+
+  const snapshot = getConversationSnapshot(conversationId, userId);
+  if (!snapshot) return badRequest("Conversation not found", 404);
+  if (snapshot.conversation.isActive) return badRequest(busyErrorMessage, 409);
+
+  const preflight = getAssistantTurnStartPreflight(conversationId);
+  if (!preflight.ok) return badRequest(preflight.errorMessage, preflight.statusCode);
+
+  const claimed = claimChatTurnStart(conversationId);
+  if (!claimed.ok) return badRequest(busyErrorMessage, 409);
+
+  return { snapshot, preflight, control: claimed.control };
+}
+
+export function startManipulationTurn(params: {
+  conversationId: string;
+  userMessageId: string;
+  preflight: AssistantTurnStartReady;
+  control: ChatTurnControl;
+  logTag: string;
+}) {
+  const { conversationId, userMessageId, preflight, control, logTag } = params;
+  void startAssistantTurnFromExistingUserMessage(
+    getConversationManager(),
+    conversationId,
+    userMessageId,
+    undefined,
+    { control, preflight }
+  ).catch((error) => {
+    releaseChatTurnStart(conversationId, control);
+    console.error(`[${logTag}] continuation failed:`, error);
+  });
 }

@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
@@ -15,7 +16,7 @@ import {
 } from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
 import { getFolder } from "@/lib/folders";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, ok, parseRouteParams } from "@/lib/http";
 import { getProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
 
@@ -28,13 +29,10 @@ export async function GET(
   context: { params: Promise<{ conversationId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
+  const params = await parseRouteParams(context, paramsSchema, "conversation id");
+  if (params instanceof NextResponse) return params;
 
-  if (!params.success) {
-    return badRequest("Invalid conversation id");
-  }
-
-  const conversation = getConversation(params.data.conversationId, user.id);
+  const conversation = getConversation(params.conversationId, user.id);
 
   if (!conversation) {
     return badRequest("Conversation not found", 404);
@@ -53,29 +51,26 @@ export async function DELETE(
   context: { params: Promise<{ conversationId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-
-  if (!params.success) {
-    return badRequest("Invalid conversation id");
-  }
+  const params = await parseRouteParams(context, paramsSchema, "conversation id");
+  if (params instanceof NextResponse) return params;
 
   const onlyIfEmptyParam = new URL(request.url).searchParams.get("onlyIfEmpty");
   const onlyIfEmpty = onlyIfEmptyParam === "1" || onlyIfEmptyParam === "true";
-  const conversation = getConversation(params.data.conversationId, user.id);
+  const conversation = getConversation(params.conversationId, user.id);
 
   if (!conversation) {
     return badRequest("Conversation not found", 404);
   }
 
   const deleted = onlyIfEmpty
-    ? deleteConversationIfEmpty(params.data.conversationId, user.id)
-    : deleteConversation(params.data.conversationId, user.id);
+    ? deleteConversationIfEmpty(params.conversationId, user.id)
+    : deleteConversation(params.conversationId, user.id);
 
   if (deleted) {
     try {
       getConversationManager().broadcastAll({
         type: "conversation_deleted",
-        conversationId: params.data.conversationId
+        conversationId: params.conversationId
       }, user.id);
     } catch { /* WS server may not be running */ }
   }
@@ -106,11 +101,8 @@ export async function PATCH(
   context: { params: Promise<{ conversationId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-
-  if (!params.success) {
-    return badRequest("Invalid conversation id");
-  }
+  const params = await parseRouteParams(context, paramsSchema, "conversation id");
+  if (params instanceof NextResponse) return params;
 
   const body = updateSchema.safeParse(await request.json());
 
@@ -118,7 +110,7 @@ export async function PATCH(
     return badRequest("Invalid conversation update");
   }
 
-  const conversation = getConversation(params.data.conversationId, user.id);
+  const conversation = getConversation(params.conversationId, user.id);
 
   if (!conversation) {
     return badRequest("Conversation not found", 404);

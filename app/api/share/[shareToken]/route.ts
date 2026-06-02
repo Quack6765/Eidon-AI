@@ -12,7 +12,6 @@ export async function GET(
   context: { params: Promise<{ shareToken: string }> }
 ) {
   const params = paramsSchema.safeParse(await context.params);
-
   if (!params.success) {
     return badRequest("Shared conversation not found", 404);
   }

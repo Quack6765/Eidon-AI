@@ -22,12 +22,10 @@ import {
   ensureEnvSuperAdminUser,
   findPersistedUserByUsername
 } from "@/lib/users";
+import { nowIso } from "@/lib/utils";
 
 const DEMO_PASSWORD = "ReadmeDemo123!";
 
-function nowIso() {
-  return new Date().toISOString();
-}
 
 function buildProviderProfile(
   overrides: Partial<{

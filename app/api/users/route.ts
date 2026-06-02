@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { requireAdminUser } from "@/lib/auth";
+import { requireAdminResponse } from "@/lib/auth";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { badRequest, forbidden, notFoundResponse, ok } from "@/lib/http";
 import { createLocalUser, listUsers } from "@/lib/users";
@@ -16,14 +16,8 @@ export async function GET() {
     return notFoundResponse();
   }
 
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
 
   return ok({ users: listUsers() });
 }
@@ -33,14 +27,8 @@ export async function POST(request: Request) {
     return notFoundResponse();
   }
 
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
 
   const body = createUserSchema.safeParse(await request.json());
 

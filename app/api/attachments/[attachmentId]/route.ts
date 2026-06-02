@@ -1,14 +1,13 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import {
-  AttachmentTextPreviewUnsupportedError,
   deleteAttachmentById,
-  getAttachment,
-  readAttachmentBuffer,
-  readAttachmentText
+  getAttachment
 } from "@/lib/attachments";
+import { buildAttachmentResponse } from "@/lib/attachment-response";
 import { requireUser } from "@/lib/auth";
-import { badRequest } from "@/lib/http";
+import { badRequest, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({
   attachmentId: z.string().min(1)
@@ -24,13 +23,10 @@ export async function GET(
     return badRequest("Authentication required", 401);
   }
 
-  const params = paramsSchema.safeParse(await context.params);
+    const params = await parseRouteParams(context, paramsSchema, "attachment id");
+  if (params instanceof NextResponse) return params;
 
-  if (!params.success) {
-    return badRequest("Invalid attachment id");
-  }
-
-  const attachment = getAttachment(params.data.attachmentId, user.id);
+  const attachment = getAttachment(params.attachmentId, user.id);
 
   if (!attachment) {
     return badRequest("Attachment not found", 404);
@@ -39,36 +35,7 @@ export async function GET(
   const format = new URL(request.url).searchParams.get("format");
   const download = new URL(request.url).searchParams.get("download") === "1";
 
-  if (format === "text") {
-    try {
-      return Response.json({
-        id: attachment.id,
-        filename: attachment.filename,
-        mimeType: attachment.mimeType,
-        content: readAttachmentText(attachment)
-      });
-    } catch (error) {
-      if (error instanceof AttachmentTextPreviewUnsupportedError) {
-        return badRequest("Attachment cannot be previewed as text", 415);
-      }
-
-      return badRequest("Internal server error", 500);
-    }
-  }
-
-  try {
-    const buffer = readAttachmentBuffer(attachment);
-
-    return new Response(buffer, {
-      headers: {
-        "Content-Type": attachment.mimeType,
-        "Content-Length": String(buffer.length),
-        "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${attachment.filename}"`
-      }
-    });
-  } catch {
-    return badRequest("Attachment file not found", 404);
-  }
+  return buildAttachmentResponse(attachment, format, download);
 }
 
 export async function DELETE(
@@ -81,14 +48,11 @@ export async function DELETE(
     return badRequest("Authentication required", 401);
   }
 
-  const params = paramsSchema.safeParse(await context.params);
-
-  if (!params.success) {
-    return badRequest("Invalid attachment id");
-  }
+    const params = await parseRouteParams(context, paramsSchema, "attachment id");
+  if (params instanceof NextResponse) return params;
 
   try {
-    const deleted = deleteAttachmentById(params.data.attachmentId, { userId: user.id });
+    const deleted = deleteAttachmentById(params.attachmentId, { userId: user.id });
     return Response.json({ success: deleted });
   } catch (error) {
     return badRequest(error instanceof Error ? error.message : "Unable to delete attachment");

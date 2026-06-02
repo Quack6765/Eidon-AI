@@ -1,9 +1,9 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireAdminUser } from "@/lib/auth";
+import { requireAdminResponse } from "@/lib/auth";
 import { isPasswordLoginEnabled } from "@/lib/env";
-import { badRequest, forbidden, notFoundResponse, ok } from "@/lib/http";
-import type { AuthUser } from "@/lib/types";
+import { badRequest, forbidden, notFoundResponse, ok, parseRouteParams } from "@/lib/http";
 import { deleteManagedUser, updateManagedUser } from "@/lib/users";
 
 const paramsSchema = z.object({
@@ -30,20 +30,11 @@ export async function PATCH(
     return notFoundResponse();
   }
 
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
 
-  const params = paramsSchema.safeParse(await context.params);
-
-  if (!params.success) {
-    return badRequest("Invalid user id");
-  }
+    const params = await parseRouteParams(context, paramsSchema, "user id");
+  if (params instanceof NextResponse) return params;
 
   const body = updateUserSchema.safeParse(await request.json());
 
@@ -52,7 +43,7 @@ export async function PATCH(
   }
 
   try {
-    const updated = await updateManagedUser(params.data.userId, {
+    const updated = await updateManagedUser(params.userId, {
       username: body.data.username,
       role: body.data.role,
       password: body.data.password || undefined
@@ -76,28 +67,18 @@ export async function DELETE(
     return notFoundResponse();
   }
 
-  let adminUser: AuthUser;
-  try {
-    adminUser = await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const adminUser = await requireAdminResponse();
+  if (!adminUser) return forbidden();
 
-  const params = paramsSchema.safeParse(await context.params);
+    const params = await parseRouteParams(context, paramsSchema, "user id");
+  if (params instanceof NextResponse) return params;
 
-  if (!params.success) {
-    return badRequest("Invalid user id");
-  }
-
-  if (params.data.userId === adminUser.id) {
+  if (params.userId === adminUser.id) {
     return badRequest("You cannot delete your own account");
   }
 
   try {
-    const deleted = deleteManagedUser(params.data.userId);
+    const deleted = deleteManagedUser(params.userId);
 
     if (!deleted) {
       return notFoundResponse("User not found");

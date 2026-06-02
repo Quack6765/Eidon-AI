@@ -1,9 +1,10 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { retryAutomationRunNow } from "@/lib/automation-scheduler";
 import { requireUser } from "@/lib/auth";
 import { getAutomationRun } from "@/lib/automations";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({
   runId: z.string().min(1)
@@ -14,13 +15,10 @@ export async function POST(
   context: { params: Promise<{ runId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
+    const params = await parseRouteParams(context, paramsSchema, "automation run id");
+  if (params instanceof NextResponse) return params;
 
-  if (!params.success) {
-    return badRequest("Invalid automation run id");
-  }
-
-  const existingRun = getAutomationRun(params.data.runId, user.id);
+  const existingRun = getAutomationRun(params.runId, user.id);
   if (!existingRun) {
     return badRequest("Automation run not found", 404);
   }
@@ -29,7 +27,7 @@ export async function POST(
     return badRequest("Only failed automation runs can be retried");
   }
 
-  const run = await retryAutomationRunNow(params.data.runId, user.id);
+  const run = await retryAutomationRunNow(params.runId, user.id);
 
   if (!run) {
     return badRequest("Automation run not found", 404);

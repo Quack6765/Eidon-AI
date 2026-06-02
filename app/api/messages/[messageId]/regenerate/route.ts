@@ -1,35 +1,32 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import {
-  getAssistantTurnStartPreflight,
-  startAssistantTurnFromExistingUserMessage
+  prepareMessageManipulationTurn,
+  startManipulationTurn
 } from "@/lib/chat-turn";
+import { releaseChatTurnStart } from "@/lib/chat-turn-control";
 import {
   deleteAssistantMessageAndChildren,
-  getConversationSnapshot,
   getMessage,
   listMessages
 } from "@/lib/conversations";
-import { claimChatTurnStart, releaseChatTurnStart } from "@/lib/chat-turn-control";
-import { badRequest, ok } from "@/lib/http";
-import { getConversationManager } from "@/lib/ws-singleton";
+import { badRequest, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({
   messageId: z.string().min(1)
 });
 
 export async function POST(
-  request: Request,
+  _request: Request,
   context: { params: Promise<{ messageId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) {
-    return badRequest("Invalid message id");
-  }
+  const params = await parseRouteParams(context, paramsSchema, "message id");
+  if (params instanceof NextResponse) return params;
 
-  const message = getMessage(params.data.messageId, user.id);
+  const message = getMessage(params.messageId, user.id);
   if (!message) {
     return badRequest("Message not found", 404);
   }
@@ -37,35 +34,18 @@ export async function POST(
     return badRequest("Only user messages can be regenerated", 400);
   }
 
-  const snapshot = getConversationSnapshot(message.conversationId, user.id);
-  if (!snapshot) {
-    return badRequest("Conversation not found", 404);
-  }
-  if (snapshot.conversation.isActive) {
-    return badRequest(
-      "Wait for the current assistant response to finish before regenerating",
-      409
-    );
-  }
-
-  const preflight = getAssistantTurnStartPreflight(message.conversationId);
-  if (!preflight.ok) {
-    return badRequest(preflight.errorMessage, preflight.statusCode);
-  }
-
-  const claimed = claimChatTurnStart(message.conversationId);
-  if (!claimed.ok) {
-    return badRequest(
-      "Wait for the current assistant response to finish before regenerating",
-      409
-    );
-  }
+  const turn = prepareMessageManipulationTurn({
+    conversationId: message.conversationId,
+    userId: user.id,
+    busyErrorMessage: "Wait for the current assistant response to finish before regenerating"
+  });
+  if (turn instanceof Response) return turn;
 
   try {
     const allMessages = listMessages(message.conversationId);
     const targetIndex = allMessages.findIndex((m) => m.id === message.id);
 
-    let rewritten = snapshot;
+    let rewritten = turn.snapshot;
     for (let i = targetIndex + 1; i < allMessages.length; i++) {
       if (allMessages[i].role === "assistant") {
         rewritten = deleteAssistantMessageAndChildren(allMessages[i].id, user.id);
@@ -73,23 +53,17 @@ export async function POST(
       }
     }
 
-    void startAssistantTurnFromExistingUserMessage(
-      getConversationManager(),
-      rewritten.conversation.id,
-      message.id,
-      undefined,
-      {
-        control: claimed.control,
-        preflight
-      }
-    ).catch((error) => {
-      releaseChatTurnStart(message.conversationId, claimed.control);
-      console.error("[message-regenerate-route] continuation failed:", error);
+    startManipulationTurn({
+      conversationId: message.conversationId,
+      userMessageId: message.id,
+      preflight: turn.preflight,
+      control: turn.control,
+      logTag: "message-regenerate-route"
     });
 
     return ok(rewritten);
   } catch (error) {
-    releaseChatTurnStart(message.conversationId, claimed.control);
+    releaseChatTurnStart(message.conversationId, turn.control);
     throw error;
   }
 }

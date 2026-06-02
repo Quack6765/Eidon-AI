@@ -1,8 +1,9 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireAdminUser } from "@/lib/auth";
-import { deleteSkill, getSkill, updateSkill } from "@/lib/skills";
-import { badRequest, forbidden, ok } from "@/lib/http";
+import { requireAdminResponse } from "@/lib/auth";
+import { deleteSkill, updateSkill } from "@/lib/skills";
+import { badRequest, forbidden, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({ skillId: z.string().min(1) });
 
@@ -10,19 +11,13 @@ export async function PATCH(
   request: Request,
   context: { params: Promise<{ skillId: string }> }
 ) {
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
 
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) return badRequest("Invalid skill id");
+    const params = await parseRouteParams(context, paramsSchema, "skill id");
+  if (params instanceof NextResponse) return params;
 
-  const { skillId } = params.data;
+  const { skillId } = params;
   const body = await request.json() as {
     name?: string;
     description?: string;
@@ -45,22 +40,16 @@ export async function DELETE(
   _request: Request,
   context: { params: Promise<{ skillId: string }> }
 ) {
-  try {
-    await requireAdminUser();
-  } catch (error) {
-    if (error instanceof Error && error.message === "forbidden") {
-      return forbidden();
-    }
-    throw error;
-  }
+  const admin = await requireAdminResponse();
+  if (!admin) return forbidden();
 
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) return badRequest("Invalid skill id");
+    const params = await parseRouteParams(context, paramsSchema, "skill id");
+  if (params instanceof NextResponse) return params;
 
-  if (params.data.skillId.startsWith("builtin-")) {
+  if (params.skillId.startsWith("builtin-")) {
     return badRequest("Cannot delete built-in skills");
   }
 
-  deleteSkill(params.data.skillId);
+  deleteSkill(params.skillId);
   return ok({ success: true });
 }

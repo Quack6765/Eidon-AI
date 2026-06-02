@@ -2,12 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createLocalUser, getUserById, listUsers } from "@/lib/users";
 
-const { requireAdminUserMock } = vi.hoisted(() => ({
-  requireAdminUserMock: vi.fn()
+const { requireAdminResponseMock } = vi.hoisted(() => ({
+  requireAdminResponseMock: vi.fn()
 }));
 
 vi.mock("@/lib/auth", () => ({
-  requireAdminUser: requireAdminUserMock
+  requireAdminResponse: requireAdminResponseMock
 }));
 
 function buildAdminUser() {
@@ -25,8 +25,8 @@ function buildAdminUser() {
 describe("users routes", () => {
   beforeEach(() => {
     vi.doUnmock("@/lib/env");
-    requireAdminUserMock.mockReset();
-    requireAdminUserMock.mockResolvedValue(buildAdminUser());
+    requireAdminResponseMock.mockReset();
+    requireAdminResponseMock.mockResolvedValue(buildAdminUser());
   });
 
   it("creates a local user", async () => {

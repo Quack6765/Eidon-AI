@@ -1,7 +1,8 @@
+import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, ok, parseRouteParams } from "@/lib/http";
 import { approveMemoryProposal } from "@/lib/memory-proposals";
 
 const paramsSchema = z.object({
@@ -32,8 +33,8 @@ export async function POST(
   context: { params: Promise<{ actionId: string }> }
 ) {
   const user = await requireUser();
-  const params = paramsSchema.safeParse(await context.params);
-  if (!params.success) return badRequest("Invalid action id");
+    const params = await parseRouteParams(context, paramsSchema, "action id");
+  if (params instanceof NextResponse) return params;
 
   let rawBody: unknown;
   try {
@@ -46,7 +47,7 @@ export async function POST(
   if (!body.success) return badRequest("Invalid approval overrides");
 
   try {
-    const action = approveMemoryProposal(params.data.actionId, body.data, user.id);
+    const action = approveMemoryProposal(params.actionId, body.data, user.id);
     return ok({ action });
   } catch (error) {
     return badRequest(error instanceof Error ? error.message : "Unable to approve memory proposal");

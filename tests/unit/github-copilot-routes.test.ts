@@ -3,16 +3,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { encryptValue } from "@/lib/crypto";
 import {
   getProviderProfile,
-  listProviderProfiles,
   updateSettings
 } from "@/lib/settings";
 
-const { requireAdminUserMock } = vi.hoisted(() => ({
-  requireAdminUserMock: vi.fn()
+const { requireAdminResponseMock } = vi.hoisted(() => ({
+  requireAdminResponseMock: vi.fn()
 }));
 
 vi.mock("@/lib/auth", () => ({
-  requireAdminUser: requireAdminUserMock
+  requireAdminResponse: requireAdminResponseMock
 }));
 
 function buildAdminUser() {
@@ -78,13 +77,13 @@ function seedCopilotProfile(overrides: Record<string, unknown> = {}) {
 
 describe("github copilot routes", () => {
   beforeEach(() => {
-    requireAdminUserMock.mockReset();
-    requireAdminUserMock.mockResolvedValue(buildAdminUser());
+    requireAdminResponseMock.mockReset();
+    requireAdminResponseMock.mockResolvedValue(buildAdminUser());
   });
 
   it("rejects connect requests for non-copilot profiles", async () => {
     const { GET: connect } = await import("@/app/api/providers/github/connect/route");
-    const id = seedCopilotProfile();
+    seedCopilotProfile();
 
     const response = await connect(
       new Request(
@@ -142,7 +141,7 @@ describe("github copilot routes", () => {
   });
 
   it("returns forbidden for non-admin users", async () => {
-    requireAdminUserMock.mockRejectedValueOnce(new Error("forbidden"));
+    requireAdminResponseMock.mockResolvedValueOnce(null);
     const { POST: disconnect } = await import("@/app/api/providers/github/disconnect/route");
 
     const response = await disconnect(

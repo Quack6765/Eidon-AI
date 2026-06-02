@@ -1,9 +1,5 @@
 type EventMap = Record<string, unknown[]>;
 
-export type EmitterEvents<T extends EventMap> = {
-  [K in keyof T]: T[K];
-};
-
 type Listener<T extends unknown[]> = (...args: T) => void;
 
 export function createEmitter<T extends EventMap>() {

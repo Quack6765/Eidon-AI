@@ -1,22 +1,10 @@
-import type { ConversationRetention } from "@/lib/types";
-
 export const APP_NAME = "Eidon";
 export const SESSION_COOKIE_NAME = "eidon_session";
 export const SETTINGS_ROW_ID = 1;
 export const DEFAULT_PROVIDER_PROFILE_NAME = "Default profile";
 export const DEFAULT_SKILLS_ENABLED = true;
-export const DEFAULT_CONVERSATION_RETENTION: ConversationRetention = "forever";
-export const DEFAULT_AUTO_COMPACTION = true;
-export const DEFAULT_MEMORIES_ENABLED = true;
-export const DEFAULT_MEMORIES_MAX_COUNT = 100;
 export const MCP_PROTOCOL_VERSION = "2025-03-26";
 export const MAX_ASSISTANT_CONTROL_STEPS = 16;
-export const SAFETY_MARGIN_TOKENS = 1200;
-export const LEAF_TARGET_TOKENS = 1200;
-export const LEAF_SOURCE_TOKEN_LIMIT = 12000;
-export const MERGED_TARGET_TOKENS = 1600;
-export const LEAF_MIN_MESSAGE_COUNT = 6;
-export const MERGED_MIN_NODE_COUNT = 4;
 export const MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 export const MAX_ATTACHMENT_TEXT_RATIO = 0.25;
 export const DEFAULT_PROVIDER_SETTINGS = {

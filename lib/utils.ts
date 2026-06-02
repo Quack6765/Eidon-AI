@@ -20,3 +20,7 @@ export function shouldAutofocusTextInput() {
 
   return !window.matchMedia("(pointer: coarse)").matches;
 }
+
+export function nowIso() {
+  return new Date().toISOString();
+}

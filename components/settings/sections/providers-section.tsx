@@ -13,9 +13,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
+import { fieldLabel, selectLike, sectionTitle, sectionDivider } from "@/lib/settings-styles";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useToastState } from "@/hooks/use-toast-state";
 import { useDirtyState } from "@/hooks/use-dirty-state";
@@ -323,27 +323,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     updateActiveProviderProfile(patch);
   }
 
-  function removeProviderProfile(profileId: string) {
-    if (providerProfiles.length === 1) {
-      return;
-    }
-
-    const nextProfiles = providerProfiles.filter((profile) => profile.id !== profileId);
-    const fallbackProfileId =
-      nextProfiles.find((profile) => profile.id === defaultProviderProfileId)?.id ??
-      nextProfiles[0]?.id ??
-      "";
-
-    setProviderProfiles(nextProfiles);
-    setSelectedProviderProfileId(
-      selectedProviderProfileId === profileId ? fallbackProfileId : selectedProviderProfileId
-    );
-
-    if (defaultProviderProfileId === profileId) {
-      setDefaultProviderProfileId(fallbackProfileId);
-    }
-  }
-
   async function handleDeleteConfirm() {
     if (!pendingDeleteId) {
       setDeleteConfirmOpen(false);
@@ -556,12 +535,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     }
   }
 
-  const fieldLabel = "block text-[13px] font-medium text-[var(--muted)] mb-1.5";
-  const inputLike =
-    "w-full rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] outline-none transition-all duration-200 focus:border-[var(--accent)]/40 focus:bg-white/6 focus:shadow-[0_0_0_3px_var(--accent-soft)]";
-  const selectLike = `${inputLike} appearance-none bg-[url('data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2224%22%20height%3D%2224%22%20viewBox%3D%220%200%2024%2024%22%20fill%3D%22none%22%20stroke%3D%22%2371717a%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%3E%3Cpolyline%20points%3D%226%209%2012%2015%2018%209%22%3E%3C%2Fpolyline%3E%3C%2Fsvg%3E')] bg-[length:1rem_1rem] bg-[right_0.75rem_center] bg-no-repeat pr-10`;
-  const sectionTitle = "text-sm font-semibold text-[var(--text)]";
-  const sectionDivider = "border-t border-white/[0.06]";
 
   return (
     <div className="min-h-0 p-4 md:h-full md:p-8">
