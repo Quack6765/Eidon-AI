@@ -3,7 +3,6 @@ import { z } from "zod";
 import { requireAdminResponse } from "@/lib/auth";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { badRequest, forbidden, notFoundResponse, ok } from "@/lib/http";
-import type { AuthUser } from "@/lib/types";
 import { deleteManagedUser, updateManagedUser } from "@/lib/users";
 
 const paramsSchema = z.object({

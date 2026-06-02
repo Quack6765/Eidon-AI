@@ -8,7 +8,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Toast } from "@/components/ui/toast";
-import { fieldLabel, inputLike, selectLike, sectionTitle, sectionDivider } from "@/lib/settings-styles";
+import { fieldLabel, inputLike, selectLike, sectionDivider } from "@/lib/settings-styles";
 import { useToastState } from "@/hooks/use-toast-state";
 import type { AppSettings, MemoryCategory, UserMemory } from "@/lib/types";
 

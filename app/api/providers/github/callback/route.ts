@@ -2,7 +2,6 @@ import { redirect } from "next/navigation";
 
 import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden } from "@/lib/http";
-import type { AuthUser } from "@/lib/types";
 import { exchangeGithubCodeForTokens, verifyGithubOauthState } from "@/lib/github-copilot";
 import { updateGithubCopilotCredentials } from "@/lib/settings";
 

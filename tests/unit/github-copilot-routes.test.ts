@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { encryptValue } from "@/lib/crypto";
 import {
   getProviderProfile,
-  listProviderProfiles,
   updateSettings
 } from "@/lib/settings";
 
@@ -84,7 +83,7 @@ describe("github copilot routes", () => {
 
   it("rejects connect requests for non-copilot profiles", async () => {
     const { GET: connect } = await import("@/app/api/providers/github/connect/route");
-    const id = seedCopilotProfile();
+    seedCopilotProfile();
 
     const response = await connect(
       new Request(

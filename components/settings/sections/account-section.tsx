@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Toast } from "@/components/ui/toast";
 import type { AuthUser } from "@/lib/types";
-import { fieldLabel, inputLike, selectLike, sectionTitle, sectionDivider } from "@/lib/settings-styles";
+import { fieldLabel, sectionTitle } from "@/lib/settings-styles";
 import { useToastState } from "@/hooks/use-toast-state";
 
 export function AccountSection({ user }: { user: AuthUser }) {
