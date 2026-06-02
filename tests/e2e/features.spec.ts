@@ -5,11 +5,13 @@ import path from "node:path";
 
 import { expect, test } from "@playwright/test";
 
+const EIDON_TEST_PASSWORD = process.env.EIDON_TEST_PASSWORD ?? "changeme123";
+
 async function signIn(page: import("@playwright/test").Page) {
   const response = await page.request.post("/api/auth/login", {
     data: {
       username: "admin",
-      password: "changeme123"
+      password: EIDON_TEST_PASSWORD
     }
   });
 
