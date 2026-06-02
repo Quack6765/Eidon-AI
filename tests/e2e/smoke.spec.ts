@@ -1,11 +1,13 @@
 import { expect, test } from "@playwright/test";
 
+const EIDON_TEST_PASSWORD = process.env.EIDON_TEST_PASSWORD ?? "changeme123";
+
 test("redirects to login, signs in, opens settings, and creates a chat", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/login$/);
 
   await page.getByPlaceholder("Username").fill("admin");
-  await page.getByPlaceholder("Password").fill("changeme123");
+  await page.getByPlaceholder("Password").fill(EIDON_TEST_PASSWORD);
   await page.getByRole("button", { name: "Proceed" }).click();
   await page.waitForURL("http://localhost:3117/", { timeout: 15000 });
 
