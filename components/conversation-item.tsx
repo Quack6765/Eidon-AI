@@ -27,7 +27,7 @@ import { highlightMatch } from "@/lib/sidebar-helpers";
 import type { SidebarConversation } from "@/lib/sidebar-helpers";
 import { RenameModal } from "@/components/ui/rename-modal";
 
-function DropdownPortal({
+export function DropdownPortal({
   anchorRef,
   children,
   open,
