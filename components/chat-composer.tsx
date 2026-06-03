@@ -354,7 +354,7 @@ export function ChatComposer({
       )}
     <div
       className={cn(
-        "relative z-[1] rounded-[22px] sm:rounded-[26px] border bg-zinc-900/70 backdrop-blur-2xl p-1.5 sm:p-2 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all duration-500 focus-within:border-[var(--accent)]/30 focus-within:shadow-[0_0_50px_rgba(0,0,0,0.6),0_0_20px_var(--accent-soft)]",
+        "relative z-[1] rounded-[22px] sm:rounded-[26px] border bg-zinc-900/70 backdrop-blur-2xl px-2 py-2 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all duration-500 focus-within:border-[var(--accent)]/30 focus-within:shadow-[0_0_50px_rgba(0,0,0,0.6),0_0_20px_var(--accent-soft)]",
         isTemporary ? "border-violet-500/50 border-dashed" : "border-white/10",
         className
       )}
@@ -427,7 +427,7 @@ export function ChatComposer({
         ) : null}
       </AnimatePresence>
 
-      <div className={cn("flex w-full gap-2 pr-1.5", isExpanded ? "items-end" : "items-start")}>
+      <div className={cn("flex w-full gap-1.5 sm:gap-2 pr-1 sm:pr-1.5", isExpanded ? "items-end" : "items-start")}>
         <div className="flex-1 min-w-0">
           <Textarea
             ref={textareaRef}
@@ -437,7 +437,7 @@ export function ChatComposer({
             placeholder=""
             rows={1}
             className={cn(
-              "block max-h-[60vh] min-h-[40px] w-full resize-none border border-white/[0.06] rounded-2xl bg-white/[0.03] px-4 py-2 text-[15px] text-[var(--text)] focus-visible:ring-0 focus:outline-none focus:border-[var(--accent)]/30 focus:bg-white/[0.05] placeholder:text-white/20 caret-[var(--accent)]",
+              "block max-h-[60vh] min-h-[40px] w-full resize-none border border-white/[0.06] rounded-2xl bg-white/[0.03] px-3 sm:px-4 py-2 text-[15px] text-[var(--text)] leading-relaxed focus-visible:ring-0 focus:outline-none focus:border-[var(--accent)]/30 focus:bg-white/[0.05] placeholder:text-white/20 caret-[var(--accent)]",
               isExpanded ? "overflow-y-auto scrollbar-thin" : "overflow-hidden"
             )}
             style={{ height: `${textareaHeight}px`, transition: "height 150ms ease" }}
@@ -464,7 +464,7 @@ export function ChatComposer({
                 transition={{ duration: 0.16 }}
                 className="flex items-center justify-end gap-2"
               >
-                <div className="flex h-8 w-[96px] items-center rounded-full border border-white/[0.08] bg-white/[0.03] px-3">
+                <div className="flex h-8 w-[80px] sm:w-[96px] items-center rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 sm:px-3">
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
                     <div
                       className="h-full rounded-full bg-emerald-400 transition-[width] duration-100"
@@ -478,7 +478,7 @@ export function ChatComposer({
                   onClick={() => void onStopSpeech()}
                   disabled={speechPhase === "transcribing"}
                   className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white transition-colors duration-200 hover:bg-red-400",
+                    "flex h-9 w-9 sm:h-8 sm:w-8 items-center justify-center rounded-full bg-red-500 text-white transition-colors duration-200 hover:bg-red-400",
                     speechPhase === "transcribing" && "cursor-not-allowed opacity-60"
                   )}
                 >
@@ -500,7 +500,7 @@ export function ChatComposer({
                   disabled={speechControlsDisabled}
                   onClick={() => void onStartSpeech()}
                   className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-full transition-colors duration-200 shrink-0",
+                    "flex h-9 w-9 sm:h-8 sm:w-8 items-center justify-center rounded-full transition-colors duration-200 shrink-0",
                     speechControlsDisabled
                       ? "bg-white/5 text-white/20 cursor-not-allowed"
                       : "bg-white/5 text-white/45 hover:bg-white/10 hover:text-white/75"
@@ -520,7 +520,7 @@ export function ChatComposer({
             }
             disabled={busyButtonStops ? isStopPending : isSubmitDisabled}
             className={cn(
-              "relative flex h-10 w-10 items-center justify-center rounded-full transition-all duration-300 shrink-0",
+              "relative flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full transition-all duration-300 shrink-0",
               showStopButton
                 ? isStopPending
                   ? "bg-white/5 text-white/20"

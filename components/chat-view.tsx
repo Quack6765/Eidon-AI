@@ -1987,7 +1987,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       </ConversationContainer>
 
         <div ref={composerAreaRef} className="absolute inset-x-0 bottom-0 z-50 pointer-events-none">
-         <div className="mx-auto w-full max-w-[980px] px-4 md:px-8 pt-1 pb-composer-safe pointer-events-auto">
+         <div className="mx-auto w-full max-w-[980px] px-3 sm:px-4 md:px-8 pt-1 pb-composer-safe pointer-events-auto">
           <div ref={queueBannerRef}>
             <QueuedMessageBanner
               items={queuedMessages}

@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ChatComposer } from "@/components/chat-composer";
 import { markHomeSubmitSidebarAutoHide, storeChatBootstrap } from "@/lib/chat-bootstrap";
 import { appendTranscriptToDraft } from "@/lib/speech/append-transcript-to-draft";
 import { useSpeechInput } from "@/lib/speech/use-speech-input";
-import { shouldAutofocusTextInput } from "@/lib/utils";
+import { cn, shouldAutofocusTextInput } from "@/lib/utils";
 import type {
   AppSettings,
   Conversation,
@@ -42,6 +42,8 @@ export function HomeView({
   const [isTemporary, setIsTemporary] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
+  const [entranceAnimDone, setEntranceAnimDone] = useState(false);
+  const onEntranceAnimEnd = useCallback(() => setEntranceAnimDone(true), []);
   const {
     speechSnapshot,
     startSpeech,
@@ -273,7 +275,7 @@ export function HomeView({
 
   return (
     <main
-      className="relative flex min-h-[calc(100dvh-3.5rem)] flex-1 flex-col items-center justify-center px-4 pb-8"
+      className="relative flex min-h-0 flex-1 flex-col items-center px-4 sm:justify-center sm:pb-8"
       onDragEnter={(event) => {
         if (!event.dataTransfer.types.includes("Files")) {
           return;
@@ -323,8 +325,15 @@ export function HomeView({
           </div>
         </div>
       ) : null}
-      <div className="w-full md:max-w-[980px] px-4 animate-slide-up">
-        <div className="mb-16 text-center">
+
+      <div
+        className={cn(
+          "flex flex-1 items-center justify-center w-full sm:flex-initial sm:mb-16",
+          !entranceAnimDone && "animate-slide-up"
+        )}
+        onAnimationEnd={onEntranceAnimEnd}
+      >
+        <div className="w-full md:max-w-[980px] px-4 text-center">
           <h2
             className="mb-3 text-3xl font-medium text-[var(--text)] md:text-4xl"
             style={{ fontFamily: "var(--font-wordmark), 'Eurostile', 'Space Grotesk', sans-serif" }}
@@ -332,57 +341,62 @@ export function HomeView({
             Let&apos;s get to work
           </h2>
         </div>
+      </div>
 
-        <ChatComposer
-          input={input}
-          onInputChange={setInput}
-          onSubmit={submit}
-          isSending={isSubmitting}
-          pendingAttachments={pendingAttachments}
-          isUploadingAttachments={isUploadingAttachments}
-          onUploadFiles={uploadFiles}
-          onRemovePendingAttachment={removePendingAttachment}
-          showVisionWarning={Boolean(showVisionWarning)}
-          providerProfiles={providerProfiles}
-          providerProfileId={providerProfileId}
-          onProviderProfileChange={handleProviderProfileChange}
-          personas={personas}
-          personaId={personaId}
-          onPersonaChange={setPersonaId}
-          textareaRef={textareaRef}
-          usedTokens={null}
-          modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
-          compactionLimit={0}
-          hasMessages={false}
-          canStop={false}
-          isStopPending={false}
-          onStop={() => {}}
-          speechPhase={speechSnapshot.phase}
-          speechLevel={speechSnapshot.level}
-          speechError={speechSnapshot.error}
-          onStartSpeech={() => {
-            setError("");
-            void startSpeech();
-          }}
-          onStopSpeech={() => {
-            void stopSpeech().then((transcript) => {
-              if (!transcript) {
-                return;
-              }
+      <div className="absolute inset-x-0 bottom-0 z-50 px-3 pb-composer-safe pointer-events-none sm:relative sm:inset-auto sm:z-auto sm:px-0 sm:pb-0 sm:pointer-events-auto">
+        <div className="mx-auto w-full max-w-[980px] px-3 sm:px-4 md:px-8 pt-1 pointer-events-auto">
+          <ChatComposer
+            input={input}
+            onInputChange={setInput}
+            onSubmit={submit}
+            isSending={isSubmitting}
+            pendingAttachments={pendingAttachments}
+            isUploadingAttachments={isUploadingAttachments}
+            onUploadFiles={uploadFiles}
+            onRemovePendingAttachment={removePendingAttachment}
+            showVisionWarning={Boolean(showVisionWarning)}
+            providerProfiles={providerProfiles}
+            providerProfileId={providerProfileId}
+            onProviderProfileChange={handleProviderProfileChange}
+            personas={personas}
+            personaId={personaId}
+            onPersonaChange={setPersonaId}
+            textareaRef={textareaRef}
+            usedTokens={null}
+            modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
+            compactionLimit={0}
+            hasMessages={false}
+            canStop={false}
+            isStopPending={false}
+            onStop={() => {}}
+            speechPhase={speechSnapshot.phase}
+            speechLevel={speechSnapshot.level}
+            speechError={speechSnapshot.error}
+            onStartSpeech={() => {
+              setError("");
+              void startSpeech();
+            }}
+            onStopSpeech={() => {
+              void stopSpeech().then((transcript) => {
+                if (!transcript) {
+                  return;
+                }
 
-              setInput((current) => appendTranscriptToDraft(current, transcript));
-            });
-          }}
-          isTemporary={isTemporary}
-          showTemporaryToggle={true}
-          onTemporaryChange={setIsTemporary}
-        />
+                setInput((current) => appendTranscriptToDraft(current, transcript));
+              });
+            }}
+            isTemporary={isTemporary}
+            showTemporaryToggle={true}
+            onTemporaryChange={setIsTemporary}
+            collapsibleToolbarOnMobile
+          />
 
-        {error ? (
-          <div className="mt-3 rounded-xl border border-red-400/10 bg-red-500/8 px-4 py-3 text-center text-sm text-red-300 animate-slide-up">
-            {error}
-          </div>
-        ) : null}
+          {error ? (
+            <div className="mt-3 rounded-xl border border-red-400/10 bg-red-500/8 px-4 py-3 text-center text-sm text-red-300 animate-slide-up">
+              {error}
+            </div>
+          ) : null}
+        </div>
       </div>
     </main>
   );
