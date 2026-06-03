@@ -544,7 +544,7 @@ export function MessageBubble({
                   onChange={(event) => setDraft(event.target.value)}
                   className="min-h-[88px] border-0 bg-transparent px-0 py-0 text-[14.5px] leading-7 text-[var(--text)] focus-visible:ring-0"
                   onKeyDown={(event) => {
-                    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                    if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
                       void handleSaveEdit();
                     }

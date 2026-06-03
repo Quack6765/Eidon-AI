@@ -211,6 +211,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const streamThinkingTargetRef = useRef("");
   const streamMessageIdRef = useRef<string | null>(null);
   const streamTimelineRef = useRef<MessageTimelineItem[]>([]);
+  const isSendingRef = useRef(false);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
   const [forkingMessageId, setForkingMessageId] = useState<string | null>(null);
   const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
@@ -312,9 +313,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     setStreamMessageId(snapshotMessage.id);
     setStreamAnswerTarget(nextAnswer);
-    setStreamAnswerDisplay(nextAnswer);
     setStreamThinkingTarget(nextThinking);
-    setStreamThinkingDisplay(nextThinking);
     updateStreamTimeline(mergedTimeline);
     setHasReceivedFirstToken(Boolean(nextAnswer || nextThinking || mergedTimeline.length));
     setIsSending(true);
@@ -344,6 +343,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     streamMessageIdRef.current = streamMessageId;
   }, [streamMessageId]);
+
+  useEffect(() => {
+    isSendingRef.current = isSending;
+  }, [isSending]);
 
   useEffect(() => {
     streamTimelineRef.current = streamTimeline;
@@ -647,13 +650,18 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (event.type === "done") {
       clearCompactionIndicator();
       clearIdleTimer();
-      setIsConversationActive(false);
       const wasStopped = isStopPending;
       setIsStopPending(false);
-      dispatchConversationActivityUpdated({
-        conversationId: payload.conversation.id,
-        isActive: false
-      });
+
+      const isForActiveStream = event.messageId === streamMessageIdRef.current;
+
+      if (isForActiveStream) {
+        setIsConversationActive(false);
+        dispatchConversationActivityUpdated({
+          conversationId: payload.conversation.id,
+          isActive: false
+        });
+      }
 
       if (event.message) {
         setMessages((current) =>
@@ -663,7 +671,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               : m
           )
         );
-      } else {
+      } else if (isForActiveStream) {
         const finalAnswer = streamAnswerTargetRef.current;
         const finalThinking = streamThinkingTargetRef.current;
         const finalTimeline = streamTimelineRef.current;
@@ -682,36 +690,42 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           )
         );
       }
-      setStreamMessageId(null);
-      updateStreamTimeline([]);
-      setStreamAnswerTarget("");
-      setStreamAnswerDisplay("");
-      setStreamThinkingTarget("");
-      setStreamThinkingDisplay("");
-      streamAnswerTargetRef.current = "";
-      streamThinkingTargetRef.current = "";
-      setIsSending(false);
+
+      if (isForActiveStream) {
+        setStreamMessageId(null);
+        updateStreamTimeline([]);
+        setStreamAnswerTarget("");
+        setStreamAnswerDisplay("");
+        setStreamThinkingTarget("");
+        setStreamThinkingDisplay("");
+        streamAnswerTargetRef.current = "";
+        streamThinkingTargetRef.current = "";
+        setIsSending(false);
+      }
     }
 
     if (event.type === "error") {
       clearCompactionIndicator();
       clearIdleTimer();
-      setIsConversationActive(false);
       setIsStopPending(false);
       const activeStreamMessageId = streamMessageIdRef.current;
-      dispatchConversationActivityUpdated({
-        conversationId: payload.conversation.id,
-        isActive: false
-      });
-      setMessages((current) =>
-        current.map((m) =>
-          m.id === activeStreamMessageId ? { ...m, status: "error" as const, content: event.message } : m
-        )
-      );
+
+      if (activeStreamMessageId) {
+        setIsConversationActive(false);
+        dispatchConversationActivityUpdated({
+          conversationId: payload.conversation.id,
+          isActive: false
+        });
+        setMessages((current) =>
+          current.map((m) =>
+            m.id === activeStreamMessageId ? { ...m, status: "error" as const, content: event.message } : m
+          )
+        );
+        setStreamMessageId(null);
+        updateStreamTimeline([]);
+        setIsSending(false);
+      }
       setError("");
-      setStreamMessageId(null);
-      updateStreamTimeline([]);
-      setIsSending(false);
     }
   }
 
@@ -1120,6 +1134,13 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
         if (activeMessage?.status === "streaming") {
           syncActiveStreamingMessageFromSnapshot(activeMessage);
+        } else if (!activeStreamMessageId) {
+          const streamingMsg = result.messages.find(
+            (message) => message.role === "assistant" && message.status === "streaming"
+          );
+          if (streamingMsg) {
+            syncActiveStreamingMessageFromSnapshot(streamingMsg);
+          }
         }
 
         const shouldIgnoreInactiveResult =
@@ -1134,7 +1155,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           return;
         }
 
-        if (!result.conversation.isActive || (activeMessage && activeMessage.status !== "streaming")) {
+        const awaitingTurnStart = isSendingRef.current && !activeStreamMessageId;
+        if (!awaitingTurnStart && (!result.conversation.isActive || (activeMessage && activeMessage.status !== "streaming"))) {
           setStreamMessageId(null);
           updateStreamTimeline([]);
           setStreamAnswerTarget("");
@@ -1165,7 +1187,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       cancelled = true;
       stopMessageSyncPolling();
     };
-  }, [needsMessageSync, payload.conversation.id, streamMessageId, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline]);
+  }, [needsMessageSync, payload.conversation.id, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline]);
 
   useEffect(() => {
     if (streamThinkingDisplay === streamThinkingTarget) {
@@ -1340,6 +1362,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       }
 
       setIsSending(true);
+      setIsConversationActive(true);
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "Unable to update message");
       throw caughtError;
@@ -1438,6 +1461,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       }
 
       setIsSending(true);
+      setIsConversationActive(true);
     } catch (caughtError) {
       setError(
         caughtError instanceof Error ? caughtError.message : "Message retry failed"
