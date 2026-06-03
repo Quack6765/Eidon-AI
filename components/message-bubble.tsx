@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Copy, GitFork, LoaderCircle, Pencil, RefreshCw, Square, X } from "lucide-react";
 import { Streamdown } from "streamdown";
-import { code } from "@streamdown/code";
+import { createCodePlugin } from "@streamdown/code";
 import { mermaid } from "@streamdown/mermaid";
 import { MarkdownErrorBoundary } from "@/components/markdown-error-boundary";
 import {
@@ -39,6 +39,7 @@ import {
   MessageAction
 } from "@/components/ai-elements/message";
 
+const code = createCodePlugin({ themes: ["dracula", "dracula"] });
 const STREAMDOWN_PLUGINS = { code, mermaid };
 const COPY_RESET_DELAY_MS = 1600;
 
