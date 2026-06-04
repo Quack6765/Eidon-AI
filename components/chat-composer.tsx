@@ -450,6 +450,15 @@ export function ChatComposer({
                 void onSubmit();
               }
             }}
+            onPaste={(event) => {
+              const files = Array.from(event.clipboardData.files);
+              const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+
+              if (imageFiles.length > 0) {
+                event.preventDefault();
+                void onUploadFiles(imageFiles);
+              }
+            }}
           />
         </div>
 
