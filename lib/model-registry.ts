@@ -20,6 +20,7 @@ export const MODEL_REGISTRY: ModelCapabilityOverride[] = [
   { prefix: "glm-4.7", reasoning: true, extraBody: "thinking" },
   { prefix: "kimi-", reasoning: true, vision: true, strictExtraRejection: true },
   { prefix: "deepseek-", reasoning: { apiModes: ["chat_completions"] }, thinkingReplay: true, extraBody: "thinking" },
+  { prefix: "mimo-", reasoning: true, vision: true, thinkingReplay: true, extraBody: "thinking" },
   { prefix: "claude-opus", reasoning: true, vision: true },
   { prefix: "claude-sonnet", reasoning: true, vision: true },
   { prefix: "claude-haiku", reasoning: true, vision: true },

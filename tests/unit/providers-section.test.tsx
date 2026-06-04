@@ -732,4 +732,133 @@ describe("providers section", () => {
       expect(screen.getByLabelText("Default provider")).toBeChecked();
     });
   });
+
+  it("shows Thinking toggle instead of Reasoning effort for a mimo model in chat_completions mode", async () => {
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [
+            {
+              ...makeSettings().providerProfiles[0],
+              model: "mimo-v2.5",
+              apiMode: "chat_completions",
+              reasoningEffort: "medium"
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.getByLabelText("Enable thinking mode")).toBeInTheDocument();
+    expect(screen.queryByDisplayValue("medium")).toBeNull();
+  });
+
+  it("shows Reasoning effort dropdown for a model without extraBody thinking", async () => {
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [
+            {
+              ...makeSettings().providerProfiles[0],
+              model: "gpt-test",
+              apiMode: "responses",
+              reasoningEffort: "medium"
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.queryByLabelText("Enable thinking mode")).toBeNull();
+  });
+
+  it("sets reasoningEffort to none when the Thinking toggle is unchecked", async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    const settings = makeSettings({
+      providerProfiles: [
+        {
+          ...makeSettings().providerProfiles[0],
+          model: "deepseek-v4-flash",
+          apiMode: "chat_completions",
+          reasoningEffort: "medium",
+          reasoningSummaryEnabled: true
+        }
+      ]
+    });
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url === "/api/mcp-servers") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ servers: [], models: [] })
+        } as Response);
+      }
+      if (url === "/api/settings/providers" && init?.method === "PUT") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ settings })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+    });
+
+    render(React.createElement(ProvidersSection, { settings }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    const thinkingCheckbox = screen.getByLabelText("Enable thinking mode");
+    expect(thinkingCheckbox).toBeChecked();
+
+    fireEvent.click(thinkingCheckbox);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/settings/providers",
+        expect.objectContaining({ method: "PUT" })
+      );
+    });
+
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/api/settings/providers" && init?.method === "PUT"
+    );
+    const body = JSON.parse(String(putCall?.[1]?.body));
+    expect(body.providerProfiles[0].reasoningEffort).toBe("none");
+  });
+
+  it("hides Reasoning summary when Thinking toggle is shown", async () => {
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [
+            {
+              ...makeSettings().providerProfiles[0],
+              model: "mimo-v2.5",
+              apiMode: "chat_completions",
+              reasoningEffort: "medium",
+              reasoningSummaryEnabled: true
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.getByLabelText("Enable thinking mode")).toBeInTheDocument();
+    expect(screen.queryByText("Show reasoning when supported")).toBeNull();
+  });
 });

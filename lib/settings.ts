@@ -38,7 +38,7 @@ const runtimeSettingsSchema = z.object({
   mergedMinNodeCount: z.coerce.number().int().min(2).max(20).default(4),
   mergedTargetTokens: z.coerce.number().int().min(128).max(16000).default(1600),
   visionMode: z.enum(["none", "native", "mcp"]).default("native"),
-  providerPresetId: z.enum(["ollama_cloud", "glm_coding_plan", "openrouter", "opencode_go", "deepseek", "custom_openai_compatible", "anthropic_official", "opencode_go_anthropic"]).nullable().default(null),
+  providerPresetId: z.enum(["ollama_cloud", "glm_coding_plan", "openrouter", "opencode_go", "deepseek", "xiaomi_mimo", "custom_openai_compatible", "anthropic_official", "opencode_go_anthropic"]).nullable().default(null),
   githubUserAccessTokenEncrypted: z.string().default(""),
   githubRefreshTokenEncrypted: z.string().default(""),
   githubAccountLogin: z.string().nullable().default(null),

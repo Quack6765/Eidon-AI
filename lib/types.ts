@@ -73,6 +73,7 @@ export type ProviderPresetId =
   | "openrouter"
   | "opencode_go"
   | "deepseek"
+  | "xiaomi_mimo"
   | "custom_openai_compatible"
   | "anthropic_official"
   | "opencode_go_anthropic";

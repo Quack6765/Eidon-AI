@@ -1,5 +1,5 @@
 import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
-import type { ApiMode, ProviderKind, ProviderPresetId, ReasoningEffort } from "@/lib/types";
+import type { ApiMode, ProviderKind, ProviderPresetId, ReasoningEffort, VisionMode } from "@/lib/types";
 
 export type { ProviderPresetId } from "@/lib/types";
 
@@ -13,6 +13,7 @@ type ProviderPresetValues = {
   modelContextLimit: number;
   temperature?: number;
   maxOutputTokens?: number;
+  visionMode?: VisionMode;
 };
 
 type ProviderPresetDefinition = {
@@ -33,6 +34,7 @@ type PresetCompatibleProfile = {
   modelContextLimit: number;
   temperature?: number;
   maxOutputTokens?: number;
+  visionMode?: VisionMode;
 };
 
 export const PROVIDER_PRESETS: ProviderPresetDefinition[] = [
@@ -106,6 +108,23 @@ export const PROVIDER_PRESETS: ProviderPresetDefinition[] = [
       modelContextLimit: 1_000_000,
       temperature: 1.3,
       maxOutputTokens: 8192
+    }
+  },
+  {
+    id: "xiaomi_mimo",
+    label: "Xiaomi Mimo",
+    providerKind: "openai_compatible",
+    values: {
+      name: "Xiaomi Mimo",
+      apiBaseUrl: "https://api.xiaomimimo.com/v1",
+      model: "mimo-v2.5",
+      apiMode: "chat_completions",
+      reasoningEffort: "medium",
+      reasoningSummaryEnabled: true,
+      modelContextLimit: 1_048_576,
+      temperature: 1.0,
+      maxOutputTokens: 131_072,
+      visionMode: "native"
     }
   },
   {
@@ -218,6 +237,10 @@ export function getMatchingProviderPresetId(
       values.maxOutputTokens !== undefined &&
       values.maxOutputTokens !== profile.maxOutputTokens
     ) {
+      return false;
+    }
+
+    if (values.visionMode !== undefined && values.visionMode !== profile.visionMode) {
       return false;
     }
 
