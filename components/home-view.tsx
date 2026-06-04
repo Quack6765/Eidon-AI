@@ -343,7 +343,7 @@ export function HomeView({
         </div>
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 z-50 px-3 pb-composer-safe pointer-events-none sm:relative sm:inset-auto sm:z-auto sm:px-0 sm:pb-0 sm:pointer-events-auto">
+      <div className="absolute inset-x-0 bottom-0 z-50 px-3 pb-composer-safe pointer-events-none sm:relative sm:inset-auto sm:z-auto sm:w-full sm:px-0 sm:pb-0 sm:pointer-events-auto">
         <div className="mx-auto w-full max-w-[980px] px-3 sm:px-4 md:px-8 pt-1 pointer-events-auto">
           <ChatComposer
             input={input}
