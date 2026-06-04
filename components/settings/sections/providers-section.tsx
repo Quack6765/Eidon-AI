@@ -163,6 +163,10 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     : null;
   const isCopilot = activeProviderProfile?.providerKind === "github_copilot";
   const isAnthropic = activeProviderProfile?.providerKind === "anthropic";
+  const usesThinkingToggle =
+    !isCopilot &&
+    !isAnthropic &&
+    activeProviderProfile?.apiMode === "chat_completions";
   const isDuplicateName = activeProviderProfile
     ? providerProfiles.some(
         (p) =>
@@ -925,22 +929,42 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         </div>
                       </>
                     )}
-                    <div>
-                      <label className={fieldLabel}>Reasoning effort</label>
-                      <select
-                        value={activeProviderProfile.reasoningEffort}
-                        onChange={(event) =>
-                          updateActiveProviderProfile({ reasoningEffort: event.target.value as ReasoningEffort })
-                        }
-                        className={`${selectLike} ${isFieldDirty("activeReasoningEffort") ? "!border-amber-500/40" : ""}`}
-                      >
-                        <option value="none">disabled</option>
-                        <option value="low">low</option>
-                        <option value="medium">medium</option>
-                        <option value="high">high</option>
-                        <option value="xhigh">xhigh</option>
-                      </select>
-                    </div>
+                    {usesThinkingToggle ? (
+                      <div>
+                        <label className={fieldLabel}>Thinking</label>
+                        <label className={`flex h-[42px] items-center gap-3 rounded-lg border bg-white/[0.03] px-3 text-sm text-[var(--muted)] cursor-pointer ${isFieldDirty("activeReasoningEffort") || isFieldDirty("activeReasoningSummaryEnabled") ? "!border-amber-500/40" : "border-white/[0.06]"}`}>
+                          <input
+                            type="checkbox"
+                            checked={activeProviderProfile.reasoningEffort !== "none"}
+                            onChange={(event) => {
+                              const thinkingOn = event.target.checked;
+                              updateActiveProviderProfile({
+                                reasoningEffort: thinkingOn ? "medium" : "none",
+                                ...(thinkingOn ? { reasoningSummaryEnabled: true } : {})
+                              });
+                            }}
+                          />
+                          Enable thinking mode
+                        </label>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className={fieldLabel}>Reasoning effort</label>
+                        <select
+                          value={activeProviderProfile.reasoningEffort}
+                          onChange={(event) =>
+                            updateActiveProviderProfile({ reasoningEffort: event.target.value as ReasoningEffort })
+                          }
+                          className={`${selectLike} ${isFieldDirty("activeReasoningEffort") ? "!border-amber-500/40" : ""}`}
+                        >
+                          <option value="none">disabled</option>
+                          <option value="low">low</option>
+                          <option value="medium">medium</option>
+                          <option value="high">high</option>
+                          <option value="xhigh">xhigh</option>
+                        </select>
+                      </div>
+                    )}
                     {!isCopilot && (
                       <>
                         {!isAnthropic && (
@@ -958,7 +982,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             </select>
                           </div>
                         )}
-                        {activeProviderProfile.reasoningEffort !== "none" && (
+                        {activeProviderProfile.reasoningEffort !== "none" && !usesThinkingToggle && (
                         <div>
                           <label className={fieldLabel}>Reasoning summary</label>
                           <label className={`flex h-[42px] items-center gap-3 rounded-lg border bg-white/[0.03] px-3 text-sm text-[var(--muted)] cursor-pointer ${isFieldDirty("activeReasoningSummaryEnabled") ? "!border-amber-500/40" : "border-white/[0.06]"}`}>

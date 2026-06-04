@@ -20,6 +20,7 @@ function createProfile() {
     systemPrompt: "Keep this prompt.",
     temperature: 0.3,
     maxOutputTokens: 900,
+    visionMode: "native" as const,
     compactionThreshold: 0.81,
     freshTailCount: 19
   };
@@ -244,5 +245,29 @@ describe("provider presets", () => {
     };
 
     expect(getMatchingProviderPresetId(profile)).toBe("openrouter");
+  });
+
+  it("applies the Xiaomi Mimo preset values without overwriting the name", () => {
+    const profile = applyProviderPreset(createProfile(), "xiaomi_mimo");
+
+    expect(profile.name).toBe("Original profile");
+    expect(profile.apiBaseUrl).toBe("https://api.xiaomimimo.com/v1");
+    expect(profile.model).toBe("mimo-v2.5");
+    expect(profile.apiMode).toBe("chat_completions");
+    expect(profile.reasoningEffort).toBe("medium");
+    expect(profile.reasoningSummaryEnabled).toBe(true);
+    expect(profile.modelContextLimit).toBe(1_048_576);
+    expect(profile.temperature).toBe(1.0);
+    expect(profile.maxOutputTokens).toBe(131_072);
+    expect(profile.visionMode).toBe("native");
+  });
+
+  it("matches a profile back to the Xiaomi Mimo preset when the provider fields align", () => {
+    const profile = {
+      ...createProfile(),
+      ...getProviderPreset("xiaomi_mimo").values
+    };
+
+    expect(getMatchingProviderPresetId(profile)).toBe("xiaomi_mimo");
   });
 });
