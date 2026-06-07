@@ -30,11 +30,12 @@ export function resolveCapabilities(
   userOverrides?: Partial<ResolvedCapabilities>
 ): ResolvedCapabilities {
   const normalized = model.trim().toLowerCase();
+  const bareModel = normalized.includes("/") ? normalized.slice(normalized.lastIndexOf("/") + 1) : normalized;
 
   const resolved = { ...DEFAULT_CAPABILITIES };
 
   const entry: Partial<ModelCapabilityOverride> | undefined =
-    MODEL_REGISTRY.find((e) => normalized.startsWith(e.prefix));
+    MODEL_REGISTRY.find((e) => bareModel.startsWith(e.prefix));
 
   if (entry) {
     const { prefix: _, ...overrides } = entry;
