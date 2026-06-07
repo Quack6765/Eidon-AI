@@ -94,6 +94,23 @@ describe("supportsVisibleReasoning", () => {
     expect(supportsVisibleReasoning("claude-haiku-4-5", "chat_completions")).toBe(true);
     expect(supportsImageInput("claude-haiku-4-5", "chat_completions")).toBe(true);
   });
+
+  it("strips openrouter-style provider namespace before prefix matching", () => {
+    expect(supportsVisibleReasoning("xiaomi/mimo-v2.5", "chat_completions")).toBe(true);
+    expect(supportsImageInput("xiaomi/mimo-v2.5", "chat_completions")).toBe(true);
+    expect(supportsVisibleReasoning("anthropic/claude-sonnet-4-6", "chat_completions")).toBe(true);
+    expect(supportsImageInput("anthropic/claude-sonnet-4-6", "chat_completions")).toBe(true);
+    expect(supportsImageInput("openai/gpt-4o", "chat_completions")).toBe(true);
+    expect(supportsImageInput("google/gemini-3-flash", "chat_completions")).toBe(true);
+    expect(supportsVisibleReasoning("deepseek/deepseek-r1", "chat_completions")).toBe(true);
+  });
+
+  it("strips provider namespace while preserving apiMode constraints", () => {
+    expect(resolveCapabilities("openai/gpt-oss-mini", "responses").vision).toBe(true);
+    expect(resolveCapabilities("openai/gpt-oss-mini", "chat_completions").vision).toBe(false);
+    expect(resolveCapabilities("deepseek/deepseek-r1", "chat_completions").reasoning).toBe(true);
+    expect(resolveCapabilities("deepseek/deepseek-r1", "responses").reasoning).toBe(false);
+  });
 });
 
 describe("supportsImageInput", () => {
