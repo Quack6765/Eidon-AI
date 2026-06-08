@@ -9,102 +9,9 @@ const formSchema = z.object({
   conversationId: z.string().min(1)
 });
 
-function getMultipartBoundary(contentType: string | null) {
-  if (!contentType) {
-    return null;
-  }
-
-  const match = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
-  return match?.[1] ?? match?.[2] ?? null;
-}
-
-function parseContentDisposition(value: string) {
-  const nameMatch = value.match(/name="([^"]+)"/i);
-  const filenameMatch = value.match(/filename="([^"]*)"/i);
-
-  return {
-    name: nameMatch?.[1] ?? null,
-    filename: filenameMatch?.[1] ?? null
-  };
-}
-
-async function parseMultipartRequest(request: Request) {
-  const boundary = getMultipartBoundary(request.headers.get("content-type"));
-
-  if (!boundary) {
-    throw new Error("Invalid attachment upload");
-  }
-
-  const body = Buffer.from(await request.arrayBuffer());
-  const boundaryBuffer = Buffer.from(`--${boundary}`);
-  const headerSeparator = Buffer.from("\r\n\r\n");
-  const fields = new Map<string, string>();
-  const files: Array<{ filename: string; mimeType: string; bytes: Buffer }> = [];
-
-  let cursor = body.indexOf(boundaryBuffer);
-
-  while (cursor !== -1) {
-    let partStart = cursor + boundaryBuffer.length;
-
-    if (body[partStart] === 45 && body[partStart + 1] === 45) {
-      break;
-    }
-
-    if (body[partStart] === 13 && body[partStart + 1] === 10) {
-      partStart += 2;
-    }
-
-    const nextBoundary = body.indexOf(boundaryBuffer, partStart);
-
-    if (nextBoundary === -1) {
-      break;
-    }
-
-    let partEnd = nextBoundary;
-
-    if (body[partEnd - 2] === 13 && body[partEnd - 1] === 10) {
-      partEnd -= 2;
-    }
-
-    const part = body.slice(partStart, partEnd);
-    const headerEnd = part.indexOf(headerSeparator);
-
-    if (headerEnd === -1) {
-      cursor = nextBoundary;
-      continue;
-    }
-
-    const headersText = part.slice(0, headerEnd).toString("utf8");
-    const content = part.slice(headerEnd + headerSeparator.length);
-    const headers = new Map(
-      headersText
-        .split("\r\n")
-        .map((line) => {
-          const separatorIndex = line.indexOf(":");
-          const key = separatorIndex >= 0 ? line.slice(0, separatorIndex).trim().toLowerCase() : "";
-          const value = separatorIndex >= 0 ? line.slice(separatorIndex + 1).trim() : "";
-          return [key, value] as const;
-        })
-        .filter(([key]) => key)
-    );
-    const disposition = parseContentDisposition(headers.get("content-disposition") ?? "");
-
-    if (disposition.name) {
-      if (disposition.filename !== null) {
-        files.push({
-          filename: disposition.filename,
-          mimeType: headers.get("content-type") ?? "application/octet-stream",
-          bytes: content
-        });
-      } else {
-        fields.set(disposition.name, content.toString("utf8"));
-      }
-    }
-
-    cursor = nextBoundary;
-  }
-
-  return { fields, files };
+async function parseFormData(request: Request): Promise<FormData> {
+  const body = await request.arrayBuffer();
+  return new Response(body, { headers: request.headers }).formData();
 }
 
 export async function POST(request: Request) {
@@ -114,15 +21,16 @@ export async function POST(request: Request) {
     return badRequest("Authentication required", 401);
   }
 
-  let multipart: Awaited<ReturnType<typeof parseMultipartRequest>>;
+  let formData: FormData;
 
   try {
-    multipart = await parseMultipartRequest(request);
+    formData = await parseFormData(request);
   } catch {
     return badRequest("Invalid attachment upload");
   }
+
   const parsed = formSchema.safeParse({
-    conversationId: multipart.fields.get("conversationId")
+    conversationId: formData.get("conversationId")
   });
 
   if (!parsed.success) {
@@ -133,11 +41,21 @@ export async function POST(request: Request) {
     return badRequest("Conversation not found", 404);
   }
 
-  const files = multipart.files;
+  const fileEntries = formData
+    .getAll("files")
+    .filter((entry): entry is File => entry instanceof File);
 
-  if (!files.length) {
+  if (!fileEntries.length) {
     return badRequest("No files were uploaded");
   }
+
+  const files = await Promise.all(
+    fileEntries.map(async (file) => ({
+      filename: file.name,
+      mimeType: file.type || "application/octet-stream",
+      bytes: Buffer.from(await file.arrayBuffer())
+    }))
+  );
 
   try {
     const attachments = await createAttachments(
