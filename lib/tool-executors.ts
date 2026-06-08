@@ -196,7 +196,7 @@ export async function executeImageGeneration(
       instruction
     });
 
-    const attachments = createAttachments(
+    const attachments = await createAttachments(
       conversationId,
       backendResult.images.map((img) => ({
         filename: img.filename,

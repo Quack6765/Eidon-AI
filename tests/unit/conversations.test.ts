@@ -111,7 +111,7 @@ describe("conversation helpers", () => {
     expect(getConversation(conversation.id)?.conversationOrigin).toBe("manual");
   });
 
-  it("stores messages in chronological order", () => {
+  it("stores messages in chronological order",  async () => {
     const conversation = createConversation();
 
     createMessage({
@@ -130,7 +130,7 @@ describe("conversation helpers", () => {
     expect(messages.map((message) => message.content)).toEqual(["First", "Second"]);
   });
 
-  it("hides background system prompts from visible message lists", () => {
+  it("hides background system prompts from visible message lists",  async () => {
     const conversation = createConversation();
 
     createMessage({
@@ -162,7 +162,7 @@ describe("conversation helpers", () => {
     ).toBe(false);
   });
 
-  it("hides compaction notices from visible message lists", () => {
+  it("hides compaction notices from visible message lists",  async () => {
     const conversation = createConversation();
 
     createMessage({
@@ -189,7 +189,7 @@ describe("conversation helpers", () => {
     ).toBe(false);
   });
 
-  it("retrieves and compacts messages, and handles missing rows safely", () => {
+  it("retrieves and compacts messages, and handles missing rows safely",  async () => {
     const conversation = createConversation();
     const message = createMessage({
       conversationId: conversation.id,
@@ -210,7 +210,7 @@ describe("conversation helpers", () => {
     expect(getConversation(conversation.id)?.titleGenerationStatus).toBe("pending");
   });
 
-  it("sorts a newly forked conversation above its source in the sidebar", () => {
+  it("sorts a newly forked conversation above its source in the sidebar",  async () => {
     const db = getDb();
     const sourceConversation = createConversation("Source thread");
     const userMessage = createMessage({
@@ -273,7 +273,7 @@ describe("conversation helpers", () => {
     expect(getMessage(message.id, userB.id)).toBeNull();
   });
 
-  it("claims title generation only once for the first user message", () => {
+  it("claims title generation only once for the first user message",  async () => {
     const conversation = createConversation();
     const firstMessage = createMessage({
       conversationId: conversation.id,
@@ -291,14 +291,14 @@ describe("conversation helpers", () => {
     expect(claimConversationTitleGeneration(conversation.id, firstMessage.id)).toBe(false);
   });
 
-  it("marks explicit conversation titles as completed", () => {
+  it("marks explicit conversation titles as completed",  async () => {
     const conversation = createConversation("Pinned runtime");
 
     expect(conversation.title).toBe("Pinned runtime");
     expect(conversation.titleGenerationStatus).toBe("completed");
   });
 
-  it("excludes automation conversations from the manual chat page", () => {
+  it("excludes automation conversations from the manual chat page",  async () => {
     const automation = createAutomation({
       name: "Automation",
       prompt: "Run automatically",
@@ -349,7 +349,7 @@ describe("conversation helpers", () => {
     expect(listConversations(userA.id)[0]?.id).not.toBe(listConversations(userB.id)[0]?.id);
   });
 
-  it("deletes empty conversations only when they have no messages", () => {
+  it("deletes empty conversations only when they have no messages",  async () => {
     const emptyConversation = createConversation();
     const populatedConversation = createConversation();
 
@@ -401,7 +401,7 @@ describe("conversation helpers", () => {
     expect(after?.updatedAt).toBe(before?.updatedAt);
   });
 
-  it("can complete or fail title generation without bumping the conversation timestamp", () => {
+  it("can complete or fail title generation without bumping the conversation timestamp",  async () => {
     const conversation = createConversation();
     const before = getConversation(conversation.id);
 
@@ -418,7 +418,7 @@ describe("conversation helpers", () => {
     expect(failed?.updatedAt).toBe(before?.updatedAt);
   });
 
-  it("updates the conversation provider profile", () => {
+  it("updates the conversation provider profile",  async () => {
     const conversation = createConversation();
     const nextProfileId =
       listProviderProfiles().at(-1)?.id ?? getSettings().defaultProviderProfileId ?? "";
@@ -472,7 +472,7 @@ describe("conversation helpers", () => {
     expect(getConversation(otherConversation.id)?.providerProfileId).not.toBe(nextProfileId);
   });
 
-  it("stores message actions on assistant turns and hydrates them from message reads", () => {
+  it("stores message actions on assistant turns and hydrates them from message reads",  async () => {
     const conversation = createConversation();
     const message = createMessage({
       conversationId: conversation.id,
@@ -571,7 +571,7 @@ describe("conversation helpers", () => {
     );
   });
 
-  it("hydrates assistant text segments into a chronological timeline", () => {
+  it("hydrates assistant text segments into a chronological timeline",  async () => {
     const conversation = createConversation();
     const message = createMessage({
       conversationId: conversation.id,
@@ -686,7 +686,7 @@ describe("conversation helpers", () => {
       sourceTextSegmentTime,
       assistantMessage.id
     );
-    const [attachment] = createAttachments(sourceConversation.id, [
+    const [attachment] = await createAttachments(sourceConversation.id, [
       {
         filename: "notes.txt",
         mimeType: "text/plain",
@@ -1120,7 +1120,7 @@ describe("conversation helpers", () => {
       role: "assistant",
       content: "First reply"
     });
-    const [attachment] = createAttachments(sourceConversation.id, [
+    const [attachment] = await createAttachments(sourceConversation.id, [
       {
         filename: "notes.txt",
         mimeType: "text/plain",
@@ -1146,7 +1146,7 @@ describe("conversation helpers", () => {
     expect(fs.readFileSync(forkAttachmentPath, "utf8")).toBe("source attachment");
   });
 
-  it("rewrites a user message, deletes later turns, and preserves the edited message attachment", () => {
+  it("rewrites a user message, deletes later turns, and preserves the edited message attachment",  async () => {
     const conversation = createConversation("Rewrite target");
     createMessage({
       conversationId: conversation.id,
@@ -1168,7 +1168,7 @@ describe("conversation helpers", () => {
       role: "assistant",
       content: "Old checklist"
     });
-    const [tailAttachment] = createAttachments(conversation.id, [
+    const [tailAttachment] = await createAttachments(conversation.id, [
       {
         filename: "old-checklist.txt",
         mimeType: "text/plain",
@@ -1176,7 +1176,7 @@ describe("conversation helpers", () => {
       }
     ]);
 
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "context.txt",
         mimeType: "text/plain",
@@ -1216,7 +1216,7 @@ describe("conversation helpers", () => {
     expect(getConversationSnapshot(conversation.id)?.messages).toHaveLength(3);
   });
 
-  it("keeps tail attachment files and rows when rewrite rolls back", () => {
+  it("keeps tail attachment files and rows when rewrite rolls back",  async () => {
     const conversation = createConversation("Rewrite rollback");
     const editedUser = createMessage({
       conversationId: conversation.id,
@@ -1228,7 +1228,7 @@ describe("conversation helpers", () => {
       role: "assistant",
       content: "Tail answer"
     });
-    const [tailAttachment] = createAttachments(conversation.id, [
+    const [tailAttachment] = await createAttachments(conversation.id, [
       {
         filename: "tail.txt",
         mimeType: "text/plain",
@@ -1268,7 +1268,7 @@ describe("conversation helpers", () => {
     ).toEqual({ count: 1 });
   });
 
-  it("removes compaction artifacts that depend on deleted tail messages", () => {
+  it("removes compaction artifacts that depend on deleted tail messages",  async () => {
     const conversation = createConversation("Compaction cleanup");
     const firstUser = createMessage({
       conversationId: conversation.id,
@@ -1441,7 +1441,7 @@ describe("conversation helpers", () => {
     ).toEqual({ count: 0 });
   });
 
-  it("restores compacted retained messages when rewrite invalidates their summaries", () => {
+  it("restores compacted retained messages when rewrite invalidates their summaries",  async () => {
     const conversation = createConversation("Compacted rewrite");
     const firstUser = createMessage({
       conversationId: conversation.id,
@@ -1515,7 +1515,7 @@ describe("conversation helpers", () => {
     ]);
   });
 
-  it("rejects rewriting a non-user message", () => {
+  it("rejects rewriting a non-user message",  async () => {
     const conversation = createConversation("Assistant immutable");
     const assistant = createMessage({
       conversationId: conversation.id,
@@ -1528,7 +1528,7 @@ describe("conversation helpers", () => {
     ).toThrow("Only user messages can be edited");
   });
 
-  it("rejects forking a missing message", () => {
+  it("rejects forking a missing message",  async () => {
     expect(() => forkConversationFromMessage("msg_missing")).toThrow("Message not found");
   });
 
@@ -1545,7 +1545,7 @@ describe("conversation helpers", () => {
     );
   });
 
-  it("updates message content and returns the refreshed message row", () => {
+  it("updates message content and returns the refreshed message row",  async () => {
     const conversation = createConversation();
     const message = createMessage({
       conversationId: conversation.id,
@@ -1563,7 +1563,7 @@ describe("conversation helpers", () => {
     expect(getMessage(message.id)?.content).toBe("Revised prompt");
   });
 
-  it("creates conversations with explicit runtime settings", () => {
+  it("creates conversations with explicit runtime settings",  async () => {
     const nextProfileId =
       listProviderProfiles().at(-1)?.id ?? getSettings().defaultProviderProfileId;
 
@@ -1574,9 +1574,9 @@ describe("conversation helpers", () => {
     expect(getConversation(conversation.id)?.providerProfileId).toBe(nextProfileId);
   });
 
-  it("deletes conversation attachment records and files together", () => {
+  it("deletes conversation attachment records and files together",  async () => {
     const conversation = createConversation();
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "notes.txt",
         mimeType: "text/plain",
@@ -1594,9 +1594,9 @@ describe("conversation helpers", () => {
     expect(fs.existsSync(attachmentDir)).toBe(false);
   });
 
-  it("still deletes a conversation when an attachment file is already missing", () => {
+  it("still deletes a conversation when an attachment file is already missing",  async () => {
     const conversation = createConversation();
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "notes.txt",
         mimeType: "text/plain",

@@ -481,7 +481,7 @@ describe("chat-turn", () => {
         onEvent?: (event: { type: string; text: string }) => void;
       }) => {
         const { createAttachments, assignAttachmentsToMessage } = await import("@/lib/attachments");
-        const attachments = createAttachments(input.conversationId!, [
+        const attachments = await createAttachments(input.conversationId!, [
           {
             filename: "generated-inline.jpeg",
             mimeType: "image/jpeg",
@@ -545,10 +545,10 @@ describe("chat-turn", () => {
       resolveAssistantTurn: vi.fn(async (input: {
         conversationId?: string;
         assistantMessageId?: string;
-        onAnswerSegment?: (segment: string) => void;
+        onAnswerSegment?: (segment: string) => Promise<void> | void;
       }) => {
         const { createAttachments, assignAttachmentsToMessage } = await import("@/lib/attachments");
-        const attachments = createAttachments(input.conversationId!, [
+        const attachments = await createAttachments(input.conversationId!, [
           {
             filename: "generated-segment.jpeg",
             mimeType: "image/jpeg",
@@ -561,7 +561,7 @@ describe("chat-turn", () => {
           attachments.map((attachment) => attachment.id)
         );
 
-        input.onAnswerSegment?.("![Generated Image](generated-segment.jpeg)");
+        await input.onAnswerSegment?.("![Generated Image](generated-segment.jpeg)");
 
         return {
           answer: "![Generated Image](generated-segment.jpeg)",
@@ -1456,8 +1456,8 @@ describe("chat-turn", () => {
     fs.writeFileSync(reportPath, "report body", "utf8");
 
     vi.doMock("@/lib/assistant-runtime", () => ({
-      resolveAssistantTurn: vi.fn(async (input: { onAnswerSegment?: (segment: string) => void }) => {
-        input.onAnswerSegment?.(`Saved the output.\n\n[report](${reportPath})`);
+      resolveAssistantTurn: vi.fn(async (input: { onAnswerSegment?: (segment: string) => Promise<void> | void }) => {
+        await input.onAnswerSegment?.(`Saved the output.\n\n[report](${reportPath})`);
         return {
           answer: `Saved the output.\n\n[report](${reportPath})`,
           thinking: "",
@@ -1520,7 +1520,7 @@ describe("chat-turn", () => {
     vi.doMock("@/lib/assistant-runtime", () => ({
       resolveAssistantTurn: vi.fn(async (input: {
         onEvent?: (event: { type: string; text: string }) => void;
-        onAnswerSegment?: (segment: string) => void;
+        onAnswerSegment?: (segment: string) => Promise<void> | void;
         onActionStart?: (action: {
           kind: "skill_load";
           label: string;
@@ -1533,7 +1533,7 @@ describe("chat-turn", () => {
           detail: "Preparing route response"
         });
         input.onEvent?.({ type: "answer_delta", text: "Saved the output." });
-        input.onAnswerSegment?.("Saved the output.");
+        await input.onAnswerSegment?.("Saved the output.");
         const { ChatTurnStoppedError } = await import("@/lib/chat-turn-control");
         throw new ChatTurnStoppedError();
       })

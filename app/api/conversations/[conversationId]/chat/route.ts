@@ -189,12 +189,12 @@ export async function POST(
               latestThinking += event.text;
             }
           },
-          onAnswerSegment(segment) {
+          async onAnswerSegment(segment) {
             if (!sawStreamedAnswerSinceLastSegment) {
               latestAnswer += segment;
             }
             sawStreamedAnswerSinceLastSegment = false;
-            const sanitizedSegment = contentPersistence.appendSegment(segment);
+            const sanitizedSegment = await contentPersistence.appendSegment(segment);
             if (!sanitizedSegment) {
               return;
             }
@@ -226,7 +226,7 @@ export async function POST(
 
             return persisted.id;
           },
-          onActionComplete(handle, patch) {
+          async onActionComplete(handle, patch) {
             if (!handle) {
               return;
             }
@@ -241,7 +241,7 @@ export async function POST(
             });
 
             if (updated) {
-              attachAssistantFilesFromCompletedAction(conversation.id, assistantMessage.id, updated);
+              await attachAssistantFilesFromCompletedAction(conversation.id, assistantMessage.id, updated);
               write({
                 type: "action_complete",
                 action: updated
@@ -271,7 +271,7 @@ export async function POST(
         });
 
         updateMessage(assistantMessage.id, {
-          content: contentPersistence.finalize(providerResult.answer),
+          content: await contentPersistence.finalize(providerResult.answer),
           thinkingContent: providerResult.thinking,
           status: "completed",
           estimatedTokens:
@@ -298,7 +298,7 @@ export async function POST(
       } catch (error) {
         if (error instanceof ChatTurnStoppedError) {
           updateMessage(assistantMessage.id, {
-            content: contentPersistence.finalize(latestAnswer),
+            content: await contentPersistence.finalize(latestAnswer),
             thinkingContent: latestThinking,
             status: "stopped",
             estimatedTokens: estimateTextTokens(latestAnswer)

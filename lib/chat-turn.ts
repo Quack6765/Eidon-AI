@@ -187,9 +187,9 @@ async function startAssistantTurn(
     );
     started = true;
 
-    function flushAnswerBuffer() {
+    async function flushAnswerBuffer() {
       if (!assistantMessageId || !answerBuffer || !contentPersistence) return;
-      const sanitizedBuffer = contentPersistence.appendSegment(answerBuffer);
+      const sanitizedBuffer = await contentPersistence.appendSegment(answerBuffer);
       if (!sanitizedBuffer) {
         answerBuffer = "";
         lastFlush = Date.now();
@@ -206,9 +206,9 @@ async function startAssistantTurn(
 
     function scheduleFlush() {
       if (flushTimer) return;
-      flushTimer = setTimeout(() => {
+      flushTimer = setTimeout(async () => {
         flushTimer = null;
-        flushAnswerBuffer();
+        await flushAnswerBuffer();
       }, 100);
     }
     if (options?.userMessageId && options.onMessagesCreated) {
@@ -266,7 +266,7 @@ async function startAssistantTurn(
       appSettings,
       conversationId: conversation.id,
       assistantMessageId: assistantMessage.id,
-      onEvent(event: ChatStreamEvent) {
+      async onEvent(event: ChatStreamEvent) {
         manager.broadcast(conversationId, {
           type: "delta",
           conversationId,
@@ -279,17 +279,17 @@ async function startAssistantTurn(
           answerBuffer += event.text;
           latestAnswer += event.text;
           if (answerBuffer.length >= 500 || Date.now() - lastFlush >= 100) {
-            flushAnswerBuffer();
+            await flushAnswerBuffer();
           } else {
             scheduleFlush();
           }
         }
       },
-      onAnswerSegment(segment) {
-        flushAnswerBuffer();
+      async onAnswerSegment(segment) {
+        await flushAnswerBuffer();
         if (!sawStreamedAnswerSinceLastSegment && segment && assistantMessageId && contentPersistence) {
           latestAnswer += segment;
-          const sanitizedSegment = contentPersistence.appendSegment(segment);
+          const sanitizedSegment = await contentPersistence.appendSegment(segment);
           if (!sanitizedSegment) {
             sawStreamedAnswerSinceLastSegment = false;
             return;
@@ -329,7 +329,7 @@ async function startAssistantTurn(
         globalEmitter.emit("delta", conversationId, { type: "action_start", action: persisted });
         return persisted.id;
       },
-      onActionComplete(handle, patch) {
+      async onActionComplete(handle, patch) {
         if (!handle) return;
         runningActionHandles.delete(handle);
         const updated = updateMessageAction(handle, {
@@ -339,7 +339,7 @@ async function startAssistantTurn(
           completedAt: new Date().toISOString()
         });
         if (updated) {
-          attachAssistantFilesFromCompletedAction(conversationId, assistantMessage.id, updated);
+          await attachAssistantFilesFromCompletedAction(conversationId, assistantMessage.id, updated);
           manager.broadcast(conversationId, {
             type: "delta",
             conversationId,
@@ -369,10 +369,10 @@ async function startAssistantTurn(
     });
 
     if (flushTimer) clearTimeout(flushTimer);
-    flushAnswerBuffer();
+    await flushAnswerBuffer();
 
     updateMessage(assistantMessageId, {
-      content: contentPersistence?.finalize(providerResult.answer) ?? "",
+      content: await contentPersistence?.finalize(providerResult.answer) ?? "",
       thinkingContent: providerResult.thinking,
       status: "completed",
       estimatedTokens:
@@ -404,7 +404,7 @@ async function startAssistantTurn(
     if (error instanceof ChatTurnStoppedError && assistantMessageId) {
       if (flushTimer) clearTimeout(flushTimer);
       if (answerBuffer && contentPersistence) {
-        const sanitizedBuffer = contentPersistence.appendSegment(answerBuffer);
+        const sanitizedBuffer = await contentPersistence.appendSegment(answerBuffer);
         answerBuffer = "";
         if (sanitizedBuffer) {
           createMessageTextSegment({
@@ -423,7 +423,7 @@ async function startAssistantTurn(
       }
 
       updateMessage(assistantMessageId, {
-        content: contentPersistence?.finalize(latestAnswer) ?? "",
+        content: await contentPersistence?.finalize(latestAnswer) ?? "",
         thinkingContent: latestThinking,
         status: "stopped",
         estimatedTokens: estimateTextTokens(latestAnswer)

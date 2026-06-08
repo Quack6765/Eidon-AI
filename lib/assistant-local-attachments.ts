@@ -73,12 +73,12 @@ function buildFailureNote(deniedNames: Set<string>, failedNames: Set<string>) {
   return `Note: ${parts.join(" ")}`;
 }
 
-export function importAssistantLocalFileAttachment(input: {
+export async function importAssistantLocalFileAttachment(input: {
   conversationId: string;
   sourcePath: string;
   workspaceRoot: string;
   existingAttachments?: MessageAttachment[];
-}): LocalTargetOutcome {
+}): Promise<LocalTargetOutcome> {
   if (isExternalMarkdownTarget(input.sourcePath) || !path.isAbsolute(input.sourcePath)) {
     return { type: "ignore" };
   }
@@ -106,16 +106,16 @@ export function importAssistantLocalFileAttachment(input: {
   }
 
   try {
-    const attachment = importAttachmentFromLocalFile(input.conversationId, canonicalPath);
+    const attachment = await importAttachmentFromLocalFile(input.conversationId, canonicalPath);
     return { type: "attach", attachment };
   } catch {
     return { type: "error", displayName };
   }
 }
 
-export function inferAssistantLocalAttachments(
+export async function inferAssistantLocalAttachments(
   input: InferAssistantLocalAttachmentsInput
-): InferAssistantLocalAttachmentsResult {
+): Promise<InferAssistantLocalAttachmentsResult> {
   if (!input.content) {
     return {
       content: input.content,
@@ -129,7 +129,7 @@ export function inferAssistantLocalAttachments(
   const deniedNames = new Set<string>();
   const failedNames = new Set<string>();
 
-  const resolveTarget = (rawTarget: string, isImage: boolean): LocalTargetOutcome => {
+  const resolveTarget = async (rawTarget: string, isImage: boolean): Promise<LocalTargetOutcome> => {
     const trimmedTarget = rawTarget.trim();
 
     if (isImage) {
@@ -155,7 +155,7 @@ export function inferAssistantLocalAttachments(
         }
 
         try {
-          const [attachment] = createAttachmentsFromBytes(input.conversationId, [
+          const [attachment] = await createAttachmentsFromBytes(input.conversationId, [
             {
               filename: parsedDataImage.filename,
               mimeType: parsedDataImage.mimeType,
@@ -194,7 +194,7 @@ export function inferAssistantLocalAttachments(
       return cached;
     }
 
-    const outcome = importAssistantLocalFileAttachment({
+    const outcome = await importAssistantLocalFileAttachment({
       conversationId: input.conversationId,
       sourcePath: decodedTarget,
       workspaceRoot: input.workspaceRoot,
@@ -209,7 +209,7 @@ export function inferAssistantLocalAttachments(
     return outcome;
   };
 
-  const sanitizeProseSegment = (segment: string) => {
+  const sanitizeProseSegment = async (segment: string) => {
     const matches = findMarkdownTargets(segment);
     if (matches.length === 0) {
       return segment;
@@ -220,11 +220,11 @@ export function inferAssistantLocalAttachments(
 
     for (const match of matches) {
       const outcomes = match.definitionUsage
-        ? [
+        ? await Promise.all([
             ...(match.definitionUsage.link ? [resolveTarget(match.target, false)] : []),
             ...(match.definitionUsage.image ? [resolveTarget(match.target, true)] : [])
-          ]
-        : [resolveTarget(match.target, match.isImage)];
+          ])
+        : [await resolveTarget(match.target, match.isImage)];
 
       const shouldStrip = outcomes.every((outcome) => outcome.type !== "ignore");
       if (!shouldStrip) {
@@ -248,7 +248,7 @@ export function inferAssistantLocalAttachments(
     return parts.join("");
   };
 
-  const sanitizedContent = sanitizeProseSegment(input.content);
+  const sanitizedContent = await sanitizeProseSegment(input.content);
 
   return {
     content: input.tidyWhitespace === false ? sanitizedContent : collapseWhitespace(sanitizedContent),
