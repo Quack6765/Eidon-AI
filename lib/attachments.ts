@@ -159,14 +159,23 @@ async function extractText(bytes: Buffer, filename: string) {
 
   if (extension === ".pdf") {
     try {
-      const { PDFParse } = await import("pdf-parse");
-      const parser = new PDFParse({ data: new Uint8Array(bytes) });
-      try {
-        const result = await parser.getText();
-        return normalizeLineBreaks(result.text).trim();
-      } finally {
-        await parser.destroy();
+      const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+      const doc = await pdfjsLib.getDocument({ data: new Uint8Array(bytes) }).promise;
+      const pages: string[] = [];
+      for (let i = 1; i <= doc.numPages; i++) {
+        const page = await doc.getPage(i);
+        const content = await page.getTextContent();
+        const strings: string[] = [];
+        for (const item of content.items) {
+          if ("str" in item) strings.push((item as { str: string }).str);
+        }
+        if (strings.length) {
+          pages.push(strings.join(" "));
+        }
       }
+      await doc.destroy();
+      return normalizeLineBreaks(pages.join("\n\n")).trim();
     } catch (error) {
       console.error(`Failed to extract text from PDF "${filename}":`, error);
       return "";
