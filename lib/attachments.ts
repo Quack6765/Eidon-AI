@@ -9,6 +9,7 @@ import { createId } from "@/lib/ids";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import type { AttachmentKind, MessageAttachment } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
+import { PDFParse } from "pdf-parse";
 
 const IMAGE_EXTENSION_TO_MIME = new Map<string, string>([
   [".png", "image/png"],
@@ -45,7 +46,8 @@ const TEXT_EXTENSION_TO_MIME = new Map<string, string>([
   [".sql", "application/sql"],
   [".toml", "application/toml"],
   [".ini", "text/plain"],
-  [".log", "text/plain"]
+  [".log", "text/plain"],
+  [".pdf", "application/pdf"]
 ]);
 
 type AttachmentRow = {
@@ -153,7 +155,24 @@ function normalizeAttachmentKind(filename: string, mimeType: string): {
   throw new Error(`Unsupported attachment type: ${filename}`);
 }
 
-function extractText(bytes: Buffer) {
+async function extractText(bytes: Buffer, filename: string) {
+  const extension = getExtension(filename);
+
+  if (extension === ".pdf") {
+    try {
+      const parser = new PDFParse({ data: new Uint8Array(bytes) });
+      try {
+        const result = await parser.getText();
+        return normalizeLineBreaks(result.text).trim();
+      } finally {
+        await parser.destroy();
+      }
+    } catch (error) {
+      console.error(`Failed to extract text from PDF "${filename}":`, error);
+      return "";
+    }
+  }
+
   return normalizeLineBreaks(bytes.toString("utf8")).trim();
 }
 
@@ -312,7 +331,7 @@ export function listAttachmentsForConversation(conversationId: string) {
   return rows.map(rowToAttachment);
 }
 
-export function createAttachments(conversationId: string, files: CreateAttachmentInput[]) {
+export async function createAttachments(conversationId: string, files: CreateAttachmentInput[]) {
   const db = getDb();
   const insertStatement = db.prepare(
     `INSERT INTO message_attachments (
@@ -331,7 +350,21 @@ export function createAttachments(conversationId: string, files: CreateAttachmen
   );
 
   const dir = ensureConversationAttachmentDir(conversationId);
-  const records = files.map((file) => {
+  const records: {
+    id: string;
+    conversationId: string;
+    filename: string;
+    mimeType: string;
+    byteSize: number;
+    sha256: string;
+    relativePath: string;
+    kind: AttachmentKind;
+    extractedText: string;
+    createdAt: string;
+    bytes: Buffer;
+  }[] = [];
+
+  for (const file of files) {
     const filename = sanitizeFilename(file.filename);
     if (!filename) {
       throw new Error("Attachment filename is required");
@@ -349,8 +382,9 @@ export function createAttachments(conversationId: string, files: CreateAttachmen
     const id = createId("att");
     const relativePath = path.join(conversationId, `${id}_${filename}`);
     const sha256 = createHash("sha256").update(file.bytes).digest("hex");
+    const extractedText = normalized.kind === "text" ? await extractText(file.bytes, filename) : "";
 
-    return {
+    records.push({
       id,
       conversationId,
       filename,
@@ -359,11 +393,11 @@ export function createAttachments(conversationId: string, files: CreateAttachmen
       sha256,
       relativePath,
       kind: normalized.kind,
-      extractedText: normalized.kind === "text" ? extractText(file.bytes) : "",
+      extractedText,
       createdAt: nowIso(),
       bytes: file.bytes
-    };
-  });
+    });
+  }
 
   const writtenPaths: string[] = [];
 
@@ -417,11 +451,11 @@ export function createAttachments(conversationId: string, files: CreateAttachmen
   }
 }
 
-export function createAttachmentsFromBytes(conversationId: string, files: CreateAttachmentInput[]) {
+export async function createAttachmentsFromBytes(conversationId: string, files: CreateAttachmentInput[]) {
   return createAttachments(conversationId, files);
 }
 
-export function importAttachmentFromLocalFile(conversationId: string, sourcePath: string) {
+export async function importAttachmentFromLocalFile(conversationId: string, sourcePath: string) {
   const sourceStats = fs.lstatSync(sourcePath);
 
   if (!sourceStats.isFile()) {
@@ -444,7 +478,7 @@ export function importAttachmentFromLocalFile(conversationId: string, sourcePath
     }
 
     const bytes = readAttachmentBytesFromFileDescriptor(sourceFd, sourcePath);
-    const [attachment] = createAttachments(conversationId, [
+    const [attachment] = await createAttachments(conversationId, [
       {
         filename: path.basename(sourcePath),
         mimeType: "",
