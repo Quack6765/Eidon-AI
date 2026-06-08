@@ -15,10 +15,28 @@ import { MAX_ATTACHMENT_BYTES } from "@/lib/constants";
 import { bindAttachmentsToMessage, createConversation, createMessage } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
 
+function createMinimalPdfBuffer(): Buffer {
+  const content = `%PDF-1.0
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/MediaBox[0 0 612 792]/Parent 2 0 R/Resources<<>>>>endobj
+xref
+0 4
+0000000000 65535 f
+0000000009 00000 n
+0000000058 00000 n
+0000000115 00000 n
+trailer<</Size 4/Root 1 0 R>>
+startxref
+190
+%%EOF`;
+  return Buffer.from(content, "utf8");
+}
+
 describe("attachment helpers", () => {
-  it("stores attachments on disk and returns metadata", () => {
+  it("stores attachments on disk and returns metadata", async () => {
     const conversation = createConversation();
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "notes.md",
         mimeType: "text/markdown",
@@ -46,7 +64,7 @@ describe("attachment helpers", () => {
       role: "user"
     });
     const conversation = createConversation("Scoped attachment chat", null, undefined, userA.id);
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "private.txt",
         mimeType: "text/plain",
@@ -59,9 +77,9 @@ describe("attachment helpers", () => {
     expect(deleteAttachmentById(attachment.id, { userId: userB.id })).toBe(false);
   });
 
-  it("builds data urls for image attachments", () => {
+  it("builds data urls for image attachments", async () => {
     const conversation = createConversation();
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "pixel.png",
         mimeType: "image/png",
@@ -74,10 +92,10 @@ describe("attachment helpers", () => {
     );
   });
 
-  it("creates an attachment from decoded in-memory bytes", () => {
+  it("creates an attachment from decoded in-memory bytes", async () => {
     const conversation = createConversation();
     const imageBytes = Buffer.from("decoded-image-bytes", "utf8");
-    const [attachment] = createAttachmentsFromBytes(conversation.id, [
+    const [attachment] = await createAttachmentsFromBytes(conversation.id, [
       {
         filename: "generated.png",
         mimeType: "image/png",
@@ -94,10 +112,10 @@ describe("attachment helpers", () => {
     ).toEqual(imageBytes);
   });
 
-  it("rejects oversized in-memory attachments", () => {
+  it("rejects oversized in-memory attachments", async () => {
     const conversation = createConversation();
 
-    expect(() =>
+    await expect(
       createAttachmentsFromBytes(conversation.id, [
         {
           filename: "generated.png",
@@ -105,12 +123,12 @@ describe("attachment helpers", () => {
           bytes: Buffer.alloc(MAX_ATTACHMENT_BYTES + 1, 0x61)
         }
       ])
-    ).toThrow(`Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: generated.png`);
+    ).rejects.toThrow(`Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: generated.png`);
   });
 
-  it("deletes attachments even when the backing file is already missing", () => {
+  it("deletes attachments even when the backing file is already missing", async () => {
     const conversation = createConversation();
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "notes.txt",
         mimeType: "text/plain",
@@ -125,10 +143,10 @@ describe("attachment helpers", () => {
     expect(getAttachment(attachment.id)).toBeNull();
   });
 
-  it("rejects unsupported file types", () => {
+  it("rejects unsupported file types", async () => {
     const conversation = createConversation();
 
-    expect(() =>
+    await expect(
       createAttachments(conversation.id, [
         {
           filename: "archive.zip",
@@ -136,10 +154,10 @@ describe("attachment helpers", () => {
           bytes: Buffer.from("zip", "utf8")
         }
       ])
-    ).toThrow("Unsupported attachment type: archive.zip");
+    ).rejects.toThrow("Unsupported attachment type: archive.zip");
   });
 
-  it("imports a local text file into managed attachment storage", () => {
+  it("imports a local text file into managed attachment storage", async () => {
     const conversation = createConversation();
     const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-import-"));
     const sourcePath = path.join(sourceDir, "local-notes.md");
@@ -148,7 +166,7 @@ describe("attachment helpers", () => {
     try {
       fs.writeFileSync(sourcePath, content, "utf8");
 
-      const attachment = importAttachmentFromLocalFile(conversation.id, sourcePath);
+      const attachment = await importAttachmentFromLocalFile(conversation.id, sourcePath);
 
       expect(attachment.filename).toBe("local-notes.md");
       expect(attachment.kind).toBe("text");
@@ -162,7 +180,7 @@ describe("attachment helpers", () => {
     }
   });
 
-  it("rejects oversized local files before loading bytes", () => {
+  it("rejects oversized local files before loading bytes", async () => {
     const conversation = createConversation();
     const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-import-"));
     const sourcePath = path.join(sourceDir, "huge.txt");
@@ -186,7 +204,7 @@ describe("attachment helpers", () => {
         size: MAX_ATTACHMENT_BYTES + 1
       } as fs.Stats);
 
-      expect(() => importAttachmentFromLocalFile(conversation.id, sourcePath)).toThrow(
+      await expect(importAttachmentFromLocalFile(conversation.id, sourcePath)).rejects.toThrow(
         `Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: huge.txt`
       );
       expect(readSpy).not.toHaveBeenCalled();
@@ -196,7 +214,7 @@ describe("attachment helpers", () => {
     }
   });
 
-  it("caps local file reads at the attachment byte limit", () => {
+  it("caps local file reads at the attachment byte limit", async () => {
     const conversation = createConversation();
     const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-import-"));
     const sourcePath = path.join(sourceDir, "growing.txt");
@@ -244,7 +262,7 @@ describe("attachment helpers", () => {
         return bytesToServe;
       }) as typeof fs.readSync);
 
-      expect(() => importAttachmentFromLocalFile(conversation.id, sourcePath)).toThrow(
+      await expect(importAttachmentFromLocalFile(conversation.id, sourcePath)).rejects.toThrow(
         `Attachment exceeds ${Math.floor(MAX_ATTACHMENT_BYTES / (1024 * 1024))}MB: growing.txt`
       );
       expect(servedBytes).toBe(MAX_ATTACHMENT_BYTES + 1);
@@ -254,7 +272,7 @@ describe("attachment helpers", () => {
     }
   });
 
-  it("rejects unsupported local file types", () => {
+  it("rejects unsupported local file types", async () => {
     const conversation = createConversation();
     const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-import-"));
     const sourcePath = path.join(sourceDir, "archive.zip");
@@ -262,7 +280,7 @@ describe("attachment helpers", () => {
     try {
       fs.writeFileSync(sourcePath, Buffer.from("zip", "utf8"));
 
-      expect(() => importAttachmentFromLocalFile(conversation.id, sourcePath)).toThrow(
+      await expect(importAttachmentFromLocalFile(conversation.id, sourcePath)).rejects.toThrow(
         "Unsupported attachment type: archive.zip"
       );
     } finally {
@@ -270,12 +288,12 @@ describe("attachment helpers", () => {
     }
   });
 
-  it("rejects non-regular local file paths", () => {
+  it("rejects non-regular local file paths", async () => {
     const conversation = createConversation();
     const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-import-"));
 
     try {
-      expect(() => importAttachmentFromLocalFile(conversation.id, sourceDir)).toThrow(
+      await expect(importAttachmentFromLocalFile(conversation.id, sourceDir)).rejects.toThrow(
         `Source path is not a regular file: ${sourceDir}`
       );
     } finally {
@@ -283,9 +301,9 @@ describe("attachment helpers", () => {
     }
   });
 
-  it("refuses to delete attachments that are already bound to a message", () => {
+  it("refuses to delete attachments that are already bound to a message", async () => {
     const conversation = createConversation();
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "notes.txt",
         mimeType: "text/plain",
@@ -304,5 +322,58 @@ describe("attachment helpers", () => {
       "Attachment is already attached to a message"
     );
     expect(deleteAttachmentById(attachment.id, { allowAssigned: true })).toBe(true);
+  });
+
+  it("extracts text from PDF attachments", async () => {
+    const conversation = createConversation();
+    const [attachment] = await createAttachments(conversation.id, [
+      {
+        filename: "document.pdf",
+        mimeType: "application/pdf",
+        bytes: createMinimalPdfBuffer()
+      }
+    ]);
+
+    expect(attachment.kind).toBe("text");
+    expect(attachment.mimeType).toBe("application/pdf");
+    expect(attachment.extractedText).toBeDefined();
+    expect(typeof attachment.extractedText).toBe("string");
+    expect(
+      fs.existsSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath))
+    ).toBe(true);
+  });
+
+  it("handles corrupted PDF gracefully with empty extracted text", async () => {
+    const conversation = createConversation();
+    const [attachment] = await createAttachments(conversation.id, [
+      {
+        filename: "corrupted.pdf",
+        mimeType: "application/pdf",
+        bytes: Buffer.from("not a real pdf content at all")
+      }
+    ]);
+
+    expect(attachment.kind).toBe("text");
+    expect(attachment.extractedText).toBe("");
+  });
+
+  it("imports a local PDF file and extracts text", async () => {
+    const conversation = createConversation();
+    const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-pdf-import-"));
+    const sourcePath = path.join(sourceDir, "report.pdf");
+
+    try {
+      fs.writeFileSync(sourcePath, createMinimalPdfBuffer());
+
+      const attachment = await importAttachmentFromLocalFile(conversation.id, sourcePath);
+
+      expect(attachment.filename).toBe("report.pdf");
+      expect(attachment.kind).toBe("text");
+      expect(attachment.mimeType).toBe("application/pdf");
+      expect(attachment.extractedText).toBeDefined();
+      expect(typeof attachment.extractedText).toBe("string");
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
   });
 });
