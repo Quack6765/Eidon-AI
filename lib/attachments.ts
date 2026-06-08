@@ -1,8 +1,6 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
 
 import { MAX_ATTACHMENT_BYTES } from "@/lib/constants";
 import { getDb } from "@/lib/db";
@@ -162,11 +160,6 @@ async function extractText(bytes: Buffer, filename: string) {
   if (extension === ".pdf") {
     try {
       const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
-        const require = createRequire(import.meta.url);
-        const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
-        pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
-      }
       const doc = await pdfjsLib.getDocument({ data: new Uint8Array(bytes), useSystemFonts: true }).promise;
       const pages: string[] = [];
       for (let i = 1; i <= doc.numPages; i++) {
@@ -618,6 +611,14 @@ export function readAttachmentText(
 ) {
   if (!isInlineTextPreviewableAttachment(attachment)) {
     throw new AttachmentTextPreviewUnsupportedError();
+  }
+
+  if (attachment.extractedText.length > 0) {
+    return attachment.extractedText;
+  }
+
+  if (!attachment.mimeType.startsWith("text/")) {
+    return attachment.extractedText;
   }
 
   try {
