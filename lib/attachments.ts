@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { MAX_ATTACHMENT_BYTES } from "@/lib/constants";
 import { getDb } from "@/lib/db";
@@ -160,8 +162,12 @@ async function extractText(bytes: Buffer, filename: string) {
   if (extension === ".pdf") {
     try {
       const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-      pdfjsLib.GlobalWorkerOptions.workerSrc = "";
-      const doc = await pdfjsLib.getDocument({ data: new Uint8Array(bytes) }).promise;
+      if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
+        const require = createRequire(import.meta.url);
+        const workerPath = require.resolve("pdfjs-dist/legacy/build/pdf.worker.mjs");
+        pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerPath).href;
+      }
+      const doc = await pdfjsLib.getDocument({ data: new Uint8Array(bytes), useSystemFonts: true }).promise;
       const pages: string[] = [];
       for (let i = 1; i <= doc.numPages; i++) {
         const page = await doc.getPage(i);
@@ -174,7 +180,7 @@ async function extractText(bytes: Buffer, filename: string) {
           pages.push(strings.join(" "));
         }
       }
-      await doc.destroy();
+      doc.cleanup();
       return normalizeLineBreaks(pages.join("\n\n")).trim();
     } catch (error) {
       console.error(`Failed to extract text from PDF "${filename}":`, error);
