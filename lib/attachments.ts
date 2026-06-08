@@ -9,7 +9,6 @@ import { createId } from "@/lib/ids";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import type { AttachmentKind, MessageAttachment } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
-import { PDFParse } from "pdf-parse";
 
 const IMAGE_EXTENSION_TO_MIME = new Map<string, string>([
   [".png", "image/png"],
@@ -160,6 +159,7 @@ async function extractText(bytes: Buffer, filename: string) {
 
   if (extension === ".pdf") {
     try {
+      const { PDFParse } = await import("pdf-parse");
       const parser = new PDFParse({ data: new Uint8Array(bytes) });
       try {
         const result = await parser.getText();
