@@ -481,7 +481,7 @@ describe("chat-turn", () => {
         onEvent?: (event: { type: string; text: string }) => void;
       }) => {
         const { createAttachments, assignAttachmentsToMessage } = await import("@/lib/attachments");
-        const attachments = createAttachments(input.conversationId!, [
+        const attachments = await createAttachments(input.conversationId!, [
           {
             filename: "generated-inline.jpeg",
             mimeType: "image/jpeg",
@@ -548,7 +548,7 @@ describe("chat-turn", () => {
         onAnswerSegment?: (segment: string) => void;
       }) => {
         const { createAttachments, assignAttachmentsToMessage } = await import("@/lib/attachments");
-        const attachments = createAttachments(input.conversationId!, [
+        const attachments = await createAttachments(input.conversationId!, [
           {
             filename: "generated-segment.jpeg",
             mimeType: "image/jpeg",

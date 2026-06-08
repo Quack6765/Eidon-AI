@@ -27,7 +27,7 @@ describe("attachment preview route", () => {
       role: "user"
     });
     const conversation = createConversation("Attachment csv preview", null, undefined, user.id);
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "data.csv",
         mimeType: "text/csv",
@@ -59,7 +59,7 @@ describe("attachment preview route", () => {
       role: "user"
     });
     const conversation = createConversation("Attachment preview", null, undefined, user.id);
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "notes.md",
         mimeType: "text/markdown",
@@ -91,7 +91,7 @@ describe("attachment preview route", () => {
       role: "user"
     });
     const conversation = createConversation("Missing attachment file preview", null, undefined, user.id);
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "fallback.md",
         mimeType: "text/markdown",
@@ -125,7 +125,7 @@ describe("attachment preview route", () => {
       role: "user"
     });
     const conversation = createConversation("Empty fallback preview", null, undefined, user.id);
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "blank.md",
         mimeType: "text/markdown",
@@ -158,7 +158,7 @@ describe("attachment preview route", () => {
       role: "user"
     });
     const conversation = createConversation("Attachment preview read error", null, undefined, user.id);
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "read-error.md",
         mimeType: "text/markdown",
@@ -190,7 +190,7 @@ describe("attachment preview route", () => {
       role: "user"
     });
     const conversation = createConversation("Image preview", null, undefined, user.id);
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "photo.png",
         mimeType: "image/png",
@@ -217,7 +217,7 @@ describe("attachment preview route", () => {
       role: "user"
     });
     const conversation = createConversation("Raw attachment response", null, undefined, user.id);
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "notes.md",
         mimeType: "text/markdown",
@@ -246,7 +246,7 @@ describe("attachment preview route", () => {
       role: "user"
     });
     const conversation = createConversation("Download attachment response", null, undefined, user.id);
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "notes.md",
         mimeType: "text/markdown",

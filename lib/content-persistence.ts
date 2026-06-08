@@ -15,12 +15,12 @@ function appendFailureNotes(content: string, failureNotes: string[]) {
   return trimmed ? `${trimmed}\n\n${appendedNotes}` : appendedNotes;
 }
 
-function sanitizeAssistantContent(
+async function sanitizeAssistantContent(
   conversationId: string,
   messageId: string,
   content: string
 ) {
-  const inferred = inferAssistantLocalAttachments({
+  const inferred = await inferAssistantLocalAttachments({
     conversationId,
     content,
     workspaceRoot: process.cwd(),
@@ -47,7 +47,7 @@ function sanitizeAssistantContent(
   };
 }
 
-export function attachAssistantFilesFromCompletedAction(conversationId: string, messageId: string, action: MessageAction) {
+export async function attachAssistantFilesFromCompletedAction(conversationId: string, messageId: string, action: MessageAction) {
   if (action.kind !== "shell_command") {
     return;
   }
@@ -70,7 +70,7 @@ export function attachAssistantFilesFromCompletedAction(conversationId: string, 
   const existingAttachments = [...(getMessage(messageId)?.attachments ?? [])];
 
   for (const screenshotPath of screenshotPaths) {
-    const outcome = importAssistantLocalFileAttachment({
+    const outcome = await importAssistantLocalFileAttachment({
       conversationId,
       sourcePath: screenshotPath,
       workspaceRoot: process.cwd(),
@@ -109,18 +109,18 @@ export function createAssistantContentPersistenceTracker(
   };
 
   return {
-    appendSegment(content: string) {
+    async appendSegment(content: string) {
       if (!content) {
         return "";
       }
 
-      const sanitized = sanitizeAssistantContent(conversationId, messageId, content);
+      const sanitized = await sanitizeAssistantContent(conversationId, messageId, content);
       persistedRawContent += content;
       persistedSanitizedContent += sanitized.content;
       recordFailureNote(sanitized.failureNote);
       return sanitized.content;
     },
-    finalize(content: string) {
+    async finalize(content: string) {
       if (!content) {
         return appendFailureNotes(persistedSanitizedContent, failureNotes);
       }
@@ -128,7 +128,7 @@ export function createAssistantContentPersistenceTracker(
       if (content.startsWith(persistedRawContent)) {
         const remainder = content.slice(persistedRawContent.length);
         if (remainder) {
-          const sanitized = sanitizeAssistantContent(conversationId, messageId, remainder);
+          const sanitized = await sanitizeAssistantContent(conversationId, messageId, remainder);
           persistedRawContent += remainder;
           persistedSanitizedContent += sanitized.content;
           recordFailureNote(sanitized.failureNote);
@@ -138,7 +138,7 @@ export function createAssistantContentPersistenceTracker(
       }
 
       if (!persistedRawContent) {
-        const sanitized = sanitizeAssistantContent(conversationId, messageId, content);
+        const sanitized = await sanitizeAssistantContent(conversationId, messageId, content);
         persistedRawContent = content;
         persistedSanitizedContent = sanitized.content;
         recordFailureNote(sanitized.failureNote);

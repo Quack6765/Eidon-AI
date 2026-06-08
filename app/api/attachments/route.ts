@@ -140,7 +140,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const attachments = createAttachments(
+    const attachments = await createAttachments(
       parsed.data.conversationId,
       files
     );

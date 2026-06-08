@@ -7,12 +7,12 @@ import { createConversation } from "@/lib/conversations";
 import { inferAssistantLocalAttachments } from "@/lib/assistant-local-attachments";
 
 describe("inferAssistantLocalAttachments", () => {
-  it("salvages assistant-authored data image markdown into a managed attachment", () => {
+  it("salvages assistant-authored data image markdown into a managed attachment", async () => {
     const conversation = createConversation();
     const imageBytes = Buffer.from("generated-image-bytes", "utf8");
     const dataTarget = `data:image/png;base64,${imageBytes.toString("base64")}`;
 
-    const result = inferAssistantLocalAttachments({
+    const result = await inferAssistantLocalAttachments({
       conversationId: conversation.id,
       content: ["Here is the generated image:", "", `![Generated image](${dataTarget})`].join("\n"),
       workspaceRoot: process.cwd()
@@ -28,11 +28,11 @@ describe("inferAssistantLocalAttachments", () => {
     expect(result.failureNote).toBe("");
   });
 
-  it("strips malformed assistant data image markdown and reports an attachment failure", () => {
+  it("strips malformed assistant data image markdown and reports an attachment failure", async () => {
     const conversation = createConversation();
     const malformedTarget = "data:image/png;base64,%%%";
 
-    const result = inferAssistantLocalAttachments({
+    const result = await inferAssistantLocalAttachments({
       conversationId: conversation.id,
       content: ["Here is the generated image:", "", `![Generated image](${malformedTarget})`].join("\n"),
       workspaceRoot: process.cwd()
@@ -45,7 +45,7 @@ describe("inferAssistantLocalAttachments", () => {
     expect(result.failureNote).toContain("could not be imported");
   });
 
-  it("preserves assistant data image markdown inside an unterminated fenced code block", () => {
+  it("preserves assistant data image markdown inside an unterminated fenced code block", async () => {
     const conversation = createConversation();
     const malformedTarget = "data:image/png;base64,%%%";
     const content = [
@@ -55,7 +55,7 @@ describe("inferAssistantLocalAttachments", () => {
       "Still part of the unfinished fence"
     ].join("\n");
 
-    const result = inferAssistantLocalAttachments({
+    const result = await inferAssistantLocalAttachments({
       conversationId: conversation.id,
       content,
       workspaceRoot: process.cwd()
@@ -66,7 +66,7 @@ describe("inferAssistantLocalAttachments", () => {
     expect(result.failureNote).toBe("");
   });
 
-  it("preserves assistant data image markdown inside a list-indented fenced code block", () => {
+  it("preserves assistant data image markdown inside a list-indented fenced code block", async () => {
     const conversation = createConversation();
     const malformedTarget = "data:image/png;base64,%%%";
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
@@ -75,7 +75,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "report", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: [
           "- item",
@@ -98,7 +98,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("preserves assistant data image markdown inside an unterminated blockquoted fenced code block", () => {
+  it("preserves assistant data image markdown inside an unterminated blockquoted fenced code block", async () => {
     const conversation = createConversation();
     const malformedTarget = "data:image/png;base64,%%%";
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
@@ -107,7 +107,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "report", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["> ```md", `> ![Generated image](${malformedTarget})`, "> still code", "", `[report](${sourcePath})`].join(
           "\n"
@@ -124,7 +124,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("does not treat a fenced line with trailing text as a closing fence", () => {
+  it("does not treat a fenced line with trailing text as a closing fence", async () => {
     const conversation = createConversation();
     const malformedTarget = "data:image/png;base64,%%%";
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
@@ -133,7 +133,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "report", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: [
           "```md",
@@ -156,7 +156,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("preserves assistant data image markdown inside tilde fences", () => {
+  it("preserves assistant data image markdown inside tilde fences", async () => {
     const conversation = createConversation();
     const malformedTarget = "data:image/png;base64,%%%";
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
@@ -165,7 +165,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "report", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: [
           "~~~md",
@@ -186,7 +186,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("preserves assistant data image markdown inside indented code blocks", () => {
+  it("preserves assistant data image markdown inside indented code blocks", async () => {
     const conversation = createConversation();
     const malformedTarget = "data:image/png;base64,%%%";
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
@@ -195,7 +195,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "report", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: [
           `    ![Generated image](${malformedTarget})`,
@@ -215,7 +215,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("preserves quoted code examples instead of importing their local links", () => {
+  it("preserves quoted code examples instead of importing their local links", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "report.txt");
@@ -224,7 +224,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "report", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content,
         workspaceRoot: process.cwd()
@@ -238,7 +238,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("imports a /tmp image markdown target and strips it from content", () => {
+  it("imports a /tmp image markdown target and strips it from content", async () => {
     const conversation = createConversation();
     const tempDir = fs.mkdtempSync(path.join("/tmp", "eidon-assistant-image-"));
     const sourcePath = path.join(tempDir, "preview.png");
@@ -246,7 +246,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "png-binary", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Preview:", "", `![preview](${sourcePath})`].join("\n"),
         workspaceRoot: process.cwd()
@@ -262,7 +262,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("imports a workspace markdown link and strips it from content", () => {
+  it("imports a workspace markdown link and strips it from content", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "workspace-log.txt");
@@ -270,7 +270,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "hello from workspace", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Attached log:", "", `[log](${sourcePath})`].join("\n"),
         workspaceRoot: process.cwd()
@@ -285,7 +285,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("imports titled workspace markdown links and strips them from content", () => {
+  it("imports titled workspace markdown links and strips them from content", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "workspace-log.txt");
@@ -295,7 +295,7 @@ describe("inferAssistantLocalAttachments", () => {
       fs.writeFileSync(sourcePath, "hello from workspace", "utf8");
       fs.writeFileSync(spacedPath, "hello with title", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: [
           "Attached logs:",
@@ -314,7 +314,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("imports reference-style workspace markdown links and strips their definitions from content", () => {
+  it("imports reference-style workspace markdown links and strips their definitions from content", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "workspace-log.txt");
@@ -322,7 +322,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "hello from workspace", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Attached log:", "", "[log][workspace-log]", "", `[workspace-log]: ${sourcePath}`].join("\n"),
         workspaceRoot: process.cwd()
@@ -337,12 +337,12 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("salvages reference-style assistant data images into managed attachments", () => {
+  it("salvages reference-style assistant data images into managed attachments", async () => {
     const conversation = createConversation();
     const imageBytes = Buffer.from("generated-image-bytes", "utf8");
     const dataTarget = `data:image/png;base64,${imageBytes.toString("base64")}`;
 
-    const result = inferAssistantLocalAttachments({
+    const result = await inferAssistantLocalAttachments({
       conversationId: conversation.id,
       content: ["Here is the generated image:", "", "![Generated image][generated]", "", `[generated]: ${dataTarget}`].join(
         "\n"
@@ -359,12 +359,12 @@ describe("inferAssistantLocalAttachments", () => {
     expect(result.failureNote).toBe("");
   });
 
-  it("keeps shared reference definitions when only the image reference is salvaged", () => {
+  it("keeps shared reference definitions when only the image reference is salvaged", async () => {
     const conversation = createConversation();
     const imageBytes = Buffer.from("generated-image-bytes", "utf8");
     const dataTarget = `data:image/png;base64,${imageBytes.toString("base64")}`;
 
-    const result = inferAssistantLocalAttachments({
+    const result = await inferAssistantLocalAttachments({
       conversationId: conversation.id,
       content: [
         "Keep the text reference:",
@@ -385,7 +385,7 @@ describe("inferAssistantLocalAttachments", () => {
     expect(result.failureNote).toBe("");
   });
 
-  it("denies out-of-bounds local paths with a user-facing note", () => {
+  it("denies out-of-bounds local paths with a user-facing note", async () => {
     const conversation = createConversation();
     const outsideDir = fs.mkdtempSync(path.join(os.homedir(), ".eidon-out-of-bounds-"));
     const outsidePath = path.join(outsideDir, "secret.txt");
@@ -393,7 +393,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(outsidePath, "top secret", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: `[secret](${outsidePath})`,
         workspaceRoot: process.cwd()
@@ -407,11 +407,11 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("ignores external URLs", () => {
+  it("ignores external URLs", async () => {
     const conversation = createConversation();
     const content = "See [docs](https://example.com/spec.pdf)";
 
-    const result = inferAssistantLocalAttachments({
+    const result = await inferAssistantLocalAttachments({
       conversationId: conversation.id,
       content,
       workspaceRoot: process.cwd()
@@ -422,7 +422,7 @@ describe("inferAssistantLocalAttachments", () => {
     expect(result.failureNote).toBe("");
   });
 
-  it("ignores escaped markdown openers", () => {
+  it("ignores escaped markdown openers", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "report.txt");
@@ -433,7 +433,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "report", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content,
         workspaceRoot: process.cwd()
@@ -447,11 +447,11 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("ignores relative paths", () => {
+  it("ignores relative paths", async () => {
     const conversation = createConversation();
     const content = "See [notes](./notes.txt)";
 
-    const result = inferAssistantLocalAttachments({
+    const result = await inferAssistantLocalAttachments({
       conversationId: conversation.id,
       content,
       workspaceRoot: process.cwd()
@@ -462,7 +462,7 @@ describe("inferAssistantLocalAttachments", () => {
     expect(result.failureNote).toBe("");
   });
 
-  it("imports an angle-bracket local path with spaces", () => {
+  it("imports an angle-bracket local path with spaces", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "notes with space.txt");
@@ -470,7 +470,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "spacey", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Attached:", "", `[notes](<${sourcePath}>)`].join("\n"),
         workspaceRoot: process.cwd()
@@ -485,7 +485,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("imports a local path containing parentheses", () => {
+  it("imports a local path containing parentheses", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "file(1).txt");
@@ -493,7 +493,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "paren", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Attached:", "", `[file](${sourcePath})`].join("\n"),
         workspaceRoot: process.cwd()
@@ -508,7 +508,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("imports a local path with an escaped closing parenthesis", () => {
+  it("imports a local path with an escaped closing parenthesis", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "file)name.txt");
@@ -516,7 +516,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "escaped paren", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Attached:", "", `[file](${sourcePath.replace(")", "\\)")})`].join("\n"),
         workspaceRoot: process.cwd()
@@ -531,7 +531,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("preserves local markdown targets inside multi-backtick inline code spans", () => {
+  it("preserves local markdown targets inside multi-backtick inline code spans", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "report.txt");
@@ -540,7 +540,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "keep literal", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content,
         workspaceRoot: process.cwd()
@@ -554,7 +554,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("imports an angle-bracket local path with an escaped closing angle bracket", () => {
+  it("imports an angle-bracket local path with an escaped closing angle bracket", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "file>name.txt");
@@ -562,7 +562,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "escaped angle", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Attached:", "", `[file](<${sourcePath.replace(">", "\\>")}>)`].join("\n"),
         workspaceRoot: process.cwd()
@@ -577,7 +577,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("rejects symlink escapes after canonicalization", () => {
+  it("rejects symlink escapes after canonicalization", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const outsideDir = fs.mkdtempSync(path.join(os.homedir(), ".eidon-symlink-escape-"));
@@ -588,7 +588,7 @@ describe("inferAssistantLocalAttachments", () => {
       fs.writeFileSync(outsidePath, "private", "utf8");
       fs.symlinkSync(outsidePath, symlinkPath);
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: `[private](${symlinkPath})`,
         workspaceRoot: process.cwd()
@@ -603,7 +603,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("denies default app-data paths even when EIDON_DATA_DIR is unset", () => {
+  it("denies default app-data paths even when EIDON_DATA_DIR is unset", async () => {
     const conversation = createConversation();
     const previousDataDir = process.env.EIDON_DATA_DIR;
     const defaultAppDataDir = path.resolve(".data");
@@ -614,7 +614,7 @@ describe("inferAssistantLocalAttachments", () => {
       fs.mkdirSync(defaultAppDataDir, { recursive: true });
       fs.writeFileSync(sourcePath, "private app data", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: `[private](${sourcePath})`,
         workspaceRoot: process.cwd()
@@ -633,7 +633,7 @@ describe("inferAssistantLocalAttachments", () => {
     }
   });
 
-  it("deduplicates duplicate references to the same local file", () => {
+  it("deduplicates duplicate references to the same local file", async () => {
     const conversation = createConversation();
     const workspaceDir = fs.mkdtempSync(path.join(process.cwd(), ".tmp-assistant-local-"));
     const sourcePath = path.join(workspaceDir, "duplicate.txt");
@@ -641,7 +641,7 @@ describe("inferAssistantLocalAttachments", () => {
     try {
       fs.writeFileSync(sourcePath, "duplicate", "utf8");
 
-      const result = inferAssistantLocalAttachments({
+      const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["First [copy](" + sourcePath + ")", "", "Second [copy](" + sourcePath + ")"].join("\n"),
         workspaceRoot: process.cwd()

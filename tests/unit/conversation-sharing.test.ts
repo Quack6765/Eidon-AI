@@ -71,7 +71,7 @@ describe("conversation sharing", () => {
       role: "user",
       content: "Look at this"
     });
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "receipt.txt",
         mimeType: "text/plain",
@@ -169,7 +169,7 @@ describe("conversation sharing", () => {
     expect(getSharedConversationSnapshot(secondShare!.token)?.conversation.id).toBe(conversation.id);
   });
 
-  it("migrates share columns onto existing conversation tables", () => {
+  it("migrates share columns onto existing conversation tables",  async () => {
     const columns = getDb()
       .prepare("PRAGMA table_info(conversations)")
       .all() as Array<{ name: string }>;

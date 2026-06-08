@@ -17,7 +17,7 @@ describe("public shared attachment route", () => {
       role: "user",
       content: "Attached"
     });
-    const [attachment] = createAttachments(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "notes.txt",
         mimeType: "text/plain",
@@ -61,7 +61,7 @@ describe("public shared attachment route", () => {
       content: "Visible"
     });
     const privateConversation = createConversation("Private scope", null, {}, user.id);
-    const [privateAttachment] = createAttachments(privateConversation.id, [
+    const [privateAttachment] = await createAttachments(privateConversation.id, [
       {
         filename: "private.txt",
         mimeType: "text/plain",

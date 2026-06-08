@@ -24,7 +24,7 @@ export async function runImageTurn(input: RunImageTurnInput): Promise<{ assistan
     instruction: compiled
   });
 
-  const attachments = createAttachments(
+  const attachments = await createAttachments(
     input.conversationId,
     backendResult.images.map((img) => ({
       filename: img.filename,
