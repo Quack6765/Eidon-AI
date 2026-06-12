@@ -279,6 +279,41 @@ describe("useIosPwa", () => {
     });
   });
 
+  it("updates --ios-app-height when visualViewport fires resize without a window resize event", () => {
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    let capturedListener: EventListener | null = null;
+    const fakeVisualViewport = {
+      addEventListener: vi.fn((_type: string, listener: EventListener) => {
+        capturedListener = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+
+    renderHook(() => useIosPwa());
+    expect(appHeightVar()).toBe("812px");
+    expect(capturedListener).not.toBeNull();
+
+    setInnerHeight(500);
+    act(() => {
+      capturedListener!(new Event("resize"));
+      flushRaf();
+    });
+
+    expect(appHeightVar()).toBe("500px");
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
   it("does not add listeners and does not set class when not standalone", () => {
     setNavigatorStandalone(false);
     setInnerHeight(812);

@@ -22,7 +22,7 @@ export function useIosPwa() {
     root.classList.add(IOS_PWA_CLASS);
 
     let frameHandle: number | null = null;
-    let lastHeight = 0;
+    let lastHeight = -1;
 
     const applyHeight = () => {
       frameHandle = null;
