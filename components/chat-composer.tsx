@@ -167,7 +167,7 @@ function CustomDropdown<T extends { id: string; name: string }>({
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute bottom-full left-0 z-50 mb-2 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/95 p-1.5 shadow-2xl backdrop-blur-xl"
+            className="absolute bottom-full left-0 z-50 mb-2 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/95 p-1.5 shadow-2xl backdrop-blur-md"
           >
             <div className="max-h-[300px] overflow-y-auto scrollbar-thin">
               {placeholder && (
@@ -325,7 +325,7 @@ export function ChatComposer({
       )}
       {isTemporary && !showTemporaryToggle && (
         <div className="absolute -top-[19px] right-4 z-10 flex items-center h-[19px]">
-          <div className="relative flex h-full items-center rounded-t-md border border-b-0 border-violet-500/50 border-dashed bg-zinc-900/70 backdrop-blur-2xl px-2.5 text-[10px] font-bold uppercase tracking-wider text-violet-300">
+          <div className="relative flex h-full items-center rounded-t-md border border-b-0 border-violet-500/50 border-dashed bg-zinc-900/85 backdrop-blur-md px-2.5 text-[10px] font-bold uppercase tracking-wider text-violet-300">
             Temporary
           </div>
         </div>
@@ -339,8 +339,8 @@ export function ChatComposer({
             className={cn(
               "relative flex h-full items-center gap-1 rounded-t-md border border-b-0 px-2 font-bold uppercase tracking-wider transition-all duration-200",
               isTemporary
-                ? "border-violet-500/50 border-dashed bg-zinc-900/70 backdrop-blur-2xl text-violet-300"
-                : "border-white/10 border-solid bg-zinc-900/70 backdrop-blur-2xl text-white/40 hover:text-white/60"
+                ? "border-violet-500/50 border-dashed bg-zinc-900/85 backdrop-blur-md text-violet-300"
+                : "border-white/10 border-solid bg-zinc-900/85 backdrop-blur-md text-white/40 hover:text-white/60"
             )}
           >
             {isTemporary ? (
@@ -354,7 +354,7 @@ export function ChatComposer({
       )}
     <div
       className={cn(
-        "relative z-[1] rounded-[22px] sm:rounded-[26px] border bg-zinc-900/70 backdrop-blur-2xl px-2 py-2 shadow-[0_0_40px_rgba(0,0,0,0.5)] transition-all duration-500 focus-within:border-[var(--accent)]/30 focus-within:shadow-[0_0_50px_rgba(0,0,0,0.6),0_0_20px_var(--accent-soft)]",
+        "relative z-[1] rounded-[22px] sm:rounded-[26px] border bg-zinc-900/85 backdrop-blur-md px-2 py-2 shadow-[0_8px_28px_rgba(0,0,0,0.4)] transition-all duration-500 focus-within:border-[var(--accent)]/30 focus-within:shadow-[0_8px_28px_rgba(0,0,0,0.45),0_0_16px_var(--accent-soft)]",
         isTemporary ? "border-violet-500/50 border-dashed" : "border-white/10",
         className
       )}
