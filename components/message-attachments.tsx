@@ -29,6 +29,8 @@ export function AttachmentTile({
           src={buildAttachmentUrl(attachment)}
           alt=""
           aria-hidden="true"
+          loading="lazy"
+          decoding="async"
           className={`w-full object-cover ${compact ? "h-16" : "h-28"}`}
         />
       </button>
@@ -127,6 +129,8 @@ export function AssistantInlineImageAttachments({
             src={buildAttachmentUrl(attachment)}
             alt=""
             aria-hidden="true"
+            loading="lazy"
+            decoding="async"
             className="block max-h-[28rem] w-auto max-w-full object-contain"
           />
         </button>
