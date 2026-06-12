@@ -21,19 +21,40 @@ export function useIosPwa() {
     const root = document.documentElement;
     root.classList.add(IOS_PWA_CLASS);
 
+    let frameHandle: number | null = null;
+    let lastHeight = 0;
+
     const applyHeight = () => {
-      root.style.setProperty("--ios-app-height", `${window.innerHeight}px`);
+      frameHandle = null;
+      const height = Math.round(window.innerHeight);
+      if (height === lastHeight) {
+        return;
+      }
+      lastHeight = height;
+      root.style.setProperty("--ios-app-height", `${height}px`);
+    };
+
+    const scheduleApply = () => {
+      if (frameHandle !== null) {
+        return;
+      }
+      frameHandle = window.requestAnimationFrame(applyHeight);
     };
 
     applyHeight();
-    window.addEventListener("resize", applyHeight);
-    window.addEventListener("orientationchange", applyHeight);
+    window.addEventListener("resize", scheduleApply);
+    window.addEventListener("orientationchange", scheduleApply);
+    window.visualViewport?.addEventListener("resize", scheduleApply);
 
     return () => {
+      if (frameHandle !== null) {
+        window.cancelAnimationFrame(frameHandle);
+      }
       root.classList.remove(IOS_PWA_CLASS);
       root.style.removeProperty("--ios-app-height");
-      window.removeEventListener("resize", applyHeight);
-      window.removeEventListener("orientationchange", applyHeight);
+      window.removeEventListener("resize", scheduleApply);
+      window.removeEventListener("orientationchange", scheduleApply);
+      window.visualViewport?.removeEventListener("resize", scheduleApply);
     };
   }, []);
 }
