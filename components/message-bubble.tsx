@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Copy, GitFork, LoaderCircle, Pencil, RefreshCw, Square, X } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { createCodePlugin } from "@streamdown/code";
@@ -74,7 +74,7 @@ function AnsiText({
   text: string;
   defaultTextClassName: string;
 }) {
-  const segments = parseAnsiText(text);
+  const segments = useMemo(() => parseAnsiText(text), [text]);
 
   return (
     <>
@@ -96,7 +96,7 @@ function AnsiText({
   );
 }
 
-function AssistantMarkdown({ content, isStreaming }: { content: string; isStreaming: boolean }) {
+const AssistantMarkdown = React.memo(function AssistantMarkdown({ content, isStreaming }: { content: string; isStreaming: boolean }) {
   const fallback = (
     <pre className="whitespace-pre-wrap break-words text-sm">{content}</pre>
   );
@@ -111,11 +111,7 @@ function AssistantMarkdown({ content, isStreaming }: { content: string; isStream
       </Streamdown>
     </MarkdownErrorBoundary>
   );
-}
-
-function renderAssistantMarkdown(content: string, isStreaming: boolean) {
-  return <AssistantMarkdown content={content} isStreaming={isStreaming} />;
-}
+});
 
 export function TypingIndicator({ compact = false }: { compact?: boolean }) {
   return (
@@ -211,7 +207,7 @@ function CollapsibleActionRow({
 
 const ASSISTANT_MAX_WIDTH = "max-w-full md:max-w-[95%]";
 const ASSISTANT_BUBBLE =
-  "w-fit max-w-full rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-2 md:px-4 md:py-3 text-[var(--text)] shadow-[0_8px_24px_rgba(0,0,0,0.28)]";
+  "w-fit max-w-full rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-2 md:px-4 md:py-3 text-[var(--text)] shadow-[0_2px_10px_rgba(0,0,0,0.22)]";
 const ASSISTANT_LOADING_SHELL =
   "mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1";
 
@@ -235,7 +231,7 @@ function formatPlainTextHtml(value: string) {
     .join("");
 }
 
-export function MessageBubble({
+function MessageBubbleImpl({
   message,
   streamingTimeline,
   streamingThinking,
@@ -283,164 +279,15 @@ export function MessageBubble({
   onPreviewAttachment?: (attachment: MessageAttachment) => void;
   readOnly?: boolean;
 }) {
-  const rawContent = streamingAnswer ?? message.content;
-  const rawThinking = streamingThinking ?? message.thinkingContent;
-  const actions = message.actions ?? [];
-  const liveTimeline = streamingTimeline ?? message.timeline;
-  const content = rawContent;
-  const contentForComparison = normalizeLineBreaks(rawContent);
-  const thinkingContent = rawThinking;
-  const timeline = liveTimeline ?? actions.map((action) => ({
-    ...action,
-    timelineKind: "action" as const
-  }));
-  const assistantBlocks: MessageTimelineItem[] = [];
-  const deferredMemoryProposalBlocks: Extract<MessageTimelineItem, { timelineKind: "action" }>[] = [];
-  let bufferedText = "";
-
-  function appendBufferedText() {
-    if (!bufferedText) {
-      return;
-    }
-
-    assistantBlocks.push({
-      id: `text_${message.id}_${assistantBlocks.length}`,
-      timelineKind: "text",
-      sortOrder: assistantBlocks.length,
-      createdAt: message.createdAt,
-      content: bufferedText
-    });
-    bufferedText = "";
-  }
-
-  function mergeText(current: string, next: string) {
-    return `${current}${next}`;
-  }
-
-  timeline.forEach((item) => {
-    if (item.timelineKind === "action") {
-      if (isMemoryProposalAction(item)) {
-        deferredMemoryProposalBlocks.push(item);
-        return;
-      }
-
-      appendBufferedText();
-      const previousBlock = assistantBlocks[assistantBlocks.length - 1];
-
-      if (
-        previousBlock?.timelineKind === "action" &&
-        getActionSignature(previousBlock) === getActionSignature(item)
-      ) {
-        assistantBlocks[assistantBlocks.length - 1] = item;
-        return;
-      }
-
-      assistantBlocks.push(item);
-      return;
-    }
-
-    bufferedText = mergeText(bufferedText, item.content);
-  });
-
-  appendBufferedText();
-
-  const consumedText = assistantBlocks
-    .filter(
-      (item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> =>
-        item.timelineKind === "text"
-    )
-    .map((item) => item.content)
-    .join("");
-  const normalizedConsumedText = normalizeLineBreaks(consumedText);
-
-  if (
-    contentForComparison &&
-    contentForComparison.length > normalizedConsumedText.length &&
-    contentForComparison.startsWith(normalizedConsumedText)
-  ) {
-    assistantBlocks.push({
-      id: `content_${message.id}_remaining`,
-      timelineKind: "text",
-      sortOrder: assistantBlocks.length,
-      createdAt: message.createdAt,
-      content: contentForComparison.slice(normalizedConsumedText.length)
-    });
-  }
-
-  if (deferredMemoryProposalBlocks.length) {
-    assistantBlocks.push(
-      ...deferredMemoryProposalBlocks.map((item, index) => ({
-        ...item,
-        sortOrder: assistantBlocks.length + index
-      }))
-    );
-  }
-
-  const assistantText = assistantBlocks
-    .filter(
-      (item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> =>
-        item.timelineKind === "text"
-    )
-    .map((item) => item.content)
-    .join("");
-  const renderedAssistantText =
-    message.role === "assistant"
-      ? stripAttachmentStyleImageMarkdown(assistantText, message.attachments ?? [])
-      : assistantText;
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
-  const previewController = useAttachmentPreviewController();
-
-  function toggleToolItem(id: string) {
-    setToolOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
-  }
-
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
   const contentRef = useRef<HTMLDivElement | null>(null);
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   const copyResetHandle = useRef<number | null>(null);
-  const assistantAttachments = message.role === "assistant" ? message.attachments ?? [] : [];
-  const assistantImageAttachments = assistantAttachments.filter((attachment) => attachment.kind === "image");
-  const assistantFileAttachments = assistantAttachments.filter((attachment) => attachment.kind === "text");
-  const renderedAssistantBlockContentById = new Map<string, string>();
-  let lastRenderableAssistantTextId: string | null = null;
-
-  if (message.role === "assistant") {
-    assistantBlocks.forEach((item) => {
-      if (item.timelineKind !== "text") {
-        return;
-      }
-
-      const renderedContent = stripAttachmentStyleImageMarkdown(item.content, message.attachments ?? []);
-
-      renderedAssistantBlockContentById.set(item.id, renderedContent);
-
-      if (renderedContent) {
-        lastRenderableAssistantTextId = item.id;
-      }
-    });
-  }
-
-  const showStandaloneAssistantImageBubble =
-    message.role === "assistant" &&
-    assistantImageAttachments.length > 0 &&
-    lastRenderableAssistantTextId === null;
-  const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || hasThinking || Boolean(thinkingContent));
-  const showUserBubbleActions = Boolean(content) && !awaitingFirstToken;
-  const isAssistantStreaming =
-    message.role === "assistant" &&
-    (
-      message.status === "streaming" ||
-      streamingTimeline !== undefined ||
-      streamingThinking !== undefined ||
-      streamingAnswer !== undefined
-    );
-  const showAssistantBubbleActions =
-    Boolean(renderedAssistantText) &&
-    !awaitingFirstToken &&
-    !isAssistantStreaming;
+  const previewController = useAttachmentPreviewController();
 
   useEffect(() => {
     setDraft(message.content);
@@ -463,6 +310,173 @@ export function MessageBubble({
       }
     };
   }, []);
+
+  const derived = useMemo(() => {
+    const rawContent = streamingAnswer ?? message.content;
+    const rawThinking = streamingThinking ?? message.thinkingContent;
+    const actions = message.actions ?? [];
+    const liveTimeline = streamingTimeline ?? message.timeline;
+    const contentForComparison = normalizeLineBreaks(rawContent);
+    const timeline = liveTimeline ?? actions.map((action) => ({
+      ...action,
+      timelineKind: "action" as const
+    }));
+    const assistantBlocks: MessageTimelineItem[] = [];
+    const deferredMemoryProposalBlocks: Extract<MessageTimelineItem, { timelineKind: "action" }>[] = [];
+    let bufferedText = "";
+
+    function appendBufferedText() {
+      if (!bufferedText) {
+        return;
+      }
+
+      assistantBlocks.push({
+        id: `text_${message.id}_${assistantBlocks.length}`,
+        timelineKind: "text",
+        sortOrder: assistantBlocks.length,
+        createdAt: message.createdAt,
+        content: bufferedText
+      });
+      bufferedText = "";
+    }
+
+    function mergeText(current: string, next: string) {
+      return `${current}${next}`;
+    }
+
+    timeline.forEach((item) => {
+      if (item.timelineKind === "action") {
+        if (isMemoryProposalAction(item)) {
+          deferredMemoryProposalBlocks.push(item);
+          return;
+        }
+
+        appendBufferedText();
+        const previousBlock = assistantBlocks[assistantBlocks.length - 1];
+
+        if (
+          previousBlock?.timelineKind === "action" &&
+          getActionSignature(previousBlock) === getActionSignature(item)
+        ) {
+          assistantBlocks[assistantBlocks.length - 1] = item;
+          return;
+        }
+
+        assistantBlocks.push(item);
+        return;
+      }
+
+      bufferedText = mergeText(bufferedText, item.content);
+    });
+
+    appendBufferedText();
+
+    const consumedText = assistantBlocks
+      .filter(
+        (item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> =>
+          item.timelineKind === "text"
+      )
+      .map((item) => item.content)
+      .join("");
+    const normalizedConsumedText = normalizeLineBreaks(consumedText);
+
+    if (
+      contentForComparison &&
+      contentForComparison.length > normalizedConsumedText.length &&
+      contentForComparison.startsWith(normalizedConsumedText)
+    ) {
+      assistantBlocks.push({
+        id: `content_${message.id}_remaining`,
+        timelineKind: "text",
+        sortOrder: assistantBlocks.length,
+        createdAt: message.createdAt,
+        content: contentForComparison.slice(normalizedConsumedText.length)
+      });
+    }
+
+    if (deferredMemoryProposalBlocks.length) {
+      assistantBlocks.push(
+        ...deferredMemoryProposalBlocks.map((item, index) => ({
+          ...item,
+          sortOrder: assistantBlocks.length + index
+        }))
+      );
+    }
+
+    const assistantText = assistantBlocks
+      .filter(
+        (item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> =>
+          item.timelineKind === "text"
+      )
+      .map((item) => item.content)
+      .join("");
+    const renderedAssistantText =
+      message.role === "assistant"
+        ? stripAttachmentStyleImageMarkdown(assistantText, message.attachments ?? [])
+        : assistantText;
+    const renderedAssistantBlockContentById = new Map<string, string>();
+    let lastRenderableAssistantTextId: string | null = null;
+
+    if (message.role === "assistant") {
+      assistantBlocks.forEach((item) => {
+        if (item.timelineKind !== "text") {
+          return;
+        }
+
+        const renderedContent = stripAttachmentStyleImageMarkdown(item.content, message.attachments ?? []);
+
+        renderedAssistantBlockContentById.set(item.id, renderedContent);
+
+        if (renderedContent) {
+          lastRenderableAssistantTextId = item.id;
+        }
+      });
+    }
+
+    return {
+      content: rawContent,
+      thinkingContent: rawThinking,
+      assistantBlocks,
+      renderedAssistantText,
+      renderedAssistantBlockContentById,
+      lastRenderableAssistantTextId
+    };
+  }, [message, streamingAnswer, streamingThinking, streamingTimeline]);
+
+  const {
+    content,
+    thinkingContent,
+    assistantBlocks,
+    renderedAssistantText,
+    renderedAssistantBlockContentById,
+    lastRenderableAssistantTextId
+  } = derived;
+
+  function toggleToolItem(id: string) {
+    setToolOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
+  }
+
+  const assistantAttachments = message.role === "assistant" ? message.attachments ?? [] : [];
+  const assistantImageAttachments = assistantAttachments.filter((attachment) => attachment.kind === "image");
+  const assistantFileAttachments = assistantAttachments.filter((attachment) => attachment.kind === "text");
+  const showStandaloneAssistantImageBubble =
+    message.role === "assistant" &&
+    assistantImageAttachments.length > 0 &&
+    lastRenderableAssistantTextId === null;
+  const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || hasThinking || Boolean(thinkingContent));
+  const showUserBubbleActions = Boolean(content) && !awaitingFirstToken;
+  const isAssistantStreaming =
+    message.role === "assistant" &&
+    (
+      message.status === "streaming" ||
+      streamingTimeline !== undefined ||
+      streamingThinking !== undefined ||
+      streamingAnswer !== undefined
+    );
+  const showAssistantBubbleActions =
+    Boolean(renderedAssistantText) &&
+    !awaitingFirstToken &&
+    !isAssistantStreaming;
 
   function setCopyFeedback(nextState: "copied" | "error") {
     setCopyState(nextState);
@@ -718,7 +732,7 @@ export function MessageBubble({
               <div className="group flex w-full min-w-0 flex-col items-start">
                 <MessageContent className={`w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
                   <div
-                    className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-red-300/85 shadow-[0_8px_24px_rgba(0,0,0,0.28)] md:px-4 md:py-3"
+                    className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-red-300/85 shadow-[0_2px_10px_rgba(0,0,0,0.22)] md:px-4 md:py-3"
                     data-testid="assistant-error-bubble"
                   >
                     {content || "Something went wrong"}
@@ -779,7 +793,7 @@ export function MessageBubble({
                           data-testid="assistant-message-bubble"
                         >
                           <div className="markdown-body">
-                            {renderAssistantMarkdown(renderedContent, isAssistantStreaming)}
+                            <AssistantMarkdown content={renderedContent} isStreaming={isAssistantStreaming} />
                           </div>
                           {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
                             <div className="mt-3">
@@ -867,6 +881,8 @@ export function MessageBubble({
     </Message>
   );
 }
+
+export const MessageBubble = React.memo(MessageBubbleImpl);
 
 export function StreamingPlaceholder({
   createdAt,
