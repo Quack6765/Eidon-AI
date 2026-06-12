@@ -4276,4 +4276,37 @@ describe("chat view", () => {
       expect.objectContaining({ type: "message" })
     );
   });
+
+  it("windows long conversations to the most recent 60 messages and expands on demand", async () => {
+    const payload = createPayload({
+      messages: Array.from({ length: 70 }, (_, index) =>
+        createMessage({
+          id: `msg_window_${index}`,
+          role: index % 2 === 0 ? "user" : "assistant",
+          content: `Windowed message ${index}`
+        })
+      )
+    });
+
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+
+    expect(container.querySelectorAll("[data-message-id]")).toHaveLength(60);
+    expect(screen.queryByText("Windowed message 9")).toBeNull();
+    expect(screen.getByText("Windowed message 10")).toBeInTheDocument();
+    expect(screen.getByText("Windowed message 69")).toBeInTheDocument();
+
+    const expandButton = screen.getByRole("button", { name: "Show earlier messages (10)" });
+
+    await act(async () => {
+      fireEvent.click(expandButton);
+    });
+
+    expect(container.querySelectorAll("[data-message-id]")).toHaveLength(70);
+    expect(screen.getByText("Windowed message 0")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show earlier messages/ })).toBeNull();
+  });
 });

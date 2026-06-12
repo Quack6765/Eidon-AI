@@ -76,6 +76,9 @@ type ConversationPayload = {
 };
 
 
+const INITIAL_VISIBLE_MESSAGE_COUNT = 60;
+const VISIBLE_MESSAGE_INCREMENT = 100;
+
 function StickToBottomBridge({
   onAtBottomChange,
   scrollToBottomRef
@@ -276,13 +279,19 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       );
     });
   }, [messages]);
+  const [visibleMessageLimit, setVisibleMessageLimit] = useState(INITIAL_VISIBLE_MESSAGE_COUNT);
+  const hiddenMessageCount = Math.max(renderableMessages.length - visibleMessageLimit, 0);
+  const visibleMessages = useMemo(
+    () => (hiddenMessageCount > 0 ? renderableMessages.slice(hiddenMessageCount) : renderableMessages),
+    [renderableMessages, hiddenMessageCount]
+  );
   const hasPendingLocalSubmission = pendingLocalSubmissionsRef.current.length > 0;
   const lastUserMsgIndex = useMemo(() => {
-    for (let i = renderableMessages.length - 1; i >= 0; i--) {
-      if (renderableMessages[i].role === "user") return i;
+    for (let i = visibleMessages.length - 1; i >= 0; i--) {
+      if (visibleMessages[i].role === "user") return i;
     }
     return -1;
-  }, [renderableMessages]);
+  }, [visibleMessages]);
   const needsMessageSync =
     isSending ||
     hasPendingLocalSubmission ||
@@ -456,7 +465,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     if (!pendingAnchorMessageIdRef.current) return;
     const messageId = pendingAnchorMessageIdRef.current;
-    const exists = renderableMessages.some((m) => m.id === messageId);
+    const exists = visibleMessages.some((m) => m.id === messageId);
     if (!exists) return;
 
     pendingAnchorMessageIdRef.current = null;
@@ -472,7 +481,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         }
       });
     });
-  }, [renderableMessages]);
+  }, [visibleMessages]);
 
   useEffect(() => {
     if (!shouldAutofocusTextInput()) {
@@ -1899,13 +1908,22 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         <ConversationContent
           className="no-scrollbar overscroll-y-contain gap-2.5 px-2 pt-4 md:gap-4 md:px-8"
         >
+          {hiddenMessageCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setVisibleMessageLimit((current) => current + VISIBLE_MESSAGE_INCREMENT)}
+              className="mx-auto mb-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5 text-[11px] font-medium uppercase tracking-wider text-white/55 transition hover:bg-white/[0.08] hover:text-white/80"
+            >
+              Show earlier messages ({hiddenMessageCount})
+            </button>
+          ) : null}
           {(() => {
             if (initialMessageIdsRef.current === null) {
-              initialMessageIdsRef.current = new Set(renderableMessages.map((m) => m.id));
+              initialMessageIdsRef.current = new Set(visibleMessages.map((m) => m.id));
             }
             return null;
           })()}
-          {renderableMessages.map((message, index) => {
+          {visibleMessages.map((message, index) => {
             const isStreamingMessage = message.id === streamMessageId;
 
             const wasPresentOnInit = initialMessageIdsRef.current!.has(message.id);
@@ -1919,7 +1937,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               <div
                 key={renderKeyByMessageIdRef.current.get(message.id) ?? message.id}
                 data-message-id={message.id}
-                className={shouldAnimate ? "animate-slide-up" : ""}
+                className={shouldAnimate ? "cv-auto animate-slide-up" : "cv-auto"}
                 style={shouldAnimate ? { animationFillMode: "forwards" } : undefined}
               >
                 {isStreamingMessage ? (
