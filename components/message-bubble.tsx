@@ -286,7 +286,9 @@ function MessageBubbleImpl({
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   const copyResetHandle = useRef<number | null>(null);
   const previewController = useAttachmentPreviewController();
-  const userPlugins = useStreamdownPlugins(streamingAnswer ?? message.content);
+  const userPlugins = useStreamdownPlugins(
+    message.role === "user" ? streamingAnswer ?? message.content : ""
+  );
 
   useEffect(() => {
     setDraft(message.content);
