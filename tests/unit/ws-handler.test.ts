@@ -7,6 +7,7 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/conversations", () => ({
   getConversationSnapshot: vi.fn(),
+  getMessage: vi.fn(),
   listActiveConversations: vi.fn(),
   createQueuedMessage: vi.fn(),
   listQueuedMessages: vi.fn(),
@@ -319,16 +320,17 @@ describe("ws-handler", () => {
     const { verifySessionToken } = await import("@/lib/auth");
     (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });
 
-    const { getConversationSnapshot, listActiveConversations } = await import("@/lib/conversations");
+    const { getConversationSnapshot, getMessage, listActiveConversations } = await import("@/lib/conversations");
     (listActiveConversations as ReturnType<typeof vi.fn>).mockReturnValue([]);
 
     const userMessage = { id: "msg-user-1", role: "user", content: "hello" };
 
     (getConversationSnapshot as ReturnType<typeof vi.fn>).mockReturnValue({
       conversation: { id: "conv-1", title: "Test", is_active: false },
-      messages: [userMessage],
+      messages: [],
       queuedMessages: []
     });
+    (getMessage as ReturnType<typeof vi.fn>).mockReturnValue(userMessage);
 
     const { startChatTurn } = await import("@/lib/chat-turn");
     (startChatTurn as ReturnType<typeof vi.fn>).mockImplementation(
@@ -373,19 +375,21 @@ describe("ws-handler", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const persisted = broadcast.find((m) => (m as { type: string }).type === "user_message_persisted");
-    expect(persisted).toEqual({
+    expect(getMessage).toHaveBeenCalledWith("msg-user-1", "user-1");
+    const persisted = broadcast.filter((m) => (m as { type: string }).type === "user_message_persisted");
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toEqual({
       type: "user_message_persisted",
       conversationId: "conv-1",
       message: userMessage
     });
   });
 
-  it("does not broadcast user_message_persisted when snapshot does not contain the userMessageId", async () => {
+  it("does not broadcast user_message_persisted when the persisted message lookup returns null", async () => {
     const { verifySessionToken } = await import("@/lib/auth");
     (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });
 
-    const { getConversationSnapshot, listActiveConversations } = await import("@/lib/conversations");
+    const { getConversationSnapshot, getMessage, listActiveConversations } = await import("@/lib/conversations");
     (listActiveConversations as ReturnType<typeof vi.fn>).mockReturnValue([]);
 
     (getConversationSnapshot as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -393,6 +397,7 @@ describe("ws-handler", () => {
       messages: [],
       queuedMessages: []
     });
+    (getMessage as ReturnType<typeof vi.fn>).mockReturnValue(null);
 
     const { startChatTurn } = await import("@/lib/chat-turn");
     (startChatTurn as ReturnType<typeof vi.fn>).mockImplementation(
@@ -437,7 +442,8 @@ describe("ws-handler", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    const persisted = broadcast.find((m) => (m as { type: string }).type === "user_message_persisted");
-    expect(persisted).toBeUndefined();
+    expect(getMessage).toHaveBeenCalledWith("msg-user-missing", "user-1");
+    const persisted = broadcast.filter((m) => (m as { type: string }).type === "user_message_persisted");
+    expect(persisted).toHaveLength(0);
   });
 });

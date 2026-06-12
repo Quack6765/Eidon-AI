@@ -8,6 +8,7 @@ import {
   createQueuedMessage,
   deleteQueuedMessage,
   getConversationSnapshot,
+  getMessage,
   listActiveConversations,
   listQueuedMessages,
   moveQueuedMessageToFront,
@@ -259,8 +260,7 @@ async function handleUserMessage(
   }
   await startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? [], msg.personaId, {
     onMessagesCreated({ userMessageId }) {
-      const updatedSnapshot = getConversationSnapshot(msg.conversationId, currentUserId ?? undefined);
-      const userMessage = updatedSnapshot?.messages.find((message) => message.id === userMessageId);
+      const userMessage = getMessage(userMessageId, currentUserId ?? undefined);
       if (userMessage) {
         mgr.broadcast(msg.conversationId, {
           type: "user_message_persisted",
