@@ -257,5 +257,17 @@ async function handleUserMessage(
   if (!mgr.hasSubscribers(msg.conversationId)) {
     mgr.subscribe(msg.conversationId, ws);
   }
-  await startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? [], msg.personaId);
+  await startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? [], msg.personaId, {
+    onMessagesCreated({ userMessageId }) {
+      const updatedSnapshot = getConversationSnapshot(msg.conversationId, currentUserId ?? undefined);
+      const userMessage = updatedSnapshot?.messages.find((message) => message.id === userMessageId);
+      if (userMessage) {
+        mgr.broadcast(msg.conversationId, {
+          type: "user_message_persisted",
+          conversationId: msg.conversationId,
+          message: userMessage
+        });
+      }
+    }
+  });
 }

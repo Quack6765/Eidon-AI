@@ -16,6 +16,7 @@ export type ServerMessage =
   | { type: "snapshot"; conversationId: string; messages: unknown[]; actions: unknown[]; segments: unknown[]; queuedMessages: QueuedMessage[] }
   | { type: "queue_updated"; conversationId: string; queuedMessages: QueuedMessage[] }
   | { type: "delta"; conversationId: string; event: ChatStreamEvent }
+  | { type: "user_message_persisted"; conversationId: string; message: unknown }
   | { type: "error"; message: string }
   | { type: "conversation_created"; conversation: { id: string; title: string; folderId: string | null; createdAt: string; updatedAt: string; isActive: boolean; isTemporary: boolean } }
   | { type: "conversation_deleted"; conversationId: string }
