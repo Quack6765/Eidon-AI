@@ -1608,7 +1608,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         throw new Error(message);
       }
 
-      router.refresh();
     } catch (caughtError) {
       setProviderProfileId(previousProviderProfileId);
       setError(

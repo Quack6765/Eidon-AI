@@ -402,7 +402,7 @@ export function Sidebar({
     const payload = (await response.json()) as { conversation: Conversation };
     const href = `/chat/${payload.conversation.id}`;
     if (onClose) onClose();
-    window.location.assign(href);
+    router.push(href);
   }
 
   async function handleCreateFolder() {
