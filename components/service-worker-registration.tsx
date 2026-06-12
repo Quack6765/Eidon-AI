@@ -8,7 +8,9 @@ export function ServiceWorkerRegistration() {
       return;
     }
 
-    void navigator.serviceWorker.register("/sw.js").catch(() => {});
+    void navigator.serviceWorker.register("/sw.js").catch((error) => {
+      console.warn("[sw] registration failed", error);
+    });
   }, []);
 
   return null;
