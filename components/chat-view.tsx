@@ -714,6 +714,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         );
         setStreamMessageId(null);
         updateStreamTimeline([]);
+        streamBuffer.reset();
         setIsSending(false);
       }
       setError("");
@@ -884,6 +885,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           setError("");
           setStreamMessageId(null);
           updateStreamTimeline([]);
+          streamBuffer.reset();
           setIsSending(false);
           break;
         case "delta":
