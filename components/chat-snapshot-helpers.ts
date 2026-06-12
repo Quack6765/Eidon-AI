@@ -198,7 +198,8 @@ function areMessagesEquivalent(left: Message, right: Message) {
     left.content !== right.content ||
     left.thinkingContent !== right.thinkingContent ||
     left.systemKind !== right.systemKind ||
-    left.compactedAt !== right.compactedAt
+    left.compactedAt !== right.compactedAt ||
+    left.estimatedTokens !== right.estimatedTokens
   ) {
     return false;
   }
@@ -209,7 +210,8 @@ function areMessagesEquivalent(left: Message, right: Message) {
 
   return (
     JSON.stringify(left.timeline ?? null) === JSON.stringify(right.timeline ?? null) &&
-    JSON.stringify(left.actions ?? null) === JSON.stringify(right.actions ?? null)
+    JSON.stringify(left.actions ?? null) === JSON.stringify(right.actions ?? null) &&
+    JSON.stringify(left.textSegments ?? null) === JSON.stringify(right.textSegments ?? null)
   );
 }
 
@@ -228,8 +230,10 @@ export function reconcileSnapshotMessages(
     };
   }
 
+  const currentById = new Map(current.map((m) => [m.id, m] as const));
+
   const merged = sanitizedSnapshot.map((snapshotMsg) => {
-    const currentMsg = current.find((m) => m.id === snapshotMsg.id);
+    const currentMsg = currentById.get(snapshotMsg.id);
 
     if (currentMsg && currentMsg.id === activeStreamMessageId) {
       return currentMsg;
