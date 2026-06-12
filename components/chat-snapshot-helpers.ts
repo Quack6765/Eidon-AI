@@ -190,6 +190,29 @@ export function sanitizeMessages(messages: Message[] | undefined) {
   return messages.filter((message) => !isLegacyCompactionNotice(message));
 }
 
+function areMessagesEquivalent(left: Message, right: Message) {
+  if (
+    left.id !== right.id ||
+    left.role !== right.role ||
+    left.status !== right.status ||
+    left.content !== right.content ||
+    left.thinkingContent !== right.thinkingContent ||
+    left.systemKind !== right.systemKind ||
+    left.compactedAt !== right.compactedAt
+  ) {
+    return false;
+  }
+
+  if (getAttachmentIdSignature(left.attachments) !== getAttachmentIdSignature(right.attachments)) {
+    return false;
+  }
+
+  return (
+    JSON.stringify(left.timeline ?? null) === JSON.stringify(right.timeline ?? null) &&
+    JSON.stringify(left.actions ?? null) === JSON.stringify(right.actions ?? null)
+  );
+}
+
 export function reconcileSnapshotMessages(
   current: Message[],
   snapshot: Message[] | undefined,
@@ -213,6 +236,10 @@ export function reconcileSnapshotMessages(
     }
 
     if (currentMsg && currentMsg.status === "completed" && snapshotMsg.status === "streaming") {
+      return currentMsg;
+    }
+
+    if (currentMsg && areMessagesEquivalent(currentMsg, snapshotMsg)) {
       return currentMsg;
     }
 
@@ -290,8 +317,13 @@ export function reconcileSnapshotMessages(
     return !isLegacyCompactionNotice(m);
   });
 
+  const nextMessages = [...merged, ...pendingLocalMessages];
+  const unchanged =
+    nextMessages.length === current.length &&
+    nextMessages.every((message, index) => message === current[index]);
+
   return {
-    messages: [...merged, ...pendingLocalMessages],
+    messages: unchanged ? current : nextMessages,
     pendingLocalSubmissions: nextPendingLocalSubmissions.filter(
       (submission) => !confirmedLocalIds.has(submission.localMessageId)
     ),
