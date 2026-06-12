@@ -3,8 +3,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Copy, GitFork, LoaderCircle, Pencil, RefreshCw, Square, X } from "lucide-react";
 import { Streamdown } from "streamdown";
-import { createCodePlugin } from "@streamdown/code";
-import { mermaid } from "@streamdown/mermaid";
 import { MarkdownErrorBoundary } from "@/components/markdown-error-boundary";
 import {
   AttachmentPreviewModal,
@@ -13,6 +11,7 @@ import {
 import { CompactionIndicator } from "@/components/compaction-indicator";
 import { parseAnsiText } from "@/lib/ansi";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
+import { useStreamdownPlugins } from "@/lib/streamdown-plugins";
 import { writeRichTextToClipboard } from "@/lib/clipboard";
 import {
   isMemoryProposalAction,
@@ -39,8 +38,6 @@ import {
   MessageAction
 } from "@/components/ai-elements/message";
 
-const code = createCodePlugin({ themes: ["dracula", "dracula"] });
-const STREAMDOWN_PLUGINS = { code, mermaid };
 const COPY_RESET_DELAY_MS = 1600;
 
 
@@ -97,13 +94,14 @@ function AnsiText({
 }
 
 const AssistantMarkdown = React.memo(function AssistantMarkdown({ content, isStreaming }: { content: string; isStreaming: boolean }) {
+  const plugins = useStreamdownPlugins(content);
   const fallback = (
     <pre className="whitespace-pre-wrap break-words text-sm">{content}</pre>
   );
   return (
     <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
       <Streamdown
-        plugins={STREAMDOWN_PLUGINS}
+        plugins={plugins}
         caret={isStreaming ? "block" : undefined}
         isAnimating={isStreaming}
       >
@@ -288,6 +286,7 @@ function MessageBubbleImpl({
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   const copyResetHandle = useRef<number | null>(null);
   const previewController = useAttachmentPreviewController();
+  const userPlugins = useStreamdownPlugins(streamingAnswer ?? message.content);
 
   useEffect(() => {
     setDraft(message.content);
@@ -571,7 +570,7 @@ function MessageBubbleImpl({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body">
-                  <Streamdown mode="static" plugins={STREAMDOWN_PLUGINS}>{content.replace(/\n/g, "  \n")}</Streamdown>
+                  <Streamdown mode="static" plugins={userPlugins}>{content.replace(/\n/g, "  \n")}</Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
