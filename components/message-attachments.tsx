@@ -129,7 +129,6 @@ export function AssistantInlineImageAttachments({
             src={buildAttachmentUrl(attachment)}
             alt=""
             aria-hidden="true"
-            loading="lazy"
             decoding="async"
             className="block max-h-[28rem] w-auto max-w-full object-contain"
           />
