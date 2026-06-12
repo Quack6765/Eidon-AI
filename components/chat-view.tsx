@@ -435,7 +435,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     const el = queueBannerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      setQueueBannerHeight(el.offsetHeight);
+      const next = el.offsetHeight;
+      setQueueBannerHeight((current) => (current === next ? current : next));
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -445,7 +446,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     const el = composerAreaRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      setComposerAreaHeight(el.offsetHeight);
+      const next = el.offsetHeight;
+      setComposerAreaHeight((current) => (current === next ? current : next));
     });
     observer.observe(el);
     return () => observer.disconnect();
