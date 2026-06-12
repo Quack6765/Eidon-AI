@@ -234,6 +234,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
 
   const pendingAnchorMessageIdRef = useRef<string | null>(null);
+  const expandAnchorMessageIdRef = useRef<string | null>(null);
   const bootstrapPayloadRef = useRef<{
     message: string;
     attachments: MessageAttachment[];
@@ -480,6 +481,20 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           anchorSpacerRef.current.style.height = "";
         }
       });
+    });
+  }, [visibleMessages]);
+
+  useEffect(() => {
+    if (!expandAnchorMessageIdRef.current) return;
+    const messageId = expandAnchorMessageIdRef.current;
+    const targetEl = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!targetEl) return;
+
+    expandAnchorMessageIdRef.current = null;
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-message-id="${messageId}"]`)
+        ?.scrollIntoView({ block: "start", behavior: "auto" });
     });
   }, [visibleMessages]);
 
@@ -1911,7 +1926,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           {hiddenMessageCount > 0 ? (
             <button
               type="button"
-              onClick={() => setVisibleMessageLimit((current) => current + VISIBLE_MESSAGE_INCREMENT)}
+              onClick={() => {
+                expandAnchorMessageIdRef.current = visibleMessages[0]?.id ?? null;
+                setVisibleMessageLimit((current) => current + VISIBLE_MESSAGE_INCREMENT);
+              }}
               className="mx-auto mb-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5 text-[11px] font-medium uppercase tracking-wider text-white/55 transition hover:bg-white/[0.08] hover:text-white/80"
             >
               Show earlier messages ({hiddenMessageCount})
@@ -1919,7 +1937,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           ) : null}
           {(() => {
             if (initialMessageIdsRef.current === null) {
-              initialMessageIdsRef.current = new Set(visibleMessages.map((m) => m.id));
+              initialMessageIdsRef.current = new Set(renderableMessages.map((m) => m.id));
             }
             return null;
           })()}
@@ -1937,7 +1955,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               <div
                 key={renderKeyByMessageIdRef.current.get(message.id) ?? message.id}
                 data-message-id={message.id}
-                className={shouldAnimate ? "cv-auto animate-slide-up" : "cv-auto"}
+                className={[
+                  isStreamingMessage ? null : "cv-auto",
+                  shouldAnimate ? "animate-slide-up" : null
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
                 style={shouldAnimate ? { animationFillMode: "forwards" } : undefined}
               >
                 {isStreamingMessage ? (

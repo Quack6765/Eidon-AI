@@ -4299,14 +4299,55 @@ describe("chat view", () => {
     expect(screen.getByText("Windowed message 10")).toBeInTheDocument();
     expect(screen.getByText("Windowed message 69")).toBeInTheDocument();
 
+    const animatedCountBeforeExpansion = container.querySelectorAll(".animate-slide-up").length;
+    const scrollIntoViewSpy = vi.spyOn(Element.prototype, "scrollIntoView");
     const expandButton = screen.getByRole("button", { name: "Show earlier messages (10)" });
 
     await act(async () => {
       fireEvent.click(expandButton);
     });
+    await flushAnimationFrame();
 
     expect(container.querySelectorAll("[data-message-id]")).toHaveLength(70);
     expect(screen.getByText("Windowed message 0")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show earlier messages/ })).toBeNull();
+    expect(container.querySelectorAll(".animate-slide-up")).toHaveLength(animatedCountBeforeExpansion);
+    expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: "start", behavior: "auto" });
+
+    scrollIntoViewSpy.mockRestore();
+  });
+
+  it("keeps the expander visible after a partial expansion of a very long conversation", async () => {
+    const payload = createPayload({
+      messages: Array.from({ length: 170 }, (_, index) =>
+        createMessage({
+          id: `msg_partial_${index}`,
+          role: index % 2 === 0 ? "user" : "assistant",
+          content: `Partial message ${index}`
+        })
+      )
+    });
+
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+
+    expect(container.querySelectorAll("[data-message-id]")).toHaveLength(60);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show earlier messages (110)" }));
+    });
+
+    expect(container.querySelectorAll("[data-message-id]")).toHaveLength(160);
+    expect(screen.getByRole("button", { name: "Show earlier messages (10)" })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show earlier messages (10)" }));
+    });
+
+    expect(container.querySelectorAll("[data-message-id]")).toHaveLength(170);
     expect(screen.queryByRole("button", { name: /Show earlier messages/ })).toBeNull();
   });
 });
