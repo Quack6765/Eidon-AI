@@ -3,22 +3,25 @@ import { createStreamBuffer } from "@/lib/stream-buffer";
 
 function createManualScheduler() {
   let nowMs = 0;
-  const queue: Array<() => void> = [];
+  let nextHandle = 0;
+  const queue = new Map<number, () => void>();
   return {
     schedule: (cb: () => void) => {
-      queue.push(cb);
-      return queue.length;
+      nextHandle += 1;
+      queue.set(nextHandle, cb);
+      return nextHandle;
     },
     cancel: (handle: number) => {
-      queue[handle - 1] = () => undefined;
+      queue.delete(handle);
     },
     now: () => nowMs,
     advance(ms: number) {
       nowMs += ms;
-      const pending = queue.splice(0, queue.length);
+      const pending = [...queue.values()];
+      queue.clear();
       for (const cb of pending) cb();
     },
-    pendingCount: () => queue.length
+    pendingCount: () => queue.size
   };
 }
 

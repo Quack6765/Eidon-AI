@@ -25,12 +25,12 @@ export type StreamBuffer = {
 
 const DEFAULT_ANSWER_CHARS_PER_SECOND = 400;
 const DEFAULT_THINKING_CHARS_PER_SECOND = 250;
-const EMPTY_SNAPSHOT: StreamBufferSnapshot = {
+const EMPTY_SNAPSHOT: StreamBufferSnapshot = Object.freeze({
   answerTarget: "",
   answerDisplay: "",
   thinkingTarget: "",
   thinkingDisplay: ""
-};
+});
 
 function defaultSchedule(callback: () => void): number {
   if (typeof requestAnimationFrame === "function") {
