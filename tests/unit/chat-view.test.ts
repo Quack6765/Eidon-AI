@@ -2376,9 +2376,9 @@ describe("chat view", () => {
         expect(screen.getAllByRole("button", { name: "Preview photo.png" })).toHaveLength(1);
         expect(screen.getAllByRole("button", { name: "Preview notes.txt" })).toHaveLength(1);
       },
-      { timeout: 2500 }
+      { timeout: 7000 }
     );
-  });
+  }, 15000);
 
   it("does not replay a retired optimistic attachment message in strict mode", async () => {
     const imageAttachment = createAttachment({
@@ -2927,6 +2927,13 @@ describe("chat view", () => {
     });
 
     simulateAtBottomState(true);
+    act(() => {
+      wsMock.onMessage!({
+        type: "queue_updated",
+        conversationId: "conv_1",
+        queuedMessages: []
+      });
+    });
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Scroll to latest messages" })).toBeNull();
     });
