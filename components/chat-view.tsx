@@ -84,15 +84,13 @@ function StickToBottomBridge({
   scrollToBottomRef
 }: {
   onAtBottomChange: (atBottom: boolean) => void;
-  scrollToBottomRef: React.MutableRefObject<(() => void) | null>;
+  scrollToBottomRef: React.RefObject<(() => void) | null>;
 }) {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
 
-  const prevRef = useRef(isAtBottom);
-  if (prevRef.current !== isAtBottom) {
-    prevRef.current = isAtBottom;
+  useEffect(() => {
     onAtBottomChange(isAtBottom);
-  }
+  }, [isAtBottom, onAtBottomChange]);
 
   useEffect(() => {
     scrollToBottomRef.current = scrollToBottom;
