@@ -146,6 +146,16 @@ export function Shell({
     void loadShareState();
   };
 
+  const openShareModalRef = useRef(openShareModal);
+  openShareModalRef.current = openShareModal;
+  const shareContextValue = useMemo(
+    () => ({
+      canShare: Boolean(shareConversation),
+      openShareModal: () => openShareModalRef.current()
+    }),
+    [shareConversation]
+  );
+
   const updateShare = async (enabled: boolean) => {
     if (!shareConversation) {
       return;
@@ -426,7 +436,7 @@ export function Shell({
           )}
         </div>
 
-        <ShareConversationProvider value={{ canShare: Boolean(shareConversation), openShareModal }}>
+        <ShareConversationProvider value={shareContextValue}>
           <ContextTokensProvider>{children}</ContextTokensProvider>
         </ShareConversationProvider>
       </div>
