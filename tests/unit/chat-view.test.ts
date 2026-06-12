@@ -3031,6 +3031,48 @@ describe("chat view", () => {
     expect(screen.getByText("Server-backed prompt")).toBeInTheDocument();
   });
 
+  it("replaces the optimistic local message in place when user_message_persisted arrives", async () => {
+    const { container } = renderWithProviderStrict(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          messages: [
+            createMessage({ id: "msg_prior", role: "assistant", content: "Earlier reply" })
+          ]
+        })
+      })
+    );
+    const textarea = screen.getByRole("textbox");
+
+    fireEvent.change(textarea, { target: { value: "Hello there" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-message-id^="local_"]')).not.toBeNull();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "user_message_persisted",
+        conversationId: "conv_1",
+        message: createMessage({
+          id: "msg_user_server",
+          role: "user",
+          content: "Hello there"
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-message-id="msg_user_server"]')).not.toBeNull();
+      expect(container.querySelector('[data-message-id^="local_"]')).toBeNull();
+    });
+    expect(screen.getAllByText("Hello there")).toHaveLength(1);
+    const messageIds = Array.from(container.querySelectorAll("[data-message-id]")).map((el) =>
+      el.getAttribute("data-message-id")
+    );
+    expect(messageIds).toEqual(["msg_prior", "msg_user_server"]);
+  });
+
   it("scrolls to anchor the user message near the top after sending", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const textarea = screen.getByRole("textbox");

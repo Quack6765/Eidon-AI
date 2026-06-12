@@ -101,6 +101,20 @@ describe("createStreamBuffer", () => {
     expect(buffer.getSnapshot().answerDisplay).toBe("long");
   });
 
+  it("setAnswer snaps display and notifies once when a same-length divergent target arrives", () => {
+    const scheduler = createManualScheduler();
+    const buffer = createStreamBuffer({ ...scheduler });
+    buffer.setAnswer("abc", { immediate: true });
+    let notifications = 0;
+    buffer.subscribe(() => {
+      notifications += 1;
+    });
+    buffer.setAnswer("abd");
+    expect(buffer.getSnapshot().answerDisplay).toBe("abd");
+    expect(notifications).toBe(1);
+    expect(scheduler.pendingCount()).toBe(0);
+  });
+
   it("reset clears everything, cancels animation and notifies", () => {
     const scheduler = createManualScheduler();
     const buffer = createStreamBuffer({ ...scheduler });

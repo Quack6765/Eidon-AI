@@ -371,6 +371,15 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  function recordRenderKeyRemaps(remap: Map<string, string>) {
+    for (const [localId, serverId] of remap.entries()) {
+      renderKeyByMessageIdRef.current.set(
+        serverId,
+        renderKeyByMessageIdRef.current.get(localId) ?? localId
+      );
+    }
+  }
+
   function resetStreamingState() {
     clearCompactionIndicator();
     setStreamMessageId(null);
@@ -815,12 +824,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
             }
             pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
-            for (const [localId, serverId] of reconciliation.anchorMessageIdRemap.entries()) {
-              renderKeyByMessageIdRef.current.set(
-                serverId,
-                renderKeyByMessageIdRef.current.get(localId) ?? localId
-              );
-            }
+            recordRenderKeyRemaps(reconciliation.anchorMessageIdRemap);
             return reconciliation.messages;
           });
           break;
@@ -832,18 +836,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           if (!serverMessage) {
             break;
           }
-          setMessages((current) => {
-            if (current.some((m) => m.id === serverMessage.id)) {
-              return current;
-            }
-            const submission = pendingLocalSubmissionsRef.current.find(
-              (candidate) =>
-                candidate.serverMessageId === null &&
-                matchesPendingLocalSubmission(serverMessage, candidate)
-            );
-            if (!submission) {
-              return [...current, serverMessage];
-            }
+          const submission = pendingLocalSubmissionsRef.current.find(
+            (candidate) =>
+              candidate.serverMessageId === null &&
+              matchesPendingLocalSubmission(serverMessage, candidate)
+          );
+          if (submission) {
             renderKeyByMessageIdRef.current.set(
               serverMessage.id,
               renderKeyByMessageIdRef.current.get(submission.localMessageId) ?? submission.localMessageId
@@ -854,7 +852,15 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             pendingLocalSubmissionsRef.current = pendingLocalSubmissionsRef.current.filter(
               (candidate) => candidate.localMessageId !== submission.localMessageId
             );
-            return current.map((m) => (m.id === submission.localMessageId ? serverMessage : m));
+          }
+          setMessages((current) => {
+            if (current.some((m) => m.id === serverMessage.id)) {
+              return current;
+            }
+            if (submission && current.some((m) => m.id === submission.localMessageId)) {
+              return current.map((m) => (m.id === submission.localMessageId ? serverMessage : m));
+            }
+            return [...current, serverMessage];
           });
           break;
         }
@@ -905,6 +911,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       }
     }
   });
+
+  useEffect(() => () => streamBuffer.reset(), [streamBuffer]);
 
   useEffect(() => {
     wsConnectedRef.current = wsConnected;
@@ -1145,12 +1153,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
           }
           pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
-          for (const [localId, serverId] of reconciliation.anchorMessageIdRemap.entries()) {
-            renderKeyByMessageIdRef.current.set(
-              serverId,
-              renderKeyByMessageIdRef.current.get(localId) ?? localId
-            );
-          }
+          recordRenderKeyRemaps(reconciliation.anchorMessageIdRemap);
           return reconciliation.messages;
         });
         setConversationTitle(result.conversation.title);

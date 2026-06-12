@@ -118,9 +118,9 @@ export function createStreamBuffer(options: StreamBufferOptions = {}): StreamBuf
     const displayKey = field === "answer" ? "answerDisplay" : "thinkingDisplay";
     const nextDisplay = immediate
       ? text
-      : snapshot[displayKey].length > text.length
-        ? text
-        : snapshot[displayKey];
+      : text.startsWith(snapshot[displayKey])
+        ? snapshot[displayKey]
+        : text;
     const changed = snapshot[targetKey] !== text || snapshot[displayKey] !== nextDisplay;
 
     if (!changed) {
@@ -134,7 +134,12 @@ export function createStreamBuffer(options: StreamBufferOptions = {}): StreamBuf
       return;
     }
 
-    startAnimationIfNeeded();
+    if (isAnimating()) {
+      startAnimationIfNeeded();
+      return;
+    }
+
+    notify();
   }
 
   return {
