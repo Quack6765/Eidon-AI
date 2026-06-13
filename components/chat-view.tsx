@@ -1945,12 +1945,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               <div
                 key={renderKeyByMessageIdRef.current.get(message.id) ?? message.id}
                 data-message-id={message.id}
-                className={[
-                  isStreamingMessage ? null : "cv-auto",
-                  shouldAnimate ? "animate-slide-up" : null
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
+                className={shouldAnimate ? "animate-slide-up" : undefined}
                 style={shouldAnimate ? { animationFillMode: "forwards" } : undefined}
               >
                 <StreamingMessage

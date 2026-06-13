@@ -179,11 +179,6 @@ select {
   animation: slide-in-left 0.3s ease-out forwards;
 }
 
-.cv-auto {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 200px;
-}
-
 .markdown-body {
   color: inherit;
   font-size: 14.5px;
