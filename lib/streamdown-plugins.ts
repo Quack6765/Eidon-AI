@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createCodePlugin } from "@streamdown/code";
 
-export const codePlugin = createCodePlugin({ themes: ["dracula", "dracula"] });
+const codePlugin = createCodePlugin({ themes: ["dracula", "dracula"] });
 
 type MermaidPlugin = typeof import("@streamdown/mermaid")["mermaid"];
 

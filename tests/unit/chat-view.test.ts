@@ -2009,6 +2009,55 @@ describe("chat view", () => {
     });
   });
 
+  it("keeps the same assistant DOM node when the stream finishes", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByRole("textbox");
+
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("hello")).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Hello!" }
+      });
+    });
+
+    const nodeBefore = document.querySelector('[data-message-id="msg_assistant"]');
+
+    expect(nodeBefore).not.toBeNull();
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello!")).toBeInTheDocument();
+    });
+
+    const nodeAfter = document.querySelector('[data-message-id="msg_assistant"]');
+
+    expect(nodeAfter).toBe(nodeBefore);
+    expect(nodeBefore!.isConnected).toBe(true);
+  });
+
   it("keeps an optimistic user message visible when an unrelated server user message arrives first", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 

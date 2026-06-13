@@ -16,7 +16,7 @@ import {
 } from "@/components/attachment-preview-modal";
 import { ChatComposer } from "@/components/chat-composer";
 import { QueuedMessageBanner } from "@/components/queued-message-banner";
-import { MessageBubble, TypingIndicator } from "@/components/message-bubble";
+import { TypingIndicator } from "@/components/message-bubble";
 import { useShareConversation } from "@/components/share-conversation-context";
 import {
   type PendingLocalSubmission,
@@ -78,6 +78,7 @@ type ConversationPayload = {
 
 const INITIAL_VISIBLE_MESSAGE_COUNT = 60;
 const VISIBLE_MESSAGE_INCREMENT = 100;
+const EMPTY_TIMELINE: MessageTimelineItem[] = [];
 
 function StickToBottomBridge({
   onAtBottomChange,
@@ -387,6 +388,29 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       );
     }
   }
+
+  const applySnapshotReconciliation = useStableHandler(function applySnapshotReconciliation(
+    snapshotMessages: Message[],
+    activeStreamMessageId: string | null
+  ) {
+    setMessages((current) => {
+      const reconciliation = reconcileSnapshotMessages(
+        current,
+        snapshotMessages,
+        activeStreamMessageId,
+        pendingLocalSubmissionsRef.current
+      );
+      const remappedAnchorMessageId = pendingAnchorMessageIdRef.current
+        ? reconciliation.anchorMessageIdRemap.get(pendingAnchorMessageIdRef.current)
+        : undefined;
+      if (remappedAnchorMessageId) {
+        pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
+      }
+      pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
+      recordRenderKeyRemaps(reconciliation.anchorMessageIdRemap);
+      return reconciliation.messages;
+    });
+  });
 
   function resetStreamingState() {
     clearCompactionIndicator();
@@ -834,23 +858,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             }
           }
 
-          setMessages((current) => {
-            const reconciliation = reconcileSnapshotMessages(
-              current,
-              msg.messages as Message[],
-              streamMessageId,
-              pendingLocalSubmissionsRef.current
-            );
-            const remappedAnchorMessageId = pendingAnchorMessageIdRef.current
-              ? reconciliation.anchorMessageIdRemap.get(pendingAnchorMessageIdRef.current)
-              : undefined;
-            if (remappedAnchorMessageId) {
-              pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
-            }
-            pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
-            recordRenderKeyRemaps(reconciliation.anchorMessageIdRemap);
-            return reconciliation.messages;
-          });
+          applySnapshotReconciliation(msg.messages as Message[], streamMessageId);
           break;
         case "user_message_persisted": {
           if (msg.conversationId !== payload.conversation.id) {
@@ -1163,23 +1171,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           Boolean(bufferSnapshot.answerTarget) ||
           streamTimelineRef.current.length > 0;
 
-        setMessages((current) => {
-          const reconciliation = reconcileSnapshotMessages(
-            current,
-            result.messages,
-            activeStreamMessageId,
-            pendingLocalSubmissionsRef.current
-          );
-          const remappedAnchorMessageId = pendingAnchorMessageIdRef.current
-            ? reconciliation.anchorMessageIdRemap.get(pendingAnchorMessageIdRef.current)
-            : undefined;
-          if (remappedAnchorMessageId) {
-            pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
-          }
-          pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
-          recordRenderKeyRemaps(reconciliation.anchorMessageIdRemap);
-          return reconciliation.messages;
-        });
+        applySnapshotReconciliation(result.messages, activeStreamMessageId);
         setConversationTitle(result.conversation.title);
         setTitleGenerationStatus(result.conversation.titleGenerationStatus);
 
@@ -1237,7 +1229,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       cancelled = true;
       stopMessageSyncPolling();
     };
-  }, [needsMessageSync, payload.conversation.id, streamBuffer, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline]);
+  }, [applySnapshotReconciliation, needsMessageSync, payload.conversation.id, streamBuffer, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline]);
 
   const selectedProfile = useMemo(
     () => payload.providerProfiles.find((profile) => profile.id === providerProfileId) ?? null,
@@ -1961,37 +1953,27 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                   .join(" ")}
                 style={shouldAnimate ? { animationFillMode: "forwards" } : undefined}
               >
-                {isStreamingMessage ? (
-                  <StreamingMessage
-                    buffer={streamBuffer}
-                    message={message}
-                    timeline={streamTimeline}
-                    hasReceivedFirstToken={hasReceivedFirstToken}
-                    compactionInProgress={compactionInProgress}
-                    thinkingDuration={thinkingDuration}
-                    onPreviewAttachment={onPreviewAttachmentStable}
-                    onUpdateUserMessage={onUpdateUserMessageStable}
-                    onApproveMemoryProposal={onApproveMemoryProposalStable}
-                    onDismissMemoryProposal={onDismissMemoryProposalStable}
-                    onForkAssistantMessage={onForkAssistantMessageStable}
-                    onRetryAssistantMessage={onRetryAssistantMessageStable}
-                  />
-                ) : (
-                  <MessageBubble
-                    message={message}
-                    onPreviewAttachment={onPreviewAttachmentStable}
-                    onUpdateUserMessage={onUpdateUserMessageStable}
-                    onApproveMemoryProposal={onApproveMemoryProposalStable}
-                    onDismissMemoryProposal={onDismissMemoryProposalStable}
-                    isUpdating={updatingMessageId === message.id}
-                    onForkAssistantMessage={onForkAssistantMessageStable}
-                    isForking={forkingMessageId === message.id}
-                    onRetryAssistantMessage={onRetryAssistantMessageStable}
-                    isRetrying={retryingMessageId === message.id}
-                    onRegenerateUserMessage={index === lastUserMsgIndex ? onRegenerateUserMessageStable : undefined}
-                    isRegenerating={regeneratingMessageId === message.id}
-                  />
-                )}
+                <StreamingMessage
+                  active={isStreamingMessage}
+                  buffer={streamBuffer}
+                  message={message}
+                  timeline={isStreamingMessage ? streamTimeline : EMPTY_TIMELINE}
+                  hasReceivedFirstToken={hasReceivedFirstToken}
+                  compactionInProgress={compactionInProgress}
+                  thinkingDuration={thinkingDuration}
+                  onPreviewAttachment={onPreviewAttachmentStable}
+                  onUpdateUserMessage={onUpdateUserMessageStable}
+                  onApproveMemoryProposal={onApproveMemoryProposalStable}
+                  onDismissMemoryProposal={onDismissMemoryProposalStable}
+                  onForkAssistantMessage={onForkAssistantMessageStable}
+                  onRetryAssistantMessage={onRetryAssistantMessageStable}
+                  onRegenerateUserMessage={index === lastUserMsgIndex ? onRegenerateUserMessageStable : undefined}
+                  isUpdating={updatingMessageId === message.id}
+                  isForking={forkingMessageId === message.id}
+                  isRetrying={retryingMessageId === message.id}
+                  isRegenerating={regeneratingMessageId === message.id}
+                />
+
                 {isStreamingMessage && isAgentIdle && hasReceivedFirstToken && (
                   <div className="animate-fade-in mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 md:ml-[42px]">
                     <TypingIndicator compact />
