@@ -93,18 +93,14 @@ function AnsiText({
   );
 }
 
-const AssistantMarkdown = React.memo(function AssistantMarkdown({ content, isStreaming }: { content: string; isStreaming: boolean }) {
+const AssistantMarkdown = React.memo(function AssistantMarkdown({ content }: { content: string }) {
   const plugins = useStreamdownPlugins(content);
   const fallback = (
     <pre className="whitespace-pre-wrap break-words text-sm">{content}</pre>
   );
   return (
     <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
-      <Streamdown
-        plugins={plugins}
-        isAnimating={isStreaming}
-        animated={isStreaming}
-      >
+      <Streamdown plugins={plugins} mode="static">
         {content}
       </Streamdown>
     </MarkdownErrorBoundary>
@@ -710,10 +706,7 @@ function MessageBubbleImpl({
                       }
                     }}
                   >
-                    <Streamdown
-                      isAnimating={thinkingInProgress}
-                      animated={thinkingInProgress}
-                    >{thinkingContent}</Streamdown>
+                    <Streamdown mode="static">{thinkingContent}</Streamdown>
                   </div>
                 ) : null}
               </div>
@@ -795,7 +788,7 @@ function MessageBubbleImpl({
                           data-testid="assistant-message-bubble"
                         >
                           <div className="markdown-body">
-                            <AssistantMarkdown content={renderedContent} isStreaming={isAssistantStreaming} />
+                            <AssistantMarkdown content={renderedContent} />
                           </div>
                           {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
                             <div className="mt-3">
