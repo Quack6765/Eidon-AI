@@ -329,8 +329,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       adoptedStream.timeline
     );
 
-    streamBuffer.setAnswer(nextAnswer);
-    streamBuffer.setThinking(nextThinking);
+    streamBuffer.setAnswer(nextAnswer, { immediate: true });
+    streamBuffer.setThinking(nextThinking, { immediate: true });
     setStreamMessageId(snapshotMessage.id);
     updateStreamTimeline(mergedTimeline);
     setHasReceivedFirstToken(Boolean(nextAnswer || nextThinking || mergedTimeline.length));
@@ -627,7 +627,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       clearCompactionIndicator();
       setHasReceivedFirstToken(true);
       resetIdleTimer();
-      streamBuffer.appendThinking(event.text);
+      streamBuffer.setThinking(streamBuffer.getSnapshot().thinkingTarget + event.text, { immediate: true });
       if (!thinkingStartTimeRef.current) {
         thinkingStartTimeRef.current = Date.now();
       }
@@ -637,7 +637,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       clearCompactionIndicator();
       setHasReceivedFirstToken(true);
       resetIdleTimer();
-      streamBuffer.appendAnswer(event.text);
+      streamBuffer.setAnswer(streamBuffer.getSnapshot().answerTarget + event.text, { immediate: true });
       if (thinkingStartTimeRef.current) {
         const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
         setThinkingDuration((current) => current ?? duration);
