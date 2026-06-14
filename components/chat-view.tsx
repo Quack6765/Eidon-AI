@@ -120,7 +120,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isStopPending, setIsStopPending] = useState(false);
   const [isTemporaryToggled, setIsTemporaryToggled] = useState(payload.conversation.isTemporary);
   const streamBufferRef = useRef<ReturnType<typeof createStreamBuffer> | null>(null);
-  streamBufferRef.current ??= createStreamBuffer({ answerCharsPerSecond: 60, thinkingCharsPerSecond: 60 });
+  streamBufferRef.current ??= createStreamBuffer();
   const streamBuffer = streamBufferRef.current;
   const [streamMessageId, setStreamMessageId] = useState<string | null>(null);
   const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
@@ -627,7 +627,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       clearCompactionIndicator();
       setHasReceivedFirstToken(true);
       resetIdleTimer();
-      streamBuffer.appendThinking(event.text);
+      streamBuffer.setThinking(streamBuffer.getSnapshot().thinkingTarget + event.text, { immediate: true });
       if (!thinkingStartTimeRef.current) {
         thinkingStartTimeRef.current = Date.now();
       }
@@ -637,7 +637,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       clearCompactionIndicator();
       setHasReceivedFirstToken(true);
       resetIdleTimer();
-      streamBuffer.appendAnswer(event.text);
+      streamBuffer.setAnswer(streamBuffer.getSnapshot().answerTarget + event.text, { immediate: true });
       if (thinkingStartTimeRef.current) {
         const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
         setThinkingDuration((current) => current ?? duration);
