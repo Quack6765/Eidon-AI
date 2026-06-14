@@ -120,7 +120,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isStopPending, setIsStopPending] = useState(false);
   const [isTemporaryToggled, setIsTemporaryToggled] = useState(payload.conversation.isTemporary);
   const streamBufferRef = useRef<ReturnType<typeof createStreamBuffer> | null>(null);
-  streamBufferRef.current ??= createStreamBuffer({ answerCharsPerSecond: 12, thinkingCharsPerSecond: 12 });
+  streamBufferRef.current ??= createStreamBuffer();
   const streamBuffer = streamBufferRef.current;
   const [streamMessageId, setStreamMessageId] = useState<string | null>(null);
   const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
