@@ -102,7 +102,6 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({ content, isStr
     <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
       <Streamdown
         plugins={plugins}
-        caret={isStreaming ? "block" : undefined}
         isAnimating={isStreaming}
       >
         {content}
@@ -711,7 +710,6 @@ function MessageBubbleImpl({
                     }}
                   >
                     <Streamdown
-                      caret={thinkingInProgress ? "block" : undefined}
                       isAnimating={thinkingInProgress}
                     >{thinkingContent}</Streamdown>
                   </div>
