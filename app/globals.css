@@ -179,6 +179,11 @@ select {
   animation: slide-in-left 0.3s ease-out forwards;
 }
 
+[role="log"],
+[role="log"] * {
+  overflow-anchor: none;
+}
+
 .markdown-body {
   color: inherit;
   font-size: 14.5px;

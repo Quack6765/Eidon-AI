@@ -100,7 +100,7 @@ const AssistantMarkdown = React.memo(function AssistantMarkdown({ content }: { c
   );
   return (
     <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
-      <Streamdown plugins={plugins} mode="static">
+      <Streamdown plugins={plugins}>
         {content}
       </Streamdown>
     </MarkdownErrorBoundary>
@@ -706,7 +706,7 @@ function MessageBubbleImpl({
                       }
                     }}
                   >
-                    <Streamdown mode="static">{thinkingContent}</Streamdown>
+                    <Streamdown>{thinkingContent}</Streamdown>
                   </div>
                 ) : null}
               </div>
