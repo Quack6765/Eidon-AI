@@ -7,12 +7,17 @@ vi.mock("@/lib/auth", () => ({
 
 vi.mock("@/lib/conversations", () => ({
   getConversationSnapshot: vi.fn(),
+  getMessage: vi.fn(),
   listActiveConversations: vi.fn(),
   createQueuedMessage: vi.fn(),
   listQueuedMessages: vi.fn(),
   updateQueuedMessage: vi.fn(),
   deleteQueuedMessage: vi.fn(),
   moveQueuedMessageToFront: vi.fn()
+}));
+
+vi.mock("@/lib/chat-turn", () => ({
+  startChatTurn: vi.fn()
 }));
 
 describe("ws-handler", () => {
@@ -309,5 +314,136 @@ describe("ws-handler", () => {
     expect(ws.close).toHaveBeenCalled();
     const error = sent.find(s => JSON.parse(s).type === "error");
     expect(error).toBeDefined();
+  });
+
+  it("broadcasts user_message_persisted when startChatTurn fires onMessagesCreated and snapshot contains the message", async () => {
+    const { verifySessionToken } = await import("@/lib/auth");
+    (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });
+
+    const { getConversationSnapshot, getMessage, listActiveConversations } = await import("@/lib/conversations");
+    (listActiveConversations as ReturnType<typeof vi.fn>).mockReturnValue([]);
+
+    const userMessage = { id: "msg-user-1", role: "user", content: "hello" };
+
+    (getConversationSnapshot as ReturnType<typeof vi.fn>).mockReturnValue({
+      conversation: { id: "conv-1", title: "Test", is_active: false },
+      messages: [],
+      queuedMessages: []
+    });
+    (getMessage as ReturnType<typeof vi.fn>).mockReturnValue(userMessage);
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    (startChatTurn as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_mgr: unknown, _conversationId: unknown, _content: unknown, _attachmentIds: unknown, _personaId: unknown, options?: { onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void }) => {
+        options?.onMessagesCreated?.({ userMessageId: "msg-user-1", assistantMessageId: "msg-asst-1" });
+        return { status: "completed" };
+      }
+    );
+
+    const broadcast: unknown[] = [];
+    const mockMgr = {
+      addConnection: vi.fn(),
+      removeConnection: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      disconnect: vi.fn(),
+      broadcast: vi.fn((_conversationId: string, msg: unknown) => { broadcast.push(msg); }),
+      broadcastAll: vi.fn(),
+      hasSubscribers: vi.fn().mockReturnValue(false),
+      setActive: vi.fn(),
+      isActive: vi.fn().mockReturnValue(false),
+      getActiveConversationIds: vi.fn().mockReturnValue([])
+    };
+    vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      send: vi.fn(),
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((d: string) => handler(d));
+      })
+    } as unknown as WebSocket;
+
+    await handleConnection(ws, "session=valid-token");
+
+    messageHandlers.forEach((handler) =>
+      handler(JSON.stringify({ type: "message", conversationId: "conv-1", content: "hello" }))
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(getMessage).toHaveBeenCalledWith("msg-user-1", "user-1");
+    const persisted = broadcast.filter((m) => (m as { type: string }).type === "user_message_persisted");
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]).toEqual({
+      type: "user_message_persisted",
+      conversationId: "conv-1",
+      message: userMessage
+    });
+  });
+
+  it("does not broadcast user_message_persisted when the persisted message lookup returns null", async () => {
+    const { verifySessionToken } = await import("@/lib/auth");
+    (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });
+
+    const { getConversationSnapshot, getMessage, listActiveConversations } = await import("@/lib/conversations");
+    (listActiveConversations as ReturnType<typeof vi.fn>).mockReturnValue([]);
+
+    (getConversationSnapshot as ReturnType<typeof vi.fn>).mockReturnValue({
+      conversation: { id: "conv-1", title: "Test", is_active: false },
+      messages: [],
+      queuedMessages: []
+    });
+    (getMessage as ReturnType<typeof vi.fn>).mockReturnValue(null);
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    (startChatTurn as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_mgr: unknown, _conversationId: unknown, _content: unknown, _attachmentIds: unknown, _personaId: unknown, options?: { onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void }) => {
+        options?.onMessagesCreated?.({ userMessageId: "msg-user-missing", assistantMessageId: "msg-asst-1" });
+        return { status: "completed" };
+      }
+    );
+
+    const broadcast: unknown[] = [];
+    const mockMgr = {
+      addConnection: vi.fn(),
+      removeConnection: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      disconnect: vi.fn(),
+      broadcast: vi.fn((_conversationId: string, msg: unknown) => { broadcast.push(msg); }),
+      broadcastAll: vi.fn(),
+      hasSubscribers: vi.fn().mockReturnValue(false),
+      setActive: vi.fn(),
+      isActive: vi.fn().mockReturnValue(false),
+      getActiveConversationIds: vi.fn().mockReturnValue([])
+    };
+    vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      send: vi.fn(),
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((d: string) => handler(d));
+      })
+    } as unknown as WebSocket;
+
+    await handleConnection(ws, "session=valid-token");
+
+    messageHandlers.forEach((handler) =>
+      handler(JSON.stringify({ type: "message", conversationId: "conv-1", content: "hello" }))
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(getMessage).toHaveBeenCalledWith("msg-user-missing", "user-1");
+    const persisted = broadcast.filter((m) => (m as { type: string }).type === "user_message_persisted");
+    expect(persisted).toHaveLength(0);
   });
 });

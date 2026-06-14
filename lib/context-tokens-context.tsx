@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useCallback } from "react";
+import React, { createContext, useContext, useMemo } from "react";
 
 type ContextTokensMap = Record<string, number>;
 type ContextTokensContextValue = {
@@ -14,19 +14,17 @@ const ContextTokensContext = createContext<ContextTokensContextValue | null>(nul
 const globalTokensStore: ContextTokensMap = {};
 
 export function ContextTokensProvider({ children }: { children: React.ReactNode }) {
-  const getTokenUsage = useCallback((conversationId: string): number | null => {
-    return globalTokensStore[conversationId] ?? null;
-  }, []);
-
-  const setTokenUsage = useCallback((conversationId: string, tokens: number) => {
-    globalTokensStore[conversationId] = tokens;
-  }, []);
-
-  return React.createElement(
-    ContextTokensContext.Provider,
-    { value: { getTokenUsage, setTokenUsage } },
-    children
+  const value = useMemo<ContextTokensContextValue>(
+    () => ({
+      getTokenUsage: (conversationId) => globalTokensStore[conversationId] ?? null,
+      setTokenUsage: (conversationId, tokens) => {
+        globalTokensStore[conversationId] = tokens;
+      }
+    }),
+    []
   );
+
+  return <ContextTokensContext.Provider value={value}>{children}</ContextTokensContext.Provider>;
 }
 
 export function useContextTokens() {

@@ -27,7 +27,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/favicon") ||
     pathname.startsWith("/api/auth/login") ||
     pathname.startsWith("/logo") ||
-    pathname.startsWith("/eidon-banner")
+    pathname.startsWith("/eidon-banner") ||
+    pathname === "/sw.js"
   ) {
     return NextResponse.next();
   }

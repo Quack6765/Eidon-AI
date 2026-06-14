@@ -424,6 +424,12 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     );
   });
 
+  it("returns plain text without markdown openers unchanged", () => {
+    const content = "Plain prose with a bare url https://example.com and an autolink <https://example.com> only.";
+
+    expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment(), createImageAttachment()])).toBe(content);
+  });
+
   it("preserves untouched formatting when there is nothing to strip", () => {
     const content = ["Keep hard break here.  ", "And keep this fenced line trailing spaces.", "", "```md", "code line  ", "```"].join(
       "\n"

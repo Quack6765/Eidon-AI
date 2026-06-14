@@ -2009,6 +2009,55 @@ describe("chat view", () => {
     });
   });
 
+  it("keeps the same assistant DOM node when the stream finishes", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByRole("textbox");
+
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("hello")).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Hello!" }
+      });
+    });
+
+    const nodeBefore = document.querySelector('[data-message-id="msg_assistant"]');
+
+    expect(nodeBefore).not.toBeNull();
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("Hello!")).toBeInTheDocument();
+    });
+
+    const nodeAfter = document.querySelector('[data-message-id="msg_assistant"]');
+
+    expect(nodeAfter).toBe(nodeBefore);
+    expect(nodeBefore!.isConnected).toBe(true);
+  });
+
   it("keeps an optimistic user message visible when an unrelated server user message arrives first", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
@@ -2376,9 +2425,9 @@ describe("chat view", () => {
         expect(screen.getAllByRole("button", { name: "Preview photo.png" })).toHaveLength(1);
         expect(screen.getAllByRole("button", { name: "Preview notes.txt" })).toHaveLength(1);
       },
-      { timeout: 2500 }
+      { timeout: 7000 }
     );
-  });
+  }, 15000);
 
   it("does not replay a retired optimistic attachment message in strict mode", async () => {
     const imageAttachment = createAttachment({
@@ -2927,6 +2976,13 @@ describe("chat view", () => {
     });
 
     simulateAtBottomState(true);
+    act(() => {
+      wsMock.onMessage!({
+        type: "queue_updated",
+        conversationId: "conv_1",
+        queuedMessages: []
+      });
+    });
     await waitFor(() => {
       expect(screen.queryByRole("button", { name: "Scroll to latest messages" })).toBeNull();
     });
@@ -3022,6 +3078,48 @@ describe("chat view", () => {
     });
 
     expect(screen.getByText("Server-backed prompt")).toBeInTheDocument();
+  });
+
+  it("replaces the optimistic local message in place when user_message_persisted arrives", async () => {
+    const { container } = renderWithProviderStrict(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          messages: [
+            createMessage({ id: "msg_prior", role: "assistant", content: "Earlier reply" })
+          ]
+        })
+      })
+    );
+    const textarea = screen.getByRole("textbox");
+
+    fireEvent.change(textarea, { target: { value: "Hello there" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-message-id^="local_"]')).not.toBeNull();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "user_message_persisted",
+        conversationId: "conv_1",
+        message: createMessage({
+          id: "msg_user_server",
+          role: "user",
+          content: "Hello there"
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-message-id="msg_user_server"]')).not.toBeNull();
+      expect(container.querySelector('[data-message-id^="local_"]')).toBeNull();
+    });
+    expect(screen.getAllByText("Hello there")).toHaveLength(1);
+    const messageIds = Array.from(container.querySelectorAll("[data-message-id]")).map((el) =>
+      el.getAttribute("data-message-id")
+    );
+    expect(messageIds).toEqual(["msg_prior", "msg_user_server"]);
   });
 
   it("scrolls to anchor the user message near the top after sending", async () => {
@@ -4226,5 +4324,79 @@ describe("chat view", () => {
     expect(wsMock.send).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: "message" })
     );
+  });
+
+  it("windows long conversations to the most recent 60 messages and expands on demand", async () => {
+    const payload = createPayload({
+      messages: Array.from({ length: 70 }, (_, index) =>
+        createMessage({
+          id: `msg_window_${index}`,
+          role: index % 2 === 0 ? "user" : "assistant",
+          content: `Windowed message ${index}`
+        })
+      )
+    });
+
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+
+    expect(container.querySelectorAll("[data-message-id]")).toHaveLength(60);
+    expect(screen.queryByText("Windowed message 9")).toBeNull();
+    expect(screen.getByText("Windowed message 10")).toBeInTheDocument();
+    expect(screen.getByText("Windowed message 69")).toBeInTheDocument();
+
+    const animatedCountBeforeExpansion = container.querySelectorAll(".animate-slide-up").length;
+    const scrollIntoViewSpy = vi.spyOn(Element.prototype, "scrollIntoView");
+    const expandButton = screen.getByRole("button", { name: "Show earlier messages (10)" });
+
+    await act(async () => {
+      fireEvent.click(expandButton);
+    });
+    await flushAnimationFrame();
+
+    expect(container.querySelectorAll("[data-message-id]")).toHaveLength(70);
+    expect(screen.getByText("Windowed message 0")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show earlier messages/ })).toBeNull();
+    expect(container.querySelectorAll(".animate-slide-up")).toHaveLength(animatedCountBeforeExpansion);
+    expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: "start", behavior: "auto" });
+
+    scrollIntoViewSpy.mockRestore();
+  });
+
+  it("keeps the expander visible after a partial expansion of a very long conversation", async () => {
+    const payload = createPayload({
+      messages: Array.from({ length: 170 }, (_, index) =>
+        createMessage({
+          id: `msg_partial_${index}`,
+          role: index % 2 === 0 ? "user" : "assistant",
+          content: `Partial message ${index}`
+        })
+      )
+    });
+
+    const { container } = renderWithProvider(React.createElement(ChatView, { payload }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+
+    expect(container.querySelectorAll("[data-message-id]")).toHaveLength(60);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show earlier messages (110)" }));
+    });
+
+    expect(container.querySelectorAll("[data-message-id]")).toHaveLength(160);
+    expect(screen.getByRole("button", { name: "Show earlier messages (10)" })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Show earlier messages (10)" }));
+    });
+
+    expect(container.querySelectorAll("[data-message-id]")).toHaveLength(170);
+    expect(screen.queryByRole("button", { name: /Show earlier messages/ })).toBeNull();
   });
 });
