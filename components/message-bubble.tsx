@@ -789,7 +789,7 @@ function MessageBubbleImpl({
                       return (
                         <div
                           key={item.id}
-                          className={isAssistantStreaming ? `w-full ${ASSISTANT_BUBBLE_BASE}` : ASSISTANT_BUBBLE}
+                          className={isAssistantStreaming ? `w-full overflow-hidden ${ASSISTANT_BUBBLE_BASE}` : ASSISTANT_BUBBLE}
                           data-testid="assistant-message-bubble"
                         >
                           <div className="markdown-body">
