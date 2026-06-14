@@ -203,9 +203,9 @@ function CollapsibleActionRow({
 }
 
 const ASSISTANT_MAX_WIDTH = "max-w-full md:max-w-[95%]";
-const ASSISTANT_BUBBLE_LAYOUT = "w-fit max-w-full px-2.5 py-2 md:px-4 md:py-3 text-[var(--text)]";
 const ASSISTANT_BUBBLE_CHROME = "rounded-2xl border border-white/8 bg-white/[0.03] shadow-[0_2px_10px_rgba(0,0,0,0.22)]";
-const ASSISTANT_BUBBLE = `${ASSISTANT_BUBBLE_LAYOUT} ${ASSISTANT_BUBBLE_CHROME}`;
+const ASSISTANT_BUBBLE = `w-fit max-w-full px-2.5 py-2 md:px-4 md:py-3 text-[var(--text)] ${ASSISTANT_BUBBLE_CHROME}`;
+const ASSISTANT_BUBBLE_STREAMING = `w-full max-w-full px-2.5 pt-2 pb-8 md:px-4 md:pt-3 md:pb-8 text-[var(--text)] ${ASSISTANT_BUBBLE_CHROME}`;
 const ASSISTANT_LOADING_SHELL =
   "mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1";
 
@@ -789,7 +789,7 @@ function MessageBubbleImpl({
                       return (
                         <div
                           key={item.id}
-                          className={isAssistantStreaming ? ASSISTANT_BUBBLE_LAYOUT : ASSISTANT_BUBBLE}
+                          className={isAssistantStreaming ? ASSISTANT_BUBBLE_STREAMING : ASSISTANT_BUBBLE}
                           data-testid="assistant-message-bubble"
                         >
                           <div className="markdown-body">
