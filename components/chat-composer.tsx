@@ -25,6 +25,7 @@ import type { SpeechPhase } from "@/lib/speech/types";
 import { cn } from "@/lib/utils";
 import { useAutoResize } from "@/lib/use-auto-resize";
 import { useCollapsibleToolbar } from "@/lib/use-collapsible-toolbar";
+import { useIsMobile } from "@/lib/use-is-mobile";
 import type {
   MessageAttachment,
   ProviderProfileSummary
@@ -276,6 +277,7 @@ export function ChatComposer({
   const { showToolbar, inputFocusProps, onControlOpenChange } = useCollapsibleToolbar({
     enabled: collapsibleToolbarOnMobile
   });
+  const isMobile = useIsMobile();
   const [toolbarOverflow, setToolbarOverflow] = useState<"hidden" | "visible">("visible");
 
   useEffect(() => {
@@ -442,7 +444,7 @@ export function ChatComposer({
             )}
             style={{ height: `${textareaHeight}px`, transition: "height 150ms ease" }}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
+              if (event.key === "Enter" && !event.shiftKey && !isMobile) {
                 event.preventDefault();
                 if (isSpeechActive) {
                   return;
@@ -558,7 +560,7 @@ export function ChatComposer({
         <motion.div
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
-          className="px-4 pb-2 text-[11px] font-medium text-white/45"
+          className="px-4 pt-2 pb-2 text-[11px] font-medium text-white/45"
         >
           Agent working - send still queues
         </motion.div>
