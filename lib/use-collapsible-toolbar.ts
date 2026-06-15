@@ -2,40 +2,19 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const MOBILE_QUERY = "(max-width: 767px)";
+import { useIsMobile } from "@/lib/use-is-mobile";
+
 const COLLAPSE_DELAY_MS = 150;
-
-function matchMediaSupported(): boolean {
-  return typeof window !== "undefined" && typeof window.matchMedia === "function";
-}
-
-function getInitialMobile(): boolean {
-  if (!matchMediaSupported()) {
-    return false;
-  }
-  return window.matchMedia(MOBILE_QUERY).matches;
-}
 
 type UseCollapsibleToolbarOptions = { enabled: boolean };
 
 export function useCollapsibleToolbar({ enabled }: UseCollapsibleToolbarOptions) {
-  const [isMobile, setIsMobile] = useState<boolean>(getInitialMobile);
+  const isMobile = useIsMobile();
   const [expanded, setExpanded] = useState(false);
 
   const isInputFocusedRef = useRef(false);
   const openControlCountRef = useRef(0);
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!matchMediaSupported()) {
-      return;
-    }
-    const mql = window.matchMedia(MOBILE_QUERY);
-    const update = () => setIsMobile(mql.matches);
-    update();
-    mql.addEventListener("change", update);
-    return () => mql.removeEventListener("change", update);
-  }, []);
 
   const cancelScheduledCollapse = useCallback(() => {
     if (collapseTimerRef.current !== null) {

@@ -231,3 +231,27 @@ describe("ChatComposer clipboard image paste", () => {
     expect(clipboardEvent.defaultPrevented).toBe(true);
   });
 });
+
+describe("ChatComposer Enter key submission", () => {
+  it("submits on Enter on a desktop viewport", () => {
+    installMatchMedia(false);
+    const onSubmit = vi.fn();
+    renderComposer({ input: "hello", onSubmit });
+
+    const textarea = screen.getByRole("textbox");
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
+  it("does not submit on Enter on a mobile viewport (line break instead)", () => {
+    installMatchMedia(true);
+    const onSubmit = vi.fn();
+    renderComposer({ input: "hello", onSubmit });
+
+    const textarea = screen.getByRole("textbox");
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});
