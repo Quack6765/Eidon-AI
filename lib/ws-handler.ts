@@ -8,6 +8,7 @@ import {
   createQueuedMessage,
   deleteQueuedMessage,
   getConversationSnapshot,
+  getMessage,
   listActiveConversations,
   listQueuedMessages,
   moveQueuedMessageToFront,
@@ -257,5 +258,16 @@ async function handleUserMessage(
   if (!mgr.hasSubscribers(msg.conversationId)) {
     mgr.subscribe(msg.conversationId, ws);
   }
-  await startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? [], msg.personaId);
+  await startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? [], msg.personaId, {
+    onMessagesCreated({ userMessageId }) {
+      const userMessage = getMessage(userMessageId, currentUserId ?? undefined);
+      if (userMessage) {
+        mgr.broadcast(msg.conversationId, {
+          type: "user_message_persisted",
+          conversationId: msg.conversationId,
+          message: userMessage
+        });
+      }
+    }
+  });
 }

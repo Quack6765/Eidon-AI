@@ -83,11 +83,12 @@ export function stripAttachmentStyleImageMarkdown(
   content: string,
   attachments: MessageAttachment[] = []
 ) {
-  const imageAttachments = attachments.filter((attachment) => attachment.kind === "image");
-  const textAttachments = attachments.filter((attachment) => attachment.kind === "text");
-  if (!content) {
+  if (!content || !content.includes("[")) {
     return content;
   }
+
+  const imageAttachments = attachments.filter((attachment) => attachment.kind === "image");
+  const textAttachments = attachments.filter((attachment) => attachment.kind === "text");
 
   const sanitized = sanitizeProseSegment(content, imageAttachments, textAttachments);
 

@@ -16,7 +16,7 @@ import {
 } from "@/components/attachment-preview-modal";
 import { ChatComposer } from "@/components/chat-composer";
 import { QueuedMessageBanner } from "@/components/queued-message-banner";
-import { MessageBubble, TypingIndicator } from "@/components/message-bubble";
+import { TypingIndicator } from "@/components/message-bubble";
 import { useShareConversation } from "@/components/share-conversation-context";
 import {
   type PendingLocalSubmission,
@@ -24,6 +24,7 @@ import {
   appendStreamingAction,
   getAttachmentIdSignature,
   isQueuedMessageOperationError,
+  matchesPendingLocalSubmission,
   mergeStreamingSnapshotTimeline,
   reconcileSnapshotMessages,
   replaceMessageAction,
@@ -32,6 +33,9 @@ import {
   updateStreamingAction
 } from "@/components/chat-snapshot-helpers";
 import { clearChatBootstrap, readChatBootstrap } from "@/lib/chat-bootstrap";
+import { createStreamBuffer } from "@/lib/stream-buffer";
+import { StreamingMessage } from "@/components/streaming-message";
+import { useStableHandler } from "@/lib/use-stable-handler";
 import { useContextTokens } from "@/lib/context-tokens-context";
 import {
   dispatchConversationActivityUpdated,
@@ -72,20 +76,22 @@ type ConversationPayload = {
 };
 
 
+const INITIAL_VISIBLE_MESSAGE_COUNT = 60;
+const VISIBLE_MESSAGE_INCREMENT = 100;
+const EMPTY_TIMELINE: MessageTimelineItem[] = [];
+
 function StickToBottomBridge({
   onAtBottomChange,
   scrollToBottomRef
 }: {
   onAtBottomChange: (atBottom: boolean) => void;
-  scrollToBottomRef: React.MutableRefObject<(() => void) | null>;
+  scrollToBottomRef: React.RefObject<(() => void) | null>;
 }) {
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
 
-  const prevRef = useRef(isAtBottom);
-  if (prevRef.current !== isAtBottom) {
-    prevRef.current = isAtBottom;
+  useEffect(() => {
     onAtBottomChange(isAtBottom);
-  }
+  }, [isAtBottom, onAtBottomChange]);
 
   useEffect(() => {
     scrollToBottomRef.current = scrollToBottom;
@@ -113,10 +119,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isSending, setIsSending] = useState(false);
   const [isStopPending, setIsStopPending] = useState(false);
   const [isTemporaryToggled, setIsTemporaryToggled] = useState(payload.conversation.isTemporary);
-  const [streamThinkingTarget, setStreamThinkingTarget] = useState("");
-  const [streamThinkingDisplay, setStreamThinkingDisplay] = useState("");
-  const [streamAnswerTarget, setStreamAnswerTarget] = useState("");
-  const [streamAnswerDisplay, setStreamAnswerDisplay] = useState("");
+  const streamBufferRef = useRef<ReturnType<typeof createStreamBuffer> | null>(null);
+  streamBufferRef.current ??= createStreamBuffer({ answerCharsPerSecond: 180, thinkingCharsPerSecond: 180 });
+  const streamBuffer = streamBufferRef.current;
   const [streamMessageId, setStreamMessageId] = useState<string | null>(null);
   const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
   const [hasReceivedFirstToken, setHasReceivedFirstToken] = useState(false);
@@ -197,19 +202,23 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     initialLanguage: payload.settings.sttLanguage,
     resetKey: payload.conversation.id
   });
-  const hasEmptyAssistantShell = messages.some(
-    (message) =>
-      message.role === "assistant" &&
-      !message.content &&
-      !(message.timeline?.length ?? 0) &&
-      (message.status === "streaming" || message.status === "completed")
+  const hasEmptyAssistantShell = useMemo(
+    () =>
+      messages.some(
+        (message) =>
+          message.role === "assistant" &&
+          !message.content &&
+          !(message.timeline?.length ?? 0) &&
+          (message.status === "streaming" || message.status === "completed")
+      ),
+    [messages]
   );
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const dragDepthRef = useRef(0);
   const messagesRef = useRef(payload.messages);
-  const streamAnswerTargetRef = useRef("");
-  const streamThinkingTargetRef = useRef("");
   const streamMessageIdRef = useRef<string | null>(null);
+  const renderKeyByMessageIdRef = useRef(new Map<string, string>());
+  const wsConnectedRef = useRef(false);
   const streamTimelineRef = useRef<MessageTimelineItem[]>([]);
   const isSendingRef = useRef(false);
   const [updatingMessageId, setUpdatingMessageId] = useState<string | null>(null);
@@ -224,6 +233,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
 
   const pendingAnchorMessageIdRef = useRef<string | null>(null);
+  const expandAnchorMessageIdRef = useRef<string | null>(null);
   const bootstrapPayloadRef = useRef<{
     message: string;
     attachments: MessageAttachment[];
@@ -233,19 +243,28 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const submitRef = useRef<
     (nextInput?: string, nextPendingAttachments?: MessageAttachment[], nextPersonaId?: string) => Promise<void>
   >(async () => {});
-  const pendingLocalSubmissionsById = new Map(
-    pendingLocalSubmissionsRef.current.map((submission) => [
-      submission.localMessageId,
-      submission
-    ] as const)
-  );
-  const renderableMessages = messages.filter(
-    (message) => {
+  const renderableMessages = useMemo(() => {
+    const pendingById = new Map(
+      pendingLocalSubmissionsRef.current.map((submission) => [
+        submission.localMessageId,
+        submission
+      ] as const)
+    );
+    const serverUserSignatures = new Set(
+      messages
+        .filter((message) => !message.id.startsWith("local_") && message.role === "user")
+        .map(
+          (message) =>
+            `${message.content} ${getAttachmentIdSignature(message.attachments)}`
+        )
+    );
+
+    return messages.filter((message) => {
       if (!message.id.startsWith("local_")) {
         return true;
       }
 
-      const pendingSubmission = pendingLocalSubmissionsById.get(message.id);
+      const pendingSubmission = pendingById.get(message.id);
 
       if (pendingSubmission) {
         return pendingSubmission.serverMessageId === null;
@@ -255,23 +274,24 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         return true;
       }
 
-      return !messages.some(
-        (candidate) =>
-          !candidate.id.startsWith("local_") &&
-          candidate.role === "user" &&
-          candidate.content === message.content &&
-          getAttachmentIdSignature(candidate.attachments) ===
-            getAttachmentIdSignature(message.attachments)
+      return !serverUserSignatures.has(
+        `${message.content} ${getAttachmentIdSignature(message.attachments)}`
       );
-    }
+    });
+  }, [messages]);
+  const [visibleMessageLimit, setVisibleMessageLimit] = useState(INITIAL_VISIBLE_MESSAGE_COUNT);
+  const hiddenMessageCount = Math.max(renderableMessages.length - visibleMessageLimit, 0);
+  const visibleMessages = useMemo(
+    () => (hiddenMessageCount > 0 ? renderableMessages.slice(hiddenMessageCount) : renderableMessages),
+    [renderableMessages, hiddenMessageCount]
   );
   const hasPendingLocalSubmission = pendingLocalSubmissionsRef.current.length > 0;
   const lastUserMsgIndex = useMemo(() => {
-    for (let i = renderableMessages.length - 1; i >= 0; i--) {
-      if (renderableMessages[i].role === "user") return i;
+    for (let i = visibleMessages.length - 1; i >= 0; i--) {
+      if (visibleMessages[i].role === "user") return i;
     }
     return -1;
-  }, [renderableMessages]);
+  }, [visibleMessages]);
   const needsMessageSync =
     isSending ||
     hasPendingLocalSubmission ||
@@ -294,31 +314,29 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   const syncActiveStreamingMessageFromSnapshot = useCallback((snapshotMessage: Message) => {
     const adoptedStream = adoptStreamingSnapshotState(snapshotMessage.timeline);
+    const bufferSnapshot = streamBuffer.getSnapshot();
     const nextAnswer =
-      streamAnswerTargetRef.current.length >= adoptedStream.answer.length
-        ? streamAnswerTargetRef.current
+      bufferSnapshot.answerTarget.length >= adoptedStream.answer.length
+        ? bufferSnapshot.answerTarget
         : adoptedStream.answer;
     const nextThinkingCandidate = snapshotMessage.thinkingContent ?? "";
     const nextThinking =
-      streamThinkingTargetRef.current.length >= nextThinkingCandidate.length
-        ? streamThinkingTargetRef.current
+      bufferSnapshot.thinkingTarget.length >= nextThinkingCandidate.length
+        ? bufferSnapshot.thinkingTarget
         : nextThinkingCandidate;
     const mergedTimeline = mergeStreamingSnapshotTimeline(
       streamTimelineRef.current,
       adoptedStream.timeline
     );
 
-    streamAnswerTargetRef.current = nextAnswer;
-    streamThinkingTargetRef.current = nextThinking;
-
+    streamBuffer.setAnswer(nextAnswer, { immediate: true });
+    streamBuffer.setThinking(nextThinking, { immediate: true });
     setStreamMessageId(snapshotMessage.id);
-    setStreamAnswerTarget(nextAnswer);
-    setStreamThinkingTarget(nextThinking);
     updateStreamTimeline(mergedTimeline);
     setHasReceivedFirstToken(Boolean(nextAnswer || nextThinking || mergedTimeline.length));
     setIsSending(true);
     setIsConversationActive(true);
-  }, [updateStreamTimeline]);
+  }, [streamBuffer, updateStreamTimeline]);
 
   useEffect(() => {
     setMessages((current) => {
@@ -362,16 +380,43 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
   }
 
+  function recordRenderKeyRemaps(remap: Map<string, string>) {
+    for (const [localId, serverId] of remap.entries()) {
+      renderKeyByMessageIdRef.current.set(
+        serverId,
+        renderKeyByMessageIdRef.current.get(localId) ?? localId
+      );
+    }
+  }
+
+  const applySnapshotReconciliation = useStableHandler(function applySnapshotReconciliation(
+    snapshotMessages: Message[],
+    activeStreamMessageId: string | null
+  ) {
+    setMessages((current) => {
+      const reconciliation = reconcileSnapshotMessages(
+        current,
+        snapshotMessages,
+        activeStreamMessageId,
+        pendingLocalSubmissionsRef.current
+      );
+      const remappedAnchorMessageId = pendingAnchorMessageIdRef.current
+        ? reconciliation.anchorMessageIdRemap.get(pendingAnchorMessageIdRef.current)
+        : undefined;
+      if (remappedAnchorMessageId) {
+        pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
+      }
+      pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
+      recordRenderKeyRemaps(reconciliation.anchorMessageIdRemap);
+      return reconciliation.messages;
+    });
+  });
+
   function resetStreamingState() {
     clearCompactionIndicator();
     setStreamMessageId(null);
     updateStreamTimeline([]);
-    setStreamThinkingTarget("");
-    setStreamThinkingDisplay("");
-    setStreamAnswerTarget("");
-    setStreamAnswerDisplay("");
-    streamAnswerTargetRef.current = "";
-    streamThinkingTargetRef.current = "";
+    streamBuffer.reset();
     setHasReceivedFirstToken(false);
     thinkingStartTimeRef.current = null;
     setThinkingDuration(undefined);
@@ -422,7 +467,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     const el = queueBannerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      setQueueBannerHeight(el.offsetHeight);
+      const next = el.offsetHeight;
+      setQueueBannerHeight((current) => (current === next ? current : next));
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -432,7 +478,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     const el = composerAreaRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      setComposerAreaHeight(el.offsetHeight);
+      const next = el.offsetHeight;
+      setComposerAreaHeight((current) => (current === next ? current : next));
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -441,7 +488,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   useEffect(() => {
     if (!pendingAnchorMessageIdRef.current) return;
     const messageId = pendingAnchorMessageIdRef.current;
-    const exists = renderableMessages.some((m) => m.id === messageId);
+    const exists = visibleMessages.some((m) => m.id === messageId);
     if (!exists) return;
 
     pendingAnchorMessageIdRef.current = null;
@@ -457,7 +504,21 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         }
       });
     });
-  }, [renderableMessages]);
+  }, [visibleMessages]);
+
+  useEffect(() => {
+    if (!expandAnchorMessageIdRef.current) return;
+    const messageId = expandAnchorMessageIdRef.current;
+    const targetEl = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (!targetEl) return;
+
+    expandAnchorMessageIdRef.current = null;
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-message-id="${messageId}"]`)
+        ?.scrollIntoView({ block: "start", behavior: "auto" });
+    });
+  }, [visibleMessages]);
 
   useEffect(() => {
     if (!shouldAutofocusTextInput()) {
@@ -500,12 +561,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       streamMessageIdRef.current = event.messageId;
       setHasReceivedFirstToken(false);
       resetIdleTimer();
-      setStreamAnswerTarget("");
-      setStreamAnswerDisplay("");
-      setStreamThinkingTarget("");
-      setStreamThinkingDisplay("");
-      streamAnswerTargetRef.current = "";
-      streamThinkingTargetRef.current = "";
+      streamBuffer.reset();
       updateStreamTimeline(
         shouldShowProvisionalImageAction(messagesRef.current)
           ? [
@@ -571,9 +627,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       clearCompactionIndicator();
       setHasReceivedFirstToken(true);
       resetIdleTimer();
-      const nextThinking = `${streamThinkingTargetRef.current}${event.text}`;
-      streamThinkingTargetRef.current = nextThinking;
-      setStreamThinkingTarget(nextThinking);
+      streamBuffer.appendThinking(event.text);
       if (!thinkingStartTimeRef.current) {
         thinkingStartTimeRef.current = Date.now();
       }
@@ -583,12 +637,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       clearCompactionIndicator();
       setHasReceivedFirstToken(true);
       resetIdleTimer();
-      const nextAnswer = `${streamAnswerTargetRef.current}${event.text}`;
-      streamAnswerTargetRef.current = nextAnswer;
-      setStreamAnswerTarget(nextAnswer);
-      if (thinkingStartTimeRef.current && !thinkingDuration) {
+      streamBuffer.appendAnswer(event.text);
+      if (thinkingStartTimeRef.current) {
         const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
-        setThinkingDuration(duration);
+        setThinkingDuration((current) => current ?? duration);
       }
     }
 
@@ -624,7 +676,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           .filter((item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> => item.timelineKind === "text")
           .reduce((sum, item) => sum + item.content.length, 0);
 
-        const newText = streamAnswerTargetRef.current.slice(previousTextLen);
+        const newText = streamBuffer.getSnapshot().answerTarget.slice(previousTextLen);
         const nextTimeline = [...prev];
 
         if (newText.length > 0) {
@@ -672,8 +724,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           )
         );
       } else if (isForActiveStream) {
-        const finalAnswer = streamAnswerTargetRef.current;
-        const finalThinking = streamThinkingTargetRef.current;
+        const bufferSnapshot = streamBuffer.getSnapshot();
+        const finalAnswer = bufferSnapshot.answerTarget;
+        const finalThinking = bufferSnapshot.thinkingTarget;
         const finalTimeline = streamTimelineRef.current;
 
         setMessages((current) =>
@@ -694,12 +747,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       if (isForActiveStream) {
         setStreamMessageId(null);
         updateStreamTimeline([]);
-        setStreamAnswerTarget("");
-        setStreamAnswerDisplay("");
-        setStreamThinkingTarget("");
-        setStreamThinkingDisplay("");
-        streamAnswerTargetRef.current = "";
-        streamThinkingTargetRef.current = "";
+        streamBuffer.reset();
         setIsSending(false);
       }
     }
@@ -723,6 +771,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         );
         setStreamMessageId(null);
         updateStreamTimeline([]);
+        streamBuffer.reset();
         setIsSending(false);
       }
       setError("");
@@ -788,12 +837,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             if (activeSnapshotMessage && activeSnapshotMessage.status !== "streaming") {
               setStreamMessageId(null);
               updateStreamTimeline([]);
-              setStreamAnswerTarget("");
-              setStreamAnswerDisplay("");
-              setStreamThinkingTarget("");
-              setStreamThinkingDisplay("");
-              streamAnswerTargetRef.current = "";
-              streamThinkingTargetRef.current = "";
+              streamBuffer.reset();
               setHasReceivedFirstToken(false);
               setIsSending(false);
             } else if (activeSnapshotMessage) {
@@ -805,40 +849,53 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             );
             if (streamingMsg) {
               const adoptedStream = adoptStreamingSnapshotState(streamingMsg.timeline);
-              const answerFromTimeline = adoptedStream.answer;
               setStreamMessageId(streamingMsg.id);
-              streamAnswerTargetRef.current = answerFromTimeline;
-              streamThinkingTargetRef.current = streamingMsg.thinkingContent ?? "";
-              setStreamAnswerTarget(answerFromTimeline);
-              setStreamAnswerDisplay(answerFromTimeline);
-              setStreamThinkingTarget(streamingMsg.thinkingContent ?? "");
-              setStreamThinkingDisplay(streamingMsg.thinkingContent ?? "");
+              streamBuffer.setAnswer(adoptedStream.answer, { immediate: true });
+              streamBuffer.setThinking(streamingMsg.thinkingContent ?? "", { immediate: true });
               updateStreamTimeline(adoptedStream.timeline);
-              setHasReceivedFirstToken(Boolean(answerFromTimeline || streamingMsg.thinkingContent));
+              setHasReceivedFirstToken(Boolean(adoptedStream.answer || streamingMsg.thinkingContent));
               setIsSending(true);
             }
           }
 
-          setMessages((current) => {
-            const reconciliation = reconcileSnapshotMessages(
-              current,
-              msg.messages as Message[],
-              streamMessageId,
-              pendingLocalSubmissionsRef.current
+          applySnapshotReconciliation(msg.messages as Message[], streamMessageId);
+          break;
+        case "user_message_persisted": {
+          if (msg.conversationId !== payload.conversation.id) {
+            break;
+          }
+          const serverMessage = sanitizeMessages([msg.message as Message])[0];
+          if (!serverMessage) {
+            break;
+          }
+          const submission = pendingLocalSubmissionsRef.current.find(
+            (candidate) =>
+              candidate.serverMessageId === null &&
+              matchesPendingLocalSubmission(serverMessage, candidate)
+          );
+          if (submission) {
+            renderKeyByMessageIdRef.current.set(
+              serverMessage.id,
+              renderKeyByMessageIdRef.current.get(submission.localMessageId) ?? submission.localMessageId
             );
-            const remappedAnchorMessageId = pendingAnchorMessageIdRef.current
-              ? reconciliation.anchorMessageIdRemap.get(pendingAnchorMessageIdRef.current)
-              : undefined;
-            if (remappedAnchorMessageId) {
-              pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
+            if (pendingAnchorMessageIdRef.current === submission.localMessageId) {
+              pendingAnchorMessageIdRef.current = serverMessage.id;
             }
-            pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
-            for (const serverId of reconciliation.anchorMessageIdRemap.values()) {
-              animatedMessageIdsRef.current.add(serverId);
+            pendingLocalSubmissionsRef.current = pendingLocalSubmissionsRef.current.filter(
+              (candidate) => candidate.localMessageId !== submission.localMessageId
+            );
+          }
+          setMessages((current) => {
+            if (current.some((m) => m.id === serverMessage.id)) {
+              return current;
             }
-            return reconciliation.messages;
+            if (submission && current.some((m) => m.id === submission.localMessageId)) {
+              return current.map((m) => (m.id === submission.localMessageId ? serverMessage : m));
+            }
+            return [...current, serverMessage];
           });
           break;
+        }
         case "queue_updated":
           setQueuedMessages((msg.queuedMessages as QueuedMessage[] | undefined) ?? []);
           break;
@@ -866,6 +923,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           setError("");
           setStreamMessageId(null);
           updateStreamTimeline([]);
+          streamBuffer.reset();
           setIsSending(false);
           break;
         case "delta":
@@ -885,6 +943,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       }
     }
   });
+
+  useEffect(() => () => streamBuffer.reset(), [streamBuffer]);
+
+  useEffect(() => {
+    wsConnectedRef.current = wsConnected;
+  }, [wsConnected]);
 
   useEffect(() => {
     wsSubscribe(payload.conversation.id);
@@ -1100,31 +1164,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         }
 
         const activeStreamMessageId = streamMessageIdRef.current;
+        const bufferSnapshot = streamBuffer.getSnapshot();
         const hasLocalStreamState =
           Boolean(activeStreamMessageId) ||
-          Boolean(streamThinkingTargetRef.current) ||
-          Boolean(streamAnswerTargetRef.current) ||
+          Boolean(bufferSnapshot.thinkingTarget) ||
+          Boolean(bufferSnapshot.answerTarget) ||
           streamTimelineRef.current.length > 0;
 
-        setMessages((current) => {
-          const reconciliation = reconcileSnapshotMessages(
-            current,
-            result.messages,
-            activeStreamMessageId,
-            pendingLocalSubmissionsRef.current
-          );
-          const remappedAnchorMessageId = pendingAnchorMessageIdRef.current
-            ? reconciliation.anchorMessageIdRemap.get(pendingAnchorMessageIdRef.current)
-            : undefined;
-          if (remappedAnchorMessageId) {
-            pendingAnchorMessageIdRef.current = remappedAnchorMessageId;
-          }
-          pendingLocalSubmissionsRef.current = reconciliation.pendingLocalSubmissions;
-          for (const serverId of reconciliation.anchorMessageIdRemap.values()) {
-            animatedMessageIdsRef.current.add(serverId);
-          }
-          return reconciliation.messages;
-        });
+        applySnapshotReconciliation(result.messages, activeStreamMessageId);
         setConversationTitle(result.conversation.title);
         setTitleGenerationStatus(result.conversation.titleGenerationStatus);
 
@@ -1151,7 +1198,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         if (shouldIgnoreInactiveResult) {
           messageSyncTimeoutRef.current = window.setTimeout(() => {
             void syncConversation();
-          }, 1000);
+          }, wsConnectedRef.current ? 5000 : 1000);
           return;
         }
 
@@ -1159,12 +1206,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         if (!awaitingTurnStart && (!result.conversation.isActive || (activeMessage && activeMessage.status !== "streaming"))) {
           setStreamMessageId(null);
           updateStreamTimeline([]);
-          setStreamAnswerTarget("");
-          setStreamAnswerDisplay("");
-          setStreamThinkingTarget("");
-          setStreamThinkingDisplay("");
-          streamAnswerTargetRef.current = "";
-          streamThinkingTargetRef.current = "";
+          streamBuffer.reset();
           setHasReceivedFirstToken(false);
           setIsSending(false);
           stopMessageSyncPolling();
@@ -1178,7 +1220,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
       messageSyncTimeoutRef.current = window.setTimeout(() => {
         void syncConversation();
-      }, 1000);
+      }, wsConnectedRef.current ? 5000 : 1000);
     };
 
     void syncConversation();
@@ -1187,45 +1229,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       cancelled = true;
       stopMessageSyncPolling();
     };
-  }, [needsMessageSync, payload.conversation.id, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline]);
-
-  useEffect(() => {
-    if (streamThinkingDisplay === streamThinkingTarget) {
-      return;
-    }
-
-    const handle = window.setInterval(() => {
-      setStreamThinkingDisplay((current) => {
-        if (current.length >= streamThinkingTarget.length) {
-          window.clearInterval(handle);
-          return current;
-        }
-
-        return streamThinkingTarget.slice(0, current.length + 3);
-      });
-    }, 12);
-
-    return () => window.clearInterval(handle);
-  }, [streamThinkingDisplay, streamThinkingTarget]);
-
-  useEffect(() => {
-    if (streamAnswerDisplay === streamAnswerTarget) {
-      return;
-    }
-
-    const handle = window.setInterval(() => {
-      setStreamAnswerDisplay((current) => {
-        if (current.length >= streamAnswerTarget.length) {
-          window.clearInterval(handle);
-          return current;
-        }
-
-        return streamAnswerTarget.slice(0, current.length + 4);
-      });
-    }, 10);
-
-    return () => window.clearInterval(handle);
-  }, [streamAnswerDisplay, streamAnswerTarget]);
+  }, [applySnapshotReconciliation, needsMessageSync, payload.conversation.id, streamBuffer, syncActiveStreamingMessageFromSnapshot, updateStreamTimeline]);
 
   const selectedProfile = useMemo(
     () => payload.providerProfiles.find((profile) => profile.id === providerProfileId) ?? null,
@@ -1620,7 +1624,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         throw new Error(message);
       }
 
-      router.refresh();
     } catch (caughtError) {
       setProviderProfileId(previousProviderProfileId);
       setError(
@@ -1691,12 +1694,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     setInput("");
     dismissComposerKeyboardOnTouch();
     setPendingAttachments([]);
-    setStreamThinkingTarget("");
-    setStreamThinkingDisplay("");
-    setStreamAnswerTarget("");
-    setStreamAnswerDisplay("");
-    streamAnswerTargetRef.current = "";
-    streamThinkingTargetRef.current = "";
+    streamBuffer.reset();
     setStreamMessageId(null);
     updateStreamTimeline([]);
     setHasReceivedFirstToken(false);
@@ -1805,6 +1803,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     });
   }
 
+  const onUpdateUserMessageStable = useStableHandler(updateUserMessage);
+  const onApproveMemoryProposalStable = useStableHandler(approveMemoryProposal);
+  const onDismissMemoryProposalStable = useStableHandler(dismissMemoryProposal);
+  const onForkAssistantMessageStable = useStableHandler(forkAssistantMessage);
+  const onRetryAssistantMessageStable = useStableHandler(retryAssistantMessage);
+  const onRegenerateUserMessageStable = useStableHandler(regenerateUserMessage);
+  const onPreviewAttachmentStable = useStableHandler(previewController.openAttachmentPreview);
+
   return (
     <div
       data-testid="chat-view-root"
@@ -1907,19 +1913,26 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         <ConversationContent
           className="no-scrollbar overscroll-y-contain gap-2.5 px-2 pt-4 md:gap-4 md:px-8"
         >
+          {hiddenMessageCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => {
+                expandAnchorMessageIdRef.current = visibleMessages[0]?.id ?? null;
+                setVisibleMessageLimit((current) => current + VISIBLE_MESSAGE_INCREMENT);
+              }}
+              className="mx-auto mb-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-1.5 text-[11px] font-medium uppercase tracking-wider text-white/55 transition hover:bg-white/[0.08] hover:text-white/80"
+            >
+              Show earlier messages ({hiddenMessageCount})
+            </button>
+          ) : null}
           {(() => {
             if (initialMessageIdsRef.current === null) {
               initialMessageIdsRef.current = new Set(renderableMessages.map((m) => m.id));
             }
             return null;
           })()}
-          {renderableMessages.map((message, index) => {
+          {visibleMessages.map((message, index) => {
             const isStreamingMessage = message.id === streamMessageId;
-            const hasRunningStreamingAction = Boolean(
-              streamTimeline?.some(
-                (item) => item.timelineKind === "action" && item.status === "running"
-              )
-            );
 
             const wasPresentOnInit = initialMessageIdsRef.current!.has(message.id);
             const hasBeenAnimated = animatedMessageIdsRef.current.has(message.id);
@@ -1930,44 +1943,32 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
             return (
               <div
-                key={message.id}
+                key={renderKeyByMessageIdRef.current.get(message.id) ?? message.id}
                 data-message-id={message.id}
-                className={shouldAnimate ? "animate-slide-up" : ""}
+                className={shouldAnimate ? "animate-slide-up" : undefined}
                 style={shouldAnimate ? { animationFillMode: "forwards" } : undefined}
               >
-                <MessageBubble
+                <StreamingMessage
+                  active={isStreamingMessage}
+                  buffer={streamBuffer}
                   message={message}
-                  onPreviewAttachment={previewController.openAttachmentPreview}
-                  streamingTimeline={isStreamingMessage ? streamTimeline : undefined}
-                  streamingThinking={isStreamingMessage ? streamThinkingDisplay : undefined}
-                  streamingAnswer={isStreamingMessage ? streamAnswerDisplay : undefined}
-                  awaitingFirstToken={
-                    isStreamingMessage
-                      ? !hasReceivedFirstToken &&
-                        !streamAnswerDisplay &&
-                        !message.content &&
-                        !(streamTimeline?.length ?? message.timeline?.length ?? 0)
-                      : false
-                  }
-                  compactionInProgress={isStreamingMessage ? compactionInProgress : false}
-                  thinkingInProgress={
-                    isStreamingMessage
-                      ? Boolean(streamThinkingTarget) && !streamAnswerTarget && !hasRunningStreamingAction
-                      : false
-                  }
-                  thinkingDuration={isStreamingMessage ? thinkingDuration : undefined}
-                  hasThinking={isStreamingMessage ? Boolean(streamThinkingTarget) : false}
-                  onUpdateUserMessage={updateUserMessage}
-                  onApproveMemoryProposal={approveMemoryProposal}
-                  onDismissMemoryProposal={dismissMemoryProposal}
+                  timeline={isStreamingMessage ? streamTimeline : EMPTY_TIMELINE}
+                  hasReceivedFirstToken={hasReceivedFirstToken}
+                  compactionInProgress={compactionInProgress}
+                  thinkingDuration={thinkingDuration}
+                  onPreviewAttachment={onPreviewAttachmentStable}
+                  onUpdateUserMessage={onUpdateUserMessageStable}
+                  onApproveMemoryProposal={onApproveMemoryProposalStable}
+                  onDismissMemoryProposal={onDismissMemoryProposalStable}
+                  onForkAssistantMessage={onForkAssistantMessageStable}
+                  onRetryAssistantMessage={onRetryAssistantMessageStable}
+                  onRegenerateUserMessage={index === lastUserMsgIndex ? onRegenerateUserMessageStable : undefined}
                   isUpdating={updatingMessageId === message.id}
-                  onForkAssistantMessage={forkAssistantMessage}
                   isForking={forkingMessageId === message.id}
-                  onRetryAssistantMessage={retryAssistantMessage}
                   isRetrying={retryingMessageId === message.id}
-                  onRegenerateUserMessage={index === lastUserMsgIndex ? regenerateUserMessage : undefined}
                   isRegenerating={regeneratingMessageId === message.id}
                 />
+
                 {isStreamingMessage && isAgentIdle && hasReceivedFirstToken && (
                   <div className="animate-fade-in mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 md:ml-[42px]">
                     <TypingIndicator compact />

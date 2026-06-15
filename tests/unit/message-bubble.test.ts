@@ -3,7 +3,7 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
-import { MessageBubble, StreamingPlaceholder } from "@/components/message-bubble";
+import { MessageBubble } from "@/components/message-bubble";
 import type { Message, MessageAction, MessageTimelineItem } from "@/lib/types";
 
 const originalFetch = global.fetch;
@@ -141,38 +141,6 @@ afterEach(() => {
 });
 
 describe("message bubble", () => {
-  it("renders running tool actions with a spinner while streaming", () => {
-    const { container } = render(
-      React.createElement(StreamingPlaceholder, {
-        createdAt: new Date().toISOString(),
-        thinking: "",
-        answer: "",
-        awaitingFirstToken: false,
-        thinkingInProgress: false,
-        timeline: [
-          {
-            ...createToolAction({
-              id: "act_running",
-              messageId: "msg_assistant",
-              label: "Search docs",
-              detail: "query=MCP",
-              resultSummary: "",
-              status: "running",
-              serverId: "mcp_docs",
-              toolName: "search_docs",
-              completedAt: null
-            }),
-            timelineKind: "action",
-          }
-        ]
-      })
-    );
-
-    expect(screen.getByText("Search docs")).toBeInTheDocument();
-    expect(screen.queryByText(/query=MCP/)).toBeNull();
-    expect(container.querySelector(".animate-spin")).not.toBeNull();
-  });
-
   it("renders persisted completed actions with their summaries", () => {
     render(
       React.createElement(MessageBubble, {
@@ -715,71 +683,6 @@ describe("message bubble", () => {
     const toolButtons = screen.getAllByRole("button", { name: "web_search_exa" });
 
     expect(toolButtons).toHaveLength(1);
-  });
-
-  it("renders a compact loading shell while awaiting the first token", () => {
-    const { container } = render(
-      React.createElement(StreamingPlaceholder, {
-        createdAt: new Date().toISOString(),
-        thinking: "",
-        answer: "",
-        awaitingFirstToken: true,
-        thinkingInProgress: false,
-        timeline: []
-      })
-    );
-
-    const loadingShell = screen.getByTestId("assistant-loading-shell");
-
-    expect(loadingShell).toBeInTheDocument();
-    expect(loadingShell.className).toContain("rounded-lg");
-    expect(loadingShell.className).toContain("overflow-hidden");
-    expect(loadingShell.className).toContain("mt-[6px]");
-    expect(loadingShell.className).not.toContain("rounded-2xl");
-    expect(screen.queryByTestId("assistant-message-bubble")).toBeNull();
-    expect(container.querySelectorAll(".typing-dot")).toHaveLength(3);
-    expect(container.querySelector(".typing-dot")).toHaveStyle("--typing-dot-lift: 2px");
-  });
-
-  it("keeps the thinking shell visible while streamed reasoning is buffered", () => {
-    render(
-      React.createElement(StreamingPlaceholder, {
-        createdAt: new Date().toISOString(),
-        thinking: "",
-        answer: "Answer started",
-        awaitingFirstToken: false,
-        thinkingInProgress: false,
-        hasThinking: true,
-        timeline: []
-      })
-    );
-
-    expect(screen.getByText("Thought")).toBeInTheDocument();
-    expect(screen.getByText("Answer started")).toBeInTheDocument();
-  });
-
-  it("reveals streamed thinking content after the user expands the panel", () => {
-    render(
-      React.createElement(StreamingPlaceholder, {
-        createdAt: new Date().toISOString(),
-        thinking: "Working through the prompt",
-        answer: "",
-        awaitingFirstToken: false,
-        thinkingInProgress: true,
-        hasThinking: true,
-        timeline: []
-      })
-    );
-
-    const toggle = screen.getByRole("button", { name: /Thinking/i });
-
-    expect(screen.getByText("Thinking")).toBeInTheDocument();
-    expect(screen.getByText("...")).toBeInTheDocument();
-    expect(screen.queryByText("Working through the prompt")).toBeNull();
-
-    fireEvent.click(toggle);
-
-    expect(screen.getByText("Working through the prompt")).toBeInTheDocument();
   });
 
   it("renders expanded thinking content with the compact thinking markdown wrapper", () => {
@@ -1393,24 +1296,6 @@ describe("message bubble", () => {
         message: createUserMessage(),
         onForkAssistantMessage: vi.fn()
       })
-    );
-
-    expect(
-      screen.queryByRole("button", { name: "Fork conversation from message" })
-    ).toBeNull();
-  });
-
-  it("does not render a fork action for streaming placeholders", () => {
-    render(
-      React.createElement(StreamingPlaceholder, {
-        createdAt: new Date().toISOString(),
-        thinking: "",
-        answer: "Still streaming",
-        awaitingFirstToken: false,
-        thinkingInProgress: false,
-        timeline: [],
-        onForkAssistantMessage: vi.fn()
-      } as any)
     );
 
     expect(
@@ -2103,35 +1988,6 @@ describe("message bubble", () => {
     expect(screen.getByRole("button", { name: "Retry preview" })).toBeInTheDocument();
   });
 
-  it("renders streaming actions before the streaming answer text", () => {
-    render(
-      React.createElement(StreamingPlaceholder, {
-        createdAt: new Date().toISOString(),
-        thinking: "",
-        answer: "Here are the results.",
-        awaitingFirstToken: false,
-        thinkingInProgress: false,
-        timeline: [
-          {
-            ...createToolAction({
-              id: "act_done",
-              messageId: "msg_streaming",
-              serverId: "mcp_exa",
-              toolName: "web_search_exa",
-              label: "Web search",
-              detail: "query=test",
-              resultSummary: "Found results"
-            }),
-            timelineKind: "action",
-          }
-        ]
-      })
-    );
-
-    expect(screen.getByText("Web search")).toBeInTheDocument();
-    expect(screen.getByText("Here are the results.")).toBeInTheDocument();
-  });
-
   it("renders a stopped badge for interrupted assistant messages", () => {
     render(
       React.createElement(MessageBubble, {
@@ -2147,21 +2003,4 @@ describe("message bubble", () => {
     expect(screen.getByText("Partial answer")).toBeInTheDocument();
   });
 
-  it("renders a compaction separator instead of typing dots while compaction is active", () => {
-    const { container } = render(
-      React.createElement(StreamingPlaceholder, {
-        createdAt: new Date().toISOString(),
-        thinking: "",
-        answer: "",
-        awaitingFirstToken: true,
-        thinkingInProgress: false,
-        compactionInProgress: true,
-        timeline: []
-      })
-    );
-
-    expect(screen.getByText("Compacting")).toBeInTheDocument();
-    expect(container.querySelector(".compaction-indicator")).not.toBeNull();
-    expect(container.querySelector(".typing-dot")).toBeNull();
-  });
 });
