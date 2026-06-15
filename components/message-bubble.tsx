@@ -93,20 +93,14 @@ function AnsiText({
   );
 }
 
-const STREAM_REVEAL_ANIMATION = { animation: "fadeIn" as const, duration: 320, sep: "word" as const };
-
-const AssistantMarkdown = React.memo(function AssistantMarkdown({ content, isStreaming }: { content: string; isStreaming: boolean }) {
+const AssistantMarkdown = React.memo(function AssistantMarkdown({ content }: { content: string }) {
   const plugins = useStreamdownPlugins(content);
   const fallback = (
     <pre className="whitespace-pre-wrap break-words text-sm">{content}</pre>
   );
   return (
     <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
-      <Streamdown
-        plugins={plugins}
-        isAnimating={isStreaming}
-        animated={isStreaming ? STREAM_REVEAL_ANIMATION : false}
-      >
+      <Streamdown plugins={plugins}>
         {content}
       </Streamdown>
     </MarkdownErrorBoundary>
@@ -209,6 +203,8 @@ const ASSISTANT_MAX_WIDTH = "max-w-full md:max-w-[95%]";
 const ASSISTANT_BUBBLE_BASE =
   "w-fit max-w-full rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-2 md:px-4 md:py-3 text-[var(--text)]";
 const ASSISTANT_BUBBLE = `${ASSISTANT_BUBBLE_BASE} shadow-[0_2px_10px_rgba(0,0,0,0.22)]`;
+const ASSISTANT_BUBBLE_STREAMING =
+  "w-fit max-w-full rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 pt-2 pb-8 md:px-4 md:pt-3 md:pb-9 text-[var(--text)]";
 const ASSISTANT_LOADING_SHELL =
   "mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1";
 
@@ -712,10 +708,7 @@ function MessageBubbleImpl({
                       }
                     }}
                   >
-                    <Streamdown
-                      isAnimating={thinkingInProgress}
-                      animated={thinkingInProgress ? STREAM_REVEAL_ANIMATION : false}
-                    >{thinkingContent}</Streamdown>
+                    <Streamdown>{thinkingContent}</Streamdown>
                   </div>
                 ) : null}
               </div>
@@ -793,11 +786,11 @@ function MessageBubbleImpl({
                       return (
                         <div
                           key={item.id}
-                          className={isAssistantStreaming ? ASSISTANT_BUBBLE_BASE : ASSISTANT_BUBBLE}
+                          className={isAssistantStreaming ? ASSISTANT_BUBBLE_STREAMING : ASSISTANT_BUBBLE}
                           data-testid="assistant-message-bubble"
                         >
                           <div className="markdown-body">
-                            <AssistantMarkdown content={renderedContent} isStreaming={isAssistantStreaming} />
+                            <AssistantMarkdown content={renderedContent} />
                           </div>
                           {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
                             <div className="mt-3">

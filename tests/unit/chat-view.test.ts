@@ -3034,7 +3034,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
 
     await waitFor(() => {
-      expect(screen.getByTestId("chat-view-root")).toHaveTextContent("A long response that overflows the viewport");
+      expect(screen.getByText("A long response that overflows the viewport")).toBeInTheDocument();
     });
   });
 
@@ -3213,7 +3213,7 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("chat-view-root")).toHaveTextContent("A long response that starts following");
+      expect(screen.getByText("A long response that starts following")).toBeInTheDocument();
     });
 
     simulateAtBottomState(false);
@@ -3516,7 +3516,7 @@ describe("chat view", () => {
     expect(screen.queryByRole("button", { name: /^Thinking$/i })).toBeNull();
 
     await waitFor(() => {
-      expect(screen.getByTestId("chat-view-root")).toHaveTextContent("Working on it");
+      expect(screen.getByText("Working on it")).toBeInTheDocument();
     });
   });
 
@@ -3734,7 +3734,7 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("chat-view-root")).toHaveTextContent("Already streamed");
+      expect(screen.getByText("Already streamed")).toBeInTheDocument();
     });
 
     act(() => {
