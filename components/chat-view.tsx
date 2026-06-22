@@ -744,6 +744,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         );
       }
 
+      if (!wasStopped) {
+        setMessages((current) =>
+          current.filter((m) => !(m.role === "assistant" && m.status === "error"))
+        );
+      }
+
       if (isForActiveStream) {
         setStreamMessageId(null);
         updateStreamTimeline([]);
@@ -764,9 +770,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           conversationId: payload.conversation.id,
           isActive: false
         });
+        const finalTimeline = streamTimelineRef.current;
         setMessages((current) =>
           current.map((m) =>
-            m.id === activeStreamMessageId ? { ...m, status: "error" as const, content: event.message } : m
+            m.id === activeStreamMessageId
+              ? { ...m, status: "error" as const, content: event.message, timeline: finalTimeline }
+              : m
           )
         );
         setStreamMessageId(null);
@@ -911,11 +920,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             conversationId: payload.conversation.id,
             isActive: false
           });
+          const activeStreamMessageId = streamMessageIdRef.current;
+          const finalTimeline = streamTimelineRef.current;
           setMessages((current) => {
-            const activeStreamMessageId = streamMessageIdRef.current;
             if (activeStreamMessageId) {
               return current.map((m) =>
-                m.id === activeStreamMessageId ? { ...m, status: "error" as const, content: msg.message } : m
+                m.id === activeStreamMessageId
+                  ? { ...m, status: "error" as const, content: msg.message, timeline: finalTimeline }
+                  : m
               );
             }
             return current;

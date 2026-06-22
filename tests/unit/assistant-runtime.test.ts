@@ -132,6 +132,7 @@ function createAppSettings() {
     memoriesEnabled: false,
     memoriesMaxCount: 100,
     mcpTimeout: 30000,
+    maxAssistantToolSteps: 25,
     sttEngine: "browser" as const,
     sttLanguage: "auto" as const,
     webSearchEngine: "disabled" as const,
@@ -1917,6 +1918,37 @@ Run browser commands.`
     ).rejects.toThrow("Assistant exceeded the maximum number of tool steps");
 
     expect(streamProviderResponse).toHaveBeenCalledTimes(MAX_ASSISTANT_CONTROL_STEPS + 1);
+  });
+
+  it("honors a user-configured maxAssistantToolSteps override", async () => {
+    streamProviderResponse.mockImplementation(() =>
+      createProviderStream([], {
+        answer: "",
+        thinking: "",
+        toolCalls: [{ id: "call_loop", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "loop" }) }],
+        usage: { inputTokens: 1 }
+      })
+    );
+    callMcpTool.mockResolvedValue({
+      content: [{ type: "text", text: "Loop result" }]
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await expect(
+      resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Loop forever" }],
+        skills: [],
+        mcpToolSets: [{
+          server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+          tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
+        }],
+        appSettings: { ...createAppSettings(), maxAssistantToolSteps: 2, imageGenerationBackend: "disabled" as const }
+      })
+    ).rejects.toThrow("Assistant exceeded the maximum number of tool steps");
+
+    expect(streamProviderResponse).toHaveBeenCalledTimes(3);
   });
 
   it("forces a final direct answer when the tool loop would otherwise exhaust the step budget", async () => {

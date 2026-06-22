@@ -3,13 +3,16 @@ import {
   ensureCompactedContext,
   estimateContextUsage,
   getConversationContextUsage,
-  getConversationDebugStats
+  getConversationDebugStats,
+  MAX_TOOL_RESULT_CHARS
 } from "@/lib/compaction";
+import { buildChatCompletionMessages, buildResponsesInput } from "@/lib/provider-message-formatting";
+import { toAnthropicMessages } from "@/lib/anthropic";
 import { getDb } from "@/lib/db";
 import { createConversation, createMessage, createMessageAction, listMessages } from "@/lib/conversations";
 import { getDefaultProviderProfileWithApiKey, updateSettings } from "@/lib/settings";
 import { createMemory, deleteMemory } from "@/lib/memories";
-import type { PromptMessage } from "@/lib/types";
+import type { Message, MessageAction, PromptMessage } from "@/lib/types";
 
 vi.mock("@/lib/provider", async () => {
   return {
@@ -122,6 +125,59 @@ describe("lossless compaction", () => {
     expect(getPromptText(prompt[0]!)).toContain("Stay concise.");
     expect(getPromptText(prompt[0]!)).toContain("Compacted Memory");
     expect(getPromptText(prompt.at(-1)!)).toBe("Append this");
+  });
+
+  it("excludes error-status assistant turns from the prompt", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "System.",
+      activeMemoryNodes: [],
+      messages: [
+        {
+          id: "msg_user",
+          conversationId: "conv_1",
+          role: "user",
+          content: "Do something",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 3,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "msg_error",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "Assistant exceeded the maximum number of tool steps",
+          thinkingContent: "",
+          status: "error",
+          estimatedTokens: 5,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "msg_ok",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "Done.",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 2,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        }
+      ]
+    });
+
+    const assistantContents = prompt
+      .filter((message) => message.role === "assistant")
+      .map((message) => (typeof message.content === "string" ? message.content : ""))
+      .join("\n");
+
+    expect(assistantContents).toContain("Done.");
+    expect(assistantContents).not.toContain("exceeded the maximum number of tool steps");
   });
 
   it("merges system messages into single system prompt", () => {
@@ -1473,7 +1529,7 @@ describe("estimateContextUsage", () => {
     expect(contextTokens).toBeGreaterThanOrEqual(charFloor);
   });
 
-  it("does not count transient tool results", () => {
+  it("includes capped tool results in the context estimate", () => {
     seedProfile();
     const settings = getDefaultProviderProfileWithApiKey()!;
 
@@ -1496,9 +1552,11 @@ describe("estimateContextUsage", () => {
       resultSummary: "result ".repeat(10000)
     });
 
-    expect(estimateContextUsage(withAction.id, settings).contextTokens).toBe(
-      estimateContextUsage(withoutAction.id, settings).contextTokens
-    );
+    const withoutTokens = estimateContextUsage(withoutAction.id, settings).contextTokens;
+    const withTokens = estimateContextUsage(withAction.id, settings).contextTokens;
+
+    expect(withTokens).toBeGreaterThan(withoutTokens);
+    expect(withTokens - withoutTokens).toBeLessThan(5000);
   });
 
   it("getConversationContextUsage returns null for a missing conversation", () => {
@@ -1541,5 +1599,202 @@ describe("estimateContextUsage", () => {
 
     expect(estimate.contextTokens).toBe(compacted.promptTokens);
     expect(estimate.compactionLimit).toBe(12000);
+  });
+});
+
+describe("buildPromptMessages tool-call replay", () => {
+  function assistantMessage(overrides: Partial<Message>): Message {
+    return {
+      id: "msg_assistant",
+      conversationId: "conv_1",
+      role: "assistant",
+      content: "Done.",
+      thinkingContent: "",
+      status: "completed",
+      estimatedTokens: 2,
+      systemKind: null,
+      compactedAt: null,
+      createdAt: new Date().toISOString(),
+      ...overrides
+    };
+  }
+
+  function action(overrides: Partial<MessageAction> & { id: string }): MessageAction {
+    return {
+      messageId: "msg_assistant",
+      kind: "mcp_tool_call",
+      status: "completed",
+      serverId: "exa",
+      skillId: null,
+      toolName: "search",
+      label: "search",
+      detail: "",
+      arguments: { q: "x" },
+      resultSummary: "hits: a, b",
+      sortOrder: 0,
+      startedAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
+      proposalState: null,
+      proposalPayload: null,
+      proposalUpdatedAt: null,
+      ...overrides
+    };
+  }
+
+  it("replays a completed mcp_tool_call as assistant toolCalls plus a matching tool result", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      activeMemoryNodes: [],
+      messages: [
+        assistantMessage({
+          id: "msg_a",
+          content: "Here is what I found.",
+          actions: [
+            action({ id: "act_1", toolName: "search", arguments: { q: "x" }, resultSummary: "hits: a, b", sortOrder: 0 })
+          ]
+        })
+      ]
+    });
+
+    const assistantMessages = prompt.filter((m) => m.role === "assistant");
+    expect(assistantMessages).toHaveLength(1);
+    expect(assistantMessages[0]!.toolCalls).toHaveLength(1);
+    expect(assistantMessages[0]!.toolCalls![0]).toMatchObject({ id: "act_1", name: "search" });
+    expect(JSON.parse(assistantMessages[0]!.toolCalls![0]!.arguments)).toEqual({ q: "x" });
+
+    const toolMessages = prompt.filter((m) => m.role === "tool");
+    expect(toolMessages).toHaveLength(1);
+    expect(toolMessages[0]!.toolCallId).toBe("act_1");
+    expect(toolMessages[0]!.content).toContain("hits: a, b");
+  });
+
+  it("replays multiple tool calls in sortOrder with matching result ids", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      activeMemoryNodes: [],
+      messages: [
+        assistantMessage({
+          content: "Investigated.",
+          actions: [
+            action({ id: "act_2", kind: "shell_command", toolName: "shell", arguments: { command: "ls" }, resultSummary: "file-a", sortOrder: 1 }),
+            action({ id: "act_1", kind: "mcp_tool_call", toolName: "search", arguments: { q: "x" }, resultSummary: "hits: a", sortOrder: 0 })
+          ]
+        })
+      ]
+    });
+
+    const assistant = prompt.filter((m) => m.role === "assistant")[0]!;
+    expect(assistant.toolCalls).toHaveLength(2);
+    expect(assistant.toolCalls!.map((tc) => tc.id)).toEqual(["act_1", "act_2"]);
+
+    const toolMessages = prompt.filter((m) => m.role === "tool");
+    expect(toolMessages.map((m) => m.toolCallId)).toEqual(["act_1", "act_2"]);
+  });
+
+  it("omits non-replayable action kinds and emits the assistant text-only", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      activeMemoryNodes: [],
+      messages: [
+        assistantMessage({
+          content: "Made an image.",
+          actions: [
+            action({ id: "act_img", kind: "image_generation", toolName: null, resultSummary: "Generated 1 images: cat.png" }),
+            action({ id: "act_skill", kind: "skill_load", toolName: null, resultSummary: "Skill instructions loaded." }),
+            action({ id: "act_mem", kind: "create_memory", toolName: null, resultSummary: "saved" })
+          ]
+        })
+      ]
+    });
+
+    const assistant = prompt.filter((m) => m.role === "assistant")[0]!;
+    expect(assistant.toolCalls ?? []).toHaveLength(0);
+    expect(prompt.filter((m) => m.role === "tool")).toHaveLength(0);
+    expect(assistant.content).toBe("Made an image.");
+  });
+
+  it("omits actions that are not completed or have empty results", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      activeMemoryNodes: [],
+      messages: [
+        assistantMessage({
+          content: "Partial work.",
+          actions: [
+            action({ id: "act_err", status: "error", resultSummary: "boom" }),
+            action({ id: "act_run", status: "running", resultSummary: "..." }),
+            action({ id: "act_pend", status: "pending", resultSummary: "" }),
+            action({ id: "act_empty", status: "completed", resultSummary: "" })
+          ]
+        })
+      ]
+    });
+
+    expect(prompt.filter((m) => m.role === "assistant")[0]!.toolCalls ?? []).toHaveLength(0);
+    expect(prompt.filter((m) => m.role === "tool")).toHaveLength(0);
+  });
+
+  it("truncates large tool results to the cap with a truncation marker", () => {
+    const bigResult = "x".repeat(MAX_TOOL_RESULT_CHARS + 5000);
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      activeMemoryNodes: [],
+      messages: [assistantMessage({ content: "Ran a big tool.", actions: [action({ id: "act_big", resultSummary: bigResult })] })]
+    });
+
+    const toolMessage = prompt.filter((m) => m.role === "tool")[0]!;
+    expect(toolMessage.content.length).toBeLessThanOrEqual(MAX_TOOL_RESULT_CHARS + "\n[…truncated]".length);
+    expect((toolMessage.content as string).endsWith("[…truncated]")).toBe(true);
+  });
+
+  it("keeps an empty-content assistant message when it has replayable tool calls", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      activeMemoryNodes: [],
+      messages: [assistantMessage({ content: "", actions: [action({ id: "act_1", resultSummary: "hits: a" })] })]
+    });
+
+    const assistant = prompt.filter((m) => m.role === "assistant")[0]!;
+    expect(assistant.content).toBe("");
+    expect(assistant.toolCalls).toHaveLength(1);
+    expect(prompt.filter((m) => m.role === "tool")).toHaveLength(1);
+  });
+
+  it("leaves messages without actions unchanged (no toolCalls, no tool messages)", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      activeMemoryNodes: [],
+      messages: [assistantMessage({ id: "msg_plain", content: "Plain answer.", actions: undefined })]
+    });
+
+    const assistant = prompt.filter((m) => m.role === "assistant")[0]!;
+    expect(assistant.toolCalls).toBeUndefined();
+    expect(prompt.filter((m) => m.role === "tool")).toHaveLength(0);
+    expect(assistant.content).toBe("Plain answer.");
+  });
+
+  it("produces matching tool-call/result ids across OpenAI chat, OpenAI responses, and Anthropic formats", () => {
+    const prompt = buildPromptMessages({
+      systemPrompt: "Sys.",
+      activeMemoryNodes: [],
+      messages: [
+        assistantMessage({
+          content: "Found it.",
+          actions: [action({ id: "act_1", toolName: "search", arguments: { q: "x" }, resultSummary: "hits: a" })]
+        })
+      ]
+    });
+    const history = prompt.filter((m) => m.role !== "system");
+
+    const chat = JSON.stringify(buildChatCompletionMessages(history));
+    expect(chat).toContain('"tool_call_id":"act_1"');
+    expect(chat).toMatch(/"tool_calls":\[[^\]]*"id":"act_1"/);
+
+    const responses = JSON.stringify(buildResponsesInput(history));
+    expect(responses).toContain('"call_id":"act_1"');
+
+    const anthropic = JSON.stringify(toAnthropicMessages(history));
+    expect(anthropic).toContain('"tool_use_id":"act_1"');
+    expect(anthropic).toContain('"type":"tool_use","id":"act_1"');
   });
 });

@@ -31,6 +31,7 @@ export function GeneralSection({
     settings.conversationRetention
   );
   const [mcpTimeout, setMcpTimeout] = useState(settings.mcpTimeout);
+  const [maxAssistantToolSteps, setMaxAssistantToolSteps] = useState(settings.maxAssistantToolSteps);
   const [sttEngine, setSttEngine] = useState(settings.sttEngine);
   const [sttLanguage, setSttLanguage] = useState(settings.sttLanguage);
   const [webSearchEngine, setWebSearchEngine] = useState(settings.webSearchEngine);
@@ -67,6 +68,7 @@ export function GeneralSection({
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
     conversationRetention,
     mcpTimeout,
+    maxAssistantToolSteps,
     sttEngine,
     sttLanguage,
     webSearchEngine,
@@ -159,6 +161,7 @@ export function GeneralSection({
     const payload: Record<string, unknown> = {
       conversationRetention,
       mcpTimeout,
+      maxAssistantToolSteps,
       sttEngine,
       sttLanguage,
       webSearchEngine,
@@ -290,11 +293,32 @@ export function GeneralSection({
           <p className="text-xs text-[var(--muted)]">Maximum time (seconds) to wait for an MCP server to respond to a tool call</p>
           <input
             type="number"
+            aria-label="Max tool call timeout"
             min={10}
             max={600}
             value={Math.round(mcpTimeout / 1000)}
             onChange={(event) => setMcpTimeout(Number(event.target.value) * 1000)}
             className={`${inputLike} sm:w-20 ${isFieldDirty("mcpTimeout") ? "!border-amber-500/40" : ""}`}
+          />
+        </div>
+      </div>
+
+      <div className={sectionDivider} />
+
+      {/* Assistant Tool Steps */}
+      <div className="space-y-4">
+        <h3 className={sectionTitle}>Assistant Tool Steps</h3>
+        <div className="space-y-1.5">
+          <label className={fieldLabel}>Max tool steps per turn</label>
+          <p className="text-xs text-[var(--muted)]">Maximum number of consecutive tool-calling rounds the assistant can take in a single turn before it is asked to answer directly. If it still cannot finish, the turn fails.</p>
+          <input
+            type="number"
+            aria-label="Max tool steps per turn"
+            min={1}
+            max={1000}
+            value={maxAssistantToolSteps}
+            onChange={(event) => setMaxAssistantToolSteps(Number(event.target.value))}
+            className={`${inputLike} sm:w-20 ${isFieldDirty("maxAssistantToolSteps") ? "!border-amber-500/40" : ""}`}
           />
         </div>
       </div>

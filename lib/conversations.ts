@@ -1790,6 +1790,41 @@ export function deleteAssistantMessageAndChildren(
   return snapshot;
 }
 
+export function deleteFailedAssistantMessages(conversationId: string): string[] {
+  const failedMessages = listMessages(conversationId).filter(
+    (message) => message.role === "assistant" && message.status === "error"
+  );
+
+  if (failedMessages.length === 0) {
+    return [];
+  }
+
+  const db = getDb();
+  const deletedAttachmentPaths = new Set<string>();
+  const transaction = db.transaction(() => {
+    listAttachmentsForMessageIds(failedMessages.map((message) => message.id)).forEach((attachment) => {
+      deletedAttachmentPaths.add(attachment.relativePath);
+    });
+
+    const deleteActions = db.prepare("DELETE FROM message_actions WHERE message_id = ?");
+    const deleteSegments = db.prepare("DELETE FROM message_text_segments WHERE message_id = ?");
+    const deleteAttachments = db.prepare("DELETE FROM message_attachments WHERE message_id = ?");
+    const deleteMessage = db.prepare("DELETE FROM messages WHERE id = ?");
+
+    for (const message of failedMessages) {
+      deleteActions.run(message.id);
+      deleteSegments.run(message.id);
+      deleteAttachments.run(message.id);
+      deleteMessage.run(message.id);
+    }
+  });
+
+  transaction();
+  deleteAttachmentFiles([...deletedAttachmentPaths]);
+
+  return failedMessages.map((message) => message.id);
+}
+
 export function createMessageAction(input: {
   messageId: string;
   kind: MessageActionKind;

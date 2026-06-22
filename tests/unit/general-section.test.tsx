@@ -29,6 +29,7 @@ function makeSettings(overrides: Partial<GeneralSectionSettings> = {}): GeneralS
     memoriesEnabled: false,
     memoriesMaxCount: 3,
     mcpTimeout: 120_000,
+    maxAssistantToolSteps: 25,
     sttEngine: "browser",
     sttLanguage: "auto",
     webSearchEngine: "exa",
@@ -67,7 +68,7 @@ describe("general section", () => {
     expect(screen.queryByLabelText("Enable auto-compaction")).toBeNull();
 
     fireEvent.change(screen.getByDisplayValue("Forever"), { target: { value: "30d" } });
-    fireEvent.change(screen.getByRole("spinbutton"), { target: { value: "45" } });
+    fireEvent.change(screen.getByLabelText("Max tool call timeout"), { target: { value: "45" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => {

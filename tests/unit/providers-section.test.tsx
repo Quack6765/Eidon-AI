@@ -51,6 +51,7 @@ type SettingsFixture = {
   memoriesEnabled: boolean;
   memoriesMaxCount: number;
   mcpTimeout: number;
+  maxAssistantToolSteps: number;
   sttEngine: "browser" | "embedded";
   sttLanguage: "auto" | "en" | "fr" | "es";
   webSearchEngine: "exa" | "tavily" | "searxng" | "disabled";
@@ -74,6 +75,7 @@ function makeSettings(overrides: Partial<SettingsFixture> = {}): SettingsFixture
     memoriesEnabled: true,
     memoriesMaxCount: 100,
     mcpTimeout: 120_000,
+    maxAssistantToolSteps: 25,
     sttEngine: "browser",
     sttLanguage: "en",
     webSearchEngine: "exa",

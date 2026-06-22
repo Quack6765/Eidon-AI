@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   DEFAULT_PROVIDER_PROFILE_NAME,
   DEFAULT_PROVIDER_SETTINGS,
+  MAX_ASSISTANT_CONTROL_STEPS,
   SETTINGS_ROW_ID
 } from "@/lib/constants";
 import { decryptValue, encryptValue } from "@/lib/crypto";
@@ -135,6 +136,7 @@ const generalSettingsInputSchema = z.object({
   memoriesEnabled: z.coerce.boolean().optional(),
   memoriesMaxCount: z.coerce.number().int().min(1).max(500).optional(),
   mcpTimeout: z.coerce.number().int().min(10_000).max(600_000).optional(),
+  maxAssistantToolSteps: z.coerce.number().int().min(1).max(1000).optional(),
   sttEngine: z.enum(["browser", "embedded"]).optional(),
   sttLanguage: z.enum(["auto", "en", "fr", "es"]).optional(),
   webSearchEngine: z.enum(["exa", "tavily", "searxng", "disabled"]).optional(),
@@ -159,6 +161,7 @@ const generalSettingsSchema = z
     memoriesEnabled: z.coerce.boolean(),
     memoriesMaxCount: z.coerce.number().int().min(1).max(500),
     mcpTimeout: z.coerce.number().int().min(10_000).max(600_000),
+    maxAssistantToolSteps: z.coerce.number().int().min(1).max(1000),
     sttEngine: z.enum(["browser", "embedded"]),
     sttLanguage: z.enum(["auto", "en", "fr", "es"]),
     webSearchEngine: z.enum(["exa", "tavily", "searxng", "disabled"]),
@@ -207,6 +210,7 @@ type AppSettingsRow = {
   memories_enabled: number;
   memories_max_count: number;
   mcp_timeout: number;
+  max_assistant_tool_steps?: number;
   stt_engine?: string;
   stt_language?: string;
   web_search_engine?: string;
@@ -239,6 +243,7 @@ type UserSettingsRow = {
   memories_enabled: number;
   memories_max_count: number;
   mcp_timeout: number;
+  max_assistant_tool_steps?: number;
   stt_engine: string;
   stt_language: string;
   web_search_engine: string;
@@ -341,6 +346,7 @@ type GeneralSettingsInput = Partial<
     | "memoriesEnabled"
     | "memoriesMaxCount"
     | "mcpTimeout"
+    | "maxAssistantToolSteps"
     | "sttEngine"
     | "sttLanguage"
     | "webSearchEngine"
@@ -359,6 +365,7 @@ type GeneralSettingsValues = Pick<
   | "memoriesEnabled"
   | "memoriesMaxCount"
   | "mcpTimeout"
+  | "maxAssistantToolSteps"
   | "sttEngine"
   | "sttLanguage"
   | "webSearchEngine"
@@ -390,6 +397,7 @@ function rowToSettings(row: AppSettingsRow | UserSettingsRow): AppSettings {
     memoriesEnabled: Boolean(row.memories_enabled),
     memoriesMaxCount: row.memories_max_count,
     mcpTimeout: row.mcp_timeout,
+    maxAssistantToolSteps: row.max_assistant_tool_steps ?? MAX_ASSISTANT_CONTROL_STEPS,
     sttEngine: (row.stt_engine ?? "browser") as AppSettings["sttEngine"],
     sttLanguage: (row.stt_language ?? "auto") as AppSettings["sttLanguage"],
     webSearchEngine: (row.web_search_engine ?? "exa") as AppSettings["webSearchEngine"],
@@ -684,8 +692,9 @@ function ensureUserSettingsRow(userId: string) {
         exa_api_key_encrypted,
         tavily_api_key_encrypted,
         searxng_base_url,
+        max_assistant_tool_steps,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
@@ -702,6 +711,7 @@ function ensureUserSettingsRow(userId: string) {
       "",
       "",
       "",
+      MAX_ASSISTANT_CONTROL_STEPS,
       new Date().toISOString()
     );
 }
@@ -726,6 +736,7 @@ function getUserSettingsRow(userId: string) {
         exa_api_key_encrypted,
         tavily_api_key_encrypted,
         searxng_base_url,
+        max_assistant_tool_steps,
         updated_at
       FROM user_settings
       WHERE user_id = ?`
@@ -943,6 +954,7 @@ export function updateGeneralSettingsForUser(
     memoriesEnabled: input.memoriesEnabled ?? current.memoriesEnabled,
     memoriesMaxCount: input.memoriesMaxCount ?? current.memoriesMaxCount,
     mcpTimeout: input.mcpTimeout ?? current.mcpTimeout,
+    maxAssistantToolSteps: input.maxAssistantToolSteps ?? current.maxAssistantToolSteps,
     sttEngine: input.sttEngine ?? current.sttEngine,
     sttLanguage: input.sttLanguage ?? current.sttLanguage,
     webSearchEngine: input.webSearchEngine ?? current.webSearchEngine,
@@ -986,6 +998,7 @@ export function updateGeneralSettingsForUser(
            memories_enabled = ?,
            memories_max_count = ?,
            mcp_timeout = ?,
+           max_assistant_tool_steps = ?,
            stt_engine = ?,
            stt_language = ?,
            web_search_engine = ?,
@@ -1002,6 +1015,7 @@ export function updateGeneralSettingsForUser(
       next.memoriesEnabled ? 1 : 0,
       next.memoriesMaxCount,
       next.mcpTimeout,
+      next.maxAssistantToolSteps,
       next.sttEngine,
       next.sttLanguage,
       next.webSearchEngine,

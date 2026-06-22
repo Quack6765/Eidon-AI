@@ -286,6 +286,7 @@ export function migrate(db: Database.Database) {
       exa_api_key_encrypted TEXT NOT NULL DEFAULT '',
       tavily_api_key_encrypted TEXT NOT NULL DEFAULT '',
       searxng_base_url TEXT NOT NULL DEFAULT '',
+      max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
@@ -517,6 +518,9 @@ export function migrate(db: Database.Database) {
   }
   if (!userSettingsColNames.includes("searxng_base_url")) {
     db.exec("ALTER TABLE user_settings ADD COLUMN searxng_base_url TEXT NOT NULL DEFAULT ''");
+  }
+  if (!userSettingsColNames.includes("max_assistant_tool_steps")) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25");
   }
 
   const mcpCols = db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;
