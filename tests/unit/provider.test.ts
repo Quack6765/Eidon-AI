@@ -579,6 +579,59 @@ describe("provider integration", () => {
     });
   });
 
+  it("extracts a tool call emitted as raw <tool_call> text in chat_completions mode", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([
+        { choices: [{ delta: { content: "Let me take a screenshot.\n" } }] },
+        { choices: [{ delta: { content: "<tool_call> <function=execute_" } }] },
+        { choices: [{ delta: { content: "shell_command> <parameter=command>agent-browser screenshot /tmp/ia-quote2.png --full </tool_call>" } }] }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        apiMode: "chat_completions",
+        apiBaseUrl: "https://api.xiaomimimo.com/v1",
+        model: "mimo-v2.5",
+        reasoningEffort: "medium",
+        reasoningSummaryEnabled: true
+      }),
+      promptMessages: [{ role: "user", content: "Screenshot the page" }]
+    });
+
+    const events: ChatStreamEvent[] = [];
+    let result: Awaited<ReturnType<typeof stream.next>>["value"] | undefined;
+
+    while (true) {
+      const next = await stream.next();
+      if (next.done) {
+        result = next.value;
+        break;
+      }
+      events.push(next.value);
+    }
+
+    expect(result?.answer).toBe("Let me take a screenshot.\n");
+    expect(result?.toolCalls).toEqual([
+      {
+        id: "text_call_0",
+        name: "execute_shell_command",
+        arguments: JSON.stringify({
+          command: "agent-browser screenshot /tmp/ia-quote2.png --full"
+        })
+      }
+    ]);
+
+    const answerText = events
+      .filter((event) => event.type === "answer_delta")
+      .map((event) => (event as { text: string }).text)
+      .join("");
+    expect(answerText).toBe("Let me take a screenshot.\n");
+    expect(answerText).not.toContain("<tool_call>");
+    expect(answerText).not.toContain("execute_shell_command");
+  });
+
   it("updates streamed chat tool call names and arguments across chunks", async () => {
     chatCreate.mockResolvedValue(
       createAsyncStream([

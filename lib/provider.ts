@@ -16,6 +16,7 @@ import {
   getResponseOutputItemMessageText,
   mergeRecoveredStreamText
 } from "./provider-response-parsing";
+import { createTextToolCallInterceptor } from "./tool-call-text-parsing";
 
 export {
   withDateContextSystemMessage,
@@ -678,6 +679,7 @@ export async function* streamProviderResponse(input: {
     { signal }
   ) as unknown as AsyncIterable<any>;
 
+  const answerInterceptor = createTextToolCallInterceptor();
   const toolCallChunks = new Map<string, { name: string; arguments: string }>();
 
   try {
@@ -700,8 +702,10 @@ export async function* streamProviderResponse(input: {
       }
 
       if (delta) {
-        answer += delta;
-        yield { type: "answer_delta", text: delta };
+        const emitted = answerInterceptor.feed(delta);
+        if (emitted) {
+          yield { type: "answer_delta", text: emitted };
+        }
       }
 
       if (rawDelta.tool_calls) {
@@ -737,6 +741,12 @@ export async function* streamProviderResponse(input: {
     }
   }
 
+  const answerTail = answerInterceptor.flush();
+  if (answerTail) {
+    yield { type: "answer_delta", text: answerTail };
+  }
+  answer = answerInterceptor.answer;
+
   yield {
     type: "usage",
     inputTokens: usage.inputTokens,
@@ -746,6 +756,9 @@ export async function* streamProviderResponse(input: {
   const toolCalls: ProviderToolCall[] = [];
   for (const [, call] of toolCallChunks) {
     toolCalls.push({ id: `call_${toolCalls.length}`, name: call.name, arguments: call.arguments });
+  }
+  for (const textToolCall of answerInterceptor.toolCalls) {
+    toolCalls.push(textToolCall);
   }
 
   return { answer, thinking, toolCalls: toolCalls.length ? toolCalls : undefined, usage };
