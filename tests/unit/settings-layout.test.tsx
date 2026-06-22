@@ -59,6 +59,7 @@ const settings: GeneralSectionSettings = {
   memoriesEnabled: true,
   memoriesMaxCount: 100,
   mcpTimeout: 120_000,
+  maxAssistantToolSteps: 25,
   sttEngine: "browser",
   sttLanguage: "en",
   webSearchEngine: "exa",

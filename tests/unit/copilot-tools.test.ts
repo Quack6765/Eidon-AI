@@ -123,6 +123,7 @@ function makeAppSettings(overrides: Partial<import("@/lib/types").AppSettings> =
     memoriesEnabled: true,
     memoriesMaxCount: 100,
     mcpTimeout: 30000,
+    maxAssistantToolSteps: 25,
     sttEngine: "browser" as const,
     sttLanguage: "en" as const,
     webSearchEngine: "exa" as const,

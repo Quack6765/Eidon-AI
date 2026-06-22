@@ -133,6 +133,7 @@ export type AppSettings = {
   memoriesEnabled: boolean;
   memoriesMaxCount: number;
   mcpTimeout: number;
+  maxAssistantToolSteps: number;
   sttEngine: SttEngine;
   sttLanguage: SttLanguage;
   webSearchEngine: WebSearchEngine;

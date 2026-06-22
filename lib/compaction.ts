@@ -21,16 +21,19 @@ import {
   renderCompletedTurns
 } from "@/lib/compaction-turns";
 import { referencesEarlierImageInChat } from "@/lib/image-generation/follow-up-context";
+import { buildToolResultMessage } from "@/lib/tool-executors";
 import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
 import { getActiveMemoryNodes, getRenderableMemoryNodes, insertCompactionEvent, insertMemoryNode, renderMemoryNode, supersedeNodes } from "./compaction-memory-nodes";
 import { getVisibleConversationMessages, getLatestVisibleUserMessage, getFreshConversationMessages, getCompactionEligibleMessages } from "./compaction-message-slicing";
 import { buildSummaryPrompt, summarizeBlocks, buildUserPromptContent, getLatestUserMessageIndex, getMostRecentAssistantImageAttachments } from "./compaction-prompt-building";
 import type {
   EnsureCompactedContextResult,
+  MessageAction,
   MemoryNode,
   Message,
   PromptMessage,
-  ProviderProfileWithApiKey
+  ProviderProfileWithApiKey,
+  ProviderToolCall
 } from "@/lib/types";
 
 export { getActiveMemoryNodes, getRenderableMemoryNodes, insertCompactionEvent, insertMemoryNode, supersedeNodes, renderMemoryNode } from "./compaction-memory-nodes";
@@ -188,6 +191,33 @@ async function condenseMemoryNodes(
   }
 }
 
+export const MAX_TOOL_RESULT_CHARS = 8000;
+const REPLAYABLE_TOOL_ACTION_KINDS = new Set<MessageAction["kind"]>(["mcp_tool_call", "shell_command"]);
+
+function collectReplayableActions(actions: MessageAction[] | undefined): MessageAction[] {
+  return (actions ?? [])
+    .filter(
+      (action) =>
+        REPLAYABLE_TOOL_ACTION_KINDS.has(action.kind) &&
+        action.status === "completed" &&
+        action.resultSummary.trim().length > 0
+    )
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+}
+
+function toProviderToolCall(action: MessageAction): ProviderToolCall {
+  return {
+    id: action.id,
+    name: action.toolName ?? (action.kind === "shell_command" ? "execute_shell_command" : action.label),
+    arguments: JSON.stringify(action.arguments ?? {})
+  };
+}
+
+function truncateToolResult(text: string): string {
+  if (text.length <= MAX_TOOL_RESULT_CHARS) return text;
+  return `${text.slice(0, MAX_TOOL_RESULT_CHARS)}\n[…truncated]`;
+}
+
 export function buildPromptMessages(input: {
   systemPrompt: string;
   personaContent?: string;
@@ -252,14 +282,29 @@ export function buildPromptMessages(input: {
     if (message.role === "system") return;
 
     if (message.role === "assistant") {
-      if (isEmptyStreamingAssistantPlaceholder(message) || !message.content.trim()) {
+      if (message.status === "error" || isEmptyStreamingAssistantPlaceholder(message)) {
+        return;
+      }
+
+      const replayableActions = collectReplayableActions(message.actions);
+
+      if (!message.content.trim() && replayableActions.length === 0) {
         return;
       }
 
       promptMessages.push({
         role: "assistant",
-        content: message.content
+        content: message.content,
+        ...(replayableActions.length
+          ? { toolCalls: replayableActions.map(toProviderToolCall) }
+          : {})
       });
+
+      for (const action of replayableActions) {
+        promptMessages.push(
+          buildToolResultMessage(action.id, truncateToolResult(action.resultSummary))
+        );
+      }
       return;
     }
 

@@ -10,6 +10,7 @@ import {
   createMessage,
   createMessageTextSegment,
   createMessageAction,
+  deleteFailedAssistantMessages,
   generateConversationTitleFromFirstUserMessage,
   getConversation,
   getConversationSnapshot,
@@ -380,6 +381,8 @@ async function startAssistantTurn(
         (providerResult.usage.outputTokens ?? 0) +
         (providerResult.usage.reasoningTokens ?? 0)
     });
+
+    deleteFailedAssistantMessages(conversation.id);
 
     const completedMessage = getMessage(assistantMessageId);
     manager.broadcast(conversationId, {

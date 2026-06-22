@@ -3997,6 +3997,130 @@ describe("chat view", () => {
     });
   });
 
+  it("keeps completed tool-call bubbles visible when the turn ends with an error", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    wsMock.onMessage!({
+      type: "delta",
+      conversationId: "conv_1",
+      event: { type: "message_start", messageId: "msg_assistant" }
+    });
+
+    const action = {
+      id: "act_live",
+      messageId: "msg_assistant",
+      kind: "mcp_tool_call" as const,
+      status: "running" as const,
+      serverId: "exa",
+      skillId: null,
+      toolName: "web_search_exa",
+      label: "web_search_exa",
+      detail: "query=booking",
+      arguments: { query: "booking" },
+      resultSummary: "",
+      sortOrder: 0,
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+      proposalState: null,
+      proposalPayload: null,
+      proposalUpdatedAt: null
+    };
+
+    await act(async () => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "action_start", action }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "action_complete",
+          action: {
+            ...action,
+            status: "completed" as const,
+            resultSummary: "ok",
+            completedAt: new Date().toISOString()
+          }
+        }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("web_search_exa")).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "error",
+          message: "Assistant exceeded the maximum number of tool steps"
+        }
+      });
+    });
+
+    expect(screen.getByText("web_search_exa")).toBeInTheDocument();
+    expect(
+      screen.getByText("Assistant exceeded the maximum number of tool steps")
+    ).toBeInTheDocument();
+  });
+
+  it("removes prior error-status assistant messages when a follow-up turn succeeds", async () => {
+    const errorAssistant = createMessage({
+      id: "msg_prior_error",
+      role: "assistant",
+      content: "Assistant exceeded the maximum number of tool steps",
+      status: "error"
+    });
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          messages: [
+            createMessage({ id: "msg_user_1", role: "user", content: "Do something" }),
+            errorAssistant
+          ]
+        })
+      })
+    );
+
+    expect(
+      screen.getByText("Assistant exceeded the maximum number of tool steps")
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant_new" }
+      });
+    });
+
+    await act(async () => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "done",
+          messageId: "msg_assistant_new",
+          message: {
+            ...errorAssistant,
+            id: "msg_assistant_new",
+            content: "Here is the answer.",
+            status: "completed"
+          }
+        }
+      });
+    });
+
+    expect(
+      screen.queryByText("Assistant exceeded the maximum number of tool steps")
+    ).toBeNull();
+    expect(screen.getByText("Here is the answer.")).toBeInTheDocument();
+  });
+
   it("shows the transient compaction indicator and clears it when compaction ends", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 

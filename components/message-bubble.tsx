@@ -456,6 +456,27 @@ function MessageBubbleImpl({
     setToolOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
+  function renderAssistantActionItem(item: Extract<MessageTimelineItem, { timelineKind: "action" }>) {
+    return (
+      <div key={item.id} data-testid="assistant-actions-shell">
+        {isMemoryProposalAction(item) ? (
+          <MemoryProposalCard
+            action={item}
+            onApprove={onApproveMemoryProposal}
+            onDismiss={onDismissMemoryProposal}
+            readOnly={readOnly}
+          />
+        ) : (
+          <CollapsibleActionRow
+            action={item}
+            isOpen={toolOpenItems[item.id] ?? false}
+            onToggle={() => toggleToolItem(item.id)}
+          />
+        )}
+      </div>
+    );
+  }
+
   const assistantAttachments = message.role === "assistant" ? message.attachments ?? [] : [];
   const assistantImageAttachments = assistantAttachments.filter((attachment) => attachment.kind === "image");
   const assistantFileAttachments = assistantAttachments.filter((attachment) => attachment.kind === "text");
@@ -728,6 +749,12 @@ function MessageBubbleImpl({
             ) : message.status === "error" ? (
               <div className="group flex w-full min-w-0 flex-col items-start">
                 <MessageContent className={`w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
+                  {assistantBlocks
+                    .filter(
+                      (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
+                        item.timelineKind === "action"
+                    )
+                    .map((item) => renderAssistantActionItem(item))}
                   <div
                     className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-red-300/85 shadow-[0_2px_10px_rgba(0,0,0,0.22)] md:px-4 md:py-3"
                     data-testid="assistant-error-bubble"
@@ -758,24 +785,7 @@ function MessageBubbleImpl({
                   <div ref={contentRef} className="flex flex-col gap-3">
                     {assistantBlocks.map((item) => {
                       if (item.timelineKind === "action") {
-                        return (
-                          <div key={item.id} data-testid="assistant-actions-shell">
-                            {isMemoryProposalAction(item) ? (
-                              <MemoryProposalCard
-                                action={item}
-                                onApprove={onApproveMemoryProposal}
-                                onDismiss={onDismissMemoryProposal}
-                                readOnly={readOnly}
-                              />
-                            ) : (
-                              <CollapsibleActionRow
-                                action={item}
-                                isOpen={toolOpenItems[item.id] ?? false}
-                                onToggle={() => toggleToolItem(item.id)}
-                              />
-                            )}
-                          </div>
-                        );
+                        return renderAssistantActionItem(item);
                       }
                       const renderedContent =
                         renderedAssistantBlockContentById.get(item.id) ?? item.content;

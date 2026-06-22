@@ -272,6 +272,7 @@ export async function resolveAssistantTurn(input: {
   assistantMessageId?: string;
 }) {
   const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
+  const maxSteps = input.appSettings?.maxAssistantToolSteps ?? MAX_ASSISTANT_CONTROL_STEPS;
 
   const assertRunning = () => {
     input.throwIfStopped?.();
@@ -325,7 +326,7 @@ export async function resolveAssistantTurn(input: {
     }
   };
 
-  for (let step = 0; step < MAX_ASSISTANT_CONTROL_STEPS; step += 1) {
+  for (let step = 0; step < maxSteps; step += 1) {
     assertRunning();
 
     const restrictToGenerateImage =
@@ -448,7 +449,7 @@ export async function resolveAssistantTurn(input: {
       }
     ];
 
-    if (step === MAX_ASSISTANT_CONTROL_STEPS - 1) {
+    if (step === maxSteps - 1) {
       const forcedResult = await forceDirectAnswerAfterToolLoop({
         settings: input.settings,
         promptMessages,
