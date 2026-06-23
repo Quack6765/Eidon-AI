@@ -176,6 +176,7 @@ export async function POST(
           mcpTimeout: appSettings.mcpTimeout,
           memoryUserId: conversationOwnerId ?? undefined,
           abortSignal: control.abortController.signal,
+          enableStreamRetry: true,
           throwIfStopped: control.throwIfStopped,
           appSettings,
           conversationId: conversation.id,
@@ -187,6 +188,10 @@ export async function POST(
               sawStreamedAnswerSinceLastSegment = true;
             } else if (event.type === "thinking_delta") {
               latestThinking += event.text;
+            } else if (event.type === "stream_retry") {
+              latestAnswer = "";
+              latestThinking = "";
+              sawStreamedAnswerSinceLastSegment = false;
             }
           },
           async onAnswerSegment(segment) {

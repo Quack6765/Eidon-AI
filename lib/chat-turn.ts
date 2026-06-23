@@ -157,8 +157,6 @@ async function startAssistantTurn(
   let latestAnswer = "";
   let latestThinking = "";
   let sawStreamedAnswerSinceLastSegment = false;
-  let lastFlush = Date.now();
-  let flushTimer: ReturnType<typeof setTimeout> | null = null;
   const runningActionHandles = new Set<string>();
 
   try {
@@ -193,7 +191,6 @@ async function startAssistantTurn(
       const sanitizedBuffer = await contentPersistence.appendSegment(answerBuffer);
       if (!sanitizedBuffer) {
         answerBuffer = "";
-        lastFlush = Date.now();
         return;
       }
       createMessageTextSegment({
@@ -202,15 +199,6 @@ async function startAssistantTurn(
         sortOrder: timelineSortOrder++
       });
       answerBuffer = "";
-      lastFlush = Date.now();
-    }
-
-    function scheduleFlush() {
-      if (flushTimer) return;
-      flushTimer = setTimeout(async () => {
-        flushTimer = null;
-        await flushAnswerBuffer();
-      }, 100);
     }
     if (options?.userMessageId && options.onMessagesCreated) {
       options.onMessagesCreated({
@@ -263,6 +251,7 @@ async function startAssistantTurn(
       memoryUserId: conversationOwnerId ?? undefined,
       mcpTimeout: appSettings.mcpTimeout,
       abortSignal: control.abortController.signal,
+      enableStreamRetry: true,
       throwIfStopped: control.throwIfStopped,
       appSettings,
       conversationId: conversation.id,
@@ -279,11 +268,11 @@ async function startAssistantTurn(
           sawStreamedAnswerSinceLastSegment = true;
           answerBuffer += event.text;
           latestAnswer += event.text;
-          if (answerBuffer.length >= 500 || Date.now() - lastFlush >= 100) {
-            await flushAnswerBuffer();
-          } else {
-            scheduleFlush();
-          }
+        } else if (event.type === "stream_retry") {
+          answerBuffer = "";
+          latestAnswer = "";
+          latestThinking = "";
+          sawStreamedAnswerSinceLastSegment = false;
         }
       },
       async onAnswerSegment(segment) {
@@ -369,7 +358,6 @@ async function startAssistantTurn(
       }
     });
 
-    if (flushTimer) clearTimeout(flushTimer);
     await flushAnswerBuffer();
 
     updateMessage(assistantMessageId, {
@@ -405,7 +393,6 @@ async function startAssistantTurn(
     return { status: "completed" };
   } catch (error) {
     if (error instanceof ChatTurnStoppedError && assistantMessageId) {
-      if (flushTimer) clearTimeout(flushTimer);
       if (answerBuffer && contentPersistence) {
         const sanitizedBuffer = await contentPersistence.appendSegment(answerBuffer);
         answerBuffer = "";

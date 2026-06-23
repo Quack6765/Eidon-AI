@@ -468,6 +468,7 @@ export type ChatStreamEvent =
       reasoningTokens?: number;
     }
   | { type: "context_usage"; contextTokens: number; compactionLimit: number }
+  | { type: "stream_retry"; attempt: number }
   | { type: "done"; messageId: string; message?: Message }
   | { type: "error"; message: string };
 

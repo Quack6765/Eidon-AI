@@ -1,6 +1,7 @@
 import { resolveAttachmentPath } from "@/lib/attachments";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
 import { streamProviderResponse } from "@/lib/provider";
+import { withStreamRetry } from "@/lib/provider-retry";
 import { isBuiltinWebSearchServer } from "@/lib/web-search";
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
 import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
@@ -198,6 +199,8 @@ async function forceDirectAnswerAfterToolLoop(input: {
   settings: ProviderProfileWithApiKey;
   promptMessages: PromptMessage[];
   visionMcpServers?: McpServer[];
+  abortSignal?: AbortSignal;
+  enableStreamRetry?: boolean;
   onEvent?: (event: ChatStreamEvent) => void;
   onAnswerSegment?: (segment: string) => Promise<void> | void;
 }) {
@@ -210,10 +213,15 @@ async function forceDirectAnswerAfterToolLoop(input: {
     visionMcpServers: input.visionMcpServers
   });
 
-  const providerStream = streamProviderResponse({
-    settings: input.settings,
-    promptMessages: providerPromptMessages
-  });
+  const buildForcedStream = () =>
+    streamProviderResponse({
+      settings: input.settings,
+      promptMessages: providerPromptMessages
+    });
+  const providerStream =
+    input.enableStreamRetry && input.settings.providerKind !== "github_copilot"
+      ? withStreamRetry(buildForcedStream, { signal: input.abortSignal })
+      : buildForcedStream();
 
   let answer = "";
   let thinking = "";
@@ -255,6 +263,7 @@ export async function resolveAssistantTurn(input: {
   memoryUserId?: string;
   mcpTimeout?: number;
   abortSignal?: AbortSignal;
+  enableStreamRetry?: boolean;
   throwIfStopped?: () => void;
   onEvent?: (event: ChatStreamEvent) => void;
   onAnswerSegment?: (segment: string) => Promise<void> | void;
@@ -363,25 +372,30 @@ export async function resolveAssistantTurn(input: {
       visionMcpServers
     });
 
-    const providerStream = streamProviderResponse({
-      settings: input.settings,
-      promptMessages: providerPromptMessages,
-      tools: tools.length ? tools : undefined,
-      abortSignal: input.abortSignal,
-      copilotToolContext: input.settings.providerKind === "github_copilot" ? {
-        mcpToolSets: input.mcpToolSets,
-        skills: turnSkills,
-        loadedSkillIds,
-        memoriesEnabled: input.memoriesEnabled ?? false,
-        effectiveVisionMode,
-        searxngBaseUrl: input.searxngBaseUrl,
-        memoryUserId: input.memoryUserId,
-        onActionStart: input.onActionStart,
-        onActionComplete: input.onActionComplete,
-        onActionError: input.onActionError,
-        mcpTimeout: input.mcpTimeout
-      } : undefined
-    });
+    const buildProviderStream = () =>
+      streamProviderResponse({
+        settings: input.settings,
+        promptMessages: providerPromptMessages,
+        tools: tools.length ? tools : undefined,
+        abortSignal: input.abortSignal,
+        copilotToolContext: input.settings.providerKind === "github_copilot" ? {
+          mcpToolSets: input.mcpToolSets,
+          skills: turnSkills,
+          loadedSkillIds,
+          memoriesEnabled: input.memoriesEnabled ?? false,
+          effectiveVisionMode,
+          searxngBaseUrl: input.searxngBaseUrl,
+          memoryUserId: input.memoryUserId,
+          onActionStart: input.onActionStart,
+          onActionComplete: input.onActionComplete,
+          onActionError: input.onActionError,
+          mcpTimeout: input.mcpTimeout
+        } : undefined
+      });
+    const providerStream =
+      input.enableStreamRetry && input.settings.providerKind !== "github_copilot"
+        ? withStreamRetry(buildProviderStream, { signal: input.abortSignal })
+        : buildProviderStream();
 
     let answer = "";
     let thinking = "";
@@ -454,6 +468,8 @@ export async function resolveAssistantTurn(input: {
         settings: input.settings,
         promptMessages,
         visionMcpServers,
+        abortSignal: input.abortSignal,
+        enableStreamRetry: input.enableStreamRetry,
         onEvent: input.onEvent,
         onAnswerSegment: input.onAnswerSegment
       });
