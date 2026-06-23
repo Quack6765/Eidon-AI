@@ -219,7 +219,7 @@ type AnthropicStreamResult = {
   thinking: string;
   toolCalls?: ProviderToolCall[];
   reasoningSignature?: string;
-  usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number };
+  usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number };
 };
 
 function createAnthropicClient(settings: ProviderProfileWithApiKey): Anthropic {
@@ -263,6 +263,8 @@ export async function* streamAnthropicResponse(input: {
           (startUsage.cache_read_input_tokens ?? 0) +
           (startUsage.cache_creation_input_tokens ?? 0);
         usage.inputTokens = Math.max(reportedInputTokens, usage.inputTokens ?? 0);
+        usage.cacheReadTokens = startUsage.cache_read_input_tokens ?? usage.cacheReadTokens;
+        usage.cacheCreationTokens = startUsage.cache_creation_input_tokens ?? usage.cacheCreationTokens;
       }
     } else if (event.type === "content_block_start" && event.content_block?.type === "tool_use") {
       toolUseBlocks.set(event.index, {
@@ -298,7 +300,9 @@ export async function* streamAnthropicResponse(input: {
   yield {
     type: "usage",
     inputTokens: usage.inputTokens,
-    outputTokens: usage.outputTokens
+    outputTokens: usage.outputTokens,
+    cacheReadTokens: usage.cacheReadTokens,
+    cacheCreationTokens: usage.cacheCreationTokens
   };
 
   const toolCalls: ProviderToolCall[] = [...toolUseBlocks.values()].map((block) => ({

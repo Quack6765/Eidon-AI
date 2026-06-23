@@ -732,7 +732,7 @@ describe("provider integration", () => {
       expect.objectContaining({
         input: expect.arrayContaining([
           expect.objectContaining({
-            role: "system",
+            role: "user",
             content: expect.arrayContaining([
               expect.objectContaining({
                 type: "input_text",
@@ -837,9 +837,9 @@ describe("provider integration", () => {
 
     expect(responsesCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        input: [
+        input: expect.arrayContaining([
           expect.objectContaining({
-            role: "system",
+            role: "user",
             content: expect.arrayContaining([
               expect.objectContaining({
                 type: "input_text",
@@ -863,7 +863,7 @@ describe("provider integration", () => {
             call_id: "call_0",
             output: "previous result"
           }
-        ],
+        ]),
         tools: [
           {
             type: "function",
@@ -916,11 +916,7 @@ describe("provider integration", () => {
 
     expect(chatCreate).toHaveBeenCalledWith(
       expect.objectContaining({
-        messages: [
-          expect.objectContaining({
-            role: "system",
-            content: expect.any(String)
-          }),
+        messages: expect.arrayContaining([
           {
             role: "user",
             content: [
@@ -932,8 +928,12 @@ describe("provider integration", () => {
                 }
               }
             ]
-          }
-        ]
+          },
+          expect.objectContaining({
+            role: "user",
+            content: expect.stringContaining("Current date and time context")
+          })
+        ])
       }),
       expect.objectContaining({
         signal: expect.any(AbortSignal)
@@ -1159,11 +1159,7 @@ describe("provider integration", () => {
             }
           }
         ],
-        messages: [
-          expect.objectContaining({
-            role: "system",
-            content: expect.any(String)
-          }),
+        messages: expect.arrayContaining([
           {
             role: "assistant",
             content: null,
@@ -1182,8 +1178,12 @@ describe("provider integration", () => {
             role: "tool",
             tool_call_id: "call_0",
             content: "tool result"
-          }
-        ]
+          },
+          expect.objectContaining({
+            role: "user",
+            content: expect.stringContaining("Current date and time context")
+          })
+        ])
       }),
       expect.objectContaining({
         signal: expect.any(AbortSignal)

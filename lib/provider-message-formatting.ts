@@ -4,7 +4,7 @@ import { getAttachmentDataUrl } from "@/lib/attachments";
 import { resolveCapabilities } from "@/lib/model-capabilities";
 import type { PromptMessage, ProviderProfile } from "@/lib/types";
 
-function buildDateContextSystemContent() {
+function buildDateContextContent() {
   const now = new Date();
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const localTime = now.toLocaleString("en-US", {
@@ -20,33 +20,12 @@ function buildDateContextSystemContent() {
   ].join("\n");
 }
 
-export function withDateContextSystemMessage(messages: PromptMessage[]): PromptMessage[] {
-  const contextMessage: PromptMessage = {
-    role: "system",
-    content: buildDateContextSystemContent()
-  };
-
-  const systemIndex = messages.findIndex((message) => message.role === "system");
-  if (systemIndex === -1) {
-    return [contextMessage, ...messages];
-  }
-
-  const systemMessage = messages[systemIndex];
-  const systemContent = typeof systemMessage.content === "string"
-    ? systemMessage.content
-    : systemMessage.content.map((part) => "text" in part ? part.text : "").join("");
-
-  return messages.map((message, index) => {
-    if (index !== systemIndex) return message;
-    return {
-      ...message,
-      content: `${systemContent}\n\n${contextMessage.content}`
-    };
-  });
+export function withDateContextUserMessage(messages: PromptMessage[]): PromptMessage[] {
+  return [...messages, { role: "user", content: buildDateContextContent() }];
 }
 
 export function withDateContextSystemPrompt(systemPrompt: string) {
-  const context = buildDateContextSystemContent();
+  const context = buildDateContextContent();
   return `${systemPrompt.trim()}\n\n${context}`;
 }
 

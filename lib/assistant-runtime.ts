@@ -44,15 +44,8 @@ const NON_NATIVE_VISION_DIRECTIVE =
 const MERMAID_DIAGRAM_DIRECTIVE =
   "When you need to present diagrams (flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, Gantt charts, pie charts, mind maps, or any other diagram type), use mermaid.js syntax inside a fenced code block with the `mermaid` language identifier. For example:\n\n```mermaid\ngraph TD\n    A[Start] --> B{Decision}\n    B -->|Yes| C[Success]\n    B -->|No| D[Try Again]\n```\n\nAlways prefer mermaid diagrams over ASCII art or text-based diagrams.";
 
-function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[], hasWebSearch: boolean) {
+function buildCapabilitiesStableSegment(mcpServers: McpServer[], hasWebSearch: boolean) {
   const lines: string[] = [];
-
-  if (skills.length) {
-    lines.push("Available skills (metadata only — call load_skill to get full instructions):");
-    for (const skill of skills) {
-      lines.push(`- ${getSkillResolvedName(skill)}: ${getSkillResolvedDescription(skill)}`);
-    }
-  }
 
   if (mcpServers.length) {
     lines.push("", "Configured MCP servers:");
@@ -63,7 +56,7 @@ function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[]
 
   lines.push(
     "",
-    "Skills-first behavior: before choosing an approach for any task, review the available skills listed above.",
+    "Skills-first behavior: before choosing an approach for any task, review the available skills provided this turn.",
     "If a skill matches the task, use it instead of a raw tool or command.",
     "For example, when navigating to a website, use the agent-browser skill (full browser with JS rendering) instead of curl or webfetch.",
     "Skills provide purpose-built workflows that are more effective than ad-hoc commands."
@@ -83,6 +76,15 @@ function buildCapabilitiesSystemMessage(skills: Skill[], mcpServers: McpServer[]
     );
   }
 
+  return lines.join("\n");
+}
+
+function buildDynamicSkillsSegment(skills: Skill[]) {
+  if (!skills.length) return "";
+  const lines = ["Available skills (metadata only — call load_skill to get full instructions):"];
+  for (const skill of skills) {
+    lines.push(`- ${getSkillResolvedName(skill)}: ${getSkillResolvedDescription(skill)}`);
+  }
   return lines.join("\n");
 }
 
@@ -152,6 +154,11 @@ function mergeSystemMessage(promptMessages: PromptMessage[], content: string): P
   const systemIndex = promptMessages.findIndex((m) => m.role === "system");
   if (systemIndex === -1) return [{ role: "system", content }, ...promptMessages];
   return promptMessages.map((m, i) => i === systemIndex ? { ...m, content: `${m.content}\n\n${content}` } : m);
+}
+
+function appendTrailingGuidance(promptMessages: PromptMessage[], content: string): PromptMessage[] {
+  if (!content) return promptMessages;
+  return [...promptMessages, { role: "user", content }];
 }
 
 function getEffectiveVisionMode(
@@ -312,9 +319,13 @@ export async function resolveAssistantTurn(input: {
     (server) => !(server.isVisionMcp && effectiveVisionMode !== "mcp")
   );
 
-  promptMessages = turnSkills.length || visibleMcpServers.length || input.mcpToolSets.length
-    ? mergeSystemMessage(promptMessages, buildCapabilitiesSystemMessage(turnSkills, visibleMcpServers, hasWebSearch))
-    : promptMessages;
+  if (turnSkills.length || visibleMcpServers.length || input.mcpToolSets.length) {
+    promptMessages = mergeSystemMessage(
+      promptMessages,
+      buildCapabilitiesStableSegment(visibleMcpServers, hasWebSearch)
+    );
+  }
+  const dynamicSkillsGuidance = buildDynamicSkillsSegment(turnSkills);
   if (shouldAddInlineAttachmentDirective(promptMessages)) {
     promptMessages = mergeSystemMessage(promptMessages, INLINE_ATTACHMENT_DIRECTIVE);
   }
@@ -366,11 +377,14 @@ export async function resolveAssistantTurn(input: {
       effectiveVisionMode
     });
 
-    const providerPromptMessages = prepareProviderPromptMessages({
-      promptMessages,
-      settings: input.settings,
-      visionMcpServers
-    });
+    const providerPromptMessages = appendTrailingGuidance(
+      prepareProviderPromptMessages({
+        promptMessages,
+        settings: input.settings,
+        visionMcpServers
+      }),
+      dynamicSkillsGuidance
+    );
 
     const buildProviderStream = () =>
       streamProviderResponse({
