@@ -22,6 +22,7 @@ docs/
 docs/superpowers
 specs/
 tmp/
+CONTEXT.md
 
 .env*.local
 tsconfig.tsbuildinfo

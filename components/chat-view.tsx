@@ -555,6 +555,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       return;
     }
 
+    if (event.type === "stream_retry") {
+      streamBuffer.reset();
+      resetIdleTimer();
+      return;
+    }
+
     if (event.type === "message_start") {
       setIsConversationActive(true);
       setStreamMessageId(event.messageId);
