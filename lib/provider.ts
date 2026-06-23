@@ -5,7 +5,7 @@ import { resolveCapabilities, supportsVisibleReasoning } from "@/lib/model-capab
 import { estimatePromptTokens, setActiveTokenizer } from "@/lib/tokenization";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import {
-  withDateContextSystemMessage,
+  withDateContextUserMessage,
   withDateContextSystemPrompt,
   createClient,
   buildResponsesInput,
@@ -19,7 +19,7 @@ import {
 import { createTextToolCallInterceptor } from "./tool-call-text-parsing";
 
 export {
-  withDateContextSystemMessage,
+  withDateContextUserMessage,
   withDateContextSystemPrompt,
   createClient,
   toResponseContentParts,
@@ -138,7 +138,7 @@ export async function callProviderText(input: {
   const profile = input.purpose === "title"
     ? { ...settings, reasoningEffort: (settings.reasoningEffort === "none" ? "none" : "low") as ReasoningEffort, reasoningSummaryEnabled: false }
     : settings;
-  const contextualPrompt = withDateContextSystemMessage([{
+  const contextualPrompt = withDateContextUserMessage([{
     role: "user",
     content: input.prompt
   }]);
@@ -213,11 +213,11 @@ export async function* streamProviderResponse(input: {
   copilotToolContext?: CopilotToolContext;
 }): AsyncGenerator<
   ChatStreamEvent,
-  { answer: string; thinking: string; toolCalls?: ProviderToolCall[]; reasoningSignature?: string; usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number } },
+  { answer: string; thinking: string; toolCalls?: ProviderToolCall[]; reasoningSignature?: string; usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number } },
   void
 > {
   const { settings, promptMessages } = input;
-  const contextualPromptMessages = withDateContextSystemMessage(promptMessages);
+  const contextualPromptMessages = withDateContextUserMessage(promptMessages);
   setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
 
   if (settings.providerKind === "github_copilot") {

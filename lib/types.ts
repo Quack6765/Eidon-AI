@@ -466,6 +466,8 @@ export type ChatStreamEvent =
       inputTokens?: number;
       outputTokens?: number;
       reasoningTokens?: number;
+      cacheReadTokens?: number;
+      cacheCreationTokens?: number;
     }
   | { type: "context_usage"; contextTokens: number; compactionLimit: number }
   | { type: "stream_retry"; attempt: number }

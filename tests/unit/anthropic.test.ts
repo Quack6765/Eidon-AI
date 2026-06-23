@@ -317,6 +317,8 @@ describe("streamAnthropicResponse", () => {
 
     expect(next.value.usage.inputTokens).toBe(115);
     expect(next.value.usage.outputTokens).toBe(3);
+    expect(next.value.usage.cacheReadTokens).toBe(100);
+    expect(next.value.usage.cacheCreationTokens).toBe(5);
   });
 
   it("floors inputTokens with the prompt estimate when the API under-reports (no cache fields)", async () => {
