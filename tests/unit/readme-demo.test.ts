@@ -48,9 +48,15 @@ describe("readme demo seed", () => {
       README_DEMO_FIXTURES.memories.length
     );
 
-    expect(listAutomations(seeded.envSuperAdminId).map((automation) => automation.name)).toEqual(
-      [README_DEMO_FIXTURES.automation.name]
+    const expectedAutomationNames = [
+      README_DEMO_FIXTURES.automation.name,
+      ...README_DEMO_FIXTURES.extraAutomations.map((automation) => automation.name)
+    ];
+    const automations = listAutomations(seeded.envSuperAdminId);
+    expect(automations.map((automation) => automation.name)).toEqual(
+      expect.arrayContaining(expectedAutomationNames)
     );
+    expect(automations).toHaveLength(expectedAutomationNames.length);
 
     const automationRuns = listAutomationRuns(seeded.automationId, seeded.envSuperAdminId);
     expect(automationRuns).toEqual([
@@ -59,6 +65,39 @@ describe("readme demo seed", () => {
         status: "completed"
       })
     ]);
+
+    expect(
+      listConversations(seeded.envSuperAdminId).map((conversation) => conversation.title)
+    ).toEqual(
+      expect.arrayContaining([
+        README_DEMO_FIXTURES.webSearchConversationTitle,
+        README_DEMO_FIXTURES.visualsConversationTitle,
+        README_DEMO_FIXTURES.visualsCodeConversationTitle,
+        README_DEMO_FIXTURES.visualsMermaidConversationTitle,
+        README_DEMO_FIXTURES.memoriesConversationTitle
+      ])
+    );
+
+    const webSearchSnapshot = getConversationSnapshot(
+      seeded.webSearchConversationId,
+      seeded.envSuperAdminId
+    );
+    expect(webSearchSnapshot?.messages.some((message) => message.role === "assistant")).toBe(true);
+    expect(webSearchSnapshot?.messages.some((message) => message.actions?.some((action) => action.kind === "mcp_tool_call"))).toBe(true);
+
+    const visualsCodeSnapshot = getConversationSnapshot(
+      seeded.visualsCodeConversationId,
+      seeded.envSuperAdminId
+    );
+    expect(visualsCodeSnapshot?.conversation.title).toBe(
+      README_DEMO_FIXTURES.visualsCodeConversationTitle
+    );
+
+    const memoriesSnapshot = getConversationSnapshot(
+      seeded.memoriesConversationId,
+      seeded.envSuperAdminId
+    );
+    expect(memoriesSnapshot?.messages.some((message) => message.actions?.some((action) => action.kind === "create_memory"))).toBe(true);
 
     const snapshot = getConversationSnapshot(
       seeded.primaryConversationId,
