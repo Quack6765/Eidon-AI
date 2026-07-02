@@ -1929,7 +1929,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           scrollToBottomRef={scrollToBottomRef}
         />
         <ConversationContent
-          className="no-scrollbar overscroll-y-contain gap-2.5 px-2 pt-4 md:gap-4 md:px-8"
+          className="gap-2.5 px-2 pt-4 md:gap-4 md:px-8"
         >
           {hiddenMessageCount > 0 ? (
             <button
