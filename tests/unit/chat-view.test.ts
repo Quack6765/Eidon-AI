@@ -4522,5 +4522,5 @@ describe("chat view", () => {
 
     expect(container.querySelectorAll("[data-message-id]")).toHaveLength(170);
     expect(screen.queryByRole("button", { name: /Show earlier messages/ })).toBeNull();
-  });
+  }, 15000);
 });

@@ -81,6 +81,7 @@ body {
   margin: 0;
   min-height: 100vh;
   min-height: 100dvh;
+  overscroll-behavior: none;
   color: var(--text);
   font-family: var(--font-body), ui-sans-serif, system-ui, -apple-system, sans-serif;
   background-color: var(--background);
@@ -90,6 +91,10 @@ body {
 
 html.ios-pwa .app-shell {
   height: var(--ios-app-height, 100dvh);
+}
+
+.conversation-scroller {
+  scrollbar-gutter: auto !important;
 }
 
 ::selection {
