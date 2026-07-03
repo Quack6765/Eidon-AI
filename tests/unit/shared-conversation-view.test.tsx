@@ -200,7 +200,8 @@ describe("SharedConversationView", () => {
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.queryByText("New Chat")).not.toBeInTheDocument();
     expect(screen.queryByText("Search")).not.toBeInTheDocument();
-    expect(container.querySelector('img[src="/agent-icon.png"]')).not.toBeNull();
+    expect(container.querySelector('img[src="/agent-icon.png"]')).toBeNull();
+    expect(screen.getByTestId("assistant-message-content")).toHaveTextContent("I inspected it.");
     expect(screen.getByTestId("assistant-thinking-shell")).toBeInTheDocument();
     expect(screen.getByTestId("assistant-actions-shell")).toHaveTextContent("Web browser");
 

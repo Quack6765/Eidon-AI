@@ -3699,8 +3699,8 @@ describe("chat view", () => {
     });
   });
 
-  it("keeps a late-joined streaming answer in a single bubble until a new boundary appears", async () => {
-    const { container } = renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+  it("keeps a late-joined streaming answer in a single prose container until a new boundary appears", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     act(() => {
       wsMock.onMessage!({
@@ -3752,9 +3752,9 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      const bubbles = container.querySelectorAll('[data-testid="assistant-message-bubble"]');
-      expect(bubbles).toHaveLength(1);
-      expect(bubbles[0]?.textContent).toContain("Already streamed and still typing");
+      const proseContainers = screen.getAllByTestId("assistant-message-content");
+      expect(proseContainers).toHaveLength(1);
+      expect(proseContainers[0]).toHaveTextContent("Already streamed and still typing");
     });
   });
 

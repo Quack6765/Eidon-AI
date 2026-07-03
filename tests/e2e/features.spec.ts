@@ -1417,17 +1417,17 @@ test.describe("Feature: Chat attachments", () => {
       await expect(sendMessageButton).toBeEnabled({ timeout: 10000 });
       await sendMessageButton.click();
 
-      const assistantBubble = page.locator('[data-testid="assistant-message-bubble"]').last();
-      await expect(assistantBubble.getByText("Here is the generated image.")).toBeVisible({
+      const assistantContent = page.locator('[data-testid="assistant-message-content"]').last();
+      await expect(assistantContent.getByText("Here is the generated image.")).toBeVisible({
         timeout: 10000
       });
       await expect(
-        assistantBubble.getByText("The real attachment preview should render below.")
+        assistantContent.getByText("The real attachment preview should render below.")
       ).toBeVisible({ timeout: 10000 });
-      await expect(assistantBubble.getByText(/data:image\/png;base64/i)).toHaveCount(0);
+      await expect(assistantContent.getByText(/data:image\/png;base64/i)).toHaveCount(0);
       await expect(page.getByText(/data:image\/png;base64/i)).toHaveCount(0);
 
-      const inlinePreviewButton = assistantBubble.getByRole("button", {
+      const inlinePreviewButton = assistantContent.getByRole("button", {
         name: /^Preview .+\.png$/
       });
       await expect(inlinePreviewButton).toHaveCount(1);

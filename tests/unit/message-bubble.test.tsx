@@ -39,15 +39,22 @@ function createUserMessage(): Message {
 }
 
 describe("message bubble avatar", () => {
-  it("renders the assistant avatar from agent-icon.png", () => {
+  it("renders assistant prose without an avatar or chat bubble frame", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
         message: createAssistantMessage()
       })
     );
 
-    expect(container.querySelector('img[src="/agent-icon.png"]')).not.toBeNull();
+    const assistantContent = screen.getByTestId("assistant-message-content");
+
+    expect(container.querySelector('img[src="/agent-icon.png"]')).toBeNull();
     expect(container.querySelector('img[src="/chat-icon.png"]')).toBeNull();
+    expect(container.querySelector('[data-testid="assistant-message-bubble"]')).toBeNull();
+    expect(assistantContent).toHaveTextContent("Final answer");
+    expect(assistantContent.className).toContain("w-full");
+    expect(assistantContent.className).not.toContain("rounded-2xl");
+    expect(assistantContent.className).not.toContain("bg-white");
   });
 
   it("shows the edit action for user messages only", () => {

@@ -199,12 +199,9 @@ function CollapsibleActionRow({
   );
 }
 
-const ASSISTANT_MAX_WIDTH = "max-w-full md:max-w-[95%]";
-const ASSISTANT_BUBBLE_BASE =
-  "w-fit max-w-full rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 py-2 md:px-4 md:py-3 text-[var(--text)]";
-const ASSISTANT_BUBBLE = `${ASSISTANT_BUBBLE_BASE} shadow-[0_2px_10px_rgba(0,0,0,0.22)]`;
-const ASSISTANT_BUBBLE_STREAMING =
-  "w-fit max-w-full rounded-2xl border border-white/8 bg-white/[0.03] px-2.5 pt-2 pb-8 md:px-4 md:pt-3 md:pb-9 text-[var(--text)]";
+const ASSISTANT_CONTENT =
+  "w-full max-w-full text-[var(--text)]";
+const ASSISTANT_ERROR_MAX_WIDTH = "max-w-full md:max-w-[95%]";
 const ASSISTANT_LOADING_SHELL =
   "mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1";
 
@@ -678,13 +675,8 @@ function MessageBubbleImpl({
 
   return (
     <Message from="assistant" data-message-id={message.id}>
-      <div className="flex flex-col gap-1 md:flex-row md:gap-3.5">
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] border border-white/6 text-[10px] font-bold text-white/60 overflow-hidden md:mt-1">
-          {/* eslint-disable-next-line @next/next/no-img-element -- Static assistant avatar is deliberately tiny and unoptimized. */}
-          <img src="/agent-icon.png" alt="" width={28} height={28} className="h-full w-full object-cover" />
-        </div>
-
-        <div className="min-w-0 flex-1 text-[14.5px] text-[var(--text)] md:pt-0.5">
+      <div className="flex w-full flex-col gap-1">
+        <div className="min-w-0 w-full text-[14.5px] text-[var(--text)]">
           <div className="flex flex-col items-start gap-3">
             {showThinkingShell ? (
               <div
@@ -748,7 +740,7 @@ function MessageBubbleImpl({
               )
             ) : message.status === "error" ? (
               <div className="group flex w-full min-w-0 flex-col items-start">
-                <MessageContent className={`w-full ${ASSISTANT_MAX_WIDTH} flex-col gap-3`}>
+                <MessageContent className={`w-full ${ASSISTANT_ERROR_MAX_WIDTH} flex-col gap-3`}>
                   {assistantBlocks
                     .filter(
                       (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
@@ -781,7 +773,7 @@ function MessageBubbleImpl({
               </div>
             ) : assistantBlocks.length || content || assistantImageAttachments.length || assistantFileAttachments.length ? (
               <div className="group flex w-full min-w-0 flex-col items-start">
-                <MessageContent className={`w-full ${ASSISTANT_MAX_WIDTH}`}>
+                <MessageContent className="w-full">
                   <div ref={contentRef} className="flex flex-col gap-3">
                     {assistantBlocks.map((item) => {
                       if (item.timelineKind === "action") {
@@ -796,8 +788,8 @@ function MessageBubbleImpl({
                       return (
                         <div
                           key={item.id}
-                          className={isAssistantStreaming ? ASSISTANT_BUBBLE_STREAMING : ASSISTANT_BUBBLE}
-                          data-testid="assistant-message-bubble"
+                          className={ASSISTANT_CONTENT}
+                          data-testid="assistant-message-content"
                         >
                           <div className="markdown-body">
                             <AssistantMarkdown content={renderedContent} />
@@ -815,8 +807,8 @@ function MessageBubbleImpl({
                     })}
                     {showStandaloneAssistantImageBubble ? (
                       <div
-                        className={ASSISTANT_BUBBLE}
-                        data-testid="assistant-message-bubble"
+                        className={ASSISTANT_CONTENT}
+                        data-testid="assistant-message-content"
                       >
                         <AssistantInlineImageAttachments
                           attachments={assistantImageAttachments}
