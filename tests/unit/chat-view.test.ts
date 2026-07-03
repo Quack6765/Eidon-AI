@@ -2064,6 +2064,108 @@ describe("chat view", () => {
     expect(nodeBefore!.isConnected).toBe(true);
   });
 
+  it("drains the buffered tail smoothly after done instead of dumping it", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const longAnswer = `${"lorem ipsum dolor sit amet ".repeat(20)}finis`;
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: longAnswer }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant" }
+      });
+    });
+
+    expect(screen.queryByText(/finis/)).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText(/finis/)).toBeInTheDocument();
+    });
+  });
+
+  it("accepts a new submission immediately after done while the tail is draining", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: `${"words keep flowing here ".repeat(20)}end` }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant" }
+      });
+    });
+
+    wsMock.send.mockClear();
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "follow-up" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "message", content: "follow-up" })
+      );
+    });
+  });
+
+  it("hides the stop button as soon as the turn completes even while the tail is draining", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: `${"steady stream of words ".repeat(20)}done` }
+      });
+    });
+
+    expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant" }
+      });
+    });
+
+    expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
+  });
+
   it("keeps an optimistic user message visible when an unrelated server user message arrives first", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 

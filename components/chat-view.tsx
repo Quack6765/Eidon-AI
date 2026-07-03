@@ -16,7 +16,6 @@ import {
 } from "@/components/attachment-preview-modal";
 import { ChatComposer } from "@/components/chat-composer";
 import { QueuedMessageBanner } from "@/components/queued-message-banner";
-import { TypingIndicator } from "@/components/message-bubble";
 import { useShareConversation } from "@/components/share-conversation-context";
 import {
   type PendingLocalSubmission,
@@ -120,7 +119,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [isStopPending, setIsStopPending] = useState(false);
   const [isTemporaryToggled, setIsTemporaryToggled] = useState(payload.conversation.isTemporary);
   const streamBufferRef = useRef<ReturnType<typeof createStreamBuffer> | null>(null);
-  streamBufferRef.current ??= createStreamBuffer({ answerCharsPerSecond: 180, thinkingCharsPerSecond: 180 });
+  streamBufferRef.current ??= createStreamBuffer();
   const streamBuffer = streamBufferRef.current;
   const [streamMessageId, setStreamMessageId] = useState<string | null>(null);
   const [streamTimeline, setStreamTimeline] = useState<MessageTimelineItem[]>([]);
@@ -189,9 +188,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const anchorSpacerRef = useRef<HTMLDivElement>(null);
   const composerAreaRef = useRef<HTMLDivElement>(null);
   const [composerAreaHeight, setComposerAreaHeight] = useState(160);
-  const [queueBannerHeight, setQueueBannerHeight] = useState(0);
-  const [isAgentIdle, setIsAgentIdle] = useState(false);
-  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finalizePendingRef = useRef(false);
 
   const {
     speechSnapshot,
@@ -312,7 +309,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     setStreamTimeline(resolvedTimeline);
   }, []);
 
-  const syncActiveStreamingMessageFromSnapshot = useCallback((snapshotMessage: Message) => {
+  const syncActiveStreamingMessageFromSnapshot = useCallback((
+    snapshotMessage: Message,
+    options?: { adopt?: boolean }
+  ) => {
+    const adopt = options?.adopt ?? false;
     const adoptedStream = adoptStreamingSnapshotState(snapshotMessage.timeline);
     const bufferSnapshot = streamBuffer.getSnapshot();
     const nextAnswer =
@@ -329,8 +330,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       adoptedStream.timeline
     );
 
-    streamBuffer.setAnswer(nextAnswer, { immediate: true });
-    streamBuffer.setThinking(nextThinking, { immediate: true });
+    streamBuffer.setAnswer(nextAnswer, { immediate: adopt });
+    streamBuffer.setThinking(nextThinking, { immediate: adopt });
     setStreamMessageId(snapshotMessage.id);
     updateStreamTimeline(mergedTimeline);
     setHasReceivedFirstToken(Boolean(nextAnswer || nextThinking || mergedTimeline.length));
@@ -414,6 +415,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   function resetStreamingState() {
     clearCompactionIndicator();
+    finalizePendingRef.current = false;
     setStreamMessageId(null);
     updateStreamTimeline([]);
     streamBuffer.reset();
@@ -461,17 +463,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   const jumpToBottom = useCallback(() => {
     scrollToBottomRef.current?.();
-  }, []);
-
-  useEffect(() => {
-    const el = queueBannerRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
-      const next = el.offsetHeight;
-      setQueueBannerHeight((current) => (current === next ? current : next));
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -534,30 +525,20 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     return () => window.cancelAnimationFrame(handle);
   }, [payload.conversation.id]);
 
-  useEffect(() => {
-    return () => {
-      if (idleTimerRef.current !== null) {
-        clearTimeout(idleTimerRef.current);
-      }
-    };
-  }, []);
-
   function handleDelta(event: ChatStreamEvent) {
     if (event.type === "compaction_start") {
       setCompactionInProgress(true);
-      resetIdleTimer();
       return;
     }
 
     if (event.type === "compaction_end") {
       setCompactionInProgress(false);
-      resetIdleTimer();
       return;
     }
 
     if (event.type === "stream_retry") {
+      finalizePendingRef.current = false;
       streamBuffer.reset();
-      resetIdleTimer();
       return;
     }
 
@@ -566,7 +547,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       setStreamMessageId(event.messageId);
       streamMessageIdRef.current = event.messageId;
       setHasReceivedFirstToken(false);
-      resetIdleTimer();
+      finalizePendingRef.current = false;
       streamBuffer.reset();
       updateStreamTimeline(
         shouldShowProvisionalImageAction(messagesRef.current)
@@ -632,7 +613,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (event.type === "thinking_delta") {
       clearCompactionIndicator();
       setHasReceivedFirstToken(true);
-      resetIdleTimer();
       streamBuffer.appendThinking(event.text);
       if (!thinkingStartTimeRef.current) {
         thinkingStartTimeRef.current = Date.now();
@@ -642,7 +622,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (event.type === "answer_delta") {
       clearCompactionIndicator();
       setHasReceivedFirstToken(true);
-      resetIdleTimer();
       streamBuffer.appendAnswer(event.text);
       if (thinkingStartTimeRef.current) {
         const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
@@ -651,7 +630,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     }
 
     if (event.type === "system_notice") {
-      resetIdleTimer();
       setMessages((current) => [
         ...current,
         {
@@ -671,7 +649,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "action_start") {
       clearCompactionIndicator();
-      resetIdleTimer();
       updateStreamTimeline((prev) => {
         const isExisting = prev.some((item) => item.timelineKind === "action" && item.id === event.action.id);
         if (isExisting) {
@@ -701,13 +678,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "action_complete" || event.type === "action_error") {
       clearCompactionIndicator();
-      resetIdleTimer();
       updateStreamTimeline((prev) => updateStreamingAction(prev, event.action));
     }
 
     if (event.type === "done") {
       clearCompactionIndicator();
-      clearIdleTimer();
       const wasStopped = isStopPending;
       setIsStopPending(false);
 
@@ -757,16 +732,27 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       }
 
       if (isForActiveStream) {
-        setStreamMessageId(null);
-        updateStreamTimeline([]);
-        streamBuffer.reset();
         setIsSending(false);
+        if (wasStopped) {
+          finalizePendingRef.current = false;
+          setStreamMessageId(null);
+          updateStreamTimeline([]);
+          streamBuffer.reset();
+        } else {
+          finalizePendingRef.current = true;
+          streamBuffer.finalize();
+          streamBuffer.whenDrained(() => {
+            finalizePendingRef.current = false;
+            setStreamMessageId(null);
+            updateStreamTimeline([]);
+            streamBuffer.reset();
+          });
+        }
       }
     }
 
     if (event.type === "error") {
       clearCompactionIndicator();
-      clearIdleTimer();
       setIsStopPending(false);
       const activeStreamMessageId = streamMessageIdRef.current;
 
@@ -784,6 +770,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               : m
           )
         );
+        finalizePendingRef.current = false;
         setStreamMessageId(null);
         updateStreamTimeline([]);
         streamBuffer.reset();
@@ -791,24 +778,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       }
       setError("");
     }
-  }
-
-  function resetIdleTimer() {
-    if (idleTimerRef.current !== null) {
-      clearTimeout(idleTimerRef.current);
-    }
-    setIsAgentIdle(false);
-    idleTimerRef.current = setTimeout(() => {
-      setIsAgentIdle(true);
-    }, 1200);
-  }
-
-  function clearIdleTimer() {
-    if (idleTimerRef.current !== null) {
-      clearTimeout(idleTimerRef.current);
-      idleTimerRef.current = null;
-    }
-    setIsAgentIdle(false);
   }
 
   const {
@@ -849,13 +818,17 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               (message) => message.id === streamMessageId
             );
 
-            if (activeSnapshotMessage && activeSnapshotMessage.status !== "streaming") {
+            if (
+              activeSnapshotMessage &&
+              activeSnapshotMessage.status !== "streaming" &&
+              !finalizePendingRef.current
+            ) {
               setStreamMessageId(null);
               updateStreamTimeline([]);
               streamBuffer.reset();
               setHasReceivedFirstToken(false);
               setIsSending(false);
-            } else if (activeSnapshotMessage) {
+            } else if (activeSnapshotMessage && activeSnapshotMessage.status === "streaming") {
               syncActiveStreamingMessageFromSnapshot(activeSnapshotMessage);
             }
           } else {
@@ -939,6 +912,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             return current;
           });
           setError("");
+          finalizePendingRef.current = false;
           setStreamMessageId(null);
           updateStreamTimeline([]);
           streamBuffer.reset();
@@ -1204,7 +1178,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             (message) => message.role === "assistant" && message.status === "streaming"
           );
           if (streamingMsg) {
-            syncActiveStreamingMessageFromSnapshot(streamingMsg);
+            syncActiveStreamingMessageFromSnapshot(streamingMsg, { adopt: !hasLocalStreamState });
           }
         }
 
@@ -1221,7 +1195,11 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         }
 
         const awaitingTurnStart = isSendingRef.current && !activeStreamMessageId;
-        if (!awaitingTurnStart && (!result.conversation.isActive || (activeMessage && activeMessage.status !== "streaming"))) {
+        if (
+          !awaitingTurnStart &&
+          !finalizePendingRef.current &&
+          (!result.conversation.isActive || (activeMessage && activeMessage.status !== "streaming"))
+        ) {
           setStreamMessageId(null);
           updateStreamTimeline([]);
           streamBuffer.reset();
@@ -1666,7 +1644,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     const effectivePersonaId = nextPersonaId ?? personaId;
     const hasActiveTurn =
       isConversationActive ||
-      Boolean(streamMessageIdRef.current) ||
+      Boolean(streamMessageIdRef.current && !finalizePendingRef.current) ||
       messagesRef.current.some(
         (message) => message.role === "assistant" && message.status === "streaming"
       );
@@ -1712,6 +1690,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     setInput("");
     dismissComposerKeyboardOnTouch();
     setPendingAttachments([]);
+    finalizePendingRef.current = false;
     streamBuffer.reset();
     setStreamMessageId(null);
     updateStreamTimeline([]);
@@ -1986,12 +1965,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                   isRetrying={retryingMessageId === message.id}
                   isRegenerating={regeneratingMessageId === message.id}
                 />
-
-                {isStreamingMessage && isAgentIdle && hasReceivedFirstToken && (
-                  <div className="animate-fade-in mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 md:ml-[42px]">
-                    <TypingIndicator compact />
-                  </div>
-                )}
               </div>
             );
           })}
@@ -2037,7 +2010,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             compactionLimit={compactionLimit}
             modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
             hasMessages={messages.length > 0}
-            canStop={!!streamMessageId && !isStopPending}
+            canStop={!!streamMessageId && !isStopPending && isConversationActive}
             isStopPending={isStopPending}
             onStop={stopActiveTurn}
             speechPhase={speechSnapshot.phase}

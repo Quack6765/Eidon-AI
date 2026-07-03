@@ -209,6 +209,38 @@ function getActionSignature(action: Pick<MessageActionType, "kind" | "label" | "
   return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
 }
 
+function clampStreamingTimeline(
+  timeline: MessageTimelineItem[],
+  display: string
+): MessageTimelineItem[] {
+  const clamped: MessageTimelineItem[] = [];
+  let offset = 0;
+
+  for (const item of timeline) {
+    if (item.timelineKind !== "text") {
+      clamped.push(item);
+      continue;
+    }
+
+    const visibleLength = Math.min(
+      Math.max(display.length - offset, 0),
+      item.content.length
+    );
+
+    if (visibleLength > 0) {
+      clamped.push(
+        visibleLength === item.content.length
+          ? item
+          : { ...item, content: item.content.slice(0, visibleLength) }
+      );
+    }
+
+    offset += item.content.length;
+  }
+
+  return clamped;
+}
+
 function escapeHtml(value: string) {
   return value
     .replaceAll("&", "&amp;")
@@ -312,7 +344,10 @@ function MessageBubbleImpl({
     const rawContent = streamingAnswer ?? message.content;
     const rawThinking = streamingThinking ?? message.thinkingContent;
     const actions = message.actions ?? [];
-    const liveTimeline = streamingTimeline ?? message.timeline;
+    const liveTimeline =
+      streamingTimeline !== undefined && streamingAnswer !== undefined
+        ? clampStreamingTimeline(streamingTimeline, streamingAnswer)
+        : streamingTimeline ?? message.timeline;
     const contentForComparison = normalizeLineBreaks(rawContent);
     const timeline = liveTimeline ?? actions.map((action) => ({
       ...action,

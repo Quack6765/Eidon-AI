@@ -3,14 +3,18 @@ export type StreamBufferSnapshot = {
   answerDisplay: string;
   thinkingTarget: string;
   thinkingDisplay: string;
+  isSettled: boolean;
 };
 
 export type StreamBufferOptions = {
   schedule?: (callback: () => void) => number;
   cancel?: (handle: number) => void;
   now?: () => number;
-  answerCharsPerSecond?: number;
-  thinkingCharsPerSecond?: number;
+  baseCharsPerSecond?: number;
+  drainWindowMs?: number;
+  finalizeDrainWindowMs?: number;
+  maxWordHoldChars?: number;
+  maxWordHoldMs?: number;
 };
 
 export type StreamBuffer = {
@@ -20,17 +24,28 @@ export type StreamBuffer = {
   appendThinking: (text: string) => void;
   setAnswer: (text: string, options?: { immediate?: boolean }) => void;
   setThinking: (text: string, options?: { immediate?: boolean }) => void;
+  finalize: () => void;
+  whenDrained: (callback: () => void) => () => void;
   reset: () => void;
 };
 
-const DEFAULT_ANSWER_CHARS_PER_SECOND = 400;
-const DEFAULT_THINKING_CHARS_PER_SECOND = 250;
+const DEFAULT_BASE_CHARS_PER_SECOND = 90;
+const DEFAULT_DRAIN_WINDOW_MS = 250;
+const DEFAULT_FINALIZE_DRAIN_WINDOW_MS = 175;
+const DEFAULT_MAX_WORD_HOLD_CHARS = 24;
+const DEFAULT_MAX_WORD_HOLD_MS = 350;
+const CARRY_CAP_FACTOR = 2;
+
 const EMPTY_SNAPSHOT: StreamBufferSnapshot = Object.freeze({
   answerTarget: "",
   answerDisplay: "",
   thinkingTarget: "",
-  thinkingDisplay: ""
+  thinkingDisplay: "",
+  isSettled: true
 });
+
+const BOUNDARY_CHAR_PATTERN =
+  /[\s⺀-鿿가-힯豈-﫿！-｠]/;
 
 function defaultSchedule(callback: () => void): number {
   if (typeof requestAnimationFrame === "function") {
@@ -47,15 +62,37 @@ function defaultCancel(handle: number) {
   clearTimeout(handle);
 }
 
+function isHighSurrogate(code: number) {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
+function graphemeSafeIndex(text: string, index: number) {
+  if (index > 0 && isHighSurrogate(text.charCodeAt(index - 1))) {
+    return index - 1;
+  }
+  return index;
+}
+
 export function createStreamBuffer(options: StreamBufferOptions = {}): StreamBuffer {
   const schedule = options.schedule ?? defaultSchedule;
   const cancel = options.cancel ?? defaultCancel;
   const now = options.now ?? (() => Date.now());
-  const answerRate = options.answerCharsPerSecond ?? DEFAULT_ANSWER_CHARS_PER_SECOND;
-  const thinkingRate = options.thinkingCharsPerSecond ?? DEFAULT_THINKING_CHARS_PER_SECOND;
+  const baseRate = options.baseCharsPerSecond ?? DEFAULT_BASE_CHARS_PER_SECOND;
+  const drainWindowMs = options.drainWindowMs ?? DEFAULT_DRAIN_WINDOW_MS;
+  const finalizeDrainWindowMs = options.finalizeDrainWindowMs ?? DEFAULT_FINALIZE_DRAIN_WINDOW_MS;
+  const maxWordHoldChars = options.maxWordHoldChars ?? DEFAULT_MAX_WORD_HOLD_CHARS;
+  const maxWordHoldMs = options.maxWordHoldMs ?? DEFAULT_MAX_WORD_HOLD_MS;
+  const carryCap = maxWordHoldChars * CARRY_CAP_FACTOR;
 
   let snapshot = EMPTY_SNAPSHOT;
+  let finalized = false;
+  const carries = { answer: 0, thinking: 0 };
+  const holdSince: { answer: number | null; thinking: number | null } = {
+    answer: null,
+    thinking: null
+  };
   const listeners = new Set<() => void>();
+  const drainCallbacks = new Set<() => void>();
   let frameHandle: number | null = null;
   let lastTick = 0;
 
@@ -65,19 +102,101 @@ export function createStreamBuffer(options: StreamBufferOptions = {}): StreamBuf
     }
   }
 
-  function isAnimating() {
+  function isBoundary(target: string, index: number) {
+    if (index === target.length && finalized) {
+      return true;
+    }
+    return BOUNDARY_CHAR_PATTERN.test(target.charAt(index - 1));
+  }
+
+  function findBoundary(target: string, fromExclusive: number, toInclusive: number) {
+    for (let index = toInclusive; index > fromExclusive; index -= 1) {
+      if (isBoundary(target, index)) {
+        return index;
+      }
+    }
+    return -1;
+  }
+
+  function advance(
+    field: "answer" | "thinking",
+    display: string,
+    target: string,
+    elapsedMs: number,
+    nowMs: number
+  ) {
+    const backlog = target.length - display.length;
+    if (backlog <= 0) {
+      carries[field] = 0;
+      holdSince[field] = null;
+      return display;
+    }
+
+    const windowMs = finalized ? finalizeDrainWindowMs : drainWindowMs;
+    const rate = Math.max(baseRate, (backlog * 1000) / windowMs);
+    const budget = carries[field] + (elapsedMs * rate) / 1000;
+    const candidate = Math.min(display.length + Math.floor(budget), target.length);
+
+    function hold() {
+      carries[field] = Math.min(budget, carryCap);
+      holdSince[field] ??= nowMs;
+      return display;
+    }
+
+    function reveal(index: number) {
+      carries[field] = Math.min(budget - (index - display.length), carryCap);
+      holdSince[field] = null;
+      return target.slice(0, index);
+    }
+
+    if (candidate <= display.length) {
+      return hold();
+    }
+
+    const boundary = findBoundary(target, display.length, candidate);
+
+    if (boundary !== -1) {
+      return reveal(boundary);
+    }
+
+    const holdExpired =
+      holdSince[field] !== null && nowMs - holdSince[field] >= maxWordHoldMs;
+
+    if (candidate - display.length >= maxWordHoldChars || holdExpired) {
+      const flushIndex = graphemeSafeIndex(target, candidate);
+      if (flushIndex > display.length) {
+        return reveal(flushIndex);
+      }
+    }
+
+    return hold();
+  }
+
+  function canProgress() {
     return (
       snapshot.answerDisplay.length < snapshot.answerTarget.length ||
       snapshot.thinkingDisplay.length < snapshot.thinkingTarget.length
     );
   }
 
-  function advance(display: string, target: string, rate: number, elapsedMs: number) {
-    if (display.length >= target.length) {
-      return display;
+  function commit(next: Omit<StreamBufferSnapshot, "isSettled">) {
+    snapshot = {
+      ...next,
+      isSettled:
+        next.answerDisplay.length >= next.answerTarget.length &&
+        next.thinkingDisplay.length >= next.thinkingTarget.length
+    };
+  }
+
+  function flushDrainCallbacksIfSettled() {
+    if (!snapshot.isSettled || drainCallbacks.size === 0) {
+      return;
     }
-    const step = Math.max(1, Math.round((elapsedMs / 1000) * rate));
-    return target.slice(0, display.length + step);
+    const callbacks = [...drainCallbacks];
+    drainCallbacks.clear();
+    for (const callback of callbacks) {
+      callback();
+    }
   }
 
   function tick() {
@@ -85,15 +204,16 @@ export function createStreamBuffer(options: StreamBufferOptions = {}): StreamBuf
     const current = now();
     const elapsed = Math.max(current - lastTick, 1);
     lastTick = current;
-    const nextAnswer = advance(snapshot.answerDisplay, snapshot.answerTarget, answerRate, elapsed);
-    const nextThinking = advance(snapshot.thinkingDisplay, snapshot.thinkingTarget, thinkingRate, elapsed);
+    const nextAnswer = advance("answer", snapshot.answerDisplay, snapshot.answerTarget, elapsed, current);
+    const nextThinking = advance("thinking", snapshot.thinkingDisplay, snapshot.thinkingTarget, elapsed, current);
 
     if (nextAnswer !== snapshot.answerDisplay || nextThinking !== snapshot.thinkingDisplay) {
-      snapshot = { ...snapshot, answerDisplay: nextAnswer, thinkingDisplay: nextThinking };
+      commit({ ...snapshot, answerDisplay: nextAnswer, thinkingDisplay: nextThinking });
       notify();
+      flushDrainCallbacksIfSettled();
     }
 
-    if (isAnimating()) {
+    if (canProgress()) {
       scheduleTick();
     }
   }
@@ -106,7 +226,7 @@ export function createStreamBuffer(options: StreamBufferOptions = {}): StreamBuf
   }
 
   function startAnimationIfNeeded() {
-    if (!isAnimating() || frameHandle !== null) {
+    if (!canProgress() || frameHandle !== null) {
       return;
     }
     lastTick = now();
@@ -116,30 +236,31 @@ export function createStreamBuffer(options: StreamBufferOptions = {}): StreamBuf
   function setText(field: "answer" | "thinking", text: string, immediate: boolean) {
     const targetKey = field === "answer" ? "answerTarget" : "thinkingTarget";
     const displayKey = field === "answer" ? "answerDisplay" : "thinkingDisplay";
+    const previousDisplay = snapshot[displayKey];
+    const previousSettled = snapshot.isSettled;
     const nextDisplay = immediate
       ? text
-      : text.startsWith(snapshot[displayKey])
-        ? snapshot[displayKey]
+      : text.startsWith(previousDisplay)
+        ? previousDisplay
         : text;
-    const changed = snapshot[targetKey] !== text || snapshot[displayKey] !== nextDisplay;
+    const changed = snapshot[targetKey] !== text || previousDisplay !== nextDisplay;
 
     if (!changed) {
       return;
     }
 
-    snapshot = { ...snapshot, [targetKey]: text, [displayKey]: nextDisplay };
+    commit({ ...snapshot, [targetKey]: text, [displayKey]: nextDisplay });
 
-    if (immediate) {
+    if (nextDisplay !== previousDisplay || snapshot.isSettled) {
+      carries[field] = 0;
+    }
+
+    if (nextDisplay !== previousDisplay || (snapshot.isSettled && !previousSettled)) {
       notify();
-      return;
     }
 
-    if (isAnimating()) {
-      startAnimationIfNeeded();
-      return;
-    }
-
-    notify();
+    flushDrainCallbacksIfSettled();
+    startAnimationIfNeeded();
   }
 
   return {
@@ -162,11 +283,34 @@ export function createStreamBuffer(options: StreamBufferOptions = {}): StreamBuf
     setThinking(text, opts) {
       setText("thinking", text, Boolean(opts?.immediate));
     },
+    finalize() {
+      if (finalized) {
+        return;
+      }
+      finalized = true;
+      startAnimationIfNeeded();
+    },
+    whenDrained(callback) {
+      if (snapshot.isSettled) {
+        callback();
+        return () => {};
+      }
+      drainCallbacks.add(callback);
+      return () => {
+        drainCallbacks.delete(callback);
+      };
+    },
     reset() {
       if (frameHandle !== null) {
         cancel(frameHandle);
         frameHandle = null;
       }
+      finalized = false;
+      carries.answer = 0;
+      carries.thinking = 0;
+      holdSince.answer = null;
+      holdSince.thinking = null;
+      drainCallbacks.clear();
       if (snapshot === EMPTY_SNAPSHOT) {
         return;
       }
