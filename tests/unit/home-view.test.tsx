@@ -291,6 +291,21 @@ describe("home view", () => {
     ).not.toHaveFocus();
   });
 
+  it("does not mark the floating composer as an iOS keyboard lift target", () => {
+    render(
+      React.createElement(HomeView, {
+        providerProfiles: [createProviderProfile()],
+        defaultProviderProfileId: "profile_default",
+        settings: {
+          sttEngine: "browser",
+          sttLanguage: "en"
+        }
+      })
+    );
+
+    expect(screen.getByRole("textbox").closest(".ios-keyboard-lift")).toBeNull();
+  });
+
   it("dictates into the home composer draft without auto-sending", async () => {
     render(
       React.createElement(HomeView, {
