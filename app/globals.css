@@ -564,6 +564,12 @@ select {
   .animate-fade-in {
     animation-duration: 0.01ms !important;
   }
+
+  [data-sd-animate] {
+    animation: none;
+    opacity: 1;
+    filter: none;
+  }
 }
 
 @theme inline {

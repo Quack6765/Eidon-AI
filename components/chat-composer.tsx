@@ -65,8 +65,6 @@ type ChatComposerProps = {
   isTemporary?: boolean;
   showTemporaryToggle?: boolean;
   onTemporaryChange?: (value: boolean) => void;
-  isAtBottom?: boolean;
-  onJumpToBottom?: () => void;
   collapsibleToolbarOnMobile?: boolean;
 };
 
@@ -263,8 +261,6 @@ export function ChatComposer({
   isTemporary = false,
   showTemporaryToggle = false,
   onTemporaryChange,
-  isAtBottom = true,
-  onJumpToBottom,
   collapsibleToolbarOnMobile = false,
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -311,20 +307,6 @@ export function ChatComposer({
 
   return (
     <div className="relative">
-      {!isAtBottom && (
-        <div className="absolute -top-[19px] left-4 z-0 flex items-start h-[24px]">
-          <button
-            type="button"
-            onClick={onJumpToBottom}
-            style={{ fontSize: '10px' }}
-            className="relative flex h-full items-center gap-0.5 rounded-t-md border border-b-0 border-[var(--accent)] bg-[var(--accent)] px-2.5 font-bold uppercase tracking-wider text-white shadow-[0_0_16px_var(--accent-glow)] transition-all duration-150 hover:opacity-90 active:scale-[0.96]"
-            aria-label="Scroll to latest messages"
-            title="Scroll to latest"
-          >
-            ↓ Latest
-          </button>
-        </div>
-      )}
       {isTemporary && !showTemporaryToggle && (
         <div className="absolute -top-[19px] right-4 z-10 flex items-center h-[19px]">
           <div className="relative flex h-full items-center rounded-t-md border border-b-0 border-violet-500/50 border-dashed bg-zinc-900/85 backdrop-blur-md px-2.5 text-[10px] font-bold uppercase tracking-wider text-violet-300">

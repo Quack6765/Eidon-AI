@@ -93,19 +93,45 @@ function AnsiText({
   );
 }
 
-const AssistantMarkdown = React.memo(function AssistantMarkdown({ content }: { content: string }) {
-  const plugins = useStreamdownPlugins(content);
-  const fallback = (
-    <pre className="whitespace-pre-wrap break-words text-sm">{content}</pre>
-  );
-  return (
-    <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
-      <Streamdown plugins={plugins}>
-        {content}
-      </Streamdown>
-    </MarkdownErrorBoundary>
-  );
-});
+const ANIMATED_STREAM_OPTIONS = {
+  animation: "fadeIn",
+  duration: 200,
+  easing: "ease-out",
+  sep: "word"
+} as const;
+
+const AssistantMarkdown = React.memo(
+  function AssistantMarkdown({
+    content,
+    isAnimating = false,
+    showCaret = false
+  }: {
+    content: string;
+    isAnimating?: boolean;
+    showCaret?: boolean;
+  }) {
+    const plugins = useStreamdownPlugins(content);
+    const fallback = (
+      <pre className="whitespace-pre-wrap break-words text-sm">{content}</pre>
+    );
+    return (
+      <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
+        <Streamdown
+          plugins={plugins}
+          animated={ANIMATED_STREAM_OPTIONS}
+          isAnimating={isAnimating}
+          caret={showCaret ? "block" : undefined}
+        >
+          {content}
+        </Streamdown>
+      </MarkdownErrorBoundary>
+    );
+  },
+  (previous, next) =>
+    previous.content === next.content &&
+    previous.isAnimating === next.isAnimating &&
+    previous.showCaret === next.showCaret
+);
 
 export function TypingIndicator({ compact = false }: { compact?: boolean }) {
   return (
@@ -820,6 +846,8 @@ function MessageBubbleImpl({
                       if (!renderedContent) {
                         return null;
                       }
+                      const isStreamingTailBlock =
+                        isAssistantStreaming && item.id === lastRenderableAssistantTextId;
                       return (
                         <div
                           key={item.id}
@@ -827,7 +855,11 @@ function MessageBubbleImpl({
                           data-testid="assistant-message-content"
                         >
                           <div className="markdown-body">
-                            <AssistantMarkdown content={renderedContent} />
+                            <AssistantMarkdown
+                              content={renderedContent}
+                              isAnimating={isStreamingTailBlock}
+                              showCaret={isStreamingTailBlock}
+                            />
                           </div>
                           {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
                             <div className="mt-3">

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Conversation as ConversationContainer,
   ConversationContent,
@@ -80,17 +80,11 @@ const VISIBLE_MESSAGE_INCREMENT = 100;
 const EMPTY_TIMELINE: MessageTimelineItem[] = [];
 
 function StickToBottomBridge({
-  onAtBottomChange,
   scrollToBottomRef
 }: {
-  onAtBottomChange: (atBottom: boolean) => void;
   scrollToBottomRef: React.RefObject<(() => void) | null>;
 }) {
-  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
-
-  useEffect(() => {
-    onAtBottomChange(isAtBottom);
-  }, [isAtBottom, onAtBottomChange]);
+  const { scrollToBottom } = useStickToBottomContext();
 
   useEffect(() => {
     scrollToBottomRef.current = scrollToBottom;
@@ -182,9 +176,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
   const [personaId, setPersonaId] = useState<string | null>(null);
   const scrollToBottomRef = useRef<(() => void) | null>(null);
-  const [isAtBottom, setIsAtBottom] = useState(true);
-  const queueBannerRef = useRef<HTMLDivElement>(null);
-  const viewportHeightRef = useRef(800);
   const anchorSpacerRef = useRef<HTMLDivElement>(null);
   const composerAreaRef = useRef<HTMLDivElement>(null);
   const [composerAreaHeight, setComposerAreaHeight] = useState(160);
@@ -458,20 +449,18 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
   useEffect(() => {
     scrollToBottomRef.current?.();
-    setIsAtBottom(true);
   }, [payload.conversation.id]);
 
-  const jumpToBottom = useCallback(() => {
-    scrollToBottomRef.current?.();
-  }, []);
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = composerAreaRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => {
+    if (!el) return;
+    const measure = () => {
       const next = el.offsetHeight;
       setComposerAreaHeight((current) => (current === next ? current : next));
-    });
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
@@ -485,7 +474,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     pendingAnchorMessageIdRef.current = null;
     requestAnimationFrame(() => {
       if (anchorSpacerRef.current) {
-        anchorSpacerRef.current.style.height = `${viewportHeightRef.current}px`;
+        const scrollerHeight =
+          anchorSpacerRef.current.closest(".conversation-scroller")?.clientHeight ?? 800;
+        anchorSpacerRef.current.style.height = `${scrollerHeight}px`;
       }
       const targetEl = document.querySelector(`[data-message-id="${messageId}"]`);
       targetEl?.scrollIntoView({ block: "start", behavior: "auto" });
@@ -1901,12 +1892,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         </div>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        className="relative flex min-h-0 flex-1 flex-col"
+        style={{ ["--composer-height" as string]: `${composerAreaHeight}px` }}
+      >
       <ConversationContainer>
-        <StickToBottomBridge
-          onAtBottomChange={setIsAtBottom}
-          scrollToBottomRef={scrollToBottomRef}
-        />
+        <StickToBottomBridge scrollToBottomRef={scrollToBottomRef} />
         <ConversationContent
           className="gap-2.5 px-2 pt-4 md:gap-4 md:px-8"
         >
@@ -1973,14 +1964,19 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               {error}
             </div>
           ) : null}
-          <div ref={anchorSpacerRef} style={{ height: streamMessageId ? Math.max(80, composerAreaHeight + 40) : Math.max(24, composerAreaHeight) }} />
+          <div ref={anchorSpacerRef} />
+          <div aria-hidden style={{ height: "calc(var(--composer-height, 160px) + 24px)" }} />
         </ConversationContent>
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 bottom-[var(--composer-height,160px)] h-10 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/65 to-transparent"
+        />
         <ConversationScrollButton />
       </ConversationContainer>
 
         <div ref={composerAreaRef} className="absolute inset-x-0 bottom-0 z-50 pointer-events-none">
          <div className="mx-auto w-full max-w-[980px] px-3 sm:px-4 md:px-8 pt-1 pb-composer-safe pointer-events-auto">
-          <div ref={queueBannerRef}>
+          <div>
             <QueuedMessageBanner
               items={queuedMessages}
               onEdit={updateQueuedMessage}
@@ -2027,8 +2023,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
                 body: JSON.stringify({ isTemporary: value })
               }).catch(() => {});
             }}
-            isAtBottom={isAtBottom}
-            onJumpToBottom={jumpToBottom}
             collapsibleToolbarOnMobile
             onStartSpeech={() => {
               setError("");
