@@ -314,6 +314,80 @@ describe("useIosPwa", () => {
     });
   });
 
+  it("keeps --ios-app-height tied to window.innerHeight when the visual viewport shrinks", () => {
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    let capturedListener: EventListener | null = null;
+    const fakeVisualViewport = {
+      height: 812,
+      offsetTop: 0,
+      addEventListener: vi.fn((_type: string, listener: EventListener) => {
+        capturedListener = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+
+    renderHook(() => useIosPwa());
+    expect(appHeightVar()).toBe("812px");
+    expect(capturedListener).not.toBeNull();
+
+    fakeVisualViewport.height = 500;
+    act(() => {
+      capturedListener!(new Event("resize"));
+      flushRaf();
+    });
+
+    expect(appHeightVar()).toBe("812px");
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it("updates --ios-app-height from window.innerHeight when innerHeight shrinks with the keyboard", () => {
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    let capturedListener: EventListener | null = null;
+    const fakeVisualViewport = {
+      height: 812,
+      offsetTop: 0,
+      addEventListener: vi.fn((_type: string, listener: EventListener) => {
+        capturedListener = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+
+    renderHook(() => useIosPwa());
+    expect(appHeightVar()).toBe("812px");
+
+    setInnerHeight(500);
+    fakeVisualViewport.height = 500;
+    act(() => {
+      capturedListener!(new Event("resize"));
+      flushRaf();
+    });
+
+    expect(appHeightVar()).toBe("500px");
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
   it("does not add listeners and does not set class when not standalone", () => {
     setNavigatorStandalone(false);
     setInnerHeight(812);

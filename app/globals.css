@@ -89,6 +89,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+html.ios-pwa,
+html.ios-pwa body {
+  overflow: hidden;
+}
+
 html.ios-pwa .app-shell {
   height: var(--ios-app-height, 100dvh);
 }

@@ -652,6 +652,12 @@ describe("chat view", () => {
     });
   });
 
+  it("does not mark the floating composer as an iOS keyboard lift target", () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    expect(screen.getByRole("textbox").closest(".ios-keyboard-lift")).toBeNull();
+  });
+
   it("does not autofocus the composer on touch devices", () => {
     Object.defineProperty(navigator, "maxTouchPoints", {
       configurable: true,
