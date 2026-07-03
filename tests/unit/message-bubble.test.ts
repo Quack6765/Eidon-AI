@@ -141,6 +141,27 @@ afterEach(() => {
 });
 
 describe("message bubble", () => {
+  it("renders assistant prose without an avatar or chat bubble frame", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: createAssistantMessage()
+      })
+    );
+
+    const assistantContent = screen.getByTestId("assistant-message-content");
+
+    expect(container.querySelector('img[src="/agent-icon.png"]')).toBeNull();
+    expect(container.querySelector('img[src="/chat-icon.png"]')).toBeNull();
+    expect(container.querySelector('[data-testid="assistant-message-bubble"]')).toBeNull();
+    expect(assistantContent).toHaveTextContent("Final answer");
+    expect(assistantContent.className).toContain("w-full");
+    expect(assistantContent.className).not.toContain("w-fit");
+    expect(assistantContent.className).not.toContain("rounded-2xl");
+    expect(assistantContent.className).not.toContain("border");
+    expect(assistantContent.className).not.toContain("bg-white");
+    expect(assistantContent.className).not.toContain("shadow");
+  });
+
   it("renders persisted completed actions with their summaries", () => {
     render(
       React.createElement(MessageBubble, {
@@ -474,7 +495,7 @@ describe("message bubble", () => {
       })
     );
 
-    const blocks = Array.from(container.querySelectorAll('[data-testid="assistant-message-bubble"], [data-testid="assistant-actions-shell"]'));
+    const blocks = Array.from(container.querySelectorAll('[data-testid="assistant-message-content"], [data-testid="assistant-actions-shell"]'));
 
     expect(blocks).toHaveLength(3);
     expect(blocks[0]?.textContent).toContain("First segment");
@@ -482,7 +503,7 @@ describe("message bubble", () => {
     expect(blocks[2]?.textContent).toContain("Second segment");
   });
 
-  it("collapses adjacent assistant text segments into a single bubble", () => {
+  it("collapses adjacent assistant text segments into a single prose container", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
         message: {
@@ -508,13 +529,13 @@ describe("message bubble", () => {
       })
     );
 
-    const bubbles = container.querySelectorAll('[data-testid="assistant-message-bubble"]');
+    const proseContainers = container.querySelectorAll('[data-testid="assistant-message-content"]');
 
-    expect(bubbles).toHaveLength(1);
-    expect(bubbles[0]?.textContent).toContain("Hello there");
+    expect(proseContainers).toHaveLength(1);
+    expect(proseContainers[0]?.textContent).toContain("Hello there");
   });
 
-  it("does not append a second assistant bubble when normalized timeline text already covers escaped message content", () => {
+  it("does not append a second assistant prose container when normalized timeline text already covers escaped message content", () => {
     const escapedContent = [
       "Here is the table:",
       "",
@@ -541,12 +562,12 @@ describe("message bubble", () => {
       })
     );
 
-    const bubbles = container.querySelectorAll('[data-testid="assistant-message-bubble"]');
+    const proseContainers = container.querySelectorAll('[data-testid="assistant-message-content"]');
 
-    expect(bubbles).toHaveLength(1);
+    expect(proseContainers).toHaveLength(1);
     expect(screen.getByRole("table")).toBeInTheDocument();
-    expect(bubbles[0]?.textContent).toContain("Elena Varga");
-    expect(bubbles[0]?.textContent).not.toContain("\\n");
+    expect(proseContainers[0]?.textContent).toContain("Elena Varga");
+    expect(proseContainers[0]?.textContent).not.toContain("\\n");
   });
 
   it("does not splice a divergent message.content tail onto the timeline segments", () => {
@@ -568,10 +589,10 @@ describe("message bubble", () => {
       })
     );
 
-    const bubbles = container.querySelectorAll('[data-testid="assistant-message-bubble"]');
+    const proseContainers = container.querySelectorAll('[data-testid="assistant-message-content"]');
 
-    expect(bubbles).toHaveLength(1);
-    expect(bubbles[0]?.textContent).toContain("Streamed answer.");
+    expect(proseContainers).toHaveLength(1);
+    expect(proseContainers[0]?.textContent).toContain("Streamed answer.");
     expect(container.textContent).not.toContain("finalized answer");
   });
 
@@ -627,17 +648,17 @@ describe("message bubble", () => {
 
     const blocks = Array.from(
       container.querySelectorAll(
-        '[data-testid="assistant-message-bubble"], [data-testid="assistant-actions-shell"]'
+        '[data-testid="assistant-message-content"], [data-testid="assistant-actions-shell"]'
       )
     );
-    const bubbles = container.querySelectorAll('[data-testid="assistant-message-bubble"]');
+    const proseContainers = container.querySelectorAll('[data-testid="assistant-message-content"]');
 
-    expect(bubbles).toHaveLength(1);
-    expect(bubbles[0]?.textContent).toContain(
+    expect(proseContainers).toHaveLength(1);
+    expect(proseContainers[0]?.textContent).toContain(
       "Got it, Charles. I'll remember that you prefer Celsius over Fahrenheit."
     );
     expect(blocks).toHaveLength(2);
-    expect(blocks[0]?.getAttribute("data-testid")).toBe("assistant-message-bubble");
+    expect(blocks[0]?.getAttribute("data-testid")).toBe("assistant-message-content");
     expect(blocks[1]?.getAttribute("data-testid")).toBe("assistant-actions-shell");
     expect(blocks[1]?.textContent).toContain("Save memory");
   });
@@ -706,7 +727,7 @@ describe("message bubble", () => {
 
     const thinkingMarkdown = container.querySelector(".thinking-markdown-body");
     const assistantMarkdown = container.querySelector(
-      '[data-testid="assistant-message-bubble"] .markdown-body'
+      '[data-testid="assistant-message-content"] .markdown-body'
     );
 
     expect(thinkingMarkdown).not.toBeNull();
@@ -762,7 +783,7 @@ describe("message bubble", () => {
 
     const thinkingMarkdown = container.querySelector(".thinking-markdown-body");
     const answerMarkdown = container.querySelector(
-      '[data-testid="assistant-message-bubble"] .markdown-body'
+      '[data-testid="assistant-message-content"] .markdown-body'
     );
 
     expect(thinkingMarkdown?.textContent).toContain("Thought one");
@@ -777,7 +798,7 @@ describe("message bubble", () => {
     expect(answerMarkdown?.textContent).not.toContain("\\\\n");
   });
 
-  it("renders markdown elements inside a compact assistant bubble", () => {
+  it("renders markdown elements inside an unframed assistant prose container", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
         message: {
@@ -820,7 +841,15 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByTestId("assistant-message-bubble").className).toContain("w-fit");
+    const assistantContent = screen.getByTestId("assistant-message-content");
+
+    expect(assistantContent.className).toContain("w-full");
+    expect(assistantContent.className).toContain("max-w-full");
+    expect(assistantContent.className).not.toContain("w-fit");
+    expect(assistantContent.className).not.toContain("rounded-2xl");
+    expect(assistantContent.className).not.toContain("border");
+    expect(assistantContent.className).not.toContain("bg-white");
+    expect(assistantContent.className).not.toContain("shadow");
     expect(screen.getByRole("heading", { level: 1, name: "Markdown Test Report" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "Lists" })).toBeInTheDocument();
     expect(screen.getAllByRole("list").length).toBeGreaterThanOrEqual(3);
@@ -880,7 +909,7 @@ describe("message bubble", () => {
     expect(screen.getByRole("button", { name: "Copy Code" })).toBeInTheDocument();
   });
 
-  it("caps assistant bubbles at the container width so fenced code blocks can scroll internally on narrow screens", () => {
+  it("keeps assistant prose full width so fenced code blocks can scroll internally on narrow screens", () => {
     render(
       React.createElement(MessageBubble, {
         message: {
@@ -890,9 +919,12 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByTestId("assistant-message-bubble").className).toContain("max-w-full");
-    expect(screen.getByTestId("assistant-message-bubble").parentElement?.parentElement?.className).toContain("w-full");
-    expect(screen.getByTestId("assistant-message-bubble").parentElement?.parentElement?.className).toContain("min-w-0");
+    const assistantContent = screen.getByTestId("assistant-message-content");
+
+    expect(assistantContent.className).toContain("w-full");
+    expect(assistantContent.className).toContain("max-w-full");
+    expect(assistantContent.parentElement?.parentElement?.className).toContain("w-full");
+    expect(assistantContent.parentElement?.parentElement?.className).toContain("min-w-0");
   });
 
 
@@ -1067,7 +1099,7 @@ describe("message bubble", () => {
     expect(screen.getByRole("button", { name: "Copy Code" })).toBeInTheDocument();
   });
 
-  it("keeps untagged assistant code blocks on the code block path without changing the thinking bubble", async () => {
+  it("keeps untagged assistant code blocks on the code block path without changing the thinking shell", async () => {
     const { container } = render(
       React.createElement(MessageBubble, {
         message: {
@@ -1173,7 +1205,7 @@ describe("message bubble", () => {
     );
 
     expect(container.querySelector('[data-streamdown="code-block"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="assistant-message-bubble"] p code')).toBeNull();
+    expect(container.querySelector('[data-testid="assistant-message-content"] p code')).toBeNull();
   });
 
 
@@ -1190,7 +1222,7 @@ describe("message bubble", () => {
 
     expect(screen.getByText("token")).toBeInTheDocument();
     expect(container.querySelector('[data-streamdown="code-block"]')).toBeNull();
-    expect(container.querySelector('[data-testid="assistant-message-bubble"] p code')).not.toBeNull();
+    expect(container.querySelector('[data-testid="assistant-message-content"] p code')).not.toBeNull();
   });
 
   it("copies only the fenced code payload from the block action", async () => {
@@ -1464,18 +1496,18 @@ describe("message bubble", () => {
       })
     );
 
-    const bubble = screen.getByTestId("assistant-message-bubble");
+    const assistantContent = screen.getByTestId("assistant-message-content");
 
-    expect(within(bubble).getByText("I've attached the generated image and notes below.")).toBeInTheDocument();
-    expect(within(bubble).getByRole("button", { name: "Preview photo.png" })).toBeInTheDocument();
-    expect(within(bubble).queryByRole("img", { name: "photo.png" })).toBeNull();
+    expect(within(assistantContent).getByText("I've attached the generated image and notes below.")).toBeInTheDocument();
+    expect(within(assistantContent).getByRole("button", { name: "Preview photo.png" })).toBeInTheDocument();
+    expect(within(assistantContent).queryByRole("img", { name: "photo.png" })).toBeNull();
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
 
-    const imagePreviewButtonsOutsideBubble = Array.from(
+    const imagePreviewButtonsOutsideAssistantContent = Array.from(
       container.querySelectorAll('button[aria-label="Preview photo.png"]')
-    ).filter((button) => !bubble.contains(button));
+    ).filter((button) => !assistantContent.contains(button));
 
-    expect(imagePreviewButtonsOutsideBubble).toHaveLength(0);
+    expect(imagePreviewButtonsOutsideAssistantContent).toHaveLength(0);
   });
 
   it("opens the existing attachment preview modal when clicking an inline assistant image", async () => {
@@ -1506,7 +1538,7 @@ describe("message bubble", () => {
     );
 
     fireEvent.click(
-      within(screen.getByTestId("assistant-message-bubble")).getByRole("button", {
+      within(screen.getByTestId("assistant-message-content")).getByRole("button", {
         name: "Preview photo.png"
       })
     );
