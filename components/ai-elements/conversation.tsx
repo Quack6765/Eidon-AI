@@ -101,7 +101,7 @@ export const ConversationScrollButton = ({
       <Button
         aria-label="Scroll to latest messages"
         className={cn(
-          "absolute bottom-[calc(var(--composer-height,160px)_+_6px)] left-[50%] z-10 translate-x-[-50%] flex h-8 items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent)] px-3.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-[0_0_16px_var(--accent-glow)] transition-all duration-200 animate-fade-in hover:bg-[var(--accent)] hover:text-white hover:opacity-90 active:scale-[0.96]",
+          "absolute bottom-[var(--composer-height,160px)] left-[50%] z-10 translate-x-[-50%] flex h-8 items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent)] px-3.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-[0_0_16px_var(--accent-glow)] transition-all duration-200 animate-fade-in hover:bg-[var(--accent)] hover:text-white hover:opacity-90 active:scale-[0.96]",
           className
         )}
         onClick={handleScrollToBottom}

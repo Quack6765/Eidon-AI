@@ -42,11 +42,11 @@ describe("ConversationScrollButton", () => {
     );
   });
 
-  it("floats 6px above the composer", () => {
+  it("sits flush against the composer area top", () => {
     stickContextMock.isAtBottom = false;
     render(React.createElement(ConversationScrollButton));
 
     const button = screen.getByRole("button", { name: "Scroll to latest messages" });
-    expect(button.className).toContain("bottom-[calc(var(--composer-height,160px)_+_6px)]");
+    expect(button.className).toContain("bottom-[var(--composer-height,160px)]");
   });
 });
