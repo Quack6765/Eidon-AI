@@ -144,6 +144,7 @@ vi.mock("@/lib/speech/speech-controller", () => ({
 const stickToBottomMock = vi.hoisted(() => ({
   isAtBottomValue: true,
   scrollToBottom: vi.fn(),
+  listeners: new Set<() => void>(),
   _forceRender: null as (() => void) | null,
 }));
 
@@ -185,8 +186,27 @@ vi.mock("@/components/ai-elements/conversation", () => {
       }, [scrollerRef]);
       return React.createElement("div", { "data-testid": "conversation-content", ref: divRef }, children as React.ReactNode);
     },
-    ConversationScrollButton: () =>
-      React.createElement("button", { "data-testid": "conversation-scroll-button" }, "Scroll to bottom"),
+    ConversationScrollButton: () => {
+      const isAtBottom = React.useSyncExternalStore(
+        (onStoreChange: () => void) => {
+          stickToBottomMock.listeners.add(onStoreChange);
+          return () => stickToBottomMock.listeners.delete(onStoreChange);
+        },
+        () => stickToBottomMock.isAtBottomValue,
+        () => stickToBottomMock.isAtBottomValue
+      );
+      return isAtBottom
+        ? null
+        : React.createElement(
+            "button",
+            {
+              "data-testid": "conversation-scroll-button",
+              "aria-label": "Scroll to latest messages",
+              onClick: () => stickToBottomMock.scrollToBottom()
+            },
+            "Latest"
+          );
+    },
     ConversationEmptyState: ({ children, ...props }: Record<string, unknown>) =>
       React.createElement("div", { "data-testid": "conversation-empty-state", ...props }, children as React.ReactNode),
     ConversationDownload: ({ children, ...props }: Record<string, unknown>) =>
@@ -582,12 +602,21 @@ describe("chat view", () => {
       for (const callback of resizeObserverCallbacks) {
         callback([], {} as ResizeObserver);
       }
+      for (const listener of stickToBottomMock.listeners) {
+        listener();
+      }
     });
     if (stickToBottomMock._forceRender) {
       act(() => {
         stickToBottomMock._forceRender!();
       });
     }
+  }
+
+  function streamedText(expected: string) {
+    return (_content: string, node: Element | null) =>
+      node?.textContent === expected &&
+      Array.from(node.children).every((child) => child.textContent !== expected);
   }
 
   it("places the desktop share control in the conversation title header", () => {
@@ -2064,6 +2093,108 @@ describe("chat view", () => {
     expect(nodeBefore!.isConnected).toBe(true);
   });
 
+  it("drains the buffered tail smoothly after done instead of dumping it", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const longAnswer = `${"lorem ipsum dolor sit amet ".repeat(20)}finis`;
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: longAnswer }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant" }
+      });
+    });
+
+    expect(screen.queryByText(/finis/)).not.toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText(/finis/)).toBeInTheDocument();
+    });
+  });
+
+  it("accepts a new submission immediately after done while the tail is draining", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: `${"words keep flowing here ".repeat(20)}end` }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant" }
+      });
+    });
+
+    wsMock.send.mockClear();
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "follow-up" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "message", content: "follow-up" })
+      );
+    });
+  });
+
+  it("hides the stop button as soon as the turn completes even while the tail is draining", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: `${"steady stream of words ".repeat(20)}done` }
+      });
+    });
+
+    expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant" }
+      });
+    });
+
+    expect(screen.queryByRole("button", { name: "Stop response" })).not.toBeInTheDocument();
+  });
+
   it("keeps an optimistic user message visible when an unrelated server user message arrives first", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
@@ -2994,19 +3125,24 @@ describe("chat view", () => {
     });
   });
 
-  it("positions the Latest Messages pill to the right of the composer on desktop", async () => {
+  it("renders a single scroll-to-latest affordance that only appears when scrolled away from the bottom", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     await flushAnimationFrame();
 
+    expect(screen.queryByRole("button", { name: "Scroll to latest messages" })).toBeNull();
+
     simulateAtBottomState(false);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Scroll to latest messages" })).toBeInTheDocument();
+      expect(screen.getAllByRole("button", { name: "Scroll to latest messages" })).toHaveLength(1);
     });
 
-    const pill = screen.getByRole("button", { name: "Scroll to latest messages" }).parentElement!;
-    expect(pill.className).toContain("left-4");
+    simulateAtBottomState(true);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("button", { name: "Scroll to latest messages" })).toBeNull();
+    });
   });
 
   it("follows streaming overflow after sending", async () => {
@@ -3040,7 +3176,7 @@ describe("chat view", () => {
     await flushAnimationFrame();
 
     await waitFor(() => {
-      expect(screen.getByText("A long response that overflows the viewport")).toBeInTheDocument();
+      expect(screen.getByText(streamedText("A long response that overflows the viewport"))).toBeInTheDocument();
     });
   });
 
@@ -3219,7 +3355,7 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("A long response that starts following")).toBeInTheDocument();
+      expect(screen.getByText(streamedText("A long response that starts following"))).toBeInTheDocument();
     });
 
     simulateAtBottomState(false);
@@ -3522,7 +3658,7 @@ describe("chat view", () => {
     expect(screen.queryByRole("button", { name: /^Thinking$/i })).toBeNull();
 
     await waitFor(() => {
-      expect(screen.getByText("Working on it")).toBeInTheDocument();
+      expect(screen.getByText(streamedText("Working on it"))).toBeInTheDocument();
     });
   });
 
@@ -3740,7 +3876,7 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Already streamed")).toBeInTheDocument();
+      expect(screen.getByText(streamedText("Already streamed"))).toBeInTheDocument();
     });
 
     act(() => {

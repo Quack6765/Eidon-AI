@@ -4,6 +4,7 @@ import { Inter, Instrument_Serif, Orbitron, Geist } from "next/font/google";
 import { APP_NAME } from "@/lib/constants";
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
 
+import "streamdown/styles.css";
 import "@/app/globals.css";
 import { cn } from "@/lib/utils";
 

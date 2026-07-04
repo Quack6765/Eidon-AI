@@ -14,7 +14,8 @@ const INACTIVE_SNAPSHOT: StreamBufferSnapshot = Object.freeze({
   answerTarget: "",
   answerDisplay: "",
   thinkingTarget: "",
-  thinkingDisplay: ""
+  thinkingDisplay: "",
+  isSettled: true
 });
 
 const noopSubscribe = () => () => {};

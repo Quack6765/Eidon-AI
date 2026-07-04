@@ -93,19 +93,45 @@ function AnsiText({
   );
 }
 
-const AssistantMarkdown = React.memo(function AssistantMarkdown({ content }: { content: string }) {
-  const plugins = useStreamdownPlugins(content);
-  const fallback = (
-    <pre className="whitespace-pre-wrap break-words text-sm">{content}</pre>
-  );
-  return (
-    <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
-      <Streamdown plugins={plugins}>
-        {content}
-      </Streamdown>
-    </MarkdownErrorBoundary>
-  );
-});
+const ANIMATED_STREAM_OPTIONS = {
+  animation: "fadeIn",
+  duration: 200,
+  easing: "ease-out",
+  sep: "word"
+} as const;
+
+const AssistantMarkdown = React.memo(
+  function AssistantMarkdown({
+    content,
+    isAnimating = false,
+    showCaret = false
+  }: {
+    content: string;
+    isAnimating?: boolean;
+    showCaret?: boolean;
+  }) {
+    const plugins = useStreamdownPlugins(content);
+    const fallback = (
+      <pre className="whitespace-pre-wrap break-words text-sm">{content}</pre>
+    );
+    return (
+      <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
+        <Streamdown
+          plugins={plugins}
+          animated={ANIMATED_STREAM_OPTIONS}
+          isAnimating={isAnimating}
+          caret={showCaret ? "block" : undefined}
+        >
+          {content}
+        </Streamdown>
+      </MarkdownErrorBoundary>
+    );
+  },
+  (previous, next) =>
+    previous.content === next.content &&
+    previous.isAnimating === next.isAnimating &&
+    previous.showCaret === next.showCaret
+);
 
 export function TypingIndicator({ compact = false }: { compact?: boolean }) {
   return (
@@ -207,6 +233,38 @@ const ASSISTANT_LOADING_SHELL =
 
 function getActionSignature(action: Pick<MessageActionType, "kind" | "label" | "detail" | "toolName">) {
   return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
+}
+
+function clampStreamingTimeline(
+  timeline: MessageTimelineItem[],
+  display: string
+): MessageTimelineItem[] {
+  const clamped: MessageTimelineItem[] = [];
+  let offset = 0;
+
+  for (const item of timeline) {
+    if (item.timelineKind !== "text") {
+      clamped.push(item);
+      continue;
+    }
+
+    const visibleLength = Math.min(
+      Math.max(display.length - offset, 0),
+      item.content.length
+    );
+
+    if (visibleLength > 0) {
+      clamped.push(
+        visibleLength === item.content.length
+          ? item
+          : { ...item, content: item.content.slice(0, visibleLength) }
+      );
+    }
+
+    offset += item.content.length;
+  }
+
+  return clamped;
 }
 
 function escapeHtml(value: string) {
@@ -312,7 +370,10 @@ function MessageBubbleImpl({
     const rawContent = streamingAnswer ?? message.content;
     const rawThinking = streamingThinking ?? message.thinkingContent;
     const actions = message.actions ?? [];
-    const liveTimeline = streamingTimeline ?? message.timeline;
+    const liveTimeline =
+      streamingTimeline !== undefined && streamingAnswer !== undefined
+        ? clampStreamingTimeline(streamingTimeline, streamingAnswer)
+        : streamingTimeline ?? message.timeline;
     const contentForComparison = normalizeLineBreaks(rawContent);
     const timeline = liveTimeline ?? actions.map((action) => ({
       ...action,
@@ -785,6 +846,8 @@ function MessageBubbleImpl({
                       if (!renderedContent) {
                         return null;
                       }
+                      const isStreamingTailBlock =
+                        isAssistantStreaming && item.id === lastRenderableAssistantTextId;
                       return (
                         <div
                           key={item.id}
@@ -792,7 +855,11 @@ function MessageBubbleImpl({
                           data-testid="assistant-message-content"
                         >
                           <div className="markdown-body">
-                            <AssistantMarkdown content={renderedContent} />
+                            <AssistantMarkdown
+                              content={renderedContent}
+                              isAnimating={isStreamingTailBlock}
+                              showCaret={isStreamingTailBlock}
+                            />
                           </div>
                           {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
                             <div className="mt-3">
