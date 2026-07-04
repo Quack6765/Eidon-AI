@@ -1967,10 +1967,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
           <div ref={anchorSpacerRef} />
           <div aria-hidden style={{ height: "calc(var(--composer-height, 160px) + 24px)" }} />
         </ConversationContent>
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 bottom-[var(--composer-height,160px)] h-10 bg-gradient-to-t from-[var(--background)] via-[var(--background)]/65 to-transparent"
-        />
         <ConversationScrollButton />
       </ConversationContainer>
 

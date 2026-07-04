@@ -81,6 +81,11 @@ export const ConversationEmptyState = ({
 
 export type ConversationScrollButtonProps = ComponentProps<typeof Button>;
 
+const SCROLL_TO_LATEST_OPTIONS = {
+  animation: { damping: 0.75, stiffness: 0.1, mass: 1 },
+  ignoreEscapes: true
+} as const;
+
 export const ConversationScrollButton = ({
   className,
   ...props
@@ -88,7 +93,7 @@ export const ConversationScrollButton = ({
   const { isAtBottom, scrollToBottom } = useStickToBottomContext();
 
   const handleScrollToBottom = useCallback(() => {
-    scrollToBottom();
+    void scrollToBottom(SCROLL_TO_LATEST_OPTIONS);
   }, [scrollToBottom]);
 
   return (
@@ -96,7 +101,7 @@ export const ConversationScrollButton = ({
       <Button
         aria-label="Scroll to latest messages"
         className={cn(
-          "absolute bottom-[calc(var(--composer-height,160px)_+_12px)] left-[50%] z-10 translate-x-[-50%] flex h-8 items-center gap-1 rounded-full border border-white/10 bg-zinc-900/85 px-3.5 text-[10px] font-bold uppercase tracking-wider text-white/60 shadow-[0_2px_8px_rgba(0,0,0,0.35)] backdrop-blur-md transition-colors duration-200 animate-fade-in hover:border-white/15 hover:bg-zinc-800/85 hover:text-white/90",
+          "absolute bottom-[calc(var(--composer-height,160px)_+_6px)] left-[50%] z-10 translate-x-[-50%] flex h-8 items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent)] px-3.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-[0_0_16px_var(--accent-glow)] transition-all duration-200 animate-fade-in hover:bg-[var(--accent)] hover:text-white hover:opacity-90 active:scale-[0.96]",
           className
         )}
         onClick={handleScrollToBottom}
