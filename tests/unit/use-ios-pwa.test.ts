@@ -28,6 +28,34 @@ function appHeightVar() {
   return document.documentElement.style.getPropertyValue("--ios-app-height");
 }
 
+function setWindowScrollTo(value: typeof window.scrollTo) {
+  Object.defineProperty(window, "scrollTo", { configurable: true, writable: true, value });
+}
+
+function setWindowScroll(x: number, y: number) {
+  Object.defineProperty(window, "scrollX", { configurable: true, writable: true, value: x });
+  Object.defineProperty(window, "scrollY", { configurable: true, writable: true, value: y });
+}
+
+function setElementScroll(element: Element, top: number, left: number) {
+  let topValue = top;
+  let leftValue = left;
+  Object.defineProperty(element, "scrollTop", {
+    configurable: true,
+    get: () => topValue,
+    set: (value: number) => {
+      topValue = value;
+    },
+  });
+  Object.defineProperty(element, "scrollLeft", {
+    configurable: true,
+    get: () => leftValue,
+    set: (value: number) => {
+      leftValue = value;
+    },
+  });
+}
+
 describe("useIosPwa", () => {
   let rafCallbacks: Map<number, FrameRequestCallback>;
   let rafCounter: number;
@@ -63,6 +91,28 @@ describe("useIosPwa", () => {
     setNavigatorStandalone(undefined);
     document.documentElement.classList.remove("ios-pwa");
     document.documentElement.style.removeProperty("--ios-app-height");
+  });
+
+  let originalScrollTo: typeof window.scrollTo;
+  let originalScrollIntoView: Element["scrollIntoView"] | undefined;
+
+  beforeEach(() => {
+    originalScrollTo = window.scrollTo;
+    originalScrollIntoView = Element.prototype.scrollIntoView;
+  });
+
+  afterEach(() => {
+    setWindowScrollTo(originalScrollTo);
+    if (originalScrollIntoView) {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    } else {
+      Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+    }
+    setWindowScroll(0, 0);
+    Reflect.deleteProperty(document, "scrollingElement");
+    Reflect.deleteProperty(document.documentElement, "scrollTop");
+    Reflect.deleteProperty(document.documentElement, "scrollLeft");
+    vi.useRealTimers();
   });
 
   it("does not mark the document outside an iOS home-screen app", () => {
@@ -250,6 +300,8 @@ describe("useIosPwa", () => {
 
     const listeners = new Map<string, EventListenerOrEventListenerObject[]>();
     const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
       addEventListener: vi.fn((type: string, listener: EventListenerOrEventListenerObject) => {
         const existing = listeners.get(type) ?? [];
         listeners.set(type, [...existing, listener]);
@@ -285,6 +337,8 @@ describe("useIosPwa", () => {
 
     let capturedListener: EventListener | null = null;
     const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
       addEventListener: vi.fn((_type: string, listener: EventListener) => {
         capturedListener = listener;
       }),
@@ -301,6 +355,7 @@ describe("useIosPwa", () => {
     expect(capturedListener).not.toBeNull();
 
     setInnerHeight(500);
+    fakeVisualViewport.height = 500;
     act(() => {
       capturedListener!(new Event("resize"));
       flushRaf();
@@ -314,7 +369,7 @@ describe("useIosPwa", () => {
     });
   });
 
-  it("keeps --ios-app-height tied to window.innerHeight when the visual viewport shrinks", () => {
+  it("follows the visual viewport when the keyboard shrinks it while innerHeight stays fixed", () => {
     setNavigatorStandalone(true);
     setInnerHeight(812);
 
@@ -322,6 +377,7 @@ describe("useIosPwa", () => {
     const fakeVisualViewport = {
       height: 812,
       offsetTop: 0,
+      scale: 1,
       addEventListener: vi.fn((_type: string, listener: EventListener) => {
         capturedListener = listener;
       }),
@@ -343,7 +399,7 @@ describe("useIosPwa", () => {
       flushRaf();
     });
 
-    expect(appHeightVar()).toBe("812px");
+    expect(appHeightVar()).toBe("500px");
 
     Object.defineProperty(window, "visualViewport", {
       configurable: true,
@@ -359,6 +415,7 @@ describe("useIosPwa", () => {
     const fakeVisualViewport = {
       height: 812,
       offsetTop: 0,
+      scale: 1,
       addEventListener: vi.fn((_type: string, listener: EventListener) => {
         capturedListener = listener;
       }),
@@ -381,6 +438,87 @@ describe("useIosPwa", () => {
     });
 
     expect(appHeightVar()).toBe("500px");
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it("ignores the visual viewport while pinch-zoomed so the shell keeps the layout height", () => {
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    let capturedListener: EventListener | null = null;
+    const fakeVisualViewport = {
+      height: 400,
+      offsetTop: 0,
+      scale: 2,
+      addEventListener: vi.fn((_type: string, listener: EventListener) => {
+        capturedListener = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+
+    renderHook(() => useIosPwa());
+    expect(appHeightVar()).toBe("812px");
+    expect(capturedListener).not.toBeNull();
+
+    act(() => {
+      capturedListener!(new Event("resize"));
+      flushRaf();
+    });
+
+    expect(appHeightVar()).toBe("812px");
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it("restores the full shell height when the keyboard closes and the visual viewport grows back", () => {
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    let capturedListener: EventListener | null = null;
+    const fakeVisualViewport = {
+      height: 812,
+      offsetTop: 0,
+      scale: 1,
+      addEventListener: vi.fn((_type: string, listener: EventListener) => {
+        capturedListener = listener;
+      }),
+      removeEventListener: vi.fn(),
+    };
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+
+    renderHook(() => useIosPwa());
+    expect(appHeightVar()).toBe("812px");
+    expect(capturedListener).not.toBeNull();
+
+    fakeVisualViewport.height = 500;
+    act(() => {
+      capturedListener!(new Event("resize"));
+      flushRaf();
+    });
+    expect(appHeightVar()).toBe("500px");
+
+    fakeVisualViewport.height = 812;
+    act(() => {
+      capturedListener!(new Event("resize"));
+      flushRaf();
+    });
+    expect(appHeightVar()).toBe("812px");
 
     Object.defineProperty(window, "visualViewport", {
       configurable: true,
@@ -402,5 +540,259 @@ describe("useIosPwa", () => {
     expect(addSpy).not.toHaveBeenCalledWith("orientationchange", expect.any(Function));
 
     addSpy.mockRestore();
+  });
+
+  it("resets the document pan when the visual viewport resizes while the document is panned", () => {
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    let capturedResize: EventListener | null = null;
+    const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        if (type === "resize") {
+          capturedResize = listener;
+        }
+      }),
+      removeEventListener: vi.fn(),
+    };
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+
+    const scrollToMock = vi.fn();
+    setWindowScrollTo(scrollToMock as unknown as typeof window.scrollTo);
+
+    renderHook(() => useIosPwa());
+    expect(capturedResize).not.toBeNull();
+    scrollToMock.mockClear();
+
+    setWindowScroll(0, 350);
+    const scroller = document.documentElement;
+    Object.defineProperty(document, "scrollingElement", { configurable: true, value: scroller });
+    setElementScroll(scroller, 120, 15);
+
+    setInnerHeight(500);
+    fakeVisualViewport.height = 500;
+    act(() => {
+      capturedResize!(new Event("resize"));
+      flushRaf();
+    });
+
+    expect(scrollToMock).toHaveBeenCalledWith(0, 0);
+    expect(scroller.scrollTop).toBe(0);
+    expect(scroller.scrollLeft).toBe(0);
+    expect(appHeightVar()).toBe("500px");
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it("corrects the document pan when the visual viewport scrolls without resizing", () => {
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    let capturedScroll: EventListener | null = null;
+    const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        if (type === "scroll") {
+          capturedScroll = listener;
+        }
+      }),
+      removeEventListener: vi.fn(),
+    };
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+
+    const scrollToMock = vi.fn();
+    setWindowScrollTo(scrollToMock as unknown as typeof window.scrollTo);
+
+    renderHook(() => useIosPwa());
+    expect(capturedScroll).not.toBeNull();
+    scrollToMock.mockClear();
+
+    setWindowScroll(0, 200);
+    act(() => {
+      capturedScroll!(new Event("scroll"));
+      flushRaf();
+    });
+
+    expect(scrollToMock).toHaveBeenCalledWith(0, 0);
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it("reveals the focused editable element after focusin", () => {
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const scrollIntoViewMock = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoViewMock;
+    setWindowScrollTo(vi.fn() as unknown as typeof window.scrollTo);
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+
+    renderHook(() => useIosPwa());
+
+    act(() => {
+      input.focus();
+      flushRaf();
+    });
+
+    expect(scrollIntoViewMock).toHaveBeenCalledWith({ block: "nearest" });
+
+    input.remove();
+  });
+
+  it("runs a trailing correction after focusin once WebKit's late pan can land", () => {
+    vi.useFakeTimers();
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const scrollIntoViewMock = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoViewMock;
+    setWindowScrollTo(vi.fn() as unknown as typeof window.scrollTo);
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+
+    renderHook(() => useIosPwa());
+
+    act(() => {
+      input.focus();
+      flushRaf();
+    });
+    scrollIntoViewMock.mockClear();
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(scrollIntoViewMock).toHaveBeenCalledWith({ block: "nearest" });
+
+    input.remove();
+  });
+
+  it("clears the trailing focus correction on unmount", () => {
+    vi.useFakeTimers();
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const scrollIntoViewMock = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoViewMock;
+    setWindowScrollTo(vi.fn() as unknown as typeof window.scrollTo);
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+
+    const { unmount } = renderHook(() => useIosPwa());
+
+    act(() => {
+      input.focus();
+      flushRaf();
+    });
+    scrollIntoViewMock.mockClear();
+
+    unmount();
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+
+    input.remove();
+  });
+
+  it("does not scroll a non-editable focused element into view", () => {
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const scrollIntoViewMock = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoViewMock;
+    setWindowScrollTo(vi.fn() as unknown as typeof window.scrollTo);
+
+    const button = document.createElement("button");
+    document.body.appendChild(button);
+
+    renderHook(() => useIosPwa());
+
+    act(() => {
+      button.focus();
+      flushRaf();
+    });
+
+    expect(scrollIntoViewMock).not.toHaveBeenCalled();
+
+    button.remove();
+  });
+
+  it("does not listen for focusin and never corrects scroll when not standalone", () => {
+    setNavigatorStandalone(false);
+    setInnerHeight(812);
+
+    const docAddSpy = vi.spyOn(document, "addEventListener");
+    const scrollToMock = vi.fn();
+    setWindowScrollTo(scrollToMock as unknown as typeof window.scrollTo);
+    setWindowScroll(0, 350);
+
+    renderHook(() => useIosPwa());
+
+    expect(docAddSpy).not.toHaveBeenCalledWith("focusin", expect.any(Function));
+    expect(scrollToMock).not.toHaveBeenCalled();
+
+    docAddSpy.mockRestore();
+  });
+
+  it("removes the visualViewport scroll and document focusin listeners on unmount", () => {
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+
+    const docAddSpy = vi.spyOn(document, "addEventListener");
+    const docRemoveSpy = vi.spyOn(document, "removeEventListener");
+
+    const { unmount } = renderHook(() => useIosPwa());
+
+    expect(fakeVisualViewport.addEventListener).toHaveBeenCalledWith("scroll", expect.any(Function));
+    expect(docAddSpy).toHaveBeenCalledWith("focusin", expect.any(Function));
+
+    unmount();
+
+    expect(fakeVisualViewport.removeEventListener).toHaveBeenCalledWith("scroll", expect.any(Function));
+    expect(docRemoveSpy).toHaveBeenCalledWith("focusin", expect.any(Function));
+
+    docAddSpy.mockRestore();
+    docRemoveSpy.mockRestore();
+
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
   });
 });
