@@ -22,4 +22,15 @@ describe("middleware share public access", () => {
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("http://localhost/login");
   });
+
+  it.each([
+    "/api/v1/server-info",
+    "/api/v1/auth/login",
+    "/api/v1/conversations"
+  ])("leaves %s authentication to the Mobile API", async (pathname) => {
+    const response = await middleware(new NextRequest(`http://localhost${pathname}`));
+
+    expect(response.status).not.toBe(307);
+    expect(response.headers.get("location")).toBeNull();
+  });
 });

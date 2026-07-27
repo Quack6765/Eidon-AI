@@ -4,6 +4,7 @@ coverage
 playwright-report
 test-results
 ws-handler-compiled.cjs
+seed-native-test.cjs
 
 .playwright-cli/
 .context/

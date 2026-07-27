@@ -3,7 +3,6 @@ import { z } from "zod";
 import {
   clearSessionCookie,
   getSessionPayload,
-  invalidateAllSessionsForUser,
   requireUser,
   updatePassword,
   updateUsername
@@ -28,7 +27,6 @@ export async function PUT(request: Request) {
 
     if (body.data.password) {
       await updatePassword(user.id, body.data.password);
-      await invalidateAllSessionsForUser(user.id);
 
       const session = await getSessionPayload();
 

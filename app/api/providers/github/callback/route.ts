@@ -4,8 +4,12 @@ import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden } from "@/lib/http";
 import { exchangeGithubCodeForTokens, verifyGithubOauthState } from "@/lib/github-copilot";
 import { getProviderProfile, updateGithubCopilotCredentialsIfNonceMatches } from "@/lib/settings";
+import { handleMobileGithubOauthCallback } from "@/lib/mobile-github-oauth";
 
 export async function GET(request: Request) {
+  const mobileResponse = await handleMobileGithubOauthCallback(request);
+  if (mobileResponse) return mobileResponse;
+
   const user = await requireAdminResponse();
   if (!user) return forbidden();
 

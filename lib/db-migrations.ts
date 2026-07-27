@@ -258,9 +258,23 @@ export function migrate(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS auth_sessions (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
+      purpose TEXT NOT NULL DEFAULT 'browser',
+      device_name TEXT,
       expires_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS mobile_github_oauth_flows (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      profile_nonce TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (profile_id) REFERENCES provider_profiles(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -646,16 +660,28 @@ export function migrate(db: Database.Database) {
       CREATE TABLE auth_sessions_new (
         id TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
+        purpose TEXT NOT NULL DEFAULT 'browser',
+        device_name TEXT,
         expires_at TEXT NOT NULL,
         created_at TEXT NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
       );
-      INSERT INTO auth_sessions_new (id, user_id, expires_at, created_at)
-      SELECT id, user_id, expires_at, created_at
+      INSERT INTO auth_sessions_new (id, user_id, purpose, device_name, expires_at, created_at)
+      SELECT id, user_id, 'browser', NULL, expires_at, created_at
       FROM auth_sessions;
       DROP TABLE auth_sessions;
       ALTER TABLE auth_sessions_new RENAME TO auth_sessions;
     `);
+  }
+
+  const authSessionColumns = (
+    db.prepare("PRAGMA table_info(auth_sessions)").all() as Array<{ name: string }>
+  ).map((row) => row.name);
+  if (!authSessionColumns.includes("purpose")) {
+    db.exec("ALTER TABLE auth_sessions ADD COLUMN purpose TEXT NOT NULL DEFAULT 'browser'");
+  }
+  if (!authSessionColumns.includes("device_name")) {
+    db.exec("ALTER TABLE auth_sessions ADD COLUMN device_name TEXT");
   }
 
   const settingsCols = db.prepare("PRAGMA table_info(app_settings)").all() as Array<{ name: string }>;
@@ -903,6 +929,10 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_memory_nodes_superseded ON memory_nodes(conversation_id, superseded_by_node_id);
     CREATE INDEX IF NOT EXISTS idx_folders_sort_order ON folders(sort_order);
     CREATE INDEX IF NOT EXISTS idx_user_memories_category ON user_memories(category);
+    CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_purpose_created
+      ON auth_sessions(user_id, purpose, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mobile_github_oauth_flows_user_created
+      ON mobile_github_oauth_flows(user_id, created_at DESC);
   `);
 
   const queuedMessagesCols = db.prepare("PRAGMA table_info(queued_messages)").all() as Array<{ name: string }>;

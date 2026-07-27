@@ -44,6 +44,32 @@ describe("reliability route hardening", () => {
     });
   });
 
+  it("rejects attachment batches larger than the declared native limit", async () => {
+    const user = await createLocalUser({
+      username: "oversized-upload-batch-user",
+      password: "Password123!",
+      role: "user"
+    });
+    const conversation = createConversation("Attachment batch", null, undefined, user.id);
+    requireUserMock.mockResolvedValue(user);
+    const formData = new FormData();
+    formData.set("conversationId", conversation.id);
+    for (let index = 0; index < 101; index += 1) {
+      formData.append("files", new File(["x"], `file-${index}.txt`, { type: "text/plain" }));
+    }
+
+    const { POST } = await import("@/app/api/attachments/route");
+    const response = await POST(new Request("http://localhost/api/attachments", {
+      method: "POST",
+      body: formData
+    }));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "A maximum of 100 files may be uploaded at once"
+    });
+  });
+
   it("returns a client error when env-managed account credentials are updated", async () => {
     const auth = await import("@/lib/auth");
     await auth.ensureAdminBootstrap();

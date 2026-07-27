@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { requireAdminResponse } from "@/lib/auth";
+import { invalidateAllSessionsForUser, requireAdminResponse } from "@/lib/auth";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { badRequest, forbidden, notFoundResponse, ok, parseRouteParams } from "@/lib/http";
 import { deleteManagedUser, updateManagedUser } from "@/lib/users";
@@ -33,7 +33,7 @@ export async function PATCH(
   const admin = await requireAdminResponse();
   if (!admin) return forbidden();
 
-    const params = await parseRouteParams(context, paramsSchema, "user id");
+  const params = await parseRouteParams(context, paramsSchema, "user id");
   if (params instanceof NextResponse) return params;
 
   const body = updateUserSchema.safeParse(await request.json());
@@ -53,6 +53,10 @@ export async function PATCH(
       return notFoundResponse("User not found");
     }
 
+    if (body.data.password) {
+      await invalidateAllSessionsForUser(params.userId);
+    }
+
     return ok({ user: updated });
   } catch (error) {
     return badRequest(error instanceof Error ? error.message : "Unable to update user");
@@ -70,7 +74,7 @@ export async function DELETE(
   const adminUser = await requireAdminResponse();
   if (!adminUser) return forbidden();
 
-    const params = await parseRouteParams(context, paramsSchema, "user id");
+  const params = await parseRouteParams(context, paramsSchema, "user id");
   if (params instanceof NextResponse) return params;
 
   if (params.userId === adminUser.id) {

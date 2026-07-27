@@ -31,6 +31,8 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith("/_next") ||
     pathname.startsWith("/favicon") ||
     pathname.startsWith("/api/auth/login") ||
+    pathname === "/api/v1" ||
+    pathname.startsWith("/api/v1/") ||
     pathname.startsWith("/logo") ||
     pathname.startsWith("/eidon-banner") ||
     pathname === "/sw.js"

@@ -95,6 +95,55 @@ describe("conversation-manager", () => {
     expect(otherSent).toHaveLength(0);
   });
 
+  it("sanitizes room and global broadcasts only for mobile connections", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const manager = createConversationManager();
+    const { ws: browserSocket, sent: browserSent } = createMockWs();
+    const { ws: mobileSocket, sent: mobileSent } = createMockWs();
+
+    manager.addConnection(browserSocket, "shared-user", "browser");
+    manager.addConnection(mobileSocket, "shared-user", "mobile");
+    manager.subscribe("conv-1", browserSocket);
+    manager.subscribe("conv-1", mobileSocket);
+    const message = {
+      type: "user_message_persisted" as const,
+      conversationId: "conv-1",
+      message: {
+        id: "message-1",
+        conversationId: "conv-1",
+        role: "user" as const,
+        content: "hello",
+        thinkingContent: "",
+        status: "completed" as const,
+        estimatedTokens: 1,
+        systemKind: null,
+        compactedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        attachments: [{
+          id: "attachment-1",
+          conversationId: "conv-1",
+          messageId: "message-1",
+          filename: "safe.txt",
+          mimeType: "text/plain",
+          byteSize: 4,
+          sha256: "hash",
+          relativePath: "private/file.txt",
+          kind: "text" as const,
+          extractedText: "private text",
+          createdAt: "2026-01-01T00:00:00.000Z"
+        }]
+      }
+    };
+
+    manager.broadcast("conv-1", message);
+    manager.broadcastAll(message, "shared-user");
+
+    expect(JSON.stringify(browserSent)).toContain("relativePath");
+    expect(JSON.stringify(browserSent)).toContain("extractedText");
+    expect(JSON.stringify(mobileSent)).not.toContain("relativePath");
+    expect(JSON.stringify(mobileSent)).not.toContain("extractedText");
+  });
+
   it("closes slow consumers instead of growing their send buffer", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { MAX_WS_BUFFERED_BYTES } = await import("@/lib/ws-send");
