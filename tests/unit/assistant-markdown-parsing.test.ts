@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 
 import {
   decodeMarkdownTarget,
+  decodeAssistantDataImageBytes,
   isExternalMarkdownTarget,
   findMarkdownTargets,
   parseAssistantDataImageTarget,
@@ -72,6 +73,15 @@ describe("parseAssistantDataImageTarget", () => {
 
   it("returns 'invalid' for a data image with malformed base64", () => {
     expect(parseAssistantDataImageTarget("data:image/png;base64,@@@@").type).toBe("invalid");
+  });
+
+  it("rejects oversized encoded data before allocating a decode buffer", () => {
+    const fromSpy = vi.spyOn(Buffer, "from");
+
+    expect(decodeAssistantDataImageBytes("AAAAAAAA", 2)).toBeNull();
+    expect(fromSpy).not.toHaveBeenCalled();
+
+    fromSpy.mockRestore();
   });
 
   it("salvages a valid data image into managed-attachment metadata", () => {

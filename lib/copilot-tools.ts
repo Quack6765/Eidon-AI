@@ -13,6 +13,13 @@ import { searchSearxng } from "@/lib/searxng";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { getWebSearchActionLabel } from "@/lib/web-search";
+import { throwIfChatTurnAborted as throwIfAborted } from "@/lib/chat-turn-control";
+import { MAX_RUNTIME_TOOL_RESULT_CHARS, truncateText } from "@/lib/bounded-text";
+import {
+  prepareScreenshotArtifact,
+  registerScreenshotArtifact,
+  revokeScreenshotArtifact
+} from "@/lib/screenshot-artifact-capabilities";
 import type {
   McpServer,
   McpTool,
@@ -54,6 +61,7 @@ export type CopilotToolContext = {
   onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
   onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
   mcpTimeout?: number;
+  abortSignal?: AbortSignal;
 };
 
 function sanitizeForFunctionName(value: string) {
@@ -98,6 +106,7 @@ function buildMcpCopilotTool(server: McpServer, mcpTool: McpTool, ctx: CopilotTo
     parameters: (mcpTool.inputSchema as Record<string, unknown>) ?? { type: "object", properties: {} },
     skipPermission: true,
     handler: async (args: unknown) => {
+      throwIfAborted(ctx.abortSignal);
       const typedArgs = (args ?? {}) as Record<string, unknown>;
       const correctedArgs = coerceEnumValues(mcpTool.inputSchema ?? {}, typedArgs);
 
@@ -111,7 +120,10 @@ function buildMcpCopilotTool(server: McpServer, mcpTool: McpTool, ctx: CopilotTo
       });
       const actionHandle = typeof handle === "string" ? handle : undefined;
 
-      const result = await callMcpTool(server, mcpTool.name, correctedArgs, ctx.mcpTimeout);
+      const result = ctx.abortSignal
+        ? await callMcpTool(server, mcpTool.name, correctedArgs, ctx.mcpTimeout, ctx.abortSignal)
+        : await callMcpTool(server, mcpTool.name, correctedArgs, ctx.mcpTimeout);
+      throwIfAborted(ctx.abortSignal);
       const resultText = getToolResultText(result);
 
       if (result.isError) {
@@ -140,6 +152,7 @@ function buildShellCopilotTool(ctx: CopilotToolContext): Tool {
     overridesBuiltInTool: true,
     skipPermission: true,
     handler: async (args: unknown) => {
+      throwIfAborted(ctx.abortSignal);
       const { command, timeout_ms } = (args ?? {}) as { command?: string; timeout_ms?: number };
       if (!command?.trim()) return "Error: Shell command is required.";
 
@@ -150,25 +163,38 @@ function buildShellCopilotTool(ctx: CopilotToolContext): Tool {
         arguments: { command, timeoutMs: timeout_ms }
       });
       const actionHandle = typeof handle === "string" ? handle : undefined;
+      const screenshotCandidate = prepareScreenshotArtifact(command);
 
       try {
-        const result = await executeLocalShellCommand({ command, timeoutMs: timeout_ms });
+        const result = await executeLocalShellCommand({
+          command,
+          timeoutMs: timeout_ms,
+          abortSignal: ctx.abortSignal
+        });
+        throwIfAborted(ctx.abortSignal);
         const resultSummary = summarizeShellResult(result);
+        const executionSucceeded = !result.isError && !result.timedOut && result.exitCode === 0;
 
-        if (result.isError) {
+        if (!executionSucceeded) {
           await ctx.onActionError?.(actionHandle, { detail: command, resultSummary });
         } else {
-          await ctx.onActionComplete?.(actionHandle, { detail: command, resultSummary });
+          registerScreenshotArtifact(actionHandle, screenshotCandidate);
+          try {
+            await ctx.onActionComplete?.(actionHandle, { detail: command, resultSummary });
+          } finally {
+            revokeScreenshotArtifact(actionHandle);
+          }
         }
 
         return [
           "Local shell command result",
           `Command: ${command}`,
-          `Status: ${result.isError ? "error" : "success"}`,
+          `Status: ${executionSucceeded ? "success" : "error"}`,
           "Result:",
           resultSummary
         ].join("\n");
       } catch (error) {
+        throwIfAborted(ctx.abortSignal);
         const message = error instanceof Error ? error.message : "Shell command execution failed";
         await ctx.onActionError?.(actionHandle, { detail: command, resultSummary: message });
         return `Error: ${message}`;
@@ -196,6 +222,7 @@ function buildSearxngCopilotTool(ctx: CopilotToolContext): Tool | null {
     },
     skipPermission: true,
     handler: async (args: unknown) => {
+      throwIfAborted(ctx.abortSignal);
       const { query, max_results } = (args ?? {}) as { query?: string; max_results?: number };
       const trimmedQuery = (query ?? "").trim();
       const maxResults =
@@ -224,11 +251,14 @@ function buildSearxngCopilotTool(ctx: CopilotToolContext): Tool | null {
         const resultSummary = await searchSearxng({
           baseUrl,
           query: trimmedQuery,
-          maxResults
+          maxResults,
+          abortSignal: ctx.abortSignal
         });
+        throwIfAborted(ctx.abortSignal);
         await ctx.onActionComplete?.(actionHandle, { detail: trimmedQuery, resultSummary });
         return resultSummary;
       } catch (error) {
+        throwIfAborted(ctx.abortSignal);
         const message = error instanceof Error ? error.message : "SearXNG search failed";
         await ctx.onActionError?.(actionHandle, { detail: trimmedQuery, resultSummary: message });
         return `Error: ${message}`;
@@ -251,6 +281,7 @@ function buildLoadSkillCopilotTool(ctx: CopilotToolContext): Tool {
     overridesBuiltInTool: true,
     skipPermission: true,
     handler: async (args: unknown) => {
+      throwIfAborted(ctx.abortSignal);
       const { skill_name } = (args ?? {}) as { skill_name?: string };
       const skillName = (skill_name ?? "").trim().toLowerCase();
 
@@ -262,27 +293,34 @@ function buildLoadSkillCopilotTool(ctx: CopilotToolContext): Tool {
         return skill ? "This skill is already loaded." : `Skill "${skillName}" not found. Available: ${ctx.skills.map((s) => getSkillResolvedName(s)).join(", ")}`;
       }
 
-      ctx.loadedSkillIds.add(skill.id);
-
+      throwIfAborted(ctx.abortSignal);
       const handle = await ctx.onActionStart?.({
         kind: "skill_load",
         label: "Load skill",
         detail: getSkillResolvedName(skill),
         skillId: skill.id
       });
+      throwIfAborted(ctx.abortSignal);
       const actionHandle = typeof handle === "string" ? handle : undefined;
 
-      await ctx.onActionComplete?.(actionHandle, {
-        detail: getSkillResolvedName(skill),
-        resultSummary: "Skill instructions loaded."
-      });
+      ctx.loadedSkillIds.add(skill.id);
+      try {
+        await ctx.onActionComplete?.(actionHandle, {
+          detail: getSkillResolvedName(skill),
+          resultSummary: "Skill instructions loaded."
+        });
+        throwIfAborted(ctx.abortSignal);
+      } catch (error) {
+        ctx.loadedSkillIds.delete(skill.id);
+        throw error;
+      }
 
-      return [
+      return truncateText([
         `Skill loaded: ${getSkillResolvedName(skill)}`,
         `Description: ${getSkillResolvedDescription(skill)}`,
         "",
         skill.content
-      ].join("\n");
+      ].join("\n"), MAX_RUNTIME_TOOL_RESULT_CHARS);
     }
   };
 }
@@ -303,6 +341,7 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
     },
     skipPermission: true,
     handler: async (args: unknown) => {
+      throwIfAborted(ctx.abortSignal);
       const { content, category } = (args ?? {}) as { content?: string; category?: string };
       const trimmedContent = (content ?? "").trim();
       const normalizedCategory = normalizeMemoryCategory(category);
@@ -311,6 +350,7 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
 
       const currentCount = getMemoryCount(ctx.memoryUserId);
       const maxCount = getSettings().memoriesMaxCount ?? 100;
+      throwIfAborted(ctx.abortSignal);
       if (currentCount >= maxCount) return `Memory limit reached (${currentCount}/${maxCount}). Update or delete an existing memory instead.`;
 
       const proposalPayload = buildCreateMemoryProposal({
@@ -318,6 +358,7 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
         category: normalizedCategory
       });
 
+      throwIfAborted(ctx.abortSignal);
       await ctx.onActionStart?.({
         kind: "create_memory",
         status: "pending",
@@ -327,6 +368,7 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
         proposalState: "pending",
         proposalPayload
       });
+      throwIfAborted(ctx.abortSignal);
 
       return `Memory change proposed for approval: create [${normalizedCategory}] ${trimmedContent}`;
     }
@@ -346,10 +388,12 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
     },
     skipPermission: true,
     handler: async (args: unknown) => {
+      throwIfAborted(ctx.abortSignal);
       const { id, content, category } = (args ?? {}) as { id?: string; content?: string; category?: string };
       if (!id?.trim() || !content?.trim()) return "Error: id and content are required";
 
       const existing = getMemory(id, ctx.memoryUserId);
+      throwIfAborted(ctx.abortSignal);
       if (!existing) return `Error: Memory ${id} not found`;
 
       const proposalPayload = buildUpdateMemoryProposal({
@@ -358,6 +402,7 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
         category
       });
 
+      throwIfAborted(ctx.abortSignal);
       await ctx.onActionStart?.({
         kind: "update_memory",
         status: "pending",
@@ -371,6 +416,7 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
         proposalState: "pending",
         proposalPayload
       });
+      throwIfAborted(ctx.abortSignal);
 
       return `Memory change proposed for approval: update ${id} -> ${content.trim()} [${proposalPayload.proposedMemory?.category ?? existing.category}]`;
     }
@@ -388,12 +434,15 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
     },
     skipPermission: true,
     handler: async (args: unknown) => {
+      throwIfAborted(ctx.abortSignal);
       const { id } = (args ?? {}) as { id?: string };
       if (!id?.trim()) return "Error: id is required";
 
       const existing = getMemory(id, ctx.memoryUserId);
+      throwIfAborted(ctx.abortSignal);
       if (!existing) return `Error: Memory ${id} not found`;
 
+      throwIfAborted(ctx.abortSignal);
       await ctx.onActionStart?.({
         kind: "delete_memory",
         status: "pending",
@@ -403,6 +452,7 @@ function buildMemoryCopilotTools(ctx: CopilotToolContext): Tool[] {
         proposalState: "pending",
         proposalPayload: buildDeleteMemoryProposal(existing)
       });
+      throwIfAborted(ctx.abortSignal);
 
       return `Memory change proposed for approval: delete ${id}`;
     }

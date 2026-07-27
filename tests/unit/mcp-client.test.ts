@@ -8,16 +8,26 @@ let nextListToolsResult: { tools: unknown[] } = { tools: [] };
 let nextListToolsError: Error | null = null;
 let nextCallToolResult: unknown = { content: [] };
 let nextCallToolError: Error | null = null;
+let nextConnectError: Error | null = null;
 let nextServerVersion: { name: string; version: string } | undefined = {
   name: "Mock MCP Server",
   version: "1.0.0"
 };
 let nextHttpSessionId = "session_test";
 let nextHttpProtocolVersion = "2025-03-26";
+let nextStderrChunks: Buffer[] = [];
 
 class MockClient {
   connect = vi.fn(async (transport: unknown) => {
     this.transport = transport;
+    const handler = (transport as { stderr?: { on: ReturnType<typeof vi.fn> } }).stderr
+      ?.on.mock.calls.find(([event]) => event === "data")?.[1] as
+      | ((chunk: Buffer) => void)
+      | undefined;
+    nextStderrChunks.forEach((chunk) => handler?.(chunk));
+    if (nextConnectError) {
+      throw nextConnectError;
+    }
   });
 
   listTools = vi.fn(async () => {
@@ -147,9 +157,11 @@ describe("MCP client", () => {
     nextListToolsError = null;
     nextCallToolResult = { content: [] };
     nextCallToolError = null;
+    nextConnectError = null;
     nextServerVersion = { name: "Mock MCP Server", version: "1.0.0" };
     nextHttpSessionId = "session_test";
     nextHttpProtocolVersion = "2025-03-26";
+    nextStderrChunks = [];
     listEnabledMcpServers.mockReset();
   });
 
@@ -220,7 +232,8 @@ describe("MCP client", () => {
     expect(httpTransportInstances[0].options).toMatchObject({
       requestInit: {
         headers: { Authorization: "Bearer test" }
-      }
+      },
+      fetch: expect.any(Function)
     });
     expect(httpTransportInstances[0].setProtocolVersion).toHaveBeenCalledWith("2025-03-26");
     expect(httpTransportInstances[0].terminateSession).toHaveBeenCalledTimes(1);
@@ -245,7 +258,7 @@ describe("MCP client", () => {
     };
     nextServerVersion = undefined;
 
-    const { testMcpServerConnection } = await import("@/lib/mcp-client");
+    const { BoundedMcpStdioReadBuffer, testMcpServerConnection } = await import("@/lib/mcp-client");
     const result = await testMcpServerConnection(createStdioServer());
 
     expect(result).toMatchObject({
@@ -254,6 +267,9 @@ describe("MCP client", () => {
       serverInfo: null,
       toolCount: 1
     });
+    expect(
+      (stdioTransportInstances[0] as unknown as { _readBuffer: unknown })._readBuffer
+    ).toBeInstanceOf(BoundedMcpStdioReadBuffer);
   });
 
   it("normalizes transport failures and surfaces tool errors", async () => {
@@ -271,6 +287,22 @@ describe("MCP client", () => {
     expect(result.content[0]?.text).toContain("tool exploded");
   });
 
+  it("closes uncached transports when connecting fails", async () => {
+    nextConnectError = new Error("connect failed");
+    const { getConnectedClient } = await import("@/lib/mcp-client");
+    const server = createHttpServer();
+
+    await expect(getConnectedClient(server)).rejects.toThrow("connect failed");
+
+    expect(httpTransportInstances).toHaveLength(1);
+    expect(httpTransportInstances[0].terminateSession).toHaveBeenCalledTimes(1);
+    expect(httpTransportInstances[0].close).toHaveBeenCalledTimes(1);
+
+    nextConnectError = null;
+    await expect(getConnectedClient(server)).resolves.toBeDefined();
+    expect(clientInstances).toHaveLength(2);
+  });
+
   it("preserves explicit tool isError results", async () => {
     nextCallToolResult = {
       content: [{ type: "text", text: "permission denied" }],
@@ -282,6 +314,83 @@ describe("MCP client", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toBe("permission denied");
+  });
+
+  it("forwards cancellation to MCP requests and bounds returned tool text", async () => {
+    nextCallToolResult = {
+      content: [{ type: "text", text: "x".repeat(40_000) }]
+    };
+    const controller = new AbortController();
+    const { callMcpTool, MAX_MCP_RESULT_CHARS } = await import("@/lib/mcp-client");
+
+    const result = await callMcpTool(
+      createHttpServer(),
+      "large_result",
+      {},
+      60_000,
+      controller.signal
+    );
+
+    expect(clientInstances[0].callTool).toHaveBeenCalledWith(
+      { name: "large_result", arguments: {} },
+      undefined,
+      expect.objectContaining({ signal: controller.signal })
+    );
+    expect(result.content[0]?.text?.length).toBeLessThanOrEqual(MAX_MCP_RESULT_CHARS);
+    expect(result.content[0]?.text).toContain("...[truncated]");
+  });
+
+  it("caps the discovered MCP tool catalog", async () => {
+    nextListToolsResult = {
+      tools: Array.from({ length: 120 }, (_, index) => ({
+        name: `tool_${index}`,
+        description: "Tool",
+        inputSchema: { type: "object" }
+      }))
+    };
+    const { discoverMcpTools, MAX_MCP_DISCOVERED_TOOLS } = await import("@/lib/mcp-client");
+
+    const tools = await discoverMcpTools(createHttpServer());
+
+    expect(tools).toHaveLength(MAX_MCP_DISCOVERED_TOOLS);
+  });
+
+  it("rejects oversized HTTP responses while they are being read", async () => {
+    const originalFetch = global.fetch;
+    try {
+      const { boundedMcpFetch, MAX_MCP_TRANSPORT_MESSAGE_BYTES } = await import("@/lib/mcp-client");
+      global.fetch = vi.fn().mockResolvedValue(
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new Uint8Array(MAX_MCP_TRANSPORT_MESSAGE_BYTES));
+              controller.enqueue(new Uint8Array(1));
+              controller.close();
+            }
+          }),
+          { headers: { "content-type": "application/json" } }
+        )
+      );
+
+      const response = await boundedMcpFetch("https://mcp.example.com");
+      await expect(response.arrayBuffer()).rejects.toThrow(
+        "MCP HTTP response exceeded the transport size limit"
+      );
+    } finally {
+      global.fetch = originalFetch;
+    }
+  });
+
+  it("rejects oversized stdio messages before appending them to the parser buffer", async () => {
+    const { BoundedMcpStdioReadBuffer } = await import("@/lib/mcp-client");
+    const buffer = new BoundedMcpStdioReadBuffer(32);
+
+    buffer.append(Buffer.alloc(33, 0x61));
+
+    expect(() => buffer.readMessage()).toThrow(
+      "MCP stdio message exceeded the transport size limit"
+    );
+    expect(buffer.readMessage()).toBeNull();
   });
 
   it("falls back to toolResult payloads and summarizes non-text content", async () => {
@@ -482,5 +591,15 @@ describe("MCP client", () => {
     await testMcpServerConnection(createStdioServer());
 
     expect(stdioTransportInstances[0].stderr?.on).toHaveBeenCalledWith("data", expect.any(Function));
+  });
+
+  it("bounds stdio test stderr before accumulating large chunks", async () => {
+    nextStderrChunks = [Buffer.from("x".repeat(80_000)), Buffer.from("y".repeat(80_000))];
+
+    const { MAX_MCP_RESULT_CHARS, testMcpServerConnection } = await import("@/lib/mcp-client");
+    const result = await testMcpServerConnection(createStdioServer());
+
+    expect(result.stderr?.length).toBeLessThanOrEqual(MAX_MCP_RESULT_CHARS);
+    expect(result.stderr).toContain("...[truncated]");
   });
 });

@@ -2,11 +2,32 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireAdminResponse } from "@/lib/auth";
-import { deleteMcpServer, getMcpServer, getMcpServerBySlug, updateMcpServer, slugify } from "@/lib/mcp-servers";
+import {
+  deleteMcpServer,
+  getMcpServer,
+  getMcpServerBySlug,
+  sanitizeMcpServer,
+  updateMcpServer,
+  slugify
+} from "@/lib/mcp-servers";
 import { disconnectMcpServer, getConnectedClient } from "@/lib/mcp-client";
 import { badRequest, forbidden, ok, parseRouteParams } from "@/lib/http";
 
 const paramsSchema = z.object({ serverId: z.string().min(1) });
+const secretActionSchema = z.enum(["preserve", "replace", "clear"]);
+const updateSchema = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+  url: z.string().optional(),
+  headers: z.record(z.string()).optional(),
+  headersAction: secretActionSchema.optional(),
+  transport: z.enum(["streamable_http", "stdio"]).optional(),
+  command: z.string().nullable().optional(),
+  args: z.array(z.string()).nullable().optional(),
+  env: z.record(z.string()).nullable().optional(),
+  envAction: secretActionSchema.optional(),
+  enabled: z.boolean().optional(),
+  isVisionMcp: z.boolean().optional()
+});
 
 export async function PATCH(
   request: Request,
@@ -18,17 +39,9 @@ export async function PATCH(
     const params = await parseRouteParams(context, paramsSchema, "server id");
   if (params instanceof NextResponse) return params;
 
-  const body = await request.json() as {
-    name?: string;
-    url?: string;
-    headers?: Record<string, string>;
-    transport?: "streamable_http" | "stdio";
-    command?: string | null;
-    args?: string[] | null;
-    env?: Record<string, string> | null;
-    enabled?: boolean;
-    isVisionMcp?: boolean;
-  };
+  const parsed = updateSchema.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) return badRequest("Invalid server config");
+  const body = parsed.data;
 
   if (body.name !== undefined) {
     const trimmedName = body.name.trim();
@@ -57,7 +70,7 @@ export async function PATCH(
     getConnectedClient(updated).catch(() => {});
   }
 
-  return ok({ server: updated });
+  return ok({ server: sanitizeMcpServer(updated) });
 }
 
 export async function DELETE(

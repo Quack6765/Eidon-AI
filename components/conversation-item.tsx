@@ -42,7 +42,7 @@ export function DropdownPortal({
     if (!open || !anchorRef.current) return;
     const rect = anchorRef.current.getBoundingClientRect();
     setCoords({ top: rect.bottom + 4, left: rect.right - 224, width: 224 });
-  }, [open]);
+  }, [anchorRef, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -53,7 +53,7 @@ export function DropdownPortal({
     }
     window.addEventListener("scroll", handleScroll, true);
     return () => window.removeEventListener("scroll", handleScroll, true);
-  }, [open]);
+  }, [anchorRef, open]);
 
   if (!open || !coords || typeof document === "undefined") return null;
 

@@ -324,13 +324,17 @@ export async function callAnthropicText(input: {
   settings: ProviderProfileWithApiKey;
   messages: PromptMessage[];
   client?: Anthropic;
+  abortSignal?: AbortSignal;
 }): Promise<string> {
   const client = input.client ?? createAnthropicClient(input.settings);
   const params = buildAnthropicRequest({ settings: input.settings, messages: input.messages });
-  const response = (await client.messages.create({
+  const request = {
     ...params,
     max_tokens: Math.min(input.settings.maxOutputTokens, 4000)
-  } as never)) as { content?: Array<{ type: string; text?: string }> };
+  } as never;
+  const response = (input.abortSignal
+    ? await client.messages.create(request, { signal: input.abortSignal })
+    : await client.messages.create(request)) as { content?: Array<{ type: string; text?: string }> };
 
   return normalizeLineBreaks(
     (response.content ?? [])

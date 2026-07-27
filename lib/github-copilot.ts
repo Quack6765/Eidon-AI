@@ -13,9 +13,12 @@ import type {
   ProviderProfile,
   ProviderProfileWithApiKey
 } from "@/lib/types";
-import { updateGithubCopilotCredentials } from "@/lib/settings";
+import { updateGithubCopilotCredentialsIfRefreshTokenMatches } from "@/lib/settings";
 
 const COPILOT_WORK_DIR = join(tmpdir(), "eidon-copilot");
+const GITHUB_OAUTH_STATE_USE = "github_oauth_state";
+const GITHUB_OAUTH_STATE_ISSUER = "eidon";
+const GITHUB_OAUTH_STATE_AUDIENCE = "eidon-github-oauth";
 
 const COPILOT_EXCLUDED_TOOLS: string[] = [
   "browser_start_debugger",
@@ -53,6 +56,61 @@ type GithubClearOutput = {
 };
 
 const REFRESH_THRESHOLD_MS = 2 * 60 * 1000;
+const GITHUB_REFRESH_REGISTRY_KEY = Symbol.for("eidon:github-copilot-refreshes");
+type GithubRefreshEntry = {
+  refreshTokenVersion: string;
+  promise: Promise<ProviderProfileWithApiKey>;
+};
+
+function getGithubRefreshes() {
+  const runtime = globalThis as Record<symbol, Map<string, GithubRefreshEntry> | undefined>;
+  let registry = runtime[GITHUB_REFRESH_REGISTRY_KEY];
+  if (!registry) {
+    registry = new Map<string, GithubRefreshEntry>();
+    runtime[GITHUB_REFRESH_REGISTRY_KEY] = registry;
+  }
+  return registry;
+}
+
+type GithubTokenResponse = {
+  access_token?: string;
+  token_type?: string;
+  scope?: string;
+  refresh_token?: string;
+  expires_in?: number;
+  refresh_token_expires_in?: number;
+  error?: string;
+  error_description?: string;
+};
+type ValidGithubTokenResponse = GithubTokenResponse & { access_token: string };
+
+async function parseGithubTokenResponse(response: Response): Promise<ValidGithubTokenResponse> {
+  if (response.ok === false) {
+    throw new Error(`GitHub OAuth request failed with status ${response.status}`);
+  }
+
+  const tokens = await response.json().catch(() => null) as GithubTokenResponse | null;
+  if (!tokens || typeof tokens !== "object") {
+    throw new Error("GitHub OAuth returned an invalid response");
+  }
+  if (tokens.error) {
+    throw new Error(tokens.error_description ?? tokens.error);
+  }
+  if (typeof tokens.access_token !== "string" || !tokens.access_token.trim()) {
+    throw new Error("GitHub OAuth did not return an access token");
+  }
+  if (tokens.expires_in !== undefined && (!Number.isFinite(tokens.expires_in) || tokens.expires_in <= 0)) {
+    throw new Error("GitHub OAuth returned an invalid access-token expiry");
+  }
+  if (
+    tokens.refresh_token_expires_in !== undefined &&
+    (!Number.isFinite(tokens.refresh_token_expires_in) || tokens.refresh_token_expires_in <= 0)
+  ) {
+    throw new Error("GitHub OAuth returned an invalid refresh-token expiry");
+  }
+
+  return tokens as ValidGithubTokenResponse;
+}
 
 export function getGithubConnectionStatus(
   input: GithubConnectionInput
@@ -99,12 +157,15 @@ export function clearGithubCopilotConnection(
 
 export async function createGithubOauthState(
   profileId: string,
-  userId: string
+  userId: string,
+  profileNonce: string
 ): Promise<string> {
   const secret = new TextEncoder().encode(env.EIDON_SESSION_SECRET);
 
-  return new SignJWT({ profileId, userId })
+  return new SignJWT({ profileId, userId, profileNonce, tokenUse: GITHUB_OAUTH_STATE_USE })
     .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(GITHUB_OAUTH_STATE_ISSUER)
+    .setAudience(GITHUB_OAUTH_STATE_AUDIENCE)
     .setExpirationTime("10m")
     .setIssuedAt()
     .sign(secret);
@@ -112,14 +173,71 @@ export async function createGithubOauthState(
 
 export async function verifyGithubOauthState(
   state: string
-): Promise<{ profileId: string; userId: string }> {
+): Promise<{ profileId: string; userId: string; profileNonce: string }> {
   const secret = new TextEncoder().encode(env.EIDON_SESSION_SECRET);
-  const { payload } = await jwtVerify(state, secret);
+  const { payload } = await jwtVerify(state, secret, {
+    algorithms: ["HS256"],
+    issuer: GITHUB_OAUTH_STATE_ISSUER,
+    audience: GITHUB_OAUTH_STATE_AUDIENCE
+  });
+
+  if (
+    payload.tokenUse !== GITHUB_OAUTH_STATE_USE ||
+    typeof payload.profileId !== "string" ||
+    !payload.profileId.trim() ||
+    typeof payload.userId !== "string" ||
+    !payload.userId.trim() ||
+    typeof payload.profileNonce !== "string" ||
+    !payload.profileNonce.trim()
+  ) {
+    throw new Error("Invalid GitHub OAuth state");
+  }
 
   return {
-    profileId: payload.profileId as string,
-    userId: payload.userId as string
+    profileId: payload.profileId,
+    userId: payload.userId,
+    profileNonce: payload.profileNonce
   };
+}
+
+function createAbortError() {
+  const error = new Error("GitHub Copilot operation aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+async function withAbort<T>(
+  operation: Promise<T>,
+  signal?: AbortSignal,
+  onAbort?: () => void
+): Promise<T> {
+  if (!signal) {
+    return operation;
+  }
+
+  if (signal.aborted) {
+    onAbort?.();
+    throw createAbortError();
+  }
+
+  return await new Promise<T>((resolve, reject) => {
+    const handleAbort = () => {
+      onAbort?.();
+      reject(createAbortError());
+    };
+
+    signal.addEventListener("abort", handleAbort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", handleAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", handleAbort);
+        reject(error);
+      }
+    );
+  });
 }
 
 export function getGithubAuthorizeUrl(state: string): string {
@@ -150,16 +268,7 @@ export async function exchangeGithubCodeForTokens(code: string) {
     }
   );
 
-  return response.json() as Promise<{
-    access_token?: string;
-    token_type?: string;
-    scope?: string;
-    refresh_token?: string;
-    expires_in?: number;
-    refresh_token_expires_in?: number;
-    error?: string;
-    error_description?: string;
-  }>;
+  return parseGithubTokenResponse(response);
 }
 
 export async function refreshGithubUserToken(
@@ -171,6 +280,9 @@ export async function refreshGithubUserToken(
   githubRefreshTokenExpiresAt: string | null;
 }> {
   const refreshToken = decryptValue(profile.githubRefreshTokenEncrypted);
+  if (!refreshToken) {
+    throw new Error("GitHub Copilot refresh token is missing");
+  }
 
   const response = await fetch(
     "https://github.com/login/oauth/access_token",
@@ -189,12 +301,7 @@ export async function refreshGithubUserToken(
     }
   );
 
-  const tokens = (await response.json()) as {
-    access_token: string;
-    refresh_token?: string;
-    expires_in?: number;
-    refresh_token_expires_in?: number;
-  };
+  const tokens = await parseGithubTokenResponse(response);
 
   const now = Date.now();
 
@@ -213,27 +320,58 @@ export async function refreshGithubUserToken(
 }
 
 export async function ensureFreshGithubAccessToken(
-  profile: ProviderProfileWithApiKey
+  profile: ProviderProfileWithApiKey,
+  abortSignal?: AbortSignal
 ): Promise<ProviderProfileWithApiKey> {
+  if (abortSignal?.aborted) {
+    throw createAbortError();
+  }
+
   if (!shouldRefreshGithubToken(profile)) {
     return profile;
   }
 
-  const refreshed = await refreshGithubUserToken(profile);
+  const githubRefreshes = getGithubRefreshes();
+  const existingRefresh = githubRefreshes.get(profile.id);
+  if (existingRefresh?.refreshTokenVersion === profile.githubRefreshTokenEncrypted) {
+    return withAbort(existingRefresh.promise, abortSignal);
+  }
 
-  updateGithubCopilotCredentials(profile.id, {
-    githubUserAccessToken: decryptValue(refreshed.githubUserAccessTokenEncrypted),
-    githubRefreshToken: decryptValue(refreshed.githubRefreshTokenEncrypted),
-    githubTokenExpiresAt: refreshed.githubTokenExpiresAt,
-    githubRefreshTokenExpiresAt: refreshed.githubRefreshTokenExpiresAt,
-    githubAccountLogin: profile.githubAccountLogin,
-    githubAccountName: profile.githubAccountName
-  });
+  const refresh = (async () => {
+    const refreshed = await refreshGithubUserToken(profile);
 
-  return {
-    ...profile,
-    ...refreshed
+    const persisted = updateGithubCopilotCredentialsIfRefreshTokenMatches(
+      profile.id,
+      profile.githubRefreshTokenEncrypted,
+      {
+      githubUserAccessToken: decryptValue(refreshed.githubUserAccessTokenEncrypted),
+      githubRefreshToken: decryptValue(refreshed.githubRefreshTokenEncrypted),
+      githubTokenExpiresAt: refreshed.githubTokenExpiresAt,
+      githubRefreshTokenExpiresAt: refreshed.githubRefreshTokenExpiresAt,
+      githubAccountLogin: profile.githubAccountLogin,
+      githubAccountName: profile.githubAccountName
+      }
+    );
+    if (!persisted) {
+      throw new Error("GitHub Copilot connection changed during token refresh");
+    }
+
+    return {
+      ...profile,
+      ...refreshed
+    };
+  })();
+
+  const entry = {
+    refreshTokenVersion: profile.githubRefreshTokenEncrypted,
+    promise: refresh
   };
+  githubRefreshes.set(profile.id, entry);
+  const clearRefresh = () => {
+    if (githubRefreshes.get(profile.id) === entry) githubRefreshes.delete(profile.id);
+  };
+  void refresh.then(clearRefresh, clearRefresh);
+  return await withAbort(refresh, abortSignal);
 }
 
 export async function listGithubCopilotModels(
@@ -273,20 +411,32 @@ export async function buildGithubCopilotClient(
 export async function runGithubCopilotChat(
   input: ProviderProfileWithApiKey & {
     messages: Array<{ role: string; content: string }>;
+    abortSignal?: AbortSignal;
   }
 ) {
+  if (input.abortSignal?.aborted) {
+    throw createAbortError();
+  }
   const client = await buildGithubCopilotClient(input);
+  let session: Awaited<ReturnType<typeof client.createSession>> | null = null;
 
-  const session = await client.createSession({
-    model: input.model,
-    onPermissionRequest: () => ({ kind: "approved" as const })
-  });
+  try {
+    session = await withAbort(client.createSession({
+      model: input.model,
+      onPermissionRequest: () => ({ kind: "approved" as const })
+    }), input.abortSignal);
 
-  const result = await session.send({
-    prompt: input.messages.map((m) => m.content).join("\n")
-  });
-
-  return result;
+    return await withAbort(session.send({
+      prompt: input.messages.map((m) => m.content).join("\n")
+    }), input.abortSignal, () => {
+      void session?.abort().catch(() => undefined);
+    });
+  } finally {
+    if (input.abortSignal?.aborted) {
+      await session?.abort().catch(() => undefined);
+    }
+    await client.stop();
+  }
 }
 
 export async function streamGithubCopilotChat(
@@ -294,9 +444,14 @@ export async function streamGithubCopilotChat(
     messages: Array<{ role: string; content: string }>;
     onEvent: (event: unknown) => void;
     tools?: Tool[];
+    abortSignal?: AbortSignal;
   }
 ) {
+  if (input.abortSignal?.aborted) {
+    throw createAbortError();
+  }
   const client = await buildGithubCopilotClient(input);
+  let session: Awaited<ReturnType<typeof client.createSession>> | null = null;
 
   try {
     let resolveTurn: () => void;
@@ -329,14 +484,21 @@ export async function streamGithubCopilotChat(
       ...(input.tools?.length ? { tools: input.tools } : {})
     };
 
-    const session = await client.createSession(sessionConfig);
+    session = await withAbort(client.createSession(sessionConfig), input.abortSignal);
 
-    await session.send({
+    await withAbort(session.send({
       prompt: input.messages.map((m) => m.content).join("\n")
+    }), input.abortSignal, () => {
+      void session?.abort().catch(() => undefined);
     });
 
-    await turnComplete;
+    await withAbort(turnComplete, input.abortSignal, () => {
+      void session?.abort().catch(() => undefined);
+    });
   } finally {
+    if (input.abortSignal?.aborted) {
+      await session?.abort().catch(() => undefined);
+    }
     await client.stop();
   }
 }

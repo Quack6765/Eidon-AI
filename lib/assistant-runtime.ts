@@ -223,7 +223,8 @@ async function forceDirectAnswerAfterToolLoop(input: {
   const buildForcedStream = () =>
     streamProviderResponse({
       settings: input.settings,
-      promptMessages: providerPromptMessages
+      promptMessages: providerPromptMessages,
+      abortSignal: input.abortSignal
     });
   const providerStream =
     input.enableStreamRetry && input.settings.providerKind !== "github_copilot"
@@ -235,7 +236,15 @@ async function forceDirectAnswerAfterToolLoop(input: {
   let usage: Usage = {};
 
   while (true) {
-    const next = await providerStream.next();
+    let next: Awaited<ReturnType<typeof providerStream.next>>;
+    try {
+      next = await providerStream.next();
+    } catch (error) {
+      if (input.abortSignal?.aborted) {
+        throw new ChatTurnStoppedError();
+      }
+      throw error;
+    }
 
     if (next.done) {
       answer = next.value.answer;
@@ -403,7 +412,8 @@ export async function resolveAssistantTurn(input: {
           onActionStart: input.onActionStart,
           onActionComplete: input.onActionComplete,
           onActionError: input.onActionError,
-          mcpTimeout: input.mcpTimeout
+          mcpTimeout: input.mcpTimeout,
+          abortSignal: input.abortSignal
         } : undefined
       });
     const providerStream =
@@ -418,7 +428,15 @@ export async function resolveAssistantTurn(input: {
     let toolCalls: ProviderToolCall[] = [];
 
     while (true) {
-      const next = await providerStream.next();
+      let next: Awaited<ReturnType<typeof providerStream.next>>;
+      try {
+        next = await providerStream.next();
+      } catch (error) {
+        if (input.abortSignal?.aborted) {
+          throw new ChatTurnStoppedError();
+        }
+        throw error;
+      }
       if (next.done) {
         answer = next.value.answer;
         thinking = next.value.thinking;
@@ -524,6 +542,7 @@ export async function resolveAssistantTurn(input: {
         promptMessages,
         memoryUserId: input.memoryUserId
       });
+      assertRunning();
 
       timelineSortOrder = result.nextSortOrder;
       promptMessages = result.promptMessages;

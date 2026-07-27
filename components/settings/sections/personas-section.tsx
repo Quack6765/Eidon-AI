@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, FileText, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -32,42 +32,78 @@ export function PersonasSection() {
   const toast = useToastState();
   const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
+  const personasRequestVersion = useRef(0);
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
     personaName,
     personaContent,
   });
+  const unsavedActions = useRef({ save: savePersona, discard: restorePersonaDraft });
+  unsavedActions.current = { save: savePersona, discard: restorePersonaDraft };
 
   useEffect(() => {
     registerUnsavedChangesGuard(
       isDirty
         ? {
             isDirty: () => isDirty,
-            save: () => { savePersona(); },
-            discard: () => { resetDirty(); },
+            save: () => unsavedActions.current.save(),
+            discard: () => unsavedActions.current.discard(),
             entityType: "this persona",
           }
         : null
     );
     return () => registerUnsavedChangesGuard(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDirty]);
 
   useEffect(() => {
-    fetch("/api/personas")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.personas) setPersonas(d.personas);
+    const requestVersion = ++personasRequestVersion.current;
+    let active = true;
+
+    void fetch("/api/personas")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Failed to load personas");
+        return response.json() as Promise<{ personas?: Persona[] }>;
+      })
+      .then((data) => {
+        if (
+          active
+          && requestVersion === personasRequestVersion.current
+          && Array.isArray(data.personas)
+        ) {
+          setPersonas(data.personas);
+        }
       })
       .catch(() => {});
+
+    return () => {
+      active = false;
+      if (personasRequestVersion.current === requestVersion) {
+        personasRequestVersion.current += 1;
+      }
+    };
   }, []);
 
-  async function savePersona() {
-    if (!personaName.trim() || !personaContent.trim()) {
-      toast.showToast("error", "Name and system instructions are required.");
+  function restorePersonaDraft() {
+    const saved = personas.find((persona) => persona.id === editingPersonaId);
+    if (saved) {
+      setPersonaName(saved.name);
+      setPersonaContent(saved.content);
+      resetDirty({ personaName: saved.name, personaContent: saved.content });
       return;
     }
 
+    setPersonaName("");
+    setPersonaContent("");
+    resetDirty({ personaName: "", personaContent: "" });
+  }
+
+  async function savePersona(): Promise<boolean> {
+    if (!personaName.trim() || !personaContent.trim()) {
+      toast.showToast("error", "Name and system instructions are required.");
+      return false;
+    }
+
     try {
+      let savedPersona: Persona;
       if (editingPersonaId) {
         const res = await fetch(`/api/personas/${editingPersonaId}`, {
           method: "PATCH",
@@ -77,11 +113,15 @@ export function PersonasSection() {
             content: personaContent
           })
         });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
+        const data = (await res.json().catch(() => null)) as {
+          persona?: Persona;
+          error?: string;
+        } | null;
+        if (!res.ok || !data?.persona) {
           toast.showToast("error", (data as { error?: string })?.error ?? "Failed to save persona");
-          return;
+          return false;
         }
+        savedPersona = data.persona;
       } else {
         const res = await fetch("/api/personas", {
           method: "POST",
@@ -91,20 +131,27 @@ export function PersonasSection() {
             content: personaContent
           })
         });
-        if (!res.ok) {
-          const data = await res.json().catch(() => null);
+        const data = (await res.json().catch(() => null)) as {
+          persona?: Persona;
+          error?: string;
+        } | null;
+        if (!res.ok || !data?.persona) {
           toast.showToast("error", (data as { error?: string })?.error ?? "Failed to create persona");
-          return;
+          return false;
         }
+        savedPersona = data.persona;
       }
 
-      const res = await fetch("/api/personas");
-      const data = (await res.json()) as { personas: Persona[] };
-      setPersonas(data.personas);
-      resetPersonaForm();
+      personasRequestVersion.current += 1;
+      setPersonas((current) => current.some((persona) => persona.id === savedPersona.id)
+        ? current.map((persona) => persona.id === savedPersona.id ? savedPersona : persona)
+        : [...current, savedPersona]);
+      selectPersona(savedPersona);
       toast.showToast("success", "Persona saved.");
+      return true;
     } catch {
       toast.showToast("error", "Failed to save persona.");
+      return false;
     }
   }
 
@@ -115,6 +162,7 @@ export function PersonasSection() {
         toast.showToast("error", "Failed to delete persona.");
         return;
       }
+      personasRequestVersion.current += 1;
       setPersonas((prev) => prev.filter((p) => p.id !== id));
       if (selectedPersonaId === id) {
         setSelectedPersonaId(null);
@@ -172,17 +220,16 @@ export function PersonasSection() {
     resetDirty({ personaName: "", personaContent: "" });
   }
 
-  function handleUnsavedSave() {
+  async function handleUnsavedSave() {
+    if (!(await savePersona())) return;
     setUnsavedDialogOpen(false);
-    if (pendingSwitch) {
-      savePersona();
-      pendingSwitch();
-      setPendingSwitch(null);
-    }
+    pendingSwitch?.();
+    setPendingSwitch(null);
   }
 
   function handleUnsavedDiscard() {
     setUnsavedDialogOpen(false);
+    restorePersonaDraft();
     if (pendingSwitch) {
       pendingSwitch();
       setPendingSwitch(null);
@@ -374,7 +421,7 @@ export function PersonasSection() {
         title="Delete persona?"
         description={
           <>
-            <strong className="text-[var(--text)] font-medium">{selectedPersona?.name ?? "This persona"}</strong> will be permanently deleted. This action cannot be undone.
+            <strong className="text-[var(--text)] font-medium">{selectedPersona?.name ?? "This persona"}</strong> will be permanently deleted. Scheduled automations using it will continue without a persona.
           </>
         }
         onConfirm={handleDeleteConfirm}

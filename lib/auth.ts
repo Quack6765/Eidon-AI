@@ -4,7 +4,12 @@ import { redirect } from "next/navigation";
 import argon2 from "argon2";
 import { SignJWT, jwtVerify } from "jose";
 
-import { SESSION_COOKIE_NAME } from "@/lib/constants";
+import {
+  SESSION_COOKIE_NAME,
+  SESSION_TOKEN_AUDIENCE,
+  SESSION_TOKEN_ISSUER,
+  SESSION_TOKEN_USE
+} from "@/lib/constants";
 import { getDb } from "@/lib/db";
 import { env, isPasswordLoginEnabled, isProduction } from "@/lib/env";
 import { createId } from "@/lib/ids";
@@ -19,6 +24,11 @@ import { nowIso } from "@/lib/utils";
 
 const encoder = new TextEncoder();
 const sessionDurationMs = 1000 * 60 * 60 * 24 * 30;
+
+type SessionPayload = {
+  sessionId: string;
+  userId: string;
+};
 
 function getSessionSecret() {
   return encoder.encode(env.EIDON_SESSION_SECRET);
@@ -112,8 +122,10 @@ export async function createSession(userId: string) {
      VALUES (?, ?, ?, ?)`
   ).run(sessionId, userId, expiresAt.toISOString(), createdAt.toISOString());
 
-  const token = await new SignJWT({ sid: sessionId, uid: userId })
+  const token = await new SignJWT({ sid: sessionId, uid: userId, tokenUse: SESSION_TOKEN_USE })
     .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(SESSION_TOKEN_ISSUER)
+    .setAudience(SESSION_TOKEN_AUDIENCE)
     .setIssuedAt()
     .setExpirationTime(Math.floor(expiresAt.getTime() / 1000))
     .sign(getSessionSecret());
@@ -170,33 +182,72 @@ export async function clearSessionCookie() {
   cookieStore.delete(SESSION_COOKIE_NAME);
 }
 
-export async function getSessionPayload() {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
-
-  if (!token) {
-    return null;
-  }
-
+async function decodeSessionToken(token: string): Promise<SessionPayload | null> {
   try {
-    const result = await jwtVerify(token, getSessionSecret());
+    const result = await jwtVerify(token, getSessionSecret(), {
+      algorithms: ["HS256"],
+      issuer: SESSION_TOKEN_ISSUER,
+      audience: SESSION_TOKEN_AUDIENCE
+    });
+    const { sid, uid, tokenUse } = result.payload;
+
+    if (
+      tokenUse !== SESSION_TOKEN_USE ||
+      typeof sid !== "string" ||
+      !sid.trim() ||
+      typeof uid !== "string" ||
+      !uid.trim()
+    ) {
+      return null;
+    }
+
     return {
-      sessionId: result.payload.sid as string,
-      userId: result.payload.uid as string
+      sessionId: sid,
+      userId: uid
     };
   } catch {
     return null;
   }
 }
 
+export async function getSessionPayload() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
+  return token ? decodeSessionToken(token) : null;
+}
+
 export async function verifySessionToken(token: string): Promise<{ sessionId: string; userId: string } | null> {
   if (!token) return null;
-  try {
-    const result = await jwtVerify(token, getSessionSecret());
-    return { sessionId: result.payload.sid as string, userId: result.payload.uid as string };
-  } catch {
+  const payload = await decodeSessionToken(token);
+  if (!payload) {
     return null;
   }
+
+  const db = getDb();
+  const session = db
+    .prepare(
+      `SELECT id, user_id, expires_at
+       FROM auth_sessions
+       WHERE id = ?`
+    )
+    .get(payload.sessionId) as
+    | { id: string; user_id: string; expires_at: string }
+    | undefined;
+
+  if (!session || session.user_id !== payload.userId) {
+    return null;
+  }
+
+  if (new Date(session.expires_at).getTime() <= Date.now()) {
+    db.prepare("DELETE FROM auth_sessions WHERE id = ?").run(session.id);
+    return null;
+  }
+
+  if (!getUserById(payload.userId)) {
+    return null;
+  }
+
+  return payload;
 }
 
 export async function getCurrentUser() {

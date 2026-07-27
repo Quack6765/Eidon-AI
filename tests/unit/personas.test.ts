@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { listPersonas, createPersona, getPersona, deletePersona, updatePersona } from "@/lib/personas";
 import { createLocalUser } from "@/lib/users";
+import { getDb } from "@/lib/db";
 
 describe("personas", () => {
   describe("listPersonas", () => {
@@ -56,6 +57,41 @@ describe("personas", () => {
       const created = createPersona({ name: "To Delete", content: "Delete me" });
       deletePersona(created.id);
       expect(getPersona(created.id)).toBeNull();
+    });
+
+    it("keeps dependent automations and removes their persona reference", async () => {
+      const user = await createLocalUser({
+        username: "persona-delete-owner",
+        password: "Password123!",
+        role: "user"
+      });
+      const persona = createPersona({ name: "Temporary", content: "Instructions" }, user.id);
+      const defaultProvider = getDb()
+        .prepare("SELECT id FROM provider_profiles ORDER BY created_at LIMIT 1")
+        .get() as { id: string };
+      const timestamp = new Date().toISOString();
+      getDb().prepare(
+        `INSERT INTO automations (
+          id, name, prompt, provider_profile_id, persona_id, user_id,
+          schedule_kind, interval_minutes, calendar_frequency, time_of_day,
+          days_of_week, enabled, next_run_at, last_scheduled_for, last_started_at,
+          last_finished_at, last_status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, 'interval', 60, NULL, NULL, '[]', 1, NULL, NULL, NULL, NULL, NULL, ?, ?)`
+      ).run(
+        "auto_persona_delete",
+        "Persona automation",
+        "Run",
+        defaultProvider.id,
+        persona.id,
+        user.id,
+        timestamp,
+        timestamp
+      );
+
+      deletePersona(persona.id, user.id);
+
+      expect(getDb().prepare("SELECT persona_id FROM automations WHERE id = ?").get("auto_persona_delete"))
+        .toEqual({ persona_id: null });
     });
   });
 

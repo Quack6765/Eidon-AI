@@ -12,13 +12,14 @@ import {
 import { env } from "@/lib/env";
 import type { MessageAttachment } from "@/lib/types";
 
-const TMP_ROOT = "/tmp";
 const GENERATED_IMAGE_DISPLAY_NAME = "generated image";
+const FILE_TIMESTAMP_TOLERANCE_MS = 5_000;
 
 type InferAssistantLocalAttachmentsInput = {
   conversationId: string;
   content: string;
-  workspaceRoot: string;
+  workspaceRoot?: string;
+  authorizedLocalPaths?: string[];
   existingAttachments?: MessageAttachment[];
   tidyWhitespace?: boolean;
 };
@@ -58,7 +59,7 @@ function buildFailureNote(deniedNames: Set<string>, failedNames: Set<string>) {
 
   if (deniedNames.size > 0) {
     const deniedList = [...deniedNames].map((name) => `\`${name}\``).join(", ");
-    parts.push(`I couldn't attach ${deniedList} because only workspace files and /tmp are allowed.`);
+    parts.push(`I couldn't attach ${deniedList} because the file was not produced by a completed tool action in this turn.`);
   }
 
   if (failedNames.size > 0) {
@@ -76,7 +77,9 @@ function buildFailureNote(deniedNames: Set<string>, failedNames: Set<string>) {
 export async function importAssistantLocalFileAttachment(input: {
   conversationId: string;
   sourcePath: string;
-  workspaceRoot: string;
+  authorizedLocalPaths: string[];
+  createdAfter?: string;
+  createdBefore?: string;
   existingAttachments?: MessageAttachment[];
 }): Promise<LocalTargetOutcome> {
   if (isExternalMarkdownTarget(input.sourcePath) || !path.isAbsolute(input.sourcePath)) {
@@ -95,14 +98,39 @@ export async function importAssistantLocalFileAttachment(input: {
     return { type: "already_attached", displayName };
   }
 
-  const workspaceRoot = normalizeRoot(input.workspaceRoot);
-  const tmpRoot = normalizeRoot(TMP_ROOT);
   const appDataRoot = normalizeRoot(env.EIDON_DATA_DIR);
-  const allowedByRoot = isPathInsideRoot(canonicalPath, workspaceRoot) || isPathInsideRoot(canonicalPath, tmpRoot);
   const blockedByAppData = appDataRoot ? isPathInsideRoot(canonicalPath, appDataRoot) : false;
+  const authorizedPaths = new Set(
+    input.authorizedLocalPaths.flatMap((authorizedPath) => {
+      try {
+        return [fs.realpathSync(authorizedPath)];
+      } catch {
+        return [];
+      }
+    })
+  );
 
-  if (!allowedByRoot || blockedByAppData) {
+  if (!authorizedPaths.has(canonicalPath) || blockedByAppData) {
     return { type: "deny", displayName };
+  }
+
+  try {
+    if (fs.lstatSync(input.sourcePath).isSymbolicLink()) {
+      return { type: "deny", displayName };
+    }
+
+    const stats = fs.statSync(canonicalPath);
+    const createdAfter = input.createdAfter ? new Date(input.createdAfter).getTime() : null;
+    const createdBefore = input.createdBefore ? new Date(input.createdBefore).getTime() : null;
+
+    if (
+      (createdAfter !== null && stats.mtimeMs < createdAfter - FILE_TIMESTAMP_TOLERANCE_MS) ||
+      (createdBefore !== null && stats.mtimeMs > createdBefore + FILE_TIMESTAMP_TOLERANCE_MS)
+    ) {
+      return { type: "deny", displayName };
+    }
+  } catch {
+    return { type: "error", displayName };
   }
 
   try {
@@ -197,7 +225,7 @@ export async function inferAssistantLocalAttachments(
     const outcome = await importAssistantLocalFileAttachment({
       conversationId: input.conversationId,
       sourcePath: decodedTarget,
-      workspaceRoot: input.workspaceRoot,
+      authorizedLocalPaths: input.authorizedLocalPaths ?? [],
       existingAttachments: [...(input.existingAttachments ?? []), ...attachments]
     });
 

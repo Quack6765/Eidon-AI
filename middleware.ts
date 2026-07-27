@@ -1,8 +1,13 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-import { SESSION_COOKIE_NAME } from "@/lib/constants";
-import { verifyHs256Jwt } from "@/lib/edge-session-token";
+import {
+  SESSION_COOKIE_NAME,
+  SESSION_TOKEN_AUDIENCE,
+  SESSION_TOKEN_ISSUER,
+  SESSION_TOKEN_USE
+} from "@/lib/constants";
+import { verifyHs256SessionJwt } from "@/lib/edge-session-token";
 import { env, isPasswordLoginEnabled } from "@/lib/env";
 
 const publicPaths = ["/login", "/share", "/api/share"];
@@ -45,7 +50,11 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    const payload = await verifyHs256Jwt(token, getSecret());
+    const payload = await verifyHs256SessionJwt(token, getSecret(), {
+      issuer: SESSION_TOKEN_ISSUER,
+      audience: SESSION_TOKEN_AUDIENCE,
+      tokenUse: SESSION_TOKEN_USE
+    });
     if (!payload) {
       throw new Error("Invalid session token");
     }

@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { accessSync, constants as fsConstants } from "node:fs";
+import { appendBoundedText, truncateText } from "@/lib/bounded-text";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const WEB_BROWSER_TIMEOUT_MS = 120_000;
@@ -21,11 +22,35 @@ function getDefaultTimeoutMs(command: string) {
 }
 
 function truncateOutput(value: string) {
-  if (value.length <= MAX_OUTPUT_CHARS) {
-    return value;
+  return truncateText(value, MAX_OUTPUT_CHARS);
+}
+
+function formatCapturedOutput(value: string, wasTruncated: boolean) {
+  const trimmed = value.trim();
+  return wasTruncated ? truncateOutput(`${trimmed} `) : trimmed;
+}
+
+function createAbortError() {
+  const error = new Error("Shell command aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+function terminateProcessGroup(
+  child: ReturnType<typeof spawn>,
+  signal: NodeJS.Signals
+) {
+  if (process.platform !== "win32" && typeof child.pid === "number") {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      child.kill(signal);
+      return;
+    }
   }
 
-  return `${value.slice(0, MAX_OUTPUT_CHARS - 12)}\n...[truncated]`;
+  child.kill(signal);
 }
 
 function validateCommand(command: string) {
@@ -61,20 +86,34 @@ export async function executeLocalShellCommand(input: {
   command: string;
   cwd?: string;
   timeoutMs?: number;
+  abortSignal?: AbortSignal;
 }) {
   const command = validateCommand(input.command);
   const timeoutMs = input.timeoutMs ?? getDefaultTimeoutMs(command);
 
-  return await new Promise<ShellExecutionResult>((resolve) => {
+  if (input.abortSignal?.aborted) {
+    throw createAbortError();
+  }
+
+  return await new Promise<ShellExecutionResult>((resolve, reject) => {
     const child = spawn(resolveShellPath(), ["-lc", command], {
       cwd: input.cwd ?? process.cwd(),
-      env: process.env
+      env: process.env,
+      detached: process.platform !== "win32"
     });
 
     let stdout = "";
     let stderr = "";
+    let stdoutTruncated = false;
+    let stderrTruncated = false;
     let timedOut = false;
     let settled = false;
+    let forceKillTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      input.abortSignal?.removeEventListener("abort", handleAbort);
+    };
 
     const finish = (result: ShellExecutionResult) => {
       if (settled) {
@@ -82,27 +121,63 @@ export async function executeLocalShellCommand(input: {
       }
 
       settled = true;
-      clearTimeout(timer);
+      cleanup();
       resolve(result);
+    };
+
+    const rejectAborted = () => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      cleanup();
+      reject(createAbortError());
+    };
+
+    const terminateForAbort = () => {
+      if (forceKillTimer) {
+        return;
+      }
+      terminateProcessGroup(child, "SIGTERM");
+      forceKillTimer = setTimeout(() => terminateProcessGroup(child, "SIGKILL"), 2_000);
+      forceKillTimer.unref();
+    };
+
+    const handleAbort = () => {
+      terminateForAbort();
+      rejectAborted();
     };
 
     const timer = setTimeout(() => {
       timedOut = true;
       child.kill("SIGTERM");
     }, timeoutMs);
+    timer.unref();
+    input.abortSignal?.addEventListener("abort", handleAbort, { once: true });
+    if (input.abortSignal?.aborted) {
+      handleAbort();
+    }
 
     child.stdout.on("data", (chunk: Buffer | string) => {
-      stdout += chunk.toString();
+      const appended = appendBoundedText(stdout, chunk.toString(), MAX_OUTPUT_CHARS);
+      stdout = appended.value;
+      stdoutTruncated ||= appended.truncated;
     });
 
     child.stderr.on("data", (chunk: Buffer | string) => {
-      stderr += chunk.toString();
+      const appended = appendBoundedText(stderr, chunk.toString(), MAX_OUTPUT_CHARS);
+      stderr = appended.value;
+      stderrTruncated ||= appended.truncated;
     });
 
     child.on("error", (error) => {
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+      }
       finish({
-        stdout: truncateOutput(stdout.trim()),
-        stderr: truncateOutput((stderr ? `${stderr}\n` : "") + error.message),
+        stdout: formatCapturedOutput(stdout, stdoutTruncated),
+        stderr: truncateOutput(`${formatCapturedOutput(stderr, stderrTruncated)}${stderr ? "\n" : ""}${error.message}`),
         exitCode: null,
         timedOut,
         isError: true
@@ -110,9 +185,12 @@ export async function executeLocalShellCommand(input: {
     });
 
     child.on("close", (exitCode) => {
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+      }
       finish({
-        stdout: truncateOutput(stdout.trim()),
-        stderr: truncateOutput(stderr.trim()),
+        stdout: formatCapturedOutput(stdout, stdoutTruncated),
+        stderr: formatCapturedOutput(stderr, stderrTruncated),
         exitCode,
         timedOut,
         isError: timedOut || exitCode !== 0

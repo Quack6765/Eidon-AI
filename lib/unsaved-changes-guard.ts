@@ -1,6 +1,6 @@
 type GuardCallback = {
   isDirty: () => boolean;
-  save: () => void;
+  save: () => boolean | void | Promise<boolean | void>;
   discard: () => void;
   entityType: string;
 };

@@ -22,6 +22,7 @@ import {
 } from "@/lib/conversations";
 import { badRequest } from "@/lib/http";
 import { NextResponse } from "next/server";
+import { getDb } from "@/lib/db";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compaction";
 import { estimateTextTokens } from "@/lib/tokenization";
@@ -39,7 +40,7 @@ import { createAssistantContentPersistenceTracker as createAssistantContentPersi
 import type { ChatStreamEvent } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
-export { tokenizeShellCommand, isAgentBrowserToken, extractAgentBrowserScreenshotPaths } from "./shell-tokenizer";
+export { tokenizeShellCommand, isAgentBrowserToken } from "./shell-tokenizer";
 export { attachAssistantFilesFromCompletedAction, createAssistantContentPersistenceTracker } from "./content-persistence";
 
 export type ChatEmitter = ReturnType<typeof createEmitter<{
@@ -137,6 +138,36 @@ type AssistantTurnStartReady = Extract<
   { ok: true }
 >;
 
+export function createChatTurnMessages(input: {
+  conversationId: string;
+  content: string;
+  attachmentIds: string[];
+}) {
+  const createMessages = getDb().transaction(() => {
+    const userMessage = createMessage({
+      conversationId: input.conversationId,
+      role: "user",
+      content: input.content,
+      estimatedTokens: estimateTextTokens(input.content)
+    });
+
+    bindAttachmentsToMessage(input.conversationId, userMessage.id, input.attachmentIds);
+
+    const assistantMessage = createMessage({
+      conversationId: input.conversationId,
+      role: "assistant",
+      content: "",
+      thinkingContent: "",
+      status: "streaming",
+      estimatedTokens: 0
+    });
+
+    return { userMessage, assistantMessage };
+  });
+
+  return createMessages();
+}
+
 async function startAssistantTurn(
   manager: ConversationManager,
   conversationId: string,
@@ -145,6 +176,7 @@ async function startAssistantTurn(
   personaId?: string,
   options?: {
     userMessageId?: string;
+    assistantMessage?: ReturnType<typeof createMessage>;
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
   }
 ) : Promise<ChatTurnResult> {
@@ -160,14 +192,16 @@ async function startAssistantTurn(
   const runningActionHandles = new Set<string>();
 
   try {
-    const assistantMessage = createMessage({
-      conversationId: conversation.id,
-      role: "assistant",
-      content: "",
-      thinkingContent: "",
-      status: "streaming",
-      estimatedTokens: 0
-    });
+    const assistantMessage =
+      options?.assistantMessage ??
+      createMessage({
+        conversationId: conversation.id,
+        role: "assistant",
+        content: "",
+        thinkingContent: "",
+        status: "streaming",
+        estimatedTokens: 0
+      });
     assistantMessageId = assistantMessage.id;
     contentPersistence = createAssistantContentPersistenceTracker(conversationId, assistantMessageId);
 
@@ -222,7 +256,8 @@ async function startAssistantTurn(
           event: { type: "compaction_end" }
         });
       }
-    }, personaId, appSettings.memoriesEnabled);
+    }, personaId, appSettings.memoriesEnabled, control.abortController.signal);
+    control.throwIfStopped();
     let promptMessages = compacted.promptMessages;
     const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
     const mcpServers = appendInjectedWebSearchMcpServer(listEnabledMcpServers(), appSettings);
@@ -233,7 +268,8 @@ async function startAssistantTurn(
     }> = [];
     if (mcpServers.length) {
       const { gatherAllMcpTools } = await import("@/lib/mcp-client");
-      mcpToolSets = await gatherAllMcpTools(mcpServers);
+      mcpToolSets = await gatherAllMcpTools(mcpServers, control.abortController.signal);
+      control.throwIfStopped();
     }
 
     const visionMcpServers = mcpServers.filter((server) => server.enabled && server.isVisionMcp);
@@ -392,7 +428,12 @@ async function startAssistantTurn(
     }
     return { status: "completed" };
   } catch (error) {
-    if (error instanceof ChatTurnStoppedError && assistantMessageId) {
+    const stopped =
+      error instanceof ChatTurnStoppedError ||
+      control.stopped ||
+      control.abortController.signal.aborted;
+
+    if (stopped && assistantMessageId) {
       if (answerBuffer && contentPersistence) {
         const sanitizedBuffer = await contentPersistence.appendSegment(answerBuffer);
         answerBuffer = "";
@@ -567,18 +608,17 @@ export async function startChatTurn(
   }
 
   try {
-    const userMessage = createMessage({
+    const { userMessage, assistantMessage } = createChatTurnMessages({
       conversationId,
-      role: "user",
       content,
-      estimatedTokens: estimateTextTokens(content)
+      attachmentIds
     });
 
-    bindAttachmentsToMessage(conversationId, userMessage.id, attachmentIds);
     void generateConversationTitleFromFirstUserMessage(conversationId, userMessage.id);
 
     return startAssistantTurn(manager, conversationId, preflight, claimed.control, personaId, {
       userMessageId: userMessage.id,
+      assistantMessage,
       onMessagesCreated: options?.onMessagesCreated
     });
   } catch (error) {

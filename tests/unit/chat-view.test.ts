@@ -183,7 +183,7 @@ vi.mock("@/components/ai-elements/conversation", () => {
       const divRef = (React as any).useRef(null);
       React.useEffect(() => {
         if (scrollerRef) scrollerRef(divRef.current);
-      }, [scrollerRef]);
+      }, [divRef, scrollerRef]);
       return React.createElement("div", { "data-testid": "conversation-content", ref: divRef }, children as React.ReactNode);
     },
     ConversationScrollButton: () => {

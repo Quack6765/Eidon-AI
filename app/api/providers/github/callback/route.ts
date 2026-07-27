@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden } from "@/lib/http";
 import { exchangeGithubCodeForTokens, verifyGithubOauthState } from "@/lib/github-copilot";
-import { updateGithubCopilotCredentials } from "@/lib/settings";
+import { getProviderProfile, updateGithubCopilotCredentialsIfNonceMatches } from "@/lib/settings";
 
 export async function GET(request: Request) {
   const user = await requireAdminResponse();
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     return badRequest("Missing code or state parameter");
   }
 
-  let claims: { profileId: string; userId: string };
+  let claims: { profileId: string; userId: string; profileNonce: string };
   try {
     claims = await verifyGithubOauthState(state);
   } catch {
@@ -39,16 +39,28 @@ export async function GET(request: Request) {
       return badRequest("GitHub OAuth did not return an access token");
     }
 
-    updateGithubCopilotCredentials(claims.profileId, {
-      githubUserAccessToken: tokens.access_token!,
-      githubRefreshToken: tokens.refresh_token ?? "",
-      githubTokenExpiresAt: tokens.expires_in
-        ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-        : null,
-      githubRefreshTokenExpiresAt: null,
-      githubAccountLogin: null,
-      githubAccountName: null
-    });
+    const profile = getProviderProfile(claims.profileId);
+    if (!profile || profile.providerKind !== "github_copilot") {
+      return badRequest("GitHub Copilot is only available for Copilot profiles");
+    }
+
+    const updated = updateGithubCopilotCredentialsIfNonceMatches(
+      claims.profileId,
+      claims.profileNonce,
+      {
+        githubUserAccessToken: tokens.access_token!,
+        githubRefreshToken: tokens.refresh_token ?? "",
+        githubTokenExpiresAt: tokens.expires_in
+          ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+          : null,
+        githubRefreshTokenExpiresAt: null,
+        githubAccountLogin: null,
+        githubAccountName: null
+      }
+    );
+    if (!updated) {
+      return badRequest("GitHub Copilot profile changed before the connection completed");
+    }
   } catch (error) {
     return badRequest(`Token exchange failed: ${error instanceof Error ? error.message : "Unknown error"}`);
   }

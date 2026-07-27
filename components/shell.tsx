@@ -278,7 +278,7 @@ export function Shell({
     } else if (userClosed) {
       setIsSidebarOpen(false);
     }
-  }, [activeConversationId, isSettingsPage, pathname]);
+  }, [activeConversationId, isAutomationsPage, isSettingsPage, pathname]);
 
   useEffect(() => {
     if (isSettingsPage && !prevIsSettingsPageRef.current && typeof window !== "undefined" && window.innerWidth < 768) {

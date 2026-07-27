@@ -77,4 +77,69 @@ describe("conversation-manager", () => {
     manager.setActive("conv-1", false);
     expect(manager.isActive("conv-1")).toBe(false);
   });
+
+  it("does not deliver user-targeted broadcasts to another user", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const manager = createConversationManager();
+    const { ws: ownerSocket, sent: ownerSent } = createMockWs();
+    const { ws: otherSocket, sent: otherSent } = createMockWs();
+
+    expect(manager.addConnection(ownerSocket, "user-owner")).toBe(true);
+    expect(manager.addConnection(otherSocket, "user-other")).toBe(true);
+    manager.broadcastAll(
+      { type: "conversation_activity", conversationId: "conv-1", isActive: true },
+      "user-owner"
+    );
+
+    expect(ownerSent).toHaveLength(1);
+    expect(otherSent).toHaveLength(0);
+  });
+
+  it("closes slow consumers instead of growing their send buffer", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { MAX_WS_BUFFERED_BYTES } = await import("@/lib/ws-send");
+    const manager = createConversationManager();
+    const ws = {
+      readyState: 1,
+      bufferedAmount: MAX_WS_BUFFERED_BYTES + 1,
+      send: vi.fn(),
+      close: vi.fn()
+    } as unknown as WebSocket;
+
+    manager.subscribe("conv-1", ws);
+    manager.broadcast("conv-1", {
+      type: "delta",
+      conversationId: "conv-1",
+      event: { type: "answer_delta", text: "data" }
+    });
+
+    expect(ws.send).not.toHaveBeenCalled();
+    expect(ws.close).toHaveBeenCalledWith(1013, "WebSocket client is too slow");
+  });
+
+  it("includes the pending payload bytes in the backpressure limit", async () => {
+    const { sendWebSocketData, MAX_WS_BUFFERED_BYTES } = await import("@/lib/ws-send");
+    const ws = {
+      readyState: 1,
+      bufferedAmount: MAX_WS_BUFFERED_BYTES - 3,
+      send: vi.fn(),
+      close: vi.fn()
+    } as unknown as WebSocket;
+
+    expect(sendWebSocketData(ws, "four")).toBe(false);
+    expect(ws.send).not.toHaveBeenCalled();
+    expect(ws.close).toHaveBeenCalledWith(1013, "WebSocket client is too slow");
+  });
+
+  it("enforces a process-wide manager connection cap", async () => {
+    const { createConversationManager, MAX_WS_CONNECTIONS } = await import("@/lib/conversation-manager");
+    const manager = createConversationManager();
+
+    for (let index = 0; index < MAX_WS_CONNECTIONS; index += 1) {
+      const ws = { readyState: 1 } as unknown as WebSocket;
+      expect(manager.addConnection(ws, `user-${index}`)).toBe(true);
+    }
+
+    expect(manager.addConnection({ readyState: 1 } as unknown as WebSocket, "overflow-user")).toBe(false);
+  });
 });

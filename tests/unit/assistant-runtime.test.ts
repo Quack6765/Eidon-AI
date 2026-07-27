@@ -18,6 +18,7 @@ const searchSearxng = vi.fn();
 const generateGoogleNanoBananaImages = vi.fn();
 const createAttachments = vi.fn();
 const assignAttachmentsToMessage = vi.fn();
+const deleteAttachmentById = vi.fn();
 const resolveAttachmentPath = vi.fn();
 
 vi.mock("@/lib/provider", () => ({
@@ -27,7 +28,8 @@ vi.mock("@/lib/provider", () => ({
 
 vi.mock("@/lib/mcp-client", () => ({
   callMcpTool,
-  getToolResultText
+  getToolResultText,
+  MAX_MCP_RESULT_CHARS: 32_000
 }));
 
 vi.mock("@/lib/local-shell", async (importOriginal) => {
@@ -62,6 +64,7 @@ vi.mock("@/lib/image-generation/google-nano-banana", () => ({
 vi.mock("@/lib/attachments", () => ({
   createAttachments,
   assignAttachmentsToMessage,
+  deleteAttachmentById,
   resolveAttachmentPath
 }));
 
@@ -182,6 +185,7 @@ describe("assistant runtime", () => {
     generateGoogleNanoBananaImages.mockReset();
     createAttachments.mockReset();
     assignAttachmentsToMessage.mockReset();
+    deleteAttachmentById.mockReset();
     resolveAttachmentPath.mockReset();
     resolveAttachmentPath.mockImplementation(({ relativePath }: { relativePath: string }) => `/tmp/${relativePath}`);
     callProviderText.mockImplementation(({ prompt }: { prompt: string }) => {
@@ -725,6 +729,53 @@ ${JSON.stringify({
     expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
     expect(createAttachments).toHaveBeenCalledTimes(1);
     expect(assignAttachmentsToMessage).toHaveBeenCalledWith("conv_image", "msg_assistant_image", ["att_1"]);
+  });
+
+  it("removes generated attachments when cancellation arrives after the file write", async () => {
+    const controller = new AbortController();
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([], {
+        answer: "",
+        thinking: "",
+        toolCalls: [{
+          id: "call_image_abort",
+          name: "generate_image",
+          arguments: JSON.stringify({ prompt: "a blue square" })
+        }],
+        usage: { inputTokens: 5 }
+      })
+    );
+    generateGoogleNanoBananaImages.mockResolvedValue({
+      assistantText: "",
+      images: [{
+        bytes: Buffer.from("png-bytes"),
+        mimeType: "image/png",
+        filename: "generated-1.png"
+      }]
+    });
+    createAttachments.mockImplementation(() => {
+      controller.abort();
+      return [{ id: "att_abort", filename: "generated-1.png" }];
+    });
+
+    const { ChatTurnStoppedError } = await import("@/lib/chat-turn-control");
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await expect(resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Generate a blue square" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image_abort",
+      assistantMessageId: "msg_image_abort",
+      abortSignal: controller.signal
+    })).rejects.toBeInstanceOf(ChatTurnStoppedError);
+
+    expect(deleteAttachmentById).toHaveBeenCalledWith("att_abort", {
+      allowAssigned: true
+    });
+    expect(assignAttachmentsToMessage).not.toHaveBeenCalled();
   });
 
   it("injects the mermaid diagram directive into the system prompt", async () => {
@@ -1954,6 +2005,7 @@ Run browser commands.`
   it("forces a final direct answer when the tool loop would otherwise exhaust the step budget", async () => {
     const { MAX_ASSISTANT_CONTROL_STEPS } = await import("@/lib/constants");
     const onAnswerSegment = vi.fn();
+    const controller = new AbortController();
 
     streamProviderResponse.mockImplementation(({ tools }: { tools?: Array<{ function: { name: string } }> }) => {
       if (!tools?.length) {
@@ -1982,6 +2034,7 @@ Run browser commands.`
       promptMessages: [{ role: "user", content: "Loop forever" }],
       skills: [],
       onAnswerSegment,
+      abortSignal: controller.signal,
       mcpToolSets: [{
         server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" } }]
@@ -1991,6 +2044,7 @@ Run browser commands.`
     expect(streamProviderResponse).toHaveBeenCalledTimes(MAX_ASSISTANT_CONTROL_STEPS + 1);
     expect(result.answer).toBe("Final answer without more tools");
     expect(onAnswerSegment).toHaveBeenCalledWith("Final answer without more tools");
+    expect(streamProviderResponse.mock.calls.at(-1)?.[0].abortSignal).toBe(controller.signal);
   });
 
   it("retries when the provider returns an empty direct answer without tool calls", async () => {
@@ -2286,6 +2340,71 @@ Run browser commands.`
       })]);
       expect(completed).toEqual([]);
       expect(result.answer).toBe("Saved");
+    });
+
+    it("rejects normal-provider memory tools before reads or proposal writes when cancelled", async () => {
+      const controller = new AbortController();
+      controller.abort();
+      const onActionStart = vi.fn();
+      const {
+        executeCreateMemory,
+        executeDeleteMemory,
+        executeUpdateMemory
+      } = await import("@/lib/tool-executors");
+      const context = {
+        memoryUserId: "user-1",
+        input: {
+          abortSignal: controller.signal,
+          onActionStart
+        },
+        timelineSortOrder: 0,
+        promptMessages: []
+      };
+
+      await expect(executeCreateMemory(
+        "create-1",
+        { content: "Remember this", category: "other" },
+        context
+      )).rejects.toMatchObject({ name: "ChatTurnStoppedError" });
+      await expect(executeUpdateMemory(
+        "update-1",
+        { id: "mem-1", content: "Updated" },
+        context
+      )).rejects.toMatchObject({ name: "ChatTurnStoppedError" });
+      await expect(executeDeleteMemory(
+        "delete-1",
+        { id: "mem-1" },
+        context
+      )).rejects.toMatchObject({ name: "ChatTurnStoppedError" });
+
+      expect(getMemoryCountFn).not.toHaveBeenCalled();
+      expect(getMemoryRecord).not.toHaveBeenCalled();
+      expect(onActionStart).not.toHaveBeenCalled();
+    });
+
+    it("stops a normal-provider memory proposal when cancellation arrives during persistence", async () => {
+      const controller = new AbortController();
+      const onActionStart = vi.fn(() => {
+        controller.abort();
+        return "memory-action";
+      });
+      const { executeCreateMemory } = await import("@/lib/tool-executors");
+
+      await expect(executeCreateMemory(
+        "create-1",
+        { content: "Remember this", category: "other" },
+        {
+          memoryUserId: "user-1",
+          input: {
+            abortSignal: controller.signal,
+            onActionStart
+          },
+          timelineSortOrder: 0,
+          promptMessages: []
+        }
+      )).rejects.toMatchObject({ name: "ChatTurnStoppedError" });
+
+      expect(onActionStart).toHaveBeenCalledTimes(1);
     });
 
     it("does not force a second assistant pass when a memory proposal already has a direct answer", async () => {

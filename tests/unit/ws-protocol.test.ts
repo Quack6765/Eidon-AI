@@ -52,6 +52,38 @@ describe("ws-protocol", () => {
     expect(parseClientMessage(JSON.stringify({ type: "unknown" }))).toBeNull();
   });
 
+  it.each([
+    { type: "subscribe" },
+    { type: "subscribe", conversationId: "   " },
+    { type: "stop", conversationId: {} },
+    { type: "message", conversationId: "conv-1", content: {} },
+    { type: "message", conversationId: "conv-1", content: "   ", attachmentIds: [] },
+    { type: "message", conversationId: "conv-1", content: "", attachmentIds: ["   "] },
+    { type: "message", conversationId: "conv-1", content: "hello", attachmentIds: [null] },
+    { type: "queue_message", conversationId: "conv-1", content: "   " },
+    { type: "update_queued_message", conversationId: "conv-1", queuedMessageId: "queue-1" },
+    { type: "update_queued_message", conversationId: "conv-1", queuedMessageId: "queue-1", content: "\t" }
+  ])("returns null for malformed client message fields", async (message) => {
+    const { parseClientMessage } = await import("@/lib/ws-protocol");
+    expect(parseClientMessage(JSON.stringify(message))).toBeNull();
+  });
+
+  it("accepts an attachment-only chat message", async () => {
+    const { parseClientMessage } = await import("@/lib/ws-protocol");
+
+    expect(parseClientMessage(JSON.stringify({
+      type: "message",
+      conversationId: "conv-1",
+      content: "",
+      attachmentIds: ["att-1"]
+    }))).toEqual({
+      type: "message",
+      conversationId: "conv-1",
+      content: "",
+      attachmentIds: ["att-1"]
+    });
+  });
+
   it("serializes and parses a client stop message", async () => {
     const { serializeClientMessage, parseClientMessage } = await import("@/lib/ws-protocol");
     const msg = { type: "stop" as const, conversationId: "conv-1" };

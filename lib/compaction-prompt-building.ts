@@ -19,13 +19,15 @@ export function buildSummaryPrompt(label: string, blocks: string, sourceSpan: {
 export async function summarizeBlocks(
   conversationId: string,
   prompt: string,
-  settings: ProviderProfileWithApiKey
+  settings: ProviderProfileWithApiKey,
+  abortSignal?: AbortSignal
 ): Promise<string> {
   return await callProviderText({
     settings,
     prompt,
     purpose: "compaction",
-    conversationId
+    conversationId,
+    abortSignal
   });
 }
 

@@ -78,6 +78,8 @@ type UpdateAutomationRunStatusInput = {
   finishedAt?: string | null;
 };
 
+export const MAX_AUTOMATION_CATCH_UP_RUNS = 64;
+
 
 function parseDaysOfWeek(value: string): number[] {
   try {
@@ -469,6 +471,121 @@ export function createAutomationRun(input: {
     })();
 
   return run;
+}
+
+export function claimAutomationRun(runId: string, startedAt: string) {
+  const db = getDb();
+  const run = getAutomationRun(runId);
+  if (!run || run.status !== "queued") {
+    return null;
+  }
+
+  const result = db
+    .prepare(
+      `UPDATE automation_runs
+       SET status = 'running',
+           started_at = ?,
+           finished_at = NULL,
+           error_message = NULL
+       WHERE id = ?
+         AND status = 'queued'
+         AND NOT EXISTS (
+           SELECT 1
+           FROM automation_runs active
+           WHERE active.automation_id = automation_runs.automation_id
+             AND active.status = 'running'
+             AND active.id != automation_runs.id
+         )`
+    )
+    .run(startedAt, runId);
+
+  if (result.changes === 0) {
+    return null;
+  }
+
+  refreshAutomationRunSummary(run.automationId, startedAt);
+  return getAutomationRun(runId);
+}
+
+export function commitScheduledAutomationSlots(input: {
+  automationId: string;
+  missedSlots: string[];
+  latestDueSlot: string;
+  nextRunAt: string;
+  timestamp: string;
+}) {
+  const db = getDb();
+  const findScheduledRun = db.prepare(
+    `SELECT id
+     FROM automation_runs
+     WHERE automation_id = ?
+       AND scheduled_for = ?
+       AND trigger_source = 'schedule'
+     ORDER BY created_at ASC, id ASC
+     LIMIT 1`
+  );
+  const transaction = db.transaction(() => {
+    const hasRunningRun = Boolean(
+      db
+        .prepare(
+          `SELECT 1
+           FROM automation_runs
+           WHERE automation_id = ? AND status = 'running'
+           LIMIT 1`
+        )
+        .get(input.automationId)
+    );
+    const boundedMissedSlots = input.missedSlots.slice(
+      -(MAX_AUTOMATION_CATCH_UP_RUNS - 1)
+    );
+    const slotsToMiss = hasRunningRun
+      ? [...boundedMissedSlots, input.latestDueSlot]
+      : boundedMissedSlots;
+
+    for (const scheduledFor of slotsToMiss) {
+      const existing = findScheduledRun.get(input.automationId, scheduledFor) as
+        | { id: string }
+        | undefined;
+      if (existing) {
+        continue;
+      }
+
+      const run = createAutomationRun({
+        automationId: input.automationId,
+        scheduledFor,
+        triggerSource: "schedule"
+      });
+      updateAutomationRunStatus(run.id, {
+        status: "missed",
+        finishedAt: input.timestamp
+      });
+    }
+
+    db.prepare(
+      `UPDATE automations
+       SET next_run_at = ?,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(input.nextRunAt, input.timestamp, input.automationId);
+
+    if (hasRunningRun) {
+      return null;
+    }
+
+    const existingLatest = findScheduledRun.get(
+      input.automationId,
+      input.latestDueSlot
+    ) as { id: string } | undefined;
+    return existingLatest
+      ? getAutomationRun(existingLatest.id)
+      : createAutomationRun({
+          automationId: input.automationId,
+          scheduledFor: input.latestDueSlot,
+          triggerSource: "schedule"
+        });
+  });
+
+  return transaction.immediate();
 }
 
 export function triggerAutomationNow(

@@ -451,7 +451,7 @@ describe("db", () => {
   it("migrates legacy schemas and backfills defaults", async () => {
     prepareLegacyDatabase();
 
-    const { getDb } = await import("@/lib/db");
+    const { getDb, migrate } = await import("@/lib/db");
     const db = getDb();
 
     const userColumns = (db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>)
@@ -473,6 +473,9 @@ describe("db", () => {
     ).map((column) => column.name);
     const settingsColumns = (db.prepare("PRAGMA table_info(app_settings)").all() as Array<{ name: string }>)
       .map((column) => column.name);
+    const providerProfileColumns = (
+      db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
     const mcpColumns = (db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>)
       .map((column) => column.name);
     const skillColumns = (db.prepare("PRAGMA table_info(skills)").all() as Array<{ name: string }>)
@@ -531,6 +534,11 @@ describe("db", () => {
     expect(settingsColumns).toEqual(
       expect.arrayContaining(["default_provider_profile_id", "skills_enabled"])
     );
+    expect(providerProfileColumns).toContain("github_oauth_nonce");
+    expect(() => migrate(db)).not.toThrow();
+    expect((
+      db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>
+    ).filter((column) => column.name === "github_oauth_nonce")).toHaveLength(1);
     expect(mcpColumns).toEqual(expect.arrayContaining(["transport", "command", "args", "env", "slug"]));
     expect(skillColumns).toContain("description");
     expect(automationColumns).toEqual(
@@ -607,6 +615,244 @@ describe("db", () => {
       { id: "mcp_legacy", slug: "legacy_mcp" },
       { id: "mcp_legacy_duplicate", slug: "legacy_mcp_2" }
     ]);
+  });
+
+  it("reconciles interrupted state only during explicit guarded runtime bootstrap", async () => {
+    const dbModule = await import("@/lib/db");
+    const conversations = await import("@/lib/conversations");
+    const automations = await import("@/lib/automations");
+    const conversation = conversations.createConversation();
+    const assistantMessage = conversations.createMessage({
+      conversationId: conversation.id,
+      role: "assistant",
+      status: "streaming"
+    });
+    const action = conversations.createMessageAction({
+      messageId: assistantMessage.id,
+      kind: "mcp_tool_call",
+      label: "Interrupted action",
+      status: "running"
+    });
+    const queuedMessage = conversations.createQueuedMessage({
+      conversationId: conversation.id,
+      content: "Interrupted follow-up"
+    });
+    const pendingQueuedMessage = conversations.createQueuedMessage({
+      conversationId: conversation.id,
+      content: "Pending during restart"
+    });
+    conversations.claimNextQueuedMessageForDispatch(conversation.id);
+    const automation = automations.createAutomation({
+      name: "Interrupted automation",
+      prompt: "Run",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 5,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+    const automationRun = automations.createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-07-12T12:00:00.000Z",
+      triggerSource: "manual_run"
+    });
+    automations.updateAutomationRunStatus(automationRun.id, {
+      status: "running",
+      startedAt: "2026-07-12T12:00:00.000Z"
+    });
+    const db = dbModule.getDb();
+    db.prepare(
+      `UPDATE conversations
+       SET is_active = 1, title_generation_status = 'running'
+       WHERE id = ?`
+    ).run(conversation.id);
+
+    dbModule.migrate(db);
+    expect(
+      db.prepare("SELECT is_active FROM conversations WHERE id = ?").get(conversation.id)
+    ).toEqual({ is_active: 1 });
+    expect(db.prepare("SELECT status FROM messages WHERE id = ?").get(assistantMessage.id)).toEqual({
+      status: "streaming"
+    });
+
+    dbModule.resetDbForTests();
+    const reopened = dbModule.getDb();
+    expect(
+      reopened.prepare("SELECT is_active FROM conversations WHERE id = ?").get(conversation.id)
+    ).toEqual({ is_active: 1 });
+    expect(reopened.prepare("SELECT status FROM automation_runs WHERE id = ?").get(automationRun.id)).toEqual({
+      status: "running"
+    });
+
+    const runtimeBootstrap = await import("@/lib/runtime-bootstrap");
+    runtimeBootstrap.resetRuntimeBootstrapForTests();
+    const bootstrapResult = runtimeBootstrap.bootstrapRuntimeState();
+    const recoveredConversation = reopened
+      .prepare("SELECT is_active, title_generation_status FROM conversations WHERE id = ?")
+      .get(conversation.id) as { is_active: number; title_generation_status: string };
+    const recoveredMessage = reopened
+      .prepare("SELECT status FROM messages WHERE id = ?")
+      .get(assistantMessage.id) as { status: string };
+    const recoveredAction = reopened
+      .prepare("SELECT status, completed_at FROM message_actions WHERE id = ?")
+      .get(action.id) as { status: string; completed_at: string | null };
+    const recoveredQueue = reopened
+      .prepare("SELECT status, processing_started_at FROM queued_messages WHERE id = ?")
+      .get(queuedMessage.id) as { status: string; processing_started_at: string | null };
+    const recoveredPendingQueue = reopened
+      .prepare("SELECT status, processing_started_at FROM queued_messages WHERE id = ?")
+      .get(pendingQueuedMessage.id) as { status: string; processing_started_at: string | null };
+    const recoveredRun = reopened
+      .prepare("SELECT status, finished_at FROM automation_runs WHERE id = ?")
+      .get(automationRun.id) as { status: string; finished_at: string | null };
+
+    expect(recoveredConversation).toEqual({ is_active: 0, title_generation_status: "failed" });
+    expect(recoveredMessage.status).toBe("error");
+    expect(recoveredAction.status).toBe("error");
+    expect(recoveredAction.completed_at).not.toBeNull();
+    expect(recoveredQueue).toEqual({ status: "failed", processing_started_at: null });
+    expect(recoveredPendingQueue).toEqual({ status: "pending", processing_started_at: null });
+    expect(recoveredRun.status).toBe("failed");
+    expect(recoveredRun.finished_at).not.toBeNull();
+    expect(bootstrapResult).toMatchObject({
+      recovered: {
+        conversations: 1,
+        messages: 1,
+        actions: 1,
+        titles: 1,
+        queuedMessages: 1,
+        automationRuns: 1
+      }
+    });
+
+    const laterConversation = conversations.createConversation("Live after bootstrap");
+    conversations.setConversationActive(laterConversation.id, true);
+    expect(runtimeBootstrap.bootstrapRuntimeState()).toBeNull();
+    expect(conversations.getConversation(laterConversation.id)?.isActive).toBe(true);
+  });
+
+  it("recovers exact partial compaction copies but rejects conflicting duplicate ids", async () => {
+    const { migrate } = await import("@/lib/db-migrations");
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    migrate(db);
+    const timestamp = "2026-07-12T12:00:00.000Z";
+    db.prepare(
+      "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)"
+    ).run("conv_partial_rebuild", "Migration recovery", timestamp, timestamp);
+    db.prepare(
+      `INSERT INTO messages (
+        id, conversation_id, role, content, thinking_content, status, created_at
+      ) VALUES (?, ?, ?, ?, '', 'completed', ?)`
+    ).run("msg_partial_start", "conv_partial_rebuild", "user", "Start", timestamp);
+    db.prepare(
+      `INSERT INTO messages (
+        id, conversation_id, role, content, thinking_content, status, created_at
+      ) VALUES (?, ?, ?, ?, '', 'completed', ?)`
+    ).run("msg_partial_end", "conv_partial_rebuild", "assistant", "End", timestamp);
+    db.prepare(
+      `INSERT INTO memory_nodes (
+        id, conversation_id, type, depth, content, source_start_message_id,
+        source_end_message_id, source_token_count, summary_token_count,
+        child_node_ids, superseded_by_node_id, created_at
+      ) VALUES (?, ?, 'leaf_summary', 0, 'Summary', ?, ?, 2, 1, '[]', NULL, ?)`
+    ).run(
+      "mem_partial_rebuild",
+      "conv_partial_rebuild",
+      "msg_partial_start",
+      "msg_partial_end",
+      timestamp
+    );
+    db.prepare(
+      `INSERT INTO compaction_events (
+        id, conversation_id, node_id, source_start_message_id,
+        source_end_message_id, notice_message_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, NULL, ?)`
+    ).run(
+      "cmp_partial_rebuild",
+      "conv_partial_rebuild",
+      "mem_partial_rebuild",
+      "msg_partial_start",
+      "msg_partial_end",
+      timestamp
+    );
+    db.pragma("foreign_keys = OFF");
+    db.exec(`
+      ALTER TABLE compaction_events RENAME TO compaction_events_old;
+      CREATE TABLE compaction_events AS SELECT * FROM compaction_events_old WHERE 0;
+      INSERT INTO compaction_events SELECT * FROM compaction_events_old;
+    `);
+
+    migrate(db);
+    expect(
+      db.prepare("SELECT COUNT(*) AS count FROM compaction_events").get()
+    ).toEqual({ count: 1 });
+    expect(
+      db
+        .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'compaction_events_old'")
+        .get()
+    ).toBeUndefined();
+    const sourceForeignKeys = (
+      db.prepare("PRAGMA foreign_key_list(compaction_events)").all() as Array<{
+        from: string;
+        table: string;
+      }>
+    ).filter((row) => row.from.startsWith("source_"));
+    expect(sourceForeignKeys).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ from: "source_start_message_id", table: "messages" }),
+        expect.objectContaining({ from: "source_end_message_id", table: "messages" })
+      ])
+    );
+    const rootPage = (
+      db
+        .prepare("SELECT rootpage FROM sqlite_master WHERE type = 'table' AND name = 'compaction_events'")
+        .get() as { rootpage: number }
+    ).rootpage;
+
+    migrate(db);
+    expect(
+      db
+        .prepare("SELECT rootpage FROM sqlite_master WHERE type = 'table' AND name = 'compaction_events'")
+        .get()
+    ).toEqual({ rootpage: rootPage });
+    expect(db.prepare("SELECT COUNT(*) AS count FROM compaction_events").get()).toEqual({ count: 1 });
+
+    db.pragma("foreign_keys = OFF");
+    db.exec(`
+      ALTER TABLE compaction_events RENAME TO compaction_events_old;
+      CREATE TABLE compaction_events AS SELECT * FROM compaction_events_old;
+      UPDATE compaction_events
+      SET created_at = '2026-07-12T13:00:00.000Z'
+      WHERE id = 'cmp_partial_rebuild';
+    `);
+    db.pragma("foreign_keys = ON");
+
+    expect(() => migrate(db)).toThrow(
+      "Unable to migrate compaction events: conflicting duplicate id cmp_partial_rebuild"
+    );
+    db.close();
+  });
+
+  it("fails migration loudly instead of accepting invalid compaction-event rows", async () => {
+    const { migrate } = await import("@/lib/db-migrations");
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    migrate(db);
+    db.pragma("foreign_keys = OFF");
+    db.exec("ALTER TABLE compaction_events RENAME TO compaction_events_old");
+    db.prepare(
+      `INSERT INTO compaction_events_old (
+        id, conversation_id, node_id, source_start_message_id,
+        source_end_message_id, notice_message_id, created_at
+      ) VALUES ('cmp_invalid', 'conv_missing', 'mem_missing', 'msg_missing', 'msg_missing', NULL, ?)`
+    ).run("2026-07-12T12:00:00.000Z");
+    db.pragma("foreign_keys = ON");
+
+    expect(() => migrate(db)).toThrow();
+    db.close();
   });
 
   it("reuses the same database instance until reset is called", async () => {

@@ -1,11 +1,15 @@
 import { createHash, randomBytes } from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
 
 import {
   assignAttachmentsToMessage,
-  deleteConversationAttachmentFiles,
-  listAttachmentsForMessageIds
+  deleteAttachmentFiles,
+  listAttachmentsForConversation,
+  listAttachmentsForMessageIds,
+  publishAttachmentArtifacts,
+  readAttachmentBuffer,
+  rollbackAttachmentArtifactPublication,
+  type AttachmentArtifactPublication
 } from "@/lib/attachments";
 import {
   DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE,
@@ -13,7 +17,6 @@ import {
   generateConversationTitle
 } from "@/lib/conversation-title-generator";
 import { getDb } from "@/lib/db";
-import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
 import {
   getSettings
@@ -21,6 +24,7 @@ import {
 import { getConversationManager } from "@/lib/ws-singleton";
 import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
+  AttachmentKind,
   Conversation,
   ConversationListPage,
   ConversationOrigin,
@@ -502,9 +506,11 @@ export function createConversation(
 }
 
 function deleteConversationRecord(conversationId: string) {
-  deleteConversationAttachmentFiles(conversationId);
-  getDb().prepare("DELETE FROM message_attachments WHERE conversation_id = ?").run(conversationId);
-  return getDb().prepare("DELETE FROM conversations WHERE id = ?").run(conversationId).changes > 0;
+  const relativePaths = listAttachmentsForConversation(conversationId).map(
+    (attachment) => attachment.relativePath
+  );
+  const deleted = getDb().prepare("DELETE FROM conversations WHERE id = ?").run(conversationId).changes > 0;
+  return { deleted, relativePaths };
 }
 
 export function deleteConversation(conversationId: string, userId?: string) {
@@ -516,7 +522,9 @@ export function deleteConversation(conversationId: string, userId?: string) {
     return deleteConversationRecord(id);
   });
 
-  return transaction(conversationId);
+  const result = transaction(conversationId);
+  deleteAttachmentFiles(result.relativePaths);
+  return result.deleted;
 }
 
 export function deleteConversationIfEmpty(conversationId: string, userId?: string) {
@@ -530,7 +538,7 @@ export function deleteConversationIfEmpty(conversationId: string, userId?: strin
           .get(id)) as { id: string } | undefined;
 
     if (!conversation) {
-      return false;
+      return null;
     }
 
     const message = getDb()
@@ -538,13 +546,19 @@ export function deleteConversationIfEmpty(conversationId: string, userId?: strin
       .get(id) as { id: string } | undefined;
 
     if (message) {
-      return false;
+      return null;
     }
 
     return deleteConversationRecord(id);
   });
 
-  return transaction(conversationId);
+  const result = transaction(conversationId);
+  if (!result) {
+    return false;
+  }
+
+  deleteAttachmentFiles(result.relativePaths);
+  return result.deleted;
 }
 
 export function renameConversation(conversationId: string, title: string) {
@@ -1104,61 +1118,12 @@ export function bindAttachmentsToMessage(conversationId: string, messageId: stri
   return attachments;
 }
 
-function getAttachmentsRoot() {
-  const root = path.resolve(env.EIDON_DATA_DIR, "attachments");
-  fs.mkdirSync(root, { recursive: true });
-  return root;
-}
-
-function cloneAttachmentFile(input: {
-  sourceRelativePath: string;
-  targetRelativePath: string;
-}) {
-  const sourcePath = path.resolve(getAttachmentsRoot(), input.sourceRelativePath);
-  const targetPath = path.resolve(getAttachmentsRoot(), input.targetRelativePath);
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.copyFileSync(sourcePath, targetPath);
-}
-
-function recoverTextAttachmentFile(input: {
-  targetRelativePath: string;
-  extractedText: string;
-}) {
-  const targetPath = path.resolve(getAttachmentsRoot(), input.targetRelativePath);
-  const bytes = Buffer.from(input.extractedText, "utf8");
-  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-  fs.writeFileSync(targetPath, bytes);
-  return {
-    byteSize: bytes.length,
-    sha256: createHash("sha256").update(bytes).digest("hex")
-  };
-}
-
-function deleteAttachmentFiles(relativePaths: string[]) {
-  relativePaths.forEach((relativePath) => {
-    const absolutePath = path.resolve(getAttachmentsRoot(), relativePath);
-
-    try {
-      fs.unlinkSync(absolutePath);
-    } catch (error) {
-      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
-        throw error;
-      }
-    }
-  });
-}
-
 export function forkConversationFromMessage(messageId: string, userId?: string) {
   const db = getDb();
-  const copiedAttachmentPaths: string[] = [];
+  const attachmentPublications: AttachmentArtifactPublication[] = [];
 
   const cleanupCopiedAttachments = () => {
-    copiedAttachmentPaths.forEach((relativePath) => {
-      const absolutePath = path.resolve(getAttachmentsRoot(), relativePath);
-      try {
-        fs.unlinkSync(absolutePath);
-      } catch {}
-    });
+    attachmentPublications.forEach(rollbackAttachmentArtifactPublication);
   };
 
   const transaction = db.transaction(() => {
@@ -1240,6 +1205,21 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       );
     });
 
+    const clonedAttachments: Array<{
+      id: string;
+      conversationId: string;
+      messageId: string;
+      filename: string;
+      mimeType: string;
+      byteSize: number;
+      sha256: string;
+      relativePath: string;
+      kind: AttachmentKind;
+      extractedText: string;
+      createdAt: string;
+      bytes: Buffer;
+    }> = [];
+
     retainedMessages.forEach((message) => {
       const clonedMessageId = clonedMessageIdBySourceId.get(message.id);
 
@@ -1307,16 +1287,12 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
         const clonedAttachmentId = createId("att");
         const clonedRelativePath = path.join(
           forkConversation.id,
-          `${clonedAttachmentId}_${attachment.filename}`
+          `${clonedAttachmentId}_${path.basename(attachment.filename)}`
         );
-        let clonedByteSize = attachment.byteSize;
-        let clonedSha256 = attachment.sha256;
+        let bytes: Buffer;
 
         try {
-          cloneAttachmentFile({
-            sourceRelativePath: attachment.relativePath,
-            targetRelativePath: clonedRelativePath
-          });
+          bytes = readAttachmentBuffer(attachment);
         } catch (error) {
           if (
             attachment.kind === "text" &&
@@ -1324,18 +1300,39 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
             "code" in error &&
             error.code === "ENOENT"
           ) {
-            const recovered = recoverTextAttachmentFile({
-              targetRelativePath: clonedRelativePath,
-              extractedText: attachment.extractedText
-            });
-            clonedByteSize = recovered.byteSize;
-            clonedSha256 = recovered.sha256;
+            bytes = Buffer.from(attachment.extractedText, "utf8");
           } else {
             throw error;
           }
         }
-        copiedAttachmentPaths.push(clonedRelativePath);
 
+        clonedAttachments.push({
+          id: clonedAttachmentId,
+          conversationId: forkConversation.id,
+          messageId: clonedMessageId,
+          filename: attachment.filename,
+          mimeType: attachment.mimeType,
+          byteSize: bytes.length,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          relativePath: clonedRelativePath,
+          kind: attachment.kind,
+          extractedText: attachment.extractedText,
+          createdAt: attachment.createdAt,
+          bytes
+        });
+      });
+    });
+
+    if (clonedAttachments.length > 0) {
+      const publication = publishAttachmentArtifacts(
+        clonedAttachments.map((attachment) => ({
+          relativePath: attachment.relativePath,
+          bytes: attachment.bytes
+        }))
+      );
+      attachmentPublications.push(publication);
+
+      clonedAttachments.forEach((attachment) => {
         db.prepare(
           `INSERT INTO message_attachments (
             id,
@@ -1351,20 +1348,20 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
             created_at
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
         ).run(
-          clonedAttachmentId,
-          forkConversation.id,
-          clonedMessageId,
+          attachment.id,
+          attachment.conversationId,
+          attachment.messageId,
           attachment.filename,
           attachment.mimeType,
-          clonedByteSize,
-          clonedSha256,
-          clonedRelativePath,
+          attachment.byteSize,
+          attachment.sha256,
+          attachment.relativePath,
           attachment.kind,
           attachment.extractedText,
           attachment.createdAt
         );
       });
-    });
+    }
 
     const sourceMemoryNodes = db
       .prepare(
@@ -1553,18 +1550,17 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       );
     });
 
-    return forkConversation.id;
-  });
+    const hydratedForkConversation = getConversation(forkConversation.id);
 
-  try {
-    const forkConversationId = transaction();
-    const forkConversation = getConversation(forkConversationId);
-
-    if (!forkConversation) {
+    if (!hydratedForkConversation) {
       throw new Error("Conversation not created");
     }
 
-    return forkConversation;
+    return hydratedForkConversation;
+  });
+
+  try {
+    return transaction();
   } catch (error) {
     cleanupCopiedAttachments();
     throw error;
@@ -2072,8 +2068,7 @@ export function completeConversationTitleGeneration(conversationId: string, titl
     .prepare(
       `UPDATE conversations
        SET title = ?,
-           title_generation_status = 'completed',
-           is_active = 0
+           title_generation_status = 'completed'
        WHERE id = ?`
     )
     .run(title, conversationId);
@@ -2085,8 +2080,7 @@ export function failConversationTitleGeneration(conversationId: string) {
     .prepare(
       `UPDATE conversations
        SET title = ?,
-           title_generation_status = 'failed',
-           is_active = 0
+           title_generation_status = 'failed'
        WHERE id = ?`
     )
     .run(DEFAULT_CONVERSATION_TITLE, conversationId);

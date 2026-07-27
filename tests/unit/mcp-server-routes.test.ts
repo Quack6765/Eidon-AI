@@ -97,4 +97,50 @@ describe("mcp server routes", () => {
     expect(response.status).toBe(403);
     await expect(response.json()).resolves.toEqual({ error: "Forbidden" });
   });
+
+  it("redacts stored headers and environment variables from API responses", async () => {
+    const { GET, POST } = await import("@/app/api/mcp-servers/route");
+    const created = await POST(
+      new Request("http://localhost/api/mcp-servers", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          transport: "stdio",
+          name: "Secret server",
+          command: "node",
+          env: { API_KEY: "top-secret" }
+        })
+      })
+    );
+    const createdBody = await created.json() as { server: Record<string, unknown> };
+    expect(createdBody.server).toMatchObject({ env: null, hasEnv: true });
+    expect(JSON.stringify(createdBody)).not.toContain("top-secret");
+
+    const response = await GET();
+    const body = await response.json() as { servers: Array<Record<string, unknown>> };
+    expect(body.servers[0]).toMatchObject({ headers: {}, env: null, hasEnv: true });
+    expect(JSON.stringify(body)).not.toContain("top-secret");
+  });
+
+  it("creates a disabled server atomically", async () => {
+    const { POST } = await import("@/app/api/mcp-servers/route");
+    const { getMcpServer } = await import("@/lib/mcp-servers");
+    const response = await POST(
+      new Request("http://localhost/api/mcp-servers", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          transport: "streamable_http",
+          name: "Disabled server",
+          url: "https://disabled.example.com",
+          enabled: false
+        })
+      })
+    );
+    const body = await response.json() as { server: { id: string; enabled: boolean } };
+
+    expect(response.status).toBe(201);
+    expect(body.server.enabled).toBe(false);
+    expect(getMcpServer(body.server.id)?.enabled).toBe(false);
+  });
 });

@@ -1,11 +1,14 @@
 import WebSocket from "ws";
 import type { ServerMessage } from "@/lib/ws-protocol";
 import { serializeServerMessage } from "@/lib/ws-protocol";
+import { sendWebSocketData } from "@/lib/ws-send";
+
+export const MAX_WS_CONNECTIONS = 500;
 
 export function createConversationManager() {
   const rooms = new Map<string, Set<WebSocket>>();
   const clientRooms = new Map<WebSocket, Set<string>>();
-  const connectionUsers = new Map<WebSocket, string | null>();
+  const connectionUsers = new Map<WebSocket, string>();
   const activeTurns = new Map<string, boolean>();
   const connectedSockets = new Set<WebSocket>();
 
@@ -36,9 +39,7 @@ export function createConversationManager() {
     if (!room) return;
     const raw = serializeServerMessage(event);
     for (const ws of room) {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(raw);
-      }
+      sendWebSocketData(ws, raw);
     }
   }
 
@@ -77,9 +78,14 @@ export function createConversationManager() {
     return [...activeTurns.keys()];
   }
 
-  function addConnection(ws: WebSocket, userId?: string | null) {
+  function addConnection(ws: WebSocket, userId: string) {
+    if (connectedSockets.size >= MAX_WS_CONNECTIONS) {
+      return false;
+    }
+
     connectedSockets.add(ws);
-    connectionUsers.set(ws, userId ?? null);
+    connectionUsers.set(ws, userId);
+    return true;
   }
 
   function removeConnection(ws: WebSocket) {
@@ -90,14 +96,12 @@ export function createConversationManager() {
   function broadcastAll(event: ServerMessage, userId?: string | null) {
     const raw = serializeServerMessage(event);
     for (const ws of connectedSockets) {
-      const socketUserId = connectionUsers.get(ws) ?? null;
-      if (userId !== undefined && socketUserId !== null && socketUserId !== userId) {
+      const socketUserId = connectionUsers.get(ws);
+      if (!socketUserId || (userId !== undefined && socketUserId !== userId)) {
         continue;
       }
 
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(raw);
-      }
+      sendWebSocketData(ws, raw);
     }
   }
 

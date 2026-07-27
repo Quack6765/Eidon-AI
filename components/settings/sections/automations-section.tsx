@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CalendarDays, Clock3, Plus, Trash2 } from "lucide-react";
 
 import { ProfileCard } from "@/components/settings/profile-card";
@@ -18,8 +18,8 @@ import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import type { Automation, Persona } from "@/lib/types";
 
 type SettingsPayload = {
-  defaultProviderProfileId: string;
-  providerProfiles?: Array<{
+  defaultProviderProfileId: string | null;
+  providerProfiles: Array<{
     id: string;
     name: string;
   }>;
@@ -101,9 +101,12 @@ export function AutomationsSection() {
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const toast = useToastState();
+  const showAutomationToast = toast.showToast;
   const [isLoading, setIsLoading] = useState(true);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState(form);
+  const unsavedActions = useRef({ save: saveAutomation, discard: restoreAutomationDraft });
+  unsavedActions.current = { save: saveAutomation, discard: restoreAutomationDraft };
 
   const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
@@ -113,14 +116,13 @@ export function AutomationsSection() {
       isDirty
         ? {
             isDirty: () => isDirty,
-            save: () => { void saveAutomation(); },
-            discard: () => { resetDirty(); },
+            save: () => unsavedActions.current.save(),
+            discard: () => unsavedActions.current.discard(),
             entityType: "this automation",
           }
         : null
     );
     return () => registerUnsavedChangesGuard(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDirty]);
 
   async function loadData() {
@@ -133,27 +135,42 @@ export function AutomationsSection() {
         fetch("/api/personas")
       ]);
 
+      if (!automationsResponse.ok || !settingsResponse.ok || !personasResponse.ok) {
+        throw new Error("Unable to load automation settings");
+      }
+
       const automationsPayload = (await automationsResponse.json()) as { automations?: Automation[] };
       const settingsPayload = (await settingsResponse.json()) as { settings?: SettingsPayload };
       const personasPayload = (await personasResponse.json()) as { personas?: Persona[] };
 
-      const nextAutomations = automationsPayload.automations ?? [];
-      const nextProfiles = settingsPayload.settings?.providerProfiles ?? [];
+      if (
+        !Array.isArray(automationsPayload.automations) ||
+        !settingsPayload.settings ||
+        !Array.isArray(settingsPayload.settings.providerProfiles) ||
+        !Array.isArray(personasPayload.personas)
+      ) {
+        throw new Error("Automation settings response was incomplete");
+      }
+
+      const nextAutomations = automationsPayload.automations;
+      const nextProfiles = settingsPayload.settings.providerProfiles;
       const nextDefaultProviderProfileId =
-        settingsPayload.settings?.defaultProviderProfileId || nextProfiles[0]?.id || "";
+        settingsPayload.settings.defaultProviderProfileId || nextProfiles[0]?.id || "";
 
       setAutomations(nextAutomations);
       setProviderProfiles(nextProfiles);
       setDefaultProviderProfileId(nextDefaultProviderProfileId);
-      setPersonas(personasPayload.personas ?? []);
+      setPersonas(personasPayload.personas);
     } finally {
       setIsLoading(false);
     }
   }
 
   useEffect(() => {
-    void loadData();
-  }, []);
+    void loadData().catch(() => {
+      showAutomationToast("error", "Unable to load automations");
+    });
+  }, [showAutomationToast]);
 
   useEffect(() => {
     if (!isAddingNew || form.providerProfileId) {
@@ -232,27 +249,36 @@ export function AutomationsSection() {
     });
   }
 
-  async function saveAutomation() {
+  function restoreAutomationDraft() {
+    const saved = automations.find((automation) => automation.id === selectedAutomationId);
+    const restored = saved
+      ? automationToForm(saved)
+      : createDefaultForm(defaultProviderProfileId || providerProfiles[0]?.id || "");
+    setForm(restored);
+    resetDirty(restored);
+  }
+
+  async function saveAutomation(): Promise<boolean> {
     const resolvedProviderProfileId = form.providerProfileId || defaultProviderProfileId || providerProfiles[0]?.id || "";
 
     if (!form.name.trim() || !form.prompt.trim()) {
       toast.showToast("error", "Name and prompt are required");
-      return;
+      return false;
     }
 
     if (!resolvedProviderProfileId) {
       toast.showToast("error", "Choose a provider profile");
-      return;
+      return false;
     }
 
     if (form.scheduleKind === "interval" && form.intervalMinutes < 5) {
       toast.showToast("error", "Interval must be at least 5 minutes");
-      return;
+      return false;
     }
 
     if (form.scheduleKind === "calendar" && form.calendarFrequency === "weekly" && form.daysOfWeek.length === 0) {
       toast.showToast("error", "Choose at least one day for weekly automations");
-      return;
+      return false;
     }
 
     toast.dismissToast();
@@ -270,33 +296,54 @@ export function AutomationsSection() {
       enabled: form.enabled
     };
 
-    const response = await fetch(
-      selectedAutomationId ? `/api/automations/${selectedAutomationId}` : "/api/automations",
-      {
-        method: selectedAutomationId ? "PATCH" : "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(payload)
+    try {
+      const response = await fetch(
+        selectedAutomationId ? `/api/automations/${selectedAutomationId}` : "/api/automations",
+        {
+          method: selectedAutomationId ? "PATCH" : "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      if (!response.ok) {
+        const failure = (await response.json().catch(() => ({ error: "Unable to save automation" }))) as {
+          error?: string;
+        };
+        toast.showToast("error", failure.error ?? "Unable to save automation");
+        return false;
       }
-    );
 
-    if (!response.ok) {
-      const failure = (await response.json().catch(() => ({ error: "Unable to save automation" }))) as {
-        error?: string;
-      };
-      toast.showToast("error", failure.error ?? "Unable to save automation");
-      return;
+      const data = (await response.json()) as { automation?: Automation };
+      if (!data.automation) {
+        throw new Error("Automation response was incomplete");
+      }
+
+      const savedAutomation = data.automation;
+      const savedForm = automationToForm(savedAutomation);
+      setSelectedAutomationId(savedAutomation.id);
+      setIsAddingNew(false);
+      setForm(savedForm);
+      setMobileDetailVisible(true);
+      setAutomations((current) => {
+        const index = current.findIndex((automation) => automation.id === savedAutomation.id);
+        if (index === -1) {
+          return [...current, savedAutomation];
+        }
+        return current.map((automation, currentIndex) =>
+          currentIndex === index ? savedAutomation : automation
+        );
+      });
+      await loadData();
+      toast.showToast("success", "Automation saved.");
+      resetDirty(savedForm);
+      return true;
+    } catch {
+      toast.showToast("error", "Unable to save automation");
+      return false;
     }
-
-    const data = (await response.json()) as { automation: Automation };
-    await loadData();
-    setSelectedAutomationId(data.automation.id);
-    setIsAddingNew(false);
-    setForm(automationToForm(data.automation));
-    setMobileDetailVisible(true);
-    toast.showToast("success", "Automation saved.");
-    resetDirty(automationToForm(data.automation));
   }
 
   async function deleteSelectedAutomation() {
@@ -325,18 +372,16 @@ export function AutomationsSection() {
     setDeleteConfirmOpen(false);
   }
 
-  function handleUnsavedSave() {
+  async function handleUnsavedSave() {
+    if (!(await saveAutomation())) return;
     setUnsavedDialogOpen(false);
-    if (pendingSwitch) {
-      saveAutomation();
-      pendingSwitch();
-      setPendingSwitch(null);
-    }
+    pendingSwitch?.();
+    setPendingSwitch(null);
   }
 
   function handleUnsavedDiscard() {
     setUnsavedDialogOpen(false);
-    resetDirty();
+    restoreAutomationDraft();
     if (pendingSwitch) {
       pendingSwitch();
       setPendingSwitch(null);

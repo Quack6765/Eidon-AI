@@ -6,15 +6,18 @@ import { renameGeneratedImages } from "./generated-filenames";
 export async function generateGoogleNanoBananaImages(input: {
   settings: Pick<AppSettings, "googleNanoBananaApiKey" | "googleNanoBananaModel">;
   instruction: CompiledImageInstruction;
+  abortSignal?: AbortSignal;
 }): Promise<GenerateImageResult> {
   const ai = new GoogleGenAI({ apiKey: input.settings.googleNanoBananaApiKey });
-  const response = await ai.models.generateContent({
+  const request = {
     model: input.settings.googleNanoBananaModel,
     contents: input.instruction.imagePrompt,
     config: {
-      responseModalities: [Modality.IMAGE]
+      responseModalities: [Modality.IMAGE],
+      abortSignal: input.abortSignal
     }
-  });
+  };
+  const response = await ai.models.generateContent(request);
 
   const images = renameGeneratedImages((response.candidates?.[0]?.content?.parts ?? [])
     .filter((part): part is { inlineData: { mimeType: string; data: string } } =>

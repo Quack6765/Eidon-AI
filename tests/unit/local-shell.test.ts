@@ -324,6 +324,24 @@ describe("local shell", () => {
     ).toBe("Command failed with no output");
   });
 
+  it("aborts an active command and terminates its process group", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+    const controller = new AbortController();
+
+    const resultPromise = executeLocalShellCommand({
+      command: "long-running-command",
+      abortSignal: controller.signal
+    });
+
+    controller.abort();
+
+    await expect(resultPromise).rejects.toMatchObject({ name: "AbortError" });
+    expect(child.kill).toHaveBeenCalledWith("SIGTERM");
+    child.emit("close", null);
+  });
+
   it("gives agent-browser commands a longer default timeout", async () => {
     vi.useFakeTimers();
     const { executeLocalShellCommand } = await import("@/lib/local-shell");

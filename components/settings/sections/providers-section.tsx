@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Copy,
   Plus,
@@ -71,9 +71,52 @@ type SettingsPayload = AppSettings & {
 
 type ProviderProfileDraft = SettingsPayload["providerProfiles"][number] & {
   apiKey: string;
+  apiKeyAction: "preserve" | "replace" | "clear";
   visionMode: VisionMode;
   githubConnectionStatus: "disconnected" | "connected" | "expired";
 };
+
+function toProviderDrafts(profiles: SettingsPayload["providerProfiles"]): ProviderProfileDraft[] {
+  return profiles.map((profile) => ({
+    ...profile,
+    apiKey: "",
+    apiKeyAction: "preserve"
+  }));
+}
+
+function buildDirtySnapshot(
+  profile: ProviderProfileDraft | undefined,
+  defaultProviderProfileId: string,
+  skillsEnabled: boolean
+) {
+  return {
+    activeProviderProfileId: profile?.id ?? "",
+    activeProviderKind: profile?.providerKind,
+    activeName: profile?.name ?? "",
+    activeApiBaseUrl: profile?.apiBaseUrl ?? "",
+    activeApiKey: profile?.apiKey ?? "",
+    activeApiKeyAction: profile?.apiKeyAction ?? "preserve",
+    activeModel: profile?.model ?? "",
+    activeApiMode: profile?.apiMode,
+    activeSystemPrompt: profile?.systemPrompt ?? "",
+    activeTemperature: profile?.temperature,
+    activeMaxOutputTokens: profile?.maxOutputTokens,
+    activeReasoningEffort: profile?.reasoningEffort,
+    activeReasoningSummaryEnabled: profile?.reasoningSummaryEnabled,
+    activeModelContextLimit: profile?.modelContextLimit,
+    activeCompactionThreshold: profile?.compactionThreshold,
+    activeFreshTailCount: profile?.freshTailCount,
+    activeTokenizerModel: profile?.tokenizerModel,
+    activeSafetyMarginTokens: profile?.safetyMarginTokens,
+    activeLeafSourceTokenLimit: profile?.leafSourceTokenLimit,
+    activeLeafMinMessageCount: profile?.leafMinMessageCount,
+    activeMergedMinNodeCount: profile?.mergedMinNodeCount,
+    activeMergedTargetTokens: profile?.mergedTargetTokens,
+    activeVisionMode: profile?.visionMode,
+    defaultProviderProfileId,
+    skillsEnabled
+  };
+}
 
 export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const toast = useToastState();
@@ -85,12 +128,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const [selectedProviderProfileId, setSelectedProviderProfileId] = useState(
     settings.defaultProviderProfileId ?? settings.providerProfiles[0]?.id ?? ""
   );
-  const [providerProfiles, setProviderProfiles] = useState<ProviderProfileDraft[]>(
-    settings.providerProfiles.map((profile) => ({
-      ...profile,
-      apiKey: ""
-    }))
-  );
+  const initialProviderProfiles = toProviderDrafts(settings.providerProfiles);
+  const [providerProfiles, setProviderProfiles] = useState<ProviderProfileDraft[]>(initialProviderProfiles);
+  const persistedProviderProfiles = useRef(initialProviderProfiles);
+  const persistedDefaultProviderProfileId = useRef(defaultProviderProfileId);
+  const persistedSkillsEnabled = useRef(skillsEnabled);
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
@@ -104,45 +146,24 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
   const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
-  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
-    activeProviderKind: currentActiveProfile?.providerKind,
-    activeName: currentActiveProfile?.name ?? "",
-    activeApiBaseUrl: currentActiveProfile?.apiBaseUrl ?? "",
-    activeApiKey: currentActiveProfile?.apiKey ?? "",
-    activeModel: currentActiveProfile?.model ?? "",
-    activeApiMode: currentActiveProfile?.apiMode,
-    activeSystemPrompt: currentActiveProfile?.systemPrompt ?? "",
-    activeTemperature: currentActiveProfile?.temperature,
-    activeMaxOutputTokens: currentActiveProfile?.maxOutputTokens,
-    activeReasoningEffort: currentActiveProfile?.reasoningEffort,
-    activeReasoningSummaryEnabled: currentActiveProfile?.reasoningSummaryEnabled,
-    activeModelContextLimit: currentActiveProfile?.modelContextLimit,
-    activeCompactionThreshold: currentActiveProfile?.compactionThreshold,
-    activeFreshTailCount: currentActiveProfile?.freshTailCount,
-    activeTokenizerModel: currentActiveProfile?.tokenizerModel,
-    activeSafetyMarginTokens: currentActiveProfile?.safetyMarginTokens,
-    activeLeafSourceTokenLimit: currentActiveProfile?.leafSourceTokenLimit,
-    activeLeafMinMessageCount: currentActiveProfile?.leafMinMessageCount,
-    activeMergedMinNodeCount: currentActiveProfile?.mergedMinNodeCount,
-    activeMergedTargetTokens: currentActiveProfile?.mergedTargetTokens,
-    activeVisionMode: currentActiveProfile?.visionMode,
-    defaultProviderProfileId,
-    skillsEnabled,
-  });
+  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState(
+    buildDirtySnapshot(currentActiveProfile, defaultProviderProfileId, skillsEnabled)
+  );
+  const unsavedActions = useRef({ save: saveSettings, discard: restorePersistedProviderSettings });
+  unsavedActions.current = { save: saveSettings, discard: restorePersistedProviderSettings };
 
   useEffect(() => {
     registerUnsavedChangesGuard(
       isDirty
         ? {
             isDirty: () => isDirty,
-            save: () => { void handleSettings(new Event("submit") as unknown as FormEvent<HTMLFormElement>); },
-            discard: () => { resetDirty(); },
+            save: () => unsavedActions.current.save(),
+            discard: () => unsavedActions.current.discard(),
             entityType: "your provider settings",
           }
         : null
     );
     return () => registerUnsavedChangesGuard(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDirty]);
 
   useEffect(() => {
@@ -201,36 +222,33 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     );
   }
 
-  function buildDirtySnapshot(profile: ProviderProfileDraft) {
-    return {
-      activeProviderKind: profile.providerKind,
-      activeName: profile.name ?? "",
-      activeApiBaseUrl: profile.apiBaseUrl ?? "",
-      activeApiKey: profile.apiKey ?? "",
-      activeModel: profile.model ?? "",
-      activeApiMode: profile.apiMode,
-      activeSystemPrompt: profile.systemPrompt ?? "",
-      activeTemperature: profile.temperature,
-      activeMaxOutputTokens: profile.maxOutputTokens,
-      activeReasoningEffort: profile.reasoningEffort,
-      activeReasoningSummaryEnabled: profile.reasoningSummaryEnabled,
-      activeModelContextLimit: profile.modelContextLimit,
-      activeCompactionThreshold: profile.compactionThreshold,
-      activeFreshTailCount: profile.freshTailCount,
-      activeTokenizerModel: profile.tokenizerModel,
-      activeSafetyMarginTokens: profile.safetyMarginTokens,
-      activeLeafSourceTokenLimit: profile.leafSourceTokenLimit,
-      activeLeafMinMessageCount: profile.leafMinMessageCount,
-      activeMergedMinNodeCount: profile.mergedMinNodeCount,
-      activeMergedTargetTokens: profile.mergedTargetTokens,
-      activeVisionMode: profile.visionMode,
-      defaultProviderProfileId,
-      skillsEnabled,
-    };
+  function restorePersistedProviderSettings() {
+    const restoredProfiles = persistedProviderProfiles.current.map((profile) => ({ ...profile }));
+    const restoredDefaultProviderProfileId = persistedDefaultProviderProfileId.current;
+    const restoredSkillsEnabled = persistedSkillsEnabled.current;
+    const restoredSelectedId = restoredProfiles.some((profile) => profile.id === selectedProviderProfileId)
+      ? selectedProviderProfileId
+      : restoredDefaultProviderProfileId;
+    const restoredActive = restoredProfiles.find((profile) => profile.id === restoredSelectedId) ?? restoredProfiles[0];
+
+    setProviderProfiles(restoredProfiles);
+    setSelectedProviderProfileId(restoredActive?.id ?? "");
+    setDefaultProviderProfileId(restoredDefaultProviderProfileId);
+    setSkillsEnabled(restoredSkillsEnabled);
+    resetDirty(
+      buildDirtySnapshot(
+        restoredActive,
+        restoredDefaultProviderProfileId,
+        restoredSkillsEnabled
+      )
+    );
   }
 
-  function addProviderProfile() {
-    const template = activeProviderProfile ?? providerProfiles[0];
+  function addProviderProfile(
+    sourceProfiles = providerProfiles,
+    sourceProfileId = selectedProviderProfileId
+  ) {
+    const template = sourceProfiles.find((profile) => profile.id === sourceProfileId) ?? sourceProfiles[0];
     const nextProfileId = createId("profile");
     const nextProfile: ProviderProfileDraft = {
       ...(template ?? {
@@ -261,9 +279,10 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         name: ""
       }),
       id: nextProfileId,
-      name: `Profile ${providerProfiles.length + 1}`,
+      name: `Profile ${sourceProfiles.length + 1}`,
       hasApiKey: false,
       apiKey: "",
+      apiKeyAction: "clear",
       visionMode: template?.visionMode ?? "native" as VisionMode,
       githubAccountLogin: null,
       githubAccountName: null,
@@ -274,10 +293,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       updatedAt: new Date().toISOString()
     };
 
-    setProviderProfiles((current) => [...current, nextProfile]);
+    setProviderProfiles([...sourceProfiles, nextProfile]);
     setSelectedProviderProfileId(nextProfile.id);
     setMobileDetailVisible(true);
-    resetDirty(buildDirtySnapshot(nextProfile));
   }
 
   function applyPresetToActiveProviderProfile(presetId: ProviderPresetId) {
@@ -288,7 +306,10 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     const isAutoName = /^Profile \d+$/.test(activeProviderProfile.name);
     const patch: Partial<ProviderProfileDraft> = {
       ...applyProviderPreset(activeProviderProfile, presetId),
-      providerPresetId: presetId
+      providerPresetId: presetId,
+      apiKey: "",
+      apiKeyAction: "clear",
+      hasApiKey: false
     };
 
     if (isAutoName) {
@@ -349,29 +370,48 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(await buildSettingsPayload(nextDefault, nextProfiles))
     });
+    const result = (await response.json().catch(() => ({}))) as {
+      settings?: SettingsPayload;
+      error?: string;
+    };
 
     if (response.ok) {
+      const savedProfiles = result.settings
+        ? toProviderDrafts(result.settings.providerProfiles)
+        : nextProfiles.map((profile) => ({
+            ...profile,
+            apiKey: "",
+            apiKeyAction: "preserve" as const,
+            hasApiKey: profile.apiKeyAction === "replace"
+              ? Boolean(profile.apiKey)
+              : profile.apiKeyAction === "clear"
+                ? false
+                : profile.hasApiKey
+          }));
+      const savedDefaultProviderProfileId = result.settings?.defaultProviderProfileId ?? nextDefault;
+      const savedSkillsEnabled = result.settings?.skillsEnabled ?? skillsEnabled;
       const newSelectedId = selectedProviderProfileId === profileId
-        ? (nextProfiles.find((p) => p.id === nextDefault)?.id ?? nextProfiles[0]?.id ?? "")
+        ? (savedProfiles.find((p) => p.id === savedDefaultProviderProfileId)?.id ?? savedProfiles[0]?.id ?? "")
         : selectedProviderProfileId;
-      const newActiveProfile = nextProfiles.find((p) => p.id === newSelectedId) ?? nextProfiles[0];
+      const newActiveProfile = savedProfiles.find((p) => p.id === newSelectedId) ?? savedProfiles[0];
 
-      setProviderProfiles(nextProfiles);
+      persistedProviderProfiles.current = savedProfiles;
+      persistedDefaultProviderProfileId.current = savedDefaultProviderProfileId;
+      persistedSkillsEnabled.current = savedSkillsEnabled;
+      setProviderProfiles(savedProfiles);
       setSelectedProviderProfileId(newSelectedId);
-      if (defaultProviderProfileId === profileId) {
-        setDefaultProviderProfileId(nextDefault);
-      }
-
-      if (newActiveProfile) {
-        resetDirty({
-          ...buildDirtySnapshot(newActiveProfile),
-          defaultProviderProfileId: defaultProviderProfileId === profileId ? nextDefault : defaultProviderProfileId,
-        });
-      }
+      setDefaultProviderProfileId(savedDefaultProviderProfileId);
+      setSkillsEnabled(savedSkillsEnabled);
+      resetDirty(
+        buildDirtySnapshot(
+          newActiveProfile,
+          savedDefaultProviderProfileId,
+          savedSkillsEnabled
+        )
+      );
 
       toast.showToast("success", "Provider deleted.");
     } else {
-      const result = (await response.json().catch(() => ({}))) as { error?: string };
       toast.showToast("error", result.error ?? "Unable to delete provider");
     }
   }
@@ -387,9 +427,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       });
 
       const result = (await response.json()) as {
-        settings?: {
-          providerProfiles: Array<ProviderProfileDraft>;
-        };
+        settings?: SettingsPayload;
         error?: string;
       };
 
@@ -398,19 +436,30 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         return;
       }
 
-      const newProfiles = result.settings!.providerProfiles.map(
-        (profile: ProviderProfileDraft) => ({
-          ...profile,
-          apiKey: ""
-        })
-      );
+      const savedSettings = result.settings!;
+      const newProfiles = toProviderDrafts(savedSettings.providerProfiles);
+      const savedDefaultProviderProfileId = savedSettings.defaultProviderProfileId ?? newProfiles[0]?.id ?? "";
+      const savedSkillsEnabled = savedSettings.skillsEnabled;
+      persistedProviderProfiles.current = newProfiles;
+      persistedDefaultProviderProfileId.current = savedDefaultProviderProfileId;
+      persistedSkillsEnabled.current = savedSkillsEnabled;
       const newProfileId = newProfiles.find(
         (p: ProviderProfileDraft) => !providerProfiles.some((existing) => existing.id === p.id)
       )?.id;
 
       setProviderProfiles(newProfiles);
+      setDefaultProviderProfileId(savedDefaultProviderProfileId);
+      setSkillsEnabled(savedSkillsEnabled);
       if (newProfileId) {
         setSelectedProviderProfileId(newProfileId);
+        const duplicatedProfile = newProfiles.find((profile) => profile.id === newProfileId);
+        resetDirty(
+          buildDirtySnapshot(
+            duplicatedProfile,
+            savedDefaultProviderProfileId,
+            savedSkillsEnabled
+          )
+        );
       }
       setMobileDetailVisible(true);
       toast.showToast("success", "Provider duplicated");
@@ -433,6 +482,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         providerKind: profile.providerKind ?? "openai_compatible",
         apiBaseUrl: profile.apiBaseUrl,
         apiKey: profile.apiKey,
+        apiKeyAction: profile.apiKeyAction,
         model: profile.model,
         apiMode: profile.apiMode,
         systemPrompt: profile.systemPrompt,
@@ -464,29 +514,67 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   }
 
   async function saveSettingsWithDefault(nextDefaultProviderProfileId: string, profilesOverride?: ProviderProfileDraft[]) {
+    try {
+      return await saveSettingsWithDefaultUnsafe(nextDefaultProviderProfileId, profilesOverride);
+    } catch {
+      toast.showToast("error", "Unable to save settings");
+      return false;
+    }
+  }
+
+  async function saveSettingsWithDefaultUnsafe(nextDefaultProviderProfileId: string, profilesOverride?: ProviderProfileDraft[]) {
+    const profilesToSave = profilesOverride ?? providerProfiles;
     const response = await fetch("/api/settings/providers", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(await buildSettingsPayload(nextDefaultProviderProfileId, profilesOverride))
+      body: JSON.stringify(await buildSettingsPayload(nextDefaultProviderProfileId, profilesToSave))
     });
 
-    const result = (await response.json()) as { error?: string };
+    const result = (await response.json()) as { settings?: SettingsPayload; error?: string };
     if (!response.ok) {
       toast.showToast("error", result.error ?? "Unable to save settings");
       return false;
     }
+    if (!result.settings) {
+      throw new Error("Provider settings response was incomplete");
+    }
+
+    const persistedProfiles = toProviderDrafts(result.settings.providerProfiles);
+    const persistedDefaultId =
+      result.settings.defaultProviderProfileId ?? persistedProfiles[0]?.id ?? "";
+    const persistedSkills = result.settings.skillsEnabled;
+    const persistedSelectedId = persistedProfiles.some(
+      (profile) => profile.id === selectedProviderProfileId
+    )
+      ? selectedProviderProfileId
+      : persistedDefaultId;
+    persistedProviderProfiles.current = persistedProfiles;
+    persistedDefaultProviderProfileId.current = persistedDefaultId;
+    persistedSkillsEnabled.current = persistedSkills;
+    setProviderProfiles(persistedProfiles);
+    setSelectedProviderProfileId(persistedSelectedId);
+    setDefaultProviderProfileId(persistedDefaultId);
+    setSkillsEnabled(persistedSkills);
+    resetDirty(
+      buildDirtySnapshot(
+        persistedProfiles.find((profile) => profile.id === persistedSelectedId) ?? persistedProfiles[0],
+        persistedDefaultId,
+        persistedSkills
+      )
+    );
 
     return true;
   }
 
-  async function handleSettings(event: FormEvent<HTMLFormElement>) {
+  async function handleSettings(event: FormEvent<HTMLFormElement>): Promise<boolean> {
     event.preventDefault();
     toast.dismissToast();
 
     if (await saveSettings()) {
       toast.showToast("success", "Provider saved.");
-      resetDirty();
+      return true;
     }
+    return false;
   }
 
   async function runConnectionTest() {
@@ -507,7 +595,6 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     }
     toast.dismissToast();
     if (await saveSettingsWithDefault(activeProviderProfile.id)) {
-      setDefaultProviderProfileId(activeProviderProfile.id);
       toast.showToast("success", "Default provider updated.");
     }
   }
@@ -522,17 +609,16 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     setIsSystemPromptOpen(false);
   }
 
-  function handleUnsavedSave() {
+  async function handleUnsavedSave() {
+    if (!(await saveSettings())) return;
     setUnsavedDialogOpen(false);
-    if (pendingSwitch) {
-      void handleSettings(new Event("submit") as unknown as FormEvent<HTMLFormElement>);
-      pendingSwitch();
-      setPendingSwitch(null);
-    }
+    pendingSwitch?.();
+    setPendingSwitch(null);
   }
 
   function handleUnsavedDiscard() {
     setUnsavedDialogOpen(false);
+    restorePersistedProviderSettings();
     if (pendingSwitch) {
       pendingSwitch();
       setPendingSwitch(null);
@@ -553,9 +639,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
             </div>
             <button
               type="button"
+              aria-label="Add provider"
               onClick={() => {
                 if (isDirty) {
-                  setPendingSwitch(() => () => addProviderProfile());
+                  setPendingSwitch(() => () => addProviderProfile(
+                    persistedProviderProfiles.current,
+                    selectedProviderProfileId
+                  ));
                   setUnsavedDialogOpen(true);
                   return;
                 }
@@ -576,16 +666,27 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                 onClick={() => {
                   if (isDirty && selectedProviderProfileId !== profile.id) {
                     setPendingSwitch(() => () => {
+                      const persistedProfile = persistedProviderProfiles.current.find(
+                        (entry) => entry.id === profile.id
+                      );
                       setSelectedProviderProfileId(profile.id);
                       setMobileDetailVisible(true);
-                      resetDirty(buildDirtySnapshot(profile));
+                      resetDirty(
+                        buildDirtySnapshot(
+                          persistedProfile ?? profile,
+                          persistedDefaultProviderProfileId.current,
+                          persistedSkillsEnabled.current
+                        )
+                      );
                     });
                     setUnsavedDialogOpen(true);
                     return;
                   }
                   setSelectedProviderProfileId(profile.id);
                   setMobileDetailVisible(true);
-                  resetDirty(buildDirtySnapshot(profile));
+                  resetDirty(
+                    buildDirtySnapshot(profile, defaultProviderProfileId, skillsEnabled)
+                  );
                 }}
                 title={profile.name}
                 subtitle={
@@ -693,6 +794,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               providerKind: "github_copilot",
                               apiBaseUrl: "",
                               apiKey: "",
+                              apiKeyAction: "clear",
+                              hasApiKey: false,
                               model: "",
                               apiMode: "responses",
                               systemPrompt: "",
@@ -706,6 +809,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               providerKind: "anthropic",
                               ...anthropicPresetValues,
                               apiKey: "",
+                              apiKeyAction: "clear",
+                              hasApiKey: false,
                               providerPresetId: "anthropic_official"
                             });
                           } else {
@@ -713,6 +818,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                               providerKind: "openai_compatible",
                               apiBaseUrl: activeProviderProfile.apiBaseUrl || "https://api.openai.com/v1",
                               apiKey: "",
+                              apiKeyAction: "clear",
+                              hasApiKey: false,
                               providerPresetId: null
                             });
                           }
@@ -834,9 +941,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             name="provider-api-base-url"
                             autoComplete="url"
                             value={activeProviderProfile.apiBaseUrl}
-                            onChange={(event) =>
-                              updateActiveProviderProfile({ apiBaseUrl: event.target.value, providerPresetId: null })
-                            }
+                          onChange={(event) => updateActiveProviderProfile({
+                            apiBaseUrl: event.target.value,
+                            providerPresetId: null,
+                            apiKey: "",
+                            apiKeyAction: "clear",
+                            hasApiKey: false
+                          })}
                             required
                             className={isFieldDirty("activeApiBaseUrl") ? "!border-amber-500/40" : ""}
                           />
@@ -867,7 +978,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             onChange={(event) =>
                               updateActiveProviderProfile({
                                 apiKey: event.target.value,
-                                hasApiKey: activeProviderProfile.hasApiKey || Boolean(event.target.value)
+                                apiKeyAction: event.target.value ? "replace" : "clear",
+                                hasApiKey: Boolean(event.target.value)
                               })
                             }
                             placeholder={activeProviderProfile.hasApiKey ? maskedApiKeyValue : "sk-..."}
@@ -881,6 +993,19 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                           </button>
                         </div>
+                        {activeProviderProfile.hasApiKey && activeProviderProfile.apiKeyAction === "preserve" ? (
+                          <button
+                            type="button"
+                            className="mt-2 text-xs text-red-400/80 transition-colors hover:text-red-300"
+                            onClick={() => updateActiveProviderProfile({
+                              apiKey: "",
+                              apiKeyAction: "clear",
+                              hasApiKey: false
+                            })}
+                          >
+                            Clear stored API key
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   )}
@@ -1245,7 +1370,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   title="Delete provider?"
                   description={
                     <>
-                      <strong className="text-[var(--text)] font-medium">{activeProviderProfile?.name || "This provider"}</strong> will be permanently deleted. This action cannot be undone.
+                      <strong className="text-[var(--text)] font-medium">{activeProviderProfile?.name || "This provider"}</strong> will be permanently deleted. Conversations and scheduled automations using it will move to the default provider, and title generation will return to the conversation provider.
                     </>
                   }
                   onConfirm={handleDeleteConfirm}

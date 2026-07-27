@@ -12,6 +12,13 @@ import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { searchSearxng } from "@/lib/searxng";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { getWebSearchActionLabel } from "@/lib/web-search";
+import { throwIfChatTurnAborted as throwIfAborted } from "@/lib/chat-turn-control";
+import { MAX_RUNTIME_TOOL_RESULT_CHARS, truncateText } from "@/lib/bounded-text";
+import {
+  prepareScreenshotArtifact,
+  registerScreenshotArtifact,
+  revokeScreenshotArtifact
+} from "@/lib/screenshot-artifact-capabilities";
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent } from "./prompt-analysis";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
 import type {
@@ -74,6 +81,7 @@ export async function executeSearxngWebSearch(
   context: {
     input: {
       searxngBaseUrl?: string | null;
+      abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -82,6 +90,7 @@ export async function executeSearxngWebSearch(
     promptMessages: PromptMessage[];
   }
 ) {
+  throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
   const query = String(args.query ?? "").trim();
   const maxResults =
@@ -116,8 +125,10 @@ export async function executeSearxngWebSearch(
     const resultSummary = await searchSearxng({
       baseUrl: context.input.searxngBaseUrl,
       query,
-      maxResults
+      maxResults,
+      abortSignal: context.input.abortSignal
     });
+    throwIfAborted(context.input.abortSignal);
 
     sortOrder += 1;
     await context.input.onActionComplete?.(actionHandle, {
@@ -128,6 +139,7 @@ export async function executeSearxngWebSearch(
     const resultMsg = buildToolResultMessage(toolCallId, resultSummary);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   } catch (error) {
+    throwIfAborted(context.input.abortSignal);
     const message = error instanceof Error ? error.message : "SearXNG search failed";
     await context.input.onActionError?.(actionHandle, {
       detail: query,
@@ -147,6 +159,7 @@ export async function executeImageGeneration(
       appSettings?: import("@/lib/types").AppSettings;
       conversationId?: string;
       assistantMessageId?: string;
+      abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -157,9 +170,11 @@ export async function executeImageGeneration(
     promptMessages: PromptMessage[];
   }
 ) {
+  throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
   const prompt = String(args.prompt ?? "").trim();
   let actionHandle: string | undefined;
+  let createdAttachmentIds: string[] = [];
   const appSettings = context.input.appSettings;
   const conversationId = context.input.conversationId;
   const assistantMessageId = context.input.assistantMessageId;
@@ -188,13 +203,17 @@ export async function executeImageGeneration(
     const { assignAttachmentsToMessage } = await import("@/lib/attachments");
     const instruction = await compileImageInstruction({
       settings: context.input.settings,
-      promptMessages: context.promptMessages
+      promptMessages: context.promptMessages,
+      abortSignal: context.input.abortSignal
     });
+    throwIfAborted(context.input.abortSignal);
 
     const backendResult = await generateGoogleNanoBananaImages({
       settings: appSettings,
-      instruction
+      instruction,
+      abortSignal: context.input.abortSignal
     });
+    throwIfAborted(context.input.abortSignal);
 
     const attachments = await createAttachments(
       conversationId,
@@ -204,6 +223,8 @@ export async function executeImageGeneration(
         bytes: img.bytes
       }))
     );
+    createdAttachmentIds = attachments.map((attachment) => attachment.id);
+    throwIfAborted(context.input.abortSignal);
 
     assignAttachmentsToMessage(
       conversationId,
@@ -218,6 +239,7 @@ export async function executeImageGeneration(
       detail: instruction.imagePrompt || prompt,
       resultSummary
     });
+    throwIfAborted(context.input.abortSignal);
 
     const resultMsg = buildToolResultMessage(
       toolCallId,
@@ -225,6 +247,16 @@ export async function executeImageGeneration(
     );
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: true };
   } catch (error) {
+    if (createdAttachmentIds.length) {
+      const { deleteAttachmentById } = await import("@/lib/attachments");
+      createdAttachmentIds.forEach((attachmentId) => {
+        try {
+          deleteAttachmentById(attachmentId, { allowAssigned: true });
+        } catch {}
+      });
+      createdAttachmentIds = [];
+    }
+    throwIfAborted(context.input.abortSignal);
     const message = error instanceof Error ? error.message : "Image generation failed";
     await context.input.onActionError?.(actionHandle, {
       detail: prompt,
@@ -243,6 +275,7 @@ export async function executeMcpToolCall(
     input: {
       mcpToolSets: ToolSet[];
       mcpTimeout?: number;
+      abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -252,6 +285,7 @@ export async function executeMcpToolCall(
     promptMessages: PromptMessage[];
   }
 ) {
+  throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
   const withoutPrefix = functionName.slice(4);
   const toolSets = context.input.mcpToolSets;
@@ -314,7 +348,16 @@ export async function executeMcpToolCall(
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
-  const result = await callMcpTool(resolvedServer, resolvedTool.name, correctedArgs, context.input.mcpTimeout);
+  const result = context.input.abortSignal
+    ? await callMcpTool(
+        resolvedServer,
+        resolvedTool.name,
+        correctedArgs,
+        context.input.mcpTimeout,
+        context.input.abortSignal
+      )
+    : await callMcpTool(resolvedServer, resolvedTool.name, correctedArgs, context.input.mcpTimeout);
+  throwIfAborted(context.input.abortSignal);
   const resultText = getToolResultText(result);
 
   sortOrder += 1;
@@ -344,6 +387,7 @@ export async function executeLoadSkill(
   args: Record<string, unknown>,
   context: {
     input: {
+      abortSignal?: AbortSignal;
       skills: Skill[];
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -353,6 +397,7 @@ export async function executeLoadSkill(
     promptMessages: PromptMessage[];
   }
 ) {
+  throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
   const skillName = String(args.skill_name ?? "").trim().toLowerCase();
 
@@ -368,29 +413,36 @@ export async function executeLoadSkill(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  context.loadedSkillIds.add(skill.id);
-
+  throwIfAborted(context.input.abortSignal);
   const handle = await context.input.onActionStart?.({
     kind: "skill_load",
     label: "Load skill",
     detail: getSkillResolvedName(skill),
     skillId: skill.id
   });
+  throwIfAborted(context.input.abortSignal);
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
-  await context.input.onActionComplete?.(actionHandle, {
-    detail: getSkillResolvedName(skill),
-    resultSummary: "Skill instructions loaded."
-  });
+  context.loadedSkillIds.add(skill.id);
+  try {
+    await context.input.onActionComplete?.(actionHandle, {
+      detail: getSkillResolvedName(skill),
+      resultSummary: "Skill instructions loaded."
+    });
+    throwIfAborted(context.input.abortSignal);
+  } catch (error) {
+    context.loadedSkillIds.delete(skill.id);
+    throw error;
+  }
 
   sortOrder += 1;
 
-  let skillContent = [
+  const skillContent = truncateText([
     `Skill loaded: ${getSkillResolvedName(skill)}`,
     `Description: ${getSkillResolvedDescription(skill)}`,
     "",
     skill.content
-  ].join("\n");
+  ].join("\n"), MAX_RUNTIME_TOOL_RESULT_CHARS);
 
   const resultMsg = buildToolResultMessage(toolCallId, skillContent);
   return {
@@ -404,6 +456,7 @@ export async function executeShellCommand(
   args: Record<string, unknown>,
   context: {
     input: {
+      abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -412,6 +465,7 @@ export async function executeShellCommand(
     promptMessages: PromptMessage[];
   }
 ) {
+  throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
   const command = String(args.command ?? "").trim();
   const timeoutMs = typeof args.timeout_ms === "number" ? args.timeout_ms : undefined;
@@ -428,26 +482,43 @@ export async function executeShellCommand(
     arguments: { command, timeoutMs }
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
+  const screenshotCandidate = prepareScreenshotArtifact(command);
 
   try {
     const result = await executeLocalShellCommand({
       command,
-      timeoutMs
+      timeoutMs,
+      abortSignal: context.input.abortSignal
     });
+    throwIfAborted(context.input.abortSignal);
     const resultSummary = summarizeShellResult(result);
+    const executionSucceeded = !result.isError && !result.timedOut && result.exitCode === 0;
 
     sortOrder += 1;
 
-    if (result.isError) {
+    if (!executionSucceeded) {
       await context.input.onActionError?.(actionHandle, { detail: buildShellDetail(command), resultSummary });
     } else {
-      await context.input.onActionComplete?.(actionHandle, { detail: buildShellDetail(command), resultSummary });
+      registerScreenshotArtifact(actionHandle, screenshotCandidate);
+      try {
+        await context.input.onActionComplete?.(actionHandle, {
+          detail: buildShellDetail(command),
+          resultSummary
+        });
+      } finally {
+        revokeScreenshotArtifact(actionHandle);
+      }
     }
 
-    const resultText = buildShellResultForPrompt({ command, resultSummary, isError: result.isError });
+    const resultText = buildShellResultForPrompt({
+      command,
+      resultSummary,
+      isError: !executionSucceeded
+    });
     const resultMsg = buildToolResultMessage(toolCallId, resultText);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   } catch (error) {
+    throwIfAborted(context.input.abortSignal);
     const message = error instanceof Error ? error.message : "Shell command execution failed";
     await context.input.onActionError?.(actionHandle, { detail: buildShellDetail(command), resultSummary: message });
     const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
@@ -455,20 +526,30 @@ export async function executeShellCommand(
   }
 }
 
+type MemoryToolExecutionContext = {
+  memoryUserId?: string;
+  input: {
+    abortSignal?: AbortSignal;
+    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+    onActionComplete?: (
+      handle: string | undefined,
+      patch: { detail?: string; resultSummary?: string }
+    ) => Promise<void> | void;
+    onActionError?: (
+      handle: string | undefined,
+      patch: { detail?: string; resultSummary?: string }
+    ) => Promise<void> | void;
+  };
+  timelineSortOrder: number;
+  promptMessages: PromptMessage[];
+};
+
 export async function executeCreateMemory(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    memoryUserId?: string;
-    input: {
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: MemoryToolExecutionContext
 ) {
+  throwIfAborted(context.input.abortSignal);
   const sortOrder = context.timelineSortOrder;
   const content = String(args.content ?? "").trim();
 
@@ -481,6 +562,7 @@ export async function executeCreateMemory(
   const proposalPayload = buildCreateMemoryProposal({ content, category: normalizedCategory });
   const maxCount = getSettings().memoriesMaxCount ?? 100;
   const currentCount = getMemoryCount(context.memoryUserId);
+  throwIfAborted(context.input.abortSignal);
 
   if (currentCount >= maxCount) {
     const errorMsg = `Memory limit reached (${currentCount}/${maxCount}). Update or delete an existing memory instead.`;
@@ -488,6 +570,7 @@ export async function executeCreateMemory(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
+  throwIfAborted(context.input.abortSignal);
   await context.input.onActionStart?.({
     kind: "create_memory",
     status: "pending",
@@ -497,6 +580,7 @@ export async function executeCreateMemory(
     proposalState: "pending",
     proposalPayload
   });
+  throwIfAborted(context.input.abortSignal);
 
   const resultMsg = buildToolResultMessage(
     toolCallId,
@@ -508,17 +592,9 @@ export async function executeCreateMemory(
 export async function executeUpdateMemory(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    memoryUserId?: string;
-    input: {
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: MemoryToolExecutionContext
 ) {
+  throwIfAborted(context.input.abortSignal);
   const sortOrder = context.timelineSortOrder;
   const id = String(args.id ?? "").trim();
   const content = String(args.content ?? "").trim();
@@ -530,6 +606,7 @@ export async function executeUpdateMemory(
   }
 
   const existing = getMemoryRecord(id, context.memoryUserId);
+  throwIfAborted(context.input.abortSignal);
   if (!existing) {
     const resultMsg = buildToolResultMessage(toolCallId, `Error: Memory ${id} not found`);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
@@ -541,6 +618,7 @@ export async function executeUpdateMemory(
     category
   });
 
+  throwIfAborted(context.input.abortSignal);
   await context.input.onActionStart?.({
     kind: "update_memory",
     status: "pending",
@@ -554,6 +632,7 @@ export async function executeUpdateMemory(
     proposalState: "pending",
     proposalPayload
   });
+  throwIfAborted(context.input.abortSignal);
 
   const resultMsg = buildToolResultMessage(
     toolCallId,
@@ -565,17 +644,9 @@ export async function executeUpdateMemory(
 export async function executeDeleteMemory(
   toolCallId: string,
   args: Record<string, unknown>,
-  context: {
-    memoryUserId?: string;
-    input: {
-      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
-    };
-    timelineSortOrder: number;
-    promptMessages: PromptMessage[];
-  }
+  context: MemoryToolExecutionContext
 ) {
+  throwIfAborted(context.input.abortSignal);
   const sortOrder = context.timelineSortOrder;
   const id = String(args.id ?? "").trim();
 
@@ -585,11 +656,13 @@ export async function executeDeleteMemory(
   }
 
   const existing = getMemoryRecord(id, context.memoryUserId);
+  throwIfAborted(context.input.abortSignal);
   if (!existing) {
     const resultMsg = buildToolResultMessage(toolCallId, `Error: Memory ${id} not found`);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
+  throwIfAborted(context.input.abortSignal);
   await context.input.onActionStart?.({
     kind: "delete_memory",
     status: "pending",
@@ -599,6 +672,7 @@ export async function executeDeleteMemory(
     proposalState: "pending",
     proposalPayload: buildDeleteMemoryProposal(existing)
   });
+  throwIfAborted(context.input.abortSignal);
 
   const resultMsg = buildToolResultMessage(
     toolCallId,
@@ -624,6 +698,7 @@ export async function executeToolCall(
       appSettings?: import("@/lib/types").AppSettings;
       conversationId?: string;
       assistantMessageId?: string;
+      abortSignal?: AbortSignal;
     };
     mcpServers: McpServer[];
     loadedSkillIds: Set<string>;
