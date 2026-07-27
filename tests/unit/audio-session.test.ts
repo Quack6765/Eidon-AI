@@ -129,4 +129,81 @@ describe("createSpeechAudioSession", () => {
     expect(stop).toHaveBeenCalledTimes(1);
     expect(close).toHaveBeenCalledTimes(1);
   });
+
+  it("captures and resamples microphone audio for embedded transcription", async () => {
+    const stop = vi.fn();
+    const sourceConnect = vi.fn();
+    const sourceDisconnect = vi.fn();
+    const processorConnect = vi.fn();
+    const processorDisconnect = vi.fn();
+    const processor = {
+      onaudioprocess: null as ((event: {
+        inputBuffer: { getChannelData: () => Float32Array };
+        outputBuffer: { getChannelData: () => Float32Array };
+      }) => void) | null,
+      connect: processorConnect,
+      disconnect: processorDisconnect
+    };
+
+    class FakeAudioContext {
+      sampleRate = 48_000;
+      destination = {};
+      createMediaStreamSource() {
+        return { connect: sourceConnect, disconnect: sourceDisconnect };
+      }
+      createAnalyser() {
+        return { fftSize: 0 };
+      }
+      createScriptProcessor() {
+        return processor;
+      }
+      resume = vi.fn(async () => {});
+      close = vi.fn(async () => {});
+    }
+
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: { AudioContext: FakeAudioContext }
+    });
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: {
+        mediaDevices: {
+          getUserMedia: vi.fn(async () => ({ getTracks: () => [{ stop }] }))
+        }
+      }
+    });
+
+    const { createSpeechAudioSession } = await import("@/lib/speech/audio-session");
+    const session = await createSpeechAudioSession({ captureAudio: true });
+    processor.onaudioprocess?.({
+      inputBuffer: { getChannelData: () => new Float32Array(4_800).fill(1) },
+      outputBuffer: { getChannelData: () => new Float32Array(4_800) }
+    });
+    session.audioRecorder!.start();
+    processor.onaudioprocess?.({
+      inputBuffer: { getChannelData: () => new Float32Array(4_800).fill(0.5) },
+      outputBuffer: { getChannelData: () => new Float32Array(4_800) }
+    });
+    const recording = await session.audioRecorder!.stop();
+
+    expect(recording.sampleRate).toBe(16_000);
+    expect(recording.samples).toHaveLength(1_600);
+    expect(recording.samples[800]).toBeCloseTo(0.5);
+
+    session.dispose();
+    expect(processorDisconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("resamples empty and upsampled audio safely", async () => {
+    const { resampleSpeechAudio } = await import("@/lib/speech/audio-session");
+    expect(resampleSpeechAudio(new Float32Array(), 48_000)).toHaveLength(0);
+    expect(Array.from(resampleSpeechAudio(new Float32Array([0.25, -0.25]), 16_000)))
+      .toEqual([0.25, -0.25]);
+    expect(Array.from(resampleSpeechAudio(new Float32Array([0, 1]), 8_000, 16_000)))
+      .toEqual([0, 0.5, 1, 1]);
+    expect(() => resampleSpeechAudio(new Float32Array([0]), 0)).toThrow(
+      "Invalid microphone sample rate"
+    );
+  });
 });

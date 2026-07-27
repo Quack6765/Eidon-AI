@@ -1,5 +1,6 @@
 import type {
   SpeechEngine,
+  SpeechAudioRecorder,
   SpeechSessionResult,
   SpeechSessionSnapshot,
   SttEngine,
@@ -9,6 +10,7 @@ import type {
 export function createSpeechController(input: {
   engine: SpeechEngine;
   audioMonitor: { readLevel(): number; dispose(): void };
+  audioRecorder?: SpeechAudioRecorder | null;
 }) {
   let snapshot: SpeechSessionSnapshot = {
     phase: "idle",
@@ -45,7 +47,10 @@ export function createSpeechController(input: {
           language: settings.language,
           error: null
         };
-        await input.engine.start({ language: settings.language });
+        await input.engine.start({
+          language: settings.language,
+          audioRecorder: input.audioRecorder
+        });
         snapshot = {
           ...snapshot,
           phase: "listening",

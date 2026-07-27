@@ -61,7 +61,7 @@ Use it as a private assistant, a day-to-day work companion, or a shared workspac
 - Chat forking from assistant replies when you want to branch a thread without losing context
 - Shareable chat conversations for sending read-only transcript links
 - Previous message editing with restart-from-edit flow for fast iteration
-- Browser speech-to-text in the chat composer
+- Browser-native or self-hosted Canary 180M Flash speech-to-text in the chat composer
 - Image generation support
 - Mermaid diagram generation
 - Multiple clients live sync

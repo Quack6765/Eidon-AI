@@ -110,10 +110,13 @@ export function useSpeechInput({ engine, initialLanguage, resetKey }: UseSpeechI
     let audioSession: SpeechAudioSession | null = null;
 
     try {
-      audioSession = await createSpeechAudioSession();
+      audioSession = await createSpeechAudioSession({
+        captureAudio: engine === "embedded"
+      });
       controller = createSpeechController({
         engine: speechEngine,
-        audioMonitor: audioSession.audioMonitor
+        audioMonitor: audioSession.audioMonitor,
+        audioRecorder: audioSession.audioRecorder
       });
       speechControllerRef.current = controller;
       speechAudioSessionRef.current = audioSession;

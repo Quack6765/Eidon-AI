@@ -22,8 +22,20 @@ export type SpeechSessionResult = {
   transcript: string;
 };
 
+export type SpeechAudioRecording = {
+  sampleRate: number;
+  samples: Float32Array;
+};
+
+export type SpeechAudioRecorder = {
+  start(): void;
+  stop(): Promise<SpeechAudioRecording>;
+  dispose(): void;
+};
+
 export type SpeechEngineStartInput = {
   language: SttLanguage;
+  audioRecorder?: SpeechAudioRecorder | null;
 };
 
 export interface SpeechEngine {

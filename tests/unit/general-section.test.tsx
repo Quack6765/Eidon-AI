@@ -135,6 +135,8 @@ describe("general section", () => {
     fireEvent.change(screen.getByDisplayValue("Browser"), { target: { value: "embedded" } });
     expect(screen.queryByDisplayValue("Auto-detect")).toBeNull();
     expect(screen.getByDisplayValue("English")).toBeInTheDocument();
+    expect(screen.getByText("Canary 180M Flash")).toBeInTheDocument();
+    expect(screen.getByText(/downloads only when embedded dictation is first used/)).toBeInTheDocument();
   });
 
   it("shows Exa by default with an optional API key note", () => {
