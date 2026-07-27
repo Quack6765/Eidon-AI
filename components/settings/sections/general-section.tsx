@@ -452,7 +452,7 @@ export function GeneralSection({
         <h3 className={sectionTitle}>Speech-to-Text</h3>
         <div className="space-y-1.5">
           <label className={fieldLabel}>Speech engine and language</label>
-          <p className="text-xs text-[var(--muted)]">Choose whether dictation uses the browser speech engine or the embedded model path, then set its default language behavior.</p>
+          <p className="text-xs text-[var(--muted)]">Choose browser-native dictation or private transcription on your Eidon server, then set the spoken language.</p>
           <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
             <select
               aria-label="Speech engine"
@@ -482,6 +482,34 @@ export function GeneralSection({
               ))}
             </select>
           </div>
+          {sttEngine === "embedded" ? (
+            <div className="flex max-w-2xl items-start gap-2 pt-1 text-xs leading-5 text-white/60">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-violet-300/80" />
+              <p>
+                <span className="font-medium text-white/80">Canary 180M Flash</span> runs on this
+                Eidon server. The 208 MB model downloads only when embedded dictation is first used,
+                then stays cached in the Eidon data directory. Audio is not sent to a transcription
+                provider. {" "}
+                <a
+                  href="https://huggingface.co/nvidia/canary-180m-flash"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-violet-300 underline decoration-violet-300/40 underline-offset-2 hover:text-violet-200"
+                >
+                  NVIDIA model
+                </a>{" "}
+                · {" "}
+                <a
+                  href="https://creativecommons.org/licenses/by/4.0/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-violet-300 underline decoration-violet-300/40 underline-offset-2 hover:text-violet-200"
+                >
+                  CC BY 4.0
+                </a>
+              </p>
+            </div>
+          ) : null}
         </div>
       </div>
 
