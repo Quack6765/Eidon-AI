@@ -2,6 +2,7 @@ import WebSocket from "ws";
 import type { ServerMessage } from "@/lib/ws-protocol";
 import { serializeServerMessage } from "@/lib/ws-protocol";
 import { sendWebSocketData } from "@/lib/ws-send";
+import { sanitizeMobilePayload } from "@/lib/mobile-api";
 
 export const MAX_WS_CONNECTIONS = 500;
 
@@ -9,6 +10,7 @@ export function createConversationManager() {
   const rooms = new Map<string, Set<WebSocket>>();
   const clientRooms = new Map<WebSocket, Set<string>>();
   const connectionUsers = new Map<WebSocket, string>();
+  const connectionKinds = new Map<WebSocket, "browser" | "mobile">();
   const activeTurns = new Map<string, boolean>();
   const connectedSockets = new Set<WebSocket>();
 
@@ -37,9 +39,11 @@ export function createConversationManager() {
   function broadcast(conversationId: string, event: ServerMessage) {
     const room = rooms.get(conversationId);
     if (!room) return;
-    const raw = serializeServerMessage(event);
     for (const ws of room) {
-      sendWebSocketData(ws, raw);
+      const payload = connectionKinds.get(ws) === "mobile"
+        ? sanitizeMobilePayload(event) as ServerMessage
+        : event;
+      sendWebSocketData(ws, serializeServerMessage(payload));
     }
   }
 
@@ -55,6 +59,7 @@ export function createConversationManager() {
     }
     clientRooms.delete(ws);
     connectionUsers.delete(ws);
+    connectionKinds.delete(ws);
   }
 
   function isActive(conversationId: string): boolean {
@@ -78,30 +83,38 @@ export function createConversationManager() {
     return [...activeTurns.keys()];
   }
 
-  function addConnection(ws: WebSocket, userId: string) {
+  function addConnection(
+    ws: WebSocket,
+    userId: string,
+    kind: "browser" | "mobile" = "browser"
+  ) {
     if (connectedSockets.size >= MAX_WS_CONNECTIONS) {
       return false;
     }
 
     connectedSockets.add(ws);
     connectionUsers.set(ws, userId);
+    connectionKinds.set(ws, kind);
     return true;
   }
 
   function removeConnection(ws: WebSocket) {
     connectedSockets.delete(ws);
     connectionUsers.delete(ws);
+    connectionKinds.delete(ws);
   }
 
   function broadcastAll(event: ServerMessage, userId?: string | null) {
-    const raw = serializeServerMessage(event);
     for (const ws of connectedSockets) {
       const socketUserId = connectionUsers.get(ws);
       if (!socketUserId || (userId !== undefined && socketUserId !== userId)) {
         continue;
       }
 
-      sendWebSocketData(ws, raw);
+      const payload = connectionKinds.get(ws) === "mobile"
+        ? sanitizeMobilePayload(event) as ServerMessage
+        : event;
+      sendWebSocketData(ws, serializeServerMessage(payload));
     }
   }
 

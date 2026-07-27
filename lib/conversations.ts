@@ -54,6 +54,7 @@ export {
   failQueuedMessage,
   markOrphanedQueuedMessagesFailed,
   moveQueuedMessageToFront,
+  reorderQueuedMessages,
   claimNextQueuedMessageForDispatch
 } from "@/lib/conversation-queued-messages";
 import { listQueuedMessages } from "@/lib/conversation-queued-messages";

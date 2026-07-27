@@ -132,6 +132,43 @@ export function createQueuedMessage({
   return transaction(conversationId, content, mode);
 }
 
+export function reorderQueuedMessages({
+  conversationId,
+  queuedMessageIds
+}: {
+  conversationId: string;
+  queuedMessageIds: string[];
+}) {
+  const pending = listQueuedMessages(conversationId).filter(
+    (message) => message.status === "pending" || message.status === "failed"
+  );
+  const expectedIds = new Set(pending.map((message) => message.id));
+  const submittedIds = new Set(queuedMessageIds);
+
+  if (
+    queuedMessageIds.length !== submittedIds.size ||
+    submittedIds.size !== expectedIds.size ||
+    queuedMessageIds.some((id) => !expectedIds.has(id))
+  ) {
+    return false;
+  }
+
+  const update = getDb().prepare(
+    `UPDATE queued_messages
+     SET sort_order = ?, updated_at = ?
+     WHERE id = ? AND conversation_id = ? AND status IN ('pending', 'failed')`
+  );
+  const timestamp = nowIso();
+
+  getDb().transaction(() => {
+    queuedMessageIds.forEach((id, index) => {
+      update.run(index, timestamp, id, conversationId);
+    });
+  })();
+
+  return true;
+}
+
 export function updateQueuedMessage({
   conversationId,
   queuedMessageId,

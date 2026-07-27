@@ -96,19 +96,29 @@ app.prepare().then(async () => {
   });
 
   const wss = new WebSocketServer({
-    server,
-    path: "/ws",
-    maxPayload: 64 * 1024,
+    noServer: true,
+    maxPayload: 128 * 1024,
     perMessageDeflate: false
   });
-
   const {
     bootstrapRuntimeState,
     createAutomationScheduler,
+    resolveWebSocketAuthMode,
+    routeWebSocketUpgrade,
     setupWebSocketHandler
   } = require("./ws-handler-compiled.cjs");
   bootstrapRuntimeState();
-  setupWebSocketHandler(wss);
+  setupWebSocketHandler(wss, { authModeForRequest: resolveWebSocketAuthMode });
+  const upgradeHandler = app.getUpgradeHandler();
+  server.on("upgrade", (request, socket, head) => {
+    routeWebSocketUpgrade(
+      request,
+      socket,
+      head,
+      { "/ws": wss, "/api/v1/ws": wss },
+      upgradeHandler
+    );
+  });
   const automationScheduler = createAutomationScheduler?.();
 
   let port;

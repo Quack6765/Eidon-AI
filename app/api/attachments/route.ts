@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { createAttachments } from "@/lib/attachments";
 import { requireUser } from "@/lib/auth";
+import { MAX_ATTACHMENTS_PER_UPLOAD } from "@/lib/constants";
 import { getConversation } from "@/lib/conversations";
 import { badRequest, ok } from "@/lib/http";
 
@@ -47,6 +48,10 @@ export async function POST(request: Request) {
 
   if (!fileEntries.length) {
     return badRequest("No files were uploaded");
+  }
+
+  if (fileEntries.length > MAX_ATTACHMENTS_PER_UPLOAD) {
+    return badRequest(`A maximum of ${MAX_ATTACHMENTS_PER_UPLOAD} files may be uploaded at once`);
   }
 
   const files = await Promise.all(

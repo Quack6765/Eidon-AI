@@ -4,6 +4,10 @@ import next from "next";
 import { WebSocketServer } from "ws";
 import { setupWebSocketHandler } from "@/lib/ws-handler";
 import { initTitleModel } from "@/lib/local-title-model";
+import {
+  resolveWebSocketAuthMode,
+  routeWebSocketUpgrade
+} from "@/lib/ws-upgrade-router";
 
 const DEV_SERVER_FILE = ".dev-server";
 const PORT_MIN = 3000;
@@ -100,8 +104,22 @@ app.prepare().then(async () => {
     handle(req, res);
   });
 
-  const wss = new WebSocketServer({ server, path: "/ws" });
-  setupWebSocketHandler(wss);
+  const wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: 128 * 1024,
+    perMessageDeflate: false
+  });
+  setupWebSocketHandler(wss, { authModeForRequest: resolveWebSocketAuthMode });
+  const upgradeHandler = app.getUpgradeHandler();
+  server.on("upgrade", (request, socket, head) => {
+    routeWebSocketUpgrade(
+      request,
+      socket,
+      head,
+      { "/ws": wss, "/api/v1/ws": wss },
+      upgradeHandler
+    );
+  });
 
   let port: number;
 

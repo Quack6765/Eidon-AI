@@ -7,6 +7,7 @@ import {
   getAutomation,
   listDueAutomations,
   listAutomationRuns,
+  listAutomationRunsPage,
   listAutomations,
   retryAutomationRun,
   triggerAutomationNow,
@@ -816,6 +817,70 @@ describe("automation routes", () => {
       triggerSource: "manual_run",
       status: "failed",
       conversationId: null
+    });
+  });
+
+  it("uses opaque keyset cursors for automation run history", async () => {
+    const automation = createAutomation({
+      name: "Cursor runs",
+      prompt: "Prompt",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 20,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    }, routeUserId);
+
+    const oldest = createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-09T11:00:00.000Z",
+      triggerSource: "schedule"
+    });
+    const middle = createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-09T12:00:00.000Z",
+      triggerSource: "schedule"
+    });
+    const newest = createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: "2026-04-09T13:00:00.000Z",
+      triggerSource: "schedule"
+    });
+
+    const firstPage = listAutomationRunsPage({
+      automationId: automation.id,
+      userId: routeUserId,
+      limit: 2
+    });
+    expect(firstPage.runs.map((run) => run.id)).toEqual([newest.id, middle.id]);
+    expect(firstPage.hasMore).toBe(true);
+    expect(firstPage.nextCursor).toEqual(expect.any(String));
+
+    const secondPage = listAutomationRunsPage({
+      automationId: automation.id,
+      userId: routeUserId,
+      limit: 2,
+      cursor: firstPage.nextCursor
+    });
+    expect(secondPage.runs.map((run) => run.id)).toEqual([oldest.id]);
+    expect(secondPage.hasMore).toBe(false);
+    expect(secondPage.nextCursor).toBeNull();
+
+    expect(() => listAutomationRunsPage({
+      automationId: automation.id,
+      userId: routeUserId,
+      cursor: Buffer.from(JSON.stringify({ id: "incomplete" })).toString("base64url")
+    })).toThrow("Invalid automation run cursor");
+
+    const invalidRoute = await listAutomationRunsRoute(
+      new Request(`http://localhost/api/automations/${automation.id}/runs?cursor=not-json`),
+      { params: Promise.resolve({ automationId: automation.id }) }
+    );
+    expect(invalidRoute.status).toBe(400);
+    await expect(json<{ error: string }>(invalidRoute)).resolves.toEqual({
+      error: "Invalid automation run cursor"
     });
   });
 

@@ -854,47 +854,113 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
   return updated;
 }
 
-export function listAutomationRuns(automationId: string, userId?: string): AutomationRun[] {
-  const rows = (userId
-    ? getDb()
-        .prepare(
-          `SELECT
-            r.id,
-            r.automation_id,
-            r.conversation_id,
-            r.scheduled_for,
-            r.started_at,
-            r.finished_at,
-            r.status,
-            r.error_message,
-            r.trigger_source,
-            r.created_at
-           FROM automation_runs r
-           JOIN automations a ON a.id = r.automation_id
-           WHERE r.automation_id = ? AND a.user_id = ?
-           ORDER BY r.scheduled_for DESC, r.created_at DESC, r.id DESC`
-        )
-        .all(automationId, userId)
-    : getDb()
-        .prepare(
-          `SELECT
-            id,
-            automation_id,
-            conversation_id,
-            scheduled_for,
-            started_at,
-            finished_at,
-            status,
-            error_message,
-            trigger_source,
-            created_at
-           FROM automation_runs
-           WHERE automation_id = ?
-           ORDER BY scheduled_for DESC, created_at DESC, id DESC`
-        )
-        .all(automationId)) as AutomationRunRow[];
+type AutomationRunCursor = {
+  scheduledFor: string;
+  createdAt: string;
+  id: string;
+};
 
-  return rows.map(rowToAutomationRun);
+function queryAutomationRuns(input: {
+  automationId: string;
+  userId?: string;
+  cursor?: AutomationRunCursor | null;
+  limit?: number;
+}) {
+  const values: Array<string | number> = [input.automationId];
+  let sql = `SELECT
+      r.id,
+      r.automation_id,
+      r.conversation_id,
+      r.scheduled_for,
+      r.started_at,
+      r.finished_at,
+      r.status,
+      r.error_message,
+      r.trigger_source,
+      r.created_at
+    FROM automation_runs r
+    JOIN automations a ON a.id = r.automation_id
+    WHERE r.automation_id = ?`;
+
+  if (input.userId) {
+    sql += " AND a.user_id = ?";
+    values.push(input.userId);
+  }
+  if (input.cursor) {
+    sql += ` AND (
+      r.scheduled_for < ? OR
+      (r.scheduled_for = ? AND r.created_at < ?) OR
+      (r.scheduled_for = ? AND r.created_at = ? AND r.id < ?)
+    )`;
+    values.push(
+      input.cursor.scheduledFor,
+      input.cursor.scheduledFor,
+      input.cursor.createdAt,
+      input.cursor.scheduledFor,
+      input.cursor.createdAt,
+      input.cursor.id
+    );
+  }
+
+  sql += " ORDER BY r.scheduled_for DESC, r.created_at DESC, r.id DESC";
+  if (input.limit !== undefined) {
+    sql += " LIMIT ?";
+    values.push(input.limit);
+  }
+
+  return (getDb().prepare(sql).all(...values) as AutomationRunRow[]).map(rowToAutomationRun);
+}
+
+export function listAutomationRuns(automationId: string, userId?: string): AutomationRun[] {
+  return queryAutomationRuns({ automationId, userId });
+}
+
+export function listAutomationRunsPage(input: {
+  automationId: string;
+  userId?: string;
+  cursor?: string | null;
+  limit?: number;
+}) {
+  const limit = Math.min(Math.max(input.limit ?? 20, 1), 100);
+  let cursor: AutomationRunCursor | null = null;
+  if (input.cursor) {
+    const parsed = JSON.parse(
+      Buffer.from(input.cursor, "base64url").toString("utf8")
+    ) as Partial<AutomationRunCursor>;
+    if (
+      typeof parsed.scheduledFor !== "string" ||
+      typeof parsed.createdAt !== "string" ||
+      typeof parsed.id !== "string"
+    ) {
+      throw new Error("Invalid automation run cursor");
+    }
+    cursor = {
+      scheduledFor: parsed.scheduledFor,
+      createdAt: parsed.createdAt,
+      id: parsed.id
+    };
+  }
+
+  const rows = queryAutomationRuns({
+    automationId: input.automationId,
+    userId: input.userId,
+    cursor,
+    limit: limit + 1
+  });
+  const hasMore = rows.length > limit;
+  const runs = rows.slice(0, limit);
+  const lastRun = runs.at(-1);
+  return {
+    runs,
+    nextCursor: hasMore && lastRun
+      ? Buffer.from(JSON.stringify({
+          scheduledFor: lastRun.scheduledFor,
+          createdAt: lastRun.createdAt,
+          id: lastRun.id
+        })).toString("base64url")
+      : null,
+    hasMore
+  };
 }
 
 export function attachConversationToRun(runId: string, conversationId: string) {

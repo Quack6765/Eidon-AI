@@ -1,0 +1,43 @@
+services:
+  fake-provider:
+    image: node:22-alpine
+    command: ["node", "/app/native-fake-provider.mjs"]
+    environment:
+      PORT: "4010"
+    volumes:
+      - ./tests/fixtures/native-fake-provider.mjs:/app/native-fake-provider.mjs:ro
+
+  eidon:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_APP_VERSION: v3.7.0-native-test
+    command: ["sh", "-c", "node seed-native-test.cjs && node server.cjs"]
+    depends_on:
+      - fake-provider
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      EIDON_DATA_DIR: /app/data/native-test
+      EIDON_PASSWORD_LOGIN_ENABLED: "true"
+      EIDON_NATIVE_TEST_SEED_ENABLED: "true"
+      EIDON_ADMIN_USERNAME: native_super_admin
+      EIDON_ADMIN_PASSWORD: NativeTestSuperAdmin123!
+      EIDON_SESSION_SECRET: native-test-session-secret-change-before-use
+      EIDON_ENCRYPTION_SECRET: native-test-encryption-secret-change-before-use
+    volumes:
+      - native-test-data:/app/data
+
+  caddy:
+    image: caddy:2.9-alpine
+    depends_on:
+      - eidon
+    ports:
+      - "8443:443"
+    volumes:
+      - ./tests/native/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+
+volumes:
+  native-test-data:
+  caddy-data:

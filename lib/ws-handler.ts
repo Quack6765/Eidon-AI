@@ -1,6 +1,6 @@
 import WebSocket from "ws";
 import type { WebSocketServer } from "ws";
-import { getCurrentUser, verifySessionToken } from "@/lib/auth";
+import { getCurrentUser, verifyMobileSessionToken, verifySessionToken } from "@/lib/auth";
 import { createAutomationScheduler as createAutomationSchedulerBase } from "@/lib/automation-scheduler";
 import { startChatTurn } from "@/lib/chat-turn";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
@@ -12,6 +12,7 @@ import {
   listActiveConversations,
   listQueuedMessages,
   moveQueuedMessageToFront,
+  reorderQueuedMessages,
   updateQueuedMessage
 } from "@/lib/conversations";
 import { MAX_WS_CONNECTIONS, type ConversationManager } from "@/lib/conversation-manager";
@@ -26,6 +27,11 @@ import { getDb } from "@/lib/db";
 import { sendWebSocketData } from "@/lib/ws-send";
 import { bootstrapRuntimeState } from "@/lib/runtime-bootstrap";
 import { truncateText } from "@/lib/bounded-text";
+import { sanitizeMobilePayload } from "@/lib/mobile-api";
+import {
+  resolveWebSocketAuthMode,
+  routeWebSocketUpgrade
+} from "@/lib/ws-upgrade-router";
 
 const MAX_WS_ERROR_MESSAGE_CHARS = 1_000;
 
@@ -35,6 +41,8 @@ export {
   getDb,
   initTitleModel,
   initializeMcpServers,
+  resolveWebSocketAuthMode,
+  routeWebSocketUpgrade,
   shutdownAllProcesses
 };
 
@@ -44,10 +52,24 @@ function extractToken(req: import("http").IncomingMessage): string | null {
   return match ? match[1] : null;
 }
 
-export function setupWebSocketHandler(wss: WebSocketServer) {
+function extractBearerToken(req: import("http").IncomingMessage): string | null {
+  const authorization = req.headers.authorization;
+  if (!authorization || Array.isArray(authorization)) return null;
+  const match = authorization.match(/^Bearer ([^\s,]+)$/);
+  return match?.[1] ?? null;
+}
+
+export function setupWebSocketHandler(
+  wss: WebSocketServer,
+  options: {
+    authMode?: "browser" | "mobile";
+    authModeForRequest?: (request: import("http").IncomingMessage) => "browser" | "mobile";
+  } = {}
+) {
   const aliveSockets = new WeakSet<WebSocket>();
 
   wss.on("connection", async (ws, req) => {
+    const authMode = options.authModeForRequest?.(req) ?? options.authMode ?? "browser";
     ws.on("error", () => {
       if (ws.readyState === WebSocket.CLOSED) {
         return;
@@ -67,9 +89,9 @@ export function setupWebSocketHandler(wss: WebSocketServer) {
 
     aliveSockets.add(ws);
     ws.on("pong", () => aliveSockets.add(ws));
-    const token = extractToken(req);
+    const token = authMode === "mobile" ? extractBearerToken(req) : extractToken(req);
     try {
-      await handleConnection(ws, token);
+      await handleConnection(ws, token, { authMode });
     } catch (error) {
       console.error("[ws-handler] connection setup failed:", error);
       if (ws.readyState === WebSocket.OPEN) {
@@ -109,7 +131,13 @@ export function createAutomationScheduler() {
   });
 }
 
-export async function handleConnection(ws: WebSocket, token: string | null) {
+export async function handleConnection(
+  ws: WebSocket,
+  token: string | null,
+  options: { authMode?: "browser" | "mobile" } = {}
+) {
+  const authMode = options.authMode ?? "browser";
+  const versioned = authMode === "mobile";
   let closed = ws.readyState !== WebSocket.OPEN;
   let mgr: ConversationManager | null = null;
   const currentSubscription = new Set<string>();
@@ -130,7 +158,22 @@ export async function handleConnection(ws: WebSocket, token: string | null) {
 
   let sessionUserId: string;
 
-  if (isPasswordLoginEnabled()) {
+  if (authMode === "mobile") {
+    if (!token) {
+      sendError(ws, "Authentication required", "authentication_required", true);
+      ws.close(1008, "Authentication required");
+      return;
+    }
+
+    const session = await verifyMobileSessionToken(token);
+    if (!session) {
+      sendError(ws, "Invalid or expired mobile session", "authentication_required", true);
+      ws.close(1008, "Invalid mobile session");
+      return;
+    }
+
+    sessionUserId = session.userId;
+  } else if (isPasswordLoginEnabled()) {
     if (!token) {
       sendError(ws, "Authentication required");
       ws.close();
@@ -160,37 +203,41 @@ export async function handleConnection(ws: WebSocket, token: string | null) {
   }
 
   mgr = getConversationManager();
-  if (!mgr.addConnection(ws, sessionUserId)) {
-    sendError(ws, "Too many WebSocket connections");
+  const connectionAdded = versioned
+    ? mgr.addConnection(ws, sessionUserId, "mobile")
+    : mgr.addConnection(ws, sessionUserId);
+  if (!connectionAdded) {
+    sendError(ws, "Too many WebSocket connections", "connection_limit", versioned);
     ws.close(1013, "Connection limit reached");
     mgr = null;
     return;
   }
 
   const active = listActiveConversations(sessionUserId);
-  sendWebSocketData(ws, serializeServerMessage({
+  sendServerMessage(ws, {
     type: "ready",
+    ...(versioned ? { protocolVersion: "v1" as const } : {}),
     activeConversations: active.map(c => ({
       id: c.id,
       title: c.title,
       status: c.isActive ? "streaming" : "idle"
     }))
-  }));
+  }, versioned);
 
   ws.on("message", (raw: WebSocket.RawData) => {
     try {
       const msg = parseClientMessage(raw.toString());
       if (!msg) return;
       if (mgr) {
-        handleMessage(mgr, ws, msg, currentSubscription, sessionUserId);
+        handleMessage(mgr, ws, msg, currentSubscription, sessionUserId, versioned);
       }
     } catch (error) {
-      handleMessageFailure(ws, error);
+      handleMessageFailure(ws, error, versioned);
     }
   });
 }
 
-function handleMessageFailure(ws: WebSocket, error: unknown) {
+function handleMessageFailure(ws: WebSocket, error: unknown, versioned = false) {
   try {
     console.error("[ws-handler] message dispatch failed:", error);
   } catch {
@@ -198,7 +245,7 @@ function handleMessageFailure(ws: WebSocket, error: unknown) {
   }
 
   try {
-    sendError(ws, "Unable to process WebSocket message");
+    sendError(ws, "Unable to process WebSocket message", "invalid_message", versioned);
   } catch {
     return closeAfterMessageFailure(ws);
   }
@@ -227,26 +274,30 @@ function handleMessage(
   ws: WebSocket,
   msg: ClientMessage,
   currentSubscription: Set<string>,
-  currentUserId: string
+  currentUserId: string,
+  versioned = false
 ) {
   switch (msg.type) {
-    case "subscribe": {
+    case "subscribe":
+    case "request_snapshot": {
       const snapshot = getConversationSnapshot(msg.conversationId, currentUserId);
       if (!snapshot) {
-        sendError(ws, "Conversation not found");
+        sendError(ws, "Conversation not found", "not_found", versioned);
         break;
       }
 
-      currentSubscription.add(msg.conversationId);
-      mgr.subscribe(msg.conversationId, ws);
-      sendWebSocketData(ws, serializeServerMessage({
+      if (msg.type === "subscribe") {
+        currentSubscription.add(msg.conversationId);
+        mgr.subscribe(msg.conversationId, ws);
+      }
+      sendServerMessage(ws, {
         type: "snapshot",
         conversationId: msg.conversationId,
         messages: snapshot.messages,
         actions: snapshot.messages.flatMap(m => m.actions ?? []),
         segments: snapshot.messages.flatMap(m => m.textSegments ?? []),
         queuedMessages: snapshot.queuedMessages
-      }));
+      }, versioned);
       break;
     }
     case "unsubscribe": {
@@ -255,31 +306,29 @@ function handleMessage(
       break;
     }
     case "message": {
-      handleUserMessage(mgr, ws, msg, currentUserId).catch((error) => {
+      handleUserMessage(mgr, ws, msg, currentUserId, versioned).catch((error) => {
         console.error("[ws-handler] handleUserMessage failed:", error);
-        sendWebSocketData(ws, serializeServerMessage({
+        sendServerMessage(ws, {
           type: "error",
+          ...(versioned ? { code: "turn_failed" } : {}),
           message: truncateText(
             error instanceof Error ? error.message : "Chat stream failed",
             MAX_WS_ERROR_MESSAGE_CHARS
           )
-        }));
+        }, versioned);
       });
-      break;
-    }
-    case "edit": {
       break;
     }
     case "stop": {
       if (!getConversationSnapshot(msg.conversationId, currentUserId)) {
-        sendError(ws, "Conversation not found");
+        sendError(ws, "Conversation not found", "not_found", versioned);
         break;
       }
       requestStop(msg.conversationId);
       break;
     }
     case "queue_message": {
-      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId)) {
+      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId, versioned)) {
         break;
       }
 
@@ -291,7 +340,7 @@ function handleMessage(
       break;
     }
     case "update_queued_message": {
-      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId)) {
+      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId, versioned)) {
         break;
       }
 
@@ -302,7 +351,7 @@ function handleMessage(
       });
 
       if (!updated) {
-        sendError(ws, "Queued message not found");
+        sendError(ws, "Queued message not found", "not_found", versioned);
         break;
       }
 
@@ -310,7 +359,7 @@ function handleMessage(
       break;
     }
     case "delete_queued_message": {
-      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId)) {
+      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId, versioned)) {
         break;
       }
 
@@ -320,7 +369,7 @@ function handleMessage(
       });
 
       if (!deleted) {
-        sendError(ws, "Queued message not found");
+        sendError(ws, "Queued message not found", "not_found", versioned);
         break;
       }
 
@@ -328,7 +377,7 @@ function handleMessage(
       break;
     }
     case "send_queued_message_now": {
-      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId)) {
+      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId, versioned)) {
         break;
       }
 
@@ -338,11 +387,27 @@ function handleMessage(
       });
 
       if (!moved) {
-        sendError(ws, "Queued message not found");
+        sendError(ws, "Queued message not found", "not_found", versioned);
         break;
       }
 
       requestStop(msg.conversationId);
+      broadcastQueueUpdated(mgr, msg.conversationId);
+      break;
+    }
+    case "reorder_queued_messages": {
+      if (!ensureConversationAccess(ws, msg.conversationId, currentUserId, versioned)) {
+        break;
+      }
+
+      if (!reorderQueuedMessages({
+        conversationId: msg.conversationId,
+        queuedMessageIds: msg.queuedMessageIds
+      })) {
+        sendError(ws, "Invalid queue order", "invalid_request", versioned);
+        break;
+      }
+
       broadcastQueueUpdated(mgr, msg.conversationId);
       break;
     }
@@ -352,18 +417,34 @@ function handleMessage(
 function ensureConversationAccess(
   ws: WebSocket,
   conversationId: string,
-  currentUserId: string
+  currentUserId: string,
+  versioned = false
 ) {
   if (!getConversationSnapshot(conversationId, currentUserId)) {
-    sendError(ws, "Conversation not found");
+    sendError(ws, "Conversation not found", "not_found", versioned);
     return false;
   }
 
   return true;
 }
 
-function sendError(ws: WebSocket, message: string) {
-  sendWebSocketData(ws, serializeServerMessage({ type: "error", message }));
+function sendServerMessage(
+  ws: WebSocket,
+  message: Parameters<typeof serializeServerMessage>[0],
+  versioned = false
+) {
+  const payload = versioned
+    ? sanitizeMobilePayload(message) as Parameters<typeof serializeServerMessage>[0]
+    : message;
+  sendWebSocketData(ws, serializeServerMessage(payload));
+}
+
+function sendError(ws: WebSocket, message: string, code = "request_failed", versioned = false) {
+  sendServerMessage(ws, {
+    type: "error",
+    ...(versioned ? { code } : {}),
+    message
+  }, versioned);
 }
 
 function broadcastQueueUpdated(mgr: ConversationManager, conversationId: string) {
@@ -378,10 +459,11 @@ async function handleUserMessage(
   mgr: ConversationManager,
   ws: WebSocket,
   msg: { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string },
-  currentUserId: string
+  currentUserId: string,
+  versioned = false
 ) {
   if (!getConversationSnapshot(msg.conversationId, currentUserId)) {
-    sendError(ws, "Conversation not found");
+    sendError(ws, "Conversation not found", "not_found", versioned);
     return;
   }
 

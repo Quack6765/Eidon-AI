@@ -10,7 +10,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
       pull-requests: read
 
@@ -64,6 +64,16 @@ jobs:
           cache-to: |
             type=gha,mode=max
             type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:main,mode=max
+
+      - name: Publish Mobile API v1 release contracts
+        if: github.event_name == 'release' && github.event.release.target_commitish == 'main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          gh release upload "${{ github.event.release.tag_name }}"
+          contracts/mobile-api-v1.openapi.json
+          contracts/mobile-api-v1.websocket.schema.json
+          --clobber
 
       - name: Build full production image (pull request)
         if: github.event_name == 'pull_request' && steps.changes.outputs.deployment == 'true'

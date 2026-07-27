@@ -1893,6 +1893,7 @@ describe("conversation helpers", () => {
       createQueuedMessage,
       listQueuedMessages,
       moveQueuedMessageToFront,
+      reorderQueuedMessages,
       claimNextQueuedMessageForDispatch
     } = await import("@/lib/conversations");
 
@@ -1905,6 +1906,16 @@ describe("conversation helpers", () => {
       conversationId: conversation.id,
       content: "Second queued follow-up"
     });
+
+    expect(reorderQueuedMessages({
+      conversationId: conversation.id,
+      queuedMessageIds: [second.id, first.id]
+    })).toBe(true);
+    expect(listQueuedMessages(conversation.id).map((item) => item.id)).toEqual([second.id, first.id]);
+    expect(reorderQueuedMessages({
+      conversationId: conversation.id,
+      queuedMessageIds: [first.id, first.id]
+    })).toBe(false);
 
     moveQueuedMessageToFront({
       conversationId: conversation.id,

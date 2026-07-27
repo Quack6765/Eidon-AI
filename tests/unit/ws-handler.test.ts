@@ -3,8 +3,13 @@ import type { IncomingMessage } from "http";
 import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 
+import {
+  assertWebSocketMessage
+} from "@/tests/fixtures/mobile-contract-validator";
+
 vi.mock("@/lib/auth", () => ({
   getCurrentUser: vi.fn(),
+  verifyMobileSessionToken: vi.fn(),
   verifySessionToken: vi.fn()
 }));
 
@@ -16,7 +21,8 @@ vi.mock("@/lib/conversations", () => ({
   listQueuedMessages: vi.fn(),
   updateQueuedMessage: vi.fn(),
   deleteQueuedMessage: vi.fn(),
-  moveQueuedMessageToFront: vi.fn()
+  moveQueuedMessageToFront: vi.fn(),
+  reorderQueuedMessages: vi.fn()
 }));
 
 vi.mock("@/lib/chat-turn", () => ({
@@ -708,5 +714,303 @@ describe("ws-handler", () => {
     expect(getMessage).toHaveBeenCalledWith("msg-user-missing", "user-1");
     const persisted = broadcast.filter((m) => (m as { type: string }).type === "user_message_persisted");
     expect(persisted).toHaveLength(0);
+  });
+
+  it("authenticates mobile bearers and sends sanitized versioned snapshots without subscribing", async () => {
+    const { verifyMobileSessionToken } = await import("@/lib/auth");
+    vi.mocked(verifyMobileSessionToken).mockResolvedValue({
+      sessionId: "mobile-session-1",
+      userId: "mobile-user-1"
+    });
+    const { getConversationSnapshot, listActiveConversations } = await import("@/lib/conversations");
+    vi.mocked(listActiveConversations).mockReturnValue([]);
+    vi.mocked(getConversationSnapshot).mockReturnValue({
+      conversation: { id: "conv-mobile" },
+      messages: [{
+        id: "message-1",
+        conversationId: "conv-mobile",
+        role: "user",
+        content: "hello",
+        thinkingContent: "",
+        status: "completed",
+        estimatedTokens: 1,
+        systemKind: null,
+        compactedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        actions: [{
+          id: "action-1",
+          messageId: "message-1",
+          kind: "mcp_tool_call",
+          status: "completed",
+          serverId: null,
+          skillId: null,
+          toolName: "lookup",
+          label: "Lookup",
+          detail: "Looked up the contract",
+          arguments: { query: "contract" },
+          resultSummary: "Found",
+          sortOrder: 1,
+          startedAt: "2026-01-01T00:00:00.000Z",
+          completedAt: "2026-01-01T00:00:01.000Z",
+          proposalState: null,
+          proposalPayload: null,
+          proposalUpdatedAt: null
+        }],
+        textSegments: [{
+          id: "segment-1",
+          messageId: "message-1",
+          content: "hello",
+          sortOrder: 0,
+          createdAt: "2026-01-01T00:00:00.000Z"
+        }],
+        timeline: [{
+          id: "segment-1",
+          timelineKind: "text",
+          sortOrder: 0,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          content: "hello"
+        }, {
+          id: "thinking-1",
+          messageId: "message-1",
+          timelineKind: "thinking",
+          status: "completed",
+          sortOrder: 1,
+          startOffset: 0,
+          endOffset: 4,
+          startedAt: "2026-01-01T00:00:00.000Z",
+          completedAt: "2026-01-01T00:00:01.000Z"
+        }, {
+          id: "action-1",
+          messageId: "message-1",
+          timelineKind: "action",
+          kind: "mcp_tool_call",
+          status: "completed",
+          serverId: null,
+          skillId: null,
+          toolName: "lookup",
+          label: "Lookup",
+          detail: "Looked up the contract",
+          arguments: { query: "contract" },
+          resultSummary: "Found",
+          sortOrder: 2,
+          startedAt: "2026-01-01T00:00:00.000Z",
+          completedAt: "2026-01-01T00:00:01.000Z",
+          proposalState: null,
+          proposalPayload: null,
+          proposalUpdatedAt: null
+        }],
+        attachments: [{
+          id: "attachment-1",
+          conversationId: "conv-mobile",
+          messageId: "message-1",
+          filename: "safe.txt",
+          mimeType: "text/plain",
+          byteSize: 8,
+          sha256: "hash",
+          relativePath: "private/attachment.txt",
+          kind: "text",
+          extractedText: "private body",
+          createdAt: "2026-01-01T00:00:00.000Z"
+        }]
+      }],
+      queuedMessages: []
+    } as never);
+
+    const mockMgr = {
+      addConnection: vi.fn().mockReturnValue(true),
+      removeConnection: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      disconnect: vi.fn(),
+      broadcast: vi.fn(),
+      broadcastAll: vi.fn(),
+      hasSubscribers: vi.fn(),
+      setActive: vi.fn(),
+      isActive: vi.fn(),
+      getActiveConversationIds: vi.fn()
+    };
+    vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const sent: Array<Record<string, unknown>> = [];
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      bufferedAmount: 0,
+      send: vi.fn((data: string) => sent.push(JSON.parse(data))),
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((data: string) => handler(data));
+      })
+    } as unknown as WebSocket;
+
+    await handleConnection(ws, "mobile-bearer", { authMode: "mobile" });
+    messageHandlers[0]?.(JSON.stringify({
+      type: "request_snapshot",
+      conversationId: "conv-mobile"
+    }));
+
+    expect(verifyMobileSessionToken).toHaveBeenCalledWith("mobile-bearer");
+    expect(mockMgr.addConnection).toHaveBeenCalledWith(ws, "mobile-user-1", "mobile");
+    expect(mockMgr.subscribe).not.toHaveBeenCalled();
+    expect(sent[0]).toEqual({
+      type: "ready",
+      protocolVersion: "v1",
+      activeConversations: []
+    });
+    expect(sent[1]).toMatchObject({ type: "snapshot", conversationId: "conv-mobile" });
+    expect(JSON.stringify(sent[1])).not.toContain("relativePath");
+    expect(JSON.stringify(sent[1])).not.toContain("extractedText");
+    sent.forEach((message) => assertWebSocketMessage("ServerMessage", message));
+    assertWebSocketMessage("ClientMessage", {
+      type: "request_snapshot",
+      conversationId: "conv-mobile"
+    });
+    vi.doUnmock("@/lib/ws-singleton");
+  });
+
+  it("closes rejected mobile authentication with a stable non-retryable error", async () => {
+    const { verifyMobileSessionToken } = await import("@/lib/auth");
+    vi.mocked(verifyMobileSessionToken).mockResolvedValue(null);
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const sent: string[] = [];
+    const ws = {
+      readyState: 1,
+      send: vi.fn((data: string) => sent.push(data)),
+      close: vi.fn(),
+      on: vi.fn()
+    } as unknown as WebSocket;
+
+    await handleConnection(ws, "wrong-purpose", { authMode: "mobile" });
+
+    expect(sent.map((value) => JSON.parse(value))).toContainEqual({
+      type: "error",
+      code: "authentication_required",
+      message: "Invalid or expired mobile session"
+    });
+    expect(ws.close).toHaveBeenCalledWith(1008, "Invalid mobile session");
+  });
+
+  it("reorders a mobile queue only after checking conversation ownership", async () => {
+    const { verifyMobileSessionToken } = await import("@/lib/auth");
+    vi.mocked(verifyMobileSessionToken).mockResolvedValue({
+      sessionId: "mobile-session-1",
+      userId: "mobile-user-1"
+    });
+    const {
+      getConversationSnapshot,
+      listActiveConversations,
+      listQueuedMessages,
+      reorderQueuedMessages
+    } = await import("@/lib/conversations");
+    vi.mocked(listActiveConversations).mockReturnValue([]);
+    vi.mocked(getConversationSnapshot).mockReturnValue({
+      conversation: { id: "conv-mobile" },
+      messages: [],
+      queuedMessages: []
+    } as never);
+    vi.mocked(reorderQueuedMessages).mockReturnValue(true);
+    vi.mocked(listQueuedMessages).mockReturnValue([]);
+
+    const mockMgr = {
+      addConnection: vi.fn().mockReturnValue(true),
+      removeConnection: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      disconnect: vi.fn(),
+      broadcast: vi.fn(),
+      broadcastAll: vi.fn(),
+      hasSubscribers: vi.fn(),
+      setActive: vi.fn(),
+      isActive: vi.fn(),
+      getActiveConversationIds: vi.fn()
+    };
+    vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      bufferedAmount: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((data: string) => handler(data));
+      })
+    } as unknown as WebSocket;
+
+    await handleConnection(ws, "mobile-bearer", { authMode: "mobile" });
+    messageHandlers[0]?.(JSON.stringify({
+      type: "reorder_queued_messages",
+      conversationId: "conv-mobile",
+      queuedMessageIds: ["queue-2", "queue-1"]
+    }));
+
+    expect(getConversationSnapshot).toHaveBeenCalledWith("conv-mobile", "mobile-user-1");
+    expect(reorderQueuedMessages).toHaveBeenCalledWith({
+      conversationId: "conv-mobile",
+      queuedMessageIds: ["queue-2", "queue-1"]
+    });
+    expect(mockMgr.broadcast).toHaveBeenCalledWith("conv-mobile", {
+      type: "queue_updated",
+      conversationId: "conv-mobile",
+      queuedMessages: []
+    });
+    vi.doUnmock("@/lib/ws-singleton");
+  });
+
+  it("accepts only an Authorization bearer on the versioned upgrade path", async () => {
+    const { verifyMobileSessionToken } = await import("@/lib/auth");
+    vi.mocked(verifyMobileSessionToken).mockResolvedValue({
+      sessionId: "mobile-session-1",
+      userId: "mobile-user-1"
+    });
+    const { listActiveConversations } = await import("@/lib/conversations");
+    vi.mocked(listActiveConversations).mockReturnValue([]);
+    const mockMgr = {
+      addConnection: vi.fn().mockReturnValue(true),
+      removeConnection: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      disconnect: vi.fn(),
+      broadcast: vi.fn(),
+      broadcastAll: vi.fn(),
+      hasSubscribers: vi.fn(),
+      setActive: vi.fn(),
+      isActive: vi.fn(),
+      getActiveConversationIds: vi.fn()
+    };
+    vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+    const { setupWebSocketHandler } = await import("@/lib/ws-handler");
+    const serverHandlers = new Map<string, (...args: unknown[]) => unknown>();
+    const ws = {
+      readyState: 1,
+      bufferedAmount: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+      terminate: vi.fn(),
+      ping: vi.fn(),
+      on: vi.fn()
+    } as unknown as WebSocket;
+    const wss = {
+      clients: new Set([ws]),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => unknown) => {
+        serverHandlers.set(event, handler);
+      })
+    } as unknown as WebSocketServer;
+
+    setupWebSocketHandler(wss, { authMode: "mobile" });
+    await serverHandlers.get("connection")?.(ws, {
+      headers: {
+        authorization: "Bearer mobile-upgrade-token",
+        cookie: "eidon_session=browser-cookie-must-not-be-used"
+      }
+    } as IncomingMessage);
+
+    expect(verifyMobileSessionToken).toHaveBeenCalledWith("mobile-upgrade-token");
+    expect(mockMgr.addConnection).toHaveBeenCalledWith(ws, "mobile-user-1", "mobile");
+    serverHandlers.get("close")?.();
+    vi.doUnmock("@/lib/ws-singleton");
   });
 });

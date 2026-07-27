@@ -24,6 +24,19 @@ describe("ws-protocol", () => {
     expect(parseClientMessage(serializeClientMessage(message))).toEqual(message);
   });
 
+  it("serializes and parses snapshot recovery and queue reorder messages", async () => {
+    const { serializeClientMessage, parseClientMessage } = await import("@/lib/ws-protocol");
+    const snapshot = { type: "request_snapshot", conversationId: "conv-1" } as const;
+    const reorder: import("@/lib/ws-protocol").ClientMessage = {
+      type: "reorder_queued_messages",
+      conversationId: "conv-1",
+      queuedMessageIds: ["queue-2", "queue-1"]
+    };
+
+    expect(parseClientMessage(serializeClientMessage(snapshot))).toEqual(snapshot);
+    expect(parseClientMessage(serializeClientMessage(reorder))).toEqual(reorder);
+  });
+
   it("serializes a server ready message", async () => {
     const { serializeServerMessage } = await import("@/lib/ws-protocol");
     const msg = { type: "ready" as const, activeConversations: [{ id: "conv-1", title: "Test", status: "streaming" as const }] };
@@ -62,7 +75,11 @@ describe("ws-protocol", () => {
     { type: "message", conversationId: "conv-1", content: "hello", attachmentIds: [null] },
     { type: "queue_message", conversationId: "conv-1", content: "   " },
     { type: "update_queued_message", conversationId: "conv-1", queuedMessageId: "queue-1" },
-    { type: "update_queued_message", conversationId: "conv-1", queuedMessageId: "queue-1", content: "\t" }
+    { type: "update_queued_message", conversationId: "conv-1", queuedMessageId: "queue-1", content: "\t" },
+    { type: "reorder_queued_messages", conversationId: "conv-1", queuedMessageIds: "queue-1" },
+    { type: "reorder_queued_messages", conversationId: "conv-1", queuedMessageIds: ["queue-1", "queue-1"] },
+    { type: "reorder_queued_messages", conversationId: "conv-1", queuedMessageIds: [" "] },
+    { type: "reorder_queued_messages", conversationId: "conv-1", queuedMessageIds: Array(101).fill("queue") }
   ])("returns null for malformed client message fields", async (message) => {
     const { parseClientMessage } = await import("@/lib/ws-protocol");
     expect(parseClientMessage(JSON.stringify(message))).toBeNull();

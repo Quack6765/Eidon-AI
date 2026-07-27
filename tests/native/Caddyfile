@@ -1,0 +1,4 @@
+https://eidon.localhost {
+  tls internal
+  reverse_proxy eidon:3000
+}

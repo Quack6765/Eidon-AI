@@ -471,6 +471,10 @@ export type AuthSession = {
   createdAt: string;
 };
 
+export type MobileSession = AuthSession & {
+  deviceName: string;
+};
+
 export type ChatStreamEvent =
   | { type: "message_start"; messageId: string }
   | { type: "thinking_delta"; text: string }

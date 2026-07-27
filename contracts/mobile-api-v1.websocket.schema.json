@@ -1,0 +1,227 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://eidon.example/contracts/mobile-api-v1.websocket.schema.json",
+  "title": "Eidon Mobile WebSocket Protocol v1",
+  "description": "Messages exchanged over /api/v1/ws. Clients ignore unknown optional future server events and request an authoritative snapshot whenever accumulated delta state is uncertain.",
+  "oneOf": [
+    { "$ref": "#/$defs/ClientMessage" },
+    { "$ref": "#/$defs/ServerMessage" }
+  ],
+  "$defs": {
+    "OpaqueId": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "Timestamp": { "type": "string", "format": "date-time" },
+    "MemoryCategory": { "type": "string", "enum": ["personal", "preference", "work", "location", "other"] },
+    "MemoryProposalPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "targetMemoryId"],
+      "properties": {
+        "operation": { "type": "string", "enum": ["create", "update", "delete"] },
+        "targetMemoryId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
+        "currentMemory": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["id", "content", "category"],
+          "properties": {
+            "id": { "$ref": "#/$defs/OpaqueId" },
+            "content": { "type": "string" },
+            "category": { "$ref": "#/$defs/MemoryCategory" }
+          }
+        },
+        "proposedMemory": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["content", "category"],
+          "properties": {
+            "content": { "type": "string" },
+            "category": { "$ref": "#/$defs/MemoryCategory" }
+          }
+        }
+      }
+    },
+    "Attachment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "conversationId", "messageId", "filename", "mimeType", "byteSize", "sha256", "kind", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/OpaqueId" },
+        "conversationId": { "$ref": "#/$defs/OpaqueId" },
+        "messageId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
+        "filename": { "type": "string" },
+        "mimeType": { "type": "string" },
+        "byteSize": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string" },
+        "kind": { "type": "string", "enum": ["image", "text"] },
+        "createdAt": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "Action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "messageId", "kind", "status", "serverId", "skillId", "toolName", "label", "detail", "arguments", "resultSummary", "sortOrder", "startedAt", "completedAt", "proposalState", "proposalPayload", "proposalUpdatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/OpaqueId" },
+        "messageId": { "$ref": "#/$defs/OpaqueId" },
+        "timelineKind": { "const": "action" },
+        "kind": { "type": "string", "enum": ["skill_load", "mcp_tool_call", "shell_command", "create_memory", "update_memory", "delete_memory", "image_generation"] },
+        "status": { "type": "string", "enum": ["running", "pending", "completed", "error", "stopped"] },
+        "serverId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
+        "skillId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
+        "toolName": { "type": ["string", "null"] },
+        "label": { "type": "string" },
+        "detail": { "type": "string" },
+        "arguments": { "type": ["object", "null"], "additionalProperties": true },
+        "resultSummary": { "type": "string" },
+        "sortOrder": { "type": "integer" },
+        "startedAt": { "$ref": "#/$defs/Timestamp" },
+        "completedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "proposalState": { "type": ["string", "null"], "enum": ["pending", "approved", "dismissed", "superseded", null] },
+        "proposalPayload": { "anyOf": [{ "$ref": "#/$defs/MemoryProposalPayload" }, { "type": "null" }] },
+        "proposalUpdatedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] }
+      }
+    },
+    "Segment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "messageId", "content", "sortOrder", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/OpaqueId" },
+        "messageId": { "$ref": "#/$defs/OpaqueId" },
+        "content": { "type": "string" },
+        "sortOrder": { "type": "integer" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "TimelineText": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "timelineKind", "sortOrder", "createdAt", "content"],
+      "properties": {
+        "id": { "$ref": "#/$defs/OpaqueId" },
+        "timelineKind": { "const": "text" },
+        "sortOrder": { "type": "integer" },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "content": { "type": "string" }
+      }
+    },
+    "TimelineThinking": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "messageId", "timelineKind", "status", "sortOrder", "startOffset", "endOffset", "startedAt", "completedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/OpaqueId" },
+        "messageId": { "$ref": "#/$defs/OpaqueId" },
+        "timelineKind": { "const": "thinking" },
+        "status": { "type": "string", "enum": ["running", "completed", "error", "stopped"] },
+        "sortOrder": { "type": "integer" },
+        "startOffset": { "type": "integer", "minimum": 0 },
+        "endOffset": { "type": ["integer", "null"], "minimum": 0 },
+        "startedAt": { "$ref": "#/$defs/Timestamp" },
+        "completedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] }
+      }
+    },
+    "TimelineAction": {
+      "allOf": [
+        { "$ref": "#/$defs/Action" },
+        { "required": ["timelineKind"] }
+      ]
+    },
+    "TimelineItem": {
+      "oneOf": [
+        { "$ref": "#/$defs/TimelineText" },
+        { "$ref": "#/$defs/TimelineThinking" },
+        { "$ref": "#/$defs/TimelineAction" }
+      ]
+    },
+    "Message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "conversationId", "role", "content", "thinkingContent", "status", "estimatedTokens", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/OpaqueId" },
+        "conversationId": { "$ref": "#/$defs/OpaqueId" },
+        "role": { "type": "string", "enum": ["user", "assistant", "system"] },
+        "content": { "type": "string" },
+        "thinkingContent": { "type": "string" },
+        "status": { "type": "string", "enum": ["idle", "streaming", "completed", "error", "stopped"] },
+        "estimatedTokens": { "type": "integer" },
+        "systemKind": { "type": ["string", "null"] },
+        "compactedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/Action" } },
+        "textSegments": { "type": "array", "items": { "$ref": "#/$defs/Segment" } },
+        "timeline": { "type": "array", "items": { "$ref": "#/$defs/TimelineItem" } },
+        "attachments": { "type": "array", "items": { "$ref": "#/$defs/Attachment" } }
+      }
+    },
+    "QueuedMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "conversationId", "content", "status", "sortOrder", "failureMessage", "mode", "createdAt", "updatedAt", "processingStartedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/OpaqueId" },
+        "conversationId": { "$ref": "#/$defs/OpaqueId" },
+        "content": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "processing", "failed", "cancelled"] },
+        "sortOrder": { "type": "integer" },
+        "failureMessage": { "type": ["string", "null"] },
+        "mode": { "type": "string", "enum": ["chat", "image"] },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "updatedAt": { "$ref": "#/$defs/Timestamp" },
+        "processingStartedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] }
+      }
+    },
+    "Conversation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "folderId", "updatedAt", "isActive"],
+      "properties": {
+        "id": { "$ref": "#/$defs/OpaqueId" },
+        "title": { "type": "string" },
+        "folderId": { "type": ["string", "null"] },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "updatedAt": { "$ref": "#/$defs/Timestamp" },
+        "isActive": { "type": "boolean" },
+        "isTemporary": { "type": "boolean" }
+      }
+    },
+    "ChatEvent": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["type", "messageId"], "properties": { "type": { "const": "message_start" }, "messageId": { "$ref": "#/$defs/OpaqueId" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "text"], "properties": { "type": { "enum": ["thinking_delta", "answer_delta"] }, "text": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "action"], "properties": { "type": { "enum": ["action_start", "action_complete", "action_error"] }, "action": { "$ref": "#/$defs/Action" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "enum": ["compaction_start", "compaction_end"] } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "text", "kind"], "properties": { "type": { "const": "system_notice" }, "text": { "type": "string" }, "kind": { "const": "compaction_notice" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "const": "usage" }, "inputTokens": { "type": "integer" }, "outputTokens": { "type": "integer" }, "reasoningTokens": { "type": "integer" }, "cacheReadTokens": { "type": "integer" }, "cacheCreationTokens": { "type": "integer" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "contextTokens", "compactionLimit"], "properties": { "type": { "const": "context_usage" }, "contextTokens": { "type": "integer" }, "compactionLimit": { "type": "integer" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "attempt"], "properties": { "type": { "const": "stream_retry" }, "attempt": { "type": "integer" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "messageId"], "properties": { "type": { "const": "done" }, "messageId": { "$ref": "#/$defs/OpaqueId" }, "message": { "$ref": "#/$defs/Message" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "message"], "properties": { "type": { "const": "error" }, "message": { "type": "string" } } }
+      ]
+    },
+    "ClientMessage": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId"], "properties": { "type": { "enum": ["subscribe", "request_snapshot", "unsubscribe", "stop"] }, "conversationId": { "$ref": "#/$defs/OpaqueId" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "content"], "properties": { "type": { "const": "message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "maxLength": 65536 }, "attachmentIds": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/OpaqueId" } }, "personaId": { "$ref": "#/$defs/OpaqueId" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "content"], "properties": { "type": { "const": "queue_message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "minLength": 1, "maxLength": 65536 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessageId", "content"], "properties": { "type": { "const": "update_queued_message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessageId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "minLength": 1, "maxLength": 65536 } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessageId"], "properties": { "type": { "enum": ["delete_queued_message", "send_queued_message_now"] }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessageId": { "$ref": "#/$defs/OpaqueId" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessageIds"], "properties": { "type": { "const": "reorder_queued_messages" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessageIds": { "type": "array", "maxItems": 100, "uniqueItems": true, "items": { "$ref": "#/$defs/OpaqueId" } } } }
+      ]
+    },
+    "ServerMessage": {
+      "oneOf": [
+        { "type": "object", "additionalProperties": false, "required": ["type", "protocolVersion", "activeConversations"], "properties": { "type": { "const": "ready" }, "protocolVersion": { "const": "v1" }, "activeConversations": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "title", "status"], "properties": { "id": { "$ref": "#/$defs/OpaqueId" }, "title": { "type": "string" }, "status": { "type": "string", "enum": ["idle", "streaming"] } } } } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "messages", "actions", "segments", "queuedMessages"], "properties": { "type": { "const": "snapshot" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "messages": { "type": "array", "items": { "$ref": "#/$defs/Message" } }, "actions": { "type": "array", "items": { "$ref": "#/$defs/Action" } }, "segments": { "type": "array", "items": { "$ref": "#/$defs/Segment" } }, "queuedMessages": { "type": "array", "items": { "$ref": "#/$defs/QueuedMessage" } } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessages"], "properties": { "type": { "const": "queue_updated" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessages": { "type": "array", "items": { "$ref": "#/$defs/QueuedMessage" } } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "event"], "properties": { "type": { "const": "delta" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "event": { "$ref": "#/$defs/ChatEvent" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "message"], "properties": { "type": { "const": "user_message_persisted" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "message": { "$ref": "#/$defs/Message" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "code", "message"], "properties": { "type": { "const": "error" }, "code": { "type": "string" }, "message": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversation"], "properties": { "type": { "enum": ["conversation_created", "conversation_updated"] }, "conversation": { "$ref": "#/$defs/Conversation" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId"], "properties": { "type": { "const": "conversation_deleted" }, "conversationId": { "$ref": "#/$defs/OpaqueId" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "isActive"], "properties": { "type": { "const": "conversation_activity" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "isActive": { "type": "boolean" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "title"], "properties": { "type": { "const": "conversation_title_updated" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "title": { "type": "string" } } }
+      ]
+    }
+  }
+}

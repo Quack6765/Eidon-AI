@@ -1,3 +1,6 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash, createHmac, createSecretKey, timingSafeEqual } from "node:crypto";
+
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
@@ -8,7 +11,11 @@ import {
   SESSION_COOKIE_NAME,
   SESSION_TOKEN_AUDIENCE,
   SESSION_TOKEN_ISSUER,
-  SESSION_TOKEN_USE
+  SESSION_TOKEN_USE,
+  MOBILE_DEVICE_NAME_MAX_CHARS,
+  MOBILE_SESSION_DURATION_MS,
+  MOBILE_SESSION_TOKEN_AUDIENCE,
+  MOBILE_SESSION_TOKEN_USE
 } from "@/lib/constants";
 import { getDb } from "@/lib/db";
 import { env, isPasswordLoginEnabled, isProduction } from "@/lib/env";
@@ -19,11 +26,15 @@ import {
   getUserById,
   getUserRecordById
 } from "@/lib/users";
-import type { AuthSession, AuthUser } from "@/lib/types";
+import type { AuthSession, AuthUser, MobileSession } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
 
 const encoder = new TextEncoder();
 const sessionDurationMs = 1000 * 60 * 60 * 24 * 30;
+const mobileAuthContext = new AsyncLocalStorage<{
+  user: AuthUser;
+  sessionId: string;
+}>();
 
 type SessionPayload = {
   sessionId: string;
@@ -32,6 +43,15 @@ type SessionPayload = {
 
 function getSessionSecret() {
   return encoder.encode(env.EIDON_SESSION_SECRET);
+}
+
+function getMobileSessionSecret() {
+  return createSecretKey(
+    createHash("sha256")
+      .update("eidon-mobile-session-v1\0")
+      .update(env.EIDON_SESSION_SECRET)
+      .digest()
+  );
 }
 
 
@@ -118,8 +138,8 @@ export async function createSession(userId: string) {
   const expiresAt = new Date(createdAt.getTime() + sessionDurationMs);
 
   db.prepare(
-    `INSERT INTO auth_sessions (id, user_id, expires_at, created_at)
-     VALUES (?, ?, ?, ?)`
+    `INSERT INTO auth_sessions (id, user_id, purpose, device_name, expires_at, created_at)
+     VALUES (?, ?, 'browser', NULL, ?, ?)`
   ).run(sessionId, userId, expiresAt.toISOString(), createdAt.toISOString());
 
   const token = await new SignJWT({ sid: sessionId, uid: userId, tokenUse: SESSION_TOKEN_USE })
@@ -129,6 +149,43 @@ export async function createSession(userId: string) {
     .setIssuedAt()
     .setExpirationTime(Math.floor(expiresAt.getTime() / 1000))
     .sign(getSessionSecret());
+
+  return { sessionId, token, expiresAt };
+}
+
+export async function createMobileSession(userId: string, deviceName: string) {
+  const normalizedDeviceName = deviceName.trim();
+  if (!normalizedDeviceName || normalizedDeviceName.length > MOBILE_DEVICE_NAME_MAX_CHARS) {
+    throw new Error("Invalid mobile device name");
+  }
+
+  const db = getDb();
+  const sessionId = createId("mobile_session");
+  const createdAt = new Date();
+  const expiresAt = new Date(createdAt.getTime() + MOBILE_SESSION_DURATION_MS);
+
+  db.prepare(
+    `INSERT INTO auth_sessions (id, user_id, purpose, device_name, expires_at, created_at)
+     VALUES (?, ?, 'mobile', ?, ?, ?)`
+  ).run(
+    sessionId,
+    userId,
+    normalizedDeviceName,
+    expiresAt.toISOString(),
+    createdAt.toISOString()
+  );
+
+  const token = await new SignJWT({
+    sid: sessionId,
+    uid: userId,
+    tokenUse: MOBILE_SESSION_TOKEN_USE
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuer(SESSION_TOKEN_ISSUER)
+    .setAudience(MOBILE_SESSION_TOKEN_AUDIENCE)
+    .setIssuedAt()
+    .setExpirationTime(Math.floor(expiresAt.getTime() / 1000))
+    .sign(getMobileSessionSecret());
 
   return { sessionId, token, expiresAt };
 }
@@ -210,6 +267,96 @@ async function decodeSessionToken(token: string): Promise<SessionPayload | null>
   }
 }
 
+function decodeMobileSessionToken(token: string): SessionPayload | null {
+  try {
+    if (token.length > 8192) {
+      return null;
+    }
+
+    const segments = token.split(".");
+
+    if (
+      segments.length !== 3 ||
+      segments.some((segment) => !segment || !/^[A-Za-z0-9_-]+$/.test(segment))
+    ) {
+      return null;
+    }
+
+    const [encodedHeader, encodedPayload, encodedSignature] = segments;
+    const headerBytes = Buffer.from(encodedHeader, "base64url");
+    const payloadBytes = Buffer.from(encodedPayload, "base64url");
+    const signature = Buffer.from(encodedSignature, "base64url");
+
+    if (
+      headerBytes.toString("base64url") !== encodedHeader ||
+      payloadBytes.toString("base64url") !== encodedPayload ||
+      signature.toString("base64url") !== encodedSignature
+    ) {
+      return null;
+    }
+
+    const expectedSignature = createHmac("sha256", getMobileSessionSecret())
+      .update(`${encodedHeader}.${encodedPayload}`)
+      .digest();
+
+    if (
+      signature.length !== expectedSignature.length ||
+      !timingSafeEqual(signature, expectedSignature)
+    ) {
+      return null;
+    }
+
+    const header = JSON.parse(headerBytes.toString("utf8")) as unknown;
+    const payload = JSON.parse(payloadBytes.toString("utf8")) as unknown;
+
+    if (
+      !header ||
+      typeof header !== "object" ||
+      Array.isArray(header) ||
+      (header as Record<string, unknown>).alg !== "HS256" ||
+      "crit" in header ||
+      "b64" in header ||
+      !payload ||
+      typeof payload !== "object" ||
+      Array.isArray(payload)
+    ) {
+      return null;
+    }
+
+    const {
+      sid,
+      uid,
+      tokenUse,
+      iss,
+      aud,
+      exp,
+      nbf
+    } = payload as Record<string, unknown>;
+    const now = Math.floor(Date.now() / 1000);
+
+    if (
+      tokenUse !== MOBILE_SESSION_TOKEN_USE ||
+      iss !== SESSION_TOKEN_ISSUER ||
+      aud !== MOBILE_SESSION_TOKEN_AUDIENCE ||
+      typeof exp !== "number" ||
+      !Number.isFinite(exp) ||
+      exp <= now ||
+      (nbf !== undefined &&
+        (typeof nbf !== "number" || !Number.isFinite(nbf) || nbf > now)) ||
+      typeof sid !== "string" ||
+      !sid.trim() ||
+      typeof uid !== "string" ||
+      !uid.trim()
+    ) {
+      return null;
+    }
+
+    return { sessionId: sid, userId: uid };
+  } catch {
+    return null;
+  }
+}
+
 export async function getSessionPayload() {
   const cookieStore = await cookies();
   const token = cookieStore.get(SESSION_COOKIE_NAME)?.value;
@@ -228,7 +375,7 @@ export async function verifySessionToken(token: string): Promise<{ sessionId: st
     .prepare(
       `SELECT id, user_id, expires_at
        FROM auth_sessions
-       WHERE id = ?`
+       WHERE id = ? AND purpose = 'browser'`
     )
     .get(payload.sessionId) as
     | { id: string; user_id: string; expires_at: string }
@@ -250,7 +397,71 @@ export async function verifySessionToken(token: string): Promise<{ sessionId: st
   return payload;
 }
 
+export async function verifyMobileSessionToken(
+  token: string
+): Promise<{ sessionId: string; userId: string } | null> {
+  if (!token) return null;
+  const payload = await decodeMobileSessionToken(token);
+  if (!payload) return null;
+
+  const db = getDb();
+  const session = db
+    .prepare(
+      `SELECT id, user_id, expires_at
+       FROM auth_sessions
+       WHERE id = ? AND purpose = 'mobile'`
+    )
+    .get(payload.sessionId) as
+    | { id: string; user_id: string; expires_at: string }
+    | undefined;
+
+  if (!session || session.user_id !== payload.userId) return null;
+
+  if (new Date(session.expires_at).getTime() <= Date.now()) {
+    db.prepare("DELETE FROM auth_sessions WHERE id = ?").run(session.id);
+    return null;
+  }
+
+  if (!getUserById(payload.userId)) return null;
+  return payload;
+}
+
+export function extractMobileBearerToken(request: Request) {
+  const authorization = request.headers.get("authorization");
+  if (!authorization) return null;
+  const match = authorization.match(/^Bearer ([^\s,]+)$/);
+  return match?.[1] ?? null;
+}
+
+export async function authenticateMobileRequest(request: Request) {
+  const token = extractMobileBearerToken(request);
+  if (!token) return null;
+  const session = await verifyMobileSessionToken(token);
+  if (!session) return null;
+  const record = getUserById(session.userId);
+  if (!record) return null;
+  return { sessionId: session.sessionId, user: rowToUser(record) };
+}
+
+export function runWithMobileUser<T>(
+  sessionId: string,
+  user: AuthUser,
+  callback: () => T
+) {
+  return mobileAuthContext.run({ sessionId, user }, callback);
+}
+
+export function getMobileRequestSessionId() {
+  return mobileAuthContext.getStore()?.sessionId ?? null;
+}
+
 export async function getCurrentUser() {
+  const mobileContext = mobileAuthContext.getStore();
+  if (mobileContext) {
+    const current = getUserById(mobileContext.user.id);
+    return current ? rowToUser(current) : null;
+  }
+
   if (!isPasswordLoginEnabled()) {
     return getBootstrapUser();
   }
@@ -266,7 +477,7 @@ export async function getCurrentUser() {
     .prepare(
       `SELECT id, user_id, expires_at, created_at
        FROM auth_sessions
-       WHERE id = ?`
+       WHERE id = ? AND purpose = 'browser'`
     )
     .get(payload.sessionId) as
     | {
@@ -340,6 +551,37 @@ export async function invalidateAllSessionsForUser(userId: string) {
   getDb().prepare("DELETE FROM auth_sessions WHERE user_id = ?").run(userId);
 }
 
+export async function invalidateMobileSessionsForUser(userId: string) {
+  getDb()
+    .prepare("DELETE FROM auth_sessions WHERE user_id = ? AND purpose = 'mobile'")
+    .run(userId);
+}
+
+export function listMobileSessionsForUser(userId: string): MobileSession[] {
+  const rows = getDb()
+    .prepare(
+      `SELECT id, user_id, device_name, expires_at, created_at
+       FROM auth_sessions
+       WHERE user_id = ? AND purpose = 'mobile' AND expires_at > ?
+       ORDER BY created_at DESC, id DESC`
+    )
+    .all(userId, new Date().toISOString()) as Array<{
+    id: string;
+    user_id: string;
+    device_name: string | null;
+    expires_at: string;
+    created_at: string;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    userId: row.user_id,
+    deviceName: row.device_name ?? "Unknown device",
+    expiresAt: row.expires_at,
+    createdAt: row.created_at
+  }));
+}
+
 export async function updateUsername(userId: string, username: string) {
   const record = getUserRecordById(userId);
   if (!record) {
@@ -374,6 +616,7 @@ export async function updatePassword(userId: string, password: string) {
        WHERE id = ?`
     )
     .run(await hashPassword(password), timestamp, userId);
+  await invalidateAllSessionsForUser(userId);
 }
 
 export async function updateOwnPassword(user: AuthUser, password: string) {

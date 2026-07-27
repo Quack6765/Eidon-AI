@@ -1,0 +1,22 @@
+import { authenticateMobileRequest, invalidateSession } from "@/lib/auth";
+import { isSecureMobileRequest, mobileApiError, mobileApiSuccess, recordMobileSecurityEvent } from "@/lib/mobile-api";
+
+export async function POST(request: Request) {
+  if (!isSecureMobileRequest(request)) {
+    return mobileApiError("insecure_transport", "A trusted HTTPS connection is required", 400);
+  }
+
+  const authenticated = await authenticateMobileRequest(request);
+  if (!authenticated) {
+    return mobileApiError("authentication_required", "Invalid or expired mobile session", 401, {
+      headers: { "www-authenticate": "Bearer" }
+    });
+  }
+
+  await invalidateSession(authenticated.sessionId);
+  recordMobileSecurityEvent("logout", {
+    sessionId: authenticated.sessionId,
+    outcome: "success"
+  });
+  return mobileApiSuccess({ success: true });
+}

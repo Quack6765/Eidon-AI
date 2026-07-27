@@ -495,6 +495,12 @@ describe("db", () => {
     const authSessionForeignKeys = (
       db.prepare("PRAGMA foreign_key_list(auth_sessions)").all() as Array<{ table: string }>
     ).map((row) => row.table);
+    const authSessionColumns = (
+      db.prepare("PRAGMA table_info(auth_sessions)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const mobileGithubFlowColumns = (
+      db.prepare("PRAGMA table_info(mobile_github_oauth_flows)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
 
     expect(conversationColumns).toEqual(
       expect.arrayContaining([
@@ -531,6 +537,15 @@ describe("db", () => {
     expect(legacyAutomationColumns).toContain("user_id");
     expect(authSessionForeignKeys).toContain("users");
     expect(authSessionForeignKeys).not.toContain("admin_users");
+    expect(authSessionColumns).toEqual(expect.arrayContaining(["purpose", "device_name"]));
+    expect(mobileGithubFlowColumns).toEqual(expect.arrayContaining([
+      "user_id",
+      "profile_id",
+      "profile_nonce",
+      "expires_at",
+      "consumed_at",
+      "status"
+    ]));
     expect(settingsColumns).toEqual(
       expect.arrayContaining(["default_provider_profile_id", "skills_enabled"])
     );
