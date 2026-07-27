@@ -181,6 +181,64 @@ export function updateStreamingAction(
   return [...timeline, { ...action, timelineKind: "action" }];
 }
 
+export function ensureStreamingThinkingPhase(
+  timeline: MessageTimelineItem[],
+  messageId: string,
+  startOffset: number,
+  startedAt: string
+): MessageTimelineItem[] {
+  const lastItem = timeline.at(-1);
+
+  if (lastItem?.timelineKind === "thinking" && lastItem.status === "running") {
+    return timeline;
+  }
+
+  const phaseIndex = timeline.filter((item) => item.timelineKind === "thinking").length;
+
+  return [
+    ...timeline,
+    {
+      id: `stream_thinking_${messageId}_${phaseIndex}`,
+      messageId,
+      timelineKind: "thinking",
+      status: "running",
+      sortOrder: timeline.length,
+      startOffset,
+      endOffset: null,
+      startedAt,
+      completedAt: null
+    }
+  ];
+}
+
+export function completeStreamingThinkingPhase(
+  timeline: MessageTimelineItem[],
+  endOffset: number,
+  status: "completed" | "error" | "stopped",
+  completedAt: string
+): MessageTimelineItem[] {
+  for (let index = timeline.length - 1; index >= 0; index -= 1) {
+    const item = timeline[index];
+
+    if (item.timelineKind !== "thinking" || item.status !== "running") {
+      continue;
+    }
+
+    return timeline.map((candidate, candidateIndex) =>
+      candidateIndex === index
+        ? {
+            ...item,
+            status,
+            endOffset,
+            completedAt
+          }
+        : candidate
+    );
+  }
+
+  return timeline;
+}
+
 export function isLegacyCompactionNotice(message: Pick<Message, "role" | "systemKind">) {
   return message.role === "system" && message.systemKind === "compaction_notice";
 }
@@ -364,11 +422,15 @@ export function adoptStreamingSnapshotState(timeline: MessageTimelineItem[] | un
     }
 
     flushBufferedText();
-    consolidated.push({
-      ...item,
-      timelineKind: "action",
-      sortOrder: consolidated.length
-    });
+    consolidated.push(
+      item.timelineKind === "thinking"
+        ? { ...item, sortOrder: consolidated.length }
+        : {
+            ...item,
+            timelineKind: "action",
+            sortOrder: consolidated.length
+          }
+    );
   }
 
   flushBufferedText();

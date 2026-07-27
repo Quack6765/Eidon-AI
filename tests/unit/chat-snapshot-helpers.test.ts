@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { reconcileSnapshotMessages } from "@/components/chat-snapshot-helpers";
-import type { Message, MessageAction } from "@/lib/types";
+import {
+  completeStreamingThinkingPhase,
+  ensureStreamingThinkingPhase,
+  reconcileSnapshotMessages
+} from "@/components/chat-snapshot-helpers";
+import type { Message, MessageAction, MessageTimelineItem } from "@/lib/types";
 
 function makeMessage(overrides: Partial<Message> & { id: string }): Message {
   return {
@@ -87,5 +91,75 @@ describe("reconcileSnapshotMessages identity preservation", () => {
     ]);
     expect(result.anchorMessageIdRemap.get("local_1")).toBe("srv_1");
     expect(result.messages.map((m) => m.id)).toEqual(["srv_1"]);
+  });
+});
+
+describe("streaming thinking phases", () => {
+  it("completes a phase in place and appends resumed thinking after the tool", () => {
+    const firstPhase = ensureStreamingThinkingPhase(
+      [],
+      "msg_assistant",
+      0,
+      "2026-07-27T12:00:00.000Z"
+    );
+    const repeatedDelta = ensureStreamingThinkingPhase(
+      firstPhase,
+      "msg_assistant",
+      8,
+      "2026-07-27T12:00:00.500Z"
+    );
+    const completedPhase = completeStreamingThinkingPhase(
+      repeatedDelta,
+      16,
+      "completed",
+      "2026-07-27T12:00:01.000Z"
+    );
+    const toolAction: MessageTimelineItem = {
+      id: "act_search",
+      messageId: "msg_assistant",
+      timelineKind: "action",
+      kind: "mcp_tool_call",
+      status: "completed",
+      serverId: "exa",
+      skillId: null,
+      toolName: "web_search_exa",
+      label: "Web search",
+      detail: "query=Eidon",
+      arguments: { query: "Eidon" },
+      resultSummary: "Found results",
+      sortOrder: 1,
+      startedAt: "2026-07-27T12:00:01.000Z",
+      completedAt: "2026-07-27T12:00:02.000Z",
+      proposalState: null,
+      proposalPayload: null,
+      proposalUpdatedAt: null
+    };
+    const resumedPhase = ensureStreamingThinkingPhase(
+      [...completedPhase, toolAction],
+      "msg_assistant",
+      16,
+      "2026-07-27T12:00:02.000Z"
+    );
+
+    expect(repeatedDelta).toBe(firstPhase);
+    expect(resumedPhase.map((item) => item.timelineKind)).toEqual([
+      "thinking",
+      "action",
+      "thinking"
+    ]);
+    expect(resumedPhase[0]).toEqual(
+      expect.objectContaining({
+        id: "stream_thinking_msg_assistant_0",
+        status: "completed",
+        endOffset: 16
+      })
+    );
+    expect(resumedPhase[2]).toEqual(
+      expect.objectContaining({
+        id: "stream_thinking_msg_assistant_1",
+        status: "running",
+        startOffset: 16
+      })
+    );
   });
 });

@@ -102,6 +102,23 @@ function createToolAction(
   };
 }
 
+function createThinkingItem(
+  overrides: Partial<Extract<MessageTimelineItem, { timelineKind: "thinking" }>> = {}
+): Extract<MessageTimelineItem, { timelineKind: "thinking" }> {
+  return {
+    id: "thinking_0",
+    messageId: "msg_assistant",
+    timelineKind: "thinking",
+    status: "completed",
+    sortOrder: 0,
+    startOffset: 0,
+    endOffset: 16,
+    startedAt: "2026-07-27T12:00:00.000Z",
+    completedAt: "2026-07-27T12:00:01.000Z",
+    ...overrides
+  };
+}
+
 function createMemoryProposalMessage(
   overrides: Partial<Message> = {},
   actionOverrides: Partial<Extract<MessageTimelineItem, { timelineKind: "action" }>> = {}
@@ -427,7 +444,7 @@ describe("message bubble", () => {
     expect(screen.queryByRole("button", { name: "Create memory proposal" })).toBeNull();
   });
 
-  it("keeps the thought shell above action rows", () => {
+  it("keeps the completed thought shell above action rows", () => {
     render(
       React.createElement(MessageBubble, {
         message: {
@@ -454,6 +471,123 @@ describe("message bubble", () => {
     expect(thinkingShell.compareDocumentPosition(actionsShell)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING
     );
+  });
+
+  it("keeps distinct thinking phases in chronological timeline order", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          status: "streaming",
+          content: "",
+          thinkingContent: "Before the searchAfter the search",
+          timeline: [
+            createThinkingItem({
+              id: "thinking_before",
+              startOffset: 0,
+              endOffset: 17,
+              sortOrder: 0
+            }),
+            {
+              ...createToolAction({
+                id: "act_done",
+                messageId: "msg_assistant",
+                serverId: "mcp_docs",
+                toolName: "search_docs",
+                label: "Search docs",
+                detail: "query=MCP",
+                resultSummary: "Found MCP documentation",
+                sortOrder: 1
+              }),
+              timelineKind: "action"
+            },
+            createThinkingItem({
+              id: "thinking_after",
+              status: "running",
+              startOffset: 17,
+              endOffset: null,
+              sortOrder: 2,
+              completedAt: null
+            })
+          ]
+        },
+        streamingThinking: "Before the searchAfter the search",
+        streamingTimeline: [
+          createThinkingItem({
+            id: "thinking_before",
+            startOffset: 0,
+            endOffset: 17,
+            sortOrder: 0
+          }),
+          {
+            ...createToolAction({
+              id: "act_done",
+              messageId: "msg_assistant",
+              serverId: "mcp_docs",
+              toolName: "search_docs",
+              label: "Search docs",
+              detail: "query=MCP",
+              resultSummary: "Found MCP documentation",
+              sortOrder: 1
+            }),
+            timelineKind: "action"
+          },
+          createThinkingItem({
+            id: "thinking_after",
+            status: "running",
+            startOffset: 17,
+            endOffset: null,
+            sortOrder: 2,
+            completedAt: null
+          })
+        ],
+        hasThinking: true
+      })
+    );
+
+    const blocks = Array.from(
+      container.querySelectorAll(
+        '[data-testid="assistant-thinking-shell"], [data-testid="assistant-actions-shell"]'
+      )
+    );
+
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]).toHaveAttribute("data-thinking-status", "completed");
+    expect(blocks[1]).toHaveTextContent("Search docs");
+    expect(blocks[2]).toHaveAttribute("data-thinking-status", "running");
+  });
+
+  it("keeps action rows in chronological order while their statuses change", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          actions: [
+            createToolAction({
+              id: "act_running",
+              messageId: "msg_assistant",
+              label: "Searching the web",
+              detail: "query=Eidon",
+              resultSummary: "",
+              status: "running",
+              completedAt: null
+            }),
+            createToolAction({
+              id: "act_done",
+              messageId: "msg_assistant",
+              label: "Read documentation",
+              detail: "url=https://example.com/docs",
+              resultSummary: "Documentation loaded"
+            })
+          ]
+        }
+      })
+    );
+
+    const actionShells = screen.getAllByTestId("assistant-actions-shell");
+
+    expect(actionShells[0]).toHaveTextContent("Searching the web");
+    expect(actionShells[1]).toHaveTextContent("Read documentation");
   });
 
   it("renders assistant text and tool actions in timeline order", () => {

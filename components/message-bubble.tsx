@@ -231,6 +231,13 @@ const ASSISTANT_ERROR_MAX_WIDTH = "max-w-full md:max-w-[95%]";
 const ASSISTANT_LOADING_SHELL =
   "mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1";
 
+type ThinkingTimelineItem = Extract<MessageTimelineItem, { timelineKind: "thinking" }>;
+type RenderedThinkingTimelineItem = ThinkingTimelineItem & { content: string };
+type AssistantBlock =
+  | Extract<MessageTimelineItem, { timelineKind: "text" }>
+  | Extract<MessageTimelineItem, { timelineKind: "action" }>
+  | RenderedThinkingTimelineItem;
+
 function getActionSignature(action: Pick<MessageActionType, "kind" | "label" | "detail" | "toolName">) {
   return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
 }
@@ -331,7 +338,7 @@ function MessageBubbleImpl({
   onPreviewAttachment?: (attachment: MessageAttachment) => void;
   readOnly?: boolean;
 }) {
-  const [thinkingOpen, setThinkingOpen] = useState(false);
+  const [thinkingOpenItems, setThinkingOpenItems] = useState<Record<string, boolean>>({});
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [isEditing, setIsEditing] = useState(false);
@@ -379,7 +386,7 @@ function MessageBubbleImpl({
       ...action,
       timelineKind: "action" as const
     }));
-    const assistantBlocks: MessageTimelineItem[] = [];
+    const assistantBlocks: AssistantBlock[] = [];
     const deferredMemoryProposalBlocks: Extract<MessageTimelineItem, { timelineKind: "action" }>[] = [];
     let bufferedText = "";
 
@@ -403,6 +410,19 @@ function MessageBubbleImpl({
     }
 
     timeline.forEach((item) => {
+      if (item.timelineKind === "thinking") {
+        appendBufferedText();
+        const visibleEnd = Math.min(
+          item.endOffset ?? rawThinking.length,
+          rawThinking.length
+        );
+        assistantBlocks.push({
+          ...item,
+          content: rawThinking.slice(item.startOffset, visibleEnd)
+        });
+        return;
+      }
+
       if (item.timelineKind === "action") {
         if (isMemoryProposalAction(item)) {
           deferredMemoryProposalBlocks.push(item);
@@ -514,6 +534,82 @@ function MessageBubbleImpl({
     setToolOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
+  function toggleThinkingItem(id: string) {
+    setThinkingOpenItems((previous) => ({
+      ...previous,
+      [id]: !previous[id]
+    }));
+  }
+
+  function renderThinkingShell({
+    id,
+    content: thinkingShellContent,
+    status,
+    duration
+  }: {
+    id: string;
+    content: string;
+    status: "running" | "completed" | "error" | "stopped";
+    duration?: number;
+  }) {
+    const isOpen = thinkingOpenItems[id] ?? false;
+    const isRunning = status === "running";
+    const statusIcon = isRunning
+      ? <LoaderCircle className="h-3 w-3 animate-spin text-white/45" />
+      : status === "completed"
+        ? <Check className="h-3 w-3 text-emerald-400/80" />
+        : status === "stopped"
+          ? <Square className="h-3 w-3 fill-current text-red-400" />
+          : <X className="h-3 w-3 text-red-400" />;
+
+    return (
+      <div
+        key={id}
+        data-testid="assistant-thinking-shell"
+        data-thinking-status={status}
+        className="w-fit rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 transition-all duration-300"
+      >
+        <button
+          type="button"
+          onClick={() => toggleThinkingItem(id)}
+          className="flex w-full items-center gap-1.5 text-left transition hover:opacity-80"
+        >
+          <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+            {statusIcon}
+          </span>
+          <span className="flex items-center gap-1 text-[11px] text-white/50">
+            <span className="font-medium">{isRunning ? "Thinking" : "Thought"}</span>
+            {isRunning ? (
+              <span className="text-white/30">...</span>
+            ) : duration ? (
+              <span className="text-white/30">({duration.toFixed(1)}s)</span>
+            ) : null}
+          </span>
+          <span className="ml-auto flex items-center">
+            {isOpen ? (
+              <ChevronDown className="h-3.5 w-3.5 text-white/30" />
+            ) : (
+              <ChevronRight className="h-3.5 w-3.5 text-white/30" />
+            )}
+          </span>
+        </button>
+
+        {isOpen && thinkingShellContent ? (
+          <div
+            className="markdown-body thinking-markdown-body mt-1.5"
+            onClick={() => {
+              if (!window.getSelection()?.toString()) {
+                toggleThinkingItem(id);
+              }
+            }}
+          >
+            <Streamdown>{thinkingShellContent}</Streamdown>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
   function renderAssistantActionItem(item: Extract<MessageTimelineItem, { timelineKind: "action" }>) {
     return (
       <div key={item.id} data-testid="assistant-actions-shell">
@@ -542,7 +638,11 @@ function MessageBubbleImpl({
     message.role === "assistant" &&
     assistantImageAttachments.length > 0 &&
     lastRenderableAssistantTextId === null;
-  const showThinkingShell = !awaitingFirstToken && (thinkingInProgress || hasThinking || Boolean(thinkingContent));
+  const hasTimelineThinking = assistantBlocks.some((item) => item.timelineKind === "thinking");
+  const showThinkingShell =
+    !hasTimelineThinking &&
+    !awaitingFirstToken &&
+    (thinkingInProgress || hasThinking || Boolean(thinkingContent));
   const showUserBubbleActions = Boolean(content) && !awaitingFirstToken;
   const isAssistantStreaming =
     message.role === "assistant" &&
@@ -556,6 +656,14 @@ function MessageBubbleImpl({
     Boolean(renderedAssistantText) &&
     !awaitingFirstToken &&
     !isAssistantStreaming;
+  const thinkingShell = showThinkingShell
+    ? renderThinkingShell({
+        id: `thinking_${message.id}`,
+        content: thinkingContent,
+        status: thinkingInProgress ? "running" : "completed",
+        duration: thinkingDuration
+      })
+    : null;
 
   function setCopyFeedback(nextState: "copied" | "error") {
     setCopyState(nextState);
@@ -739,54 +847,7 @@ function MessageBubbleImpl({
       <div className="flex w-full flex-col gap-1">
         <div className="min-w-0 w-full text-[14.5px] text-[var(--text)]">
           <div className="flex flex-col items-start gap-3">
-            {showThinkingShell ? (
-              <div
-                data-testid="assistant-thinking-shell"
-                className={`w-fit rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 transition-all duration-300`}
-              >
-                <button
-                  type="button"
-                  onClick={() => setThinkingOpen((current) => !current)}
-                  className="flex w-full items-center gap-1.5 text-left transition hover:opacity-80"
-                >
-                  <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-                    {thinkingInProgress ? (
-                      <LoaderCircle className="h-3 w-3 animate-spin text-white/45" />
-                    ) : (
-                      <Check className="h-3 w-3 text-emerald-400/80" />
-                    )}
-                  </span>
-                  <span className="flex items-center gap-1 text-[11px] text-white/50">
-                    <span className="font-medium">{thinkingInProgress ? "Thinking" : "Thought"}</span>
-                    {thinkingInProgress ? (
-                      <span className="text-white/30">...</span>
-                    ) : thinkingDuration ? (
-                      <span className="text-white/30">({thinkingDuration.toFixed(1)}s)</span>
-                    ) : null}
-                  </span>
-                  <span className="ml-auto flex items-center">
-                    {thinkingOpen ? (
-                      <ChevronDown className="h-3.5 w-3.5 text-white/30" />
-                    ) : (
-                      <ChevronRight className="h-3.5 w-3.5 text-white/30" />
-                    )}
-                  </span>
-                </button>
-
-                {thinkingOpen && thinkingContent ? (
-                  <div
-                    className="markdown-body thinking-markdown-body mt-1.5"
-                    onClick={() => {
-                      if (!window.getSelection()?.toString()) {
-                        setThinkingOpen(false);
-                      }
-                    }}
-                  >
-                    <Streamdown>{thinkingContent}</Streamdown>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
+            {thinkingShell}
 
             {awaitingFirstToken ? (
               compactionInProgress ? (
@@ -803,11 +864,19 @@ function MessageBubbleImpl({
               <div className="group flex w-full min-w-0 flex-col items-start">
                 <MessageContent className={`w-full ${ASSISTANT_ERROR_MAX_WIDTH} flex-col gap-3`}>
                   {assistantBlocks
-                    .filter(
-                      (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
-                        item.timelineKind === "action"
-                    )
-                    .map((item) => renderAssistantActionItem(item))}
+                    .filter((item) => item.timelineKind !== "text")
+                    .map((item) =>
+                      item.timelineKind === "thinking"
+                        ? renderThinkingShell({
+                            id: item.id,
+                            content: item.content,
+                            status: item.status,
+                            duration: item.completedAt
+                              ? (Date.parse(item.completedAt) - Date.parse(item.startedAt)) / 1000
+                              : undefined
+                          })
+                        : renderAssistantActionItem(item)
+                    )}
                   <div
                     className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-red-300/85 shadow-[0_2px_10px_rgba(0,0,0,0.22)] md:px-4 md:py-3"
                     data-testid="assistant-error-bubble"
@@ -837,6 +906,17 @@ function MessageBubbleImpl({
                 <MessageContent className="w-full">
                   <div ref={contentRef} className="flex flex-col gap-3">
                     {assistantBlocks.map((item) => {
+                      if (item.timelineKind === "thinking") {
+                        return renderThinkingShell({
+                          id: item.id,
+                          content: item.content,
+                          status: item.status,
+                          duration: item.completedAt
+                            ? (Date.parse(item.completedAt) - Date.parse(item.startedAt)) / 1000
+                            : undefined
+                        });
+                      }
+
                       if (item.timelineKind === "action") {
                         return renderAssistantActionItem(item);
                       }

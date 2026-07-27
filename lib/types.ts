@@ -61,6 +61,8 @@ export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command"
 
 export type MessageActionStatus = "running" | "pending" | "completed" | "error" | "stopped";
 
+export type MessageThinkingStatus = "running" | "completed" | "error" | "stopped";
+
 export type AttachmentKind = "image" | "text";
 
 export type MemoryNodeType = "leaf_summary" | "merged_summary";
@@ -412,6 +414,17 @@ export type MessageTimelineItem =
       sortOrder: number;
       createdAt: string;
       content: string;
+    }
+  | {
+      id: string;
+      messageId: string;
+      timelineKind: "thinking";
+      status: MessageThinkingStatus;
+      sortOrder: number;
+      startOffset: number;
+      endOffset: number | null;
+      startedAt: string;
+      completedAt: string | null;
     }
   | ({
       timelineKind: "action";

@@ -1630,7 +1630,7 @@ describe("chat view", () => {
       expect(screen.getByText("Generate image")).toBeInTheDocument();
     });
 
-    expect(screen.getByRole("button", { name: "Thought" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Thought/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Thinking ..." })).toBeNull();
   });
 
@@ -3700,6 +3700,32 @@ describe("chat view", () => {
         type: "delta",
         conversationId: "conv_1",
         event: {
+          type: "action_start",
+          action: {
+            id: "act_live",
+            messageId: "msg_assistant",
+            kind: "mcp_tool_call",
+            status: "running",
+            serverId: "exa",
+            skillId: null,
+            toolName: "web_search_exa",
+            label: "web_search_exa",
+            detail: "query=booking",
+            arguments: { query: "booking" },
+            resultSummary: "",
+            sortOrder: 1,
+            startedAt: new Date().toISOString(),
+            completedAt: null,
+            proposalState: null,
+            proposalPayload: null,
+            proposalUpdatedAt: null
+          }
+        }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
           type: "action_complete",
           action: {
             id: "act_live",
@@ -3721,6 +3747,11 @@ describe("chat view", () => {
             proposalUpdatedAt: null
           }
         }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "thinking_delta", text: " Reviewing the results" }
       });
 
       resolveFetch?.({
@@ -3772,7 +3803,36 @@ describe("chat view", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByTestId("assistant-thinking-shell")).toBeInTheDocument();
+      expect(screen.getAllByTestId("assistant-thinking-shell")).toHaveLength(2);
+    });
+
+    const completedAction = screen.getByTestId("assistant-actions-shell");
+    const thinkingPhases = screen.getAllByTestId("assistant-thinking-shell");
+
+    expect(thinkingPhases).toHaveLength(2);
+    expect(thinkingPhases[0]).toHaveAttribute("data-thinking-status", "completed");
+    expect(thinkingPhases[1]).toHaveAttribute("data-thinking-status", "running");
+    expect(thinkingPhases[0].compareDocumentPosition(completedAction)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+    expect(completedAction.compareDocumentPosition(thinkingPhases[1])).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING
+    );
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant" }
+      });
+    });
+
+    await waitFor(() => {
+      const completedThinkingPhases = screen.getAllByTestId("assistant-thinking-shell");
+      expect(completedThinkingPhases[0]).toBe(thinkingPhases[0]);
+      expect(completedThinkingPhases[1]).toBe(thinkingPhases[1]);
+      expect(completedThinkingPhases[0]).toHaveAttribute("data-thinking-status", "completed");
+      expect(completedThinkingPhases[1]).toHaveAttribute("data-thinking-status", "completed");
     });
   });
 
