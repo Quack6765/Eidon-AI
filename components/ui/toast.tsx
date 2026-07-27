@@ -51,6 +51,9 @@ export function Toast({ visible, variant, message, onDismiss }: ToastProps) {
       {visible && (
         <motion.div
           key="toast"
+          role={variant === "error" ? "alert" : "status"}
+          aria-live={variant === "error" ? "assertive" : "polite"}
+          aria-atomic="true"
           initial={{ opacity: 0, y: 12 }}
           animate={{
             opacity: 1,
@@ -58,7 +61,7 @@ export function Toast({ visible, variant, message, onDismiss }: ToastProps) {
             transition: { duration: 0.25, ease: [0.22, 1, 0.36, 1] },
           }}
           exit={{ opacity: 0, transition: { duration: 0.8, ease: "easeOut" } }}
-          className={`fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 flex items-center gap-2 rounded-lg border ${style.border} ${style.bg} px-4 py-2.5 text-sm ${style.text} shadow-[0_4px_24px_rgba(0,0,0,0.5)]`}
+          className={`fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-[100] flex items-center gap-2 rounded-lg border ${style.border} ${style.bg} px-4 py-2.5 text-sm ${style.text} shadow-[0_4px_24px_rgba(0,0,0,0.5)]`}
         >
           <IconComponent className="h-3.5 w-3.5" />
           {message}

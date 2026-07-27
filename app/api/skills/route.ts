@@ -13,7 +13,8 @@ export async function GET() {
 const createSchema = z.object({
   name: z.string().trim().min(1).max(100).optional().default("Untitled Skill"),
   description: z.string().trim().min(1).optional(),
-  content: z.string().min(1)
+  content: z.string().min(1),
+  enabled: z.boolean().optional().default(true)
 });
 
 export async function POST(request: Request) {

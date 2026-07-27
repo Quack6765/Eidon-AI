@@ -2,12 +2,14 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { resolveAssistantTurn } from "@/lib/assistant-runtime";
-import { ChatTurnStoppedError, registerChatTurn, clearChatTurn } from "@/lib/chat-turn-control";
+import {
+  ChatTurnStoppedError,
+  claimChatTurnStart,
+  releaseChatTurnStart
+} from "@/lib/chat-turn-control";
 import { requireUser } from "@/lib/auth";
 import {
-  bindAttachmentsToMessage,
   createMessageAction,
-  createMessage,
   createMessageTextSegment,
   generateConversationTitleFromFirstUserMessage,
   getConversation,
@@ -17,7 +19,11 @@ import {
   updateMessage,
   updateMessageAction,
 } from "@/lib/conversations";
-import { attachAssistantFilesFromCompletedAction, createAssistantContentPersistenceTracker } from "@/lib/chat-turn";
+import {
+  attachAssistantFilesFromCompletedAction,
+  createAssistantContentPersistenceTracker,
+  createChatTurnMessages
+} from "@/lib/chat-turn";
 import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compaction";
 import { badRequest, parseRouteParams } from "@/lib/http";
 import {
@@ -90,48 +96,126 @@ export async function POST(
     return badRequest("Connect a GitHub account in settings before starting a chat");
   }
 
-  const userMessage = createMessage({
-    conversationId: conversation.id,
-    role: "user",
-    content: payload.data.message,
-    estimatedTokens: estimateTextTokens(payload.data.message)
-  });
+  const claimed = claimChatTurnStart(conversation.id);
+  if (!claimed.ok) {
+    return badRequest("Conversation already has an active assistant turn", 409);
+  }
+  const control = claimed.control;
+  const stopOnRequestAbort = () => control.requestStop();
 
-  bindAttachmentsToMessage(conversation.id, userMessage.id, payload.data.attachmentIds);
+  if (request.signal.aborted) {
+    stopOnRequestAbort();
+  } else {
+    request.signal.addEventListener("abort", stopOnRequestAbort, { once: true });
+  }
 
-  void generateConversationTitleFromFirstUserMessage(conversation.id, userMessage.id);
+  let turnFinalized = false;
+  const finalizeTurn = () => {
+    if (turnFinalized) {
+      return;
+    }
 
-  const assistantMessage = createMessage({
-    conversationId: conversation.id,
-    role: "assistant",
-    content: "",
-    thinkingContent: "",
-    status: "streaming",
-    estimatedTokens: 0
-  });
+    turnFinalized = true;
+    try {
+      setConversationActive(conversation.id, false);
+    } finally {
+      request.signal.removeEventListener("abort", stopOnRequestAbort);
+      releaseChatTurnStart(conversation.id, control);
+    }
+  };
+
+  let userMessage: ReturnType<typeof createChatTurnMessages>["userMessage"];
+  let assistantMessage: ReturnType<typeof createChatTurnMessages>["assistantMessage"];
+
+  try {
+    control.throwIfStopped();
+    ({ userMessage, assistantMessage } = createChatTurnMessages({
+      conversationId: conversation.id,
+      content: payload.data.message,
+      attachmentIds: payload.data.attachmentIds
+    }));
+
+    void generateConversationTitleFromFirstUserMessage(conversation.id, userMessage.id);
+  } catch (error) {
+    finalizeTurn();
+    throw error;
+  }
 
   const encoder = new TextEncoder();
+  let streamCancelled = false;
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      controller.enqueue(encoder.encode(encodeSsePrelude()));
+      let contentPersistence: ReturnType<typeof createAssistantContentPersistenceTracker>;
 
-      const write = (event: ChatStreamEvent) => {
-        controller.enqueue(encoder.encode(encodeSseEvent(event)));
+      const enqueue = (data: Uint8Array) => {
+        if (streamCancelled) {
+          return false;
+        }
 
-        if (event.type !== "thinking_delta") {
-          controller.enqueue(encoder.encode(encodeSseFlushMarker()));
+        try {
+          controller.enqueue(data);
+          return true;
+        } catch (error) {
+          streamCancelled = true;
+          control.requestStop();
+          throw error;
         }
       };
 
-      write({
-        type: "message_start",
-        messageId: assistantMessage.id
-      });
+      const write = (event: ChatStreamEvent) => {
+        if (!enqueue(encoder.encode(encodeSseEvent(event)))) {
+          return;
+        }
 
-      setConversationActive(conversation.id, true);
-      const control = registerChatTurn(conversation.id);
-      const contentPersistence = createAssistantContentPersistenceTracker(conversation.id, assistantMessage.id);
+        if (event.type !== "thinking_delta") {
+          enqueue(encoder.encode(encodeSseFlushMarker()));
+        }
+      };
+
+      const closeStream = () => {
+        if (streamCancelled) {
+          return;
+        }
+
+        try {
+          controller.close();
+        } catch {
+          streamCancelled = true;
+          control.requestStop();
+        }
+      };
+
+      try {
+        control.throwIfStopped();
+        enqueue(encoder.encode(encodeSsePrelude()));
+        write({
+          type: "message_start",
+          messageId: assistantMessage.id
+        });
+
+        setConversationActive(conversation.id, true);
+        contentPersistence = createAssistantContentPersistenceTracker(conversation.id, assistantMessage.id);
+      } catch (error) {
+        const stopped = control.stopped || control.abortController.signal.aborted;
+        try {
+          updateMessage(assistantMessage.id, {
+            content: "",
+            thinkingContent: "",
+            status: stopped ? "stopped" : "error"
+          });
+        } finally {
+          finalizeTurn();
+        }
+        if (stopped) {
+          closeStream();
+        } else if (!streamCancelled) {
+          try {
+            controller.error(error);
+          } catch {}
+        }
+        return;
+      }
       let latestAnswer = "";
       let latestThinking = "";
       let sawStreamedAnswerSinceLastSegment = false;
@@ -145,7 +229,8 @@ export async function POST(
           onCompactionEnd() {
             write({ type: "compaction_end" });
           }
-        });
+        }, undefined, false, control.abortController.signal);
+        control.throwIfStopped();
 
         let promptMessages = compacted.promptMessages;
         const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
@@ -157,7 +242,8 @@ export async function POST(
         }> = [];
         if (mcpServers.length) {
           const { gatherAllMcpTools } = await import("@/lib/mcp-client");
-          mcpToolSets = await gatherAllMcpTools(mcpServers);
+          mcpToolSets = await gatherAllMcpTools(mcpServers, control.abortController.signal);
+          control.throwIfStopped();
         }
 
         const visionMcpServers = mcpServers.filter((server) => server.enabled && server.isVisionMcp);
@@ -274,6 +360,7 @@ export async function POST(
             }
           }
         });
+        control.throwIfStopped();
 
         updateMessage(assistantMessage.id, {
           content: await contentPersistence.finalize(providerResult.answer),
@@ -298,10 +385,13 @@ export async function POST(
             compactionLimit: contextUsage.compactionLimit
           });
         }
-        setConversationActive(conversation.id, false);
-        controller.close();
+        closeStream();
       } catch (error) {
-        if (error instanceof ChatTurnStoppedError) {
+        if (
+          error instanceof ChatTurnStoppedError ||
+          control.stopped ||
+          control.abortController.signal.aborted
+        ) {
           updateMessage(assistantMessage.id, {
             content: await contentPersistence.finalize(latestAnswer),
             thinkingContent: latestThinking,
@@ -341,11 +431,14 @@ export async function POST(
             message: error instanceof Error ? error.message : "Chat stream failed"
           });
         }
-        setConversationActive(conversation.id, false);
-        controller.close();
+        closeStream();
       } finally {
-        clearChatTurn(conversation.id);
+        finalizeTurn();
       }
+    },
+    cancel() {
+      streamCancelled = true;
+      control.requestStop();
     }
   });
 

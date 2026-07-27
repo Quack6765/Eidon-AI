@@ -123,9 +123,16 @@ export function SettingsNav({
     }
   }
 
-  function handleUnsavedSave() {
+  async function handleUnsavedSave() {
     const guard = getUnsavedChangesGuard();
-    if (guard) guard.save();
+    if (guard) {
+      try {
+        const saved = await guard.save();
+        if (saved === false) return;
+      } catch {
+        return;
+      }
+    }
     setUnsavedDialogOpen(false);
     if (pendingNavTarget) {
       onCloseAction();
@@ -226,7 +233,7 @@ export function SettingsNav({
           open={unsavedDialogOpen}
           onOpenChange={setUnsavedDialogOpen}
           entityType={getUnsavedChangesGuard()?.entityType ?? "your settings"}
-          onSave={handleUnsavedSave}
+          onSave={() => void handleUnsavedSave()}
           onDiscard={handleUnsavedDiscard}
         />,
         document.body

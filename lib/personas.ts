@@ -123,10 +123,25 @@ export function updatePersona(
 }
 
 export function deletePersona(personaId: string, userId?: string): void {
-  if (userId) {
-    getDb().prepare("DELETE FROM personas WHERE id = ? AND user_id = ?").run(personaId, userId);
-    return;
-  }
+  const db = getDb();
+  const transaction = db.transaction(() => {
+    if (userId) {
+      const owned = db
+        .prepare("SELECT id FROM personas WHERE id = ? AND user_id = ?")
+        .get(personaId, userId);
+      if (!owned) return;
 
-  getDb().prepare("DELETE FROM personas WHERE id = ?").run(personaId);
+      db.prepare(
+        "UPDATE automations SET persona_id = NULL, updated_at = ? WHERE persona_id = ? AND user_id = ?"
+      ).run(nowIso(), personaId, userId);
+      db.prepare("DELETE FROM personas WHERE id = ? AND user_id = ?").run(personaId, userId);
+      return;
+    }
+
+    db.prepare("UPDATE automations SET persona_id = NULL, updated_at = ? WHERE persona_id = ?")
+      .run(nowIso(), personaId);
+    db.prepare("DELETE FROM personas WHERE id = ?").run(personaId);
+  });
+
+  transaction();
 }

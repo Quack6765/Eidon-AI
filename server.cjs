@@ -95,9 +95,19 @@ app.prepare().then(async () => {
     handle(req, res);
   });
 
-  const wss = new WebSocketServer({ server, path: "/ws" });
+  const wss = new WebSocketServer({
+    server,
+    path: "/ws",
+    maxPayload: 64 * 1024,
+    perMessageDeflate: false
+  });
 
-  const { createAutomationScheduler, setupWebSocketHandler } = require("./ws-handler-compiled.cjs");
+  const {
+    bootstrapRuntimeState,
+    createAutomationScheduler,
+    setupWebSocketHandler
+  } = require("./ws-handler-compiled.cjs");
+  bootstrapRuntimeState();
   setupWebSocketHandler(wss);
   const automationScheduler = createAutomationScheduler?.();
 

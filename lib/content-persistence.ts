@@ -1,8 +1,9 @@
+import { createAttachmentsFromBytes } from "@/lib/attachments";
 import { bindAttachmentsToMessage, getMessage } from "@/lib/conversations";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
-import { inferAssistantLocalAttachments, importAssistantLocalFileAttachment } from "@/lib/assistant-local-attachments";
+import { inferAssistantLocalAttachments } from "@/lib/assistant-local-attachments";
+import { consumeScreenshotArtifact } from "@/lib/screenshot-artifact-capabilities";
 import type { MessageAction } from "@/lib/types";
-import { extractAgentBrowserScreenshotPaths } from "./shell-tokenizer";
 
 function appendFailureNotes(content: string, failureNotes: string[]) {
   const trimmed = content.trim();
@@ -23,7 +24,6 @@ async function sanitizeAssistantContent(
   const inferred = await inferAssistantLocalAttachments({
     conversationId,
     content,
-    workspaceRoot: process.cwd(),
     existingAttachments: getMessage(messageId)?.attachments ?? [],
     tidyWhitespace: false
   });
@@ -52,42 +52,19 @@ export async function attachAssistantFilesFromCompletedAction(conversationId: st
     return;
   }
 
-  const command =
-    typeof action.arguments?.command === "string"
-      ? action.arguments.command.trim()
-      : action.detail.trim();
-
-  if (!command) {
+  const artifact = consumeScreenshotArtifact(action.id);
+  if (!artifact) {
     return;
   }
 
-  const screenshotPaths = extractAgentBrowserScreenshotPaths(command);
-  if (!screenshotPaths.length) {
+  if ((getMessage(messageId)?.attachments ?? []).some(
+    (attachment) => attachment.filename === artifact.filename
+  )) {
     return;
   }
 
-  const attachmentIds: string[] = [];
-  const existingAttachments = [...(getMessage(messageId)?.attachments ?? [])];
-
-  for (const screenshotPath of screenshotPaths) {
-    const outcome = await importAssistantLocalFileAttachment({
-      conversationId,
-      sourcePath: screenshotPath,
-      workspaceRoot: process.cwd(),
-      existingAttachments
-    });
-
-    if (outcome.type !== "attach") {
-      continue;
-    }
-
-    attachmentIds.push(outcome.attachment.id);
-    existingAttachments.push(outcome.attachment);
-  }
-
-  if (attachmentIds.length > 0) {
-    bindAttachmentsToMessage(conversationId, messageId, attachmentIds);
-  }
+  const [attachment] = await createAttachmentsFromBytes(conversationId, [artifact]);
+  bindAttachmentsToMessage(conversationId, messageId, [attachment.id]);
 }
 
 export function createAssistantContentPersistenceTracker(

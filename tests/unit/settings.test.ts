@@ -13,8 +13,12 @@ import {
   listProviderProfiles,
   parseImageGenerationSettingsInput,
   updateGeneralSettingsForUser,
+  updateGeneralSettingsBundleForUser,
   updateSettings,
+  updateProviderCatalog,
   updateImageGenerationSettings,
+  clearGithubCopilotCredentials,
+  updateGithubCopilotCredentialsIfRefreshTokenMatches,
   duplicateProviderProfile
 } from "@/lib/settings";
 import { createLocalUser } from "@/lib/users";
@@ -189,6 +193,71 @@ describe("settings storage", () => {
       ])
     );
     expect(getProviderProfileWithApiKey(alpha.id)?.apiKey).toBe("");
+  });
+
+  it("preserves exact unreadable provider ciphertext during unrelated saves", () => {
+    const profile = buildProfile({
+      id: "profile_unreadable_preserve",
+      name: "Unreadable preserve",
+      apiKey: "sk-original"
+    });
+    updateSettings({
+      defaultProviderProfileId: profile.id,
+      skillsEnabled: true,
+      providerProfiles: [profile]
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET api_key_encrypted = ? WHERE id = ?")
+      .run("unreadable-provider-ciphertext", profile.id);
+
+    updateSettings({
+      defaultProviderProfileId: profile.id,
+      skillsEnabled: false,
+      providerProfiles: [{
+        ...profile,
+        apiKey: "",
+        apiKeyAction: "preserve"
+      }]
+    });
+
+    const stored = getDb()
+      .prepare("SELECT api_key_encrypted FROM provider_profiles WHERE id = ?")
+      .get(profile.id) as { api_key_encrypted: string };
+    expect(stored.api_key_encrypted).toBe("unreadable-provider-ciphertext");
+  });
+
+  it("refuses to preserve unreadable provider ciphertext after an identity change", () => {
+    const profile = buildProfile({
+      id: "profile_unreadable_identity",
+      name: "Unreadable identity",
+      apiKey: "sk-original"
+    });
+    updateSettings({
+      defaultProviderProfileId: profile.id,
+      skillsEnabled: true,
+      providerProfiles: [profile]
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET api_key_encrypted = ? WHERE id = ?")
+      .run("unreadable-identity-ciphertext", profile.id);
+
+    expect(() => updateSettings({
+      defaultProviderProfileId: profile.id,
+      skillsEnabled: true,
+      providerProfiles: [{
+        ...profile,
+        providerKind: "anthropic",
+        apiBaseUrl: "https://api.anthropic.com",
+        providerPresetId: "anthropic_official",
+        apiKey: "",
+        apiKeyAction: "preserve"
+      }]
+    })).toThrow("changed connection identity; replace or clear its API key");
+
+    expect(getProviderProfile(profile.id)).toMatchObject({
+      providerKind: "openai_compatible",
+      apiKeyEncrypted: "unreadable-identity-ciphertext"
+    });
   });
 
   it("returns null for missing profiles and exposes defaults", () => {
@@ -923,7 +992,7 @@ describe("settings storage", () => {
       githubAccountName: null
     };
 
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: copilot.id,
       skillsEnabled: true,
       providerProfiles: [copilot]
@@ -1103,7 +1172,7 @@ describe("settings storage", () => {
       providerProfiles: [copilot]
     });
 
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: copilot.id,
       skillsEnabled: true,
       providerProfiles: [{
@@ -1128,6 +1197,48 @@ describe("settings storage", () => {
     expect(stored?.githubRefreshTokenExpiresAt).toBe("2026-10-08T16:00:00.000Z");
     expect(stored?.githubAccountLogin).toBe("octocat");
     expect(stored?.githubAccountName).toBe("The Octocat");
+  });
+
+  it("clears hidden github oauth fields when a profile changes provider kind", () => {
+    const copilot = {
+      ...buildProfile({ id: "profile_copilot_switch", name: "Copilot switch" }),
+      providerKind: "github_copilot" as const,
+      apiBaseUrl: "",
+      githubUserAccessTokenEncrypted: "ciphertext-access",
+      githubRefreshTokenEncrypted: "ciphertext-refresh",
+      githubTokenExpiresAt: "2027-04-08T16:00:00.000Z",
+      githubRefreshTokenExpiresAt: "2027-10-08T16:00:00.000Z",
+      githubAccountLogin: "octocat",
+      githubAccountName: "The Octocat"
+    };
+
+    updateSettings({
+      defaultProviderProfileId: copilot.id,
+      skillsEnabled: true,
+      providerProfiles: [copilot]
+    });
+
+    updateProviderCatalog({
+      defaultProviderProfileId: copilot.id,
+      skillsEnabled: true,
+      providerProfiles: [{
+        ...copilot,
+        providerKind: "openai_compatible" as const,
+        apiBaseUrl: "https://api.example.com/v1",
+        apiKey: "",
+        apiKeyAction: "clear" as const
+      }]
+    });
+
+    expect(getProviderProfile(copilot.id)).toMatchObject({
+      providerKind: "openai_compatible",
+      githubUserAccessTokenEncrypted: "",
+      githubRefreshTokenEncrypted: "",
+      githubTokenExpiresAt: null,
+      githubRefreshTokenExpiresAt: null,
+      githubAccountLogin: null,
+      githubAccountName: null
+    });
   });
 
   it("stores global image generation settings in app_settings and sanitizes secrets", async () => {
@@ -1178,6 +1289,61 @@ describe("settings storage", () => {
       imageGenerationBackend: "google_nano_banana",
       googleNanoBananaApiKey: "shared-google-secret"
     });
+  });
+
+  it("preserves and explicitly clears the Google image API key", () => {
+    updateImageGenerationSettings({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      googleNanoBananaApiKey: "google-secret",
+      googleNanoBananaApiKeyAction: "replace"
+    });
+
+    updateImageGenerationSettings({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-2.5-flash-image",
+      googleNanoBananaApiKeyAction: "preserve"
+    });
+    expect(getSettings().googleNanoBananaApiKey).toBe("google-secret");
+
+    updateImageGenerationSettings({
+      imageGenerationBackend: "google_nano_banana",
+      googleNanoBananaModel: "gemini-2.5-flash-image",
+      googleNanoBananaApiKeyAction: "clear"
+    });
+    expect(getSettings().googleNanoBananaApiKey).toBe("");
+  });
+
+  it("rolls back the complete General settings bundle when a global write fails", async () => {
+    const admin = await createLocalUser({
+      username: "atomic-settings-admin",
+      password: "changeme123",
+      role: "admin"
+    });
+    getSettingsForUser(admin.id);
+    getDb().exec(`
+      CREATE TRIGGER fail_image_settings
+      BEFORE UPDATE OF image_generation_backend ON app_settings
+      BEGIN
+        SELECT RAISE(ABORT, 'forced image settings failure');
+      END;
+    `);
+
+    expect(() => updateGeneralSettingsBundleForUser(admin.id, {
+      general: { conversationRetention: "7d" },
+      imageGeneration: {
+        imageGenerationBackend: "google_nano_banana",
+        googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+        googleNanoBananaApiKeyAction: "preserve"
+      },
+      titleGeneration: {
+        titleGenerationMode: "same",
+        titleGenerationProfileId: null
+      }
+    }, true)).toThrow("forced image settings failure");
+
+    expect(getSettingsForUser(admin.id).conversationRetention).toBe("forever");
+    getDb().exec("DROP TRIGGER fail_image_settings");
   });
 
   it("rejects the removed comfyui backend in image generation updates", () => {
@@ -1254,6 +1420,145 @@ describe("settings storage", () => {
 
     const copyWithKey = getProviderProfileWithApiKey(copy!.id);
     expect(copyWithKey?.apiKey).toBe("sk-secret-key");
+  });
+
+  it("does not duplicate GitHub Copilot OAuth credentials", () => {
+    const copilot = {
+      ...buildProfile({ id: "profile_copilot", name: "Copilot" }),
+      providerKind: "github_copilot",
+      apiBaseUrl: "",
+      githubUserAccessTokenEncrypted: "ciphertext-access",
+      githubRefreshTokenEncrypted: "ciphertext-refresh",
+      githubTokenExpiresAt: "2026-04-08T16:00:00.000Z",
+      githubRefreshTokenExpiresAt: "2026-10-08T16:00:00.000Z",
+      githubAccountLogin: "octocat",
+      githubAccountName: "The Octocat"
+    };
+
+    updateSettings({
+      defaultProviderProfileId: copilot.id,
+      skillsEnabled: true,
+      providerProfiles: [copilot]
+    });
+
+    const result = duplicateProviderProfile(copilot.id);
+    const copy = result.providerProfiles.find((profile) => profile.id !== copilot.id)!;
+    const storedCopy = getProviderProfile(copy.id);
+
+    expect(copy.githubConnectionStatus).toBe("disconnected");
+    expect(storedCopy).toMatchObject({
+      githubUserAccessTokenEncrypted: "",
+      githubRefreshTokenEncrypted: "",
+      githubTokenExpiresAt: null,
+      githubRefreshTokenExpiresAt: null,
+      githubAccountLogin: null,
+      githubAccountName: null
+    });
+  });
+
+  it("does not persist a refresh after Copilot credentials are disconnected", () => {
+    const copilot = {
+      ...buildProfile({ id: "profile_copilot_race", name: "Copilot race" }),
+      providerKind: "github_copilot",
+      apiBaseUrl: "",
+      githubUserAccessTokenEncrypted: "old-access-ciphertext",
+      githubRefreshTokenEncrypted: "old-refresh-ciphertext",
+      githubTokenExpiresAt: "2026-04-08T16:00:00.000Z"
+    };
+    updateSettings({
+      defaultProviderProfileId: copilot.id,
+      skillsEnabled: true,
+      providerProfiles: [copilot]
+    });
+
+    clearGithubCopilotCredentials(copilot.id);
+    const persisted = updateGithubCopilotCredentialsIfRefreshTokenMatches(
+      copilot.id,
+      "old-refresh-ciphertext",
+      {
+        githubUserAccessToken: "restored-access",
+        githubRefreshToken: "restored-refresh",
+        githubTokenExpiresAt: "2026-04-09T16:00:00.000Z",
+        githubRefreshTokenExpiresAt: null,
+        githubAccountLogin: "octocat",
+        githubAccountName: "Octocat"
+      }
+    );
+
+    expect(persisted).toBe(false);
+    expect(getProviderProfile(copilot.id)).toMatchObject({
+      githubUserAccessTokenEncrypted: "",
+      githubRefreshTokenEncrypted: ""
+    });
+  });
+
+  it("clears a stored provider key when its connection identity changes", () => {
+    const profile = buildProfile({
+      id: "profile_switch",
+      name: "Switching provider",
+      apiKey: "sk-old-provider"
+    });
+    updateSettings({
+      defaultProviderProfileId: profile.id,
+      skillsEnabled: true,
+      providerProfiles: [profile]
+    });
+
+    updateSettings({
+      defaultProviderProfileId: profile.id,
+      skillsEnabled: true,
+      providerProfiles: [{
+        ...profile,
+        providerKind: "anthropic",
+        apiBaseUrl: "https://api.anthropic.com",
+        providerPresetId: "anthropic_official",
+        apiKey: "",
+        apiKeyAction: "clear"
+      }]
+    });
+
+    expect(getProviderProfileWithApiKey(profile.id)?.apiKey).toBe("");
+  });
+
+  it("remaps provider dependents before deleting a profile", () => {
+    const kept = buildProfile({ id: "profile_kept", name: "Kept" });
+    const removed = buildProfile({ id: "profile_removed", name: "Removed" });
+    updateSettings({
+      defaultProviderProfileId: kept.id,
+      skillsEnabled: true,
+      providerProfiles: [kept, removed]
+    });
+    const conversation = createConversation("Dependent", null, {
+      providerProfileId: removed.id
+    });
+    const timestamp = new Date().toISOString();
+    getDb().prepare(
+      `INSERT INTO automations (
+        id, name, prompt, provider_profile_id, persona_id, user_id,
+        schedule_kind, interval_minutes, calendar_frequency, time_of_day,
+        days_of_week, enabled, next_run_at, last_scheduled_for, last_started_at,
+        last_finished_at, last_status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, NULL, NULL, 'interval', 60, NULL, NULL, '[]', 1, NULL, NULL, NULL, NULL, NULL, ?, ?)`
+    ).run("auto_dependent", "Dependent", "Run", removed.id, timestamp, timestamp);
+    getDb().prepare(
+      "UPDATE app_settings SET title_generation_mode = 'specific', title_generation_profile_id = ? WHERE id = 1"
+    ).run(removed.id);
+
+    updateSettings({
+      defaultProviderProfileId: kept.id,
+      skillsEnabled: true,
+      providerProfiles: [kept]
+    });
+
+    expect(getConversation(conversation.id)?.providerProfileId).toBe(kept.id);
+    expect(
+      getDb().prepare("SELECT provider_profile_id FROM automations WHERE id = ?").get("auto_dependent")
+    ).toEqual({ provider_profile_id: kept.id });
+    expect(
+      getDb().prepare(
+        "SELECT title_generation_mode, title_generation_profile_id FROM app_settings WHERE id = 1"
+      ).get()
+    ).toEqual({ title_generation_mode: "same", title_generation_profile_id: null });
   });
 
   it("appends numeric suffix when duplicate name already exists", () => {

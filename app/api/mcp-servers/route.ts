@@ -1,13 +1,19 @@
 import { z } from "zod";
 
 import { requireAdminResponse } from "@/lib/auth";
-import { createMcpServer, getMcpServerBySlug, listMcpServers, slugify } from "@/lib/mcp-servers";
+import {
+  createMcpServer,
+  getMcpServerBySlug,
+  listSanitizedMcpServers,
+  sanitizeMcpServer,
+  slugify
+} from "@/lib/mcp-servers";
 import { badRequest, forbidden, ok } from "@/lib/http";
 
 export async function GET() {
   const admin = await requireAdminResponse();
   if (!admin) return forbidden();
-  return ok({ servers: listMcpServers() });
+  return ok({ servers: listSanitizedMcpServers() });
 }
 
 const createSchema = z.discriminatedUnion("transport", [
@@ -16,6 +22,7 @@ const createSchema = z.discriminatedUnion("transport", [
     name: z.string().trim().min(1).max(100),
     url: z.string().url(),
     headers: z.record(z.string()).optional(),
+    enabled: z.boolean().optional(),
     isVisionMcp: z.boolean().optional()
   }),
   z.object({
@@ -26,6 +33,7 @@ const createSchema = z.discriminatedUnion("transport", [
     env: z.record(z.string()).optional(),
     url: z.string().optional(),
     headers: z.record(z.string()).optional(),
+    enabled: z.boolean().optional(),
     isVisionMcp: z.boolean().optional()
   })
 ]);
@@ -43,5 +51,5 @@ export async function POST(request: Request) {
     return badRequest("An MCP server with a similar name already exists.");
   }
 
-  return ok({ server: createMcpServer(body.data) }, { status: 201 });
+  return ok({ server: sanitizeMcpServer(createMcpServer(body.data)) }, { status: 201 });
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Info } from "lucide-react";
 
@@ -42,8 +42,12 @@ export function GeneralSection({
   const [hasEditedTavilyApiKey, setHasEditedTavilyApiKey] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const toast = useToastState();
-  const hasStoredExaApiKey = settings.hasExaApiKey ?? Boolean(settings.exaApiKey);
-  const hasStoredTavilyApiKey = settings.hasTavilyApiKey ?? Boolean(settings.tavilyApiKey);
+  const [hasStoredExaApiKey, setHasStoredExaApiKey] = useState(
+    settings.hasExaApiKey ?? Boolean(settings.exaApiKey)
+  );
+  const [hasStoredTavilyApiKey, setHasStoredTavilyApiKey] = useState(
+    settings.hasTavilyApiKey ?? Boolean(settings.tavilyApiKey)
+  );
 
   const [imageGenerationBackend, setImageGenerationBackend] = useState<ImageGenerationBackend>(
     settings.imageGenerationBackend
@@ -55,8 +59,9 @@ export function GeneralSection({
     settings.googleNanoBananaApiKey
   );
   const [hasEditedGoogleNanoBananaApiKey, setHasEditedGoogleNanoBananaApiKey] = useState(false);
-  const hasStoredGoogleNanoBananaApiKey =
-    settings.hasGoogleNanoBananaApiKey ?? Boolean(settings.googleNanoBananaApiKey);
+  const [hasStoredGoogleNanoBananaApiKey, setHasStoredGoogleNanoBananaApiKey] = useState(
+    settings.hasGoogleNanoBananaApiKey ?? Boolean(settings.googleNanoBananaApiKey)
+  );
 
   const [titleGenerationMode, setTitleGenerationMode] = useState<AppSettings["titleGenerationMode"]>(
     settings.titleGenerationMode
@@ -64,6 +69,22 @@ export function GeneralSection({
   const [titleGenerationProfileId, setTitleGenerationProfileId] = useState<string | null>(
     settings.titleGenerationProfileId
   );
+  const persistedSettings = useRef({
+    conversationRetention: settings.conversationRetention,
+    mcpTimeout: settings.mcpTimeout,
+    maxAssistantToolSteps: settings.maxAssistantToolSteps,
+    sttEngine: settings.sttEngine,
+    sttLanguage: settings.sttLanguage,
+    webSearchEngine: settings.webSearchEngine,
+    searxngBaseUrl: settings.searxngBaseUrl,
+    imageGenerationBackend: settings.imageGenerationBackend,
+    googleNanoBananaModel: settings.googleNanoBananaModel,
+    titleGenerationMode: settings.titleGenerationMode,
+    titleGenerationProfileId: settings.titleGenerationProfileId,
+    hasStoredExaApiKey,
+    hasStoredTavilyApiKey,
+    hasStoredGoogleNanoBananaApiKey
+  });
 
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
     conversationRetention,
@@ -78,23 +99,25 @@ export function GeneralSection({
     imageGenerationBackend,
     googleNanoBananaModel,
     googleNanoBananaApiKey,
+    hasEditedGoogleNanoBananaApiKey,
     titleGenerationMode,
     titleGenerationProfileId,
   });
+  const unsavedActions = useRef({ save, discard: restoreSavedSettings });
+  unsavedActions.current = { save, discard: restoreSavedSettings };
 
   useEffect(() => {
     registerUnsavedChangesGuard(
       isDirty
         ? {
             isDirty: () => isDirty,
-            save: () => { void save(); },
-            discard: () => { resetDirty(); },
+            save: () => unsavedActions.current.save(),
+            discard: () => unsavedActions.current.discard(),
             entityType: "these settings",
           }
         : null
     );
     return () => registerUnsavedChangesGuard(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDirty]);
 
   const speechLanguageOptions =
@@ -113,6 +136,18 @@ export function GeneralSection({
 
   function resetMessages() {
     toast.dismissToast();
+  }
+
+  function clearStoredGoogleImageApiKey() {
+    resetMessages();
+    setGoogleNanoBananaApiKey("");
+    setHasEditedGoogleNanoBananaApiKey(true);
+  }
+
+  function keepStoredGoogleImageApiKey() {
+    resetMessages();
+    setGoogleNanoBananaApiKey("");
+    setHasEditedGoogleNanoBananaApiKey(false);
   }
 
   function handleSpeechEngineChange(nextEngine: AppSettings["sttEngine"]) {
@@ -147,13 +182,115 @@ export function GeneralSection({
     return "";
   }
 
-  async function save() {
+  function acceptSavedSettings(saved: GeneralSectionSettings) {
+    const savedHasExaApiKey = saved.hasExaApiKey ?? false;
+    const savedHasTavilyApiKey = saved.hasTavilyApiKey ?? false;
+    const savedHasGoogleNanoBananaApiKey = saved.hasGoogleNanoBananaApiKey ?? false;
+
+    setConversationRetention(saved.conversationRetention);
+    setMcpTimeout(saved.mcpTimeout);
+    setMaxAssistantToolSteps(saved.maxAssistantToolSteps);
+    setSttEngine(saved.sttEngine);
+    setSttLanguage(saved.sttLanguage);
+    setWebSearchEngine(saved.webSearchEngine);
+    setSearxngBaseUrl(saved.searxngBaseUrl);
+    setImageGenerationBackend(saved.imageGenerationBackend);
+    setGoogleNanoBananaModel(saved.googleNanoBananaModel);
+    setTitleGenerationMode(saved.titleGenerationMode);
+    setTitleGenerationProfileId(saved.titleGenerationProfileId);
+    setHasStoredExaApiKey(savedHasExaApiKey);
+    setHasStoredTavilyApiKey(savedHasTavilyApiKey);
+    setHasStoredGoogleNanoBananaApiKey(savedHasGoogleNanoBananaApiKey);
+    setExaApiKey("");
+    setTavilyApiKey("");
+    setGoogleNanoBananaApiKey("");
+    setHasEditedExaApiKey(false);
+    setHasEditedTavilyApiKey(false);
+    setHasEditedGoogleNanoBananaApiKey(false);
+
+    persistedSettings.current = {
+      conversationRetention: saved.conversationRetention,
+      mcpTimeout: saved.mcpTimeout,
+      maxAssistantToolSteps: saved.maxAssistantToolSteps,
+      sttEngine: saved.sttEngine,
+      sttLanguage: saved.sttLanguage,
+      webSearchEngine: saved.webSearchEngine,
+      searxngBaseUrl: saved.searxngBaseUrl,
+      imageGenerationBackend: saved.imageGenerationBackend,
+      googleNanoBananaModel: saved.googleNanoBananaModel,
+      titleGenerationMode: saved.titleGenerationMode,
+      titleGenerationProfileId: saved.titleGenerationProfileId,
+      hasStoredExaApiKey: savedHasExaApiKey,
+      hasStoredTavilyApiKey: savedHasTavilyApiKey,
+      hasStoredGoogleNanoBananaApiKey: savedHasGoogleNanoBananaApiKey
+    };
+    resetDirty({
+      conversationRetention: saved.conversationRetention,
+      mcpTimeout: saved.mcpTimeout,
+      maxAssistantToolSteps: saved.maxAssistantToolSteps,
+      sttEngine: saved.sttEngine,
+      sttLanguage: saved.sttLanguage,
+      webSearchEngine: saved.webSearchEngine,
+      exaApiKey: "",
+      tavilyApiKey: "",
+      searxngBaseUrl: saved.searxngBaseUrl,
+      imageGenerationBackend: saved.imageGenerationBackend,
+      googleNanoBananaModel: saved.googleNanoBananaModel,
+      googleNanoBananaApiKey: "",
+      hasEditedGoogleNanoBananaApiKey: false,
+      titleGenerationMode: saved.titleGenerationMode,
+      titleGenerationProfileId: saved.titleGenerationProfileId
+    });
+  }
+
+  function restoreSavedSettings() {
+    const saved = persistedSettings.current;
+    setConversationRetention(saved.conversationRetention);
+    setMcpTimeout(saved.mcpTimeout);
+    setMaxAssistantToolSteps(saved.maxAssistantToolSteps);
+    setSttEngine(saved.sttEngine);
+    setSttLanguage(saved.sttLanguage);
+    setWebSearchEngine(saved.webSearchEngine);
+    setExaApiKey("");
+    setTavilyApiKey("");
+    setSearxngBaseUrl(saved.searxngBaseUrl);
+    setImageGenerationBackend(saved.imageGenerationBackend);
+    setGoogleNanoBananaModel(saved.googleNanoBananaModel);
+    setGoogleNanoBananaApiKey("");
+    setTitleGenerationMode(saved.titleGenerationMode);
+    setTitleGenerationProfileId(saved.titleGenerationProfileId);
+    setHasStoredExaApiKey(saved.hasStoredExaApiKey);
+    setHasStoredTavilyApiKey(saved.hasStoredTavilyApiKey);
+    setHasStoredGoogleNanoBananaApiKey(saved.hasStoredGoogleNanoBananaApiKey);
+    setHasEditedExaApiKey(false);
+    setHasEditedTavilyApiKey(false);
+    setHasEditedGoogleNanoBananaApiKey(false);
+    resetDirty({
+      conversationRetention: saved.conversationRetention,
+      mcpTimeout: saved.mcpTimeout,
+      maxAssistantToolSteps: saved.maxAssistantToolSteps,
+      sttEngine: saved.sttEngine,
+      sttLanguage: saved.sttLanguage,
+      webSearchEngine: saved.webSearchEngine,
+      exaApiKey: "",
+      tavilyApiKey: "",
+      searxngBaseUrl: saved.searxngBaseUrl,
+      imageGenerationBackend: saved.imageGenerationBackend,
+      googleNanoBananaModel: saved.googleNanoBananaModel,
+      googleNanoBananaApiKey: "",
+      hasEditedGoogleNanoBananaApiKey: false,
+      titleGenerationMode: saved.titleGenerationMode,
+      titleGenerationProfileId: saved.titleGenerationProfileId
+    });
+  }
+
+  async function save(): Promise<boolean> {
     resetMessages();
 
     const validationError = getSearchValidationError();
     if (validationError) {
       toast.showToast("error", validationError);
-      return;
+      return false;
     }
 
     const trimmedExaApiKey = exaApiKey.trim();
@@ -189,13 +326,14 @@ export function GeneralSection({
       googleNanoBananaModel
     };
 
-    if (imageGenerationBackend === "google_nano_banana") {
-      if (
-        hasEditedGoogleNanoBananaApiKey ||
-        (!hasStoredGoogleNanoBananaApiKey && googleNanoBananaApiKey.trim())
-      ) {
-        imagePayload.googleNanoBananaApiKey = googleNanoBananaApiKey.trim();
-      }
+    const trimmedGoogleApiKey = googleNanoBananaApiKey.trim();
+    imagePayload.googleNanoBananaApiKeyAction = hasEditedGoogleNanoBananaApiKey
+      ? trimmedGoogleApiKey
+        ? "replace"
+        : "clear"
+      : "preserve";
+    if (trimmedGoogleApiKey) {
+      imagePayload.googleNanoBananaApiKey = trimmedGoogleApiKey;
     }
 
     const titleGenerationPayload: Record<string, unknown> = {
@@ -206,56 +344,40 @@ export function GeneralSection({
     setIsSaving(true);
 
     try {
-      const [generalResponse, imageResponse, titleGenerationResponse] = await Promise.all([
-        fetch("/api/settings/general", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload)
-        }),
-        canManageImageGeneration
-          ? fetch("/api/settings/image-generation", {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(imagePayload)
-            })
-          : Promise.resolve(null),
-        canManageImageGeneration
-          ? fetch("/api/settings/title-generation", {
-              method: "PUT",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(titleGenerationPayload)
-            })
-          : Promise.resolve(null)
-      ]);
+      const generalResponse = await fetch("/api/settings/general", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          general: payload,
+          ...(canManageImageGeneration
+            ? {
+                imageGeneration: imagePayload,
+                titleGeneration: titleGenerationPayload
+              }
+            : {})
+        })
+      });
 
-      const generalResult = (await generalResponse.json()) as { error?: string };
+      const generalResult = (await generalResponse.json()) as {
+        settings?: GeneralSectionSettings;
+        error?: string;
+      };
 
       if (!generalResponse.ok) {
         toast.showToast("error", generalResult.error ?? "Unable to save settings");
-        return;
+        return false;
+      }
+      if (!generalResult.settings) {
+        throw new Error("Settings response was incomplete");
       }
 
-      if (imageResponse) {
-        const imageResult = (await imageResponse.json()) as { error?: string };
-
-        if (!imageResponse.ok) {
-          toast.showToast("error", imageResult.error ?? "Unable to save image generation settings");
-          return;
-        }
-      }
-
-      if (titleGenerationResponse) {
-        const titleGenerationResult = (await titleGenerationResponse.json()) as { error?: string };
-
-        if (!titleGenerationResponse.ok) {
-          toast.showToast("error", titleGenerationResult.error ?? "Unable to save title generation settings");
-          return;
-        }
-      }
-
+      acceptSavedSettings(generalResult.settings);
       toast.showToast("success", "Settings saved.");
-      resetDirty();
       router.refresh();
+      return true;
+    } catch {
+      toast.showToast("error", "Unable to save settings");
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -538,28 +660,59 @@ export function GeneralSection({
                     </option>
                   </select>
                 </div>
-                <div>
+                <div className="space-y-2">
                   <label htmlFor="google-nano-banana-api-key" className={fieldLabel}>
                     API key
                   </label>
-                  <input
-                    id="google-nano-banana-api-key"
-                    aria-label="Google Nano Banana API key"
-                    type="password"
-                    autoComplete="off"
-                    value={googleNanoBananaApiKey}
-                    placeholder={
-                      hasStoredGoogleNanoBananaApiKey && !hasEditedGoogleNanoBananaApiKey
-                        ? "••••••••"
-                        : ""
-                    }
-                    onChange={(event) => {
-                      resetMessages();
-                      setHasEditedGoogleNanoBananaApiKey(true);
-                      setGoogleNanoBananaApiKey(event.target.value);
-                    }}
-                    className={`${inputLike} w-full sm:w-[22rem] ${isFieldDirty("googleNanoBananaApiKey") ? "!border-amber-500/40" : ""}`}
-                  />
+                  <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
+                    <input
+                      id="google-nano-banana-api-key"
+                      aria-label="Google Nano Banana API key"
+                      type="password"
+                      autoComplete="off"
+                      value={googleNanoBananaApiKey}
+                      placeholder={
+                        hasStoredGoogleNanoBananaApiKey && !hasEditedGoogleNanoBananaApiKey
+                          ? "••••••••"
+                          : ""
+                      }
+                      onChange={(event) => {
+                        resetMessages();
+                        setHasEditedGoogleNanoBananaApiKey(true);
+                        setGoogleNanoBananaApiKey(event.target.value);
+                      }}
+                      className={`${inputLike} w-full sm:w-[22rem] ${isFieldDirty("googleNanoBananaApiKey") ? "!border-amber-500/40" : ""}`}
+                    />
+                    {hasStoredGoogleNanoBananaApiKey && !hasEditedGoogleNanoBananaApiKey ? (
+                      <button
+                        type="button"
+                        onClick={clearStoredGoogleImageApiKey}
+                        className="rounded-lg px-2.5 py-2 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
+                      >
+                        Clear stored key
+                      </button>
+                    ) : null}
+                  </div>
+                  {hasStoredGoogleNanoBananaApiKey && hasEditedGoogleNanoBananaApiKey ? (
+                    <div
+                      role="status"
+                      aria-live="polite"
+                      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-amber-300"
+                    >
+                      <span>
+                        {googleNanoBananaApiKey.trim()
+                          ? "A replacement key will be saved."
+                          : "Stored key will be cleared when you save."}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={keepStoredGoogleImageApiKey}
+                        className="font-medium text-[var(--text)] underline decoration-white/30 underline-offset-4 transition-colors hover:decoration-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
+                      >
+                        Keep stored key
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ) : null}

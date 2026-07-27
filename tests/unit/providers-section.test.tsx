@@ -346,6 +346,145 @@ describe("providers section", () => {
     expect(presetSelect).toHaveValue("");
   });
 
+  it("explicitly clears a stored key when switching provider presets", async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    const settings = makeSettings({
+      providerProfiles: [{
+        ...makeSettings().providerProfiles[0],
+        hasApiKey: true
+      }]
+    });
+    fetchMock.mockImplementation((input, init) => {
+      if (String(input) === "/api/mcp-servers") {
+        return Promise.resolve({ ok: true, json: async () => ({ servers: [] }) } as Response);
+      }
+      if (String(input) === "/api/settings/providers" && init?.method === "PUT") {
+        return Promise.resolve({ ok: true, json: async () => ({ settings }) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+    });
+    const { container } = render(React.createElement(ProvidersSection, { settings }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/mcp-servers"));
+
+    fireEvent.change(screen.getByDisplayValue("Manual configuration"), {
+      target: { value: "openrouter" }
+    });
+    fireEvent.change(container.querySelector<HTMLInputElement>('input[name="provider-model"]')!, {
+      target: { value: "openai/gpt-5" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/settings/providers",
+        expect.objectContaining({ method: "PUT" })
+      );
+    });
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/api/settings/providers" && init?.method === "PUT"
+    );
+    const body = JSON.parse(String(putCall?.[1]?.body));
+    expect(body.providerProfiles[0]).toMatchObject({
+      providerPresetId: "openrouter",
+      apiKey: "",
+      apiKeyAction: "clear"
+    });
+  });
+
+  it("keeps a rejected provider save in the editor", async () => {
+    vi.mocked(global.fetch).mockImplementation((input, init) => {
+      if (String(input) === "/api/mcp-servers") {
+        return Promise.resolve({ ok: true, json: async () => ({ servers: [] }) } as Response);
+      }
+      if (String(input) === "/api/settings/providers" && init?.method === "PUT") {
+        return Promise.reject(new Error("network down"));
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+    });
+    render(React.createElement(ProvidersSection, { settings: makeSettings() }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers"));
+
+    fireEvent.change(screen.getByDisplayValue("Default"), {
+      target: { value: "Unsaved provider" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("Unable to save settings")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Unsaved provider")).toBeInTheDocument();
+  });
+
+  it("treats a duplicated provider as an already saved profile", async () => {
+    const settings = makeSettings();
+    const copiedProfile = {
+      ...settings.providerProfiles[0],
+      id: "profile_copy",
+      name: "Default copy"
+    };
+    vi.mocked(global.fetch).mockImplementation((input) => {
+      if (String(input) === "/api/mcp-servers") {
+        return Promise.resolve({ ok: true, json: async () => ({ servers: [] }) } as Response);
+      }
+      if (String(input) === "/api/settings/providers/duplicate") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            settings: { ...settings, providerProfiles: [...settings.providerProfiles, copiedProfile] }
+          })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+    });
+    render(React.createElement(ProvidersSection, { settings }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+    await screen.findByDisplayValue("Default copy");
+
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+  });
+
+  it("keeps a newly added provider dirty until it is saved", async () => {
+    render(React.createElement(ProvidersSection, { settings: makeSettings() }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Add provider" }));
+    await screen.findByDisplayValue("Profile 2");
+    await waitFor(() => {
+      expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Default"));
+
+    expect(await screen.findByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
+  });
+
+  it("restores persisted skills without leaving a stale dirty baseline", async () => {
+    const primary = makeSettings().providerProfiles[0];
+    const settings = makeSettings({
+      defaultProviderProfileId: "profile_primary",
+      providerProfiles: [
+        { ...primary, id: "profile_primary", name: "Primary" },
+        { ...primary, id: "profile_backup", name: "Backup", model: "gpt-backup" }
+      ]
+    });
+    render(React.createElement(ProvidersSection, { settings }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers"));
+
+    const skillsCheckbox = screen.getByLabelText(
+      "Make enabled skills available to every chat in this workspace"
+    );
+    fireEvent.click(skillsCheckbox);
+    expect(skillsCheckbox).not.toBeChecked();
+    fireEvent.click(screen.getByText("Backup"));
+    fireEvent.click(await screen.findByRole("button", { name: "Don't save" }));
+
+    await screen.findByDisplayValue("Backup");
+    expect(screen.getByLabelText(
+      "Make enabled skills available to every chat in this workspace"
+    )).toBeChecked();
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+  });
+
   it("shows compaction threshold as a percent and preserves top-level settings on save", async () => {
     const fetchMock = vi.mocked(global.fetch);
     const settings = makeSettings({
@@ -435,9 +574,15 @@ describe("providers section", () => {
       }
 
       if (url === "/api/settings/providers" && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)) as { defaultProviderProfileId: string };
         return Promise.resolve({
           ok: true,
-          json: async () => ({ settings })
+          json: async () => ({
+            settings: {
+              ...settings,
+              defaultProviderProfileId: body.defaultProviderProfileId
+            }
+          })
         } as Response);
       }
 
@@ -693,9 +838,15 @@ describe("providers section", () => {
       }
 
       if (url === "/api/settings/providers" && init?.method === "PUT") {
+        const body = JSON.parse(String(init.body)) as { defaultProviderProfileId: string };
         return Promise.resolve({
           ok: true,
-          json: async () => ({ settings })
+          json: async () => ({
+            settings: {
+              ...settings,
+              defaultProviderProfileId: body.defaultProviderProfileId
+            }
+          })
         } as Response);
       }
 
@@ -733,6 +884,31 @@ describe("providers section", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Default provider")).toBeChecked();
     });
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+  });
+
+  it("uses the server-normalized provider profile as the clean baseline", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockImplementation((input, init) => {
+      if (String(input) === "/api/mcp-servers") {
+        return Promise.resolve({ ok: true, json: async () => ({ servers: [] }) } as Response);
+      }
+      if (String(input) === "/api/settings/providers" && init?.method === "PUT") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ settings })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+    });
+    render(React.createElement(ProvidersSection, { settings }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers"));
+
+    fireEvent.change(screen.getByDisplayValue("80"), { target: { value: "78" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(screen.getByDisplayValue("80")).toBeInTheDocument());
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
   });
 
   it("shows Thinking toggle instead of Reasoning effort for a mimo model in chat_completions mode", async () => {

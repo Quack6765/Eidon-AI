@@ -32,25 +32,93 @@ export function serializeServerMessage(msg: ServerMessage): string {
   return JSON.stringify(msg);
 }
 
-const CLIENT_MESSAGE_TYPES = new Set([
-  "subscribe",
-  "unsubscribe",
-  "message",
-  "stop",
-  "edit",
-  "queue_message",
-  "update_queued_message",
-  "delete_queued_message",
-  "send_queued_message_now"
-]);
+const MAX_CLIENT_IDENTIFIER_CHARS = 512;
+const MAX_CLIENT_CONTENT_CHARS = 64 * 1024;
+const MAX_CLIENT_ATTACHMENT_IDS = 100;
+
+function parseIdentifier(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= MAX_CLIENT_IDENTIFIER_CHARS
+    ? value
+    : null;
+}
+
+function parseContent(value: unknown) {
+  return typeof value === "string" && value.length <= MAX_CLIENT_CONTENT_CHARS
+    ? value
+    : null;
+}
 
 export function parseClientMessage(raw: string): ClientMessage | null {
   try {
-    const parsed = JSON.parse(raw);
-    if (typeof parsed !== "object" || parsed === null || !CLIENT_MESSAGE_TYPES.has(parsed.type)) {
+    const parsed = JSON.parse(raw) as Record<string, unknown> | null;
+    if (typeof parsed !== "object" || parsed === null || typeof parsed.type !== "string") {
       return null;
     }
-    return parsed as ClientMessage;
+
+    if (parsed.type === "edit") {
+      const messageId = parseIdentifier(parsed.messageId);
+      const content = parseContent(parsed.content);
+      return messageId && content !== null ? { type: "edit", messageId, content } : null;
+    }
+
+    const conversationId = parseIdentifier(parsed.conversationId);
+    if (!conversationId) {
+      return null;
+    }
+
+    if (parsed.type === "subscribe" || parsed.type === "unsubscribe" || parsed.type === "stop") {
+      return { type: parsed.type, conversationId };
+    }
+
+    if (parsed.type === "message") {
+      const content = parseContent(parsed.content);
+      const attachmentIds = parsed.attachmentIds;
+      const personaId = parsed.personaId;
+      const hasValidAttachmentIds = attachmentIds === undefined || (
+        Array.isArray(attachmentIds) &&
+        attachmentIds.length <= MAX_CLIENT_ATTACHMENT_IDS &&
+        attachmentIds.every((attachmentId) => Boolean(parseIdentifier(attachmentId)))
+      );
+      if (
+        content === null ||
+        !hasValidAttachmentIds ||
+        (!content.trim() && (!Array.isArray(attachmentIds) || attachmentIds.length === 0)) ||
+        (personaId !== undefined && !parseIdentifier(personaId))
+      ) {
+        return null;
+      }
+
+      return {
+        type: "message",
+        conversationId,
+        content,
+        ...(attachmentIds !== undefined ? { attachmentIds: attachmentIds as string[] } : {}),
+        ...(personaId !== undefined ? { personaId: personaId as string } : {})
+      };
+    }
+
+    if (parsed.type === "queue_message") {
+      const content = parseContent(parsed.content);
+      return content?.trim() ? { type: "queue_message", conversationId, content } : null;
+    }
+
+    const queuedMessageId = parseIdentifier(parsed.queuedMessageId);
+    if (!queuedMessageId) {
+      return null;
+    }
+
+    if (parsed.type === "update_queued_message") {
+      const content = parseContent(parsed.content);
+      return content?.trim()
+        ? { type: "update_queued_message", conversationId, queuedMessageId, content }
+        : null;
+    }
+
+    if (parsed.type === "delete_queued_message" || parsed.type === "send_queued_message_now") {
+      return { type: parsed.type, conversationId, queuedMessageId };
+    }
+
+    return null;
   } catch {
     return null;
   }

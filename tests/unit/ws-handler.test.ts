@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import type { IncomingMessage } from "http";
 import type WebSocket from "ws";
+import type { WebSocketServer } from "ws";
 
 vi.mock("@/lib/auth", () => ({
+  getCurrentUser: vi.fn(),
   verifySessionToken: vi.fn()
 }));
 
@@ -44,6 +47,266 @@ describe("ws-handler", () => {
     const error = sent.find(s => JSON.parse(s).type === "error");
     expect(error).toBeDefined();
     expect(JSON.parse(error!).type).toBe("error");
+  });
+
+  it("terminates sockets on errors and runs the registered connection cleanup", async () => {
+    const { verifySessionToken } = await import("@/lib/auth");
+    (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sessionId: "session-1",
+      userId: "user-1"
+    });
+    const { listActiveConversations } = await import("@/lib/conversations");
+    (listActiveConversations as ReturnType<typeof vi.fn>).mockReturnValue([]);
+
+    const mockMgr = {
+      addConnection: vi.fn().mockReturnValue(true),
+      removeConnection: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      disconnect: vi.fn(),
+      broadcast: vi.fn(),
+      broadcastAll: vi.fn(),
+      hasSubscribers: vi.fn(),
+      setActive: vi.fn(),
+      isActive: vi.fn(),
+      getActiveConversationIds: vi.fn()
+    };
+    vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+    const { setupWebSocketHandler } = await import("@/lib/ws-handler");
+    const serverHandlers = new Map<string, (...args: unknown[]) => unknown>();
+    const socketHandlers = new Map<string, Array<(...args: unknown[]) => void>>();
+    const socket = {
+      readyState: 1,
+      bufferedAmount: 0,
+      send: vi.fn(),
+      close: vi.fn(),
+      ping: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        const handlers = socketHandlers.get(event) ?? [];
+        handlers.push(handler);
+        socketHandlers.set(event, handlers);
+      }),
+      terminate: vi.fn(() => {
+        socket.readyState = 3;
+        for (const handler of socketHandlers.get("close") ?? []) {
+          handler();
+        }
+      })
+    };
+    const ws = socket as unknown as WebSocket;
+    const wss = {
+      clients: new Set([ws]),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => unknown) => {
+        serverHandlers.set(event, handler);
+      })
+    } as unknown as WebSocketServer;
+
+    try {
+      setupWebSocketHandler(wss);
+      await serverHandlers.get("connection")?.(
+        ws,
+        { headers: { cookie: "eidon_session=valid-token" } } as IncomingMessage
+      );
+
+      expect(mockMgr.addConnection).toHaveBeenCalledWith(ws, "user-1");
+      expect(socketHandlers.get("error")).toHaveLength(1);
+
+      socketHandlers.get("error")?.[0]?.(new Error("socket failed"));
+
+      expect(socket.terminate).toHaveBeenCalledTimes(1);
+      expect(mockMgr.removeConnection).toHaveBeenCalledWith(ws);
+      expect(mockMgr.disconnect).toHaveBeenCalledWith(ws);
+    } finally {
+      serverHandlers.get("close")?.();
+      vi.doUnmock("@/lib/ws-singleton");
+    }
+  });
+
+  it("does not ping sockets that are already closing", async () => {
+    vi.useFakeTimers();
+    const { setupWebSocketHandler } = await import("@/lib/ws-handler");
+    const serverHandlers = new Map<string, (...args: unknown[]) => unknown>();
+    const socket = {
+      readyState: 2,
+      ping: vi.fn(),
+      terminate: vi.fn()
+    } as unknown as WebSocket;
+    const wss = {
+      clients: new Set([socket]),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => unknown) => {
+        serverHandlers.set(event, handler);
+      })
+    } as unknown as WebSocketServer;
+
+    try {
+      setupWebSocketHandler(wss);
+      await vi.advanceTimersByTimeAsync(30_000);
+
+      expect(socket.ping).not.toHaveBeenCalled();
+      expect(socket.terminate).not.toHaveBeenCalled();
+    } finally {
+      serverHandlers.get("close")?.();
+      vi.useRealTimers();
+    }
+  });
+
+  it("contains synchronous message dispatch failures", async () => {
+    const { verifySessionToken } = await import("@/lib/auth");
+    (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sessionId: "session-1",
+      userId: "user-1"
+    });
+    const { getConversationSnapshot, listActiveConversations } = await import("@/lib/conversations");
+    (listActiveConversations as ReturnType<typeof vi.fn>).mockReturnValue([]);
+    (getConversationSnapshot as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw new Error("database unavailable");
+    });
+
+    const mockMgr = {
+      addConnection: vi.fn().mockReturnValue(true),
+      removeConnection: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      disconnect: vi.fn(),
+      broadcast: vi.fn(),
+      broadcastAll: vi.fn(),
+      hasSubscribers: vi.fn(),
+      setActive: vi.fn(),
+      isActive: vi.fn(),
+      getActiveConversationIds: vi.fn()
+    };
+    vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const sent: string[] = [];
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      bufferedAmount: 0,
+      send: vi.fn((data: string) => sent.push(data)),
+      close: vi.fn(),
+      terminate: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((data: string) => handler(data));
+      })
+    } as unknown as WebSocket;
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      await handleConnection(ws, "valid-token");
+
+      expect(() => {
+        messageHandlers[0]?.(JSON.stringify({
+          type: "queue_message",
+          conversationId: "conv-1",
+          content: "queued"
+        }));
+      }).not.toThrow();
+
+      expect(sent.map((raw) => JSON.parse(raw))).toContainEqual({
+        type: "error",
+        message: "Unable to process WebSocket message"
+      });
+      expect(ws.close).toHaveBeenCalledWith(1011, "WebSocket message failed");
+    } finally {
+      consoleError.mockRestore();
+      vi.doUnmock("@/lib/ws-singleton");
+    }
+  });
+
+  it("does not register a socket that closes while authentication is pending", async () => {
+    let resolveSession!: (value: { sessionId: string; userId: string }) => void;
+    const pendingSession = new Promise<{ sessionId: string; userId: string }>((resolve) => {
+      resolveSession = resolve;
+    });
+    const { verifySessionToken } = await import("@/lib/auth");
+    (verifySessionToken as ReturnType<typeof vi.fn>).mockReturnValue(pendingSession);
+
+    const mockMgr = {
+      addConnection: vi.fn().mockReturnValue(true),
+      removeConnection: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      disconnect: vi.fn(),
+      broadcast: vi.fn(),
+      broadcastAll: vi.fn(),
+      hasSubscribers: vi.fn(),
+      setActive: vi.fn(),
+      isActive: vi.fn(),
+      getActiveConversationIds: vi.fn()
+    };
+    vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const closeHandlers: Array<() => void> = [];
+    const ws = {
+      readyState: 1,
+      send: vi.fn(),
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: () => void) => {
+        if (event === "close") closeHandlers.push(handler);
+      })
+    } as unknown as WebSocket;
+
+    const connection = handleConnection(ws, "valid-token");
+    await Promise.resolve();
+    closeHandlers.forEach((handler) => handler());
+    resolveSession({ sessionId: "session-1", userId: "user-1" });
+    await connection;
+
+    expect(mockMgr.addConnection).not.toHaveBeenCalled();
+    vi.doUnmock("@/lib/ws-singleton");
+  });
+
+  it("scopes login-disabled sockets to the bootstrap user", async () => {
+    const previous = process.env.EIDON_PASSWORD_LOGIN_ENABLED;
+    process.env.EIDON_PASSWORD_LOGIN_ENABLED = "false";
+    vi.resetModules();
+
+    try {
+      const { getCurrentUser } = await import("@/lib/auth");
+      (getCurrentUser as ReturnType<typeof vi.fn>).mockResolvedValue({ id: "bootstrap-user" });
+      const { listActiveConversations } = await import("@/lib/conversations");
+      (listActiveConversations as ReturnType<typeof vi.fn>).mockReturnValue([]);
+
+      const mockMgr = {
+        addConnection: vi.fn().mockReturnValue(true),
+        removeConnection: vi.fn(),
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        disconnect: vi.fn(),
+        broadcast: vi.fn(),
+        broadcastAll: vi.fn(),
+        hasSubscribers: vi.fn(),
+        setActive: vi.fn(),
+        isActive: vi.fn(),
+        getActiveConversationIds: vi.fn()
+      };
+      vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+      const { handleConnection } = await import("@/lib/ws-handler");
+      const ws = {
+        readyState: 1,
+        bufferedAmount: 0,
+        send: vi.fn(),
+        close: vi.fn(),
+        on: vi.fn()
+      } as unknown as WebSocket;
+
+      await handleConnection(ws, null);
+
+      expect(mockMgr.addConnection).toHaveBeenCalledWith(ws, "bootstrap-user");
+      expect(listActiveConversations).toHaveBeenCalledWith("bootstrap-user");
+    } finally {
+      if (previous === undefined) {
+        delete process.env.EIDON_PASSWORD_LOGIN_ENABLED;
+      } else {
+        process.env.EIDON_PASSWORD_LOGIN_ENABLED = previous;
+      }
+      vi.doUnmock("@/lib/ws-singleton");
+      vi.resetModules();
+    }
   });
 
   it("sends ready and handles subscribe", async () => {
@@ -342,7 +605,7 @@ describe("ws-handler", () => {
 
     const broadcast: unknown[] = [];
     const mockMgr = {
-      addConnection: vi.fn(),
+      addConnection: vi.fn().mockReturnValue(true),
       removeConnection: vi.fn(),
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),
@@ -409,7 +672,7 @@ describe("ws-handler", () => {
 
     const broadcast: unknown[] = [];
     const mockMgr = {
-      addConnection: vi.fn(),
+      addConnection: vi.fn().mockReturnValue(true),
       removeConnection: vi.fn(),
       subscribe: vi.fn(),
       unsubscribe: vi.fn(),

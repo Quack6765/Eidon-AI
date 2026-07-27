@@ -1,6 +1,12 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
+type ExpectedSessionClaims = {
+  issuer: string;
+  audience: string;
+  tokenUse: string;
+};
+
 function base64UrlDecode(value: string) {
   if (!/^[A-Za-z0-9_-]*$/.test(value)) {
     return null;
@@ -94,4 +100,27 @@ export async function verifyHs256Jwt(token: string, secret: Uint8Array) {
   } catch {
     return null;
   }
+}
+
+export async function verifyHs256SessionJwt(
+  token: string,
+  secret: Uint8Array,
+  expected: ExpectedSessionClaims
+) {
+  const payload = await verifyHs256Jwt(token, secret);
+
+  if (
+    !payload ||
+    payload.iss !== expected.issuer ||
+    payload.aud !== expected.audience ||
+    payload.tokenUse !== expected.tokenUse ||
+    typeof payload.sid !== "string" ||
+    !payload.sid.trim() ||
+    typeof payload.uid !== "string" ||
+    !payload.uid.trim()
+  ) {
+    return null;
+  }
+
+  return payload;
 }

@@ -7,8 +7,234 @@ import {
   SETTINGS_ROW_ID
 } from "@/lib/constants";
 import { createId } from "@/lib/ids";
+import { encryptValue } from "@/lib/crypto";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { BUILTIN_AGENT_BROWSER_SKILL, deriveSkillDescription } from "@/lib/db-builtin-skills";
+
+const COMPACTION_EVENTS_TABLE_SQL = `
+  CREATE TABLE compaction_events (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL,
+    node_id TEXT NOT NULL,
+    source_start_message_id TEXT NOT NULL,
+    source_end_message_id TEXT NOT NULL,
+    notice_message_id TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+    FOREIGN KEY (node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,
+    FOREIGN KEY (source_start_message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (source_end_message_id) REFERENCES messages(id) ON DELETE CASCADE
+  )
+`;
+
+function tableExists(db: Database.Database, tableName: string) {
+  return Boolean(
+    db
+      .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(tableName)
+  );
+}
+
+function hasCurrentCompactionEventsSchema(db: Database.Database) {
+  if (!tableExists(db, "compaction_events")) {
+    return false;
+  }
+
+  const foreignKeys = db.prepare("PRAGMA foreign_key_list(compaction_events)").all() as Array<{
+    from: string;
+    table: string;
+    to: string;
+    on_delete: string;
+  }>;
+  const signatures = new Set(
+    foreignKeys.map(
+      (row) => `${row.from}:${row.table}:${row.to}:${row.on_delete.toUpperCase()}`
+    )
+  );
+
+  return [
+    "conversation_id:conversations:id:CASCADE",
+    "node_id:memory_nodes:id:CASCADE",
+    "source_start_message_id:messages:id:CASCADE",
+    "source_end_message_id:messages:id:CASCADE"
+  ].every((signature) => signatures.has(signature)) &&
+    !foreignKeys.some((row) => row.from === "notice_message_id");
+}
+
+function migrateCompactionEventsTable(db: Database.Database) {
+  const hasCurrentTable = tableExists(db, "compaction_events");
+  const hasOldTable = tableExists(db, "compaction_events_old");
+
+  if (hasCurrentTable && !hasOldTable && hasCurrentCompactionEventsSchema(db)) {
+    return;
+  }
+
+  const transaction = db.transaction(() => {
+    db.exec("DROP TABLE IF EXISTS compaction_events_new");
+    db.exec(COMPACTION_EVENTS_TABLE_SQL.replace("compaction_events", "compaction_events_new"));
+
+    const sourceTables = [
+      ...(hasOldTable ? ["compaction_events_old"] : []),
+      ...(hasCurrentTable ? ["compaction_events"] : [])
+    ];
+    const sourceSignatures = new Map<string, string>();
+
+    for (const sourceTable of sourceTables) {
+      const sourceRows = db
+        .prepare(
+          `SELECT
+             id,
+             conversation_id,
+             node_id,
+             source_start_message_id,
+             source_end_message_id,
+             notice_message_id,
+             created_at
+           FROM ${sourceTable}`
+        )
+        .iterate() as Iterable<{
+          id: string;
+          conversation_id: string;
+          node_id: string;
+          source_start_message_id: string;
+          source_end_message_id: string;
+          notice_message_id: string | null;
+          created_at: string;
+        }>;
+
+      for (const row of sourceRows) {
+        const signature = JSON.stringify([
+          row.conversation_id,
+          row.node_id,
+          row.source_start_message_id,
+          row.source_end_message_id,
+          row.notice_message_id,
+          row.created_at
+        ]);
+        const existingSignature = sourceSignatures.get(row.id);
+        if (existingSignature !== undefined && existingSignature !== signature) {
+          throw new Error(`Unable to migrate compaction events: conflicting duplicate id ${row.id}`);
+        }
+        sourceSignatures.set(row.id, signature);
+      }
+    }
+
+    for (const sourceTable of sourceTables) {
+      db.exec(`
+        INSERT OR IGNORE INTO compaction_events_new (
+          id,
+          conversation_id,
+          node_id,
+          source_start_message_id,
+          source_end_message_id,
+          notice_message_id,
+          created_at
+        )
+        SELECT
+          id,
+          conversation_id,
+          node_id,
+          source_start_message_id,
+          source_end_message_id,
+          notice_message_id,
+          created_at
+        FROM ${sourceTable}
+      `);
+    }
+
+    const expectedCount = sourceTables.length === 0
+      ? 0
+      : (
+          db
+            .prepare(
+              `SELECT COUNT(DISTINCT id) AS count FROM (${sourceTables
+                .map((sourceTable) => `SELECT id FROM ${sourceTable}`)
+                .join(" UNION ALL ")})`
+            )
+            .get() as { count: number }
+        ).count;
+    const migratedCount = (
+      db.prepare("SELECT COUNT(*) AS count FROM compaction_events_new").get() as { count: number }
+    ).count;
+
+    if (migratedCount !== expectedCount) {
+      throw new Error(
+        `Unable to migrate compaction events: expected ${expectedCount} rows, copied ${migratedCount}`
+      );
+    }
+
+    if (hasCurrentTable) {
+      db.exec("DROP TABLE compaction_events");
+    }
+    if (hasOldTable) {
+      db.exec("DROP TABLE compaction_events_old");
+    }
+    db.exec("ALTER TABLE compaction_events_new RENAME TO compaction_events");
+  });
+
+  transaction.immediate();
+}
+
+export function reconcileInterruptedRuntimeState(
+  db: Database.Database,
+  timestamp = new Date().toISOString()
+) {
+  const transaction = db.transaction(() => {
+    const conversations = db
+      .prepare("UPDATE conversations SET is_active = 0 WHERE is_active = 1")
+      .run().changes;
+    const messages = db
+      .prepare("UPDATE messages SET status = 'error' WHERE status = 'streaming'")
+      .run().changes;
+    const actions = db
+      .prepare(
+        `UPDATE message_actions
+         SET status = 'error',
+             detail = CASE WHEN detail = '' THEN ? ELSE detail END,
+             completed_at = COALESCE(completed_at, ?)
+         WHERE status = 'running'`
+      )
+      .run("Interrupted by server restart", timestamp).changes;
+    const titles = db
+      .prepare(
+        `UPDATE conversations
+         SET title_generation_status = 'failed'
+         WHERE title_generation_status = 'running'`
+      )
+      .run().changes;
+    const queuedMessages = db
+      .prepare(
+        `UPDATE queued_messages
+         SET status = 'failed',
+             failure_message = 'Queued follow-up was interrupted by server restart',
+             processing_started_at = NULL,
+             updated_at = ?
+         WHERE status = 'processing'`
+      )
+      .run(timestamp).changes;
+    const automationRuns = db
+      .prepare(
+        `UPDATE automation_runs
+         SET status = 'failed',
+             error_message = 'Automation run was interrupted by server restart',
+             finished_at = COALESCE(finished_at, ?)
+         WHERE status = 'running'`
+      )
+      .run(timestamp).changes;
+
+    db.prepare(
+      `UPDATE automations
+       SET last_status = 'failed',
+           last_finished_at = COALESCE(last_finished_at, ?),
+           updated_at = ?
+       WHERE last_status = 'running'`
+    ).run(timestamp, timestamp);
+
+    return { conversations, messages, actions, titles, queuedMessages, automationRuns };
+  });
+
+  return transaction.immediate();
+}
 
 export function migrate(db: Database.Database) {
   db.exec(`
@@ -85,6 +311,7 @@ export function migrate(db: Database.Database) {
       github_refresh_token_expires_at TEXT,
       github_account_login TEXT,
       github_account_name TEXT,
+      github_oauth_nonce TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -582,6 +809,18 @@ export function migrate(db: Database.Database) {
     backfillVisionMcpServers(db);
   }
 
+  const mcpSecretRows = db
+    .prepare("SELECT id, headers, env FROM mcp_servers")
+    .all() as Array<{ id: string; headers: string; env: string | null }>;
+  const encryptMcpSecrets = db.prepare("UPDATE mcp_servers SET headers = ?, env = ? WHERE id = ?");
+  for (const row of mcpSecretRows) {
+    const headers = row.headers.trim().startsWith("{") ? encryptValue(row.headers) : row.headers;
+    const storedEnv = row.env?.trim().startsWith("{") ? encryptValue(row.env) : row.env;
+    if (headers !== row.headers || storedEnv !== row.env) {
+      encryptMcpSecrets.run(headers, storedEnv, row.id);
+    }
+  }
+
   const skillCols = db.prepare("PRAGMA table_info(skills)").all() as Array<{ name: string }>;
   const skillColNames = skillCols.map((c) => c.name);
   if (!skillColNames.includes("description")) {
@@ -621,7 +860,8 @@ export function migrate(db: Database.Database) {
     github_token_expires_at: "TEXT",
     github_refresh_token_expires_at: "TEXT",
     github_account_login: "TEXT",
-    github_account_name: "TEXT"
+    github_account_name: "TEXT",
+    github_oauth_nonce: "TEXT"
   };
   const githubProfileCols = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
   const githubProfileColNames = githubProfileCols.map((c) => c.name);
@@ -642,28 +882,7 @@ export function migrate(db: Database.Database) {
     }
   }
 
-  try {
-    db.exec(`ALTER TABLE compaction_events RENAME TO compaction_events_old`);
-    db.exec(`
-      CREATE TABLE compaction_events (
-        id TEXT PRIMARY KEY,
-        conversation_id TEXT NOT NULL,
-        node_id TEXT NOT NULL,
-        source_start_message_id TEXT NOT NULL,
-        source_end_message_id TEXT NOT NULL,
-        notice_message_id TEXT,
-        created_at TEXT NOT NULL,
-        FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
-        FOREIGN KEY (node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,
-        FOREIGN KEY (source_start_message_id) REFERENCES messages(id) ON DELETE CASCADE,
-        FOREIGN KEY (source_end_message_id) REFERENCES messages(id) ON DELETE CASCADE
-      )
-    `);
-    db.exec(`INSERT INTO compaction_events SELECT * FROM compaction_events_old`);
-    db.exec(`DROP TABLE compaction_events_old`);
-  } catch {
-    // Already migrated or table doesn't exist yet
-  }
+  migrateCompactionEventsTable(db);
 
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
@@ -923,6 +1142,30 @@ export function migrate(db: Database.Database) {
   const now = new Date().toISOString();
   for (const skill of builtinSkills) {
     upsertSkill.run(skill.id, skill.name, skill.description, skill.content, now, now);
+  }
+
+  const automationRunIndexes = db.prepare("PRAGMA index_list(automation_runs)").all() as Array<{
+    name: string;
+  }>;
+  if (!automationRunIndexes.some((index) => index.name === "idx_automation_runs_one_running")) {
+    db.prepare(
+      `UPDATE automation_runs
+       SET status = 'failed',
+           error_message = 'Duplicate running automation repaired during migration',
+           finished_at = COALESCE(finished_at, ?)
+       WHERE status = 'running'
+         AND id NOT IN (
+           SELECT MIN(id)
+           FROM automation_runs
+           WHERE status = 'running'
+           GROUP BY automation_id
+         )`
+    ).run(new Date().toISOString());
+    db.exec(`
+      CREATE UNIQUE INDEX idx_automation_runs_one_running
+        ON automation_runs(automation_id)
+        WHERE status = 'running'
+    `);
   }
 }
 

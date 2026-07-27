@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -58,6 +59,43 @@ vi.mock("@/lib/conversation-title-generator", async (importOriginal) => {
 vi.mock("@/lib/auth", () => ({
   requireUser: requireUserMock
 }));
+
+function observeArtifactPublication() {
+  const open = vi.spyOn(fs, "openSync");
+  const write = vi.spyOn(fs, "writeFileSync");
+  const fsync = vi.spyOn(fs, "fsyncSync");
+  const close = vi.spyOn(fs, "closeSync");
+  const rename = vi.spyOn(fs, "renameSync");
+
+  return {
+    expectOneDurableArtifact() {
+      const publicationOpenIndex = open.mock.calls.findIndex((call) => call[1] === "wx");
+      const publicationOpenOrder = open.mock.invocationCallOrder[publicationOpenIndex];
+      expect(fsync).toHaveBeenCalledTimes(3);
+      expect(rename).toHaveBeenCalledTimes(1);
+      const publicationCloseOrder = close.mock.invocationCallOrder.find(
+        (order) =>
+          order > fsync.mock.invocationCallOrder[0] &&
+          order < rename.mock.invocationCallOrder[0]
+      );
+      expect(open.mock.calls[publicationOpenIndex]?.[2]).toBe(0o600);
+      expect(String(open.mock.calls[publicationOpenIndex]?.[0])).toContain(".tmp-");
+      expect(publicationOpenOrder).toBeLessThan(write.mock.invocationCallOrder[0]);
+      expect(write.mock.invocationCallOrder[0]).toBeLessThan(fsync.mock.invocationCallOrder[0]);
+      expect(fsync.mock.invocationCallOrder[0]).toBeLessThan(publicationCloseOrder!);
+      expect(publicationCloseOrder).toBeLessThan(rename.mock.invocationCallOrder[0]);
+      expect(rename.mock.invocationCallOrder[0]).toBeLessThan(fsync.mock.invocationCallOrder[1]);
+      expect(fsync.mock.invocationCallOrder[1]).toBeLessThan(fsync.mock.invocationCallOrder[2]);
+    },
+    restore() {
+      open.mockRestore();
+      write.mockRestore();
+      fsync.mockRestore();
+      close.mockRestore();
+      rename.mockRestore();
+    }
+  };
+}
 
 describe("conversation helpers", () => {
   beforeEach(() => {
@@ -461,6 +499,26 @@ describe("conversation helpers", () => {
     expect(failed?.title).toBe("Conversation");
     expect(failed?.titleGenerationStatus).toBe("failed");
     expect(failed?.updatedAt).toBe(before?.updatedAt);
+  });
+
+  it("does not clear live conversation activity when title generation finishes", async () => {
+    const completedConversation = createConversation();
+    const failedConversation = createConversation();
+    setConversationActive(completedConversation.id, true);
+    setConversationActive(failedConversation.id, true);
+
+    completeConversationTitleGeneration(completedConversation.id, "Live title");
+    failConversationTitleGeneration(failedConversation.id);
+
+    expect(getConversation(completedConversation.id)).toMatchObject({
+      title: "Live title",
+      titleGenerationStatus: "completed",
+      isActive: true
+    });
+    expect(getConversation(failedConversation.id)).toMatchObject({
+      titleGenerationStatus: "failed",
+      isActive: true
+    });
   });
 
   it("updates the conversation provider profile",  async () => {
@@ -1176,7 +1234,16 @@ describe("conversation helpers", () => {
     bindAttachmentsToMessage(sourceConversation.id, assistantMessage.id, [attachment.id]);
     fs.unlinkSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath));
 
-    const forkConversation = forkConversationFromMessage(assistantMessage.id, user.id);
+    const publication = observeArtifactPublication();
+    let forkConversation: ReturnType<typeof forkConversationFromMessage>;
+
+    try {
+      forkConversation = forkConversationFromMessage(assistantMessage.id, user.id);
+      publication.expectOneDurableArtifact();
+    } finally {
+      publication.restore();
+    }
+
     const forkAssistantMessage = listMessages(forkConversation.id)[1];
     const forkAttachment = forkAssistantMessage?.attachments?.[0];
     const forkAttachmentPath = path.resolve(
@@ -1187,8 +1254,145 @@ describe("conversation helpers", () => {
 
     expect(forkAttachment?.filename).toBe("notes.txt");
     expect(forkAttachment?.extractedText).toBe("source attachment");
+    expect(forkAttachment?.byteSize).toBe(Buffer.byteLength("source attachment"));
+    expect(forkAttachment?.sha256).toBe(
+      createHash("sha256").update("source attachment").digest("hex")
+    );
     expect(fs.existsSync(forkAttachmentPath)).toBe(true);
     expect(fs.readFileSync(forkAttachmentPath, "utf8")).toBe("source attachment");
+  });
+
+  it("durably republishes forked attachment bytes and recomputes stored metadata", async () => {
+    const sourceConversation = createConversation("Fork durable attachment");
+    createMessage({
+      conversationId: sourceConversation.id,
+      role: "user",
+      content: "Inspect this"
+    });
+    const assistantMessage = createMessage({
+      conversationId: sourceConversation.id,
+      role: "assistant",
+      content: "Attached"
+    });
+    const sourceBytes = Buffer.from("actual source bytes", "utf8");
+    const [attachment] = await createAttachments(sourceConversation.id, [
+      {
+        filename: "actual.txt",
+        mimeType: "text/plain",
+        bytes: sourceBytes
+      }
+    ]);
+    bindAttachmentsToMessage(sourceConversation.id, assistantMessage.id, [attachment.id]);
+    const db = getDb();
+    db
+      .prepare("UPDATE message_attachments SET byte_size = ?, sha256 = ? WHERE id = ?")
+      .run(999, "stale-sha", attachment.id);
+    const conversationReadTransactionStates: boolean[] = [];
+    const originalPrepare = db.prepare.bind(db);
+    const prepare = vi.spyOn(db, "prepare").mockImplementation(((source: string) => {
+      if (source.includes("FROM conversations c") && source.includes("WHERE c.id = ?")) {
+        conversationReadTransactionStates.push(db.inTransaction);
+      }
+      return originalPrepare(source);
+    }) as typeof db.prepare);
+
+    const publication = observeArtifactPublication();
+    let forkConversation: ReturnType<typeof forkConversationFromMessage>;
+
+    try {
+      forkConversation = forkConversationFromMessage(assistantMessage.id);
+      publication.expectOneDurableArtifact();
+    } finally {
+      publication.restore();
+      prepare.mockRestore();
+    }
+
+    expect(conversationReadTransactionStates).toEqual([true, true]);
+    const forkAttachment = listMessages(forkConversation.id)[1]?.attachments?.[0];
+    expect(forkAttachment?.byteSize).toBe(sourceBytes.length);
+    expect(forkAttachment?.sha256).toBe(
+      createHash("sha256").update(sourceBytes).digest("hex")
+    );
+    expect(
+      fs.readFileSync(
+        path.resolve(
+          process.env.EIDON_DATA_DIR!,
+          "attachments",
+          forkAttachment?.relativePath ?? ""
+        )
+      )
+    ).toEqual(sourceBytes);
+  });
+
+  it("removes durably published fork artifacts when the database transaction rolls back", async () => {
+    const sourceConversation = createConversation("Fork rollback");
+    createMessage({
+      conversationId: sourceConversation.id,
+      role: "user",
+      content: "Inspect this"
+    });
+    const assistantMessage = createMessage({
+      conversationId: sourceConversation.id,
+      role: "assistant",
+      content: "Attached"
+    });
+    const [attachment] = await createAttachments(sourceConversation.id, [
+      {
+        filename: "rollback.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("rollback bytes", "utf8")
+      }
+    ]);
+    bindAttachmentsToMessage(sourceConversation.id, assistantMessage.id, [attachment.id]);
+    const db = getDb();
+    db.exec(
+      `CREATE TEMP TRIGGER force_fork_attachment_rollback
+       BEFORE INSERT ON message_attachments
+       WHEN NEW.filename = 'rollback.txt'
+       BEGIN
+         SELECT RAISE(ABORT, 'forced fork attachment rollback');
+       END`
+    );
+    const fsync = vi.spyOn(fs, "fsyncSync");
+    const rename = vi.spyOn(fs, "renameSync");
+    const unlink = vi.spyOn(fs, "unlinkSync");
+    const rmdir = vi.spyOn(fs, "rmdirSync");
+
+    try {
+      expect(() => forkConversationFromMessage(assistantMessage.id)).toThrow(
+        "forced fork attachment rollback"
+      );
+      expect(rename).toHaveBeenCalledTimes(1);
+      expect(unlink).toHaveBeenCalled();
+      expect(rmdir).toHaveBeenCalled();
+      expect(rename.mock.invocationCallOrder[0]).toBeLessThan(
+        unlink.mock.invocationCallOrder.at(-1)!
+      );
+      expect(unlink.mock.invocationCallOrder.at(-1)).toBeLessThan(
+        fsync.mock.invocationCallOrder.at(-1)!
+      );
+      expect(rmdir.mock.invocationCallOrder.at(-1)).toBeLessThan(
+        fsync.mock.invocationCallOrder.at(-1)!
+      );
+    } finally {
+      fsync.mockRestore();
+      rename.mockRestore();
+      unlink.mockRestore();
+      rmdir.mockRestore();
+      db.exec("DROP TRIGGER IF EXISTS force_fork_attachment_rollback");
+    }
+
+    expect(
+      db.prepare("SELECT COUNT(*) AS count FROM conversations").get()
+    ).toEqual({ count: 1 });
+    expect(
+      fs.readdirSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments")).sort()
+    ).toEqual([sourceConversation.id]);
+    expect(
+      fs.readdirSync(
+        path.resolve(process.env.EIDON_DATA_DIR!, "attachments", sourceConversation.id)
+      )
+    ).toHaveLength(1);
   });
 
   it("rewrites a user message, deletes later turns, and preserves the edited message attachment",  async () => {

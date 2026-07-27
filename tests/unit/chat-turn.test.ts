@@ -327,7 +327,8 @@ describe("chat-turn", () => {
           id: "builtin_web_search_tavily",
           name: "Tavily"
         })
-      ])
+      ]),
+      expect.any(AbortSignal)
     );
   });
 
@@ -365,6 +366,55 @@ describe("chat-turn", () => {
     expect(assistant?.status).toBe("stopped");
     expect(assistant?.content).toContain("Partial");
     vi.useRealTimers();
+  });
+
+  it("persists MCP discovery aborts caused by Stop as stopped instead of failed", async () => {
+    const { gatherAllMcpTools } = await import("@/lib/mcp-client");
+    const mockedGatherAllMcpTools = vi.mocked(gatherAllMcpTools);
+    mockedGatherAllMcpTools.mockClear();
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { createMcpServer } = await import("@/lib/mcp-servers");
+    const { updateSettings } = await import("@/lib/settings");
+    const { requestStop } = await import("@/lib/chat-turn-control");
+
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    createMcpServer({ name: "Abort discovery", url: "https://mcp.example.com" });
+    const conversation = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null }
+    );
+
+    mockedGatherAllMcpTools.mockImplementationOnce(async (_servers, signal) => {
+      await new Promise<never>((_resolve, reject) => {
+        const rejectAborted = () => {
+          const error = new Error("MCP request aborted");
+          error.name = "AbortError";
+          reject(error);
+        };
+        if (!signal) {
+          reject(new Error("Expected an MCP abort signal"));
+        } else if (signal.aborted) {
+          rejectAborted();
+        } else {
+          signal.addEventListener("abort", rejectAborted, { once: true });
+        }
+      });
+      return [];
+    });
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const run = startChatTurn(manager, conversation.id, "Use the MCP server", []);
+    await vi.waitFor(() => expect(mockedGatherAllMcpTools).toHaveBeenCalled());
+    requestStop(conversation.id);
+
+    await expect(run).resolves.toEqual({ status: "stopped" });
+    const { listVisibleMessages } = await import("@/lib/conversations");
+    expect(
+      listVisibleMessages(conversation.id).find((message) => message.role === "assistant")?.status
+    ).toBe("stopped");
   });
 
   it("sanitizes buffered local-file markdown before persisting stopped text segments", async () => {
@@ -405,15 +455,12 @@ describe("chat-turn", () => {
 
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.status).toBe("stopped");
-      expect(assistant?.content).toBe("Saved the output.");
+      expect(assistant?.content).toBe(
+        "Saved the output.\n\nNote: I couldn't attach `report.txt` because the file was not produced by a completed tool action in this turn."
+      );
       expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output.\n\n"]);
       expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
-      expect(assistant?.attachments).toEqual([
-        expect.objectContaining({
-          filename: "report.txt",
-          messageId: assistant?.id
-        })
-      ]);
+      expect(assistant?.attachments).toEqual([]);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
       vi.useRealTimers();
@@ -653,7 +700,7 @@ describe("chat-turn", () => {
     expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Here is the capture:\n\n"]);
   });
 
-  it("binds successful agent-browser screenshots as assistant attachments even when the answer only mentions them in prose", async () => {
+  it("does not trust a forged completed-action callback as screenshot provenance", async () => {
     const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-turn-browser-screenshot-"));
     const screenshotPath = path.join(tempDir, "atlantis_ninja.png");
     fs.writeFileSync(screenshotPath, Buffer.from([137, 80, 78, 71]));
@@ -717,20 +764,14 @@ describe("chat-turn", () => {
 
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.content).toBe("I've captured the full-page screenshot and attached it for you.");
-      expect(assistant?.attachments).toEqual([
-        expect.objectContaining({
-          filename: "atlantis_ninja.png",
-          kind: "image",
-          messageId: assistant?.id
-        })
-      ]);
+      expect(assistant?.attachments).toEqual([]);
     } finally {
       vi.doUnmock("@/lib/assistant-runtime");
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
-  it("does not duplicate agent-browser screenshot attachments when the assistant also references the same local image in markdown", async () => {
+  it("does not attach a pre-existing screenshot named by a forged completed action", async () => {
     const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-turn-browser-screenshot-dedupe-"));
     const screenshotPath = path.join(tempDir, "atlantis_ninja.png");
     fs.writeFileSync(screenshotPath, Buffer.from([137, 80, 78, 71]));
@@ -793,9 +834,10 @@ describe("chat-turn", () => {
       });
 
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
-      expect(assistant?.content).toBe("Here is the screenshot:");
-      expect(assistant?.attachments).toHaveLength(1);
-      expect(assistant?.attachments?.[0]?.filename).toBe("atlantis_ninja.png");
+      expect(assistant?.content).toBe(
+        "Here is the screenshot:\n\nNote: I couldn't attach `atlantis_ninja.png` because the file was not produced by a completed tool action in this turn."
+      );
+      expect(assistant?.attachments).toEqual([]);
     } finally {
       vi.doUnmock("@/lib/assistant-runtime");
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -1185,6 +1227,50 @@ describe("chat-turn", () => {
     });
   });
 
+  it("rolls back the user row and attachment binding when assistant setup fails", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { getDb } = await import("@/lib/db");
+    const { updateSettings } = await import("@/lib/settings");
+    const { createAttachmentsFromBytes, getAttachment } = await import("@/lib/attachments");
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { claimChatTurnStart, releaseChatTurnStart } = await import("@/lib/chat-turn-control");
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const manager = createConversationManager();
+    const conversation = createConversation("Atomic setup");
+    const [attachment] = await createAttachmentsFromBytes(conversation.id, [{
+      filename: "setup.txt",
+      mimeType: "text/plain",
+      bytes: Buffer.from("setup")
+    }]);
+    getDb().exec(`
+      CREATE TRIGGER reject_assistant_message
+      BEFORE INSERT ON messages
+      WHEN NEW.role = 'assistant'
+      BEGIN
+        SELECT RAISE(ABORT, 'assistant insert failed');
+      END
+    `);
+
+    await expect(
+      startChatTurn(manager, conversation.id, "Atomic prompt", [attachment.id])
+    ).rejects.toThrow("assistant insert failed");
+
+    expect(listVisibleMessages(conversation.id)).toEqual([]);
+    expect(getAttachment(attachment.id)?.messageId).toBeNull();
+    const claimed = claimChatTurnStart(conversation.id);
+    expect(claimed.ok).toBe(true);
+    if (claimed.ok) {
+      releaseChatTurnStart(conversation.id, claimed.control);
+    }
+  });
+
   it("does not create an assistant placeholder when continuation preflight fails", async () => {
     const { createConversation, createMessage, listVisibleMessages } = await import("@/lib/conversations");
     const { startAssistantTurnFromExistingUserMessage } = await import("@/lib/chat-turn");
@@ -1340,7 +1426,7 @@ describe("chat-turn", () => {
     expect(result).toEqual({ status: "completed" });
   });
 
-  it("binds inferred local attachments to the completed assistant message and sanitizes persisted content", async () => {
+  it("does not bind unproven local attachments from assistant markdown", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
@@ -1379,13 +1465,10 @@ describe("chat-turn", () => {
 
       const assistantMessage = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistantMessage?.status).toBe("completed");
-      expect(assistantMessage?.content).toBe("Saved the output to a local file.");
-      expect(assistantMessage?.attachments).toEqual([
-        expect.objectContaining({
-          filename: "report.txt",
-          messageId: assistantMessage?.id
-        })
-      ]);
+      expect(assistantMessage?.content).toBe(
+        "Saved the output to a local file.\n\nNote: I couldn't attach `report.txt` because the file was not produced by a completed tool action in this turn."
+      );
+      expect(assistantMessage?.attachments).toEqual([]);
     } finally {
       fs.rmSync(tempDir, { recursive: true, force: true });
     }
@@ -1428,8 +1511,128 @@ describe("chat-turn", () => {
     expect(assistantMessage?.status).toBe("completed");
     expect(assistantMessage?.attachments).toEqual([]);
     expect(assistantMessage?.content).toBe(
-      "I saved the file locally.\n\nNote: I couldn't attach `hosts` because only workspace files and /tmp are allowed."
+      "I saved the file locally.\n\nNote: I couldn't attach `hosts` because the file was not produced by a completed tool action in this turn."
     );
+  });
+
+  it("claims the legacy SSE turn before inserting messages", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { claimChatTurnStart, releaseChatTurnStart } = await import("@/lib/chat-turn-control");
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+    const { createLocalUser: createRouteUser } = await import("@/lib/users");
+    const user = await createRouteUser({
+      username: "route-concurrency-user",
+      password: "route-concurrency-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+    const conversation = createConversation(
+      "Legacy route concurrency",
+      null,
+      { providerProfileId: profileId },
+      user.id
+    );
+    const existingMessages = listVisibleMessages(conversation.id);
+    const claimed = claimChatTurnStart(conversation.id);
+    expect(claimed.ok).toBe(true);
+
+    try {
+      const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+      const response = await POST(
+        new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Do not duplicate this turn", attachmentIds: [] })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+
+      expect(response.status).toBe(409);
+      await expect(response.json()).resolves.toEqual({
+        error: "Conversation already has an active assistant turn"
+      });
+      expect(listVisibleMessages(conversation.id)).toEqual(existingMessages);
+    } finally {
+      if (claimed.ok) {
+        releaseChatTurnStart(conversation.id, claimed.control);
+      }
+    }
+  });
+
+  it("stops and finalizes the legacy SSE turn when its response stream is cancelled", async () => {
+    const { createLocalUser: createRouteUser } = await import("@/lib/users");
+    const user = await createRouteUser({
+      username: "route-cancel-user",
+      password: "route-cancel-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { updateSettings } = await import("@/lib/settings");
+    const { createConversation, getConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { claimChatTurnStart, releaseChatTurnStart } = await import("@/lib/chat-turn-control");
+    const { profileId, profile } = setupProviderProfile();
+    updateSettings({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation(
+      "Route cancellation",
+      null,
+      { providerProfileId: profileId },
+      user.id
+    );
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn((input: { abortSignal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          const rejectForAbort = () => reject(new Error("provider transport aborted"));
+          if (input.abortSignal?.aborted) {
+            rejectForAbort();
+          } else {
+            input.abortSignal?.addEventListener("abort", rejectForAbort, { once: true });
+          }
+        })
+      )
+    }));
+
+    try {
+      const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+      const response = await POST(
+        new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Keep working", attachmentIds: [] })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+      const reader = response.body!.getReader();
+      await reader.read();
+      await reader.cancel();
+
+      await vi.waitFor(() => {
+        expect(getConversation(conversation.id)?.isActive).toBe(false);
+        expect(
+          listVisibleMessages(conversation.id).find((message) => message.role === "assistant")?.status
+        ).toBe("stopped");
+      });
+
+      const claimed = claimChatTurnStart(conversation.id);
+      expect(claimed.ok).toBe(true);
+      if (claimed.ok) {
+        releaseChatTurnStart(conversation.id, claimed.control);
+      }
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+    }
   });
 
   it("sanitizes local-file markdown segments in the SSE route before persistence", async () => {
@@ -1482,15 +1685,12 @@ describe("chat-turn", () => {
 
       const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
       expect(assistant?.status).toBe("completed");
-      expect(assistant?.content).toBe("Saved the output.");
+      expect(assistant?.content).toBe(
+        "Saved the output.\n\nNote: I couldn't attach `route-report.txt` because the file was not produced by a completed tool action in this turn."
+      );
       expect((assistant?.textSegments ?? []).map((segment) => segment.content)).toEqual(["Saved the output.\n\n"]);
       expect(JSON.stringify(assistant?.textSegments ?? [])).not.toContain(reportPath);
-      expect(assistant?.attachments).toEqual([
-        expect.objectContaining({
-          filename: "route-report.txt",
-          messageId: assistant?.id
-        })
-      ]);
+      expect(assistant?.attachments).toEqual([]);
     } finally {
       vi.doUnmock("@/lib/assistant-runtime");
       fs.rmSync(tempDir, { recursive: true, force: true });

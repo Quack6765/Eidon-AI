@@ -13,6 +13,9 @@ import {
 } from "@/lib/attachments";
 import { MAX_ATTACHMENT_BYTES } from "@/lib/constants";
 import { bindAttachmentsToMessage, createConversation, createMessage } from "@/lib/conversations";
+import { getDb, resetDbForTests } from "@/lib/db";
+import { bootstrapRuntimeState, resetRuntimeBootstrapForTests } from "@/lib/runtime-bootstrap";
+import { removeOrphanedAttachmentFiles } from "@/lib/attachment-storage-recovery";
 import { createLocalUser } from "@/lib/users";
 
 function createMinimalPdfBuffer(): Buffer {
@@ -50,6 +53,109 @@ describe("attachment helpers", () => {
     expect(
       fs.existsSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath))
     ).toBe(true);
+  });
+
+  it("fsyncs a temporary file before atomic publication and syncs its directory and root", async () => {
+    const conversation = createConversation();
+    const openSpy = vi.spyOn(fs, "openSync");
+    const fsyncSpy = vi.spyOn(fs, "fsyncSync");
+    const renameSpy = vi.spyOn(fs, "renameSync");
+
+    try {
+      const [attachment] = await createAttachments(conversation.id, [
+        {
+          filename: "durable.txt",
+          mimeType: "text/plain",
+          bytes: Buffer.from("durable bytes", "utf8")
+        }
+      ]);
+
+      expect(fsyncSpy).toHaveBeenCalledTimes(3);
+      expect(renameSpy).toHaveBeenCalledTimes(1);
+      expect(fsyncSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        renameSpy.mock.invocationCallOrder[0]
+      );
+      expect(renameSpy.mock.invocationCallOrder[0]).toBeLessThan(
+        fsyncSpy.mock.invocationCallOrder[1]
+      );
+      expect(fsyncSpy.mock.invocationCallOrder[1]).toBeLessThan(
+        fsyncSpy.mock.invocationCallOrder[2]
+      );
+      const [tempPath, finalPath] = renameSpy.mock.calls[0];
+      expect(path.dirname(String(tempPath))).toBe(path.dirname(String(finalPath)));
+      expect(String(tempPath)).toContain(".tmp-");
+      expect(openSpy.mock.calls[1]?.[0]).toBe(path.dirname(String(finalPath)));
+      expect(openSpy.mock.calls[2]?.[0]).toBe(
+        path.resolve(process.env.EIDON_DATA_DIR!, "attachments")
+      );
+      expect(getAttachment(attachment.id)).not.toBeNull();
+      expect(fs.readFileSync(String(finalPath), "utf8")).toBe("durable bytes");
+    } finally {
+      openSpy.mockRestore();
+      fsyncSpy.mockRestore();
+      renameSpy.mockRestore();
+    }
+  });
+
+  it("removes partial temporary and final artifacts when a write throws", async () => {
+    const conversation = createConversation();
+    const originalWriteSync = fs.writeSync.bind(fs);
+    const writeSpy = vi.spyOn(fs, "writeFileSync").mockImplementation(((target) => {
+      if (typeof target === "number") {
+        originalWriteSync(target, Buffer.from("partial", "utf8"));
+      }
+      throw Object.assign(new Error("disk write failed"), { code: "EIO" });
+    }) as typeof fs.writeFileSync);
+
+    try {
+      await expect(
+        createAttachments(conversation.id, [
+          {
+            filename: "partial.txt",
+            mimeType: "text/plain",
+            bytes: Buffer.from("complete payload", "utf8")
+          }
+        ])
+      ).rejects.toThrow("disk write failed");
+    } finally {
+      writeSpy.mockRestore();
+    }
+
+    const attachmentDir = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      conversation.id
+    );
+    expect(fs.existsSync(attachmentDir)).toBe(false);
+    expect(
+      getDb()
+        .prepare("SELECT COUNT(*) AS count FROM message_attachments WHERE conversation_id = ?")
+        .get(conversation.id)
+    ).toEqual({ count: 0 });
+  });
+
+  it("rejects publication through a symlinked conversation directory", async () => {
+    const conversation = createConversation();
+    const attachmentsRoot = path.resolve(process.env.EIDON_DATA_DIR!, "attachments");
+    const outsideDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-outside-"));
+    fs.mkdirSync(attachmentsRoot, { recursive: true });
+    fs.symlinkSync(outsideDirectory, path.join(attachmentsRoot, conversation.id), "dir");
+
+    try {
+      await expect(createAttachments(conversation.id, [{
+        filename: "escape.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("must stay inside", "utf8")
+      }])).rejects.toThrow("unsafe directory link");
+      expect(fs.readdirSync(outsideDirectory)).toEqual([]);
+      expect(
+        getDb()
+          .prepare("SELECT COUNT(*) AS count FROM message_attachments WHERE conversation_id = ?")
+          .get(conversation.id)
+      ).toEqual({ count: 0 });
+    } finally {
+      fs.rmSync(outsideDirectory, { recursive: true, force: true });
+    }
   });
 
   it("scopes attachments to the requested user", async () => {
@@ -141,6 +247,152 @@ describe("attachment helpers", () => {
 
     expect(deleteAttachmentById(attachment.id)).toBe(true);
     expect(getAttachment(attachment.id)).toBeNull();
+  });
+
+  it("commits deletion before file cleanup and removes the orphan on restart", async () => {
+    const conversation = createConversation();
+    const [attachment] = await createAttachments(conversation.id, [
+      {
+        filename: "orphan.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("cleanup after restart", "utf8")
+      }
+    ]);
+    const absolutePath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      attachment.relativePath
+    );
+    const unlinkSpy = vi.spyOn(fs, "unlinkSync").mockImplementation(() => {
+      throw Object.assign(new Error("busy"), { code: "EBUSY" });
+    });
+
+    expect(deleteAttachmentById(attachment.id)).toBe(true);
+    expect(getAttachment(attachment.id)).toBeNull();
+    expect(fs.existsSync(absolutePath)).toBe(true);
+
+    unlinkSpy.mockRestore();
+    resetDbForTests();
+    getDb();
+    resetRuntimeBootstrapForTests();
+    bootstrapRuntimeState();
+
+    expect(fs.existsSync(absolutePath)).toBe(false);
+  });
+
+  it("removes crash-temporary and unreferenced artifacts without touching valid files", async () => {
+    const conversation = createConversation();
+    const [attachment] = await createAttachments(conversation.id, [
+      {
+        filename: "valid.txt",
+        mimeType: "text/plain",
+        bytes: Buffer.from("valid", "utf8")
+      }
+    ]);
+    const validPath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      attachment.relativePath
+    );
+    const tempPath = `${validPath}.tmp-crash`;
+    const orphanPath = path.resolve(path.dirname(validPath), "unreferenced.bin");
+    fs.writeFileSync(tempPath, "partial", "utf8");
+    fs.writeFileSync(orphanPath, "orphan", "utf8");
+    const openSpy = vi.spyOn(fs, "openSync");
+
+    let result: ReturnType<typeof removeOrphanedAttachmentFiles> | null = null;
+    let validationOpen: Parameters<typeof fs.openSync> | undefined;
+    try {
+      result = removeOrphanedAttachmentFiles(
+        getDb(),
+        process.env.EIDON_DATA_DIR!
+      );
+      validationOpen = openSpy.mock.calls.find((call) => call[0] === validPath);
+    } finally {
+      openSpy.mockRestore();
+    }
+
+    expect(result).toEqual({ invalidRecords: 0, removedArtifacts: 2 });
+    expect(validationOpen).toBeDefined();
+    if (typeof fs.constants.O_NOFOLLOW === "number") {
+      expect(Number(validationOpen?.[1]) & fs.constants.O_NOFOLLOW).toBe(
+        fs.constants.O_NOFOLLOW
+      );
+    }
+    expect(fs.existsSync(validPath)).toBe(true);
+    expect(fs.existsSync(tempPath)).toBe(false);
+    expect(fs.existsSync(orphanPath)).toBe(false);
+    expect(getAttachment(attachment.id)).not.toBeNull();
+  });
+
+  it("removes database records for missing, truncated, corrupt, and non-regular files", async () => {
+    const conversation = createConversation();
+    const attachments = await createAttachments(
+      conversation.id,
+      [
+        ["missing.txt", "missing bytes"],
+        ["truncated.txt", "truncate these bytes"],
+        ["corrupt.txt", "original bytes"],
+        ["directory.txt", "must be a file"]
+      ].map(([filename, content]) => ({
+        filename,
+        mimeType: "text/plain",
+        bytes: Buffer.from(content, "utf8")
+      }))
+    );
+    const absolutePaths = attachments.map((attachment) =>
+      path.resolve(
+        process.env.EIDON_DATA_DIR!,
+        "attachments",
+        attachment.relativePath
+      )
+    );
+    fs.unlinkSync(absolutePaths[0]);
+    fs.writeFileSync(absolutePaths[1], "short", "utf8");
+    fs.writeFileSync(absolutePaths[2], Buffer.alloc(attachments[2].byteSize, 0x78));
+    fs.unlinkSync(absolutePaths[3]);
+    fs.mkdirSync(absolutePaths[3]);
+
+    const result = removeOrphanedAttachmentFiles(
+      getDb(),
+      process.env.EIDON_DATA_DIR!
+    );
+
+    expect(result.invalidRecords).toBe(4);
+    for (const attachment of attachments) {
+      expect(getAttachment(attachment.id)).toBeNull();
+    }
+    for (const absolutePath of absolutePaths) {
+      expect(fs.existsSync(absolutePath)).toBe(false);
+    }
+  });
+
+  it("invalidates rows behind symlinked parents without traversing outside storage", async () => {
+    const conversation = createConversation();
+    const [attachment] = await createAttachments(conversation.id, [{
+      filename: "outside.txt",
+      mimeType: "text/plain",
+      bytes: Buffer.from("outside remains", "utf8")
+    }]);
+    const attachmentsRoot = path.resolve(process.env.EIDON_DATA_DIR!, "attachments");
+    const conversationDirectory = path.join(attachmentsRoot, conversation.id);
+    const outsideParent = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-recovery-outside-"));
+    const outsideDirectory = path.join(outsideParent, "conversation");
+    fs.renameSync(conversationDirectory, outsideDirectory);
+    fs.symlinkSync(outsideDirectory, conversationDirectory, "dir");
+    const outsideFile = path.join(outsideDirectory, path.basename(attachment.relativePath));
+
+    try {
+      expect(removeOrphanedAttachmentFiles(getDb(), process.env.EIDON_DATA_DIR!)).toEqual({
+        invalidRecords: 1,
+        removedArtifacts: 1
+      });
+      expect(getAttachment(attachment.id)).toBeNull();
+      expect(fs.existsSync(conversationDirectory)).toBe(false);
+      expect(fs.readFileSync(outsideFile, "utf8")).toBe("outside remains");
+    } finally {
+      fs.rmSync(outsideParent, { recursive: true, force: true });
+    }
   });
 
   it("rejects unsupported file types", async () => {

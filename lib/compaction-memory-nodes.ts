@@ -180,10 +180,66 @@ export function supersedeNodes(nodeIds: string[], parentNodeId: string) {
   );
 
   const transaction = getDb().transaction((ids: string[]) => {
-    ids.forEach((id) => statement.run(parentNodeId, id));
+    return ids.reduce(
+      (count, id) => count + statement.run(parentNodeId, id).changes,
+      0
+    );
   });
 
-  transaction(nodeIds);
+  return transaction(nodeIds);
+}
+
+export function commitLeafCompaction(input: {
+  node: Parameters<typeof insertMemoryNode>[0];
+  messageIds: string[];
+}) {
+  const db = getDb();
+  const transaction = db.transaction(() => {
+    const node = insertMemoryNode(input.node);
+    insertCompactionEvent({
+      conversationId: input.node.conversationId,
+      nodeId: node.id,
+      sourceStartMessageId: input.node.sourceStartMessageId,
+      sourceEndMessageId: input.node.sourceEndMessageId
+    });
+
+    const compactedAt = new Date().toISOString();
+    const markMessage = db.prepare(
+      `UPDATE messages
+       SET compacted_at = ?
+       WHERE id = ? AND conversation_id = ?`
+    );
+    for (const messageId of input.messageIds) {
+      const result = markMessage.run(compactedAt, messageId, input.node.conversationId);
+      if (result.changes !== 1) {
+        throw new Error(`Unable to compact source message ${messageId}`);
+      }
+    }
+
+    db.prepare("UPDATE conversations SET updated_at = ? WHERE id = ?").run(
+      compactedAt,
+      input.node.conversationId
+    );
+    return node;
+  });
+
+  return transaction.immediate();
+}
+
+export function commitMergedCompaction(input: {
+  node: Parameters<typeof insertMemoryNode>[0];
+  childNodeIds: string[];
+}) {
+  const transaction = getDb().transaction(() => {
+    const node = insertMemoryNode(input.node);
+    const supersededCount = supersedeNodes(input.childNodeIds, node.id);
+    if (supersededCount !== input.childNodeIds.length) {
+      throw new Error("Unable to supersede every child memory node");
+    }
+    return node;
+  });
+
+  return transaction.immediate();
 }
 
 export { renderMemoryNode };

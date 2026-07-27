@@ -65,6 +65,21 @@ describe("skills", () => {
     );
   });
 
+  it("creates a disabled skill atomically", () => {
+    const skill = createSkill({
+      name: "Paused",
+      description: "Use after this skill is enabled.",
+      content: "Wait until enabled.",
+      enabled: false
+    });
+
+    expect(skill.enabled).toBe(false);
+    expect(getSkill(skill.id)?.enabled).toBe(false);
+    expect(listEnabledSkills().some((candidate) => candidate.id === skill.id)).toBe(false);
+
+    deleteSkill(skill.id);
+  });
+
   it("returns null for missing skill update", () => {
     const result = updateSkill("nonexistent", { name: "X" });
     expect(result).toBeNull();

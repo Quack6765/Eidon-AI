@@ -8,6 +8,7 @@ import {
 } from "@/lib/constants";
 import { decryptValue, encryptValue } from "@/lib/crypto";
 import { getDb } from "@/lib/db";
+import { createId } from "@/lib/ids";
 import type {
   AppSettings,
   GithubConnectionStatus,
@@ -22,6 +23,7 @@ const runtimeSettingsSchema = z.object({
   providerKind: z.enum(["openai_compatible", "github_copilot", "anthropic"]).default("openai_compatible"),
   apiBaseUrl: z.string().default(""),
   apiKey: z.string().optional().default(""),
+  apiKeyAction: z.enum(["preserve", "replace", "clear"]).optional(),
   model: z.string().min(0),
   apiMode: z.enum(["responses", "chat_completions"]),
   systemPrompt: z.string().min(0),
@@ -152,7 +154,27 @@ const imageGenerationSettingsInputSchema = z.object({
   googleNanoBananaModel: z
     .enum(["gemini-2.5-flash-image", "gemini-3.1-flash-image-preview", "gemini-3-pro-image-preview"])
     .default("gemini-3.1-flash-image-preview"),
-  googleNanoBananaApiKey: z.string().default("")
+  googleNanoBananaApiKey: z.string().optional(),
+  googleNanoBananaApiKeyAction: z.enum(["preserve", "replace", "clear"]).optional()
+}).superRefine((value, context) => {
+  if (value.googleNanoBananaApiKeyAction === "replace" && !value.googleNanoBananaApiKey?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "A Google image API key is required when replacing the stored key",
+      path: ["googleNanoBananaApiKey"]
+    });
+  }
+});
+
+const titleGenerationSettingsInputSchema = z.object({
+  titleGenerationMode: z.enum(["same", "specific", "local"]),
+  titleGenerationProfileId: z.string().nullable().optional()
+});
+
+const generalSettingsBundleInputSchema = z.object({
+  general: generalSettingsInputSchema,
+  imageGeneration: imageGenerationSettingsInputSchema.optional(),
+  titleGeneration: titleGenerationSettingsInputSchema.optional()
 });
 
 const generalSettingsSchema = z
@@ -297,8 +319,18 @@ type ProviderProfileRow = {
   github_refresh_token_expires_at: string | null;
   github_account_login: string | null;
   github_account_name: string | null;
+  github_oauth_nonce: string | null;
   created_at: string;
   updated_at: string;
+};
+
+type GithubCopilotCredentialInput = {
+  githubUserAccessToken: string;
+  githubRefreshToken: string;
+  githubTokenExpiresAt: string | null;
+  githubRefreshTokenExpiresAt: string | null;
+  githubAccountLogin: string | null;
+  githubAccountName: string | null;
 };
 
 function normalizeSearxngBaseUrl(value: string) {
@@ -468,7 +500,8 @@ const PROVIDER_PROFILE_COLUMNS = `
   merged_target_tokens, vision_mode, provider_kind, provider_preset_id,
   github_user_access_token_encrypted, github_refresh_token_encrypted,
   github_token_expires_at, github_refresh_token_expires_at,
-  github_account_login, github_account_name, created_at, updated_at`;
+  github_account_login, github_account_name, github_oauth_nonce,
+  created_at, updated_at`;
 
 function listProviderProfileRows() {
   return getDb()
@@ -508,20 +541,27 @@ function withApiKey(profile: ProviderProfile): ProviderProfileWithApiKey {
   };
 }
 
-export function updateGithubCopilotCredentials(
+export function claimGithubCopilotConnectionAttempt(profileId: string) {
+  const nonce = createId("github_oauth");
+  const result = getDb()
+    .prepare(
+      `UPDATE provider_profiles
+       SET github_oauth_nonce = ?
+       WHERE id = ? AND provider_kind = 'github_copilot'`
+    )
+    .run(nonce, profileId);
+
+  return result.changes === 1 ? nonce : null;
+}
+
+export function updateGithubCopilotCredentialsIfNonceMatches(
   profileId: string,
-  input: {
-    githubUserAccessToken: string;
-    githubRefreshToken: string;
-    githubTokenExpiresAt: string | null;
-    githubRefreshTokenExpiresAt: string | null;
-    githubAccountLogin: string | null;
-    githubAccountName: string | null;
-  }
+  expectedNonce: string,
+  input: GithubCopilotCredentialInput
 ) {
   const timestamp = new Date().toISOString();
 
-  getDb()
+  const result = getDb()
     .prepare(
       `UPDATE provider_profiles
        SET github_user_access_token_encrypted = ?,
@@ -530,8 +570,11 @@ export function updateGithubCopilotCredentials(
            github_refresh_token_expires_at = ?,
            github_account_login = ?,
            github_account_name = ?,
+           github_oauth_nonce = NULL,
            updated_at = ?
-       WHERE id = ?`
+       WHERE id = ?
+         AND provider_kind = 'github_copilot'
+         AND github_oauth_nonce = ?`
     )
     .run(
       input.githubUserAccessToken ? encryptValue(input.githubUserAccessToken) : "",
@@ -541,8 +584,46 @@ export function updateGithubCopilotCredentials(
       input.githubAccountLogin,
       input.githubAccountName,
       timestamp,
-      profileId
+      profileId,
+      expectedNonce
     );
+
+  return result.changes === 1;
+}
+
+export function updateGithubCopilotCredentialsIfRefreshTokenMatches(
+  profileId: string,
+  expectedRefreshTokenEncrypted: string,
+  input: GithubCopilotCredentialInput
+) {
+  const timestamp = new Date().toISOString();
+  const result = getDb()
+    .prepare(
+      `UPDATE provider_profiles
+       SET github_user_access_token_encrypted = ?,
+           github_refresh_token_encrypted = ?,
+           github_token_expires_at = ?,
+           github_refresh_token_expires_at = ?,
+           github_account_login = ?,
+           github_account_name = ?,
+           updated_at = ?
+       WHERE id = ?
+         AND provider_kind = 'github_copilot'
+         AND github_refresh_token_encrypted = ?`
+    )
+    .run(
+      input.githubUserAccessToken ? encryptValue(input.githubUserAccessToken) : "",
+      input.githubRefreshToken ? encryptValue(input.githubRefreshToken) : "",
+      input.githubTokenExpiresAt,
+      input.githubRefreshTokenExpiresAt,
+      input.githubAccountLogin,
+      input.githubAccountName,
+      timestamp,
+      profileId,
+      expectedRefreshTokenEncrypted
+    );
+
+  return result.changes === 1;
 }
 
 export function clearGithubCopilotCredentials(profileId: string) {
@@ -557,6 +638,7 @@ export function clearGithubCopilotCredentials(profileId: string) {
            github_refresh_token_expires_at = NULL,
            github_account_login = NULL,
            github_account_name = NULL,
+           github_oauth_nonce = NULL,
            updated_at = ?
        WHERE id = ?`
     )
@@ -570,9 +652,26 @@ export function parseImageGenerationSettingsInput(input: unknown) {
 export function updateImageGenerationSettings(input: unknown) {
   const parsed = imageGenerationSettingsInputSchema.parse(input);
   const current = getSettings();
+  const currentEncryptedKey = (
+    getDb()
+      .prepare("SELECT google_nano_banana_api_key_encrypted AS value FROM app_settings WHERE id = ?")
+      .get(SETTINGS_ROW_ID) as { value: string }
+  ).value;
+  const keyAction = parsed.googleNanoBananaApiKeyAction ??
+    (parsed.googleNanoBananaApiKey === undefined
+      ? "preserve"
+      : parsed.googleNanoBananaApiKey.trim()
+        ? "replace"
+        : "clear");
+  const googleNanoBananaApiKey = keyAction === "preserve"
+    ? current.googleNanoBananaApiKey
+    : keyAction === "replace"
+      ? parsed.googleNanoBananaApiKey!.trim()
+      : "";
   const merged = {
     ...current,
     ...parsed,
+    googleNanoBananaApiKey,
     updatedAt: new Date().toISOString()
   };
 
@@ -588,7 +687,11 @@ export function updateImageGenerationSettings(input: unknown) {
     .run(
       merged.imageGenerationBackend,
       merged.googleNanoBananaModel,
-      parsed.googleNanoBananaApiKey ? encryptValue(parsed.googleNanoBananaApiKey) : "",
+      keyAction === "preserve"
+        ? currentEncryptedKey
+        : googleNanoBananaApiKey
+          ? encryptValue(googleNanoBananaApiKey)
+          : "",
       merged.updatedAt,
       SETTINGS_ROW_ID
     );
@@ -857,12 +960,12 @@ export function duplicateProviderProfile(sourceProfileId: string) {
       source.vision_mode,
       source.provider_kind,
       source.provider_preset_id,
-      source.github_user_access_token_encrypted,
-      source.github_refresh_token_encrypted,
-      source.github_token_expires_at,
-      source.github_refresh_token_expires_at,
-      source.github_account_login,
-      source.github_account_name,
+      "",
+      "",
+      null,
+      null,
+      null,
+      null,
       timestamp,
       timestamp
     );
@@ -1029,7 +1132,37 @@ export function updateGeneralSettingsForUser(
   return getSettingsForUser(userId);
 }
 
+export function updateGeneralSettingsBundleForUser(
+  userId: string,
+  input: unknown,
+  canManageGlobalSettings: boolean
+) {
+  const parsed = generalSettingsBundleInputSchema.parse(input);
+
+  if (!canManageGlobalSettings && (parsed.imageGeneration || parsed.titleGeneration)) {
+    throw new Error("Only admins can update global settings");
+  }
+
+  const transaction = getDb().transaction(() => {
+    updateGeneralSettingsForUser(userId, parsed.general);
+
+    if (parsed.imageGeneration) {
+      updateImageGenerationSettings(parsed.imageGeneration);
+    }
+
+    if (parsed.titleGeneration) {
+      updateTitleGenerationSettings(parsed.titleGeneration);
+    }
+  });
+
+  transaction();
+  return getSanitizedSettings(userId);
+}
+
 export function updateSettings(input: unknown) {
+  const currentProfileRows = new Map(
+    listProviderProfileRows().map((profile) => [profile.id, profile])
+  );
   const currentProfiles = new Map(
     listProviderProfilesWithApiKeys().map((profile) => [profile.id, profile])
   );
@@ -1070,6 +1203,7 @@ export function updateSettings(input: unknown) {
         github_refresh_token_expires_at,
         github_account_login,
         github_account_name,
+        github_oauth_nonce,
         created_at,
         updated_at
       ) VALUES (
@@ -1102,6 +1236,7 @@ export function updateSettings(input: unknown) {
         @githubRefreshTokenExpiresAt,
         @githubAccountLogin,
         @githubAccountName,
+        @githubOauthNonce,
         @createdAt,
         @updatedAt
       )
@@ -1134,24 +1269,72 @@ export function updateSettings(input: unknown) {
         github_refresh_token_expires_at = excluded.github_refresh_token_expires_at,
         github_account_login = excluded.github_account_login,
         github_account_name = excluded.github_account_name,
+        github_oauth_nonce = excluded.github_oauth_nonce,
         updated_at = excluded.updated_at`
     );
 
     parsed.providerProfiles.forEach((profile) => {
       const current = currentProfiles.get(profile.id);
-      const apiKey = profile.apiKey || current?.apiKey || "";
-      const githubUserAccessTokenEncrypted = profile.githubUserAccessTokenEncrypted || current?.githubUserAccessTokenEncrypted || "";
-      const githubRefreshTokenEncrypted = profile.githubRefreshTokenEncrypted || current?.githubRefreshTokenEncrypted || "";
-      const githubTokenExpiresAt = profile.githubTokenExpiresAt ?? current?.githubTokenExpiresAt ?? null;
-      const githubRefreshTokenExpiresAt = profile.githubRefreshTokenExpiresAt ?? current?.githubRefreshTokenExpiresAt ?? null;
-      const githubAccountLogin = profile.githubAccountLogin ?? current?.githubAccountLogin ?? null;
-      const githubAccountName = profile.githubAccountName ?? current?.githubAccountName ?? null;
+      const currentRow = currentProfileRows.get(profile.id);
+      const providerIdentityChanged = Boolean(
+        current && (
+          current.providerKind !== profile.providerKind ||
+          current.apiBaseUrl !== profile.apiBaseUrl ||
+          current.providerPresetId !== profile.providerPresetId
+        )
+      );
+      const requestedApiKeyAction = profile.apiKeyAction ??
+        (profile.apiKey
+          ? "replace"
+          : providerIdentityChanged
+            ? "clear"
+            : current
+              ? "preserve"
+              : "clear");
+
+      if (requestedApiKeyAction === "replace" && !profile.apiKey.trim()) {
+        throw new Error(`Provider ${profile.name} requires an API key when replacing credentials`);
+      }
+
+      if (requestedApiKeyAction === "preserve" && providerIdentityChanged && current?.apiKeyEncrypted) {
+        throw new Error(`Provider ${profile.name} changed connection identity; replace or clear its API key`);
+      }
+
+      const apiKeyEncrypted = requestedApiKeyAction === "preserve"
+        ? current?.apiKeyEncrypted ?? ""
+        : requestedApiKeyAction === "replace"
+          ? encryptValue(profile.apiKey.trim())
+          : "";
+      const canUseGithubCredentials = profile.providerKind === "github_copilot" &&
+        (!current || current.providerKind === "github_copilot");
+      const githubUserAccessTokenEncrypted = canUseGithubCredentials
+        ? profile.githubUserAccessTokenEncrypted || current?.githubUserAccessTokenEncrypted || ""
+        : "";
+      const githubRefreshTokenEncrypted = canUseGithubCredentials
+        ? profile.githubRefreshTokenEncrypted || current?.githubRefreshTokenEncrypted || ""
+        : "";
+      const githubTokenExpiresAt = canUseGithubCredentials
+        ? profile.githubTokenExpiresAt ?? current?.githubTokenExpiresAt ?? null
+        : null;
+      const githubRefreshTokenExpiresAt = canUseGithubCredentials
+        ? profile.githubRefreshTokenExpiresAt ?? current?.githubRefreshTokenExpiresAt ?? null
+        : null;
+      const githubAccountLogin = canUseGithubCredentials
+        ? profile.githubAccountLogin ?? current?.githubAccountLogin ?? null
+        : null;
+      const githubAccountName = canUseGithubCredentials
+        ? profile.githubAccountName ?? current?.githubAccountName ?? null
+        : null;
+      const githubOauthNonce = profile.providerKind === "github_copilot" &&
+        current?.providerKind === "github_copilot"
+        ? currentRow?.github_oauth_nonce ?? null
+        : null;
 
       upsertProfile.run({
         id: profile.id,
         name: profile.name,
         apiBaseUrl: profile.apiBaseUrl,
-        apiKeyEncrypted: apiKey ? encryptValue(apiKey) : "",
+        apiKeyEncrypted,
         model: profile.model,
         apiMode: profile.apiMode,
         systemPrompt: profile.systemPrompt,
@@ -1177,6 +1360,7 @@ export function updateSettings(input: unknown) {
         githubRefreshTokenExpiresAt,
         githubAccountLogin,
         githubAccountName,
+        githubOauthNonce,
         createdAt: current?.createdAt ?? timestamp,
         updatedAt: timestamp
       });
@@ -1192,6 +1376,24 @@ export function updateSettings(input: unknown) {
            WHERE provider_profile_id IN (${placeholders})`
         )
         .run(parsed.defaultProviderProfileId, ...removedProfileIds);
+
+      getDb()
+        .prepare(
+          `UPDATE automations
+           SET provider_profile_id = ?, updated_at = ?
+           WHERE provider_profile_id IN (${placeholders})`
+        )
+        .run(parsed.defaultProviderProfileId, timestamp, ...removedProfileIds);
+
+      getDb()
+        .prepare(
+          `UPDATE app_settings
+           SET title_generation_mode = 'same',
+               title_generation_profile_id = NULL,
+               updated_at = ?
+           WHERE title_generation_profile_id IN (${placeholders})`
+        )
+        .run(timestamp, ...removedProfileIds);
 
       getDb()
         .prepare(`DELETE FROM provider_profiles WHERE id IN (${placeholders})`)

@@ -250,6 +250,13 @@ export type McpServer = {
   updatedAt: string;
 };
 
+export type McpServerSummary = Omit<McpServer, "headers" | "env"> & {
+  headers: Record<string, never>;
+  env: null;
+  hasHeaders: boolean;
+  hasEnv: boolean;
+};
+
 export type McpTool = {
   name: string;
   title?: string;

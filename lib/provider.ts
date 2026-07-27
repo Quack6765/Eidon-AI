@@ -17,6 +17,7 @@ import {
   mergeRecoveredStreamText
 } from "./provider-response-parsing";
 import { createTextToolCallInterceptor } from "./tool-call-text-parsing";
+import { MAX_RUNTIME_TOOL_RESULT_CHARS, truncateText } from "@/lib/bounded-text";
 
 export {
   withDateContextUserMessage,
@@ -133,6 +134,7 @@ export async function callProviderText(input: {
   prompt: string;
   purpose: "compaction" | "test" | "title" | "image_instruction";
   conversationId?: string;
+  abortSignal?: AbortSignal;
 }) {
   const { settings } = input;
   const profile = input.purpose === "title"
@@ -144,18 +146,23 @@ export async function callProviderText(input: {
   }]);
 
   if (profile.providerKind === "github_copilot") {
-    const freshSettings = await ensureFreshGithubAccessToken(profile);
+    const freshSettings = await ensureFreshGithubAccessToken(profile, input.abortSignal);
     const result = await runGithubCopilotChat({
       ...freshSettings,
       systemPrompt: withDateContextSystemPrompt(freshSettings.systemPrompt),
-      messages: [{ role: "user", content: input.prompt }]
+      messages: [{ role: "user", content: input.prompt }],
+      abortSignal: input.abortSignal
     });
 
     return typeof result === "string" ? result : JSON.stringify(result);
   }
 
   if (profile.providerKind === "anthropic") {
-    const text = await callAnthropicText({ settings: profile, messages: contextualPrompt });
+    const text = await callAnthropicText({
+      settings: profile,
+      messages: contextualPrompt,
+      abortSignal: input.abortSignal
+    });
 
     if (!text.trim()) {
       throw new Error("Provider returned an empty response");
@@ -168,12 +175,15 @@ export async function callProviderText(input: {
 
   if (profile.apiMode === "responses") {
     const reasoning = buildReasoningConfig(profile);
-    const response = await client.responses.create({
+    const request = {
       model: profile.model,
       input: buildResponsesInput(contextualPrompt),
       max_output_tokens: Math.min(profile.maxOutputTokens, 4000),
       reasoning
-    });
+    };
+    const response = input.abortSignal
+      ? await client.responses.create(request, { signal: input.abortSignal })
+      : await client.responses.create(request);
 
     const text = normalizeLineBreaks(getResponseText(response));
 
@@ -184,13 +194,16 @@ export async function callProviderText(input: {
     return text;
   }
 
-  const response = await client.chat.completions.create({
+  const request = {
     model: profile.model,
     messages: buildChatCompletionMessages(contextualPrompt, profile),
     temperature: profile.temperature,
     max_completion_tokens: Math.min(profile.maxOutputTokens, 4000),
     ...buildChatCompletionsOptions(profile)
-  } as any);
+  } as any;
+  const response = input.abortSignal
+    ? await client.chat.completions.create(request, { signal: input.abortSignal })
+    : await client.chat.completions.create(request);
 
   const text = normalizeLineBreaks(
     typeof response.choices[0]?.message?.content === "string"
@@ -221,7 +234,7 @@ export async function* streamProviderResponse(input: {
   setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
 
   if (settings.providerKind === "github_copilot") {
-    const freshSettings = await ensureFreshGithubAccessToken(settings);
+    const freshSettings = await ensureFreshGithubAccessToken(settings, input.abortSignal);
     const messageTexts = promptMessages.map((m) =>
       typeof m.content === "string" ? m.content : m.content.map((p) => "text" in p ? p.text : "").join("")
     );
@@ -289,6 +302,7 @@ export async function* streamProviderResponse(input: {
       ...freshSettings,
       systemPrompt: withDateContextSystemPrompt(freshSettings.systemPrompt),
       messages: messageTexts.map((content) => ({ role: "user" as const, content })),
+      abortSignal: input.abortSignal,
       ...(copilotTools?.length ? { tools: copilotTools } : {}),
       onEvent: (rawEvent: unknown) => {
         const event = rawEvent as CopilotEvent;
@@ -360,7 +374,7 @@ export async function* streamProviderResponse(input: {
             label: existing?.label ?? toolData.toolName,
             detail: existing?.detail ?? "",
             arguments: existing?.arguments ?? null,
-            resultSummary,
+            resultSummary: truncateText(resultSummary, MAX_RUNTIME_TOOL_RESULT_CHARS),
             sortOrder: existing?.sortOrder ?? 0,
             startedAt: existing?.startedAt ?? event.timestamp ?? new Date().toISOString(),
             completedAt: event.timestamp ?? new Date().toISOString(),
@@ -376,14 +390,14 @@ export async function* streamProviderResponse(input: {
       }
     });
 
-    copilotPromise.catch((error: Error) => {
-      console.error("[copilot/stream] promise rejected:", error.message);
-      enqueue({ event: { type: "error", message: error.message } });
-    });
-
-    copilotPromise.finally(() => {
-      enqueue({ done: true });
-    });
+    void copilotPromise.then(
+      () => enqueue({ done: true }),
+      (error: Error) => {
+        console.error("[copilot/stream] promise rejected:", error.message);
+        enqueue({ event: { type: "error", message: error.message } });
+        enqueue({ done: true });
+      }
+    );
 
     let item = await dequeue();
     while (!("done" in item)) {

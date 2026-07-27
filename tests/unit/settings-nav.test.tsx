@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { SettingsNav } from "@/components/settings/settings-nav";
+import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 
 const mockPush = vi.fn();
 let mockPathname = "/settings/general";
@@ -31,6 +32,7 @@ describe("settings nav", () => {
   beforeEach(() => {
     mockPathname = "/settings/general";
     mockPush.mockReset();
+    registerUnsavedChangesGuard(null);
   });
 
   it("shows admin-only items only for admins when password login is enabled", () => {
@@ -69,5 +71,53 @@ describe("settings nav", () => {
     expect(screen.getByText("General")).toBeInTheDocument();
     expect(screen.getByText("Account")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  });
+
+  it("does not navigate when saving unsaved settings fails", async () => {
+    const save = vi.fn().mockResolvedValue(false);
+    registerUnsavedChangesGuard({
+      isDirty: () => true,
+      save,
+      discard: vi.fn(),
+      entityType: "these settings"
+    });
+    render(
+      <SettingsNav
+        currentUser={buildUser()}
+        passwordLoginEnabled
+        onCloseAction={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Personas"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
+  });
+
+  it("does not navigate when the registered save rejects", async () => {
+    const save = vi.fn().mockRejectedValue(new Error("network down"));
+    registerUnsavedChangesGuard({
+      isDirty: () => true,
+      save,
+      discard: vi.fn(),
+      entityType: "these settings"
+    });
+    render(
+      <SettingsNav
+        currentUser={buildUser()}
+        passwordLoginEnabled
+        onCloseAction={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByText("Personas"));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
   });
 });

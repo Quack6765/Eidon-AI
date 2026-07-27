@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -13,12 +13,12 @@ import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
 import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
-import type { McpServer, McpTransport } from "@/lib/types";
+import type { McpServerSummary, McpTransport } from "@/lib/types";
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 
 export function McpServersSection() {
-  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [mcpServers, setMcpServers] = useState<McpServerSummary[]>([]);
   const [mcpTransport, setMcpTransport] = useState<McpTransport>("streamable_http");
   const [mcpName, setMcpName] = useState("");
   const [mcpUrl, setMcpUrl] = useState("");
@@ -32,7 +32,12 @@ export function McpServersSection() {
   const [mcpTestingTarget, setMcpTestingTarget] = useState<string | null>(null);
   const [mcpEnabledDraft, setMcpEnabledDraft] = useState(true);
   const [mcpIsVisionMcpDraft, setMcpIsVisionMcpDraft] = useState(false);
+  const [hasStoredHeaders, setHasStoredHeaders] = useState(false);
+  const [hasStoredEnv, setHasStoredEnv] = useState(false);
+  const [hasEditedHeaders, setHasEditedHeaders] = useState(false);
+  const [hasEditedEnv, setHasEditedEnv] = useState(false);
   const toast = useToastState();
+  const mcpServersRequestVersion = useRef(0);
 
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
@@ -52,36 +57,85 @@ export function McpServersSection() {
     mcpEnv,
     mcpEnabledDraft,
     mcpIsVisionMcpDraft,
+    hasEditedHeaders,
+    hasEditedEnv,
   });
+  const unsavedActions = useRef({ save: saveMcpServer, discard: restoreMcpDraft });
+  unsavedActions.current = { save: saveMcpServer, discard: restoreMcpDraft };
 
   useEffect(() => {
     registerUnsavedChangesGuard(
       isDirty
         ? {
             isDirty: () => isDirty,
-            save: () => { saveMcpServer(); },
-            discard: () => { resetDirty(); },
+            save: () => unsavedActions.current.save(),
+            discard: () => unsavedActions.current.discard(),
             entityType: "this server",
           }
         : null
     );
     return () => registerUnsavedChangesGuard(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDirty]);
 
   useEffect(() => {
-    fetch("/api/mcp-servers")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.servers) setMcpServers(d.servers);
+    const requestVersion = ++mcpServersRequestVersion.current;
+    let active = true;
+
+    void fetch("/api/mcp-servers")
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Failed to load MCP servers");
+        return response.json() as Promise<{ servers?: McpServerSummary[] }>;
+      })
+      .then((data) => {
+        if (
+          active
+          && requestVersion === mcpServersRequestVersion.current
+          && Array.isArray(data.servers)
+        ) {
+          setMcpServers(data.servers);
+        }
       })
       .catch(() => {});
+
+    return () => {
+      active = false;
+      if (mcpServersRequestVersion.current === requestVersion) {
+        mcpServersRequestVersion.current += 1;
+      }
+    };
   }, []);
 
-  async function saveMcpServer() {
-    if (!mcpName.trim()) return;
-    if (mcpTransport === "streamable_http" && !mcpUrl.trim()) return;
-    if (mcpTransport === "stdio" && !mcpCommand.trim()) return;
+  function restoreMcpDraft() {
+    const saved = mcpServers.find((server) => server.id === editingMcpId);
+    if (saved) {
+      editMcpServer(saved);
+    } else {
+      resetMcpForm();
+    }
+  }
+
+  async function saveMcpServer(): Promise<boolean> {
+    try {
+      return await saveMcpServerUnsafe();
+    } catch {
+      toast.showToast("error", "Failed to save MCP server");
+      return false;
+    }
+  }
+
+  async function saveMcpServerUnsafe(): Promise<boolean> {
+    if (!mcpName.trim()) {
+      toast.showToast("error", "Server name is required");
+      return false;
+    }
+    if (mcpTransport === "streamable_http" && !mcpUrl.trim()) {
+      toast.showToast("error", "Server URL is required");
+      return false;
+    }
+    if (mcpTransport === "stdio" && !mcpCommand.trim()) {
+      toast.showToast("error", "Server command is required");
+      return false;
+    }
 
     let headersObj: Record<string, string> = {};
     if (mcpTransport === "streamable_http" && mcpHeaders.trim()) {
@@ -120,14 +174,24 @@ export function McpServersSection() {
 
     if (mcpTransport === "streamable_http") {
       payload.url = mcpUrl;
-      payload.headers = headersObj;
+      payload.headersAction = hasEditedHeaders
+        ? Object.keys(headersObj).length
+          ? "replace"
+          : "clear"
+        : "preserve";
+      if (hasEditedHeaders) payload.headers = headersObj;
     } else {
       payload.command = mcpCommand;
       if (argsArr) payload.args = argsArr;
-      if (envObj) payload.env = envObj;
+      payload.envAction = hasEditedEnv
+        ? envObj && Object.keys(envObj).length
+          ? "replace"
+          : "clear"
+        : "preserve";
+      if (hasEditedEnv) payload.env = envObj ?? null;
     }
 
-    let savedId = editingMcpId;
+    let savedServer: McpServerSummary;
 
     if (editingMcpId) {
       const patchRes = await fetch(`/api/mcp-servers/${editingMcpId}`, {
@@ -135,68 +199,44 @@ export function McpServersSection() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-      if (!patchRes.ok) {
-        const errorData = await patchRes.json().catch(() => null);
-        toast.showToast("error", errorData?.error ?? "Failed to update server");
-        return;
+      const patchData = (await patchRes.json().catch(() => null)) as {
+        server?: McpServerSummary;
+        error?: string;
+      } | null;
+      if (!patchRes.ok || !patchData?.server) {
+        toast.showToast("error", patchData?.error ?? "Failed to update server");
+        return false;
       }
+      savedServer = patchData.server;
     } else {
       const postRes = await fetch("/api/mcp-servers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-      if (!postRes.ok) {
-        const errorData = await postRes.json().catch(() => null);
-        toast.showToast("error", errorData?.error ?? "Failed to add server");
-        return;
+      const created = (await postRes.json().catch(() => null)) as {
+        server?: McpServerSummary;
+        error?: string;
+      } | null;
+      if (!postRes.ok || !created?.server) {
+        toast.showToast("error", created?.error ?? "Failed to add server");
+        return false;
       }
-      const created = (await postRes.json()) as { server: McpServer };
-      savedId = created.server.id;
-
-      if (savedId && mcpEnabledDraft === false) {
-        await fetch(`/api/mcp-servers/${savedId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled: false })
-        });
-      }
+      savedServer = created.server;
     }
 
-    const res = await fetch("/api/mcp-servers");
-    const data = (await res.json()) as { servers: McpServer[] };
-    setMcpServers(data.servers);
-
-    const savedServer = data.servers.find((s) => s.id === savedId);
-    if (savedServer) {
-      setSelectedServerId(savedServer.id);
-      setEditingMcpId(savedServer.id);
-      setMcpName(savedServer.name);
-      setMcpTransport(savedServer.transport ?? "streamable_http");
-      setMcpUrl(savedServer.url);
-      setMcpHeaders(JSON.stringify(savedServer.headers, null, 2));
-      setMcpCommand(savedServer.command ?? "");
-      setMcpArgs(savedServer.args ? JSON.stringify(savedServer.args) : "");
-      setMcpEnv(savedServer.env ? JSON.stringify(savedServer.env, null, 2) : "");
-      setMcpEnabledDraft(savedServer.enabled);
-      setMcpIsVisionMcpDraft(savedServer.isVisionMcp);
-      setMcpDraftTestResult(null);
-      setIsAddingNew(false);
-      setMobileDetailVisible(true);
-    }
+    mcpServersRequestVersion.current += 1;
+    setMcpServers((current) => current.some((server) => server.id === savedServer.id)
+      ? current.map((server) => server.id === savedServer.id ? savedServer : server)
+      : [...current, savedServer]);
+    editMcpServer(savedServer);
+    setSelectedServerId(savedServer.id);
+    setMcpDraftTestResult(null);
+    setIsAddingNew(false);
+    setMobileDetailVisible(true);
 
     toast.showToast("success", "MCP saved.");
-    resetDirty({
-      mcpName,
-      mcpTransport,
-      mcpUrl,
-      mcpHeaders,
-      mcpCommand,
-      mcpArgs,
-      mcpEnv,
-      mcpEnabledDraft,
-      mcpIsVisionMcpDraft,
-    });
+    return true;
   }
 
   async function testMcpServer(serverId?: string) {
@@ -220,7 +260,12 @@ export function McpServersSection() {
 
         if (mcpTransport === "streamable_http") {
           payload.url = mcpUrl;
-          payload.headers = mcpHeaders.trim() ? JSON.parse(mcpHeaders) : {};
+          payload.headersAction = hasEditedHeaders
+            ? mcpHeaders.trim()
+              ? "replace"
+              : "clear"
+            : "preserve";
+          if (mcpHeaders.trim()) payload.headers = JSON.parse(mcpHeaders);
         } else {
           payload.command = mcpCommand;
           payload.args = mcpArgs.trim()
@@ -233,9 +278,17 @@ export function McpServersSection() {
                 }
               })()
             : [];
-          payload.env = mcpEnv.trim() ? JSON.parse(mcpEnv) : {};
+          payload.envAction = hasEditedEnv
+            ? mcpEnv.trim()
+              ? "replace"
+              : "clear"
+            : "preserve";
+          if (mcpEnv.trim()) payload.env = JSON.parse(mcpEnv);
           payload.url = "";
-          payload.headers = {};
+        }
+
+        if (editingMcpId) {
+          payload = { serverId: editingMcpId, draft: payload };
         }
       }
 
@@ -279,6 +332,7 @@ export function McpServersSection() {
 
   async function deleteMcpServer(id: string) {
     await fetch(`/api/mcp-servers/${id}`, { method: "DELETE" });
+    mcpServersRequestVersion.current += 1;
     setMcpServers((prev) => prev.filter((s) => s.id !== id));
     if (selectedServerId === id) {
       setSelectedServerId(null);
@@ -295,15 +349,19 @@ export function McpServersSection() {
     setPendingDeleteId(null);
   }
 
-  function editMcpServer(server: McpServer) {
+  function editMcpServer(server: McpServerSummary) {
     setEditingMcpId(server.id);
     setMcpName(server.name);
     setMcpTransport(server.transport ?? "streamable_http");
     setMcpUrl(server.url);
-    setMcpHeaders(JSON.stringify(server.headers, null, 2));
+    setMcpHeaders("");
     setMcpCommand(server.command ?? "");
     setMcpArgs(server.args ? JSON.stringify(server.args) : "");
-    setMcpEnv(server.env ? JSON.stringify(server.env, null, 2) : "");
+    setMcpEnv("");
+    setHasStoredHeaders(server.hasHeaders);
+    setHasStoredEnv(server.hasEnv);
+    setHasEditedHeaders(false);
+    setHasEditedEnv(false);
     setMcpDraftTestResult(mcpRowTestResults[server.id] ?? null);
     setMcpEnabledDraft(server.enabled);
     setMcpIsVisionMcpDraft(server.isVisionMcp);
@@ -311,12 +369,14 @@ export function McpServersSection() {
       mcpName: server.name,
       mcpTransport: server.transport ?? "streamable_http",
       mcpUrl: server.url,
-      mcpHeaders: JSON.stringify(server.headers, null, 2),
+      mcpHeaders: "",
       mcpCommand: server.command ?? "",
       mcpArgs: server.args ? JSON.stringify(server.args) : "",
-      mcpEnv: server.env ? JSON.stringify(server.env, null, 2) : "",
+      mcpEnv: "",
       mcpEnabledDraft: server.enabled,
       mcpIsVisionMcpDraft: server.isVisionMcp,
+      hasEditedHeaders: false,
+      hasEditedEnv: false,
     });
   }
 
@@ -331,6 +391,8 @@ export function McpServersSection() {
       mcpEnv: "",
       mcpEnabledDraft: true as boolean,
       mcpIsVisionMcpDraft: false as boolean,
+      hasEditedHeaders: false,
+      hasEditedEnv: false,
     };
     setMcpTransport("streamable_http");
     setMcpName("");
@@ -341,6 +403,10 @@ export function McpServersSection() {
     setMcpEnv("");
     setMcpEnabledDraft(true);
     setMcpIsVisionMcpDraft(false);
+    setHasStoredHeaders(false);
+    setHasStoredEnv(false);
+    setHasEditedHeaders(false);
+    setHasEditedEnv(false);
     setEditingMcpId(null);
     setMcpDraftTestResult(null);
     setSelectedServerId(null);
@@ -348,7 +414,7 @@ export function McpServersSection() {
     resetDirty(empty);
   }
 
-  function handleSelectServer(server: McpServer) {
+  function handleSelectServer(server: McpServerSummary) {
     if (isDirty && selectedServerId !== server.id) {
       setPendingSwitch(() => () => {
         editMcpServer(server);
@@ -382,17 +448,16 @@ export function McpServersSection() {
     setMobileDetailVisible(true);
   }
 
-  function handleUnsavedSave() {
+  async function handleUnsavedSave() {
+    if (!(await saveMcpServer())) return;
     setUnsavedDialogOpen(false);
-    if (pendingSwitch) {
-      saveMcpServer();
-      pendingSwitch();
-      setPendingSwitch(null);
-    }
+    pendingSwitch?.();
+    setPendingSwitch(null);
   }
 
   function handleUnsavedDiscard() {
     setUnsavedDialogOpen(false);
+    restoreMcpDraft();
     if (pendingSwitch) {
       pendingSwitch();
       setPendingSwitch(null);
@@ -498,11 +563,28 @@ export function McpServersSection() {
                       <label className={fieldLabel}>Headers (JSON)</label>
                       <Textarea
                         value={mcpHeaders}
-                        onChange={(e) => setMcpHeaders(e.target.value)}
-                        placeholder='{"Authorization": "Bearer ..."}'
+                        onChange={(e) => {
+                          setMcpHeaders(e.target.value);
+                          setHasEditedHeaders(true);
+                        }}
+                        placeholder={hasStoredHeaders && !hasEditedHeaders
+                          ? "Stored securely. Leave blank to keep existing headers."
+                          : '{"Authorization": "Bearer ..."}'}
                         rows={2}
                         className={isFieldDirty("mcpHeaders") ? "!border-amber-500/40" : ""}
                       />
+                      {hasStoredHeaders && !hasEditedHeaders ? (
+                        <button
+                          type="button"
+                          className="mt-2 text-xs text-red-400/80 transition-colors hover:text-red-300"
+                          onClick={() => {
+                            setMcpHeaders("");
+                            setHasEditedHeaders(true);
+                          }}
+                        >
+                          Clear stored headers
+                        </button>
+                      ) : null}
                     </div>
                   </>
                 ) : (
@@ -536,11 +618,28 @@ export function McpServersSection() {
                       <label className={fieldLabel}>Environment variables (JSON, optional)</label>
                       <Textarea
                         value={mcpEnv}
-                        onChange={(e) => setMcpEnv(e.target.value)}
-                        placeholder='{"API_KEY": "..."}'
+                        onChange={(e) => {
+                          setMcpEnv(e.target.value);
+                          setHasEditedEnv(true);
+                        }}
+                        placeholder={hasStoredEnv && !hasEditedEnv
+                          ? "Stored securely. Leave blank to keep existing variables."
+                          : '{"API_KEY": "..."}'}
                         rows={2}
                         className={isFieldDirty("mcpEnv") ? "!border-amber-500/40" : ""}
                       />
+                      {hasStoredEnv && !hasEditedEnv ? (
+                        <button
+                          type="button"
+                          className="mt-2 text-xs text-red-400/80 transition-colors hover:text-red-300"
+                          onClick={() => {
+                            setMcpEnv("");
+                            setHasEditedEnv(true);
+                          }}
+                        >
+                          Clear stored environment variables
+                        </button>
+                      ) : null}
                     </div>
                   </>
                 )}

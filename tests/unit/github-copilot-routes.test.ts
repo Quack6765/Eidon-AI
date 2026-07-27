@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { redirect } from "next/navigation";
 
-import { encryptValue } from "@/lib/crypto";
+import { decryptValue, encryptValue } from "@/lib/crypto";
+import { getDb, resetDbForTests } from "@/lib/db";
+import { createGithubOauthState, verifyGithubOauthState } from "@/lib/github-copilot";
 import {
+  claimGithubCopilotConnectionAttempt,
   getProviderProfile,
+  getSanitizedSettings,
   updateSettings
 } from "@/lib/settings";
 
@@ -77,6 +82,8 @@ function seedCopilotProfile(overrides: Record<string, unknown> = {}) {
 
 describe("github copilot routes", () => {
   beforeEach(() => {
+    vi.unstubAllGlobals();
+    vi.mocked(redirect).mockClear();
     requireAdminResponseMock.mockReset();
     requireAdminResponseMock.mockResolvedValue(buildAdminUser());
   });
@@ -105,12 +112,144 @@ describe("github copilot routes", () => {
     expect(response.status).toBe(400);
   });
 
+  it("rejects a callback when the profile changes kind during token exchange", async () => {
+    const admin = buildAdminUser();
+    const id = seedCopilotProfile();
+    const profileNonce = claimGithubCopilotConnectionAttempt(id)!;
+    const state = await createGithubOauthState(id, admin.id, profileNonce);
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      updateSettings({
+        defaultProviderProfileId: id,
+        skillsEnabled: true,
+        providerProfiles: [buildProfile({
+          id,
+          name: "Changed provider",
+          providerKind: "openai_compatible",
+          apiKeyAction: "clear"
+        })]
+      });
+
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: "ghu_late",
+          expires_in: 3600
+        })
+      } as Response;
+    }));
+
+    const { GET: callback } = await import("@/app/api/providers/github/callback/route");
+    const response = await callback(new Request(
+      `http://localhost/api/providers/github/callback?code=test-code&state=${encodeURIComponent(state)}`
+    ));
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "GitHub Copilot is only available for Copilot profiles"
+    });
+    expect(getProviderProfile(id)).toMatchObject({
+      providerKind: "openai_compatible",
+      githubUserAccessTokenEncrypted: "",
+      githubRefreshTokenEncrypted: ""
+    });
+    expect(getDb()
+      .prepare("SELECT github_oauth_nonce FROM provider_profiles WHERE id = ?")
+      .get(id)).toEqual({ github_oauth_nonce: null });
+  });
+
+  it("persists a one-time nonce so only the newest callback can write across restarts", async () => {
+    const id = seedCopilotProfile();
+    const originalUpdatedAt = getProviderProfile(id)!.updatedAt;
+    const { GET: connect } = await import("@/app/api/providers/github/connect/route");
+
+    await expect(connect(new Request(
+      `http://localhost/api/providers/github/connect?providerProfileId=${id}`
+    ))).rejects.toThrow("NEXT_REDIRECT");
+    const firstRedirect = String(vi.mocked(redirect).mock.calls.at(-1)?.[0]);
+    const firstState = new URL(firstRedirect).searchParams.get("state")!;
+    const firstClaims = await verifyGithubOauthState(firstState);
+
+    await expect(connect(new Request(
+      `http://localhost/api/providers/github/connect?providerProfileId=${id}`
+    ))).rejects.toThrow("NEXT_REDIRECT");
+    const secondRedirect = String(vi.mocked(redirect).mock.calls.at(-1)?.[0]);
+    const secondState = new URL(secondRedirect).searchParams.get("state")!;
+    const secondClaims = await verifyGithubOauthState(secondState);
+
+    expect(secondClaims.profileNonce).not.toBe(firstClaims.profileNonce);
+
+    updateSettings({
+      defaultProviderProfileId: id,
+      skillsEnabled: false,
+      providerProfiles: [buildProfile({
+        id,
+        name: "Copilot renamed",
+        providerKind: "github_copilot",
+        apiBaseUrl: "",
+        apiKey: ""
+      })]
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET updated_at = ? WHERE id = ?")
+      .run(originalUpdatedAt, id);
+    expect(getDb()
+      .prepare("SELECT github_oauth_nonce FROM provider_profiles WHERE id = ?")
+      .get(id)).toEqual({ github_oauth_nonce: secondClaims.profileNonce });
+    expect(getProviderProfile(id)).not.toHaveProperty("githubOauthNonce");
+    expect(getSanitizedSettings().providerProfiles[0]).not.toHaveProperty("githubOauthNonce");
+
+    resetDbForTests();
+
+    vi.stubGlobal("fetch", vi.fn(async (_input, init) => {
+      const code = JSON.parse(String(init?.body)).code as string;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          access_token: code === "new-code" ? "ghu_newest" : "ghu_stale",
+          refresh_token: code === "new-code" ? "ghr_newest" : "ghr_stale",
+          expires_in: 3600
+        })
+      } as Response;
+    }));
+    const { GET: callback } = await import("@/app/api/providers/github/callback/route");
+
+    const staleResponse = await callback(new Request(
+      `http://localhost/api/providers/github/callback?code=old-code&state=${encodeURIComponent(firstState)}`
+    ));
+    expect(staleResponse.status).toBe(400);
+    await expect(staleResponse.json()).resolves.toEqual({
+      error: "GitHub Copilot profile changed before the connection completed"
+    });
+
+    await expect(callback(new Request(
+      `http://localhost/api/providers/github/callback?code=new-code&state=${encodeURIComponent(secondState)}`
+    ))).rejects.toThrow("NEXT_REDIRECT");
+
+    const replayResponse = await callback(new Request(
+      `http://localhost/api/providers/github/callback?code=new-code&state=${encodeURIComponent(secondState)}`
+    ));
+    expect(replayResponse.status).toBe(400);
+
+    const stored = getProviderProfile(id)!;
+    expect(decryptValue(stored.githubUserAccessTokenEncrypted)).toBe("ghu_newest");
+    expect(decryptValue(stored.githubRefreshTokenEncrypted)).toBe("ghr_newest");
+    expect(getDb()
+      .prepare("SELECT github_oauth_nonce FROM provider_profiles WHERE id = ?")
+      .get(id)).toEqual({ github_oauth_nonce: null });
+  });
+
   it("clears oauth credentials on disconnect", async () => {
     const { POST: disconnect } = await import("@/app/api/providers/github/disconnect/route");
     const id = seedCopilotProfile({
       githubUserAccessTokenEncrypted: encryptValue("ghu_token"),
       githubTokenExpiresAt: new Date(Date.now() + 60_000).toISOString()
     });
+    claimGithubCopilotConnectionAttempt(id);
+    expect(getDb()
+      .prepare("SELECT github_oauth_nonce FROM provider_profiles WHERE id = ?")
+      .get(id)).not.toEqual({ github_oauth_nonce: null });
 
     const response = await disconnect(
       new Request("http://localhost/api/providers/github/disconnect", {
@@ -125,6 +264,9 @@ describe("github copilot routes", () => {
     const profile = getProviderProfile(id);
     expect(profile?.githubUserAccessTokenEncrypted).toBe("");
     expect(profile?.githubTokenExpiresAt).toBeNull();
+    expect(getDb()
+      .prepare("SELECT github_oauth_nonce FROM provider_profiles WHERE id = ?")
+      .get(id)).toEqual({ github_oauth_nonce: null });
   });
 
   it("rejects model discovery for disconnected profiles", async () => {

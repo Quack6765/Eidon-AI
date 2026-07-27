@@ -102,4 +102,50 @@ describe("searxng search", () => {
       })
     ).rejects.toThrow("SearXNG search failed with status 403.");
   });
+
+  it("passes cancellation through to fetch and rejects oversized responses", async () => {
+    const controller = new AbortController();
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response("{}", {
+        status: 200,
+        headers: { "content-length": String(600 * 1024) }
+      })
+    );
+
+    await expect(
+      searchSearxng({
+        baseUrl: "https://search.example.com",
+        query: "large response",
+        abortSignal: controller.signal
+      })
+    ).rejects.toThrow("SearXNG response exceeded the size limit.");
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ signal: controller.signal })
+    );
+  });
+
+  it("bounds formatted result text before returning it to the tool runtime", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        results: Array.from({ length: 10 }, (_, index) => ({
+          title: `Result ${index} ${"t".repeat(1_000)}`,
+          url: `https://example.com/${"u".repeat(3_000)}`,
+          content: "c".repeat(10_000)
+        }))
+      })
+    } as Response);
+
+    const { MAX_SEARXNG_RESULT_CHARS } = await import("@/lib/searxng");
+    const result = await searchSearxng({
+      baseUrl: "https://search.example.com",
+      query: "bounded",
+      maxResults: 10
+    });
+
+    expect(result.length).toBeLessThanOrEqual(MAX_SEARXNG_RESULT_CHARS);
+    expect(result).toContain("...[truncated]");
+  });
 });

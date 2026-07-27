@@ -1,8 +1,14 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
 import { MAX_ATTACHMENT_BYTES } from "@/lib/constants";
+import {
+  assertSafeAttachmentDirectory,
+  getAttachmentStorageRoot,
+  resolveAttachmentStoragePath,
+  resolveSafeAttachmentFilePath
+} from "@/lib/attachment-storage-paths";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
@@ -69,6 +75,14 @@ type CreateAttachmentInput = {
   bytes: Buffer;
 };
 
+export type AttachmentArtifactPublication = {
+  artifactPaths: Array<{
+    finalPath: string;
+    tempPath: string;
+  }>;
+  directories: string[];
+};
+
 export class AttachmentTextPreviewUnsupportedError extends Error {
   constructor() {
     super("Attachment cannot be previewed as text");
@@ -78,9 +92,7 @@ export class AttachmentTextPreviewUnsupportedError extends Error {
 
 
 function getAttachmentsRoot() {
-  const root = path.resolve(env.EIDON_DATA_DIR, "attachments");
-  fs.mkdirSync(root, { recursive: true });
-  return root;
+  return getAttachmentStorageRoot(env.EIDON_DATA_DIR, true)!;
 }
 
 function rowToAttachment(row: AttachmentRow): MessageAttachment {
@@ -185,19 +197,18 @@ async function extractText(bytes: Buffer, filename: string) {
 }
 
 function resolveAttachmentAbsolutePath(relativePath: string) {
-  return path.resolve(getAttachmentsRoot(), relativePath);
-}
-
-function ensureConversationAttachmentDir(conversationId: string) {
-  const dir = path.resolve(getAttachmentsRoot(), conversationId);
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
+  const root = getAttachmentsRoot();
+  return resolveSafeAttachmentFilePath(root, relativePath, false);
 }
 
 function removeConversationAttachmentDirIfEmpty(conversationId: string) {
-  const dir = path.resolve(getAttachmentsRoot(), conversationId);
-
-  if (!fs.existsSync(dir)) {
+  let root: string;
+  let dir: string;
+  try {
+    root = getAttachmentsRoot();
+    dir = resolveAttachmentStoragePath(root, conversationId);
+    assertSafeAttachmentDirectory(root, dir, false);
+  } catch {
     return;
   }
 
@@ -213,6 +224,110 @@ function removeAttachmentFile(relativePath: string) {
     if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
       throw error;
     }
+  }
+}
+
+function syncDirectory(directory: string) {
+  let descriptor: number | null = null;
+
+  try {
+    descriptor = fs.openSync(directory, "r");
+    fs.fsyncSync(descriptor);
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : null;
+    if (!["EINVAL", "ENOTSUP", "EISDIR", "EBADF", "EPERM"].includes(String(code))) {
+      throw error;
+    }
+  } finally {
+    if (descriptor !== null) {
+      fs.closeSync(descriptor);
+    }
+  }
+}
+
+export function rollbackAttachmentArtifactPublication(
+  publication: AttachmentArtifactPublication
+) {
+  publication.artifactPaths.forEach(({ finalPath, tempPath }) => {
+    [tempPath, finalPath].forEach((artifactPath) => {
+      try {
+        fs.unlinkSync(artifactPath);
+      } catch {}
+    });
+  });
+
+  publication.directories.forEach((directory) => {
+    try {
+      syncDirectory(directory);
+    } catch {}
+  });
+
+  [...publication.directories]
+    .sort((left, right) => right.length - left.length)
+    .forEach((directory) => {
+      try {
+        if (fs.readdirSync(directory).length === 0) {
+          fs.rmdirSync(directory);
+        }
+      } catch {}
+    });
+
+  try {
+    syncDirectory(getAttachmentsRoot());
+  } catch {}
+}
+
+export function publishAttachmentArtifacts(
+  artifacts: Array<{ relativePath: string; bytes: Buffer }>
+) {
+  const publication: AttachmentArtifactPublication = {
+    artifactPaths: [],
+    directories: []
+  };
+  const directories = new Set<string>();
+  const root = getAttachmentsRoot();
+
+  try {
+    artifacts.forEach((artifact) => {
+      const finalPath = resolveSafeAttachmentFilePath(root, artifact.relativePath, true);
+      const directory = path.dirname(finalPath);
+      const tempPath = `${finalPath}.tmp-${process.pid}-${randomBytes(8).toString("hex")}`;
+      publication.artifactPaths.push({ finalPath, tempPath });
+      directories.add(directory);
+      let descriptor: number | null = null;
+
+      try {
+        descriptor = fs.openSync(tempPath, "wx", 0o600);
+        fs.writeFileSync(descriptor, artifact.bytes);
+        fs.fsyncSync(descriptor);
+      } finally {
+        if (descriptor !== null) {
+          fs.closeSync(descriptor);
+        }
+      }
+
+      assertSafeAttachmentDirectory(root, directory, false);
+      try {
+        fs.lstatSync(finalPath);
+        throw new Error("Attachment artifact already exists");
+      } catch (error) {
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") {
+          throw error;
+        }
+      }
+      fs.renameSync(tempPath, finalPath);
+    });
+
+    publication.directories = [...directories];
+    publication.directories.forEach(syncDirectory);
+    if (!publication.directories.includes(root)) {
+      syncDirectory(root);
+    }
+    return publication;
+  } catch (error) {
+    publication.directories = [...directories];
+    rollbackAttachmentArtifactPublication(publication);
+    throw error;
   }
 }
 
@@ -357,7 +472,6 @@ export async function createAttachments(conversationId: string, files: CreateAtt
     ) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
-  const dir = ensureConversationAttachmentDir(conversationId);
   const records: {
     id: string;
     conversationId: string;
@@ -407,14 +521,15 @@ export async function createAttachments(conversationId: string, files: CreateAtt
     });
   }
 
-  const writtenPaths: string[] = [];
+  let publication: AttachmentArtifactPublication | null = null;
 
   try {
-    records.forEach((record) => {
-      const absolutePath = path.resolve(dir, path.basename(record.relativePath));
-      fs.writeFileSync(absolutePath, record.bytes);
-      writtenPaths.push(record.relativePath);
-    });
+    publication = publishAttachmentArtifacts(
+      records.map((record) => ({
+        relativePath: record.relativePath,
+        bytes: record.bytes
+      }))
+    );
 
     const transaction = db.transaction(() => {
       records.forEach((record) => {
@@ -449,11 +564,9 @@ export async function createAttachments(conversationId: string, files: CreateAtt
       createdAt: record.createdAt
     }));
   } catch (error) {
-    writtenPaths.forEach((relativePath) => {
-      try {
-        removeAttachmentFile(relativePath);
-      } catch {}
-    });
+    if (publication) {
+      rollbackAttachmentArtifactPublication(publication);
+    }
     removeConversationAttachmentDirIfEmpty(conversationId);
     throw error;
   }
@@ -568,28 +681,67 @@ export function deleteAttachmentById(
     throw new Error("Attachment is already attached to a message");
   }
 
-  removeAttachmentFile(attachment.relativePath);
-  getDb().prepare("DELETE FROM message_attachments WHERE id = ?").run(attachmentId);
-  removeConversationAttachmentDirIfEmpty(attachment.conversationId);
+  const deleted = getDb()
+    .prepare("DELETE FROM message_attachments WHERE id = ?")
+    .run(attachmentId).changes > 0;
+
+  if (!deleted) {
+    return false;
+  }
+
+  try {
+    removeAttachmentFile(attachment.relativePath);
+    removeConversationAttachmentDirIfEmpty(attachment.conversationId);
+  } catch {}
   return true;
 }
 
-export function deleteConversationAttachmentFiles(conversationId: string) {
-  const attachments = listAttachmentsForConversation(conversationId);
+export function deleteAttachmentFiles(relativePaths: string[]) {
+  const parentDirectories = new Set<string>();
 
-  attachments.forEach((attachment) => {
-    removeAttachmentFile(attachment.relativePath);
-  });
+  for (const relativePath of relativePaths) {
+    try {
+      const absolutePath = resolveAttachmentAbsolutePath(relativePath);
+      parentDirectories.add(path.dirname(absolutePath));
+      fs.unlinkSync(absolutePath);
+    } catch {}
+  }
 
-  removeConversationAttachmentDirIfEmpty(conversationId);
+  for (const directory of parentDirectories) {
+    try {
+      const root = getAttachmentsRoot();
+      assertSafeAttachmentDirectory(root, directory, false);
+      if (fs.readdirSync(directory).length === 0) {
+        fs.rmdirSync(directory);
+      }
+    } catch {}
+  }
 }
 
 export function resolveAttachmentPath(attachment: Pick<MessageAttachment, "relativePath">) {
-  return resolveAttachmentAbsolutePath(attachment.relativePath);
+  const absolutePath = resolveAttachmentAbsolutePath(attachment.relativePath);
+  const stats = fs.lstatSync(absolutePath);
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw new Error("Attachment path is not a regular managed file");
+  }
+  return absolutePath;
 }
 
 export function readAttachmentBuffer(attachment: Pick<MessageAttachment, "relativePath">) {
-  return fs.readFileSync(resolveAttachmentAbsolutePath(attachment.relativePath));
+  const absolutePath = resolveAttachmentAbsolutePath(attachment.relativePath);
+  const descriptor = fs.openSync(
+    absolutePath,
+    fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0)
+  );
+  try {
+    const stats = fs.fstatSync(descriptor);
+    if (!stats.isFile()) {
+      throw new Error("Attachment path is not a regular managed file");
+    }
+    return fs.readFileSync(descriptor);
+  } finally {
+    fs.closeSync(descriptor);
+  }
 }
 
 export function isInlineTextPreviewableAttachment(

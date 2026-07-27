@@ -10,7 +10,8 @@ const draftSchema = z.discriminatedUnion("transport", [
     transport: z.literal("streamable_http"),
     name: z.string().min(1).max(100),
     url: z.string().url(),
-    headers: z.record(z.string()).default({})
+    headers: z.record(z.string()).optional(),
+    headersAction: z.enum(["preserve", "replace", "clear"]).optional()
   }),
   z.object({
     transport: z.literal("stdio"),
@@ -18,12 +19,18 @@ const draftSchema = z.discriminatedUnion("transport", [
     command: z.string().min(1),
     args: z.array(z.string()).nullable().optional(),
     env: z.record(z.string()).nullable().optional(),
+    envAction: z.enum(["preserve", "replace", "clear"]).optional(),
     url: z.string().optional().default(""),
-    headers: z.record(z.string()).default({})
+    headers: z.record(z.string()).optional(),
+    headersAction: z.enum(["preserve", "replace", "clear"]).optional()
   })
 ]);
 
 const bodySchema = z.union([
+  z.object({
+    serverId: z.string().min(1),
+    draft: draftSchema
+  }),
   z.object({
     serverId: z.string().min(1)
   }),
@@ -40,22 +47,33 @@ export async function POST(request: Request) {
     return badRequest("Invalid MCP test payload");
   }
 
-  const server =
-    "serverId" in body.data
-      ? getMcpServer(body.data.serverId)
-      : {
+  const storedServer = "serverId" in body.data ? getMcpServer(body.data.serverId) : null;
+  const draft = "draft" in body.data ? body.data.draft : "serverId" in body.data ? null : body.data;
+  const server = draft
+      ? {
           id: "draft",
-          name: body.data.name,
-          url: body.data.transport === "streamable_http" ? body.data.url : body.data.url ?? "",
-          headers: body.data.headers ?? {},
-          transport: body.data.transport,
-          command: body.data.transport === "stdio" ? body.data.command : null,
-          args: body.data.transport === "stdio" ? body.data.args ?? null : null,
-          env: body.data.transport === "stdio" ? body.data.env ?? null : null,
+          name: draft.name,
+          url: draft.transport === "streamable_http" ? draft.url : draft.url ?? "",
+          headers: draft.headersAction === "preserve"
+            ? storedServer?.headers ?? {}
+            : draft.headersAction === "clear"
+              ? {}
+              : draft.headers ?? {},
+          transport: draft.transport,
+          command: draft.transport === "stdio" ? draft.command : null,
+          args: draft.transport === "stdio" ? draft.args ?? null : null,
+          env: draft.transport === "stdio"
+            ? draft.envAction === "preserve"
+              ? storedServer?.env ?? null
+              : draft.envAction === "clear"
+                ? null
+                : draft.env ?? null
+            : null,
           enabled: true,
           createdAt: "",
           updatedAt: ""
-        };
+        }
+      : storedServer;
 
   if (!server) {
     return badRequest("MCP server not found", 404);

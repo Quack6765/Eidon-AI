@@ -5,12 +5,14 @@ import Database from "better-sqlite3";
 import { describe, expect, it } from "vitest";
 
 import { getDb, backfillVisionMcpServers } from "@/lib/db";
+import { decryptValue } from "@/lib/crypto";
 import {
   createMcpServer,
   deleteMcpServer,
   getMcpServer,
   listMcpServers,
   listEnabledMcpServers,
+  sanitizeMcpServer,
   updateMcpServer
 } from "@/lib/mcp-servers";
 import { updateSettings } from "@/lib/settings";
@@ -28,6 +30,19 @@ describe("mcp servers", () => {
     expect(server.url).toBe("https://mcp.example.com/api");
     expect(server.headers).toEqual({ Authorization: "Bearer test123" });
     expect(server.enabled).toBe(true);
+    const storedSecrets = getDb()
+      .prepare("SELECT headers FROM mcp_servers WHERE id = ?")
+      .get(server.id) as { headers: string };
+    expect(storedSecrets.headers).not.toContain("Bearer test123");
+    expect(JSON.parse(decryptValue(storedSecrets.headers))).toEqual({
+      Authorization: "Bearer test123"
+    });
+    expect(sanitizeMcpServer(server)).toMatchObject({
+      headers: {},
+      env: null,
+      hasHeaders: true,
+      hasEnv: false
+    });
 
     const all = listMcpServers();
     expect(all).toHaveLength(1);
@@ -87,6 +102,74 @@ describe("mcp servers", () => {
     expect(updated?.command).toBeNull();
     expect(updated?.args).toBeNull();
     expect(updated?.env).toBeNull();
+  });
+
+  it("preserves and explicitly clears encrypted secrets on update", () => {
+    const server = createMcpServer({
+      name: "Secrets",
+      url: "https://mcp.example.com",
+      headers: { Authorization: "Bearer stored" }
+    });
+
+    updateMcpServer(server.id, { name: "Renamed", headersAction: "preserve" });
+    expect(getMcpServer(server.id)?.headers).toEqual({ Authorization: "Bearer stored" });
+
+    updateMcpServer(server.id, { headersAction: "clear" });
+    expect(getMcpServer(server.id)?.headers).toEqual({});
+    const row = getDb().prepare("SELECT headers FROM mcp_servers WHERE id = ?").get(server.id) as {
+      headers: string;
+    };
+    expect(JSON.parse(decryptValue(row.headers))).toEqual({});
+  });
+
+  it("preserves exact unreadable secret ciphertext without decrypting or re-encrypting", () => {
+    const server = createMcpServer({
+      name: "Unreadable secrets",
+      transport: "stdio",
+      command: "node",
+      headers: { Authorization: "Bearer stored" },
+      env: { TOKEN: "stored" }
+    });
+    getDb()
+      .prepare("UPDATE mcp_servers SET headers = ?, env = ? WHERE id = ?")
+      .run("unreadable-header-ciphertext", "unreadable-env-ciphertext", server.id);
+
+    updateMcpServer(server.id, {
+      name: "Unreadable secrets renamed",
+      headersAction: "preserve",
+      envAction: "preserve"
+    });
+
+    const stored = getDb()
+      .prepare("SELECT headers, env FROM mcp_servers WHERE id = ?")
+      .get(server.id) as { headers: string; env: string };
+    expect(stored).toEqual({
+      headers: "unreadable-header-ciphertext",
+      env: "unreadable-env-ciphertext"
+    });
+  });
+
+  it("preserves hidden secrets when switching transports without secret actions", () => {
+    const server = createMcpServer({
+      name: "Transport switch",
+      transport: "stdio",
+      command: "node",
+      headers: { Authorization: "Bearer stored" },
+      env: { TOKEN: "stored" }
+    });
+    const before = getDb()
+      .prepare("SELECT headers, env FROM mcp_servers WHERE id = ?")
+      .get(server.id) as { headers: string; env: string };
+
+    updateMcpServer(server.id, {
+      transport: "streamable_http",
+      url: "https://mcp.example.com"
+    });
+
+    const after = getDb()
+      .prepare("SELECT headers, env FROM mcp_servers WHERE id = ?")
+      .get(server.id) as { headers: string; env: string };
+    expect(after).toEqual(before);
   });
 
   it("returns null for missing server update", () => {

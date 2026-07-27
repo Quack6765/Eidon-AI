@@ -1,10 +1,10 @@
 import { decryptValue, encryptValue } from "@/lib/crypto";
 
 const {
-  updateGithubCopilotCredentials,
+  updateGithubCopilotCredentialsIfRefreshTokenMatches,
   copilotClientCtor
 } = vi.hoisted(() => ({
-  updateGithubCopilotCredentials: vi.fn(),
+  updateGithubCopilotCredentialsIfRefreshTokenMatches: vi.fn(() => true),
   copilotClientCtor: vi.fn()
 }));
 
@@ -13,7 +13,7 @@ vi.mock("@/lib/settings", async () => {
 
   return {
     ...actual,
-    updateGithubCopilotCredentials
+    updateGithubCopilotCredentialsIfRefreshTokenMatches
   };
 });
 
@@ -81,6 +81,7 @@ function createProfile(overrides: Record<string, unknown> = {}) {
 
 type MockSession = {
   send: ReturnType<typeof vi.fn>;
+  abort?: ReturnType<typeof vi.fn>;
 };
 
 type MockClient = {
@@ -190,11 +191,16 @@ describe("github copilot helpers", () => {
   });
 
   it("creates and verifies oauth state tokens", async () => {
-    const state = await createGithubOauthState("profile_1", "user_1");
+    const state = await createGithubOauthState(
+      "profile_1",
+      "user_1",
+      "github_oauth_test-nonce"
+    );
 
     await expect(verifyGithubOauthState(state)).resolves.toEqual({
       profileId: "profile_1",
-      userId: "user_1"
+      userId: "user_1",
+      profileNonce: "github_oauth_test-nonce"
     });
   });
 
@@ -272,7 +278,7 @@ describe("github copilot helpers", () => {
     });
 
     await expect(ensureFreshGithubAccessToken(profile)).resolves.toBe(profile);
-    expect(updateGithubCopilotCredentials).not.toHaveBeenCalled();
+    expect(updateGithubCopilotCredentialsIfRefreshTokenMatches).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
@@ -304,14 +310,118 @@ describe("github copilot helpers", () => {
     expect(refreshed.githubRefreshTokenExpiresAt).toBe(
       "2026-04-09T12:00:00.000Z"
     );
-    expect(updateGithubCopilotCredentials).toHaveBeenCalledWith("profile_copilot", {
+    expect(updateGithubCopilotCredentialsIfRefreshTokenMatches).toHaveBeenCalledWith(
+      "profile_copilot",
+      profile.githubRefreshTokenEncrypted,
+      {
       githubUserAccessToken: "ghu_refreshed",
       githubRefreshToken: "ghr_rotated",
       githubTokenExpiresAt: "2026-04-09T10:05:00.000Z",
       githubRefreshTokenExpiresAt: "2026-04-09T12:00:00.000Z",
       githubAccountLogin: "octocat",
       githubAccountName: "The Octocat"
+      }
+    );
+  });
+
+  it("coalesces concurrent refreshes for the same Copilot profile", async () => {
+    const profile = createProfile({
+      githubTokenExpiresAt: new Date(Date.now() + 30_000).toISOString()
     });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(global.fetch).mockImplementation(async () => {
+      await gate;
+      return {
+        ok: true,
+        json: async () => ({
+          access_token: "ghu_coalesced",
+          refresh_token: "ghr_coalesced",
+          expires_in: 300
+        })
+      } as Response;
+    });
+
+    const first = ensureFreshGithubAccessToken(profile);
+    const second = ensureFreshGithubAccessToken(profile);
+    release();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(updateGithubCopilotCredentialsIfRefreshTokenMatches).toHaveBeenCalledTimes(1);
+    expect(decryptValue(firstResult.githubUserAccessTokenEncrypted)).toBe("ghu_coalesced");
+    expect(secondResult).toEqual(firstResult);
+  });
+
+  it("shares the refresh registry across separately loaded server bundles", async () => {
+    const profile = createProfile({
+      githubTokenExpiresAt: new Date(Date.now() + 30_000).toISOString()
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(global.fetch).mockImplementation(async () => {
+      await gate;
+      return {
+        ok: true,
+        json: async () => ({ access_token: "ghu_global", expires_in: 300 })
+      } as Response;
+    });
+
+    const first = ensureFreshGithubAccessToken(profile);
+    vi.resetModules();
+    const reloaded = await import("@/lib/github-copilot");
+    const second = reloaded.ensureFreshGithubAccessToken(profile);
+    release();
+    await Promise.all([first, second]);
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(updateGithubCopilotCredentialsIfRefreshTokenMatches).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not restore credentials when disconnect wins a refresh race", async () => {
+    const profile = createProfile({
+      githubTokenExpiresAt: new Date(Date.now() + 30_000).toISOString()
+    });
+    updateGithubCopilotCredentialsIfRefreshTokenMatches.mockReturnValueOnce(false);
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        access_token: "ghu_should_not_persist",
+        refresh_token: "ghr_should_not_persist",
+        expires_in: 300
+      })
+    } as Response);
+
+    await expect(ensureFreshGithubAccessToken(profile)).rejects.toThrow(
+      "GitHub Copilot connection changed during token refresh"
+    );
+    expect(updateGithubCopilotCredentialsIfRefreshTokenMatches).toHaveBeenCalledWith(
+      profile.id,
+      profile.githubRefreshTokenEncrypted,
+      expect.any(Object)
+    );
+  });
+
+  it("rejects invalid refresh responses without persisting credentials", async () => {
+    const profile = createProfile({
+      githubTokenExpiresAt: new Date(Date.now() + 30_000).toISOString()
+    });
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        error: "bad_refresh_token",
+        error_description: "The refresh token is invalid"
+      })
+    } as Response);
+
+    await expect(ensureFreshGithubAccessToken(profile)).rejects.toThrow(
+      "The refresh token is invalid"
+    );
+    expect(updateGithubCopilotCredentialsIfRefreshTokenMatches).not.toHaveBeenCalled();
   });
 
   it("lists github copilot models with a started and stopped client", async () => {
@@ -370,6 +480,31 @@ describe("github copilot helpers", () => {
     expect(session.send).toHaveBeenCalledWith({
       prompt: "First line\nSecond line"
     });
+    expect(client.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("aborts an active copilot turn and stops its client", async () => {
+    const controller = new AbortController();
+    const session: MockSession = {
+      send: vi.fn(() => new Promise(() => undefined)),
+      abort: vi.fn().mockResolvedValue(undefined)
+    };
+    const client = createMockClient({
+      createSession: vi.fn().mockResolvedValue(session)
+    });
+    copilotClientCtor.mockImplementation(() => client);
+
+    const turn = runGithubCopilotChat({
+      ...createProfile(),
+      messages: [{ role: "user", content: "Keep working" }],
+      abortSignal: controller.signal
+    });
+    await vi.waitFor(() => expect(session.send).toHaveBeenCalled());
+    controller.abort();
+
+    await expect(turn).rejects.toMatchObject({ name: "AbortError" });
+    expect(session.abort).toHaveBeenCalled();
+    expect(client.stop).toHaveBeenCalledTimes(1);
   });
 
   it("streams a copilot chat turn until the assistant finishes", async () => {

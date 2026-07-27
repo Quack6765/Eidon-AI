@@ -7,7 +7,25 @@ export class ChatTurnStoppedError extends Error {
 
 export type ChatTurnControl = ReturnType<typeof createChatTurnControl>;
 
-const activeTurns = new Map<string, ChatTurnControl>();
+export function throwIfChatTurnAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw new ChatTurnStoppedError();
+  }
+}
+
+const CHAT_TURN_REGISTRY_KEY = Symbol.for("eidon:chat-turn-registry");
+
+function getActiveTurns() {
+  const globalRegistry = globalThis as Record<symbol, Map<string, ChatTurnControl> | undefined>;
+  let activeTurns = globalRegistry[CHAT_TURN_REGISTRY_KEY];
+
+  if (!activeTurns) {
+    activeTurns = new Map<string, ChatTurnControl>();
+    globalRegistry[CHAT_TURN_REGISTRY_KEY] = activeTurns;
+  }
+
+  return activeTurns;
+}
 
 export function createChatTurnControl(conversationId: string, abortController = new AbortController()) {
   let stopped = false;
@@ -25,14 +43,16 @@ export function createChatTurnControl(conversationId: string, abortController = 
       }
     },
     throwIfStopped() {
-      if (stopped || abortController.signal.aborted) {
+      if (stopped) {
         throw new ChatTurnStoppedError();
       }
+      throwIfChatTurnAborted(abortController.signal);
     }
   };
 }
 
 export function claimChatTurnStart(conversationId: string, control = createChatTurnControl(conversationId)) {
+  const activeTurns = getActiveTurns();
   if (activeTurns.has(conversationId)) {
     return { ok: false as const };
   }
@@ -54,10 +74,11 @@ export function registerChatTurn(conversationId: string) {
 }
 
 export function requestStop(conversationId: string) {
-  activeTurns.get(conversationId)?.requestStop();
+  getActiveTurns().get(conversationId)?.requestStop();
 }
 
 export function releaseChatTurnStart(conversationId: string, control?: ChatTurnControl) {
+  const activeTurns = getActiveTurns();
   if (!control) {
     activeTurns.delete(conversationId);
     return;

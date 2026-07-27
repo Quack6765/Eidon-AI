@@ -1,6 +1,7 @@
 import { getDb } from "@/lib/db";
+import { decryptValue, encryptValue } from "@/lib/crypto";
 import { createId } from "@/lib/ids";
-import type { McpServer, McpTransport } from "@/lib/types";
+import type { McpServer, McpServerSummary, McpTransport } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
 
 
@@ -34,16 +35,49 @@ function rowToMcpServer(row: McpServerRow): McpServer {
     name: row.name,
     slug: row.slug,
     url: row.url,
-    headers: JSON.parse(row.headers) as Record<string, string>,
+    headers: parseSecretRecord(row.headers, {}),
     transport: (row.transport ?? "streamable_http") as McpTransport,
     command: row.command,
     args: row.args ? (JSON.parse(row.args) as string[]) : null,
-    env: row.env ? (JSON.parse(row.env) as Record<string, string>) : null,
+    env: row.env ? parseSecretRecord(row.env, null) : null,
     enabled: Boolean(row.enabled),
     isVisionMcp: Boolean(row.is_vision_mcp),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function parseSecretRecord<T extends Record<string, string> | null>(
+  value: string,
+  fallback: T
+): Record<string, string> | T {
+  try {
+    return JSON.parse(decryptValue(value)) as Record<string, string>;
+  } catch {
+    try {
+      return JSON.parse(value) as Record<string, string>;
+    } catch {
+      return fallback;
+    }
+  }
+}
+
+function encryptSecretRecord(value: Record<string, string> | null) {
+  return value === null ? null : encryptValue(JSON.stringify(value));
+}
+
+export function sanitizeMcpServer(server: McpServer): McpServerSummary {
+  return {
+    ...server,
+    headers: {},
+    env: null,
+    hasHeaders: Object.keys(server.headers).length > 0,
+    hasEnv: Boolean(server.env && Object.keys(server.env).length > 0)
+  };
+}
+
+export function listSanitizedMcpServers() {
+  return listMcpServers().map(sanitizeMcpServer);
 }
 
 const SELECT_COLUMNS = `id, name, slug, url, headers, transport, command, args, env, enabled, is_vision_mcp, created_at, updated_at`;
@@ -61,15 +95,19 @@ export function listMcpServers() {
 }
 
 export function getMcpServer(serverId: string) {
-  const row = getDb()
+  const row = getMcpServerRow(serverId);
+
+  return row ? rowToMcpServer(row) : null;
+}
+
+function getMcpServerRow(serverId: string) {
+  return getDb()
     .prepare(
       `SELECT ${SELECT_COLUMNS}
        FROM mcp_servers
        WHERE id = ?`
     )
     .get(serverId) as McpServerRow | undefined;
-
-  return row ? rowToMcpServer(row) : null;
 }
 
 export function getMcpServerBySlug(slug: string) {
@@ -92,6 +130,7 @@ type CreateMcpServerInput = {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  enabled?: boolean;
   isVisionMcp?: boolean;
 };
 
@@ -109,7 +148,7 @@ export function createMcpServer(input: CreateMcpServerInput) {
     command: input.command ?? null,
     args: input.args ?? null,
     env: input.env ?? null,
-    enabled: true,
+    enabled: input.enabled ?? true,
     isVisionMcp: input.isVisionMcp ?? false,
     createdAt: timestamp,
     updatedAt: timestamp
@@ -125,11 +164,11 @@ export function createMcpServer(input: CreateMcpServerInput) {
       server.name,
       server.slug,
       server.url,
-      JSON.stringify(server.headers),
+      encryptSecretRecord(server.headers),
       server.transport,
       server.command,
       server.args ? JSON.stringify(server.args) : null,
-      server.env ? JSON.stringify(server.env) : null,
+      encryptSecretRecord(server.env),
       server.enabled ? 1 : 0,
       server.isVisionMcp ? 1 : 0,
       server.createdAt,
@@ -147,6 +186,8 @@ type UpdateMcpServerInput = {
   command?: string | null;
   args?: string[] | null;
   env?: Record<string, string> | null;
+  headersAction?: "preserve" | "replace" | "clear";
+  envAction?: "preserve" | "replace" | "clear";
   enabled?: boolean;
   isVisionMcp?: boolean;
 };
@@ -155,18 +196,39 @@ export function updateMcpServer(
   serverId: string,
   input: UpdateMcpServerInput
 ) {
-  const current = getMcpServer(serverId);
-  if (!current) return null;
+  const currentRow = getMcpServerRow(serverId);
+  if (!currentRow) return null;
+  const current = rowToMcpServer(currentRow);
 
   const timestamp = nowIso();
   const name = input.name !== undefined ? input.name.trim() : current.name;
   const slug = input.name !== undefined ? (slugify(name) || "unnamed") : current.slug;
   const url = input.url ?? current.url;
-  const headers = input.headers ?? current.headers;
   const transport = input.transport ?? current.transport;
+  const headersAction = input.headersAction ??
+    (input.headers !== undefined
+      ? Object.keys(input.headers).length
+        ? "replace"
+        : "clear"
+      : "preserve");
+  const envAction = input.envAction ??
+    (input.env !== undefined
+      ? input.env && Object.keys(input.env).length
+        ? "replace"
+        : "clear"
+      : "preserve");
+  const headersEncrypted = headersAction === "preserve"
+    ? currentRow.headers
+    : headersAction === "replace"
+      ? encryptSecretRecord(input.headers ?? {})
+      : encryptSecretRecord({});
   const command = input.command !== undefined ? input.command : current.command;
   const args = input.args !== undefined ? input.args : current.args;
-  const env = input.env !== undefined ? input.env : current.env;
+  const envEncrypted = envAction === "preserve"
+    ? currentRow.env
+    : envAction === "replace"
+      ? encryptSecretRecord(input.env ?? null)
+      : null;
   const enabled = input.enabled ?? current.enabled;
   const isVisionMcp = input.isVisionMcp ?? current.isVisionMcp;
 
@@ -180,11 +242,11 @@ export function updateMcpServer(
       name,
       slug,
       url,
-      JSON.stringify(headers),
+      headersEncrypted,
       transport,
       command,
       args ? JSON.stringify(args) : null,
-      env ? JSON.stringify(env) : null,
+      envEncrypted,
       enabled ? 1 : 0,
       isVisionMcp ? 1 : 0,
       timestamp,

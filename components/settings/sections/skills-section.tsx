@@ -19,6 +19,31 @@ import type { Skill } from "@/lib/types";
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
 
+type SkillDraft = {
+  skillName: string;
+  skillDescription: string;
+  skillContent: string;
+  skillEnabledDraft: boolean;
+};
+
+function skillToDraft(skill: Skill): SkillDraft {
+  return {
+    skillName: skill.name,
+    skillDescription: skill.description,
+    skillContent: skill.content,
+    skillEnabledDraft: skill.enabled
+  };
+}
+
+function emptySkillDraft(): SkillDraft {
+  return {
+    skillName: "",
+    skillDescription: "",
+    skillContent: "",
+    skillEnabledDraft: true
+  };
+}
+
 export function SkillsSection() {
   const [skills, setSkills] = useState<Skill[]>([]);
   const [skillName, setSkillName] = useState("");
@@ -43,20 +68,21 @@ export function SkillsSection() {
     skillContent,
     skillEnabledDraft,
   });
+  const unsavedActions = useRef({ save: saveSkill, discard: restoreSkillDraft });
+  unsavedActions.current = { save: saveSkill, discard: restoreSkillDraft };
 
   useEffect(() => {
     registerUnsavedChangesGuard(
       isDirty
         ? {
             isDirty: () => isDirty,
-            save: () => { saveSkill(); },
-            discard: () => { resetDirty(); },
+            save: () => unsavedActions.current.save(),
+            discard: () => unsavedActions.current.discard(),
             entityType: "this skill",
           }
         : null
     );
     return () => registerUnsavedChangesGuard(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isDirty]);
 
   useEffect(() => {
@@ -68,8 +94,21 @@ export function SkillsSection() {
       .catch(() => {});
   }, []);
 
-  async function saveSkill() {
-    if (!skillName.trim() || !skillDescription.trim() || !skillContent.trim()) return;
+  function restoreSkillDraft() {
+    const saved = skills.find((skill) => skill.id === editingSkillId);
+    const restored = saved ? skillToDraft(saved) : emptySkillDraft();
+    setSkillName(restored.skillName);
+    setSkillDescription(restored.skillDescription);
+    setSkillContent(restored.skillContent);
+    setSkillEnabledDraft(restored.skillEnabledDraft);
+    resetDirty(restored);
+  }
+
+  async function saveSkill(): Promise<boolean> {
+    if (!skillName.trim() || !skillDescription.trim() || !skillContent.trim()) {
+      toast.showToast("error", "Name, description, and instructions are required.");
+      return false;
+    }
     toast.dismissToast();
 
     let savedId = editingSkillId;
@@ -89,71 +128,73 @@ export function SkillsSection() {
       payload.content = skillContent;
     }
 
-    if (editingSkillId) {
-      const updateRes = await fetch(`/api/skills/${editingSkillId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      if (!updateRes.ok) {
-        toast.showToast("error", "Failed to save skill.");
-        return;
-      }
-    } else {
-      const createRes = await fetch("/api/skills", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: skillName,
-          description: skillDescription,
-          content: skillContent
-        })
-      });
-      if (!createRes.ok) {
-        toast.showToast("error", "Failed to save skill.");
-        return;
-      }
-      const createdData = (await createRes.json().catch(() => null)) as { skill?: Skill } | null;
-      savedId = createdData?.skill?.id ?? savedId;
-      if (savedId && skillEnabledDraft === false) {
-        await fetch(`/api/skills/${savedId}`, {
+    try {
+      if (editingSkillId) {
+        const updateRes = await fetch(`/api/skills/${editingSkillId}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabled: false })
+          body: JSON.stringify(payload)
         });
+        if (!updateRes.ok) {
+          throw new Error("Skill update failed");
+        }
+      } else {
+        const createRes = await fetch("/api/skills", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: skillName,
+            description: skillDescription,
+            content: skillContent,
+            enabled: skillEnabledDraft
+          })
+        });
+        if (!createRes.ok) {
+          throw new Error("Skill creation failed");
+        }
+
+        const createdData = (await createRes.json()) as { skill?: Skill };
+        if (!createdData.skill) {
+          throw new Error("Skill creation response was incomplete");
+        }
+        savedId = createdData.skill.id;
       }
-    }
 
-    const res = await fetch("/api/skills");
-    const data = (await res.json()) as { skills: Skill[] };
-    setSkills(data.skills);
+      const res = await fetch("/api/skills");
+      if (!res.ok) {
+        throw new Error("Skill reload failed");
+      }
+      const data = (await res.json()) as { skills?: Skill[] };
+      if (!Array.isArray(data.skills)) {
+        throw new Error("Skill reload response was incomplete");
+      }
 
-    const savedSkill = data.skills.find((skill) => (savedId ? skill.id === savedId : false));
-    if (savedSkill) {
+      const savedSkill = data.skills.find((skill) => skill.id === savedId);
+      if (!savedSkill) {
+        throw new Error("Saved skill was missing after reload");
+      }
+
+      const savedDraft = skillToDraft(savedSkill);
+      setSkills(data.skills);
       setSelectedSkillId(savedSkill.id);
       setEditingSkillId(savedSkill.id);
       setSkillName(savedSkill.name);
       setSkillDescription(savedSkill.description);
       setSkillContent(savedSkill.content);
       setSkillEnabledDraft(savedSkill.enabled);
-    } else if (data.skills.length > 0) {
-      const firstMatch = data.skills.find(
-        (skill) => skill.name === skillName && skill.content === skillContent
-      );
-      if (firstMatch) {
-        setSelectedSkillId(firstMatch.id);
-        setEditingSkillId(firstMatch.id);
-        setSkillName(firstMatch.name);
-        setSkillDescription(firstMatch.description);
-        setSkillContent(firstMatch.content);
-        setSkillEnabledDraft(firstMatch.enabled);
+      setIsAddingNew(false);
+      setMobileDetailVisible(true);
+      resetDirty(savedDraft);
+      toast.showToast("success", "Skill saved.");
+      return true;
+    } catch {
+      if (!editingSkillId && savedId) {
+        setEditingSkillId(savedId);
+        setSelectedSkillId(savedId);
       }
+      toast.showToast("error", "Failed to save skill.");
+      return false;
     }
-
-    toast.showToast("success", "Skill saved.");
-    setIsAddingNew(false);
-    setMobileDetailVisible(true);
-    resetDirty({ skillName, skillDescription, skillContent, skillEnabledDraft });
   }
 
   function saveInstructions(value: string) {
@@ -189,6 +230,7 @@ export function SkillsSection() {
   }
 
   function selectSkill(skill: Skill) {
+    const draft = skillToDraft(skill);
     setEditingSkillId(skill.id);
     setSkillName(skill.name);
     setSkillDescription(skill.description);
@@ -198,7 +240,7 @@ export function SkillsSection() {
     setSelectedSkillId(skill.id);
     setIsAddingNew(false);
     setMobileDetailVisible(true);
-    resetDirty({ skillName: skill.name, skillDescription: skill.description, skillContent: skill.content, skillEnabledDraft: skill.enabled });
+    resetDirty(draft);
   }
 
   function handleAddNew() {
@@ -211,6 +253,7 @@ export function SkillsSection() {
   }
 
   function addNewSkill() {
+    const draft = emptySkillDraft();
     setEditingSkillId(null);
     setSkillName("");
     setSkillDescription("");
@@ -220,20 +263,19 @@ export function SkillsSection() {
     setSelectedSkillId(null);
     setIsAddingNew(true);
     setMobileDetailVisible(true);
-    resetDirty({ skillName: "", skillDescription: "", skillContent: "", skillEnabledDraft: true });
+    resetDirty(draft);
   }
 
-  function handleUnsavedSave() {
+  async function handleUnsavedSave() {
+    if (!(await saveSkill())) return;
     setUnsavedDialogOpen(false);
-    if (pendingSwitch) {
-      saveSkill();
-      pendingSwitch();
-      setPendingSwitch(null);
-    }
+    pendingSwitch?.();
+    setPendingSwitch(null);
   }
 
   function handleUnsavedDiscard() {
     setUnsavedDialogOpen(false);
+    restoreSkillDraft();
     if (pendingSwitch) {
       pendingSwitch();
       setPendingSwitch(null);
@@ -261,7 +303,7 @@ export function SkillsSection() {
   }
 
   function resetSkillForm() {
-    const empty = { skillName: "", skillDescription: "", skillContent: "", skillEnabledDraft: true as boolean };
+    const empty = emptySkillDraft();
     setSkillName("");
     setSkillDescription("");
     setSkillContent("");
@@ -413,7 +455,7 @@ export function SkillsSection() {
                   </div>
                 </div>
 
-                {selectedSkill ? (
+                {selectedSkill || isAddingNew ? (
                   <div className="flex gap-2 pt-2">
                     <label className={`flex cursor-pointer items-center gap-2 rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] transition-colors hover:border-white/15 ${isFieldDirty("skillEnabledDraft") ? "!border-amber-500/40" : "border-white/6"}`}>
                       <input

@@ -92,7 +92,7 @@ export function getSkill(skillId: string) {
   return row ? rowToSkill(row) : null;
 }
 
-export function createSkill(input: { name: string; description?: string; content: string }) {
+export function createSkill(input: { name: string; description?: string; content: string; enabled?: boolean }) {
   const metadata = parseSkillContentMetadata(input.content);
   const timestamp = nowIso();
   const skill = {
@@ -100,7 +100,7 @@ export function createSkill(input: { name: string; description?: string; content
     name: metadata.name?.trim() || input.name.trim(),
     description: metadata.description?.trim() || input.description?.trim() || deriveDescription(input.content),
     content: input.content,
-    enabled: true,
+    enabled: input.enabled ?? true,
     createdAt: timestamp,
     updatedAt: timestamp
   };

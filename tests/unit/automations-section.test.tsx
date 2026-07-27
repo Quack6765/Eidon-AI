@@ -1,9 +1,44 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { AutomationsSection } from "@/components/settings/sections/automations-section";
+
+function buildAutomation() {
+  return {
+    id: "auto_1",
+    name: "Morning summary",
+    prompt: "Summarize priorities",
+    providerProfileId: "profile_default",
+    personaId: null,
+    scheduleKind: "interval",
+    intervalMinutes: 5,
+    calendarFrequency: null,
+    timeOfDay: null,
+    daysOfWeek: [],
+    enabled: true,
+    nextRunAt: null,
+    lastScheduledFor: null,
+    lastStartedAt: null,
+    lastFinishedAt: null,
+    lastStatus: null,
+    createdAt: "2026-04-10T12:00:00.000Z",
+    updatedAt: "2026-04-10T12:00:00.000Z"
+  };
+}
+
+type FetchState = {
+  postSaved?: boolean;
+  rejectSave?: boolean;
+  malformedAutomationReload?: boolean;
+  postCount?: number;
+  patchCount?: number;
+};
+
+function fetchState() {
+  return global.fetch as unknown as FetchState;
+}
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -21,31 +56,9 @@ describe("automations section", () => {
         return {
           ok: true,
           json: async () => ({
-            automations:
-              (global.fetch as unknown as { postSaved?: boolean }).postSaved
-                ? [
-                    {
-                      id: "auto_1",
-                      name: "Morning summary",
-                      prompt: "Summarize priorities",
-                      providerProfileId: "profile_default",
-                      personaId: null,
-                      scheduleKind: "interval",
-                      intervalMinutes: 5,
-                      calendarFrequency: null,
-                      timeOfDay: null,
-                      daysOfWeek: [],
-                      enabled: true,
-                      nextRunAt: null,
-                      lastScheduledFor: null,
-                      lastStartedAt: null,
-                      lastFinishedAt: null,
-                      lastStatus: null,
-                      createdAt: "2026-04-10T12:00:00.000Z",
-                      updatedAt: "2026-04-10T12:00:00.000Z"
-                    }
-                  ]
-                : []
+            ...(fetchState().malformedAutomationReload && fetchState().postSaved
+              ? {}
+              : { automations: fetchState().postSaved ? [buildAutomation()] : [] })
           })
         } as Response;
       }
@@ -75,31 +88,22 @@ describe("automations section", () => {
       }
 
       if (url === "/api/automations" && method === "POST") {
-        (global.fetch as unknown as { postSaved?: boolean }).postSaved = true;
+        if (fetchState().rejectSave) {
+          throw new Error("network down");
+        }
+        fetchState().postSaved = true;
+        fetchState().postCount = (fetchState().postCount ?? 0) + 1;
         return {
           ok: true,
-          json: async () => ({
-            automation: {
-              id: "auto_1",
-              name: "Morning summary",
-              prompt: "Summarize priorities",
-              providerProfileId: "profile_default",
-              personaId: null,
-              scheduleKind: "interval",
-              intervalMinutes: 5,
-              calendarFrequency: null,
-              timeOfDay: null,
-              daysOfWeek: [],
-              enabled: true,
-              nextRunAt: null,
-              lastScheduledFor: null,
-              lastStartedAt: null,
-              lastFinishedAt: null,
-              lastStatus: null,
-              createdAt: "2026-04-10T12:00:00.000Z",
-              updatedAt: "2026-04-10T12:00:00.000Z"
-            }
-          })
+          json: async () => ({ automation: buildAutomation() })
+        } as Response;
+      }
+
+      if (url === "/api/automations/auto_1" && method === "PATCH") {
+        fetchState().patchCount = (fetchState().patchCount ?? 0) + 1;
+        return {
+          ok: true,
+          json: async () => ({ automation: buildAutomation() })
         } as Response;
       }
 
@@ -150,6 +154,58 @@ describe("automations section", () => {
     expect(
       cancelButton.compareDocumentPosition(successMessage) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
+  });
+
+  it("shows an error and keeps the unsaved switch dialog open when saving rejects", async () => {
+    render(React.createElement(AutomationsSection));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add automation" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Morning summary" } });
+    fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Summarize priorities" } });
+    fetchState().rejectSave = true;
+
+    fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+    const dialog = screen.getByRole("dialog", { name: "Unsaved changes" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Unable to save automation");
+    expect(alert).toHaveClass("z-[100]");
+    expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Morning summary")).toBeInTheDocument();
+  });
+
+  it("retries a persisted creation as an update after reload validation fails", async () => {
+    render(React.createElement(AutomationsSection));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add automation" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Morning summary" } });
+    fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Summarize priorities" } });
+    fetchState().malformedAutomationReload = true;
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Add automation" })[0]);
+    let dialog = screen.getByRole("dialog", { name: "Unsaved changes" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Unable to save automation");
+    expect(fetchState().postCount).toBe(1);
+    expect(fetchState().patchCount ?? 0).toBe(0);
+
+    fetchState().malformedAutomationReload = false;
+    dialog = screen.getByRole("dialog", { name: "Unsaved changes" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
+    expect(fetchState().postCount).toBe(1);
+    expect(fetchState().patchCount).toBe(1);
   });
 
   it("does not show a redundant workspace shortcut in settings", async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createAutomation,
@@ -6,6 +6,7 @@ import {
   getAutomation,
   getAutomationRun,
   listAutomationRuns,
+  MAX_AUTOMATION_CATCH_UP_RUNS,
   triggerAutomationNow,
   updateAutomation,
   updateAutomationRunStatus
@@ -16,6 +17,10 @@ import { createPersona } from "@/lib/personas";
 import { createLocalUser } from "@/lib/users";
 import type { ChatTurnResult } from "@/lib/chat-turn";
 import type { ProviderProfileWithApiKey } from "@/lib/types";
+import {
+  getAutomationExecutionLimiterSnapshot,
+  resetAutomationExecutionLimiterForTests
+} from "@/lib/automation-execution-limiter";
 
 function createProviderProfile(id = "profile_scheduler"): ProviderProfileWithApiKey {
   const timestamp = "2026-04-10T00:00:00.000Z";
@@ -70,6 +75,10 @@ async function waitForRunStatus(runId: string, status: string) {
 }
 
 describe("automation scheduler", () => {
+  beforeEach(() => {
+    resetAutomationExecutionLimiterForTests();
+  });
+
   it("calculates the next interval and weekly calendar runs", async () => {
     const { getNextAutomationRunAt } = await import("@/lib/automation-scheduler");
 
@@ -244,6 +253,105 @@ describe("automation scheduler", () => {
     expect(getAutomation(automation.id)?.nextRunAt).toBe("2026-04-10T10:45:00.000Z");
   });
 
+  it("bounds multi-year interval catch-up while executing the true latest slot", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+    const startChatTurn = vi.fn().mockResolvedValue({ status: "completed" });
+    const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+    const scheduler = createAutomationScheduler({
+      now: () => new Date("2026-07-12T10:42:30.000Z"),
+      timeZone: "UTC",
+      manager: createConversationManager(),
+      startChatTurn
+    });
+    const automation = createAutomation({
+      name: "Stale interval",
+      prompt: "Run latest interval",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 5,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+    updateAutomation(automation.id, { nextRunAt: "2018-01-01T00:00:00.000Z" });
+
+    await scheduler.runOnce();
+
+    const runs = listAutomationRuns(automation.id);
+    expect(runs).toHaveLength(MAX_AUTOMATION_CATCH_UP_RUNS);
+    expect(runs.filter((run) => run.status === "missed")).toHaveLength(
+      MAX_AUTOMATION_CATCH_UP_RUNS - 1
+    );
+    expect(runs.filter((run) => run.status === "completed")).toEqual([
+      expect.objectContaining({ scheduledFor: "2026-07-12T10:40:00.000Z" })
+    ]);
+    expect(getAutomation(automation.id)?.nextRunAt).toBe("2026-07-12T10:45:00.000Z");
+    expect(startChatTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds stale daily and weekly catch-up across a daylight-saving transition", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+    const startChatTurn = vi.fn().mockResolvedValue({ status: "completed" });
+    const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+    const scheduler = createAutomationScheduler({
+      now: () => new Date("2026-03-08T14:00:00.000Z"),
+      timeZone: "America/Toronto",
+      manager: createConversationManager(),
+      startChatTurn
+    });
+    const daily = createAutomation({
+      name: "Stale daily",
+      prompt: "Run latest daily",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "calendar",
+      intervalMinutes: null,
+      calendarFrequency: "daily",
+      timeOfDay: "09:05",
+      daysOfWeek: []
+    });
+    const weekly = createAutomation({
+      name: "Stale weekly",
+      prompt: "Run latest weekly",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "calendar",
+      intervalMinutes: null,
+      calendarFrequency: "weekly",
+      timeOfDay: "09:30",
+      daysOfWeek: [1, 3]
+    });
+    updateAutomation(daily.id, { nextRunAt: "2020-01-01T14:05:00.000Z" });
+    updateAutomation(weekly.id, { nextRunAt: "2020-01-01T14:30:00.000Z" });
+
+    await scheduler.runOnce();
+
+    const dailyRuns = listAutomationRuns(daily.id);
+    const weeklyRuns = listAutomationRuns(weekly.id);
+    expect(dailyRuns).toHaveLength(MAX_AUTOMATION_CATCH_UP_RUNS);
+    expect(weeklyRuns).toHaveLength(MAX_AUTOMATION_CATCH_UP_RUNS);
+    expect(dailyRuns.find((run) => run.status === "completed")?.scheduledFor).toBe(
+      "2026-03-08T13:05:00.000Z"
+    );
+    expect(weeklyRuns.find((run) => run.status === "completed")?.scheduledFor).toBe(
+      "2026-03-04T14:30:00.000Z"
+    );
+    expect(getAutomation(daily.id)?.nextRunAt).toBe("2026-03-09T13:05:00.000Z");
+    expect(getAutomation(weekly.id)?.nextRunAt).toBe("2026-03-09T13:30:00.000Z");
+    expect(startChatTurn).toHaveBeenCalledTimes(2);
+  });
+
   it("executes triggered runs by creating an automation conversation and updating the run", async () => {
     const { updateSettings } = await import("@/lib/settings");
     updateSettings({
@@ -412,6 +520,396 @@ describe("automation scheduler", () => {
 
     await Promise.all([firstRun, secondRun]);
     expect(listAutomationRuns(automation.id)[0]?.status).toBe("completed");
+  });
+
+  it("rejects concurrent manual runs across automations owned by the same user", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+    const owner = await createLocalUser({
+      username: "scheduler-manual-owner",
+      password: "Password123!",
+      role: "user"
+    });
+    const automation = createAutomation(
+      {
+        name: "Atomic manual run",
+        prompt: "Only once",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 15,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: []
+      },
+      owner.id
+    );
+    const secondAutomation = createAutomation(
+      {
+        name: "Second manual run",
+        prompt: "Must wait",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 15,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: []
+      },
+      owner.id
+    );
+    let releaseFirst!: () => void;
+    const firstPending = new Promise<ChatTurnResult>((resolve) => {
+      releaseFirst = () => resolve({ status: "completed" });
+    });
+    const startChatTurn = vi.fn().mockImplementation(() => firstPending);
+    const { runAutomationNow } = await import("@/lib/automation-scheduler");
+    const dependencies = {
+      now: () => new Date("2026-04-10T12:00:00.000Z"),
+      manager: createConversationManager(),
+      startChatTurn
+    };
+
+    const first = runAutomationNow(automation.id, dependencies);
+    const second = await runAutomationNow(secondAutomation.id, dependencies);
+
+    expect(second).toMatchObject({
+      status: "failed",
+      errorMessage: "Another automation is already active for this user",
+      conversationId: null
+    });
+    expect(startChatTurn).toHaveBeenCalledTimes(1);
+
+    releaseFirst();
+    await expect(first).resolves.toMatchObject({ status: "completed" });
+  });
+
+  it("applies the shared global concurrency cap to direct manual runs", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+    const owners = await Promise.all(
+      ["one", "two"].map((suffix) =>
+        createLocalUser({
+          username: `scheduler-manual-cap-${suffix}`,
+          password: "Password123!",
+          role: "user"
+        })
+      )
+    );
+    const automations = owners.map((owner, index) =>
+      createAutomation(
+        {
+          name: `Manual cap ${index}`,
+          prompt: `Manual ${index}`,
+          providerProfileId: "profile_scheduler",
+          personaId: null,
+          scheduleKind: "interval",
+          intervalMinutes: 15,
+          calendarFrequency: null,
+          timeOfDay: null,
+          daysOfWeek: []
+        },
+        owner.id
+      )
+    );
+    const releases: Array<() => void> = [];
+    const startChatTurn = vi.fn(
+      () =>
+        new Promise<ChatTurnResult>((resolve) => {
+          releases.push(() => resolve({ status: "completed" }));
+        })
+    );
+    const { createAutomationScheduler, runAutomationNow } = await import("@/lib/automation-scheduler");
+    createAutomationScheduler({ maxConcurrentRuns: 1 });
+    const dependencies = {
+      manager: createConversationManager(),
+      startChatTurn
+    };
+
+    const first = runAutomationNow(automations[0].id, dependencies);
+    const second = runAutomationNow(automations[1].id, dependencies);
+    await Promise.resolve();
+
+    expect(startChatTurn).toHaveBeenCalledTimes(1);
+    releases.shift()?.();
+    await first;
+    await Promise.resolve();
+    expect(startChatTurn).toHaveBeenCalledTimes(2);
+    releases.shift()?.();
+    await second;
+  });
+
+  it("runs different owners concurrently while keeping one active run per owner", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+    const ownerA = await createLocalUser({
+      username: "scheduler-fair-owner-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const ownerB = await createLocalUser({
+      username: "scheduler-fair-owner-b",
+      password: "Password123!",
+      role: "user"
+    });
+    const automationA = createAutomation(
+      {
+        name: "Owner A",
+        prompt: "A",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 15,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: []
+      },
+      ownerA.id
+    );
+    const automationB = createAutomation(
+      {
+        name: "Owner B",
+        prompt: "B",
+        providerProfileId: "profile_scheduler",
+        personaId: null,
+        scheduleKind: "interval",
+        intervalMinutes: 15,
+        calendarFrequency: null,
+        timeOfDay: null,
+        daysOfWeek: []
+      },
+      ownerB.id
+    );
+    createAutomationRun({
+      automationId: automationA.id,
+      scheduledFor: "2026-04-10T12:00:00.000Z",
+      triggerSource: "manual_run"
+    });
+    createAutomationRun({
+      automationId: automationB.id,
+      scheduledFor: "2026-04-10T12:00:00.000Z",
+      triggerSource: "manual_run"
+    });
+    const releases: Array<() => void> = [];
+    const startChatTurn = vi.fn(
+      () =>
+        new Promise<ChatTurnResult>((resolve) => {
+          releases.push(() => resolve({ status: "completed" }));
+        })
+    );
+    const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+    const scheduler = createAutomationScheduler({
+      now: () => new Date("2026-04-10T12:00:00.000Z"),
+      timeZone: "UTC",
+      manager: createConversationManager(),
+      startChatTurn,
+      maxConcurrentRuns: 2
+    });
+
+    const cycle = scheduler.runOnce();
+    await Promise.resolve();
+
+    expect(startChatTurn).toHaveBeenCalledTimes(2);
+    releases.forEach((release) => release());
+    await cycle;
+    expect(listAutomationRuns(automationA.id)[0]?.status).toBe("completed");
+    expect(listAutomationRuns(automationB.id)[0]?.status).toBe("completed");
+  });
+
+  it("continues scheduling other owners while an earlier run remains hung", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+    const owners = await Promise.all(
+      ["a", "b", "c"].map((suffix) =>
+        createLocalUser({
+          username: `scheduler-hung-owner-${suffix}`,
+          password: "Password123!",
+          role: "user"
+        })
+      )
+    );
+    const automations = owners.map((owner, index) =>
+      createAutomation(
+        {
+          name: `Owner ${index}`,
+          prompt: String.fromCharCode(65 + index),
+          providerProfileId: "profile_scheduler",
+          personaId: null,
+          scheduleKind: "interval",
+          intervalMinutes: 15,
+          calendarFrequency: null,
+          timeOfDay: null,
+          daysOfWeek: []
+        },
+        owner.id
+      )
+    );
+    createAutomationRun({
+      automationId: automations[0].id,
+      scheduledFor: "2026-04-10T12:00:00.000Z",
+      triggerSource: "manual_run"
+    });
+    createAutomationRun({
+      automationId: automations[1].id,
+      scheduledFor: "2026-04-10T12:00:00.000Z",
+      triggerSource: "manual_run"
+    });
+    let releaseHung!: () => void;
+    const hung = new Promise<ChatTurnResult>((resolve) => {
+      releaseHung = () => resolve({ status: "completed" });
+    });
+    const startChatTurn = vi.fn(
+      async (_manager, _conversationId, content: string): Promise<ChatTurnResult> => {
+        return content === "A" ? hung : { status: "completed" };
+      }
+    );
+    const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+    const scheduler = createAutomationScheduler({
+      now: () => new Date("2026-04-10T12:00:00.000Z"),
+      timeZone: "UTC",
+      manager: createConversationManager(),
+      startChatTurn,
+      pollIntervalMs: 60_000,
+      maxConcurrentRuns: 2
+    });
+    scheduler.start();
+
+    try {
+      await waitForRunStatus(listAutomationRuns(automations[1].id)[0].id, "completed");
+      createAutomationRun({
+        automationId: automations[2].id,
+        scheduledFor: "2026-04-10T12:01:00.000Z",
+        triggerSource: "manual_run"
+      });
+      scheduler.wake();
+
+      for (let attempt = 0; attempt < 20 && !startChatTurn.mock.calls.some((call) => call[2] === "C"); attempt += 1) {
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
+      expect(startChatTurn.mock.calls.some((call) => call[2] === "C")).toBe(true);
+      expect(listAutomationRuns(automations[0].id)[0]?.status).toBe("running");
+    } finally {
+      scheduler.stop();
+      releaseHung();
+    }
+  });
+
+  it("quarantines a timed-out owner while allowing other owners to continue", async () => {
+    const { updateSettings } = await import("@/lib/settings");
+    updateSettings({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+    const ownerA = await createLocalUser({
+      username: "scheduler-timeout-owner-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const ownerB = await createLocalUser({
+      username: "scheduler-timeout-owner-b",
+      password: "Password123!",
+      role: "user"
+    });
+    const createOwnedAutomation = (name: string, prompt: string, ownerId: string) =>
+      createAutomation(
+        {
+          name,
+          prompt,
+          providerProfileId: "profile_scheduler",
+          personaId: null,
+          scheduleKind: "interval",
+          intervalMinutes: 15,
+          calendarFrequency: null,
+          timeOfDay: null,
+          daysOfWeek: []
+        },
+        ownerId
+      );
+    const hungAutomation = createOwnedAutomation("Hung", "hang", ownerA.id);
+    const sameOwnerAutomation = createOwnedAutomation("Same owner", "same", ownerA.id);
+    const otherOwnerAutomation = createOwnedAutomation("Other owner", "other", ownerB.id);
+    let releaseHung!: () => void;
+    const hungTurn = new Promise<ChatTurnResult>((resolve) => {
+      releaseHung = () => resolve({ status: "stopped" });
+    });
+    const startChatTurn = vi.fn(
+      async (_manager, _conversationId, content: string): Promise<ChatTurnResult> =>
+        content === "hang" ? hungTurn : { status: "completed" }
+    );
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const { runAutomationNow } = await import("@/lib/automation-scheduler");
+    vi.useFakeTimers();
+
+    try {
+      const timedOut = runAutomationNow(hungAutomation.id, {
+        manager: createConversationManager(),
+        startChatTurn,
+        runTimeoutMs: 1_000
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(timedOut).resolves.toMatchObject({
+        status: "failed",
+        errorMessage: "Automation run exceeded its execution deadline"
+      });
+      expect(getAutomationExecutionLimiterSnapshot().quarantinedOwnerKeys).toContain(ownerA.id);
+
+      await expect(
+        runAutomationNow(sameOwnerAutomation.id, {
+          manager: createConversationManager(),
+          startChatTurn
+        })
+      ).resolves.toMatchObject({
+        status: "failed",
+        errorMessage: "Another automation is already active for this user"
+      });
+      await expect(
+        runAutomationNow(otherOwnerAutomation.id, {
+          manager: createConversationManager(),
+          startChatTurn
+        })
+      ).resolves.toMatchObject({ status: "completed" });
+      expect(startChatTurn.mock.calls.filter((call) => call[2] === "same")).toHaveLength(0);
+
+      releaseHung();
+      for (
+        let attempt = 0;
+        attempt < 10 && getAutomationExecutionLimiterSnapshot().quarantinedOwnerKeys.includes(ownerA.id);
+        attempt += 1
+      ) {
+        await Promise.resolve();
+      }
+      expect(getAutomationExecutionLimiterSnapshot().quarantinedOwnerKeys).not.toContain(ownerA.id);
+      await expect(
+        runAutomationNow(sameOwnerAutomation.id, {
+          manager: createConversationManager(),
+          startChatTurn
+        })
+      ).resolves.toMatchObject({ status: "completed" });
+      expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining("settled"));
+    } finally {
+      releaseHung();
+      infoSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("wakes at the exact next due time instead of waiting for the full poll interval", async () => {

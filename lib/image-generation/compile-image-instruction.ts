@@ -104,13 +104,15 @@ export async function compileImageInstruction(input: {
   settings: ProviderProfileWithApiKey;
   promptMessages: PromptMessage[];
   callProviderText?: typeof callProviderTextDefault;
+  abortSignal?: AbortSignal;
 }): Promise<CompiledImageInstruction> {
   const call = input.callProviderText ?? callProviderTextDefault;
   const prompt = buildImageInstructionPrompt(input.promptMessages);
   const raw = await call({
     settings: input.settings,
     prompt,
-    purpose: "image_instruction"
+    purpose: "image_instruction",
+    abortSignal: input.abortSignal
   });
 
   return compiledInstructionSchema.parse(

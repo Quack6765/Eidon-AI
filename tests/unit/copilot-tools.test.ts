@@ -1,3 +1,7 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { buildCopilotTools } from "@/lib/copilot-tools";
 import type { McpServer, McpTool, Skill } from "@/lib/types";
@@ -18,7 +22,8 @@ vi.mock("@/lib/mcp-client", () => ({
     content: [{ type: "text", text: "mock result" }],
     isError: false
   }),
-  getToolResultText: vi.fn().mockReturnValue("mock result")
+  getToolResultText: vi.fn().mockReturnValue("mock result"),
+  MAX_MCP_RESULT_CHARS: 32_000
 }));
 
 vi.mock("@/lib/local-shell", async (importOriginal) => {
@@ -512,6 +517,51 @@ describe("buildCopilotTools", () => {
     }));
   });
 
+  it("mints a verified screenshot capability around a successful Copilot shell action", async () => {
+    const { executeLocalShellCommand } = await import("@/lib/local-shell");
+    const { consumeScreenshotArtifact } = await import("@/lib/screenshot-artifact-capabilities");
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-copilot-screenshot-"));
+    const screenshotPath = path.join(tempDir, "capture.png");
+    const pngBytes = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52
+    ]);
+    vi.mocked(executeLocalShellCommand).mockImplementationOnce(async () => {
+      fs.writeFileSync(screenshotPath, pngBytes);
+      return {
+        exitCode: 0,
+        stdout: "saved",
+        stderr: "",
+        timedOut: false,
+        isError: false
+      };
+    });
+    let consumedArtifact: ReturnType<typeof consumeScreenshotArtifact> = null;
+    const onActionComplete = vi.fn((handle: string | undefined) => {
+      consumedArtifact = handle ? consumeScreenshotArtifact(handle) : null;
+    });
+    const ctx = makeCtx({
+      onActionStart: vi.fn().mockReturnValue("shell-screenshot"),
+      onActionComplete
+    });
+    const shellTool = buildCopilotTools(ctx).find((tool) => tool.name === "execute_shell_command")!;
+
+    try {
+      await shellTool.handler!(
+        { command: `agent-browser screenshot ${screenshotPath} --full` },
+        { sessionId: "s1", toolCallId: "tc1", toolName: "execute_shell_command", arguments: {} }
+      );
+
+      expect(consumedArtifact).toEqual(expect.objectContaining({
+        filename: "capture.png",
+        mimeType: "image/png",
+        bytes: pngBytes
+      }));
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("records shell command error results", async () => {
     const { executeLocalShellCommand, summarizeShellResult } = await import("@/lib/local-shell");
     vi.mocked(executeLocalShellCommand).mockResolvedValueOnce({
@@ -709,6 +759,65 @@ describe("buildCopilotTools", () => {
       undefined,
       expect.objectContaining({ resultSummary: "Skill instructions loaded." })
     );
+  });
+
+  it("does not load a skill when cancellation arrives during action persistence", async () => {
+    const controller = new AbortController();
+    const skill = makeSkill();
+    const onActionStart = vi.fn(() => {
+      controller.abort();
+      return "action-1";
+    });
+    const onActionComplete = vi.fn();
+    const ctx = makeCtx({
+      skills: [skill],
+      abortSignal: controller.signal,
+      onActionStart,
+      onActionComplete
+    });
+    const loadSkillTool = buildCopilotTools(ctx).find((tool) => tool.name === "load_skill")!;
+
+    await expect(loadSkillTool.handler!(
+      { skill_name: skill.name },
+      { sessionId: "s1", toolCallId: "tc1", toolName: "load_skill", arguments: {} }
+    )).rejects.toMatchObject({ name: "ChatTurnStoppedError" });
+
+    expect(ctx.loadedSkillIds.has(skill.id)).toBe(false);
+    expect(onActionComplete).not.toHaveBeenCalled();
+  });
+
+  it("rejects skill and memory tools before side effects when already cancelled", async () => {
+    const { getMemory, getMemoryCount } = await import("@/lib/memories");
+    const controller = new AbortController();
+    controller.abort();
+    const onActionStart = vi.fn();
+    const skill = makeSkill();
+    const ctx = makeCtx({
+      skills: [skill],
+      memoriesEnabled: true,
+      abortSignal: controller.signal,
+      onActionStart
+    });
+    const tools = buildCopilotTools(ctx);
+    const calls = [
+      ["load_skill", { skill_name: skill.name }],
+      ["create_memory", { content: "Remember this", category: "other" }],
+      ["update_memory", { id: "mem_1", content: "Updated" }],
+      ["delete_memory", { id: "mem_1" }]
+    ] as const;
+
+    for (const [name, args] of calls) {
+      const tool = tools.find((candidate) => candidate.name === name)!;
+      await expect(tool.handler!(
+        args,
+        { sessionId: "s1", toolCallId: `tc-${name}`, toolName: name, arguments: args }
+      )).rejects.toMatchObject({ name: "ChatTurnStoppedError" });
+    }
+
+    expect(ctx.loadedSkillIds).toEqual(new Set());
+    expect(getMemoryCount).not.toHaveBeenCalled();
+    expect(getMemory).not.toHaveBeenCalled();
+    expect(onActionStart).not.toHaveBeenCalled();
   });
 
   it("returns error string when memory content is empty", async () => {

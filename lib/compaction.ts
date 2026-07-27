@@ -6,8 +6,7 @@ import {
   getConversation,
   getConversationOwnerId,
   isVisibleMessage,
-  listMessages,
-  markMessagesCompacted
+  listMessages
 } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getPersona } from "@/lib/personas";
@@ -22,8 +21,9 @@ import {
 } from "@/lib/compaction-turns";
 import { referencesEarlierImageInChat } from "@/lib/image-generation/follow-up-context";
 import { buildToolResultMessage } from "@/lib/tool-executors";
+import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
 import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
-import { getActiveMemoryNodes, getRenderableMemoryNodes, insertCompactionEvent, insertMemoryNode, renderMemoryNode, supersedeNodes } from "./compaction-memory-nodes";
+import { commitLeafCompaction, commitMergedCompaction, getActiveMemoryNodes, getRenderableMemoryNodes, insertCompactionEvent, insertMemoryNode, renderMemoryNode, supersedeNodes } from "./compaction-memory-nodes";
 import { getVisibleConversationMessages, getLatestVisibleUserMessage, getFreshConversationMessages, getCompactionEligibleMessages } from "./compaction-message-slicing";
 import { buildSummaryPrompt, summarizeBlocks, buildUserPromptContent, getLatestUserMessageIndex, getMostRecentAssistantImageAttachments } from "./compaction-prompt-building";
 import type {
@@ -36,7 +36,7 @@ import type {
   ProviderToolCall
 } from "@/lib/types";
 
-export { getActiveMemoryNodes, getRenderableMemoryNodes, insertCompactionEvent, insertMemoryNode, supersedeNodes, renderMemoryNode } from "./compaction-memory-nodes";
+export { commitLeafCompaction, commitMergedCompaction, getActiveMemoryNodes, getRenderableMemoryNodes, insertCompactionEvent, insertMemoryNode, supersedeNodes, renderMemoryNode } from "./compaction-memory-nodes";
 export { getVisibleConversationMessages, getCompletedTurns, getLatestVisibleUserMessage, getFreshConversationMessages, getCompactionEligibleMessages } from "./compaction-message-slicing";
 export { buildSummaryPrompt, summarizeBlocks, truncateTextToTokenLimit, buildTextAttachmentPart, buildUserPromptContent, getLatestUserMessageIndex, getMostRecentAssistantImageAttachments } from "./compaction-prompt-building";
 
@@ -45,12 +45,31 @@ type CompactionLifecycleHooks = {
   onCompactionEnd?: () => void;
 };
 
+function throwIfCompactionStopped(abortSignal?: AbortSignal) {
+  if (abortSignal?.aborted) {
+    throw new ChatTurnStoppedError();
+  }
+}
+
+async function awaitCompactionOperation<T>(operation: Promise<T>, abortSignal?: AbortSignal) {
+  try {
+    const result = await operation;
+    throwIfCompactionStopped(abortSignal);
+    return result;
+  } catch (error) {
+    throwIfCompactionStopped(abortSignal);
+    throw error;
+  }
+}
+
 async function compactLeafMessages(
   conversationId: string,
   messages: Message[],
   settings: ProviderProfileWithApiKey,
-  hooks: Pick<CompactionLifecycleHooks, "onCompactionStart">
+  hooks: Pick<CompactionLifecycleHooks, "onCompactionStart">,
+  abortSignal?: AbortSignal
 ) {
+  throwIfCompactionStopped(abortSignal);
   hooks.onCompactionStart?.();
 
   if (messages.length < settings.leafMinMessageCount) {
@@ -95,40 +114,35 @@ async function compactLeafMessages(
     ? activeNodes[activeNodes.length - 1].content
     : undefined;
 
-  const payload = await summarizeBlocks(
+  const payload = await awaitCompactionOperation(summarizeBlocks(
     conversationId,
     buildSummaryPrompt("completed chat turns", blocks, {
       startMessageId: completedTurns[0].user.id,
       endMessageId: completedTurns[completedTurns.length - 1].assistant.id,
       messageCount: completedTurnMessages.length
     }, existingSummary),
-    settings
-  );
+    settings,
+    abortSignal
+  ), abortSignal);
 
   const content = payload;
-  const node = insertMemoryNode({
-    conversationId,
-    type: "leaf_summary",
-    depth: 0,
-    content,
-    sourceStartMessageId: completedTurns[0].user.id,
-    sourceEndMessageId: completedTurns[completedTurns.length - 1].assistant.id,
-    sourceTokenCount: completedTurnMessages.reduce(
-      (total, message) => total + Math.max(message.estimatedTokens, estimateMessageTokens(message)),
-      0
-    ),
-    summaryTokenCount: estimateTextTokens(content),
-    childNodeIds: []
+  const node = commitLeafCompaction({
+    node: {
+      conversationId,
+      type: "leaf_summary",
+      depth: 0,
+      content,
+      sourceStartMessageId: completedTurns[0].user.id,
+      sourceEndMessageId: completedTurns[completedTurns.length - 1].assistant.id,
+      sourceTokenCount: completedTurnMessages.reduce(
+        (total, message) => total + Math.max(message.estimatedTokens, estimateMessageTokens(message)),
+        0
+      ),
+      summaryTokenCount: estimateTextTokens(content),
+      childNodeIds: []
+    },
+    messageIds: completedTurnMessages.map((message) => message.id)
   });
-
-  insertCompactionEvent({
-    conversationId,
-    nodeId: node.id,
-    sourceStartMessageId: completedTurns[0].user.id,
-    sourceEndMessageId: completedTurns[completedTurns.length - 1].assistant.id
-  });
-  markMessagesCompacted(completedTurnMessages.map((message) => message.id));
-  bumpConversation(conversationId);
 
   return {
     node,
@@ -138,11 +152,13 @@ async function compactLeafMessages(
 
 async function condenseMemoryNodes(
   conversationId: string,
-  settings: ProviderProfileWithApiKey
+  settings: ProviderProfileWithApiKey,
+  abortSignal?: AbortSignal
 ) {
   let created = false;
 
   while (true) {
+    throwIfCompactionStopped(abortSignal);
     const activeNodes = getActiveMemoryNodes(conversationId);
     const grouped = new Map<number, MemoryNode[]>();
 
@@ -164,29 +180,31 @@ async function condenseMemoryNodes(
       .map((node) => `[memory_node] ${node.id}\n${node.content}`)
       .join("\n\n");
     const existingContext = selected.map(n => `[node] ${n.id}\n${renderMemoryNode(n.content)}`).join("\n\n");
-    const payload = await summarizeBlocks(
+    const payload = await awaitCompactionOperation(summarizeBlocks(
       conversationId,
       buildSummaryPrompt("compacted memory nodes", blocks, {
         startMessageId: selected[0].sourceStartMessageId,
         endMessageId: selected[selected.length - 1].sourceEndMessageId,
         messageCount: selected.length
       }, existingContext),
-      settings
-    );
+      settings,
+      abortSignal
+    ), abortSignal);
     const content = payload;
-    const merged = insertMemoryNode({
-      conversationId,
-      type: "merged_summary",
-      depth: depth + 1,
-      content,
-      sourceStartMessageId: selected[0].sourceStartMessageId,
-      sourceEndMessageId: selected[selected.length - 1].sourceEndMessageId,
-      sourceTokenCount: selected.reduce((total, node) => total + node.sourceTokenCount, 0),
-      summaryTokenCount: estimateTextTokens(content) || settings.mergedTargetTokens,
+    commitMergedCompaction({
+      node: {
+        conversationId,
+        type: "merged_summary",
+        depth: depth + 1,
+        content,
+        sourceStartMessageId: selected[0].sourceStartMessageId,
+        sourceEndMessageId: selected[selected.length - 1].sourceEndMessageId,
+        sourceTokenCount: selected.reduce((total, node) => total + node.sourceTokenCount, 0),
+        summaryTokenCount: estimateTextTokens(content) || settings.mergedTargetTokens,
+        childNodeIds: selected.map((node) => node.id)
+      },
       childNodeIds: selected.map((node) => node.id)
     });
-
-    supersedeNodes(selected.map((node) => node.id), merged.id);
     created = true;
   }
 }
@@ -369,8 +387,10 @@ export async function ensureCompactedContext(
   settings: ProviderProfileWithApiKey,
   hooks: CompactionLifecycleHooks = {},
   personaId?: string,
-  memoriesEnabled: boolean = false
+  memoriesEnabled: boolean = false,
+  abortSignal?: AbortSignal
 ): Promise<EnsureCompactedContextResult> {
+  throwIfCompactionStopped(abortSignal);
   const conversation = getConversation(conversationId);
 
   if (!conversation) {
@@ -413,6 +433,7 @@ export async function ensureCompactedContext(
       });
 
     while (true) {
+      throwIfCompactionStopped(abortSignal);
       const messages = listMessages(conversationId);
       const activeMemoryNodes = getActiveMemoryNodes(conversationId);
       const visibleMessages = getVisibleConversationMessages(messages);
@@ -462,13 +483,13 @@ export async function ensureCompactedContext(
       const eligible = getCompactionEligibleMessages(messages, effectiveFreshTail);
       const compacted = await compactLeafMessages(conversationId, eligible, settings, {
         onCompactionStart: beginCompaction
-      });
+      }, abortSignal);
 
       if (compacted) {
         didCompact = true;
         effectiveFreshTail = settings.freshTailCount;
 
-        await condenseMemoryNodes(conversationId, settings);
+        await condenseMemoryNodes(conversationId, settings, abortSignal);
         bumpConversation(conversationId);
         continue;
       }

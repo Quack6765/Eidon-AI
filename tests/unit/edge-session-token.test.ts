@@ -1,6 +1,6 @@
 import { SignJWT } from "jose";
 
-import { verifyHs256Jwt } from "@/lib/edge-session-token";
+import { verifyHs256Jwt, verifyHs256SessionJwt } from "@/lib/edge-session-token";
 
 const secret = new TextEncoder().encode("edge-session-token-test-secret");
 
@@ -42,5 +42,40 @@ describe("edge session token verifier", () => {
     await expect(verifyHs256Jwt(badSignatureToken, secret)).resolves.toBeNull();
     await expect(verifyHs256Jwt(expiredToken, secret)).resolves.toBeNull();
     await expect(verifyHs256Jwt("not-a-jwt", secret)).resolves.toBeNull();
+  });
+
+  it("requires the session token domain and concrete session claims", async () => {
+    const valid = await new SignJWT({
+      sid: "session_123",
+      uid: "user_123",
+      tokenUse: "session"
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("eidon")
+      .setAudience("eidon-session")
+      .setExpirationTime("1m")
+      .sign(secret);
+    const oauthState = await new SignJWT({
+      profileId: "profile_123",
+      userId: "user_123",
+      tokenUse: "github_oauth_state"
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("eidon")
+      .setAudience("eidon-github-oauth")
+      .setExpirationTime("1m")
+      .sign(secret);
+
+    const expected = {
+      issuer: "eidon",
+      audience: "eidon-session",
+      tokenUse: "session"
+    };
+
+    await expect(verifyHs256SessionJwt(valid, secret, expected)).resolves.toMatchObject({
+      sid: "session_123",
+      uid: "user_123"
+    });
+    await expect(verifyHs256SessionJwt(oauthState, secret, expected)).resolves.toBeNull();
   });
 });

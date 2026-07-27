@@ -86,7 +86,8 @@ describe("inferAssistantLocalAttachments", () => {
           "",
           `[report](${sourcePath})`
         ].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);
@@ -112,7 +113,8 @@ describe("inferAssistantLocalAttachments", () => {
         content: ["> ```md", `> ![Generated image](${malformedTarget})`, "> still code", "", `[report](${sourcePath})`].join(
           "\n"
         ),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);
@@ -144,7 +146,8 @@ describe("inferAssistantLocalAttachments", () => {
           "",
           `[report](${sourcePath})`
         ].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);
@@ -174,7 +177,8 @@ describe("inferAssistantLocalAttachments", () => {
           "",
           `[report](${sourcePath})`
         ].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);
@@ -203,7 +207,8 @@ describe("inferAssistantLocalAttachments", () => {
           "",
           `[report](${sourcePath})`
         ].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);
@@ -227,7 +232,8 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content,
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(0);
@@ -249,7 +255,8 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Preview:", "", `![preview](${sourcePath})`].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);
@@ -273,7 +280,8 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Attached log:", "", `[log](${sourcePath})`].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);
@@ -303,7 +311,8 @@ describe("inferAssistantLocalAttachments", () => {
           `[log](${sourcePath} "log title")`,
           `[notes](<${spacedPath}> "space title")`
         ].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath, spacedPath]
       });
 
       expect(result.attachments).toHaveLength(2);
@@ -325,7 +334,8 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Attached log:", "", "[log][workspace-log]", "", `[workspace-log]: ${sourcePath}`].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);
@@ -401,7 +411,7 @@ describe("inferAssistantLocalAttachments", () => {
 
       expect(result.attachments).toHaveLength(0);
       expect(result.content).toBe("");
-      expect(result.failureNote).toContain("only workspace files and /tmp are allowed");
+      expect(result.failureNote).toContain("not produced by a completed tool action");
     } finally {
       fs.rmSync(outsideDir, { recursive: true, force: true });
     }
@@ -436,7 +446,8 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content,
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(0);
@@ -473,7 +484,8 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Attached:", "", `[notes](<${sourcePath}>)`].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);
@@ -496,7 +508,8 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Attached:", "", `[file](${sourcePath})`].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);
@@ -519,7 +532,8 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Attached:", "", `[file](${sourcePath.replace(")", "\\)")})`].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);
@@ -543,7 +557,8 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content,
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(0);
@@ -565,7 +580,8 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["Attached:", "", `[file](<${sourcePath.replace(">", "\\>")}>)`].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);
@@ -591,12 +607,13 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: `[private](${symlinkPath})`,
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [symlinkPath]
       });
 
       expect(result.attachments).toHaveLength(0);
       expect(result.content).toBe("");
-      expect(result.failureNote).toContain("only workspace files and /tmp are allowed");
+      expect(result.failureNote).toContain("not produced by a completed tool action");
     } finally {
       fs.rmSync(workspaceDir, { recursive: true, force: true });
       fs.rmSync(outsideDir, { recursive: true, force: true });
@@ -617,12 +634,13 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: `[private](${sourcePath})`,
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(0);
       expect(result.content).toBe("");
-      expect(result.failureNote).toContain("only workspace files and /tmp are allowed");
+      expect(result.failureNote).toContain("not produced by a completed tool action");
     } finally {
       if (previousDataDir === undefined) {
         delete process.env.EIDON_DATA_DIR;
@@ -644,7 +662,8 @@ describe("inferAssistantLocalAttachments", () => {
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: ["First [copy](" + sourcePath + ")", "", "Second [copy](" + sourcePath + ")"].join("\n"),
-        workspaceRoot: process.cwd()
+        workspaceRoot: process.cwd(),
+        authorizedLocalPaths: [sourcePath]
       });
 
       expect(result.attachments).toHaveLength(1);

@@ -1,5 +1,6 @@
 import {
   buildPromptMessages,
+  commitLeafCompaction,
   ensureCompactedContext,
   estimateContextUsage,
   getConversationContextUsage,
@@ -16,7 +17,7 @@ import type { Message, MessageAction, PromptMessage } from "@/lib/types";
 
 vi.mock("@/lib/provider", async () => {
   return {
-    callProviderText: vi.fn(async (input: { prompt: string }) => {
+    callProviderText: vi.fn(async (input: { prompt: string; abortSignal?: AbortSignal }) => {
       // Scoring prompt detection
       if (input.prompt.includes("relevantNodes")) {
         const ids = [...input.prompt.matchAll(/\[node:\s*(mem_[a-z0-9-]+)\]/gi)]
@@ -85,6 +86,41 @@ describe("lossless compaction", () => {
       ]
     });
   }
+
+  it("rolls back the memory node when the compaction event cannot be committed", () => {
+    const conversation = createConversation("Atomic compaction");
+    const message = createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Keep this source"
+    });
+
+    expect(() =>
+      commitLeafCompaction({
+        node: {
+          conversationId: conversation.id,
+          type: "leaf_summary",
+          depth: 0,
+          content: "Atomic summary",
+          sourceStartMessageId: message.id,
+          sourceEndMessageId: "msg_missing",
+          sourceTokenCount: 5,
+          summaryTokenCount: 2,
+          childNodeIds: []
+        },
+        messageIds: [message.id]
+      })
+    ).toThrow();
+
+    expect(
+      getDb()
+        .prepare("SELECT COUNT(*) AS count FROM memory_nodes WHERE conversation_id = ?")
+        .get(conversation.id)
+    ).toEqual({ count: 0 });
+    expect(
+      getDb().prepare("SELECT compacted_at FROM messages WHERE id = ?").get(message.id)
+    ).toEqual({ compacted_at: null });
+  });
 
   it("builds prompts from compacted memory plus recent raw turns", () => {
     const prompt = buildPromptMessages({
@@ -646,6 +682,59 @@ describe("lossless compaction", () => {
     expect(result.didCompact).toBe(true);
     expect(trailingEligibleUser?.compactedAt).toBeNull();
     expect(compactedOlderAssistant?.compactedAt).not.toBeNull();
+  });
+
+  it("forwards cancellation to compaction generation and stops without committing", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4096,
+      maxOutputTokens: 2000,
+      compactionThreshold: 0.6
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
+      .run(2, "profile_default");
+    const conversation = createConversation();
+
+    for (let index = 0; index < 8; index += 1) {
+      createMessage({
+        conversationId: conversation.id,
+        role: "user",
+        content: `User ${index} ${"context ".repeat(250)}`
+      });
+      createMessage({
+        conversationId: conversation.id,
+        role: "assistant",
+        content: `Assistant ${index} ${"context ".repeat(250)}`
+      });
+    }
+
+    const { callProviderText } = await import("@/lib/provider");
+    vi.mocked(callProviderText).mockImplementationOnce(
+      ({ abortSignal }: { abortSignal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          abortSignal?.addEventListener(
+            "abort",
+            () => reject(Object.assign(new Error("aborted"), { name: "AbortError" })),
+            { once: true }
+          );
+        })
+    );
+    const controller = new AbortController();
+    const operation = ensureCompactedContext(
+      conversation.id,
+      getDefaultProviderProfileWithApiKey()!,
+      {},
+      undefined,
+      false,
+      controller.signal
+    );
+
+    await vi.waitFor(() => expect(callProviderText).toHaveBeenCalled());
+    controller.abort();
+
+    const { ChatTurnStoppedError } = await import("@/lib/chat-turn-control");
+    await expect(operation).rejects.toBeInstanceOf(ChatTurnStoppedError);
+    expect(vi.mocked(callProviderText).mock.calls.at(-1)?.[0].abortSignal).toBe(controller.signal);
   });
 
   it("replays only the freshest completed turns instead of the whole visible raw history", async () => {

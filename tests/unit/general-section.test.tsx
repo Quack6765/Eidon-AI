@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { GeneralSection } from "@/components/settings/sections/general-section";
-import type { AppSettings } from "@/lib/types";
+import type { AppSettings, ConversationRetention } from "@/lib/types";
+import { getUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 
 const mockRefresh = vi.fn();
 
@@ -84,11 +85,11 @@ describe("general section", () => {
 
     const body = JSON.parse(String(putCall[1]?.body));
 
-    expect(body).toMatchObject({
+    expect(body.general).toMatchObject({
       conversationRetention: "30d",
       mcpTimeout: 45_000
     });
-    expect(body).not.toHaveProperty("autoCompaction");
+    expect(body.general).not.toHaveProperty("autoCompaction");
   });
 
   it("saves speech engine and default language through the general settings endpoint", async () => {
@@ -111,7 +112,7 @@ describe("general section", () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
     const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
-    expect(body).toMatchObject({
+    expect(body.general).toMatchObject({
       sttEngine: "embedded",
       sttLanguage: "es"
     });
@@ -257,12 +258,12 @@ describe("general section", () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
     const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
-    expect(body).toMatchObject({
+    expect(body.general).toMatchObject({
       conversationRetention: "30d",
       webSearchEngine: "tavily"
     });
-    expect(body).not.toHaveProperty("tavilyApiKey");
-    expect(body).not.toHaveProperty("clearTavilyApiKey");
+    expect(body.general).not.toHaveProperty("tavilyApiKey");
+    expect(body.general).not.toHaveProperty("clearTavilyApiKey");
   });
 
   it("renders masked placeholders for stored Exa and Tavily API keys", () => {
@@ -310,7 +311,7 @@ describe("general section", () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
     const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
-    expect(body).toMatchObject({
+    expect(body.general).toMatchObject({
       webSearchEngine: "exa",
       exaApiKey: "",
       clearExaApiKey: true
@@ -339,7 +340,7 @@ describe("general section", () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
     const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
-    expect(body).toMatchObject({
+    expect(body.general).toMatchObject({
       conversationRetention: "30d",
       webSearchEngine: "exa",
       tavilyApiKey: "",
@@ -355,14 +356,6 @@ describe("general section", () => {
     });
 
     vi.mocked(global.fetch)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ settings })
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ settings })
-      } as Response)
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({ settings })
@@ -382,22 +375,146 @@ describe("general section", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
-        "/api/settings/image-generation",
-        expect.objectContaining({ method: "PUT" })
-      );
-    });
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
-    const imageSettingsCall = vi
-      .mocked(global.fetch)
-      .mock.calls.find(([url]) => url === "/api/settings/image-generation");
+    const imageSettingsCall = vi.mocked(global.fetch).mock.calls[0];
     const imageSettingsBody = JSON.parse(String(imageSettingsCall?.[1]?.body));
 
-    expect(imageSettingsBody).toEqual({
+    expect(imageSettingsBody.imageGeneration).toEqual({
       imageGenerationBackend: "google_nano_banana",
-      googleNanoBananaModel: "gemini-3.1-flash-image-preview"
+      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
+      googleNanoBananaApiKeyAction: "preserve"
     });
+  });
+
+  it("sends an explicit clear action for an intentionally cleared Google image key", async () => {
+    const settings = makeSettings({
+      imageGenerationBackend: "google_nano_banana",
+      hasGoogleNanoBananaApiKey: true
+    });
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings, canManageImageGeneration: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Clear stored key" }));
+    expect(screen.getByText("Stored key will be cleared when you save.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
+    expect(body.imageGeneration).toMatchObject({
+      googleNanoBananaApiKeyAction: "clear"
+    });
+    expect(body.imageGeneration).not.toHaveProperty("googleNanoBananaApiKey");
+  });
+
+  it("lets an admin undo a pending Google image key clear", () => {
+    const settings = makeSettings({
+      imageGenerationBackend: "google_nano_banana",
+      hasGoogleNanoBananaApiKey: true
+    });
+
+    render(React.createElement(GeneralSection, { settings, canManageImageGeneration: true }));
+
+    expect(screen.getByRole("button", { name: "Clear stored key" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear stored key" }));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Stored key will be cleared when you save.");
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Keep stored key" }));
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText("Unsaved changes")).toBeNull();
+    expect(screen.getByRole("button", { name: "Clear stored key" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Google Nano Banana API key")).toHaveAttribute("placeholder", "••••••••");
+  });
+
+  it("discards to the latest successful save instead of the initial props", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body)) as {
+        general: { conversationRetention: ConversationRetention };
+      };
+      return {
+        ok: true,
+        json: async () => ({
+          settings: makeSettings({
+            ...settings,
+            conversationRetention: body.general.conversationRetention
+          })
+        })
+      } as Response;
+    });
+    render(React.createElement(GeneralSection, { settings }));
+
+    fireEvent.change(screen.getByDisplayValue("Forever"), { target: { value: "30d" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByDisplayValue("30 days"), { target: { value: "7d" } });
+    await act(async () => {
+      getUnsavedChangesGuard()?.discard();
+    });
+
+    expect(screen.getByDisplayValue("30 days")).toBeInTheDocument();
+  });
+
+  it("adopts the normalized server response as the saved baseline", async () => {
+    const settings = makeSettings({
+      webSearchEngine: "searxng",
+      searxngBaseUrl: "https://search.example.com"
+    });
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        settings: makeSettings({
+          ...settings,
+          searxngBaseUrl: "https://search.example.com"
+        })
+      })
+    } as Response);
+    render(React.createElement(GeneralSection, { settings }));
+
+    fireEvent.change(screen.getByLabelText("SearXNG base URL"), {
+      target: { value: "https://search.example.com///" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("SearXNG base URL")).toHaveValue(
+        "https://search.example.com"
+      );
+    });
+    fireEvent.change(screen.getByLabelText("SearXNG base URL"), {
+      target: { value: "https://different.example.com" }
+    });
+    await act(async () => {
+      getUnsavedChangesGuard()?.discard();
+    });
+    expect(screen.getByLabelText("SearXNG base URL")).toHaveValue(
+      "https://search.example.com"
+    );
+  });
+
+  it("uses the latest dirty draft when navigation invokes the registered save guard", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+    render(React.createElement(GeneralSection, { settings }));
+
+    fireEvent.change(screen.getByDisplayValue("Forever"), { target: { value: "30d" } });
+    await waitFor(() => expect(getUnsavedChangesGuard()).not.toBeNull());
+    fireEvent.change(screen.getByDisplayValue("30 days"), { target: { value: "7d" } });
+    await act(async () => {
+      await getUnsavedChangesGuard()?.save();
+    });
+
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
+    expect(body.general.conversationRetention).toBe("7d");
   });
 
   it("renders the image generation card as read-only for non-admin users", () => {

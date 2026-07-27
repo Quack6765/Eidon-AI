@@ -1,6 +1,6 @@
-import type WebSocket from "ws";
+import WebSocket from "ws";
 import type { WebSocketServer } from "ws";
-import { verifySessionToken } from "@/lib/auth";
+import { getCurrentUser, verifySessionToken } from "@/lib/auth";
 import { createAutomationScheduler as createAutomationSchedulerBase } from "@/lib/automation-scheduler";
 import { startChatTurn } from "@/lib/chat-turn";
 import { SESSION_COOKIE_NAME } from "@/lib/constants";
@@ -14,7 +14,7 @@ import {
   moveQueuedMessageToFront,
   updateQueuedMessage
 } from "@/lib/conversations";
-import { type ConversationManager } from "@/lib/conversation-manager";
+import { MAX_WS_CONNECTIONS, type ConversationManager } from "@/lib/conversation-manager";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { requestStop } from "@/lib/chat-turn-control";
 import { parseClientMessage, serializeServerMessage } from "@/lib/ws-protocol";
@@ -23,8 +23,20 @@ import { initializeMcpServers, shutdownAllProcesses } from "@/lib/mcp-client";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
 import { getDb } from "@/lib/db";
+import { sendWebSocketData } from "@/lib/ws-send";
+import { bootstrapRuntimeState } from "@/lib/runtime-bootstrap";
+import { truncateText } from "@/lib/bounded-text";
 
-export { disposeTitleModel, getDb, initTitleModel, initializeMcpServers, shutdownAllProcesses };
+const MAX_WS_ERROR_MESSAGE_CHARS = 1_000;
+
+export {
+  bootstrapRuntimeState,
+  disposeTitleModel,
+  getDb,
+  initTitleModel,
+  initializeMcpServers,
+  shutdownAllProcesses
+};
 
 function extractToken(req: import("http").IncomingMessage): string | null {
   const cookieHeader = req.headers.cookie ?? "";
@@ -33,10 +45,61 @@ function extractToken(req: import("http").IncomingMessage): string | null {
 }
 
 export function setupWebSocketHandler(wss: WebSocketServer) {
+  const aliveSockets = new WeakSet<WebSocket>();
+
   wss.on("connection", async (ws, req) => {
+    ws.on("error", () => {
+      if (ws.readyState === WebSocket.CLOSED) {
+        return;
+      }
+
+      try {
+        ws.terminate();
+      } catch {
+        return;
+      }
+    });
+
+    if (wss.clients.size > MAX_WS_CONNECTIONS) {
+      ws.close(1013, "Connection limit reached");
+      return;
+    }
+
+    aliveSockets.add(ws);
+    ws.on("pong", () => aliveSockets.add(ws));
     const token = extractToken(req);
-    await handleConnection(ws, token);
+    try {
+      await handleConnection(ws, token);
+    } catch (error) {
+      console.error("[ws-handler] connection setup failed:", error);
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close(1011, "WebSocket setup failed");
+      }
+    }
   });
+
+  const heartbeat = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (ws.readyState !== WebSocket.OPEN) {
+        aliveSockets.delete(ws);
+        continue;
+      }
+
+      if (!aliveSockets.has(ws)) {
+        ws.terminate();
+        continue;
+      }
+
+      aliveSockets.delete(ws);
+      try {
+        ws.ping();
+      } catch {
+        ws.terminate();
+      }
+    }
+  }, 30_000);
+  heartbeat.unref();
+  wss.on("close", () => clearInterval(heartbeat));
 }
 
 export function createAutomationScheduler() {
@@ -47,31 +110,65 @@ export function createAutomationScheduler() {
 }
 
 export async function handleConnection(ws: WebSocket, token: string | null) {
-  let sessionUserId: string | null = null;
+  let closed = ws.readyState !== WebSocket.OPEN;
+  let mgr: ConversationManager | null = null;
+  const currentSubscription = new Set<string>();
+
+  ws.on("close", () => {
+    closed = true;
+    if (!mgr) {
+      return;
+    }
+
+    mgr.removeConnection(ws);
+    for (const conversationId of currentSubscription) {
+      mgr.unsubscribe(conversationId, ws);
+    }
+    mgr.disconnect(ws);
+    mgr = null;
+  });
+
+  let sessionUserId: string;
 
   if (isPasswordLoginEnabled()) {
     if (!token) {
-      ws.send(serializeServerMessage({ type: "error", message: "Authentication required" }));
+      sendError(ws, "Authentication required");
       ws.close();
       return;
     }
 
     const session = await verifySessionToken(token);
     if (!session) {
-      ws.send(serializeServerMessage({ type: "error", message: "Invalid session" }));
+      sendError(ws, "Invalid session");
       ws.close();
       return;
     }
 
     sessionUserId = session.userId;
+  } else {
+    const user = await getCurrentUser();
+    if (!user) {
+      sendError(ws, "Unable to resolve the local user");
+      ws.close();
+      return;
+    }
+    sessionUserId = user.id;
   }
 
-  const mgr = getConversationManager();
-  mgr.addConnection(ws, sessionUserId);
-  const currentSubscription = new Set<string>();
+  if (closed || ws.readyState !== WebSocket.OPEN) {
+    return;
+  }
 
-  const active = listActiveConversations(sessionUserId ?? undefined);
-  ws.send(serializeServerMessage({
+  mgr = getConversationManager();
+  if (!mgr.addConnection(ws, sessionUserId)) {
+    sendError(ws, "Too many WebSocket connections");
+    ws.close(1013, "Connection limit reached");
+    mgr = null;
+    return;
+  }
+
+  const active = listActiveConversations(sessionUserId);
+  sendWebSocketData(ws, serializeServerMessage({
     type: "ready",
     activeConversations: active.map(c => ({
       id: c.id,
@@ -81,18 +178,48 @@ export async function handleConnection(ws: WebSocket, token: string | null) {
   }));
 
   ws.on("message", (raw: WebSocket.RawData) => {
-    const msg = parseClientMessage(raw.toString());
-    if (!msg) return;
-    handleMessage(mgr, ws, msg, currentSubscription, sessionUserId);
-  });
-
-  ws.on("close", () => {
-    mgr.removeConnection(ws);
-    for (const conversationId of currentSubscription) {
-      mgr.unsubscribe(conversationId, ws);
+    try {
+      const msg = parseClientMessage(raw.toString());
+      if (!msg) return;
+      if (mgr) {
+        handleMessage(mgr, ws, msg, currentSubscription, sessionUserId);
+      }
+    } catch (error) {
+      handleMessageFailure(ws, error);
     }
-    mgr.disconnect(ws);
   });
+}
+
+function handleMessageFailure(ws: WebSocket, error: unknown) {
+  try {
+    console.error("[ws-handler] message dispatch failed:", error);
+  } catch {
+    return closeAfterMessageFailure(ws);
+  }
+
+  try {
+    sendError(ws, "Unable to process WebSocket message");
+  } catch {
+    return closeAfterMessageFailure(ws);
+  }
+
+  closeAfterMessageFailure(ws);
+}
+
+function closeAfterMessageFailure(ws: WebSocket) {
+  if (ws.readyState !== WebSocket.OPEN) {
+    return;
+  }
+
+  try {
+    ws.close(1011, "WebSocket message failed");
+  } catch {
+    try {
+      ws.terminate();
+    } catch {
+      return;
+    }
+  }
 }
 
 function handleMessage(
@@ -100,19 +227,19 @@ function handleMessage(
   ws: WebSocket,
   msg: ClientMessage,
   currentSubscription: Set<string>,
-  currentUserId: string | null
+  currentUserId: string
 ) {
   switch (msg.type) {
     case "subscribe": {
-      const snapshot = getConversationSnapshot(msg.conversationId, currentUserId ?? undefined);
+      const snapshot = getConversationSnapshot(msg.conversationId, currentUserId);
       if (!snapshot) {
-        ws.send(serializeServerMessage({ type: "error", message: "Conversation not found" }));
+        sendError(ws, "Conversation not found");
         break;
       }
 
       currentSubscription.add(msg.conversationId);
       mgr.subscribe(msg.conversationId, ws);
-      ws.send(serializeServerMessage({
+      sendWebSocketData(ws, serializeServerMessage({
         type: "snapshot",
         conversationId: msg.conversationId,
         messages: snapshot.messages,
@@ -130,9 +257,12 @@ function handleMessage(
     case "message": {
       handleUserMessage(mgr, ws, msg, currentUserId).catch((error) => {
         console.error("[ws-handler] handleUserMessage failed:", error);
-        ws.send(serializeServerMessage({
+        sendWebSocketData(ws, serializeServerMessage({
           type: "error",
-          message: error instanceof Error ? error.message : "Chat stream failed"
+          message: truncateText(
+            error instanceof Error ? error.message : "Chat stream failed",
+            MAX_WS_ERROR_MESSAGE_CHARS
+          )
         }));
       });
       break;
@@ -141,8 +271,8 @@ function handleMessage(
       break;
     }
     case "stop": {
-      if (currentUserId && !getConversationSnapshot(msg.conversationId, currentUserId)) {
-        ws.send(serializeServerMessage({ type: "error", message: "Conversation not found" }));
+      if (!getConversationSnapshot(msg.conversationId, currentUserId)) {
+        sendError(ws, "Conversation not found");
         break;
       }
       requestStop(msg.conversationId);
@@ -222,9 +352,9 @@ function handleMessage(
 function ensureConversationAccess(
   ws: WebSocket,
   conversationId: string,
-  currentUserId: string | null
+  currentUserId: string
 ) {
-  if (!getConversationSnapshot(conversationId, currentUserId ?? undefined)) {
+  if (!getConversationSnapshot(conversationId, currentUserId)) {
     sendError(ws, "Conversation not found");
     return false;
   }
@@ -233,7 +363,7 @@ function ensureConversationAccess(
 }
 
 function sendError(ws: WebSocket, message: string) {
-  ws.send(serializeServerMessage({ type: "error", message }));
+  sendWebSocketData(ws, serializeServerMessage({ type: "error", message }));
 }
 
 function broadcastQueueUpdated(mgr: ConversationManager, conversationId: string) {
@@ -248,10 +378,10 @@ async function handleUserMessage(
   mgr: ConversationManager,
   ws: WebSocket,
   msg: { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string },
-  currentUserId: string | null
+  currentUserId: string
 ) {
-  if (currentUserId && !getConversationSnapshot(msg.conversationId, currentUserId)) {
-    ws.send(serializeServerMessage({ type: "error", message: "Conversation not found" }));
+  if (!getConversationSnapshot(msg.conversationId, currentUserId)) {
+    sendError(ws, "Conversation not found");
     return;
   }
 
@@ -260,7 +390,7 @@ async function handleUserMessage(
   }
   await startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? [], msg.personaId, {
     onMessagesCreated({ userMessageId }) {
-      const userMessage = getMessage(userMessageId, currentUserId ?? undefined);
+      const userMessage = getMessage(userMessageId, currentUserId);
       if (userMessage) {
         mgr.broadcast(msg.conversationId, {
           type: "user_message_persisted",

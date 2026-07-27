@@ -1,3 +1,5 @@
+import { SignJWT } from "jose";
+
 const cookieState = new Map<string, string>();
 let lastCookieOptions: Record<string, unknown> | null = null;
 
@@ -46,6 +48,34 @@ describe("session lifecycle", () => {
     const currentUser = await auth.getCurrentUser();
 
     expect(currentUser?.username).toBe("admin");
+  });
+
+  it("accepts only live persisted session tokens and rejects other signed token domains", async () => {
+    const auth = await import("@/lib/auth");
+    await auth.ensureAdminBootstrap();
+    const found = await auth.findUserByUsername("admin");
+    const session = await auth.createSession(found!.user.id);
+
+    await expect(auth.verifySessionToken(session.token)).resolves.toEqual({
+      sessionId: session.sessionId,
+      userId: found!.user.id
+    });
+
+    const oauthState = await new SignJWT({
+      profileId: "profile_1",
+      userId: found!.user.id,
+      tokenUse: "github_oauth_state"
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuer("eidon")
+      .setAudience("eidon-github-oauth")
+      .setExpirationTime("10m")
+      .sign(new TextEncoder().encode(process.env.EIDON_SESSION_SECRET!));
+
+    await expect(auth.verifySessionToken(oauthState)).resolves.toBeNull();
+
+    await auth.invalidateSession(session.sessionId);
+    await expect(auth.verifySessionToken(session.token)).resolves.toBeNull();
   });
 
   it("uses secure session cookies only for https requests in production", async () => {

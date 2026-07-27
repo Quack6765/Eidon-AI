@@ -2,6 +2,8 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
 
+import { MAX_ATTACHMENT_BYTES } from "@/lib/constants";
+
 export type ParsedMarkdownTarget = {
   start: number;
   end: number;
@@ -57,6 +59,8 @@ const MARKDOWN_PARSE_OPTIONS = {
 
 const ASSISTANT_DATA_IMAGE_PREFIX_PATTERN = /^data:image\//i;
 const ASSISTANT_DATA_IMAGE_PATTERN = /^data:(image\/[^;,]+);base64,([A-Za-z0-9+/]+={0,2})$/i;
+export const MAX_ASSISTANT_DATA_IMAGE_BASE64_CHARS = Math.ceil(MAX_ATTACHMENT_BYTES / 3) * 4;
+const MAX_ASSISTANT_DATA_IMAGE_TARGET_CHARS = MAX_ASSISTANT_DATA_IMAGE_BASE64_CHARS + 64;
 const ASSISTANT_DATA_IMAGE_TYPES = new Map<string, { extension: string; mimeType: string }>([
   ["image/png", { extension: "png", mimeType: "image/png" }],
   ["image/jpeg", { extension: "jpeg", mimeType: "image/jpeg" }],
@@ -254,13 +258,27 @@ export function isExternalMarkdownTarget(target: string) {
   return /^[a-z][a-z0-9+.-]*:/i.test(target);
 }
 
-function decodeAssistantDataImageBytes(base64Value: string) {
-  if (!base64Value || base64Value.length % 4 !== 0) {
+export function decodeAssistantDataImageBytes(
+  base64Value: string,
+  maxBytes: number = MAX_ATTACHMENT_BYTES
+) {
+  const maxEncodedChars = maxBytes === MAX_ATTACHMENT_BYTES
+    ? MAX_ASSISTANT_DATA_IMAGE_BASE64_CHARS
+    : Math.ceil(maxBytes / 3) * 4;
+  if (
+    !base64Value ||
+    base64Value.length % 4 !== 0 ||
+    base64Value.length > maxEncodedChars
+  ) {
     return null;
   }
 
   const bytes = Buffer.from(base64Value, "base64");
-  if (!bytes.length || bytes.toString("base64") !== base64Value) {
+  if (
+    !bytes.length ||
+    bytes.length > maxBytes ||
+    bytes.toString("base64") !== base64Value
+  ) {
     return null;
   }
 
@@ -271,6 +289,13 @@ export function parseAssistantDataImageTarget(target: string): ParsedAssistantDa
   const trimmedTarget = target.trim();
   if (!ASSISTANT_DATA_IMAGE_PREFIX_PATTERN.test(trimmedTarget)) {
     return { type: "none" };
+  }
+
+  if (trimmedTarget.length > MAX_ASSISTANT_DATA_IMAGE_TARGET_CHARS) {
+    return {
+      type: "invalid",
+      cacheKey: trimmedTarget
+    };
   }
 
   const match = ASSISTANT_DATA_IMAGE_PATTERN.exec(trimmedTarget);
