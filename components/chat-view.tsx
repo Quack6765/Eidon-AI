@@ -21,6 +21,8 @@ import {
   type PendingLocalSubmission,
   adoptStreamingSnapshotState,
   appendStreamingAction,
+  completeStreamingThinkingPhase,
+  ensureStreamingThinkingPhase,
   getAttachmentIdSignature,
   isQueuedMessageOperationError,
   matchesPendingLocalSubmission,
@@ -320,12 +322,21 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       streamTimelineRef.current,
       adoptedStream.timeline
     );
+    const nextTimeline =
+      mergedTimeline.at(-1)?.timelineKind === "action"
+        ? completeStreamingThinkingPhase(
+            mergedTimeline,
+            nextThinking.length,
+            "completed",
+            new Date().toISOString()
+          )
+        : mergedTimeline;
 
     streamBuffer.setAnswer(nextAnswer, { immediate: adopt });
     streamBuffer.setThinking(nextThinking, { immediate: adopt });
     setStreamMessageId(snapshotMessage.id);
-    updateStreamTimeline(mergedTimeline);
-    setHasReceivedFirstToken(Boolean(nextAnswer || nextThinking || mergedTimeline.length));
+    updateStreamTimeline(nextTimeline);
+    setHasReceivedFirstToken(Boolean(nextAnswer || nextThinking || nextTimeline.length));
     setIsSending(true);
     setIsConversationActive(true);
   }, [streamBuffer, updateStreamTimeline]);
@@ -530,6 +541,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (event.type === "stream_retry") {
       finalizePendingRef.current = false;
       streamBuffer.reset();
+      updateStreamTimeline([]);
       return;
     }
 
@@ -604,6 +616,16 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (event.type === "thinking_delta") {
       clearCompactionIndicator();
       setHasReceivedFirstToken(true);
+      const thinkingSnapshot = streamBuffer.getSnapshot();
+      const startedAt = new Date().toISOString();
+      updateStreamTimeline((previous) =>
+        ensureStreamingThinkingPhase(
+          previous,
+          streamMessageIdRef.current ?? "streaming",
+          thinkingSnapshot.thinkingTarget.length,
+          startedAt
+        )
+      );
       streamBuffer.appendThinking(event.text);
       if (!thinkingStartTimeRef.current) {
         thinkingStartTimeRef.current = Date.now();
@@ -613,6 +635,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (event.type === "answer_delta") {
       clearCompactionIndicator();
       setHasReceivedFirstToken(true);
+      updateStreamTimeline((previous) =>
+        completeStreamingThinkingPhase(
+          previous,
+          streamBuffer.getSnapshot().thinkingTarget.length,
+          "completed",
+          new Date().toISOString()
+        )
+      );
       streamBuffer.appendAnswer(event.text);
       if (thinkingStartTimeRef.current) {
         const duration = (Date.now() - thinkingStartTimeRef.current) / 1000;
@@ -641,23 +671,31 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (event.type === "action_start") {
       clearCompactionIndicator();
       updateStreamTimeline((prev) => {
-        const isExisting = prev.some((item) => item.timelineKind === "action" && item.id === event.action.id);
+        const timelineWithCompletedThinking = completeStreamingThinkingPhase(
+          prev,
+          streamBuffer.getSnapshot().thinkingTarget.length,
+          "completed",
+          new Date().toISOString()
+        );
+        const isExisting = timelineWithCompletedThinking.some(
+          (item) => item.timelineKind === "action" && item.id === event.action.id
+        );
         if (isExisting) {
-          return appendStreamingAction(prev, event.action);
+          return appendStreamingAction(timelineWithCompletedThinking, event.action);
         }
 
-        const previousTextLen = prev
+        const previousTextLen = timelineWithCompletedThinking
           .filter((item): item is Extract<MessageTimelineItem, { timelineKind: "text" }> => item.timelineKind === "text")
           .reduce((sum, item) => sum + item.content.length, 0);
 
         const newText = streamBuffer.getSnapshot().answerTarget.slice(previousTextLen);
-        const nextTimeline = [...prev];
+        const nextTimeline = [...timelineWithCompletedThinking];
 
         if (newText.length > 0) {
           nextTimeline.push({
             id: `stream_text_${Date.now()}_${prev.length}`,
             timelineKind: "text",
-            sortOrder: prev.length,
+            sortOrder: nextTimeline.length,
             createdAt: new Date().toISOString(),
             content: newText
           });
@@ -669,13 +707,32 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     if (event.type === "action_complete" || event.type === "action_error") {
       clearCompactionIndicator();
-      updateStreamTimeline((prev) => updateStreamingAction(prev, event.action));
+      updateStreamTimeline((previous) =>
+        updateStreamingAction(
+          completeStreamingThinkingPhase(
+            previous,
+            streamBuffer.getSnapshot().thinkingTarget.length,
+            "completed",
+            new Date().toISOString()
+          ),
+          event.action
+        )
+      );
     }
 
     if (event.type === "done") {
       clearCompactionIndicator();
       const wasStopped = isStopPending;
       setIsStopPending(false);
+
+      updateStreamTimeline((previous) =>
+        completeStreamingThinkingPhase(
+          previous,
+          streamBuffer.getSnapshot().thinkingTarget.length,
+          wasStopped ? "stopped" : "completed",
+          new Date().toISOString()
+        )
+      );
 
       const isForActiveStream = event.messageId === streamMessageIdRef.current;
 
@@ -687,11 +744,22 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         });
       }
 
-      if (event.message) {
+      const streamedTimeline = streamTimelineRef.current;
+      const finalTimeline = event.message?.timeline
+        ? mergeStreamingSnapshotTimeline(streamedTimeline, event.message.timeline)
+        : streamedTimeline;
+
+      const completedMessage = event.message;
+
+      if (completedMessage) {
         setMessages((current) =>
           current.map((m) =>
             m.id === event.messageId
-              ? { ...event.message, status: wasStopped ? ("stopped" as const) : ("completed" as const) } as Message
+              ? {
+                  ...completedMessage,
+                  status: wasStopped ? ("stopped" as const) : ("completed" as const),
+                  timeline: finalTimeline.length > 0 ? finalTimeline : completedMessage.timeline
+                } as Message
               : m
           )
         );
@@ -699,8 +767,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         const bufferSnapshot = streamBuffer.getSnapshot();
         const finalAnswer = bufferSnapshot.answerTarget;
         const finalThinking = bufferSnapshot.thinkingTarget;
-        const finalTimeline = streamTimelineRef.current;
-
         setMessages((current) =>
           current.map((m) =>
             m.id === event.messageId
@@ -745,6 +811,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     if (event.type === "error") {
       clearCompactionIndicator();
       setIsStopPending(false);
+      updateStreamTimeline((previous) =>
+        completeStreamingThinkingPhase(
+          previous,
+          streamBuffer.getSnapshot().thinkingTarget.length,
+          "error",
+          new Date().toISOString()
+        )
+      );
       const activeStreamMessageId = streamMessageIdRef.current;
 
       if (activeStreamMessageId) {
@@ -891,6 +965,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
             isActive: false
           });
           const activeStreamMessageId = streamMessageIdRef.current;
+          updateStreamTimeline((previous) =>
+            completeStreamingThinkingPhase(
+              previous,
+              streamBuffer.getSnapshot().thinkingTarget.length,
+              "error",
+              new Date().toISOString()
+            )
+          );
           const finalTimeline = streamTimelineRef.current;
           setMessages((current) => {
             if (activeStreamMessageId) {
