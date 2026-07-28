@@ -1,6 +1,8 @@
 import http from "node:http";
 
 const port = Number(process.env.PORT || 4010);
+const failOnceAttempts = new Map();
+const failedStreamRequestsBeforeRecovery = 9;
 
 function json(response, status, body) {
   response.writeHead(status, { "content-type": "application/json" });
@@ -24,6 +26,14 @@ function promptText(body) {
   return JSON.stringify(body.messages ?? body.input ?? "");
 }
 
+function failureKey(body, prompt) {
+  if (!Array.isArray(body.messages)) return prompt;
+  const message = body.messages.findLast((item) =>
+    item?.role === "user" && JSON.stringify(item.content).includes("[fail-once]")
+  );
+  return message ? JSON.stringify(message.content) : prompt;
+}
+
 const server = http.createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/v1/models") {
     return json(response, 200, {
@@ -38,8 +48,22 @@ const server = http.createServer(async (request, response) => {
 
   try {
     const body = JSON.parse(await readBody(request));
-    if (promptText(body).includes("[fail]")) {
+    const prompt = promptText(body);
+    const failureAttemptKey = failureKey(body, prompt);
+    const promptFailureAttempts = failOnceAttempts.get(failureAttemptKey) ?? 0;
+    if (
+      body.stream
+      && prompt.includes("[fail-once]")
+      && promptFailureAttempts < failedStreamRequestsBeforeRecovery
+    ) {
+      failOnceAttempts.set(failureAttemptKey, promptFailureAttempts + 1);
       return json(response, 503, { error: { message: "Deterministic provider failure" } });
+    }
+    if (prompt.includes("[fail]")) {
+      return json(response, 503, { error: { message: "Deterministic provider failure" } });
+    }
+    if (body.stream && prompt.includes("[slow]")) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
     }
 
     const content = "Deterministic native-client integration response.";

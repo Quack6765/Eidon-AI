@@ -29,6 +29,7 @@ import { bootstrapRuntimeState } from "@/lib/runtime-bootstrap";
 import { truncateText } from "@/lib/bounded-text";
 import { sanitizeMobilePayload } from "@/lib/mobile-api";
 import {
+  claimWebSocketUpgradeRouting,
   resolveWebSocketAuthMode,
   routeWebSocketUpgrade
 } from "@/lib/ws-upgrade-router";
@@ -41,6 +42,7 @@ export {
   getDb,
   initTitleModel,
   initializeMcpServers,
+  claimWebSocketUpgradeRouting,
   resolveWebSocketAuthMode,
   routeWebSocketUpgrade,
   shutdownAllProcesses
