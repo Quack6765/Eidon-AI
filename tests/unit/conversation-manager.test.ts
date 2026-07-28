@@ -144,6 +144,26 @@ describe("conversation-manager", () => {
     expect(JSON.stringify(mobileSent)).not.toContain("extractedText");
   });
 
+  it("adds a stable code to legacy errors sent to mobile connections", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const manager = createConversationManager();
+    const { ws: browserSocket, sent: browserSent } = createMockWs();
+    const { ws: mobileSocket, sent: mobileSent } = createMockWs();
+
+    manager.addConnection(browserSocket, "shared-user", "browser");
+    manager.addConnection(mobileSocket, "shared-user", "mobile");
+    manager.subscribe("conv-1", browserSocket);
+    manager.subscribe("conv-1", mobileSocket);
+    manager.broadcast("conv-1", { type: "error", message: "Unable to complete the turn" });
+
+    expect(browserSent[0]).toEqual({ type: "error", message: "Unable to complete the turn" });
+    expect(mobileSent[0]).toEqual({
+      type: "error",
+      code: "request_failed",
+      message: "Unable to complete the turn"
+    });
+  });
+
   it("closes slow consumers instead of growing their send buffer", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { MAX_WS_BUFFERED_BYTES } = await import("@/lib/ws-send");

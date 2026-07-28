@@ -6,6 +6,7 @@ import type WebSocket from "ws";
 import type { WebSocketServer } from "ws";
 
 import {
+  claimWebSocketUpgradeRouting,
   resolveWebSocketAuthMode,
   routeWebSocketUpgrade
 } from "@/lib/ws-upgrade-router";
@@ -33,6 +34,15 @@ function target() {
 }
 
 describe("WebSocket upgrade routing", () => {
+  it("claims upgrade routing before the Next request handler adds a duplicate listener", () => {
+    const setupWebSocketHandler = vi.fn();
+
+    claimWebSocketUpgradeRouting({ setupWebSocketHandler });
+
+    expect(setupWebSocketHandler).toHaveBeenCalledOnce();
+    expect(setupWebSocketHandler).toHaveBeenCalledWith();
+  });
+
   it.each([
     ["/ws?client=browser", "browser"],
     ["/api/v1/ws?client=native", "mobile"],

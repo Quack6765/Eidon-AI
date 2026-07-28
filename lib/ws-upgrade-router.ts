@@ -9,6 +9,14 @@ type UpgradeFallback = (
   head: Buffer
 ) => void;
 
+type NextUpgradeOwner = {
+  setupWebSocketHandler: () => void;
+};
+
+export function claimWebSocketUpgradeRouting(app: NextUpgradeOwner) {
+  app.setupWebSocketHandler();
+}
+
 export function resolveWebSocketAuthMode(request: IncomingMessage) {
   const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
   return pathname === "/api/v1/ws" ? "mobile" as const : "browser" as const;

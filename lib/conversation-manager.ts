@@ -6,6 +6,14 @@ import { sanitizeMobilePayload } from "@/lib/mobile-api";
 
 export const MAX_WS_CONNECTIONS = 500;
 
+function mobileServerMessage(event: ServerMessage) {
+  const sanitized = sanitizeMobilePayload(event) as ServerMessage;
+  if (sanitized.type === "error" && !sanitized.code) {
+    return { ...sanitized, code: "request_failed" };
+  }
+  return sanitized;
+}
+
 export function createConversationManager() {
   const rooms = new Map<string, Set<WebSocket>>();
   const clientRooms = new Map<WebSocket, Set<string>>();
@@ -41,7 +49,7 @@ export function createConversationManager() {
     if (!room) return;
     for (const ws of room) {
       const payload = connectionKinds.get(ws) === "mobile"
-        ? sanitizeMobilePayload(event) as ServerMessage
+        ? mobileServerMessage(event)
         : event;
       sendWebSocketData(ws, serializeServerMessage(payload));
     }
@@ -112,7 +120,7 @@ export function createConversationManager() {
       }
 
       const payload = connectionKinds.get(ws) === "mobile"
-        ? sanitizeMobilePayload(event) as ServerMessage
+        ? mobileServerMessage(event)
         : event;
       sendWebSocketData(ws, serializeServerMessage(payload));
     }

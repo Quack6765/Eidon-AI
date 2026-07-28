@@ -102,6 +102,7 @@ app.prepare().then(async () => {
   });
   const {
     bootstrapRuntimeState,
+    claimWebSocketUpgradeRouting,
     createAutomationScheduler,
     resolveWebSocketAuthMode,
     routeWebSocketUpgrade,
@@ -109,6 +110,7 @@ app.prepare().then(async () => {
   } = require("./ws-handler-compiled.cjs");
   bootstrapRuntimeState();
   setupWebSocketHandler(wss, { authModeForRequest: resolveWebSocketAuthMode });
+  claimWebSocketUpgradeRouting(app);
   const upgradeHandler = app.getUpgradeHandler();
   server.on("upgrade", (request, socket, head) => {
     routeWebSocketUpgrade(
