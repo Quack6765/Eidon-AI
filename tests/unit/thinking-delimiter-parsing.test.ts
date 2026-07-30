@@ -65,6 +65,30 @@ describe("createThinkingDelimiterInterceptor", () => {
     expect(result.thinking).toBe("");
   });
 
+  it("does not treat <thinking> tags as a thinking delimiter", () => {
+    const interceptor = createThinkingDelimiterInterceptor();
+    const result = interceptor.feed("Use <thinking>carefully</thinking> in prose");
+
+    expect(result.answer).toBe("Use <thinking>carefully</thinking> in prose");
+    expect(result.thinking).toBe("");
+  });
+
+  it("does not treat a self-closing <think/> tag as a thinking delimiter", () => {
+    const interceptor = createThinkingDelimiterInterceptor();
+    const result = interceptor.feed("Literal <think/> tag after this text");
+
+    expect(result.answer).toBe("Literal <think/> tag after this text");
+    expect(result.thinking).toBe("");
+  });
+
+  it("does not treat <thinkable> or attribute-bearing tags as a thinking delimiter", () => {
+    const interceptor = createThinkingDelimiterInterceptor();
+    const result = interceptor.feed('<thinkable data="x">keep me</thinkable>');
+
+    expect(result.answer).toBe('<thinkable data="x">keep me</thinkable>');
+    expect(result.thinking).toBe("");
+  });
+
   it("holds back a partial open tag until it resolves", () => {
     const interceptor = createThinkingDelimiterInterceptor();
 
@@ -96,14 +120,6 @@ describe("createThinkingDelimiterInterceptor", () => {
 
     expect(tail.answer).toBe("<thin");
     expect(tail.thinking).toBe("");
-  });
-
-  it("handles an open tag with attributes", () => {
-    const interceptor = createThinkingDelimiterInterceptor();
-    const result = interceptor.feed('<think type="reasoning">hidden</think>visible');
-
-    expect(result.thinking).toBe("hidden");
-    expect(result.answer).toBe("visible");
   });
 
   it("handles multiple sequential think blocks", () => {

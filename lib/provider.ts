@@ -159,17 +159,19 @@ export async function callProviderText(input: {
   }
 
   if (profile.providerKind === "anthropic") {
-    const text = await callAnthropicText({
-      settings: profile,
-      messages: contextualPrompt,
-      abortSignal: input.abortSignal
-    });
+    const text = stripThinkingDelimiters(
+      await callAnthropicText({
+        settings: profile,
+        messages: contextualPrompt,
+        abortSignal: input.abortSignal
+      })
+    );
 
     if (!text.trim()) {
       throw new Error("Provider returned an empty response");
     }
 
-    return stripThinkingDelimiters(text);
+    return text;
   }
 
   const client = createClient(profile, profile.apiKey);
@@ -186,13 +188,13 @@ export async function callProviderText(input: {
       ? await client.responses.create(request, { signal: input.abortSignal })
       : await client.responses.create(request);
 
-    const text = normalizeLineBreaks(getResponseText(response));
+    const text = stripThinkingDelimiters(normalizeLineBreaks(getResponseText(response)));
 
     if (!text.trim()) {
       throw new Error("Provider returned an empty response");
     }
 
-    return stripThinkingDelimiters(text);
+    return text;
   }
 
   const request = {
@@ -206,17 +208,19 @@ export async function callProviderText(input: {
     ? await client.chat.completions.create(request, { signal: input.abortSignal })
     : await client.chat.completions.create(request);
 
-  const text = normalizeLineBreaks(
-    typeof response.choices[0]?.message?.content === "string"
-      ? response.choices[0]?.message?.content
-      : ""
+  const text = stripThinkingDelimiters(
+    normalizeLineBreaks(
+      typeof response.choices[0]?.message?.content === "string"
+        ? response.choices[0]?.message?.content
+        : ""
+    )
   );
 
   if (!text.trim()) {
     throw new Error("Provider returned an empty response");
   }
 
-  return stripThinkingDelimiters(text);
+  return text;
 }
 
 export async function* streamProviderResponse(input: {

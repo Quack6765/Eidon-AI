@@ -303,6 +303,27 @@ describe("provider integration", () => {
     ).resolves.toBe("\nExplaining Gravity");
   });
 
+  it("throws when a chat completion text response contains only a think block", async () => {
+    chatCreate.mockResolvedValue({
+      choices: [{ message: { content: "<think>reasoning with no answer</think>" } }]
+    });
+
+    const { callProviderText } = await import("@/lib/provider");
+
+    await expect(
+      callProviderText({
+        settings: createSettings({
+          apiMode: "chat_completions",
+          apiBaseUrl: "https://api.minimaxi.chat/v1",
+          model: "MiniMax-M3",
+          reasoningSummaryEnabled: false
+        }),
+        prompt: "Summarize",
+        purpose: "compaction"
+      })
+    ).rejects.toThrow("Provider returned an empty response");
+  });
+
   it("streams responses events into normalized deltas", async () => {
     responsesCreate.mockResolvedValue(
       createAsyncStream([

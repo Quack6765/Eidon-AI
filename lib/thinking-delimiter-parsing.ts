@@ -1,4 +1,4 @@
-const THINK_OPEN = "<think";
+const THINK_OPEN = "<think>";
 const THINK_CLOSE = "</think>";
 
 function longestSuffixPrefix(text: string, marker: string): number {
@@ -24,7 +24,6 @@ export interface ThinkingDelimiterInterceptor {
 export function createThinkingDelimiterInterceptor(): ThinkingDelimiterInterceptor {
   let pending = "";
   let inside = false;
-  let needOpenClose = false;
 
   function feed(text: string): ThinkingDelimiterResult {
     pending += text;
@@ -33,17 +32,6 @@ export function createThinkingDelimiterInterceptor(): ThinkingDelimiterIntercept
 
     let guard = 0;
     while (pending && guard++ < 10000) {
-      if (needOpenClose) {
-        const gt = pending.indexOf(">");
-        if (gt === -1) {
-          break;
-        }
-        pending = pending.slice(gt + 1);
-        needOpenClose = false;
-        inside = true;
-        continue;
-      }
-
       if (inside) {
         const closeIdx = pending.indexOf(THINK_CLOSE);
         if (closeIdx === -1) {
@@ -76,12 +64,6 @@ export function createThinkingDelimiterInterceptor(): ThinkingDelimiterIntercept
         answer += pending.slice(0, openIdx);
       }
       pending = pending.slice(openIdx + THINK_OPEN.length);
-      const gt = pending.indexOf(">");
-      if (gt === -1) {
-        needOpenClose = true;
-        break;
-      }
-      pending = pending.slice(gt + 1);
       inside = true;
     }
 
@@ -90,15 +72,11 @@ export function createThinkingDelimiterInterceptor(): ThinkingDelimiterIntercept
 
   function flush(): ThinkingDelimiterResult {
     let answer = "";
-    let thinking = "";
+    const thinking = "";
 
     if (inside) {
       pending = "";
       inside = false;
-    } else if (needOpenClose) {
-      answer = `${THINK_OPEN}${pending}`;
-      pending = "";
-      needOpenClose = false;
     } else if (pending) {
       answer = pending;
       pending = "";
