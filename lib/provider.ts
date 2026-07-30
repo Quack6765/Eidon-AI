@@ -155,7 +155,13 @@ export async function callProviderText(input: {
       abortSignal: input.abortSignal
     });
 
-    return stripThinkingDelimiters(typeof result === "string" ? result : JSON.stringify(result));
+    const text = stripThinkingDelimiters(typeof result === "string" ? result : JSON.stringify(result));
+
+    if (!text.trim()) {
+      throw new Error("Provider returned an empty response");
+    }
+
+    return text;
   }
 
   if (profile.providerKind === "anthropic") {

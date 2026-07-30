@@ -145,6 +145,43 @@ describe("provider integration", () => {
     vi.doUnmock("@/lib/github-copilot");
   });
 
+  it("throws when a github copilot response contains only a think block", async () => {
+    vi.resetModules();
+    const runGithubCopilotChat = vi.fn().mockResolvedValue("<think>reasoning with no answer</think>");
+
+    vi.doMock("@/lib/github-copilot", () => ({
+      runGithubCopilotChat,
+      ensureFreshGithubAccessToken: vi.fn(async (profile) => profile),
+      streamGithubCopilotChat: vi.fn(),
+      buildGithubCopilotClient: vi.fn(),
+      listGithubCopilotModels: vi.fn(),
+      getGithubConnectionStatus: vi.fn(),
+      shouldRefreshGithubToken: vi.fn(),
+      clearGithubCopilotConnection: vi.fn(),
+      createGithubOauthState: vi.fn(),
+      verifyGithubOauthState: vi.fn(),
+      getGithubAuthorizeUrl: vi.fn(),
+      exchangeGithubCodeForTokens: vi.fn(),
+      refreshGithubUserToken: vi.fn()
+    }));
+
+    const { callProviderText } = await import("@/lib/provider");
+
+    await expect(
+      callProviderText({
+        settings: createSettings({
+          providerKind: "github_copilot",
+          apiKey: "",
+          apiBaseUrl: ""
+        }),
+        prompt: "Summarize",
+        purpose: "compaction"
+      })
+    ).rejects.toThrow("Provider returned an empty response");
+
+    vi.doUnmock("@/lib/github-copilot");
+  });
+
   it("calls responses text generation and returns output text", async () => {
     responsesCreate.mockResolvedValue({
       output_text: "connected"
