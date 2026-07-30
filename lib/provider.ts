@@ -17,6 +17,7 @@ import {
   mergeRecoveredStreamText
 } from "./provider-response-parsing";
 import { createTextToolCallInterceptor } from "./tool-call-text-parsing";
+import { createThinkingDelimiterInterceptor, stripThinkingDelimiters } from "./thinking-delimiter-parsing";
 import { MAX_RUNTIME_TOOL_RESULT_CHARS, truncateText } from "@/lib/bounded-text";
 
 export {
@@ -154,7 +155,7 @@ export async function callProviderText(input: {
       abortSignal: input.abortSignal
     });
 
-    return typeof result === "string" ? result : JSON.stringify(result);
+    return stripThinkingDelimiters(typeof result === "string" ? result : JSON.stringify(result));
   }
 
   if (profile.providerKind === "anthropic") {
@@ -168,7 +169,7 @@ export async function callProviderText(input: {
       throw new Error("Provider returned an empty response");
     }
 
-    return text;
+    return stripThinkingDelimiters(text);
   }
 
   const client = createClient(profile, profile.apiKey);
@@ -191,7 +192,7 @@ export async function callProviderText(input: {
       throw new Error("Provider returned an empty response");
     }
 
-    return text;
+    return stripThinkingDelimiters(text);
   }
 
   const request = {
@@ -215,7 +216,7 @@ export async function callProviderText(input: {
     throw new Error("Provider returned an empty response");
   }
 
-  return text;
+  return stripThinkingDelimiters(text);
 }
 
 export async function* streamProviderResponse(input: {
@@ -693,6 +694,7 @@ export async function* streamProviderResponse(input: {
     { signal }
   ) as unknown as AsyncIterable<any>;
 
+  const thinkingInterceptor = createThinkingDelimiterInterceptor();
   const answerInterceptor = createTextToolCallInterceptor();
   const toolCallChunks = new Map<string, { name: string; arguments: string }>();
 
@@ -716,7 +718,12 @@ export async function* streamProviderResponse(input: {
       }
 
       if (delta) {
-        const emitted = answerInterceptor.feed(delta);
+        const { answer: answerText, thinking: thinkingText } = thinkingInterceptor.feed(delta);
+        if (thinkingText) {
+          thinking += thinkingText;
+          yield { type: "thinking_delta", text: thinkingText };
+        }
+        const emitted = answerInterceptor.feed(answerText);
         if (emitted) {
           yield { type: "answer_delta", text: emitted };
         }
@@ -755,6 +762,17 @@ export async function* streamProviderResponse(input: {
     }
   }
 
+  const thinkingTail = thinkingInterceptor.flush();
+  if (thinkingTail.thinking) {
+    thinking += thinkingTail.thinking;
+    yield { type: "thinking_delta", text: thinkingTail.thinking };
+  }
+  if (thinkingTail.answer) {
+    const tailEmitted = answerInterceptor.feed(thinkingTail.answer);
+    if (tailEmitted) {
+      yield { type: "answer_delta", text: tailEmitted };
+    }
+  }
   const answerTail = answerInterceptor.flush();
   if (answerTail) {
     yield { type: "answer_delta", text: answerTail };

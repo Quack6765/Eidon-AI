@@ -23,7 +23,7 @@ function trimToWordBoundary(value: string, maxLength: number) {
 }
 
 export function sanitizeGeneratedConversationTitle(rawTitle: string) {
-  const firstLine = rawTitle.split(/\r?\n/, 1)[0] ?? "";
+  const firstLine = rawTitle.trim().split(/\r?\n/, 1)[0] ?? "";
   const collapsed = firstLine
     .replace(/["'`""]+/g, "")
     .replace(/[.!?,;:\-–—]+/g, "")
