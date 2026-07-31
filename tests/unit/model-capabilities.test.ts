@@ -1,7 +1,6 @@
 import {
   getDefaultVisionMode,
   isOpenAIGpt56Model,
-  isOpenAIReasoningModel,
   resolveCapabilities,
   supportsImageInput,
   supportsVisibleReasoning
@@ -120,21 +119,7 @@ describe("supportsVisibleReasoning", () => {
   });
 });
 
-describe("isOpenAIReasoningModel", () => {
-  it("recognizes GPT-5 and o-series model ids", () => {
-    expect(isOpenAIReasoningModel("gpt-5.6-luna")).toBe(true);
-    expect(isOpenAIReasoningModel("openai/gpt-5-mini")).toBe(true);
-    expect(isOpenAIReasoningModel("o1-pro")).toBe(true);
-    expect(isOpenAIReasoningModel("o3")).toBe(true);
-    expect(isOpenAIReasoningModel("o4-mini")).toBe(true);
-  });
-
-  it("does not classify non-reasoning OpenAI models", () => {
-    expect(isOpenAIReasoningModel("gpt-4.1-mini")).toBe(false);
-    expect(isOpenAIReasoningModel("gpt-4o")).toBe(false);
-    expect(isOpenAIReasoningModel("gpt-3.5-turbo")).toBe(false);
-  });
-
+describe("isOpenAIGpt56Model", () => {
   it("recognizes only GPT-5.6 model ids for GPT-5.6-specific controls", () => {
     expect(isOpenAIGpt56Model("gpt-5.6-luna")).toBe(true);
     expect(isOpenAIGpt56Model("openai/gpt-5.6-terra")).toBe(true);

@@ -395,6 +395,12 @@ describe("providers section", () => {
 
     expect(processingMode).toHaveValue("fast");
     expect(screen.getByText("Fast uses lower-latency processing at a per-token premium and does not support long-context requests.")).toBeInTheDocument();
+
+    fireEvent.change(modelInput!, { target: { value: "gpt-4.1-mini" } });
+    expect(container.querySelector('input[name="provider-temperature"]')).not.toBeInTheDocument();
+
+    fireEvent.change(apiBaseUrlInput, { target: { value: "https://custom.example.com/v1" } });
+    expect(container.querySelector('input[name="provider-temperature"]')).toBeInTheDocument();
   });
 
   it("keeps the selected preset when the model changes", async () => {

@@ -3,7 +3,6 @@ import { callAnthropicText, streamAnthropicResponse } from "@/lib/anthropic";
 import { buildCopilotTools, type CopilotToolContext } from "@/lib/copilot-tools";
 import {
   isOpenAIGpt56Model,
-  isOpenAIReasoningModel,
   resolveCapabilities,
   supportsVisibleReasoning
 } from "@/lib/model-capabilities";
@@ -156,7 +155,7 @@ function isOfficialOpenAIEndpoint(settings: ProviderProfile) {
 }
 
 function buildTemperatureParameter(settings: ProviderProfile) {
-  if (isOfficialOpenAIEndpoint(settings) && isOpenAIReasoningModel(settings.model)) {
+  if (isOfficialOpenAIEndpoint(settings)) {
     return {};
   }
 

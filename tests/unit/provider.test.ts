@@ -300,7 +300,7 @@ describe("provider integration", () => {
     );
   });
 
-  it("omits temperature for official OpenAI reasoning models across API modes", async () => {
+  it("omits temperature for the official OpenAI endpoint across API modes", async () => {
     responsesCreate.mockResolvedValueOnce(createAsyncStream([]));
     chatCreate.mockResolvedValueOnce(createAsyncStream([]));
 
@@ -331,7 +331,7 @@ describe("provider integration", () => {
     expect(chatCreate.mock.calls.at(-1)?.[0]).not.toHaveProperty("temperature");
   });
 
-  it("keeps temperature for official OpenAI non-reasoning models", async () => {
+  it("omits temperature for official OpenAI regardless of model", async () => {
     responsesCreate.mockResolvedValueOnce(createAsyncStream([]));
 
     const { streamProviderResponse } = await import("@/lib/provider");
@@ -339,6 +339,24 @@ describe("provider integration", () => {
       settings: createSettings({
         apiBaseUrl: "https://api.openai.com/v1",
         model: "gpt-4.1-mini",
+        temperature: 0.6
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    await drainStream(stream);
+
+    expect(responsesCreate.mock.calls.at(-1)?.[0]).not.toHaveProperty("temperature");
+  });
+
+  it("keeps temperature for custom OpenAI-compatible endpoints", async () => {
+    responsesCreate.mockResolvedValueOnce(createAsyncStream([]));
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        apiBaseUrl: "https://custom.example.com/v1",
+        model: "gpt-5.6-luna",
         temperature: 0.6
       }),
       promptMessages: [{ role: "user", content: "Hi" }]

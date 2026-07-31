@@ -22,7 +22,7 @@ import { useDirtyState } from "@/hooks/use-dirty-state";
 import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import { createId } from "@/lib/ids";
 import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
-import { isOpenAIGpt56Model, isOpenAIReasoningModel } from "@/lib/model-capabilities";
+import { isOpenAIGpt56Model } from "@/lib/model-capabilities";
 import {
   applyProviderPreset,
   getMatchingProviderPresetId,
@@ -190,10 +190,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const isOfficialOpenAI =
     activeProviderProfile?.providerKind === "openai_compatible" &&
     activeProviderProfile.apiBaseUrl.trim().replace(/\/+$/, "").toLowerCase() === "https://api.openai.com/v1";
-  const supportsTemperature = !(
-    isOfficialOpenAI &&
-    isOpenAIReasoningModel(activeProviderProfile?.model ?? "")
-  );
+  const supportsTemperature = !isOfficialOpenAI;
   const usesThinkingToggle =
     !isCopilot &&
     !isAnthropic &&
