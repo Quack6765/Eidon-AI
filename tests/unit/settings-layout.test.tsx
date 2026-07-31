@@ -140,7 +140,7 @@ describe("settings mobile layout", () => {
     );
 
     expect(screen.getByRole("button", { name: "Open settings menu" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "New chat" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New chat" })).not.toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.queryByText("Eidon")).not.toBeInTheDocument();
   });
