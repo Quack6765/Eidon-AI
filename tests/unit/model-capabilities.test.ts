@@ -1,4 +1,11 @@
-import { getDefaultVisionMode, resolveCapabilities, supportsImageInput, supportsVisibleReasoning } from "@/lib/model-capabilities";
+import {
+  getDefaultVisionMode,
+  isOpenAIGpt56Model,
+  isOpenAIReasoningModel,
+  resolveCapabilities,
+  supportsImageInput,
+  supportsVisibleReasoning
+} from "@/lib/model-capabilities";
 
 describe("resolveCapabilities", () => {
   it("returns defaults for unknown models", () => {
@@ -110,6 +117,28 @@ describe("supportsVisibleReasoning", () => {
     expect(resolveCapabilities("openai/gpt-oss-mini", "chat_completions").vision).toBe(false);
     expect(resolveCapabilities("deepseek/deepseek-r1", "chat_completions").reasoning).toBe(true);
     expect(resolveCapabilities("deepseek/deepseek-r1", "responses").reasoning).toBe(false);
+  });
+});
+
+describe("isOpenAIReasoningModel", () => {
+  it("recognizes GPT-5 and o-series model ids", () => {
+    expect(isOpenAIReasoningModel("gpt-5.6-luna")).toBe(true);
+    expect(isOpenAIReasoningModel("openai/gpt-5-mini")).toBe(true);
+    expect(isOpenAIReasoningModel("o1-pro")).toBe(true);
+    expect(isOpenAIReasoningModel("o3")).toBe(true);
+    expect(isOpenAIReasoningModel("o4-mini")).toBe(true);
+  });
+
+  it("does not classify non-reasoning OpenAI models", () => {
+    expect(isOpenAIReasoningModel("gpt-4.1-mini")).toBe(false);
+    expect(isOpenAIReasoningModel("gpt-4o")).toBe(false);
+    expect(isOpenAIReasoningModel("gpt-3.5-turbo")).toBe(false);
+  });
+
+  it("recognizes only GPT-5.6 model ids for GPT-5.6-specific controls", () => {
+    expect(isOpenAIGpt56Model("gpt-5.6-luna")).toBe(true);
+    expect(isOpenAIGpt56Model("openai/gpt-5.6-terra")).toBe(true);
+    expect(isOpenAIGpt56Model("gpt-5.5")).toBe(false);
   });
 });
 

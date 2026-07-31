@@ -5,10 +5,11 @@ import {
   Copy,
   Plus,
   Trash2,
+  Eye,
+  EyeOff,
   Zap
 } from "lucide-react";
 
-import { ProviderConnectionFields } from "@/components/settings/provider-connection-fields";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
@@ -18,38 +19,72 @@ import { fieldLabel, selectLike, sectionTitle, sectionDivider } from "@/lib/sett
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useToastState } from "@/hooks/use-toast-state";
 import { useDirtyState } from "@/hooks/use-dirty-state";
-import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
+import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import { createId } from "@/lib/ids";
+import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
+import { isOpenAIGpt56Model, isOpenAIReasoningModel } from "@/lib/model-capabilities";
 import {
-  DEFAULT_PROFILE_BEHAVIOR,
+  applyProviderPreset,
+  getMatchingProviderPresetId,
   getProviderPreset,
-  PROVIDER_CATALOG,
   PROVIDER_PRESETS
-} from "@/lib/provider-catalog";
-import {
-  applyPresetToProviderProfile,
-  buildProviderProfileInput,
-  createProviderProfileEditorDraft,
-  getMatchingEditorPresetId,
-  setProviderApiMode,
-  switchProviderProfileKind,
-  toProviderProfileEditorDrafts,
-  type ProviderProfileEditorDraft
-} from "@/lib/provider-profile-editor";
-import { getProviderApiBaseUrl, getProviderApiMode } from "@/lib/provider-profile";
-import type { AppSettings, McpServer, ProviderKind, ProviderPresetId, ProviderProfileSummary, ReasoningEffort, VisionMode } from "@/lib/types";
+} from "@/lib/provider-presets";
+import type { AppSettings, ApiMode, McpServer, OpenAIServiceTier, ProviderKind, ProviderPresetId, ReasoningEffort, VisionMode } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
 
 type SettingsPayload = AppSettings & {
-  providerProfiles: ProviderProfileSummary[];
+  providerProfiles: Array<{
+    id: string;
+    name: string;
+    providerKind: ProviderKind;
+    apiBaseUrl: string;
+    model: string;
+    apiMode: ApiMode;
+    serviceTier?: OpenAIServiceTier;
+    systemPrompt: string;
+    temperature: number;
+    maxOutputTokens: number;
+    reasoningEffort: ReasoningEffort;
+    reasoningSummaryEnabled: boolean;
+    modelContextLimit: number;
+    compactionThreshold: number;
+    freshTailCount: number;
+    tokenizerModel: "gpt-tokenizer" | "off";
+    safetyMarginTokens: number;
+    leafSourceTokenLimit: number;
+    leafMinMessageCount: number;
+    mergedMinNodeCount: number;
+    mergedTargetTokens: number;
+    visionMode: VisionMode;
+    providerPresetId: ProviderPresetId | null;
+    githubAccountLogin: string | null;
+    githubAccountName: string | null;
+    githubTokenExpiresAt: string | null;
+    githubRefreshTokenExpiresAt: string | null;
+    githubConnectionStatus: "disconnected" | "connected" | "expired";
+    createdAt: string;
+    updatedAt: string;
+    hasApiKey: boolean;
+  }>;
   updatedAt: string;
 };
 
-type ProviderProfileDraft = ProviderProfileEditorDraft;
+type ProviderProfileDraft = SettingsPayload["providerProfiles"][number] & {
+  apiKey: string;
+  apiKeyAction: "preserve" | "replace" | "clear";
+  visionMode: VisionMode;
+  githubConnectionStatus: "disconnected" | "connected" | "expired";
+};
 
-const toProviderDrafts = toProviderProfileEditorDrafts;
+function toProviderDrafts(profiles: SettingsPayload["providerProfiles"]): ProviderProfileDraft[] {
+  return profiles.map((profile) => ({
+    ...profile,
+    apiKey: "",
+    apiKeyAction: "preserve"
+  }));
+}
 
 function buildDirtySnapshot(
   profile: ProviderProfileDraft | undefined,
@@ -60,10 +95,12 @@ function buildDirtySnapshot(
     activeProviderProfileId: profile?.id ?? "",
     activeProviderKind: profile?.providerKind,
     activeName: profile?.name ?? "",
-    activeProviderConfig: profile?.providerConfig ?? {},
-    activeCredential: profile?.credential ?? "",
-    activeCredentialAction: profile?.credentialAction ?? "preserve",
+    activeApiBaseUrl: profile?.apiBaseUrl ?? "",
+    activeApiKey: profile?.apiKey ?? "",
+    activeApiKeyAction: profile?.apiKeyAction ?? "preserve",
     activeModel: profile?.model ?? "",
+    activeApiMode: profile?.apiMode,
+    activeServiceTier: profile?.serviceTier ?? DEFAULT_PROVIDER_SETTINGS.serviceTier,
     activeSystemPrompt: profile?.systemPrompt ?? "",
     activeTemperature: profile?.temperature,
     activeMaxOutputTokens: profile?.maxOutputTokens,
@@ -100,11 +137,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const persistedDefaultProviderProfileId = useRef(defaultProviderProfileId);
   const persistedSkillsEnabled = useRef(skillsEnabled);
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
-  const [discoveredModels, setDiscoveredModels] = useState<Array<{ id: string; name: string; maxContextWindowTokens: number | null }>>([]);
+  const [copilotModels, setCopilotModels] = useState<Array<{ id: string; name: string; maxContextWindowTokens: number | null }>>([]);
   const [isSystemPromptOpen, setIsSystemPromptOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const maskedApiKeyValue = "••••••••";
 
   const currentActiveProfile = providerProfiles.find((p) => p.id === selectedProviderProfileId) ?? providerProfiles[0];
 
@@ -113,12 +152,22 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState(
     buildDirtySnapshot(currentActiveProfile, defaultProviderProfileId, skillsEnabled)
   );
-  useUnsavedChangesGuard({
-    isDirty,
-    save: saveSettings,
-    discard: restorePersistedProviderSettings,
-    entityType: "your provider settings"
-  });
+  const unsavedActions = useRef({ save: saveSettings, discard: restorePersistedProviderSettings });
+  unsavedActions.current = { save: saveSettings, discard: restorePersistedProviderSettings };
+
+  useEffect(() => {
+    registerUnsavedChangesGuard(
+      isDirty
+        ? {
+            isDirty: () => isDirty,
+            save: () => unsavedActions.current.save(),
+            discard: () => unsavedActions.current.discard(),
+            entityType: "your provider settings",
+          }
+        : null
+    );
+    return () => registerUnsavedChangesGuard(null);
+  }, [isDirty]);
 
   useEffect(() => {
     fetch("/api/mcp-servers")
@@ -134,15 +183,21 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     [providerProfiles, selectedProviderProfileId]
   );
   const activeProviderPresetId = activeProviderProfile
-    ? activeProviderProfile.providerPresetId ?? getMatchingEditorPresetId(activeProviderProfile)
+    ? activeProviderProfile.providerPresetId ?? getMatchingProviderPresetId(activeProviderProfile)
     : null;
-  const activeProviderEditor = activeProviderProfile
-    ? PROVIDER_CATALOG[activeProviderProfile.providerKind].editor
-    : null;
+  const isCopilot = activeProviderProfile?.providerKind === "github_copilot";
+  const isAnthropic = activeProviderProfile?.providerKind === "anthropic";
+  const isOfficialOpenAI =
+    activeProviderProfile?.providerKind === "openai_compatible" &&
+    activeProviderProfile.apiBaseUrl.trim().replace(/\/+$/, "").toLowerCase() === "https://api.openai.com/v1";
+  const supportsTemperature = !(
+    isOfficialOpenAI &&
+    isOpenAIReasoningModel(activeProviderProfile?.model ?? "")
+  );
   const usesThinkingToggle =
-    activeProviderEditor?.apiMode &&
-    activeProviderProfile &&
-    getProviderApiMode(activeProviderProfile) === "chat_completions";
+    !isCopilot &&
+    !isAnthropic &&
+    activeProviderProfile?.apiMode === "chat_completions";
   const isDuplicateName = activeProviderProfile
     ? providerProfiles.some(
         (p) =>
@@ -150,26 +205,20 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
           p.name.trim().toLowerCase() === activeProviderProfile.name.trim().toLowerCase()
       )
     : false;
-  const activeProviderProfileId = activeProviderProfile?.id;
-  const shouldDiscoverModels = Boolean(
-    activeProviderProfile &&
-    PROVIDER_CATALOG[activeProviderProfile.providerKind].editor.modelInput === "discovered" &&
-    activeProviderProfile.connection.status === "connected"
-  );
 
   useEffect(() => {
-    if (activeProviderProfileId && shouldDiscoverModels) {
-      fetch(`/api/providers/${activeProviderProfileId}/models`)
+    if (
+      activeProviderProfile?.providerKind === "github_copilot" &&
+      activeProviderProfile.githubConnectionStatus === "connected"
+    ) {
+      fetch(`/api/providers/github/models?providerProfileId=${activeProviderProfile.id}`)
         .then((res) => (res.ok ? res.json() : { models: [] }))
-        .then((data) => setDiscoveredModels(data.models ?? []))
-        .catch(() => setDiscoveredModels([]));
+        .then((data) => setCopilotModels(data.models ?? []))
+        .catch(() => setCopilotModels([]));
     } else {
-      setDiscoveredModels([]);
+      setCopilotModels([]);
     }
-  }, [
-    activeProviderProfileId,
-    shouldDiscoverModels
-  ]);
+  }, [activeProviderProfile?.id, activeProviderProfile?.providerKind, activeProviderProfile?.githubConnectionStatus]);
 
   function updateActiveProviderProfile(patch: Partial<ProviderProfileDraft>) {
     if (!activeProviderProfile) {
@@ -178,17 +227,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
     setProviderProfiles((current) =>
       current.map((profile) =>
-        profile.id === activeProviderProfile.id
-          ? { ...profile, ...patch } as ProviderProfileDraft
-          : profile
+        profile.id === activeProviderProfile.id ? { ...profile, ...patch } : profile
       )
     );
-  }
-
-  function replaceActiveProviderProfile(profile: ProviderProfileDraft) {
-    setProviderProfiles((current) => current.map((candidate) =>
-      candidate.id === profile.id ? profile : candidate
-    ));
   }
 
   function restorePersistedProviderSettings() {
@@ -219,25 +260,49 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   ) {
     const template = sourceProfiles.find((profile) => profile.id === sourceProfileId) ?? sourceProfiles[0];
     const nextProfileId = createId("profile");
-    const fallback = createProviderProfileEditorDraft({ id: nextProfileId });
-    const timestamp = new Date().toISOString();
-    const nextProfile: ProviderProfileDraft = template
-      ? {
-          ...template,
-          id: nextProfileId,
-          name: `Profile ${sourceProfiles.length + 1}`,
-          credential: "",
-          credentialAction: "clear",
-          connection: {
-            ...template.connection,
-            status: "disconnected",
-            accountLabel: null,
-            expiresAt: null
-          },
-          createdAt: timestamp,
-          updatedAt: timestamp
-        }
-      : { ...fallback, name: `Profile ${sourceProfiles.length + 1}` };
+    const nextProfile: ProviderProfileDraft = {
+      ...(template ?? {
+        apiBaseUrl: "https://api.openai.com/v1",
+        model: "gpt-5-mini",
+        apiMode: "responses" as ApiMode,
+        serviceTier: "default" as OpenAIServiceTier,
+        systemPrompt: "You are an helpful AI assistant with advanced reasoning capabilities. You excel at complex problem-solving, analysis, coding, mathematics, and tasks requiring careful, step-by-step thinking.\nWhen responding:\n1. **Think step by step** - Break down complex problems into logical steps. Show your reasoning process clearly before arriving at conclusions.\n2. **Be thorough but concise** - Explore ideas deeply, but avoid unnecessary verbosity. Focus on substantive reasoning over filler text.\n3. **Verify your logic** - Double-check your reasoning for consistency, accuracy, and completeness before finalizing your answer.\n4. **Acknowledge uncertainty** - When appropriate, indicate confidence levels or alternative interpretations of the problem.\n5. **Use structured formats** - For complex answers, use numbered steps, bullet points, or sections to organize your thinking.\n6. **Adapt depth to the task** - Match the depth of your reasoning to the complexity of the question. Simple questions don't need elaborate analysis.\n7. **Use emojis sparingly** - You may use an occasional emoji when it genuinely improves tone or clarity, but keep usage infrequent and minimal. Do not use emojis in every response, avoid repeated or decorative emoji use, and never let them clutter the message.\nAlways aim to be helpful, accurate, and honest in your responses.",
+        temperature: 0.7,
+        maxOutputTokens: 1200,
+        reasoningEffort: "medium" as ReasoningEffort,
+        reasoningSummaryEnabled: true,
+        modelContextLimit: 128000,
+        compactionThreshold: 0.8,
+        freshTailCount: 28,
+        tokenizerModel: "gpt-tokenizer" as const,
+        safetyMarginTokens: 1200,
+        leafSourceTokenLimit: 12000,
+        leafMinMessageCount: 6,
+        mergedMinNodeCount: 4,
+        mergedTargetTokens: 1600,
+        visionMode: "native" as VisionMode,
+        providerPresetId: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        hasApiKey: false,
+        apiKey: "",
+        id: nextProfileId,
+        name: ""
+      }),
+      id: nextProfileId,
+      name: `Profile ${sourceProfiles.length + 1}`,
+      hasApiKey: false,
+      apiKey: "",
+      apiKeyAction: "clear",
+      visionMode: template?.visionMode ?? "native" as VisionMode,
+      githubAccountLogin: null,
+      githubAccountName: null,
+      githubTokenExpiresAt: null,
+      githubRefreshTokenExpiresAt: null,
+      githubConnectionStatus: "disconnected",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
 
     setProviderProfiles([...sourceProfiles, nextProfile]);
     setSelectedProviderProfileId(nextProfile.id);
@@ -250,13 +315,19 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     }
 
     const isAutoName = /^Profile \d+$/.test(activeProviderProfile.name);
-    const next = applyPresetToProviderProfile(activeProviderProfile, presetId);
+    const patch: Partial<ProviderProfileDraft> = {
+      ...applyProviderPreset(activeProviderProfile, presetId),
+      providerPresetId: presetId,
+      apiKey: "",
+      apiKeyAction: "clear",
+      hasApiKey: false
+    };
 
     if (isAutoName) {
-      next.name = getProviderPreset(presetId).values.name;
+      patch.name = getProviderPreset(presetId).values.name;
     }
 
-    replaceActiveProviderProfile(next);
+    updateActiveProviderProfile(patch);
   }
 
   function resetActiveProviderAdvancedSettings() {
@@ -265,31 +336,28 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     }
 
     const patch: Partial<ProviderProfileDraft> = {
-      reasoningEffort: DEFAULT_PROFILE_BEHAVIOR.reasoningEffort,
-      modelContextLimit: DEFAULT_PROFILE_BEHAVIOR.modelContextLimit,
-      compactionThreshold: DEFAULT_PROFILE_BEHAVIOR.compactionThreshold,
-      freshTailCount: DEFAULT_PROFILE_BEHAVIOR.freshTailCount,
-      visionMode: DEFAULT_PROFILE_BEHAVIOR.visionMode
+      reasoningEffort: DEFAULT_PROVIDER_SETTINGS.reasoningEffort,
+      modelContextLimit: DEFAULT_PROVIDER_SETTINGS.modelContextLimit,
+      compactionThreshold: DEFAULT_PROVIDER_SETTINGS.compactionThreshold,
+      freshTailCount: DEFAULT_PROVIDER_SETTINGS.freshTailCount,
+      visionMode: DEFAULT_PROVIDER_SETTINGS.visionMode
     };
 
-    if (activeProviderEditor?.sampling) {
-      patch.temperature = DEFAULT_PROFILE_BEHAVIOR.temperature;
-      patch.maxOutputTokens = DEFAULT_PROFILE_BEHAVIOR.maxOutputTokens;
-      patch.reasoningSummaryEnabled = DEFAULT_PROFILE_BEHAVIOR.reasoningSummaryEnabled;
-    }
-    if (activeProviderEditor?.tokenization) {
-      patch.tokenizerModel = DEFAULT_PROFILE_BEHAVIOR.tokenizerModel;
-      patch.safetyMarginTokens = DEFAULT_PROFILE_BEHAVIOR.safetyMarginTokens;
-      patch.leafSourceTokenLimit = DEFAULT_PROFILE_BEHAVIOR.leafSourceTokenLimit;
-      patch.leafMinMessageCount = DEFAULT_PROFILE_BEHAVIOR.leafMinMessageCount;
-      patch.mergedMinNodeCount = DEFAULT_PROFILE_BEHAVIOR.mergedMinNodeCount;
-      patch.mergedTargetTokens = DEFAULT_PROFILE_BEHAVIOR.mergedTargetTokens;
+    if (activeProviderProfile.providerKind !== "github_copilot") {
+      patch.temperature = DEFAULT_PROVIDER_SETTINGS.temperature;
+      patch.maxOutputTokens = DEFAULT_PROVIDER_SETTINGS.maxOutputTokens;
+      patch.reasoningSummaryEnabled = DEFAULT_PROVIDER_SETTINGS.reasoningSummaryEnabled;
+      patch.apiMode = DEFAULT_PROVIDER_SETTINGS.apiMode;
+      patch.serviceTier = DEFAULT_PROVIDER_SETTINGS.serviceTier;
+      patch.tokenizerModel = DEFAULT_PROVIDER_SETTINGS.tokenizerModel;
+      patch.safetyMarginTokens = DEFAULT_PROVIDER_SETTINGS.safetyMarginTokens;
+      patch.leafSourceTokenLimit = DEFAULT_PROVIDER_SETTINGS.leafSourceTokenLimit;
+      patch.leafMinMessageCount = DEFAULT_PROVIDER_SETTINGS.leafMinMessageCount;
+      patch.mergedMinNodeCount = DEFAULT_PROVIDER_SETTINGS.mergedMinNodeCount;
+      patch.mergedTargetTokens = DEFAULT_PROVIDER_SETTINGS.mergedTargetTokens;
     }
 
-    replaceActiveProviderProfile(setProviderApiMode(
-      { ...activeProviderProfile, ...patch } as ProviderProfileDraft,
-      activeProviderEditor?.apiMode ? "responses" : getProviderApiMode(activeProviderProfile)
-    ));
+    updateActiveProviderProfile(patch);
   }
 
   async function handleDeleteConfirm() {
@@ -324,16 +392,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         ? toProviderDrafts(result.settings.providerProfiles)
         : nextProfiles.map((profile) => ({
             ...profile,
-            credential: "",
-            credentialAction: "preserve" as const,
-            connection: {
-              ...profile.connection,
-              status: profile.credentialAction === "replace"
-                ? profile.credential ? "connected" : "disconnected"
-                : profile.credentialAction === "clear"
-                  ? "disconnected"
-                  : profile.connection.status
-            }
+            apiKey: "",
+            apiKeyAction: "preserve" as const,
+            hasApiKey: profile.apiKeyAction === "replace"
+              ? Boolean(profile.apiKey)
+              : profile.apiKeyAction === "clear"
+                ? false
+                : profile.hasApiKey
           }));
       const savedDefaultProviderProfileId = result.settings?.defaultProviderProfileId ?? nextDefault;
       const savedSkillsEnabled = result.settings?.skillsEnabled ?? skillsEnabled;
@@ -391,7 +456,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       persistedDefaultProviderProfileId.current = savedDefaultProviderProfileId;
       persistedSkillsEnabled.current = savedSkillsEnabled;
       const newProfileId = newProfiles.find(
-        (p) => !providerProfiles.some((existing) => existing.id === p.id)
+        (p: ProviderProfileDraft) => !providerProfiles.some((existing) => existing.id === p.id)
       )?.id;
 
       setProviderProfiles(newProfiles);
@@ -423,7 +488,37 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       ...settings,
       defaultProviderProfileId: nextDefaultProviderProfileId,
       skillsEnabled,
-      providerProfiles: profilesToSave.map(buildProviderProfileInput)
+      providerProfiles: profilesToSave.map((profile) => ({
+        id: profile.id,
+        name: profile.name,
+        providerKind: profile.providerKind ?? "openai_compatible",
+        apiBaseUrl: profile.apiBaseUrl,
+        apiKey: profile.apiKey,
+        apiKeyAction: profile.apiKeyAction,
+        model: profile.model,
+        apiMode: profile.apiMode,
+        serviceTier: profile.serviceTier ?? DEFAULT_PROVIDER_SETTINGS.serviceTier,
+        systemPrompt: profile.systemPrompt,
+        temperature: profile.temperature,
+        maxOutputTokens: profile.maxOutputTokens,
+        reasoningEffort: profile.reasoningEffort,
+        reasoningSummaryEnabled: profile.reasoningSummaryEnabled,
+        modelContextLimit: profile.modelContextLimit,
+        compactionThreshold: Math.round(profile.compactionThreshold * 100) / 100,
+        freshTailCount: profile.freshTailCount,
+        tokenizerModel: profile.tokenizerModel,
+        safetyMarginTokens: profile.safetyMarginTokens,
+        leafSourceTokenLimit: profile.leafSourceTokenLimit,
+        leafMinMessageCount: profile.leafMinMessageCount,
+        mergedMinNodeCount: profile.mergedMinNodeCount,
+        mergedTargetTokens: profile.mergedTargetTokens,
+        visionMode: profile.visionMode ?? "native",
+        providerPresetId: profile.providerPresetId ?? null,
+        githubAccountLogin: profile.githubAccountLogin ?? null,
+        githubAccountName: profile.githubAccountName ?? null,
+        githubTokenExpiresAt: profile.githubTokenExpiresAt ?? null,
+        githubRefreshTokenExpiresAt: profile.githubRefreshTokenExpiresAt ?? null
+      }))
     };
   }
 
@@ -607,15 +702,19 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   );
                 }}
                 title={profile.name}
-                subtitle={`${PROVIDER_CATALOG[profile.providerKind].label}${profile.model ? ` · ${profile.model}` : ""}${PROVIDER_CATALOG[profile.providerKind].editor.apiMode ? ` · ${getProviderApiMode(profile)}` : ""}`}
+                subtitle={
+                  profile.providerKind === "github_copilot"
+                    ? `Copilot${profile.model ? ` · ${profile.model}` : ""}`
+                    : `${profile.model} · ${profile.apiMode}`
+                }
                 badges={[
                   ...(profile.id === defaultProviderProfileId
                     ? [{ variant: "default" as const, label: "DEFAULT" }]
                     : []),
-                  ...(profile.connection.status === "disconnected" && profile.connection.mode === "api_key" && !profile.credential
+                  ...(!profile.hasApiKey && !profile.apiKey && profile.providerKind !== "github_copilot"
                     ? [{ variant: "no-key" as const, label: "NO KEY" }]
                     : []),
-                  ...(profile.connection.status === "disconnected" && profile.connection.mode === "oauth"
+                  ...(profile.providerKind === "github_copilot" && profile.githubConnectionStatus === "disconnected"
                     ? [{ variant: "no-key" as const, label: "NOT CONNECTED" }]
                     : [])
                 ]}
@@ -643,19 +742,23 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         Default
                       </span>
                     )}
-                    {activeProviderProfile.connection.status === "disconnected" && activeProviderProfile.connection.mode === "api_key" && !activeProviderProfile.credential && (
+                    {!activeProviderProfile.hasApiKey && !activeProviderProfile.apiKey && activeProviderProfile.providerKind !== "github_copilot" && (
                       <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
                         No key
                       </span>
                     )}
-                    {activeProviderProfile.connection.status === "disconnected" && activeProviderProfile.connection.mode === "oauth" && (
+                    {activeProviderProfile.providerKind === "github_copilot" && activeProviderProfile.githubConnectionStatus === "disconnected" && (
                       <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
                         Not connected
                       </span>
                     )}
                   </div>
                   <p className="mt-1 text-xs text-[var(--muted)]">
-                    {`${PROVIDER_CATALOG[activeProviderProfile.providerKind].label}${getProviderApiBaseUrl(activeProviderProfile) ? ` · ${getProviderApiBaseUrl(activeProviderProfile)}` : ""}${activeProviderProfile.model ? ` · ${activeProviderProfile.model}` : ""}${activeProviderEditor?.apiMode ? ` · ${getProviderApiMode(activeProviderProfile)}` : ""}`}
+                    {isCopilot
+                      ? `GitHub Copilot${activeProviderProfile.model ? ` · ${activeProviderProfile.model}` : ""}`
+                      : isAnthropic
+                        ? `${activeProviderProfile.apiBaseUrl} · ${activeProviderProfile.model}`
+                        : `${activeProviderProfile.apiBaseUrl} · ${activeProviderProfile.model} · ${activeProviderProfile.apiMode}`}
                   </p>
                 </div>
 
@@ -696,20 +799,51 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                       <label className={fieldLabel}>Provider type</label>
                       <select
                         className={`${selectLike} ${isFieldDirty("activeProviderKind") ? "!border-amber-500/40" : ""}`}
-                        value={activeProviderProfile.providerKind}
+                        value={activeProviderProfile.providerKind ?? "openai_compatible"}
                         onChange={(event) => {
                           const value = event.target.value as ProviderKind;
-                          replaceActiveProviderProfile(
-                            switchProviderProfileKind(activeProviderProfile, value)
-                          );
+                          if (value === "github_copilot") {
+                            updateActiveProviderProfile({
+                              providerKind: "github_copilot",
+                              apiBaseUrl: "",
+                              apiKey: "",
+                              apiKeyAction: "clear",
+                              hasApiKey: false,
+                              model: "",
+                              apiMode: "responses",
+                              systemPrompt: "",
+                              tokenizerModel: "off",
+                              providerPresetId: null
+                            });
+                          } else if (value === "anthropic") {
+                            const { name: _anthropicPresetName, ...anthropicPresetValues } =
+                              getProviderPreset("anthropic_official").values;
+                            updateActiveProviderProfile({
+                              providerKind: "anthropic",
+                              ...anthropicPresetValues,
+                              apiKey: "",
+                              apiKeyAction: "clear",
+                              hasApiKey: false,
+                              providerPresetId: "anthropic_official"
+                            });
+                          } else {
+                            updateActiveProviderProfile({
+                              providerKind: "openai_compatible",
+                              apiBaseUrl: activeProviderProfile.apiBaseUrl || "https://api.openai.com/v1",
+                              apiKey: "",
+                              apiKeyAction: "clear",
+                              hasApiKey: false,
+                              providerPresetId: null
+                            });
+                          }
                         }}
                       >
-                        {Object.entries(PROVIDER_CATALOG).map(([kind, provider]) => (
-                          <option key={kind} value={kind}>{provider.label}</option>
-                        ))}
+                        <option value="openai_compatible">OpenAI compatible</option>
+                        <option value="anthropic">Anthropic compatible</option>
+                        <option value="github_copilot">GitHub Copilot</option>
                       </select>
                     </div>
-                    {PROVIDER_PRESETS.some((preset) => preset.providerKind === activeProviderProfile.providerKind) && (
+                    {!isCopilot && (
                       <div>
                         <label className={fieldLabel}>Provider preset</label>
                         <select
@@ -723,7 +857,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         >
                           <option value="">Manual configuration</option>
                           {PROVIDER_PRESETS.filter(
-                            (preset) => preset.providerKind === activeProviderProfile.providerKind
+                            (preset) => preset.providerKind === (activeProviderProfile.providerKind ?? "openai_compatible")
                           ).map((preset) => (
                             <option key={preset.id} value={preset.id}>
                               {preset.label}
@@ -738,14 +872,156 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                 {/* Connection */}
                 <div className={`${sectionDivider} py-5`}>
                   <h4 className={sectionTitle}>Connection</h4>
-                  <ProviderConnectionFields
-                    profile={activeProviderProfile}
-                    models={discoveredModels}
-                    dirty={isFieldDirty("activeProviderConfig") || isFieldDirty("activeCredential") || isFieldDirty("activeModel")}
-                    onChange={replaceActiveProviderProfile}
-                    onSave={saveSettings}
-                    onError={(message) => toast.showToast("error", message)}
-                  />
+                  {isCopilot ? (
+                    <div className="mt-4 space-y-4">
+                      <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[var(--text)]">
+                        {activeProviderProfile.githubConnectionStatus === "connected"
+                          ? `Connected as ${activeProviderProfile.githubAccountLogin ?? "GitHub user"}`
+                          : "No GitHub account connected"}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button
+                          type="button"
+                          className="px-3 py-1.5 text-xs"
+                          onClick={async () => {
+                            if (await saveSettings()) {
+                              window.location.href = `/api/providers/github/connect?providerProfileId=${activeProviderProfile.id}`;
+                            }
+                          }}
+                        >
+                          {activeProviderProfile.githubConnectionStatus === "connected"
+                            ? "Reconnect GitHub"
+                            : "Connect GitHub"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="px-2.5 py-1.5 text-xs"
+                          onClick={async () => {
+                            await fetch("/api/providers/github/disconnect", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ providerProfileId: activeProviderProfile.id })
+                            });
+                            updateActiveProviderProfile({
+                              githubConnectionStatus: "disconnected",
+                              githubAccountLogin: null,
+                              githubAccountName: null
+                            });
+                          }}
+                          disabled={activeProviderProfile.githubConnectionStatus === "disconnected"}
+                        >
+                          Disconnect
+                        </Button>
+                      </div>
+                      {isCopilot && copilotModels.length > 0 && (
+                        <div>
+                          <label className={fieldLabel}>Model</label>
+                          <select
+                            value={activeProviderProfile.model}
+                            onChange={(event) => {
+                              const selected = copilotModels.find((m) => m.id === event.target.value);
+                              updateActiveProviderProfile({
+                                model: event.target.value,
+                                ...(selected?.maxContextWindowTokens
+                                  ? { modelContextLimit: selected.maxContextWindowTokens }
+                                  : {})
+                              });
+                            }}
+                            className={`${selectLike} ${isFieldDirty("activeModel") ? "!border-amber-500/40" : ""}`}
+                          >
+                            {copilotModels.map((model) => (
+                              <option key={model.id} value={model.id}>{model.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      {isCopilot && copilotModels.length === 0 && activeProviderProfile.githubConnectionStatus !== "connected" && (
+                        <div>
+                          <label className={fieldLabel}>Model</label>
+                          <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[var(--muted)]">
+                            Connect GitHub to browse models
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-4 space-y-4">
+                      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+                        <div>
+                          <label className={fieldLabel}>API base URL</label>
+                          <Input
+                            name="provider-api-base-url"
+                            autoComplete="url"
+                            value={activeProviderProfile.apiBaseUrl}
+                          onChange={(event) => updateActiveProviderProfile({
+                            apiBaseUrl: event.target.value,
+                            providerPresetId: null,
+                            apiKey: "",
+                            apiKeyAction: "clear",
+                            hasApiKey: false
+                          })}
+                            required
+                            className={isFieldDirty("activeApiBaseUrl") ? "!border-amber-500/40" : ""}
+                          />
+                        </div>
+                        <div>
+                          <label className={fieldLabel}>Model</label>
+                          <Input
+                            name="provider-model"
+                            autoComplete="off"
+                            value={activeProviderProfile.model}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({ model: event.target.value })
+                            }
+                            required
+                            className={isFieldDirty("activeModel") ? "!border-amber-500/40" : ""}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className={fieldLabel}>API key</label>
+                        <div className="relative">
+                          <Input
+                            name="provider-api-key"
+                            autoComplete="new-password"
+                            spellCheck={false}
+                            type={showApiKey ? "text" : "password"}
+                            value={activeProviderProfile.apiKey}
+                            onChange={(event) =>
+                              updateActiveProviderProfile({
+                                apiKey: event.target.value,
+                                apiKeyAction: event.target.value ? "replace" : "clear",
+                                hasApiKey: Boolean(event.target.value)
+                              })
+                            }
+                            placeholder={activeProviderProfile.hasApiKey ? maskedApiKeyValue : "sk-..."}
+                            className={`pr-10 ${isFieldDirty("activeApiKey") ? "!border-amber-500/40" : ""}`}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowApiKey((v) => !v)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--muted)] hover:text-[var(--text)] transition-colors"
+                          >
+                            {showApiKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                          </button>
+                        </div>
+                        {activeProviderProfile.hasApiKey && activeProviderProfile.apiKeyAction === "preserve" ? (
+                          <button
+                            type="button"
+                            className="mt-2 text-xs text-red-400/80 transition-colors hover:text-red-300"
+                            onClick={() => updateActiveProviderProfile({
+                              apiKey: "",
+                              apiKeyAction: "clear",
+                              hasApiKey: false
+                            })}
+                          >
+                            Clear stored API key
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Configuration */}
@@ -762,21 +1038,23 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     </Button>
                   </div>
                   <div className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
-                    {activeProviderEditor?.sampling && (
+                    {!isCopilot && (
                       <>
-                        <div>
-                          <label className={fieldLabel}>Temperature</label>
-                          <Input
-                            name="provider-temperature"
-                            type="number"
-                            step="0.1"
-                            value={activeProviderProfile.temperature}
-                            onChange={(event) =>
-                              updateActiveProviderProfile({ temperature: Number(event.target.value || 0) })
-                            }
-                            className={isFieldDirty("activeTemperature") ? "!border-amber-500/40" : ""}
-                          />
-                        </div>
+                        {supportsTemperature ? (
+                          <div>
+                            <label className={fieldLabel}>Temperature</label>
+                            <Input
+                              name="provider-temperature"
+                              type="number"
+                              step="0.1"
+                              value={activeProviderProfile.temperature}
+                              onChange={(event) =>
+                                updateActiveProviderProfile({ temperature: Number(event.target.value || 0) })
+                              }
+                              className={isFieldDirty("activeTemperature") ? "!border-amber-500/40" : ""}
+                            />
+                          </div>
+                        ) : null}
                         <div>
                           <label className={fieldLabel}>Max output tokens</label>
                           <Input
@@ -788,6 +1066,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             }
                             className={isFieldDirty("activeMaxOutputTokens") ? "!border-amber-500/40" : ""}
                           />
+                          {isOfficialOpenAI && isOpenAIGpt56Model(activeProviderProfile.model) ? (
+                            <p className="mt-1.5 text-xs leading-5 text-[var(--muted)]">
+                              This ceiling includes reasoning and visible output tokens.
+                            </p>
+                          ) : null}
                         </div>
                       </>
                     )}
@@ -824,27 +1107,46 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           <option value="medium">medium</option>
                           <option value="high">high</option>
                           <option value="xhigh">xhigh</option>
+                          {isOfficialOpenAI && isOpenAIGpt56Model(activeProviderProfile.model) ? (
+                            <option value="max">max</option>
+                          ) : null}
                         </select>
                       </div>
                     )}
-                    {activeProviderEditor?.sampling && (
+                    {!isCopilot && (
                       <>
-                        {activeProviderEditor.apiMode && (
+                        {!isAnthropic && (
                           <div>
                             <label className={fieldLabel}>API mode</label>
                             <select
-                              value={getProviderApiMode(activeProviderProfile)}
-                              onChange={(event) => replaceActiveProviderProfile(
-                                setProviderApiMode(
-                                  activeProviderProfile,
-                                  event.target.value as "responses" | "chat_completions"
-                                )
-                              )}
-                              className={`${selectLike} ${isFieldDirty("activeProviderConfig") ? "!border-amber-500/40" : ""}`}
+                              value={activeProviderProfile.apiMode}
+                              onChange={(event) =>
+                                updateActiveProviderProfile({ apiMode: event.target.value as ApiMode })
+                              }
+                              className={`${selectLike} ${isFieldDirty("activeApiMode") ? "!border-amber-500/40" : ""}`}
                             >
                               <option value="responses">responses</option>
                               <option value="chat_completions">chat_completions</option>
                             </select>
+                          </div>
+                        )}
+                        {isOfficialOpenAI && (
+                          <div>
+                            <label className={fieldLabel}>Processing mode</label>
+                            <select
+                              name="provider-service-tier"
+                              value={activeProviderProfile.serviceTier ?? DEFAULT_PROVIDER_SETTINGS.serviceTier}
+                              onChange={(event) =>
+                                updateActiveProviderProfile({ serviceTier: event.target.value as OpenAIServiceTier })
+                              }
+                              className={`${selectLike} ${isFieldDirty("activeServiceTier") ? "!border-amber-500/40" : ""}`}
+                            >
+                              <option value="default">Normal</option>
+                              <option value="fast">Fast</option>
+                            </select>
+                            <p className="mt-1.5 text-xs leading-5 text-[var(--muted)]">
+                              Fast uses lower-latency processing at a per-token premium and does not support long-context requests.
+                            </p>
                           </div>
                         )}
                         {activeProviderProfile.reasoningEffort !== "none" && !usesThinkingToggle && (
@@ -875,6 +1177,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             }
                             className={isFieldDirty("activeModelContextLimit") ? "!border-amber-500/40" : ""}
                           />
+                          {isOfficialOpenAI && isOpenAIGpt56Model(activeProviderProfile.model) ? (
+                            <p className="mt-1.5 text-xs leading-5 text-[var(--muted)]">
+                              OpenAI applies long-context pricing above 272,000 input tokens.
+                            </p>
+                          ) : null}
                     </div>
                     <div>
                       <label className={fieldLabel}>Compaction threshold %</label>
@@ -905,7 +1212,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             className={isFieldDirty("activeFreshTailCount") ? "!border-amber-500/40" : ""}
                           />
                     </div>
-                    {activeProviderEditor?.tokenization && (
+                    {!isCopilot && (
                       <>
                         <div>
                           <label className={fieldLabel}>Tokenizer model</label>

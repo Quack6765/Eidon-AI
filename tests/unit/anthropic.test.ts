@@ -56,6 +56,7 @@ describe("mapReasoningEffortToAnthropic", () => {
 
   it("maps xhigh to max", () => {
     expect(mapReasoningEffortToAnthropic("xhigh")).toBe("max");
+    expect(mapReasoningEffortToAnthropic("max")).toBe("max");
   });
 
   it("maps low/medium/high directly", () => {

@@ -1,19 +1,19 @@
 import { resolveAttachmentPath } from "@/lib/attachments";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
 import { streamProviderResponse } from "@/lib/provider";
-import { getProviderAdapter } from "@/lib/provider-adapters";
 import { withStreamRetry } from "@/lib/provider-retry";
+import { isBuiltinWebSearchServer } from "@/lib/web-search";
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
 import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
 import { supportsImageInput } from "@/lib/model-capabilities";
-import { getProviderApiMode } from "@/lib/provider-profile";
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
 import { type ToolSet, buildToolDefinitions } from "./tool-definitions";
 import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isMemoryProposalToolCall, executeToolCall } from "./tool-executors";
 import type {
   ChatStreamEvent,
   McpServer,
-  RuntimeProviderProfile,
+  ProviderProfileWithApiKey,
+  ProviderResponseItem,
   ProviderToolCall,
   PromptMessage,
   Skill,
@@ -163,11 +163,11 @@ function appendTrailingGuidance(promptMessages: PromptMessage[], content: string
 }
 
 function getEffectiveVisionMode(
-  settings: RuntimeProviderProfile,
+  settings: ProviderProfileWithApiKey,
   hasVisionServers: boolean
 ): VisionMode {
   if (settings.visionMode === "native") {
-    return supportsImageInput(settings.model, getProviderApiMode(settings)) ? "native" : "none";
+    return supportsImageInput(settings.model, settings.apiMode) ? "native" : "none";
   }
   if (settings.visionMode === "mcp") {
     return hasVisionServers ? "mcp" : "none";
@@ -177,7 +177,7 @@ function getEffectiveVisionMode(
 
 function prepareProviderPromptMessages(input: {
   promptMessages: PromptMessage[];
-  settings: RuntimeProviderProfile;
+  settings: ProviderProfileWithApiKey;
   visionMcpServers?: McpServer[];
 }) {
   const imageAttachments = extractImageAttachments(input.promptMessages);
@@ -204,7 +204,7 @@ function prepareProviderPromptMessages(input: {
 }
 
 async function forceDirectAnswerAfterToolLoop(input: {
-  settings: RuntimeProviderProfile;
+  settings: ProviderProfileWithApiKey;
   promptMessages: PromptMessage[];
   visionMcpServers?: McpServer[];
   abortSignal?: AbortSignal;
@@ -228,7 +228,7 @@ async function forceDirectAnswerAfterToolLoop(input: {
       abortSignal: input.abortSignal
     });
   const providerStream =
-    input.enableStreamRetry && getProviderAdapter(input.settings.providerKind).supportsStreamRetry
+    input.enableStreamRetry && input.settings.providerKind !== "github_copilot"
       ? withStreamRetry(buildForcedStream, { signal: input.abortSignal })
       : buildForcedStream();
 
@@ -269,13 +269,14 @@ async function forceDirectAnswerAfterToolLoop(input: {
 }
 
 export async function resolveAssistantTurn(input: {
-  settings: RuntimeProviderProfile;
+  settings: ProviderProfileWithApiKey;
   promptMessages: PromptMessage[];
   skills: Skill[];
   mcpServers?: McpServer[];
   mcpToolSets: ToolSet[];
   visionMcpServers?: McpServer[];
   memoriesEnabled?: boolean;
+  searxngBaseUrl?: string | null;
   memoryUserId?: string;
   mcpTimeout?: number;
   abortSignal?: AbortSignal;
@@ -292,7 +293,7 @@ export async function resolveAssistantTurn(input: {
     handle: string | undefined,
     patch: { detail?: string; resultSummary?: string }
   ) => Promise<void> | void;
-  appSettings?: import("@/lib/types").RuntimeAppSettings;
+  appSettings?: import("@/lib/types").AppSettings;
   conversationId?: string;
   assistantMessageId?: string;
 }) {
@@ -322,12 +323,7 @@ export async function resolveAssistantTurn(input: {
   let visibleImageActionStarted = false;
   let visibleImageActionHandle: string | undefined;
 
-  const hasWebSearch = Boolean(
-    input.appSettings && input.appSettings.webSearch.providerId !== "disabled"
-  );
-  const hasImageGeneration = Boolean(
-    input.appSettings && input.appSettings.imageGeneration.providerId !== "disabled"
-  );
+  const hasWebSearch = mcpServers.some(isBuiltinWebSearchServer) || !!input.searxngBaseUrl;
 
   const visibleMcpServers = mcpServers.filter(
     (server) => !(server.isVisionMcp && effectiveVisionMode !== "mcp")
@@ -344,7 +340,7 @@ export async function resolveAssistantTurn(input: {
     promptMessages = mergeSystemMessage(promptMessages, INLINE_ATTACHMENT_DIRECTIVE);
   }
 
-  if (hasImageGeneration) {
+  if (input.appSettings?.imageGenerationBackend && input.appSettings.imageGenerationBackend !== "disabled") {
     promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE);
   }
 
@@ -365,7 +361,8 @@ export async function resolveAssistantTurn(input: {
 
     const restrictToGenerateImage =
       !imageGenerationToolConsumed &&
-      hasImageGeneration &&
+      !!input.appSettings?.imageGenerationBackend &&
+      input.appSettings.imageGenerationBackend !== "disabled" &&
       hasUnfulfilledImageGenerationIntent(promptMessages);
 
     if (restrictToGenerateImage && !visibleImageActionStarted) {
@@ -383,8 +380,8 @@ export async function resolveAssistantTurn(input: {
       skills: turnSkills,
       loadedSkillIds,
       memoriesEnabled: input.memoriesEnabled ?? false,
-      webSearchEnabled: hasWebSearch,
-      imageGenerationProviderId: input.appSettings?.imageGeneration.providerId,
+      searxngBaseUrl: input.searxngBaseUrl,
+      imageGenerationBackend: input.appSettings?.imageGenerationBackend,
       imageGenerationToolEnabled: !imageGenerationToolConsumed,
       restrictToGenerateImage,
       effectiveVisionMode
@@ -405,37 +402,30 @@ export async function resolveAssistantTurn(input: {
         promptMessages: providerPromptMessages,
         tools: tools.length ? tools : undefined,
         abortSignal: input.abortSignal,
-        runtimeToolContext: {
-          settings: input.settings,
-          appSettings: input.appSettings,
-          conversationId: input.conversationId,
-          assistantMessageId: input.assistantMessageId,
-          promptMessages,
+        copilotToolContext: input.settings.providerKind === "github_copilot" ? {
           mcpToolSets: input.mcpToolSets,
           skills: turnSkills,
           loadedSkillIds,
           memoriesEnabled: input.memoriesEnabled ?? false,
           effectiveVisionMode,
+          searxngBaseUrl: input.searxngBaseUrl,
           memoryUserId: input.memoryUserId,
-          imageGenerationToolEnabled: !imageGenerationToolConsumed,
-          restrictToGenerateImage,
-          imageGenerationActionHandle: visibleImageActionHandle,
-          hasVisibleImageGenerationAction: visibleImageActionStarted,
           onActionStart: input.onActionStart,
           onActionComplete: input.onActionComplete,
           onActionError: input.onActionError,
           mcpTimeout: input.mcpTimeout,
           abortSignal: input.abortSignal
-        }
+        } : undefined
       });
     const providerStream =
-      input.enableStreamRetry && getProviderAdapter(input.settings.providerKind).supportsStreamRetry
+      input.enableStreamRetry && input.settings.providerKind !== "github_copilot"
         ? withStreamRetry(buildProviderStream, { signal: input.abortSignal })
         : buildProviderStream();
 
     let answer = "";
     let thinking = "";
     let reasoningSignature: string | undefined;
+    let responseItems: ProviderResponseItem[] | undefined;
     let usage: Usage = {};
     let toolCalls: ProviderToolCall[] = [];
 
@@ -453,6 +443,7 @@ export async function resolveAssistantTurn(input: {
         answer = next.value.answer;
         thinking = next.value.thinking;
         reasoningSignature = next.value.reasoningSignature;
+        responseItems = next.value.responseItems;
         usage = next.value.usage;
         toolCalls = next.value.toolCalls ?? [];
         break;
@@ -465,7 +456,8 @@ export async function resolveAssistantTurn(input: {
     if (!toolCalls.length) {
       if (
         !imageGenerationToolConsumed &&
-        hasImageGeneration &&
+        input.appSettings?.imageGenerationBackend &&
+        input.appSettings.imageGenerationBackend !== "disabled" &&
         hasUnfulfilledImageGenerationIntent(promptMessages)
       ) {
         promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_REQUIRED_DIRECTIVE);
@@ -502,7 +494,8 @@ export async function resolveAssistantTurn(input: {
         content: answer,
         reasoningContent: thinking || undefined,
         reasoningSignature,
-        toolCalls
+        toolCalls,
+        responseItems
       }
     ];
 

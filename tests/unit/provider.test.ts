@@ -1,5 +1,4 @@
-import type { ChatStreamEvent, RuntimeProviderProfile } from "@/lib/types";
-import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
+import type { ChatStreamEvent, ProviderProfileWithApiKey } from "@/lib/types";
 
 const responsesCreate = vi.fn();
 const chatCreate = vi.fn();
@@ -34,6 +33,10 @@ function createAsyncStream<T>(events: T[]) {
   };
 }
 
+async function drainStream(stream: { next: () => Promise<{ done?: boolean }> }) {
+  while (!(await stream.next()).done) {}
+}
+
 function createSettings(
   overrides: Partial<{
     id: string;
@@ -44,12 +47,11 @@ function createSettings(
     apiKey: string;
     model: string;
     apiMode: "responses" | "chat_completions";
-    reasoningParameterMode: "standard" | "mirrored";
-    providerPresetId: RuntimeProviderProfile["providerPresetId"];
+    serviceTier: "default" | "fast";
     systemPrompt: string;
     temperature: number;
     maxOutputTokens: number;
-    reasoningEffort: "low" | "medium" | "high" | "xhigh";
+    reasoningEffort: "none" | "low" | "medium" | "high" | "xhigh" | "max";
     reasoningSummaryEnabled: boolean;
     modelContextLimit: number;
     compactionThreshold: number;
@@ -63,49 +65,43 @@ function createSettings(
     createdAt: string;
     updatedAt: string;
   }> = {}
-): RuntimeProviderProfile {
-  const providerKind = overrides.providerKind ?? "openai_compatible";
-  const {
-    apiBaseUrl = providerKind === "anthropic"
-      ? "https://api.anthropic.com"
-      : "https://api.example.com/v1",
-    apiMode = "responses",
-    reasoningParameterMode = "standard",
-    apiKey = "sk-test",
-    apiKeyEncrypted: _apiKeyEncrypted,
-    githubUserAccessTokenEncrypted: _accessToken,
-    githubRefreshTokenEncrypted: _refreshToken,
-    githubTokenExpiresAt: expiresAt,
-    githubRefreshTokenExpiresAt: refreshExpiresAt,
-    githubAccountLogin: accountLogin,
-    githubAccountName: accountName,
-    ...core
-  } = overrides;
-  return createRuntimeProviderProfile({
+): ProviderProfileWithApiKey {
+  return {
     id: "profile_test",
     name: "Test profile",
+    providerKind: "openai_compatible",
+    apiBaseUrl: "https://api.example.com/v1",
+    apiKeyEncrypted: "",
+    apiKey: "sk-test",
     model: "gpt-test",
+    apiMode: "responses",
+    serviceTier: "default",
     systemPrompt: "Be exact.",
     temperature: 0.2,
     maxOutputTokens: 512,
+    reasoningEffort: "medium",
+    reasoningSummaryEnabled: true,
     modelContextLimit: 16000,
+    compactionThreshold: 0.8,
     freshTailCount: 12,
-    ...core,
-    providerKind,
-    providerConfig: providerKind === "github_copilot"
-      ? {}
-      : providerKind === "anthropic"
-        ? { apiBaseUrl }
-        : { apiBaseUrl, apiMode, reasoningParameterMode },
-    credentials: providerKind === "github_copilot"
-      ? { accessToken: "github-test-token", refreshToken: "github-test-refresh" }
-      : { apiKey },
-    connectionMetadata: {
-      expiresAt,
-      refreshExpiresAt,
-      accountLabel: accountName ?? accountLogin
-    }
-  });
+    tokenizerModel: "gpt-tokenizer" as const,
+    safetyMarginTokens: 1200,
+    leafSourceTokenLimit: 12000,
+    leafMinMessageCount: 6,
+    mergedMinNodeCount: 4,
+    mergedTargetTokens: 1600,
+    visionMode: "native" as const,
+    providerPresetId: null,
+    githubUserAccessTokenEncrypted: "",
+    githubRefreshTokenEncrypted: "",
+    githubTokenExpiresAt: null,
+    githubRefreshTokenExpiresAt: null,
+    githubAccountLogin: null,
+    githubAccountName: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides
+  };
 }
 
 describe("provider integration", () => {
@@ -220,6 +216,167 @@ describe("provider integration", () => {
     );
   });
 
+  it("sends the selected processing mode only to the official OpenAI endpoint", async () => {
+    responsesCreate.mockResolvedValue({ output_text: "connected" });
+
+    const { callProviderText } = await import("@/lib/provider");
+
+    await callProviderText({
+      settings: createSettings({
+        apiBaseUrl: "https://api.openai.com/v1/",
+        serviceTier: "default"
+      }),
+      prompt: "Reply with connected",
+      purpose: "test"
+    });
+
+    expect(responsesCreate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ service_tier: "default" })
+    );
+
+    await callProviderText({
+      settings: createSettings({
+        apiBaseUrl: "https://api.openai.com/v1",
+        serviceTier: "fast"
+      }),
+      prompt: "Reply with connected",
+      purpose: "test"
+    });
+
+    expect(responsesCreate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ service_tier: "fast" })
+    );
+
+    await callProviderText({
+      settings: createSettings({
+        apiBaseUrl: "https://api.example.com/v1",
+        serviceTier: "fast"
+      }),
+      prompt: "Reply with connected",
+      purpose: "test"
+    });
+
+    expect(responsesCreate.mock.calls.at(-1)?.[0]).not.toHaveProperty("service_tier");
+  });
+
+  it("sends Fast mode for official OpenAI streaming requests", async () => {
+    responsesCreate.mockResolvedValueOnce(createAsyncStream([]));
+    chatCreate.mockResolvedValueOnce(createAsyncStream([]));
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const responsesStream = streamProviderResponse({
+      settings: createSettings({
+        apiBaseUrl: "https://api.openai.com/v1",
+        serviceTier: "fast"
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    let responsesDone = false;
+    while (!responsesDone) {
+      responsesDone = (await responsesStream.next()).done === true;
+    }
+
+    expect(responsesCreate.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ service_tier: "fast" })
+    );
+
+    const chatStream = streamProviderResponse({
+      settings: createSettings({
+        apiBaseUrl: "https://api.openai.com/v1",
+        apiMode: "chat_completions",
+        serviceTier: "fast"
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    let chatDone = false;
+    while (!chatDone) {
+      chatDone = (await chatStream.next()).done === true;
+    }
+
+    expect(chatCreate.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ service_tier: "fast" })
+    );
+  });
+
+  it("omits temperature for official OpenAI reasoning models across API modes", async () => {
+    responsesCreate.mockResolvedValueOnce(createAsyncStream([]));
+    chatCreate.mockResolvedValueOnce(createAsyncStream([]));
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const responsesStream = streamProviderResponse({
+      settings: createSettings({
+        apiBaseUrl: "https://api.openai.com/v1",
+        model: "gpt-5.6-luna"
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    await drainStream(responsesStream);
+
+    expect(responsesCreate.mock.calls.at(-1)?.[0]).not.toHaveProperty("temperature");
+
+    const chatStream = streamProviderResponse({
+      settings: createSettings({
+        apiBaseUrl: "https://api.openai.com/v1",
+        apiMode: "chat_completions",
+        model: "o3"
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    await drainStream(chatStream);
+
+    expect(chatCreate.mock.calls.at(-1)?.[0]).not.toHaveProperty("temperature");
+  });
+
+  it("keeps temperature for official OpenAI non-reasoning models", async () => {
+    responsesCreate.mockResolvedValueOnce(createAsyncStream([]));
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        apiBaseUrl: "https://api.openai.com/v1",
+        model: "gpt-4.1-mini",
+        temperature: 0.6
+      }),
+      promptMessages: [{ role: "user", content: "Hi" }]
+    });
+
+    await drainStream(stream);
+
+    expect(responsesCreate.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({ temperature: 0.6 })
+    );
+  });
+
+  it.each(["none", "xhigh", "max"] as const)(
+    "sends GPT-5.6 reasoning effort %s without downgrading it",
+    async (reasoningEffort) => {
+      responsesCreate.mockResolvedValueOnce({ output_text: "connected" });
+
+      const { callProviderText } = await import("@/lib/provider");
+
+      await callProviderText({
+        settings: createSettings({
+          apiBaseUrl: "https://api.openai.com/v1",
+          model: "gpt-5.6-luna",
+          reasoningEffort
+        }),
+        prompt: "Reply with connected",
+        purpose: "test"
+      });
+
+      expect(responsesCreate.mock.calls.at(-1)?.[0]).toEqual(
+        expect.objectContaining({
+          reasoning: expect.objectContaining({ effort: reasoningEffort })
+        })
+      );
+      expect(responsesCreate.mock.calls.at(-1)?.[0]).not.toHaveProperty("temperature");
+    }
+  );
+
   it("omits reasoning config for non-reasoning models", async () => {
     responsesCreate.mockResolvedValue({
       output_text: "connected"
@@ -304,8 +461,6 @@ describe("provider integration", () => {
         settings: createSettings({
           apiMode: "chat_completions",
           apiBaseUrl: "https://ollama.com/v1",
-          providerPresetId: "ollama_cloud",
-          reasoningParameterMode: "mirrored",
           model: "kimi-k2.5",
           reasoningSummaryEnabled: false
         }),
@@ -433,6 +588,7 @@ describe("provider integration", () => {
         {
           type: "response.output_item.done",
           item: {
+            id: "fc_1",
             type: "function_call",
             name: "get_weather",
             arguments: "{\"city\":\"SF\"}",
@@ -489,6 +645,7 @@ describe("provider integration", () => {
         {
           type: "response.output_item.done",
           item: {
+            id: "rs_1",
             type: "reasoning",
             summary: [{ text: "Recovered reasoning" }]
           }
@@ -996,7 +1153,6 @@ describe("provider integration", () => {
           }),
           {
             type: "function_call",
-            id: "call_0",
             name: "search_docs",
             arguments: "{\"query\":\"prior\"}",
             call_id: "call_0"
@@ -1028,6 +1184,52 @@ describe("provider integration", () => {
 
     expect(events).toContainEqual({ type: "thinking_delta", text: "Recovered reasoning" });
     expect(events).toContainEqual({ type: "answer_delta", text: "done" });
+  });
+
+  it("replays returned Responses items with their provider IDs and reasoning intact", async () => {
+    const { buildResponsesInput } = await import("@/lib/provider");
+    const responseItems = [
+      {
+        id: "rs_1",
+        type: "reasoning",
+        summary: [{ type: "summary_text", text: "Need current docs." }]
+      },
+      {
+        id: "fc_1",
+        type: "function_call",
+        call_id: "call_1",
+        name: "search_docs",
+        arguments: "{\"query\":\"MCP\"}",
+        status: "completed"
+      }
+    ];
+
+    expect(buildResponsesInput([
+      {
+        role: "assistant",
+        content: "",
+        toolCalls: [
+          {
+            id: "call_1",
+            name: "search_docs",
+            arguments: "{\"query\":\"MCP\"}"
+          }
+        ],
+        responseItems
+      },
+      {
+        role: "tool",
+        toolCallId: "call_1",
+        content: "Found docs"
+      }
+    ])).toEqual([
+      ...responseItems,
+      {
+        type: "function_call_output",
+        call_id: "call_1",
+        output: "Found docs"
+      }
+    ]);
   });
 
   it("serializes multimodal prompt parts for chat completions mode", async () => {
@@ -1355,8 +1557,6 @@ describe("provider integration", () => {
       settings: createSettings({
         name: "Ollama Cloud",
         apiBaseUrl: "https://ollama.com/v1",
-        providerPresetId: "ollama_cloud",
-        reasoningParameterMode: "mirrored",
         model: "kimi-k2.5",
         apiMode: "chat_completions"
       }),
@@ -1577,7 +1777,7 @@ describe("provider integration", () => {
         model: "openai/gpt-4.1"
       }),
       promptMessages: [{ role: "user", content: "Hi" }],
-      runtimeToolContext: {
+      copilotToolContext: {
         mcpToolSets: [],
         skills: [],
         loadedSkillIds: new Set(),
@@ -1672,7 +1872,7 @@ describe("provider integration", () => {
         model: "openai/gpt-4.1"
       }),
       promptMessages: [{ role: "user", content: "Hi" }],
-      runtimeToolContext: {
+      copilotToolContext: {
         mcpToolSets: [],
         skills: [],
         loadedSkillIds: new Set(),
@@ -1770,7 +1970,7 @@ describe("provider integration", () => {
         model: "openai/gpt-4.1"
       }),
       promptMessages: [{ role: "user", content: "Hi" }],
-      runtimeToolContext: {
+      copilotToolContext: {
         mcpToolSets: [],
         skills: [],
         loadedSkillIds: new Set(),
@@ -1869,7 +2069,7 @@ describe("provider integration", () => {
         model: "openai/gpt-4.1"
       }),
       promptMessages: [{ role: "user", content: "Hi" }],
-      runtimeToolContext: {
+      copilotToolContext: {
         mcpToolSets: [],
         skills: [],
         loadedSkillIds: new Set(),
@@ -1921,6 +2121,7 @@ describe("provider integration", () => {
         {
           type: "response.output_item.done",
           item: {
+            id: "fc_1",
             type: "function_call",
             call_id: "call_1",
             name: "search_docs",
@@ -1960,6 +2161,15 @@ describe("provider integration", () => {
         toolCalls: [
           {
             id: "call_1",
+            name: "search_docs",
+            arguments: "{\"query\":\"MCP\"}"
+          }
+        ],
+        responseItems: [
+          {
+            id: "fc_1",
+            type: "function_call",
+            call_id: "call_1",
             name: "search_docs",
             arguments: "{\"query\":\"MCP\"}"
           }
