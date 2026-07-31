@@ -390,7 +390,7 @@ export function Shell({
             </span>
           )}
 
-          {isAutomationsPage ? (
+          {(isAutomationsPage || isSettingsPage) ? (
             <div className="flex h-9 w-9 items-center justify-end">
               {shareConversation ? (
                 <button
