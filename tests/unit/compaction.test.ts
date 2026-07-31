@@ -737,6 +737,49 @@ describe("lossless compaction", () => {
     expect(vi.mocked(callProviderText).mock.calls.at(-1)?.[0].abortSignal).toBe(controller.signal);
   });
 
+  it("does not commit a node or compact messages when stripping leaves no answer", async () => {
+    updateDefaultProfile({
+      modelContextLimit: 4096,
+      maxOutputTokens: 2000,
+      compactionThreshold: 0.6
+    });
+    getDb()
+      .prepare("UPDATE provider_profiles SET fresh_tail_count = ? WHERE id = ?")
+      .run(2, "profile_default");
+    const conversation = createConversation();
+
+    for (let index = 0; index < 8; index += 1) {
+      createMessage({
+        conversationId: conversation.id, role: "user", content: `User ${index} ${"context ".repeat(250)}` });
+      createMessage({ conversationId: conversation.id, role: "assistant", content: `Assistant ${index} ${"context ".repeat(250)}` });
+    }
+
+    const { callProviderText } = await import("@/lib/provider");
+    const { stripThinkingDelimiters } = await import("@/lib/thinking-delimiter-parsing");
+    vi.mocked(callProviderText).mockImplementationOnce(() => {
+      const cleaned = stripThinkingDelimiters("<think>reasoning with no answer</think>");
+      if (!cleaned.trim()) {
+        return Promise.reject(new Error("Provider returned an empty response"));
+      }
+      return Promise.resolve(cleaned);
+    });
+
+    await expect(
+      ensureCompactedContext(conversation.id, getDefaultProviderProfileWithApiKey()!)
+    ).rejects.toThrow("Provider returned an empty response");
+
+    expect(
+      getDb()
+        .prepare("SELECT COUNT(*) AS count FROM memory_nodes WHERE conversation_id = ?")
+        .get(conversation.id)
+    ).toEqual({ count: 0 });
+    expect(
+      getDb()
+        .prepare("SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ? AND compacted_at IS NOT NULL")
+        .get(conversation.id)
+    ).toEqual({ count: 0 });
+  });
+
   it("replays only the freshest completed turns instead of the whole visible raw history", async () => {
     updateDefaultProfile({
       modelContextLimit: 20000,

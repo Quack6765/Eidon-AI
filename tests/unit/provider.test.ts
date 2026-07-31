@@ -145,6 +145,43 @@ describe("provider integration", () => {
     vi.doUnmock("@/lib/github-copilot");
   });
 
+  it("throws when a github copilot response contains only a think block", async () => {
+    vi.resetModules();
+    const runGithubCopilotChat = vi.fn().mockResolvedValue("<think>reasoning with no answer</think>");
+
+    vi.doMock("@/lib/github-copilot", () => ({
+      runGithubCopilotChat,
+      ensureFreshGithubAccessToken: vi.fn(async (profile) => profile),
+      streamGithubCopilotChat: vi.fn(),
+      buildGithubCopilotClient: vi.fn(),
+      listGithubCopilotModels: vi.fn(),
+      getGithubConnectionStatus: vi.fn(),
+      shouldRefreshGithubToken: vi.fn(),
+      clearGithubCopilotConnection: vi.fn(),
+      createGithubOauthState: vi.fn(),
+      verifyGithubOauthState: vi.fn(),
+      getGithubAuthorizeUrl: vi.fn(),
+      exchangeGithubCodeForTokens: vi.fn(),
+      refreshGithubUserToken: vi.fn()
+    }));
+
+    const { callProviderText } = await import("@/lib/provider");
+
+    await expect(
+      callProviderText({
+        settings: createSettings({
+          providerKind: "github_copilot",
+          apiKey: "",
+          apiBaseUrl: ""
+        }),
+        prompt: "Summarize",
+        purpose: "compaction"
+      })
+    ).rejects.toThrow("Provider returned an empty response");
+
+    vi.doUnmock("@/lib/github-copilot");
+  });
+
   it("calls responses text generation and returns output text", async () => {
     responsesCreate.mockResolvedValue({
       output_text: "connected"
@@ -273,6 +310,55 @@ describe("provider integration", () => {
         }
       })
     );
+  });
+
+  it("strips <think> reasoning from chat completion text responses", async () => {
+    chatCreate.mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content:
+              "<think>\nThe user wants a concise title.\n</think>\nExplaining Gravity"
+          }
+        }
+      ]
+    });
+
+    const { callProviderText } = await import("@/lib/provider");
+
+    await expect(
+      callProviderText({
+        settings: createSettings({
+          apiMode: "chat_completions",
+          apiBaseUrl: "https://api.minimaxi.chat/v1",
+          model: "MiniMax-M3",
+          reasoningSummaryEnabled: false
+        }),
+        prompt: "Generate a title",
+        purpose: "title"
+      })
+    ).resolves.toBe("\nExplaining Gravity");
+  });
+
+  it("throws when a chat completion text response contains only a think block", async () => {
+    chatCreate.mockResolvedValue({
+      choices: [{ message: { content: "<think>reasoning with no answer</think>" } }]
+    });
+
+    const { callProviderText } = await import("@/lib/provider");
+
+    await expect(
+      callProviderText({
+        settings: createSettings({
+          apiMode: "chat_completions",
+          apiBaseUrl: "https://api.minimaxi.chat/v1",
+          model: "MiniMax-M3",
+          reasoningSummaryEnabled: false
+        }),
+        prompt: "Summarize",
+        purpose: "compaction"
+      })
+    ).rejects.toThrow("Provider returned an empty response");
   });
 
   it("streams responses events into normalized deltas", async () => {
@@ -630,6 +716,55 @@ describe("provider integration", () => {
     expect(answerText).toBe("Let me take a screenshot.\n");
     expect(answerText).not.toContain("<tool_call>");
     expect(answerText).not.toContain("execute_shell_command");
+  });
+
+  it("extracts <think> reasoning embedded in chat_completions content into thinking and strips it from the answer", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([
+        { choices: [{ delta: { content: "<think>Let me " } }] },
+        { choices: [{ delta: { content: "reason this through.</think>" } }] },
+        { choices: [{ delta: { content: "\n\nHere is the answer." } }] }
+      ])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        apiMode: "chat_completions",
+        apiBaseUrl: "https://api.minimaxi.chat/v1",
+        model: "MiniMax-M3",
+        reasoningSummaryEnabled: true
+      }),
+      promptMessages: [{ role: "user", content: "Explain it" }]
+    });
+
+    const events: ChatStreamEvent[] = [];
+    let result: Awaited<ReturnType<typeof stream.next>>["value"] | undefined;
+
+    while (true) {
+      const next = await stream.next();
+      if (next.done) {
+        result = next.value;
+        break;
+      }
+      events.push(next.value);
+    }
+
+    expect(result?.answer).toBe("\n\nHere is the answer.");
+    expect(result?.thinking).toBe("Let me reason this through.");
+
+    const answerText = events
+      .filter((event) => event.type === "answer_delta")
+      .map((event) => (event as { text: string }).text)
+      .join("");
+    const thinkingText = events
+      .filter((event) => event.type === "thinking_delta")
+      .map((event) => (event as { text: string }).text)
+      .join("");
+
+    expect(answerText).toBe("\n\nHere is the answer.");
+    expect(answerText).not.toContain("<think>");
+    expect(thinkingText).toBe("Let me reason this through.");
   });
 
   it("updates streamed chat tool call names and arguments across chunks", async () => {

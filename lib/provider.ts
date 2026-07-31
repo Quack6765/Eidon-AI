@@ -17,6 +17,7 @@ import {
   mergeRecoveredStreamText
 } from "./provider-response-parsing";
 import { createTextToolCallInterceptor } from "./tool-call-text-parsing";
+import { createThinkingDelimiterInterceptor, stripThinkingDelimiters } from "./thinking-delimiter-parsing";
 import { MAX_RUNTIME_TOOL_RESULT_CHARS, truncateText } from "@/lib/bounded-text";
 
 export {
@@ -154,15 +155,23 @@ export async function callProviderText(input: {
       abortSignal: input.abortSignal
     });
 
-    return typeof result === "string" ? result : JSON.stringify(result);
+    const text = stripThinkingDelimiters(typeof result === "string" ? result : JSON.stringify(result));
+
+    if (!text.trim()) {
+      throw new Error("Provider returned an empty response");
+    }
+
+    return text;
   }
 
   if (profile.providerKind === "anthropic") {
-    const text = await callAnthropicText({
-      settings: profile,
-      messages: contextualPrompt,
-      abortSignal: input.abortSignal
-    });
+    const text = stripThinkingDelimiters(
+      await callAnthropicText({
+        settings: profile,
+        messages: contextualPrompt,
+        abortSignal: input.abortSignal
+      })
+    );
 
     if (!text.trim()) {
       throw new Error("Provider returned an empty response");
@@ -185,7 +194,7 @@ export async function callProviderText(input: {
       ? await client.responses.create(request, { signal: input.abortSignal })
       : await client.responses.create(request);
 
-    const text = normalizeLineBreaks(getResponseText(response));
+    const text = stripThinkingDelimiters(normalizeLineBreaks(getResponseText(response)));
 
     if (!text.trim()) {
       throw new Error("Provider returned an empty response");
@@ -205,10 +214,12 @@ export async function callProviderText(input: {
     ? await client.chat.completions.create(request, { signal: input.abortSignal })
     : await client.chat.completions.create(request);
 
-  const text = normalizeLineBreaks(
-    typeof response.choices[0]?.message?.content === "string"
-      ? response.choices[0]?.message?.content
-      : ""
+  const text = stripThinkingDelimiters(
+    normalizeLineBreaks(
+      typeof response.choices[0]?.message?.content === "string"
+        ? response.choices[0]?.message?.content
+        : ""
+    )
   );
 
   if (!text.trim()) {
@@ -693,6 +704,7 @@ export async function* streamProviderResponse(input: {
     { signal }
   ) as unknown as AsyncIterable<any>;
 
+  const thinkingInterceptor = createThinkingDelimiterInterceptor();
   const answerInterceptor = createTextToolCallInterceptor();
   const toolCallChunks = new Map<string, { name: string; arguments: string }>();
 
@@ -716,7 +728,12 @@ export async function* streamProviderResponse(input: {
       }
 
       if (delta) {
-        const emitted = answerInterceptor.feed(delta);
+        const { answer: answerText, thinking: thinkingText } = thinkingInterceptor.feed(delta);
+        if (thinkingText) {
+          thinking += thinkingText;
+          yield { type: "thinking_delta", text: thinkingText };
+        }
+        const emitted = answerInterceptor.feed(answerText);
         if (emitted) {
           yield { type: "answer_delta", text: emitted };
         }
@@ -755,6 +772,17 @@ export async function* streamProviderResponse(input: {
     }
   }
 
+  const thinkingTail = thinkingInterceptor.flush();
+  if (thinkingTail.thinking) {
+    thinking += thinkingTail.thinking;
+    yield { type: "thinking_delta", text: thinkingTail.thinking };
+  }
+  if (thinkingTail.answer) {
+    const tailEmitted = answerInterceptor.feed(thinkingTail.answer);
+    if (tailEmitted) {
+      yield { type: "answer_delta", text: tailEmitted };
+    }
+  }
   const answerTail = answerInterceptor.flush();
   if (answerTail) {
     yield { type: "answer_delta", text: answerTail };
