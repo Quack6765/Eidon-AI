@@ -124,6 +124,7 @@ describe("Mobile API v1 contracts", () => {
       paths: Record<string, Record<string, unknown>>;
       components: {
         securitySchemes: Record<string, unknown>;
+        requestBodies: Record<string, unknown>;
         schemas: Record<string, { properties?: Record<string, unknown> }>;
       };
     };
@@ -147,6 +148,9 @@ describe("Mobile API v1 contracts", () => {
       "/conversations/{conversationId}/queue/order",
       "/folders/{folderId}",
       "/attachments/{attachmentId}",
+      "/speech/canary/prepare",
+      "/speech/canary/transcribe",
+      "/speech/external/transcribe",
       "/automations/{automationId}/runs",
       "/automation-runs/{runId}",
       "/messages/{messageId}/edit-restart",
@@ -163,13 +167,32 @@ describe("Mobile API v1 contracts", () => {
     expect(contract.paths["/server-info"].get).toMatchObject({ security: [] });
     expect(contract.paths["/auth/login"].post).toMatchObject({ security: [] });
     expect(contract.paths["/users"].get).toMatchObject({ "x-eidon-role": "admin" });
+    expect(contract.paths["/speech/canary/transcribe"].post).toMatchObject({
+      parameters: [
+        { $ref: "#/components/parameters/speechAudioSampleRate" },
+        { $ref: "#/components/parameters/canarySpeechLanguage" }
+      ],
+      requestBody: { $ref: "#/components/requestBodies/RecordedSpeechAudio" },
+      responses: { "200": { $ref: "#/components/responses/SpeechTranscription" } }
+    });
+    expect(contract.paths["/speech/external/transcribe"].post).toMatchObject({
+      parameters: [{ $ref: "#/components/parameters/speechAudioSampleRate" }],
+      requestBody: { $ref: "#/components/requestBodies/RecordedSpeechAudio" },
+      responses: { "200": { $ref: "#/components/responses/SpeechTranscription" } }
+    });
+    expect(contract.components.requestBodies.RecordedSpeechAudio).toMatchObject({
+      required: true,
+      content: {
+        "application/octet-stream": {}
+      }
+    });
 
     const attachmentProperties = contract.components.schemas.Attachment.properties!;
     expect(attachmentProperties).not.toHaveProperty("relativePath");
     expect(attachmentProperties).not.toHaveProperty("extractedText");
     expect(contract.components.schemas.User.properties).not.toHaveProperty("passwordHash");
     expect(compileOpenApiJsonRequestBodies()).toBe(38);
-    expect(compileOpenApiJsonResponses()).toBe(86);
+    expect(compileOpenApiJsonResponses()).toBe(89);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {
