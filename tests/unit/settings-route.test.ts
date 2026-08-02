@@ -30,8 +30,12 @@ describe("settings route", () => {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          sttEngine: "embedded",
-          sttLanguage: "auto"
+          sttEngine: "external",
+          sttProvider: "elevenlabs",
+          sttLanguage: "auto",
+          externalSttLanguage: "zho",
+          externalSttApiKey: "xi-route-secret",
+          externalSttApiKeyAction: "replace"
         })
       })
     );
@@ -40,8 +44,12 @@ describe("settings route", () => {
     await expect(response.json()).resolves.toEqual(
       expect.objectContaining({
         settings: expect.objectContaining({
-          sttEngine: "embedded",
-          sttLanguage: "auto"
+          sttEngine: "external",
+          sttProvider: "elevenlabs",
+          sttLanguage: "auto",
+          externalSttLanguage: "zho",
+          externalSttApiKey: "",
+          hasExternalSttApiKey: true
         })
       })
     );

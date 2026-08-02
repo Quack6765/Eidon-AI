@@ -41,6 +41,7 @@ import * as skillRoute from "@/app/api/skills/[skillId]/route";
 import * as skillsRoute from "@/app/api/skills/route";
 import * as speechPrepareRoute from "@/app/api/speech/canary/prepare/route";
 import * as speechTranscribeRoute from "@/app/api/speech/canary/transcribe/route";
+import * as externalSpeechTranscribeRoute from "@/app/api/speech/external/transcribe/route";
 import * as userRoute from "@/app/api/users/[userId]/route";
 import * as usersRoute from "@/app/api/users/route";
 import {
@@ -113,7 +114,8 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["providers", "github", "disconnect"], module: githubDisconnectRoute },
   { pattern: ["providers", "github", "models"], module: githubModelsRoute },
   { pattern: ["speech", "canary", "prepare"], module: speechPrepareRoute },
-  { pattern: ["speech", "canary", "transcribe"], module: speechTranscribeRoute }
+  { pattern: ["speech", "canary", "transcribe"], module: speechTranscribeRoute },
+  { pattern: ["speech", "external", "transcribe"], module: externalSpeechTranscribeRoute }
 ];
 
 function matchPattern(pattern: string[], path: string[]) {

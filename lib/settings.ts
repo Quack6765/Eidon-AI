@@ -9,6 +9,14 @@ import {
 import { decryptValue, encryptValue } from "@/lib/crypto";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
+import {
+  DEFAULT_EXTERNAL_STT_LANGUAGE,
+  DEFAULT_EXTERNAL_STT_PROVIDER,
+  EXTERNAL_STT_LANGUAGE_CODES,
+  EXTERNAL_STT_PROVIDER_IDS,
+  getExternalSttProviderConfig,
+  isExternalSttLanguageForProvider
+} from "@/lib/speech/external-providers";
 import type {
   AppSettings,
   GithubConnectionStatus,
@@ -139,14 +147,26 @@ const generalSettingsInputSchema = z.object({
   memoriesMaxCount: z.coerce.number().int().min(1).max(500).optional(),
   mcpTimeout: z.coerce.number().int().min(10_000).max(600_000).optional(),
   maxAssistantToolSteps: z.coerce.number().int().min(1).max(1000).optional(),
-  sttEngine: z.enum(["browser", "embedded"]).optional(),
+  sttEngine: z.enum(["browser", "embedded", "external"]).optional(),
+  sttProvider: z.enum(EXTERNAL_STT_PROVIDER_IDS).optional(),
   sttLanguage: z.enum(["auto", "en", "fr", "es"]).optional(),
+  externalSttLanguage: z.enum(EXTERNAL_STT_LANGUAGE_CODES).optional(),
+  externalSttApiKey: z.string().optional(),
+  externalSttApiKeyAction: z.enum(["preserve", "replace", "clear"]).optional(),
   webSearchEngine: z.enum(["exa", "tavily", "searxng", "disabled"]).optional(),
   exaApiKey: z.string().optional(),
   tavilyApiKey: z.string().optional(),
   searxngBaseUrl: z.string().optional(),
   clearExaApiKey: z.coerce.boolean().optional(),
   clearTavilyApiKey: z.coerce.boolean().optional()
+}).superRefine((value, context) => {
+  if (value.externalSttApiKeyAction === "replace" && !value.externalSttApiKey?.trim()) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "An external speech-to-text API key is required when replacing the stored key",
+      path: ["externalSttApiKey"]
+    });
+  }
 });
 
 const imageGenerationSettingsInputSchema = z.object({
@@ -184,14 +204,33 @@ const generalSettingsSchema = z
     memoriesMaxCount: z.coerce.number().int().min(1).max(500),
     mcpTimeout: z.coerce.number().int().min(10_000).max(600_000),
     maxAssistantToolSteps: z.coerce.number().int().min(1).max(1000),
-    sttEngine: z.enum(["browser", "embedded"]),
+    sttEngine: z.enum(["browser", "embedded", "external"]),
+    sttProvider: z.enum(EXTERNAL_STT_PROVIDER_IDS),
     sttLanguage: z.enum(["auto", "en", "fr", "es"]),
+    externalSttLanguage: z.enum(EXTERNAL_STT_LANGUAGE_CODES),
+    externalSttApiKey: z.string(),
     webSearchEngine: z.enum(["exa", "tavily", "searxng", "disabled"]),
     exaApiKey: z.string(),
     tavilyApiKey: z.string(),
     searxngBaseUrl: z.string()
   })
   .superRefine((value, context) => {
+    if (!isExternalSttLanguageForProvider(value.sttProvider, value.externalSttLanguage)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["externalSttLanguage"],
+        message: "Language is unavailable for the selected speech-to-text provider"
+      });
+    }
+
+    if (value.sttEngine === "external" && !value.externalSttApiKey.trim()) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["externalSttApiKey"],
+        message: "External speech-to-text API key is required"
+      });
+    }
+
     if (value.webSearchEngine === "tavily" && !value.tavilyApiKey.trim()) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -234,7 +273,10 @@ type AppSettingsRow = {
   mcp_timeout: number;
   max_assistant_tool_steps?: number;
   stt_engine?: string;
+  stt_provider?: string;
   stt_language?: string;
+  external_stt_language?: string;
+  external_stt_api_key_encrypted?: string;
   web_search_engine?: string;
   exa_api_key_encrypted?: string;
   tavily_api_key_encrypted?: string;
@@ -267,7 +309,10 @@ type UserSettingsRow = {
   mcp_timeout: number;
   max_assistant_tool_steps?: number;
   stt_engine: string;
+  stt_provider: string;
   stt_language: string;
+  external_stt_language: string;
+  external_stt_api_key_encrypted: string;
   web_search_engine: string;
   exa_api_key_encrypted: string;
   tavily_api_key_encrypted: string;
@@ -380,7 +425,10 @@ type GeneralSettingsInput = Partial<
     | "mcpTimeout"
     | "maxAssistantToolSteps"
     | "sttEngine"
+    | "sttProvider"
     | "sttLanguage"
+    | "externalSttLanguage"
+    | "externalSttApiKey"
     | "webSearchEngine"
     | "exaApiKey"
     | "tavilyApiKey"
@@ -389,6 +437,7 @@ type GeneralSettingsInput = Partial<
 > & {
   clearExaApiKey?: boolean;
   clearTavilyApiKey?: boolean;
+  externalSttApiKeyAction?: "preserve" | "replace" | "clear";
 };
 
 type GeneralSettingsValues = Pick<
@@ -399,7 +448,10 @@ type GeneralSettingsValues = Pick<
   | "mcpTimeout"
   | "maxAssistantToolSteps"
   | "sttEngine"
+  | "sttProvider"
   | "sttLanguage"
+  | "externalSttLanguage"
+  | "externalSttApiKey"
   | "webSearchEngine"
   | "exaApiKey"
   | "tavilyApiKey"
@@ -431,7 +483,13 @@ function rowToSettings(row: AppSettingsRow | UserSettingsRow): AppSettings {
     mcpTimeout: row.mcp_timeout,
     maxAssistantToolSteps: row.max_assistant_tool_steps ?? MAX_ASSISTANT_CONTROL_STEPS,
     sttEngine: (row.stt_engine ?? "browser") as AppSettings["sttEngine"],
+    sttProvider: (row.stt_provider ?? DEFAULT_EXTERNAL_STT_PROVIDER) as AppSettings["sttProvider"],
     sttLanguage: (row.stt_language ?? "auto") as AppSettings["sttLanguage"],
+    externalSttLanguage: (row.external_stt_language ?? DEFAULT_EXTERNAL_STT_LANGUAGE) as AppSettings["externalSttLanguage"],
+    externalSttApiKey: decryptSetting(
+      "externalSttApiKey",
+      row.external_stt_api_key_encrypted
+    ),
     webSearchEngine: (row.web_search_engine ?? "exa") as AppSettings["webSearchEngine"],
     exaApiKey: decryptSetting("exaApiKey", row.exa_api_key_encrypted),
     tavilyApiKey: decryptSetting("tavilyApiKey", row.tavily_api_key_encrypted),
@@ -790,14 +848,17 @@ function ensureUserSettingsRow(userId: string) {
         memories_max_count,
         mcp_timeout,
         stt_engine,
+        stt_provider,
         stt_language,
+        external_stt_language,
+        external_stt_api_key_encrypted,
         web_search_engine,
         exa_api_key_encrypted,
         tavily_api_key_encrypted,
         searxng_base_url,
         max_assistant_tool_steps,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       userId,
@@ -809,7 +870,10 @@ function ensureUserSettingsRow(userId: string) {
       settings.memories_max_count,
       settings.mcp_timeout,
       "browser",
+      DEFAULT_EXTERNAL_STT_PROVIDER,
       "auto",
+      DEFAULT_EXTERNAL_STT_LANGUAGE,
+      "",
       "exa",
       "",
       "",
@@ -834,7 +898,10 @@ function getUserSettingsRow(userId: string) {
         memories_max_count,
         mcp_timeout,
         stt_engine,
+        stt_provider,
         stt_language,
+        external_stt_language,
+        external_stt_api_key_encrypted,
         web_search_engine,
         exa_api_key_encrypted,
         tavily_api_key_encrypted,
@@ -1016,6 +1083,8 @@ export function getSanitizedSettings(userId?: string) {
 
   return {
     ...settings,
+    externalSttApiKey: "",
+    hasExternalSttApiKey: Boolean(settings.externalSttApiKey),
     exaApiKey: "",
     tavilyApiKey: "",
     hasExaApiKey: Boolean(settings.exaApiKey),
@@ -1032,6 +1101,19 @@ export function updateGeneralSettingsForUser(
 ) {
   const currentRow = getUserSettingsRow(userId);
   const current = getSettingsForUser(userId);
+  const sttProvider = input.sttProvider ?? current.sttProvider;
+  const hasChangedSttProvider = sttProvider !== current.sttProvider;
+  const requestedExternalSttApiKeyAction = input.externalSttApiKeyAction ??
+    (input.externalSttApiKey?.trim() ? "replace" : "preserve");
+  const externalSttApiKeyAction =
+    hasChangedSttProvider && requestedExternalSttApiKeyAction === "preserve"
+      ? "clear"
+      : requestedExternalSttApiKeyAction;
+  const externalSttApiKey = externalSttApiKeyAction === "clear"
+    ? ""
+    : externalSttApiKeyAction === "replace"
+      ? input.externalSttApiKey?.trim() ?? ""
+      : current.externalSttApiKey;
   const shouldClearExaApiKey = input.clearExaApiKey === true;
   const shouldClearTavilyApiKey = input.clearTavilyApiKey === true;
   const shouldPreserveExaApiKey =
@@ -1059,7 +1141,19 @@ export function updateGeneralSettingsForUser(
     mcpTimeout: input.mcpTimeout ?? current.mcpTimeout,
     maxAssistantToolSteps: input.maxAssistantToolSteps ?? current.maxAssistantToolSteps,
     sttEngine: input.sttEngine ?? current.sttEngine,
+    sttProvider,
     sttLanguage: input.sttLanguage ?? current.sttLanguage,
+    externalSttLanguage:
+      input.externalSttLanguage ??
+      (hasChangedSttProvider
+        ? getExternalSttProviderConfig(sttProvider).languages[0].value
+        : current.externalSttLanguage),
+    externalSttApiKey:
+      externalSttApiKeyAction === "preserve" &&
+      !externalSttApiKey &&
+      Boolean(currentRow.external_stt_api_key_encrypted)
+        ? "__preserved_external_stt_api_key__"
+        : externalSttApiKey,
     webSearchEngine: input.webSearchEngine ?? current.webSearchEngine,
     exaApiKey,
     tavilyApiKey:
@@ -1071,6 +1165,7 @@ export function updateGeneralSettingsForUser(
   const next = {
     ...current,
     ...validated,
+    externalSttApiKey,
     exaApiKey,
     tavilyApiKey,
     updatedAt: new Date().toISOString()
@@ -1091,6 +1186,13 @@ export function updateGeneralSettingsForUser(
         ? encryptValue(next.tavilyApiKey)
         : ""
       : currentRow.tavily_api_key_encrypted;
+  const externalSttApiKeyEncrypted = externalSttApiKeyAction === "clear"
+    ? ""
+    : externalSttApiKeyAction === "replace"
+      ? externalSttApiKey
+        ? encryptValue(externalSttApiKey)
+        : ""
+      : currentRow.external_stt_api_key_encrypted;
 
   getDb()
     .prepare(
@@ -1103,7 +1205,10 @@ export function updateGeneralSettingsForUser(
            mcp_timeout = ?,
            max_assistant_tool_steps = ?,
            stt_engine = ?,
+           stt_provider = ?,
            stt_language = ?,
+           external_stt_language = ?,
+           external_stt_api_key_encrypted = ?,
            web_search_engine = ?,
            exa_api_key_encrypted = ?,
            tavily_api_key_encrypted = ?,
@@ -1120,7 +1225,10 @@ export function updateGeneralSettingsForUser(
       next.mcpTimeout,
       next.maxAssistantToolSteps,
       next.sttEngine,
+      next.sttProvider,
       next.sttLanguage,
+      next.externalSttLanguage,
+      externalSttApiKeyEncrypted,
       next.webSearchEngine,
       exaApiKeyEncrypted,
       tavilyApiKeyEncrypted,

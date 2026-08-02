@@ -52,8 +52,11 @@ type SettingsFixture = {
   memoriesMaxCount: number;
   mcpTimeout: number;
   maxAssistantToolSteps: number;
-  sttEngine: "browser" | "embedded";
+  sttEngine: "browser" | "embedded" | "external";
+  sttProvider: "elevenlabs";
   sttLanguage: "auto" | "en" | "fr" | "es";
+  externalSttLanguage: "auto";
+  externalSttApiKey: string;
   webSearchEngine: "exa" | "tavily" | "searxng" | "disabled";
   exaApiKey: string;
   tavilyApiKey: string;
@@ -77,7 +80,10 @@ function makeSettings(overrides: Partial<SettingsFixture> = {}): SettingsFixture
     mcpTimeout: 120_000,
     maxAssistantToolSteps: 25,
     sttEngine: "browser",
+    sttProvider: "elevenlabs",
     sttLanguage: "en",
+    externalSttLanguage: "auto",
+    externalSttApiKey: "",
     webSearchEngine: "exa",
     exaApiKey: "",
     tavilyApiKey: "",

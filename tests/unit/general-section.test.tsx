@@ -12,6 +12,7 @@ const mockRefresh = vi.fn();
 type GeneralSectionSettings = AppSettings & {
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
+  hasExternalSttApiKey?: boolean;
   hasGoogleNanoBananaApiKey?: boolean;
   providerProfiles: Array<{ id: string; name: string; model: string; hasApiKey: boolean }>;
 };
@@ -32,7 +33,10 @@ function makeSettings(overrides: Partial<GeneralSectionSettings> = {}): GeneralS
     mcpTimeout: 120_000,
     maxAssistantToolSteps: 25,
     sttEngine: "browser",
+    sttProvider: "elevenlabs",
     sttLanguage: "auto",
+    externalSttLanguage: "auto",
+    externalSttApiKey: "",
     webSearchEngine: "exa",
     exaApiKey: "",
     tavilyApiKey: "",
@@ -42,6 +46,7 @@ function makeSettings(overrides: Partial<GeneralSectionSettings> = {}): GeneralS
     googleNanoBananaApiKey: "",
     hasExaApiKey: false,
     hasTavilyApiKey: false,
+    hasExternalSttApiKey: false,
     updatedAt: new Date().toISOString(),
     providerProfiles: [],
     titleGenerationMode: "same",
@@ -137,6 +142,69 @@ describe("general section", () => {
     expect(screen.getByDisplayValue("English")).toBeInTheDocument();
     expect(screen.getByText("Canary 180M Flash")).toBeInTheDocument();
     expect(screen.getByText(/downloads only when embedded dictation is first used/)).toBeInTheDocument();
+  });
+
+  it("reveals ElevenLabs provider credentials after External is selected", () => {
+    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+
+    expect(screen.queryByLabelText("Speech-to-text provider")).toBeNull();
+    expect(screen.queryByLabelText("ElevenLabs API key")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Speech engine"), {
+      target: { value: "external" }
+    });
+
+    expect(screen.getByLabelText("Speech-to-text provider")).toHaveValue("elevenlabs");
+    expect(screen.getByText("ElevenLabs · Scribe v2")).toBeInTheDocument();
+    expect(screen.getByLabelText("ElevenLabs API key")).toHaveAttribute(
+      "placeholder",
+      "Required"
+    );
+    const language = screen.getByLabelText("ElevenLabs transcription language");
+    expect(language).toHaveValue("auto");
+    expect((language as HTMLSelectElement).options[0]).toHaveTextContent("Automatic");
+    expect(screen.queryByDisplayValue("Auto-detect")).toBeNull();
+  });
+
+  it("requires and saves an ElevenLabs key for External transcription", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        settings: makeSettings({
+          sttEngine: "external",
+          hasExternalSttApiKey: true
+        })
+      })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+    fireEvent.change(screen.getByLabelText("Speech engine"), {
+      target: { value: "external" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(await screen.findByText("ElevenLabs API key is required.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("ElevenLabs API key"), {
+      target: { value: "xi-test-key" }
+    });
+    fireEvent.change(screen.getByLabelText("ElevenLabs transcription language"), {
+      target: { value: "fra" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
+    expect(body.general).toMatchObject({
+      sttEngine: "external",
+      sttProvider: "elevenlabs",
+      sttLanguage: "auto",
+      externalSttLanguage: "fra",
+      externalSttApiKey: "xi-test-key",
+      externalSttApiKeyAction: "replace"
+    });
   });
 
   it("shows Exa by default with an optional API key note", () => {

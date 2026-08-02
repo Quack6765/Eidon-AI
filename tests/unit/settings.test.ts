@@ -479,8 +479,12 @@ describe("settings storage", () => {
     });
 
     updateGeneralSettingsForUser(userA.id, {
-      sttEngine: "embedded",
-      sttLanguage: "fr"
+      sttEngine: "external",
+      sttProvider: "elevenlabs",
+      sttLanguage: "fr",
+      externalSttLanguage: "fra",
+      externalSttApiKey: "xi-user-a",
+      externalSttApiKeyAction: "replace"
     });
     updateGeneralSettingsForUser(userB.id, {
       sttEngine: "browser",
@@ -488,8 +492,11 @@ describe("settings storage", () => {
     });
 
     expect(getSettingsForUser(userA.id)).toMatchObject({
-      sttEngine: "embedded",
-      sttLanguage: "fr"
+      sttEngine: "external",
+      sttProvider: "elevenlabs",
+      sttLanguage: "fr",
+      externalSttLanguage: "fra",
+      externalSttApiKey: "xi-user-a"
     });
     expect(getSettingsForUser(userB.id)).toMatchObject({
       sttEngine: "browser",
@@ -510,16 +517,57 @@ describe("settings storage", () => {
       tavilyApiKey: "",
       searxngBaseUrl: "",
       sttEngine: "browser",
-      sttLanguage: "auto"
+      sttProvider: "elevenlabs",
+      sttLanguage: "auto",
+      externalSttLanguage: "auto"
     });
 
     const stored = getDb()
-      .prepare("SELECT stt_engine, stt_language FROM user_settings WHERE user_id = ?")
-      .get(user.id) as { stt_engine: string; stt_language: string };
+      .prepare(
+        "SELECT stt_engine, stt_provider, stt_language, external_stt_language, external_stt_api_key_encrypted FROM user_settings WHERE user_id = ?"
+      )
+      .get(user.id) as {
+        stt_engine: string;
+        stt_provider: string;
+        stt_language: string;
+        external_stt_language: string;
+        external_stt_api_key_encrypted: string;
+      };
 
     expect(stored).toMatchObject({
       stt_engine: "browser",
-      stt_language: "auto"
+      stt_provider: "elevenlabs",
+      external_stt_language: "auto",
+      stt_language: "auto",
+      external_stt_api_key_encrypted: ""
+    });
+  });
+
+  it("encrypts and sanitizes ElevenLabs speech credentials", async () => {
+    const user = await createLocalUser({
+      username: "speech-external",
+      password: "changeme123",
+      role: "user"
+    });
+
+    updateGeneralSettingsForUser(user.id, {
+      sttEngine: "external",
+      sttProvider: "elevenlabs",
+      externalSttApiKey: "xi-speech-secret",
+      externalSttApiKeyAction: "replace"
+    });
+
+    const stored = getDb()
+      .prepare("SELECT external_stt_api_key_encrypted FROM user_settings WHERE user_id = ?")
+      .get(user.id) as { external_stt_api_key_encrypted: string };
+    expect(stored.external_stt_api_key_encrypted).not.toBe("xi-speech-secret");
+    expect(stored.external_stt_api_key_encrypted).not.toBe("");
+
+    expect(getSanitizedSettings(user.id)).toMatchObject({
+      sttEngine: "external",
+      sttProvider: "elevenlabs",
+      externalSttApiKey: "",
+      hasExternalSttApiKey: true
     });
   });
 
