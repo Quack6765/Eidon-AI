@@ -103,6 +103,15 @@
       "get": { "operationId": "downloadAttachment", "tags": ["Attachments"], "parameters": [{ "name": "download", "in": "query", "schema": { "type": "string", "enum": ["0", "1"] } }, { "name": "format", "in": "query", "schema": { "type": "string" } }], "responses": { "200": { "description": "Authenticated preview or binary download", "content": { "application/octet-stream": { "schema": { "type": "string", "contentEncoding": "binary" } }, "text/plain": { "schema": { "type": "string" } } } } } },
       "delete": { "operationId": "deleteAttachment", "tags": ["Attachments"], "responses": { "200": { "$ref": "#/components/responses/Success" } } }
     },
+    "/speech/canary/prepare": {
+      "post": { "operationId": "prepareCanarySpeechModel", "tags": ["Speech"], "responses": { "200": { "$ref": "#/components/responses/SpeechPreparation" } } }
+    },
+    "/speech/canary/transcribe": {
+      "post": { "operationId": "transcribeSpeechWithCanary", "tags": ["Speech"], "parameters": [{ "$ref": "#/components/parameters/speechAudioSampleRate" }, { "$ref": "#/components/parameters/canarySpeechLanguage" }], "requestBody": { "$ref": "#/components/requestBodies/RecordedSpeechAudio" }, "responses": { "200": { "$ref": "#/components/responses/SpeechTranscription" } } }
+    },
+    "/speech/external/transcribe": {
+      "post": { "operationId": "transcribeSpeechWithExternalProvider", "tags": ["Speech"], "parameters": [{ "$ref": "#/components/parameters/speechAudioSampleRate" }], "requestBody": { "$ref": "#/components/requestBodies/RecordedSpeechAudio" }, "responses": { "200": { "$ref": "#/components/responses/SpeechTranscription" } } }
+    },
     "/automations": {
       "get": { "operationId": "listAutomations", "tags": ["Automations"], "responses": { "200": { "$ref": "#/components/responses/AutomationList" } } },
       "post": { "operationId": "createAutomation", "tags": ["Automations"], "requestBody": { "$ref": "#/components/requestBodies/AutomationCreate" }, "responses": { "201": { "$ref": "#/components/responses/Automation" } } }
@@ -166,7 +175,9 @@
       "serverId": { "name": "serverId", "in": "path", "required": true, "schema": { "type": "string" } },
       "skillId": { "name": "skillId", "in": "path", "required": true, "schema": { "type": "string" } },
       "userId": { "name": "userId", "in": "path", "required": true, "schema": { "type": "string" } },
-      "flowId": { "name": "flowId", "in": "path", "required": true, "schema": { "type": "string" } }
+      "flowId": { "name": "flowId", "in": "path", "required": true, "schema": { "type": "string" } },
+      "speechAudioSampleRate": { "name": "X-Audio-Sample-Rate", "in": "header", "required": true, "schema": { "type": "integer", "const": 16000 } },
+      "canarySpeechLanguage": { "name": "X-Speech-Language", "in": "header", "required": true, "schema": { "type": "string", "enum": ["en", "fr", "es"] } }
     },
     "requestBodies": {
       "AccountUpdate": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccountUpdateRequest" } } } },
@@ -202,7 +213,8 @@
       "SkillCreate": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SkillCreateRequest" } } } },
       "SkillUpdate": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SkillUpdateRequest" } } } },
       "UserCreate": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserCreateRequest" } } } },
-      "UserUpdate": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserUpdateRequest" } } } }
+      "UserUpdate": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserUpdateRequest" } } } },
+      "RecordedSpeechAudio": { "required": true, "description": "Raw mono Float32 PCM audio at 16 kHz, limited to 300 seconds.", "content": { "application/octet-stream": {} } }
     },
     "responses": {
       "Success": { "description": "Successful response", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SuccessEnvelope" } } } },
@@ -245,7 +257,9 @@
       "SkillList": { "description": "Skills", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SkillListEnvelope" } } } },
       "GithubOauthStart": { "description": "Short-lived native OAuth attempt", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GithubOauthStartEnvelope" } } } },
       "GithubOauthFlow": { "description": "Sanitized native OAuth attempt status", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GithubOauthFlowEnvelope" } } } },
-      "GithubModelList": { "description": "GitHub Copilot model summaries", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GithubModelListEnvelope" } } } }
+      "GithubModelList": { "description": "GitHub Copilot model summaries", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GithubModelListEnvelope" } } } },
+      "SpeechPreparation": { "description": "Embedded speech model ready for transcription", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SpeechPreparationEnvelope" } } } },
+      "SpeechTranscription": { "description": "Completed speech transcription", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SpeechTranscriptionEnvelope" } } } }
     },
     "schemas": {
       "Rfc3339": { "type": "string", "format": "date-time" },
@@ -358,7 +372,9 @@
       "SkillListEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["skills"], "properties": { "skills": { "type": "array", "items": { "$ref": "#/components/schemas/Skill" } } } } } },
       "GithubOauthStartEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["flowId", "authorizationUrl", "expiresAt"], "properties": { "flowId": { "$ref": "#/components/schemas/OpaqueId" }, "authorizationUrl": { "type": "string", "format": "uri" }, "expiresAt": { "$ref": "#/components/schemas/Rfc3339" } } } } },
       "GithubOauthFlowEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["flow"], "properties": { "flow": { "$ref": "#/components/schemas/GithubOauthFlow" } } } } },
-      "GithubModelListEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["models"], "properties": { "models": { "type": "array", "items": { "$ref": "#/components/schemas/GithubModel" } } } } } }
+      "GithubModelListEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["models"], "properties": { "models": { "type": "array", "items": { "$ref": "#/components/schemas/GithubModel" } } } } } },
+      "SpeechPreparationEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["model", "ready"], "properties": { "model": { "type": "string" }, "ready": { "const": true } } } } },
+      "SpeechTranscriptionEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["model", "transcript"], "properties": { "model": { "type": "string" }, "provider": { "type": "string", "enum": ["elevenlabs"] }, "transcript": { "type": "string" } } } } }
     }
   }
 }
