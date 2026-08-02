@@ -409,7 +409,13 @@ describe("db", () => {
     ).map((column) => column.name);
 
     expect(userSettingsColumns).toEqual(
-      expect.arrayContaining(["stt_engine", "stt_language"])
+      expect.arrayContaining([
+        "stt_engine",
+        "stt_provider",
+        "stt_language",
+        "external_stt_language",
+        "external_stt_api_key_encrypted"
+      ])
     );
   });
 

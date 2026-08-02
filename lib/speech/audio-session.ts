@@ -1,8 +1,11 @@
 import { createAudioLevelMonitor } from "@/lib/speech/audio-level-monitor";
+import {
+  MAX_RECORDED_SPEECH_SECONDS,
+  RECORDED_SPEECH_SAMPLE_RATE
+} from "@/lib/speech/recording-constants";
 import type { SpeechAudioRecorder } from "@/lib/speech/types";
 
-export const CANARY_SAMPLE_RATE = 16_000;
-export const MAX_EMBEDDED_RECORDING_SECONDS = 300;
+export const CANARY_SAMPLE_RATE = RECORDED_SPEECH_SAMPLE_RATE;
 
 export type SpeechAudioSession = {
   audioMonitor: ReturnType<typeof createAudioLevelMonitor>;
@@ -67,13 +70,13 @@ function createSpeechAudioRecorder(input: {
   source: MediaStreamAudioSourceNode;
 }): SpeechAudioRecorder {
   if (typeof input.audioContext.createScriptProcessor !== "function") {
-    throw new Error("Embedded audio capture is unavailable in this browser.");
+    throw new Error("Recorded audio capture is unavailable in this browser.");
   }
 
   const processor = input.audioContext.createScriptProcessor(4096, 1, 1);
   const chunks: Float32Array[] = [];
   const maxSourceSamples = Math.ceil(
-    input.audioContext.sampleRate * MAX_EMBEDDED_RECORDING_SECONDS
+    input.audioContext.sampleRate * MAX_RECORDED_SPEECH_SECONDS
   );
   let totalSamples = 0;
   let isRecording = false;
@@ -114,7 +117,7 @@ function createSpeechAudioRecorder(input: {
       isRecording = false;
       if (exceededLimit) {
         throw new Error(
-          `Embedded dictation is limited to ${MAX_EMBEDDED_RECORDING_SECONDS / 60} minutes per recording.`
+          `Recorded dictation is limited to ${MAX_RECORDED_SPEECH_SECONDS / 60} minutes per recording.`
         );
       }
 

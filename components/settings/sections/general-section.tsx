@@ -9,12 +9,17 @@ import { Toast } from "@/components/ui/toast";
 import { fieldLabel, inputLike, selectLike, sectionTitle, sectionDivider } from "@/lib/settings-styles";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
+import {
+  EXTERNAL_STT_PROVIDER_OPTIONS,
+  getExternalSttProviderConfig
+} from "@/lib/speech/external-providers";
 import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import type { AppSettings, ConversationRetention, ImageGenerationBackend } from "@/lib/types";
 
 type GeneralSectionSettings = AppSettings & {
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
+  hasExternalSttApiKey?: boolean;
   hasGoogleNanoBananaApiKey?: boolean;
   providerProfiles: Array<{ id: string; name: string; model: string; hasApiKey: boolean }>;
 };
@@ -33,7 +38,11 @@ export function GeneralSection({
   const [mcpTimeout, setMcpTimeout] = useState(settings.mcpTimeout);
   const [maxAssistantToolSteps, setMaxAssistantToolSteps] = useState(settings.maxAssistantToolSteps);
   const [sttEngine, setSttEngine] = useState(settings.sttEngine);
+  const [sttProvider, setSttProvider] = useState(settings.sttProvider);
   const [sttLanguage, setSttLanguage] = useState(settings.sttLanguage);
+  const [externalSttLanguage, setExternalSttLanguage] = useState(settings.externalSttLanguage);
+  const [externalSttApiKey, setExternalSttApiKey] = useState(settings.externalSttApiKey);
+  const [hasEditedExternalSttApiKey, setHasEditedExternalSttApiKey] = useState(false);
   const [webSearchEngine, setWebSearchEngine] = useState(settings.webSearchEngine);
   const [exaApiKey, setExaApiKey] = useState(settings.exaApiKey);
   const [tavilyApiKey, setTavilyApiKey] = useState(settings.tavilyApiKey);
@@ -47,6 +56,9 @@ export function GeneralSection({
   );
   const [hasStoredTavilyApiKey, setHasStoredTavilyApiKey] = useState(
     settings.hasTavilyApiKey ?? Boolean(settings.tavilyApiKey)
+  );
+  const [hasStoredExternalSttApiKey, setHasStoredExternalSttApiKey] = useState(
+    settings.hasExternalSttApiKey ?? Boolean(settings.externalSttApiKey)
   );
 
   const [imageGenerationBackend, setImageGenerationBackend] = useState<ImageGenerationBackend>(
@@ -74,7 +86,9 @@ export function GeneralSection({
     mcpTimeout: settings.mcpTimeout,
     maxAssistantToolSteps: settings.maxAssistantToolSteps,
     sttEngine: settings.sttEngine,
+    sttProvider: settings.sttProvider,
     sttLanguage: settings.sttLanguage,
+    externalSttLanguage: settings.externalSttLanguage,
     webSearchEngine: settings.webSearchEngine,
     searxngBaseUrl: settings.searxngBaseUrl,
     imageGenerationBackend: settings.imageGenerationBackend,
@@ -83,6 +97,7 @@ export function GeneralSection({
     titleGenerationProfileId: settings.titleGenerationProfileId,
     hasStoredExaApiKey,
     hasStoredTavilyApiKey,
+    hasStoredExternalSttApiKey,
     hasStoredGoogleNanoBananaApiKey
   });
 
@@ -91,7 +106,11 @@ export function GeneralSection({
     mcpTimeout,
     maxAssistantToolSteps,
     sttEngine,
+    sttProvider,
     sttLanguage,
+    externalSttLanguage,
+    externalSttApiKey,
+    hasEditedExternalSttApiKey,
     webSearchEngine,
     exaApiKey,
     tavilyApiKey,
@@ -121,7 +140,7 @@ export function GeneralSection({
   }, [isDirty]);
 
   const speechLanguageOptions =
-    sttEngine === "browser"
+    sttEngine !== "embedded"
       ? [
           { value: "auto", label: "Auto-detect" },
           { value: "en", label: "English" },
@@ -133,6 +152,7 @@ export function GeneralSection({
           { value: "fr", label: "French" },
           { value: "es", label: "Spanish" }
         ];
+  const selectedExternalSttProvider = getExternalSttProviderConfig(sttProvider);
 
   function resetMessages() {
     toast.dismissToast();
@@ -150,6 +170,18 @@ export function GeneralSection({
     setHasEditedGoogleNanoBananaApiKey(false);
   }
 
+  function clearStoredExternalSttApiKey() {
+    resetMessages();
+    setExternalSttApiKey("");
+    setHasEditedExternalSttApiKey(true);
+  }
+
+  function keepStoredExternalSttApiKey() {
+    resetMessages();
+    setExternalSttApiKey("");
+    setHasEditedExternalSttApiKey(false);
+  }
+
   function handleSpeechEngineChange(nextEngine: AppSettings["sttEngine"]) {
     resetMessages();
     setSttEngine(nextEngine);
@@ -158,7 +190,28 @@ export function GeneralSection({
     }
   }
 
+  function handleSttProviderChange(nextProvider: AppSettings["sttProvider"]) {
+    resetMessages();
+    const provider = getExternalSttProviderConfig(nextProvider);
+    setSttProvider(nextProvider);
+    setExternalSttLanguage(provider.languages[0].value);
+    setExternalSttApiKey("");
+    setHasEditedExternalSttApiKey(false);
+    setHasStoredExternalSttApiKey(
+      nextProvider === persistedSettings.current.sttProvider &&
+        persistedSettings.current.hasStoredExternalSttApiKey
+    );
+  }
+
   function getSearchValidationError() {
+    if (
+      sttEngine === "external" &&
+      !externalSttApiKey.trim() &&
+      (hasEditedExternalSttApiKey || !hasStoredExternalSttApiKey)
+    ) {
+      return `${selectedExternalSttProvider.label} API key is required.`;
+    }
+
     if (
       webSearchEngine === "tavily" &&
       !tavilyApiKey.trim() &&
@@ -185,13 +238,16 @@ export function GeneralSection({
   function acceptSavedSettings(saved: GeneralSectionSettings) {
     const savedHasExaApiKey = saved.hasExaApiKey ?? false;
     const savedHasTavilyApiKey = saved.hasTavilyApiKey ?? false;
+    const savedHasExternalSttApiKey = saved.hasExternalSttApiKey ?? false;
     const savedHasGoogleNanoBananaApiKey = saved.hasGoogleNanoBananaApiKey ?? false;
 
     setConversationRetention(saved.conversationRetention);
     setMcpTimeout(saved.mcpTimeout);
     setMaxAssistantToolSteps(saved.maxAssistantToolSteps);
     setSttEngine(saved.sttEngine);
+    setSttProvider(saved.sttProvider);
     setSttLanguage(saved.sttLanguage);
+    setExternalSttLanguage(saved.externalSttLanguage);
     setWebSearchEngine(saved.webSearchEngine);
     setSearxngBaseUrl(saved.searxngBaseUrl);
     setImageGenerationBackend(saved.imageGenerationBackend);
@@ -200,12 +256,15 @@ export function GeneralSection({
     setTitleGenerationProfileId(saved.titleGenerationProfileId);
     setHasStoredExaApiKey(savedHasExaApiKey);
     setHasStoredTavilyApiKey(savedHasTavilyApiKey);
+    setHasStoredExternalSttApiKey(savedHasExternalSttApiKey);
     setHasStoredGoogleNanoBananaApiKey(savedHasGoogleNanoBananaApiKey);
     setExaApiKey("");
     setTavilyApiKey("");
+    setExternalSttApiKey("");
     setGoogleNanoBananaApiKey("");
     setHasEditedExaApiKey(false);
     setHasEditedTavilyApiKey(false);
+    setHasEditedExternalSttApiKey(false);
     setHasEditedGoogleNanoBananaApiKey(false);
 
     persistedSettings.current = {
@@ -213,7 +272,9 @@ export function GeneralSection({
       mcpTimeout: saved.mcpTimeout,
       maxAssistantToolSteps: saved.maxAssistantToolSteps,
       sttEngine: saved.sttEngine,
+      sttProvider: saved.sttProvider,
       sttLanguage: saved.sttLanguage,
+      externalSttLanguage: saved.externalSttLanguage,
       webSearchEngine: saved.webSearchEngine,
       searxngBaseUrl: saved.searxngBaseUrl,
       imageGenerationBackend: saved.imageGenerationBackend,
@@ -222,6 +283,7 @@ export function GeneralSection({
       titleGenerationProfileId: saved.titleGenerationProfileId,
       hasStoredExaApiKey: savedHasExaApiKey,
       hasStoredTavilyApiKey: savedHasTavilyApiKey,
+      hasStoredExternalSttApiKey: savedHasExternalSttApiKey,
       hasStoredGoogleNanoBananaApiKey: savedHasGoogleNanoBananaApiKey
     };
     resetDirty({
@@ -229,7 +291,11 @@ export function GeneralSection({
       mcpTimeout: saved.mcpTimeout,
       maxAssistantToolSteps: saved.maxAssistantToolSteps,
       sttEngine: saved.sttEngine,
+      sttProvider: saved.sttProvider,
       sttLanguage: saved.sttLanguage,
+      externalSttLanguage: saved.externalSttLanguage,
+      externalSttApiKey: "",
+      hasEditedExternalSttApiKey: false,
       webSearchEngine: saved.webSearchEngine,
       exaApiKey: "",
       tavilyApiKey: "",
@@ -249,7 +315,10 @@ export function GeneralSection({
     setMcpTimeout(saved.mcpTimeout);
     setMaxAssistantToolSteps(saved.maxAssistantToolSteps);
     setSttEngine(saved.sttEngine);
+    setSttProvider(saved.sttProvider);
     setSttLanguage(saved.sttLanguage);
+    setExternalSttLanguage(saved.externalSttLanguage);
+    setExternalSttApiKey("");
     setWebSearchEngine(saved.webSearchEngine);
     setExaApiKey("");
     setTavilyApiKey("");
@@ -261,16 +330,22 @@ export function GeneralSection({
     setTitleGenerationProfileId(saved.titleGenerationProfileId);
     setHasStoredExaApiKey(saved.hasStoredExaApiKey);
     setHasStoredTavilyApiKey(saved.hasStoredTavilyApiKey);
+    setHasStoredExternalSttApiKey(saved.hasStoredExternalSttApiKey);
     setHasStoredGoogleNanoBananaApiKey(saved.hasStoredGoogleNanoBananaApiKey);
     setHasEditedExaApiKey(false);
     setHasEditedTavilyApiKey(false);
+    setHasEditedExternalSttApiKey(false);
     setHasEditedGoogleNanoBananaApiKey(false);
     resetDirty({
       conversationRetention: saved.conversationRetention,
       mcpTimeout: saved.mcpTimeout,
       maxAssistantToolSteps: saved.maxAssistantToolSteps,
       sttEngine: saved.sttEngine,
+      sttProvider: saved.sttProvider,
       sttLanguage: saved.sttLanguage,
+      externalSttLanguage: saved.externalSttLanguage,
+      externalSttApiKey: "",
+      hasEditedExternalSttApiKey: false,
       webSearchEngine: saved.webSearchEngine,
       exaApiKey: "",
       tavilyApiKey: "",
@@ -300,10 +375,22 @@ export function GeneralSection({
       mcpTimeout,
       maxAssistantToolSteps,
       sttEngine,
+      sttProvider,
       sttLanguage,
+      externalSttLanguage,
       webSearchEngine,
       searxngBaseUrl: searxngBaseUrl.trim()
     };
+
+    const trimmedExternalSttApiKey = externalSttApiKey.trim();
+    payload.externalSttApiKeyAction = hasEditedExternalSttApiKey
+      ? trimmedExternalSttApiKey
+        ? "replace"
+        : "clear"
+      : "preserve";
+    if (trimmedExternalSttApiKey) {
+      payload.externalSttApiKey = trimmedExternalSttApiKey;
+    }
 
     if (hasEditedExaApiKey || !hasStoredExaApiKey) {
       payload.exaApiKey = trimmedExaApiKey;
@@ -450,38 +537,150 @@ export function GeneralSection({
       {/* Speech-to-Text */}
       <div className="space-y-4">
         <h3 className={sectionTitle}>Speech-to-Text</h3>
-        <div className="space-y-1.5">
-          <label className={fieldLabel}>Speech engine and language</label>
-          <p className="text-xs text-[var(--muted)]">Choose browser-native dictation or private transcription on your Eidon server, then set the spoken language.</p>
-          <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="speech-engine" className={fieldLabel}>Transcription method</label>
+            <p className="mb-2 text-xs text-[var(--muted)]">
+              Choose where microphone audio is transcribed.
+            </p>
             <select
+              id="speech-engine"
               aria-label="Speech engine"
               value={sttEngine}
               onChange={(event) =>
                 handleSpeechEngineChange(event.target.value as AppSettings["sttEngine"])
               }
-              className={`${selectLike} sm:w-auto ${isFieldDirty("sttEngine") ? "!border-amber-500/40" : ""}`}
+              className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("sttEngine") ? "!border-amber-500/40" : ""}`}
             >
               <option value="browser">Browser</option>
               <option value="embedded">Embedded model</option>
-            </select>
-
-            <select
-              aria-label="Speech language"
-              value={sttLanguage}
-              onChange={(event) => {
-                resetMessages();
-                setSttLanguage(event.target.value as AppSettings["sttLanguage"]);
-              }}
-              className={`${selectLike} sm:w-auto ${isFieldDirty("sttLanguage") ? "!border-amber-500/40" : ""}`}
-            >
-              {speechLanguageOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
+              <option value="external">External</option>
             </select>
           </div>
+
+          {sttEngine === "external" ? (
+            <div className="space-y-3">
+              <div>
+                <label htmlFor="speech-provider" className={fieldLabel}>Provider</label>
+                <select
+                  id="speech-provider"
+                  aria-label="Speech-to-text provider"
+                  value={sttProvider}
+                  onChange={(event) =>
+                    handleSttProviderChange(event.target.value as AppSettings["sttProvider"])
+                  }
+                  className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("sttProvider") ? "!border-amber-500/40" : ""}`}
+                >
+                  {EXTERNAL_STT_PROVIDER_OPTIONS.map((provider) => (
+                    <option key={provider.value} value={provider.value}>
+                      {provider.label} · {provider.modelLabel}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label htmlFor="external-stt-api-key" className={fieldLabel}>API key</label>
+                <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
+                  <input
+                    id="external-stt-api-key"
+                    aria-label={`${selectedExternalSttProvider.label} API key`}
+                    type="password"
+                    autoComplete="off"
+                    value={externalSttApiKey}
+                    placeholder={
+                      hasStoredExternalSttApiKey && !hasEditedExternalSttApiKey
+                        ? "••••••••"
+                        : "Required"
+                    }
+                    onChange={(event) => {
+                      resetMessages();
+                      setHasEditedExternalSttApiKey(true);
+                      setExternalSttApiKey(event.target.value);
+                    }}
+                    className={`${inputLike} w-full sm:w-[22rem] ${isFieldDirty("externalSttApiKey") ? "!border-amber-500/40" : ""}`}
+                  />
+                  {hasStoredExternalSttApiKey && !hasEditedExternalSttApiKey ? (
+                    <button
+                      type="button"
+                      onClick={clearStoredExternalSttApiKey}
+                      className="rounded-lg px-2.5 py-2 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
+                    >
+                      Clear stored key
+                    </button>
+                  ) : null}
+                </div>
+                {hasStoredExternalSttApiKey && hasEditedExternalSttApiKey ? (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-amber-300"
+                  >
+                    <span>
+                      {externalSttApiKey.trim()
+                        ? "A replacement key will be saved."
+                        : "Stored key will be cleared when you save."}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={keepStoredExternalSttApiKey}
+                      className="font-medium text-[var(--text)] underline decoration-white/30 underline-offset-4 transition-colors hover:decoration-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
+                    >
+                      Keep stored key
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+
+              <div>
+                <label htmlFor="external-stt-language" className={fieldLabel}>Language</label>
+                <p className="mb-2 text-xs text-[var(--muted)]">
+                  Automatic detects the spoken language.
+                </p>
+                <select
+                  id="external-stt-language"
+                  aria-label={`${selectedExternalSttProvider.label} transcription language`}
+                  value={externalSttLanguage}
+                  onChange={(event) => {
+                    resetMessages();
+                    setExternalSttLanguage(
+                      event.target.value as AppSettings["externalSttLanguage"]
+                    );
+                  }}
+                  className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("externalSttLanguage") ? "!border-amber-500/40" : ""}`}
+                >
+                  {selectedExternalSttProvider.languages.map((language) => (
+                    <option key={language.value} value={language.value}>
+                      {language.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+            </div>
+          ) : null}
+
+          {sttEngine !== "external" ? (
+            <div>
+              <label htmlFor="speech-language" className={fieldLabel}>Spoken language</label>
+              <select
+                id="speech-language"
+                aria-label="Speech language"
+                value={sttLanguage}
+                onChange={(event) => {
+                  resetMessages();
+                  setSttLanguage(event.target.value as AppSettings["sttLanguage"]);
+                }}
+                className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("sttLanguage") ? "!border-amber-500/40" : ""}`}
+              >
+                {speechLanguageOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           {sttEngine === "embedded" ? (
             <div className="flex max-w-2xl items-start gap-2 pt-1 text-xs leading-5 text-white/60">
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-violet-300/80" />

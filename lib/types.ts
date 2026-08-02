@@ -1,8 +1,13 @@
+import type {
+  ExternalSttLanguage,
+  SttProvider
+} from "@/lib/speech/external-providers";
+
 export type ApiMode = "responses" | "chat_completions";
 
 export type ConversationRetention = "forever" | "90d" | "30d" | "7d";
 
-export type SttEngine = "browser" | "embedded";
+export type SttEngine = "browser" | "embedded" | "external";
 
 export type SttLanguage = "auto" | "en" | "fr" | "es";
 
@@ -137,7 +142,10 @@ export type AppSettings = {
   mcpTimeout: number;
   maxAssistantToolSteps: number;
   sttEngine: SttEngine;
+  sttProvider: SttProvider;
   sttLanguage: SttLanguage;
+  externalSttLanguage: ExternalSttLanguage;
+  externalSttApiKey: string;
   webSearchEngine: WebSearchEngine;
   exaApiKey: string;
   tavilyApiKey: string;

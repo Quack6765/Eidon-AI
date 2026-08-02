@@ -10,6 +10,10 @@ import { createId } from "@/lib/ids";
 import { encryptValue } from "@/lib/crypto";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { BUILTIN_AGENT_BROWSER_SKILL, deriveSkillDescription } from "@/lib/db-builtin-skills";
+import {
+  DEFAULT_EXTERNAL_STT_LANGUAGE,
+  DEFAULT_EXTERNAL_STT_PROVIDER
+} from "@/lib/speech/external-providers";
 
 const COMPACTION_EVENTS_TABLE_SQL = `
   CREATE TABLE compaction_events (
@@ -522,7 +526,10 @@ export function migrate(db: Database.Database) {
       memories_max_count INTEGER NOT NULL DEFAULT 100,
       mcp_timeout INTEGER NOT NULL DEFAULT 120000,
       stt_engine TEXT NOT NULL DEFAULT 'browser',
+      stt_provider TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_PROVIDER}',
       stt_language TEXT NOT NULL DEFAULT 'auto',
+      external_stt_language TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_LANGUAGE}',
+      external_stt_api_key_encrypted TEXT NOT NULL DEFAULT '',
       web_search_engine TEXT NOT NULL DEFAULT 'exa',
       exa_api_key_encrypted TEXT NOT NULL DEFAULT '',
       tavily_api_key_encrypted TEXT NOT NULL DEFAULT '',
@@ -757,8 +764,17 @@ export function migrate(db: Database.Database) {
   if (!userSettingsColNames.includes("stt_engine")) {
     db.exec("ALTER TABLE user_settings ADD COLUMN stt_engine TEXT NOT NULL DEFAULT 'browser'");
   }
+  if (!userSettingsColNames.includes("stt_provider")) {
+    db.exec(`ALTER TABLE user_settings ADD COLUMN stt_provider TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_PROVIDER}'`);
+  }
   if (!userSettingsColNames.includes("stt_language")) {
     db.exec("ALTER TABLE user_settings ADD COLUMN stt_language TEXT NOT NULL DEFAULT 'auto'");
+  }
+  if (!userSettingsColNames.includes("external_stt_language")) {
+    db.exec(`ALTER TABLE user_settings ADD COLUMN external_stt_language TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_LANGUAGE}'`);
+  }
+  if (!userSettingsColNames.includes("external_stt_api_key_encrypted")) {
+    db.exec("ALTER TABLE user_settings ADD COLUMN external_stt_api_key_encrypted TEXT NOT NULL DEFAULT ''");
   }
   if (!userSettingsColNames.includes("web_search_engine")) {
     db.exec("ALTER TABLE user_settings ADD COLUMN web_search_engine TEXT NOT NULL DEFAULT 'exa'");

@@ -1,4 +1,4 @@
-export type SttEngine = "browser" | "embedded";
+export type SttEngine = "browser" | "embedded" | "external";
 
 export type SttLanguage = "auto" | "en" | "fr" | "es";
 

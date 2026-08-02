@@ -34,6 +34,7 @@ const blockedResponseKeys = new Set([
   "githubUserAccessTokenEncrypted",
   "googleNanoBananaApiKey",
   "headers",
+  "externalSttApiKey",
   "passwordHash",
   "relativePath",
   "shareToken",

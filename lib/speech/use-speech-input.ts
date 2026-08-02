@@ -111,7 +111,7 @@ export function useSpeechInput({ engine, initialLanguage, resetKey }: UseSpeechI
 
     try {
       audioSession = await createSpeechAudioSession({
-        captureAudio: engine === "embedded"
+        captureAudio: engine !== "browser"
       });
       controller = createSpeechController({
         engine: speechEngine,
