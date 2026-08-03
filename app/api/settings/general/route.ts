@@ -31,10 +31,6 @@ export async function PUT(request: Request) {
   if (!body.success) {
     return badRequest(body.error.issues.map((issue) => issue.message).join("; "));
   }
-  if (user.role !== "admin" && (body.data.imageGeneration || body.data.titleGeneration)) {
-    return badRequest("Only admins can update global settings", 403);
-  }
-
   try {
     const settings = updateGeneralSettingsBundleForUser(
       user.id,
@@ -51,6 +47,7 @@ export async function PUT(request: Request) {
     if (error instanceof z.ZodError) {
       return badRequest(error.issues.map((issue) => issue.message).join("; "));
     }
-    return badRequest(error instanceof Error ? error.message : "Unable to save settings");
+    const message = error instanceof Error ? error.message : "Unable to save settings";
+    return badRequest(message, message === "Only admins can update global settings" ? 403 : 400);
   }
 }

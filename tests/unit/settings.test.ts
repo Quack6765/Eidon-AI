@@ -7,15 +7,14 @@ import {
 } from "@/lib/provider-profiles";
 import {
   duplicateProviderProfile,
-  getDefaultProviderProfileWithApiKey,
-  getProviderProfileWithApiKey,
+  getDefaultRuntimeProviderProfile,
+  getRuntimeProviderProfile,
   getSanitizedSettings,
   getSettings,
-  getSettingsDefaults,
   getSettingsForUser,
   listProviderProfiles,
   updateGeneralSettingsBundleForUser,
-  updateSettings
+  updateProviderCatalog
 } from "@/lib/settings";
 import { createLocalUser } from "@/lib/users";
 import {
@@ -39,7 +38,7 @@ function saveProfiles(
   profiles = [apiKeyProfile()],
   overrides: Parameters<typeof createProviderCatalogInput>[1] = {}
 ) {
-  return updateSettings(createProviderCatalogInput(profiles, overrides));
+  return updateProviderCatalog(createProviderCatalogInput(profiles, overrides));
 }
 
 describe("settings domains", () => {
@@ -61,17 +60,16 @@ describe("settings domains", () => {
       .prepare("PRAGMA table_info(provider_profiles)")
       .all() as Array<{ name: string }>;
     const connection = getDb()
-      .prepare("SELECT provider_kind, credentials_encrypted FROM provider_profile_connections WHERE profile_id = ?")
-      .get(secondary.id) as { provider_kind: string; credentials_encrypted: string };
+      .prepare("SELECT credentials_encrypted FROM provider_profile_connections WHERE profile_id = ?")
+      .get(secondary.id) as { credentials_encrypted: string };
 
     expect(profileColumns.map((column) => column.name)).not.toContain("api_key_encrypted");
     expect(profileColumns.map((column) => column.name)).not.toContain("github_access_token_encrypted");
-    expect(connection.provider_kind).toBe("openai_compatible");
     expect(JSON.parse(decryptValue(connection.credentials_encrypted))).toEqual({
       apiKey: "sk-secondary"
     });
     expect(listProviderProfiles()).toHaveLength(2);
-    expect(getDefaultProviderProfileWithApiKey()?.credentials.apiKey).toBe("sk-primary");
+    expect(getDefaultRuntimeProviderProfile()?.credentials.apiKey).toBe("sk-primary");
   });
 
   it("preserves, replaces, and clears API-key credentials explicitly", () => {
@@ -79,13 +77,13 @@ describe("settings domains", () => {
     saveProfiles([profile]);
 
     saveProfiles([{ ...profile, credential: "", credentialAction: "preserve" }]);
-    expect(getProviderProfileWithApiKey(profile.id)?.credentials.apiKey).toBe("sk-primary");
+    expect(getRuntimeProviderProfile(profile.id)?.credentials.apiKey).toBe("sk-primary");
 
     saveProfiles([{ ...profile, credential: "sk-replaced", credentialAction: "replace" }]);
-    expect(getProviderProfileWithApiKey(profile.id)?.credentials.apiKey).toBe("sk-replaced");
+    expect(getRuntimeProviderProfile(profile.id)?.credentials.apiKey).toBe("sk-replaced");
 
     saveProfiles([{ ...profile, credential: "", credentialAction: "clear" }]);
-    expect(getProviderProfileWithApiKey(profile.id)?.credentials).toEqual({});
+    expect(getRuntimeProviderProfile(profile.id)?.credentials).toEqual({});
   });
 
   it("requires an explicit credential action when the connection identity changes", () => {
@@ -160,7 +158,7 @@ describe("settings domains", () => {
     saveProfiles([apiProfile]);
     duplicateProviderProfile(apiProfile.id);
     const apiCopy = getSanitizedSettings().providerProfiles.find((profile) => profile.id !== apiProfile.id)!;
-    expect(getProviderProfileWithApiKey(apiCopy.id)?.credentials.apiKey).toBe("sk-primary");
+    expect(getRuntimeProviderProfile(apiCopy.id)?.credentials.apiKey).toBe("sk-primary");
 
     const oauthProfile = apiKeyProfile({
       id: "profile_oauth",
@@ -178,7 +176,7 @@ describe("settings domains", () => {
     const oauthCopy = getSanitizedSettings().providerProfiles.find(
       (profile) => profile.id !== oauthProfile.id
     )!;
-    expect(getProviderProfileWithApiKey(oauthCopy.id)?.credentials).toEqual({});
+    expect(getRuntimeProviderProfile(oauthCopy.id)?.credentials).toEqual({});
   });
 
   it("reassigns dependent conversations before deleting a profile", () => {
@@ -199,15 +197,6 @@ describe("settings domains", () => {
     expect(() => saveProfiles([primary, { ...primary }])).toThrow("Provider profile ids must be unique");
     expect(() => saveProfiles([{ ...primary, maxOutputTokens: 8000, safetyMarginTokens: 400, modelContextLimit: 8192 }]))
       .toThrow("Output tokens plus the safety margin must be below the context limit");
-  });
-
-  it("returns canonical provider defaults", () => {
-    expect(getSettingsDefaults()).toMatchObject({
-      providerKind: "openai_compatible",
-      apiBaseUrl: "https://api.openai.com/v1",
-      apiMode: "responses",
-      compactionThreshold: 0.8
-    });
   });
 
   it("keeps user preferences scoped while provider settings remain global", async () => {
@@ -277,11 +266,13 @@ describe("settings domains", () => {
     expect(publicSettings.webSearch).toMatchObject({
       providerId: "tavily",
       configured: true,
+      credentialStored: true,
       scope: "user"
     });
     expect(publicSettings.speechTranscription).toMatchObject({
       providerId: "elevenlabs",
       configured: true,
+      credentialStored: true,
       scope: "user"
     });
     expect(JSON.stringify(publicSettings)).not.toContain("tvly-secret");
@@ -375,6 +366,7 @@ describe("settings domains", () => {
     expect(updated.imageGeneration).toMatchObject({
       providerId: "google_nano_banana",
       configured: true,
+      credentialStored: true,
       scope: "global"
     });
     expect(JSON.stringify(updated)).not.toContain("google-secret");

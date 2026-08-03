@@ -79,9 +79,9 @@ describe("web search providers", () => {
 
   it("validates and executes Tavily without changing the public tool name", async () => {
     const missing = createRuntimeAppSettings({ webSearch: { providerId: "tavily" } });
-    expect(getWebSearchReadinessError(missing)).toContain("requires an API key");
+    expect(getWebSearchReadinessError(missing)).toBe("Tavily API key is required.");
     expect(() => searchWeb({ query: "query", settings: missing })).toThrow(
-      "requires an API key"
+      "Tavily API key is required."
     );
 
     const settings = createRuntimeAppSettings({
@@ -104,7 +104,7 @@ describe("web search providers", () => {
 
   it("delegates SearXNG HTTP behavior to its provider", async () => {
     const missing = createRuntimeAppSettings({ webSearch: { providerId: "searxng" } });
-    expect(getWebSearchReadinessError(missing)).toContain("requires a base URL");
+    expect(getWebSearchReadinessError(missing)).toBe("SearXNG base URL is required.");
 
     const abortController = new AbortController();
     const settings = createRuntimeAppSettings({

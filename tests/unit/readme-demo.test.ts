@@ -8,7 +8,7 @@ import {
   README_DEMO_FIXTURES,
   seedReadmeDemoData
 } from "@/lib/readme-demo";
-import { listProviderProfilesWithApiKeys, getSettingsForUser } from "@/lib/settings";
+import { listRuntimeProviderProfiles, getSettingsForUser } from "@/lib/settings";
 import { listSkills } from "@/lib/skills";
 import { listUsers } from "@/lib/users";
 
@@ -24,7 +24,7 @@ describe("readme demo seed", () => {
       ])
     );
 
-    expect(listProviderProfilesWithApiKeys().map((profile) => profile.name)).toEqual(
+    expect(listRuntimeProviderProfiles().map((profile) => profile.name)).toEqual(
       expect.arrayContaining(README_DEMO_FIXTURES.providerProfiles.map((profile) => profile.name))
     );
 

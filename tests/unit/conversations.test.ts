@@ -34,7 +34,7 @@ import {
   updateMessageAction
 } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
-import { getSettings, listProviderProfiles, updateSettings } from "@/lib/settings";
+import { getSettings, listProviderProfiles, updateProviderCatalog } from "@/lib/settings";
 import { estimateMessageTokens } from "@/lib/tokenization";
 import { createLocalUser } from "@/lib/users";
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
@@ -100,7 +100,7 @@ function observeArtifactPublication() {
 describe("conversation helpers", () => {
   beforeEach(() => {
     generateConversationTitle.mockReset();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_default",
       skillsEnabled: true,
       providerProfiles: [
@@ -526,7 +526,7 @@ describe("conversation helpers", () => {
   });
 
   it("updates the conversation provider profile only for the requested user", async () => {
-    updateSettings({
+    updateProviderCatalog({
       ...getSettings(),
       providerProfiles: [
         ...listProviderProfiles(),

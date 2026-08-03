@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   const settings = getSettingsForUser(user.id);
   const provider = getServerTranscriptionProvider(settings);
   if (!provider) return badRequest("Select a server transcription provider first.", 409);
-  const readinessError = provider.readinessError(settings);
+  const readinessError = provider.getReadinessError(settings);
   if (readinessError) return badRequest(readinessError, 409);
   const contentType = request.headers.get("content-type")?.split(";", 1)[0].trim().toLowerCase();
   if (contentType !== "application/octet-stream") {

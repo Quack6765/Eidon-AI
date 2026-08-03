@@ -1,4 +1,4 @@
-import type { ChatStreamEvent, ProviderProfileWithApiKey } from "@/lib/types";
+import type { ChatStreamEvent, RuntimeProviderProfile } from "@/lib/types";
 import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
 const responsesCreate = vi.fn();
@@ -44,7 +44,8 @@ function createSettings(
     apiKey: string;
     model: string;
     apiMode: "responses" | "chat_completions";
-    providerPresetId: ProviderProfileWithApiKey["providerPresetId"];
+    reasoningParameterMode: "standard" | "mirrored";
+    providerPresetId: RuntimeProviderProfile["providerPresetId"];
     systemPrompt: string;
     temperature: number;
     maxOutputTokens: number;
@@ -62,13 +63,14 @@ function createSettings(
     createdAt: string;
     updatedAt: string;
   }> = {}
-): ProviderProfileWithApiKey {
+): RuntimeProviderProfile {
   const providerKind = overrides.providerKind ?? "openai_compatible";
   const {
     apiBaseUrl = providerKind === "anthropic"
       ? "https://api.anthropic.com"
       : "https://api.example.com/v1",
     apiMode = "responses",
+    reasoningParameterMode = "standard",
     apiKey = "sk-test",
     apiKeyEncrypted: _apiKeyEncrypted,
     githubUserAccessTokenEncrypted: _accessToken,
@@ -94,7 +96,7 @@ function createSettings(
       ? {}
       : providerKind === "anthropic"
         ? { apiBaseUrl }
-        : { apiBaseUrl, apiMode },
+        : { apiBaseUrl, apiMode, reasoningParameterMode },
     credentials: providerKind === "github_copilot"
       ? { accessToken: "github-test-token", refreshToken: "github-test-refresh" }
       : { apiKey },
@@ -303,6 +305,7 @@ describe("provider integration", () => {
           apiMode: "chat_completions",
           apiBaseUrl: "https://ollama.com/v1",
           providerPresetId: "ollama_cloud",
+          reasoningParameterMode: "mirrored",
           model: "kimi-k2.5",
           reasoningSummaryEnabled: false
         }),
@@ -1353,6 +1356,7 @@ describe("provider integration", () => {
         name: "Ollama Cloud",
         apiBaseUrl: "https://ollama.com/v1",
         providerPresetId: "ollama_cloud",
+        reasoningParameterMode: "mirrored",
         model: "kimi-k2.5",
         apiMode: "chat_completions"
       }),

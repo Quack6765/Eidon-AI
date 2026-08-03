@@ -60,18 +60,21 @@ const settings: GeneralSectionSettings = {
     providerId: "browser",
     configuration: { language: "en" },
     configured: true,
+    credentialStored: false,
     scope: "global"
   },
   webSearch: {
     providerId: "exa",
     configuration: {},
     configured: true,
+    credentialStored: false,
     scope: "global"
   },
   imageGeneration: {
     providerId: "disabled",
     configuration: {},
     configured: true,
+    credentialStored: false,
     scope: "global"
   },
   titleGenerationMode: "same",

@@ -176,8 +176,8 @@ describe("automation scheduler", () => {
   });
 
   it("marks older overdue slots as missed and executes only the latest due run", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -233,8 +233,8 @@ describe("automation scheduler", () => {
   });
 
   it("bounds multi-year interval catch-up while executing the true latest slot", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -275,8 +275,8 @@ describe("automation scheduler", () => {
   });
 
   it("bounds stale daily and weekly catch-up across a daylight-saving transition", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -332,8 +332,8 @@ describe("automation scheduler", () => {
   });
 
   it("executes triggered runs by creating an automation conversation and updating the run", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -398,8 +398,8 @@ describe("automation scheduler", () => {
 
   it("creates manual automation conversations for the owning user", async () => {
     const { runAutomationNow } = await import("@/lib/automation-scheduler");
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -443,8 +443,8 @@ describe("automation scheduler", () => {
   });
 
   it("reuses the same in-flight run cycle for concurrent runOnce calls", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -502,8 +502,8 @@ describe("automation scheduler", () => {
   });
 
   it("rejects concurrent manual runs across automations owned by the same user", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -568,8 +568,8 @@ describe("automation scheduler", () => {
   });
 
   it("applies the shared global concurrency cap to direct manual runs", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -627,8 +627,8 @@ describe("automation scheduler", () => {
   });
 
   it("runs different owners concurrently while keeping one active run per owner", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -708,8 +708,8 @@ describe("automation scheduler", () => {
   });
 
   it("continues scheduling other owners while an earlier run remains hung", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -792,8 +792,8 @@ describe("automation scheduler", () => {
   });
 
   it("quarantines a timed-out owner while allowing other owners to continue", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -897,8 +897,8 @@ describe("automation scheduler", () => {
     let scheduler: { start: () => void; stop: () => void } | null = null;
 
     try {
-      const { updateSettings } = await import("@/lib/settings");
-      updateSettings({
+      const { updateProviderCatalog } = await import("@/lib/settings");
+      updateProviderCatalog({
         defaultProviderProfileId: "profile_scheduler",
         skillsEnabled: false,
         providerProfiles: [createProviderProfile()]
@@ -956,8 +956,8 @@ describe("automation scheduler", () => {
     let scheduler: { start: () => void; stop: () => void } | null = null;
 
     try {
-      const { updateSettings } = await import("@/lib/settings");
-      updateSettings({
+      const { updateProviderCatalog } = await import("@/lib/settings");
+      updateProviderCatalog({
         defaultProviderProfileId: "profile_scheduler",
         skillsEnabled: false,
         providerProfiles: [createProviderProfile()]
@@ -1006,8 +1006,8 @@ describe("automation scheduler", () => {
     vi.setSystemTime(new Date("2026-04-10T13:04:00.000Z"));
 
     try {
-      const { updateSettings } = await import("@/lib/settings");
-      updateSettings({
+      const { updateProviderCatalog } = await import("@/lib/settings");
+      updateProviderCatalog({
         defaultProviderProfileId: "profile_scheduler",
         skillsEnabled: false,
         providerProfiles: [createProviderProfile()]
@@ -1105,8 +1105,8 @@ describe("automation scheduler", () => {
     let scheduler: { start: () => void; stop: () => void } | null = null;
 
     try {
-      const { updateSettings } = await import("@/lib/settings");
-      updateSettings({
+      const { updateProviderCatalog } = await import("@/lib/settings");
+      updateProviderCatalog({
         defaultProviderProfileId: "profile_scheduler",
         skillsEnabled: false,
         providerProfiles: [createProviderProfile()]
@@ -1176,8 +1176,8 @@ describe("automation scheduler", () => {
   });
 
   it("fails manual runs when the provider profile is missing", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -1212,8 +1212,8 @@ describe("automation scheduler", () => {
   });
 
   it("fails manual runs when the configured persona is missing", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -1251,8 +1251,8 @@ describe("automation scheduler", () => {
   });
 
   it("fails queued work when another run is already active and marks due slots missed", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]
@@ -1320,8 +1320,8 @@ describe("automation scheduler", () => {
   });
 
   it("records stopped, thrown, and manual retry runs", async () => {
-    const { updateSettings } = await import("@/lib/settings");
-    updateSettings({
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_scheduler",
       skillsEnabled: false,
       providerProfiles: [createProviderProfile()]

@@ -58,6 +58,7 @@ describe("settings route", () => {
             providerId: "elevenlabs",
             configuration: { language: "zho" },
             configured: true,
+            credentialStored: true,
             scope: "user"
           }
         })

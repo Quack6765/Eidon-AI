@@ -1,8 +1,19 @@
 import type {
   ExternalSttLanguage,
-  SttProvider
 } from "@/lib/speech/external-providers";
 import type { SttEngine, SttLanguage } from "@/lib/speech/types";
+import type {
+  TranscriptionProviderId
+} from "@/lib/speech/transcription-catalog";
+import type {
+  ImageGenerationModelId,
+  ImageGenerationProviderId
+} from "@/lib/image-generation/catalog";
+import type { WebSearchProviderId } from "@/lib/web-search-catalog";
+import type {
+  IntegrationSelection,
+  RuntimeIntegrationSelection
+} from "@/lib/integration-types";
 import type {
   ApiMode,
   ProviderKind,
@@ -34,15 +45,12 @@ export type {
 export type ConversationRetention = "forever" | "90d" | "30d" | "7d";
 
 export type { SttEngine, SttLanguage } from "@/lib/speech/types";
-
-export type WebSearchProviderId = "exa" | "tavily" | "searxng" | "disabled";
-
-export type ImageGenerationProviderId = "disabled" | "google_nano_banana";
-
-export type ImageGenerationModelId =
-  | "gemini-2.5-flash-image"
-  | "gemini-3.1-flash-image-preview"
-  | "gemini-3-pro-image-preview";
+export type { WebSearchProviderId } from "@/lib/web-search-catalog";
+export type {
+  ImageGenerationModelId,
+  ImageGenerationProviderId
+} from "@/lib/image-generation/catalog";
+export type { TranscriptionProviderId } from "@/lib/speech/transcription-catalog";
 
 export type ChatInputMode = "chat" | "image";
 
@@ -90,23 +98,7 @@ export type MemoryNodeType = "leaf_summary" | "merged_summary";
 
 export type SystemMessageKind = "compaction_notice";
 
-export type ProviderProfileWithApiKey = RuntimeProviderProfile;
-
 export type TitleGenerationMode = "same" | "specific" | "local";
-
-export type TranscriptionProviderId = "browser" | "canary" | SttProvider;
-
-export type IntegrationSelection<ProviderId extends string, Configuration> = {
-  providerId: ProviderId;
-  configuration: Configuration;
-  configured: boolean;
-  scope: "global" | "user";
-};
-
-export type RuntimeIntegrationSelection<ProviderId extends string, Configuration> =
-  IntegrationSelection<ProviderId, Configuration> & {
-    credentials: { apiKey?: string };
-  };
 
 type AppSettingsCore = {
   defaultProviderProfileId: string | null;

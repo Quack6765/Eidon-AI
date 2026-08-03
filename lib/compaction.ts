@@ -1,6 +1,6 @@
 import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
 import { listMemories } from "@/lib/memories";
-import { getDefaultProviderProfileWithApiKey, getProviderProfileWithApiKey, getSettings, getSettingsForUser } from "@/lib/settings";
+import { getDefaultRuntimeProviderProfile, getRuntimeProviderProfile, getSettings, getSettingsForUser } from "@/lib/settings";
 import {
   bumpConversation,
   getConversation,
@@ -32,7 +32,7 @@ import type {
   MemoryNode,
   Message,
   PromptMessage,
-  ProviderProfileWithApiKey,
+  RuntimeProviderProfile,
   ProviderToolCall
 } from "@/lib/types";
 
@@ -65,7 +65,7 @@ async function awaitCompactionOperation<T>(operation: Promise<T>, abortSignal?: 
 async function compactLeafMessages(
   conversationId: string,
   messages: Message[],
-  settings: ProviderProfileWithApiKey,
+  settings: RuntimeProviderProfile,
   hooks: Pick<CompactionLifecycleHooks, "onCompactionStart">,
   abortSignal?: AbortSignal
 ) {
@@ -152,7 +152,7 @@ async function compactLeafMessages(
 
 async function condenseMemoryNodes(
   conversationId: string,
-  settings: ProviderProfileWithApiKey,
+  settings: RuntimeProviderProfile,
   abortSignal?: AbortSignal
 ) {
   let created = false;
@@ -346,7 +346,7 @@ export function buildPromptMessages(input: {
   return promptMessages;
 }
 
-function computeCompactionLimit(settings: ProviderProfileWithApiKey): number {
+function computeCompactionLimit(settings: RuntimeProviderProfile): number {
   const allowedPromptTokens =
     settings.modelContextLimit - settings.maxOutputTokens - settings.safetyMarginTokens;
   return Math.floor(allowedPromptTokens * settings.compactionThreshold);
@@ -354,7 +354,7 @@ function computeCompactionLimit(settings: ProviderProfileWithApiKey): number {
 
 function computeFirstPassContext(
   conversationId: string,
-  settings: ProviderProfileWithApiKey,
+  settings: RuntimeProviderProfile,
   personaContent: string | undefined,
   freshTailCount: number,
   activeMemoryNodes: MemoryNode[],
@@ -384,7 +384,7 @@ function computeFirstPassContext(
 
 export async function ensureCompactedContext(
   conversationId: string,
-  settings: ProviderProfileWithApiKey,
+  settings: RuntimeProviderProfile,
   hooks: CompactionLifecycleHooks = {},
   personaId?: string,
   memoriesEnabled: boolean = false,
@@ -546,7 +546,7 @@ export async function ensureCompactedContext(
 
 export function estimateContextUsage(
   conversationId: string,
-  settings: ProviderProfileWithApiKey,
+  settings: RuntimeProviderProfile,
   personaId?: string,
   memoriesEnabled: boolean = false
 ): { contextTokens: number; compactionLimit: number } {
@@ -576,8 +576,8 @@ export function getConversationContextUsage(
 
   const settings =
     (conversation.providerProfileId
-      ? getProviderProfileWithApiKey(conversation.providerProfileId)
-      : null) ?? getDefaultProviderProfileWithApiKey();
+      ? getRuntimeProviderProfile(conversation.providerProfileId)
+      : null) ?? getDefaultRuntimeProviderProfile();
   if (!settings) return null;
 
   const conversationOwnerId = getConversationOwnerId(conversationId);

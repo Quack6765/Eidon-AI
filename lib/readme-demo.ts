@@ -16,7 +16,7 @@ import { createMemory, deleteMemory, listMemories } from "@/lib/memories";
 import { createPersona, deletePersona, listPersonas } from "@/lib/personas";
 import { createProviderProfileDraft, type ProviderKind, type ProviderPresetId } from "@/lib/provider-catalog";
 import { updateIntegrationSetting } from "@/lib/integration-settings";
-import { updateGeneralSettingsForUser, updateSettings } from "@/lib/settings";
+import { updateGeneralSettingsForUser, updateProviderCatalog } from "@/lib/settings";
 import { createSkill, listSkills, updateSkill } from "@/lib/skills";
 import {
   createLocalUser,
@@ -69,7 +69,11 @@ function buildProviderProfile(
       ? {}
       : providerKind === "anthropic"
         ? { apiBaseUrl }
-        : { apiBaseUrl, apiMode },
+        : {
+            apiBaseUrl,
+            apiMode,
+            reasoningParameterMode: defaults.reasoningParameterMode
+          },
     credential: overrides.apiKey ?? "",
     credentialAction: overrides.apiKey ? "replace" as const : "clear" as const,
     model: overrides.model ?? defaults.model,
@@ -401,7 +405,7 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
   await deleteDemoUsers();
   deleteDemoAdminResources(envSuperAdmin.id);
 
-  updateSettings({
+  updateProviderCatalog({
     defaultProviderProfileId: README_DEMO_FIXTURES.providerProfiles[1].id,
     skillsEnabled: true,
     conversationRetention: "forever",

@@ -567,11 +567,11 @@ describe("db", () => {
     expect(providerProfileColumns).not.toContain("api_key_encrypted");
     expect(connectionColumns).toEqual(expect.arrayContaining([
       "profile_id",
-      "provider_kind",
       "credentials_encrypted",
       "metadata_json",
       "oauth_nonce"
     ]));
+    expect(connectionColumns).not.toContain("provider_kind");
     expect(() => migrate(db)).not.toThrow();
     expect((
       db.prepare("PRAGMA table_info(provider_profile_connections)").all() as Array<{ name: string }>
@@ -654,6 +654,53 @@ describe("db", () => {
       { id: "mcp_legacy", slug: "legacy_mcp" },
       { id: "mcp_legacy_duplicate", slug: "legacy_mcp_2" }
     ]);
+    expect(
+      db.prepare("SELECT provider_id FROM integration_settings WHERE capability = 'web_search' AND user_id IS NULL").get()
+    ).toEqual({ provider_id: "exa" });
+  });
+
+  it("normalizes invalid integration rows and one-time provider data fixes idempotently", async () => {
+    const { migrate } = await import("@/lib/db-migrations");
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    migrate(db);
+
+    const invalidRows = [
+      ["web_search", "unknown-search"],
+      ["image_generation", "comfyui"],
+      ["speech_transcription", "unknown-speech"]
+    ] as const;
+    for (const [capability, providerId] of invalidRows) {
+      db.prepare(`
+        UPDATE integration_settings
+        SET provider_id = ?, configuration_json = '{"legacy":true}',
+          credentials_encrypted = 'legacy-secret'
+        WHERE capability = ? AND user_id IS NULL
+      `).run(providerId, capability);
+    }
+    db.prepare("UPDATE provider_profiles SET compaction_threshold = 0.78").run();
+
+    expect(() => migrate(db)).not.toThrow();
+    expect(
+      db.prepare(`
+        SELECT capability, provider_id, credentials_encrypted
+        FROM integration_settings WHERE user_id IS NULL ORDER BY capability
+      `).all()
+    ).toEqual([
+      { capability: "image_generation", provider_id: "disabled", credentials_encrypted: "" },
+      { capability: "speech_transcription", provider_id: "browser", credentials_encrypted: "" },
+      { capability: "web_search", provider_id: "exa", credentials_encrypted: "" }
+    ]);
+    expect(
+      db.prepare("SELECT DISTINCT compaction_threshold FROM provider_profiles").all()
+    ).toEqual([{ compaction_threshold: 0.8 }]);
+    expect(db.prepare("PRAGMA table_info(app_settings)").all()).toEqual([]);
+    expect(db.prepare("PRAGMA table_info(user_settings)").all()).toEqual([]);
+
+    expect(() => migrate(db)).not.toThrow();
+    expect(db.prepare("PRAGMA table_info(app_settings)").all()).toEqual([]);
+    expect(db.prepare("PRAGMA table_info(user_settings)").all()).toEqual([]);
+    db.close();
   });
 
   it("reconciles interrupted state only during explicit guarded runtime bootstrap", async () => {

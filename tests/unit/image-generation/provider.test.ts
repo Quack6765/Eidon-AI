@@ -50,19 +50,12 @@ describe("image generation provider", () => {
     });
   });
 
-  it("uses adapter defaults when optional provider settings are absent", async () => {
-    await generateImages({
+  it("reports missing required credentials before dispatch", () => {
+    expect(() => generateImages({
       settings: createRuntimeAppSettings({
         imageGeneration: { providerId: "google_nano_banana" }
       }),
       instruction
-    });
-
-    expect(generateGoogleNanoBananaImages).toHaveBeenLastCalledWith({
-      apiKey: "",
-      model: "gemini-3.1-flash-image-preview",
-      instruction,
-      abortSignal: undefined
-    });
+    })).toThrow("requires an API key");
   });
 });

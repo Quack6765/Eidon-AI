@@ -1,5 +1,6 @@
 export type ProviderConnectionMode = "api_key" | "oauth";
 export type ApiMode = "responses" | "chat_completions";
+export type ReasoningParameterMode = "standard" | "mirrored";
 export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
 export type VisionMode = "none" | "native" | "mcp";
 
@@ -27,19 +28,40 @@ export const PROVIDER_CATALOG = {
     label: "OpenAI compatible",
     connectionMode: "api_key",
     apiModes: ["responses", "chat_completions"],
-    defaultPresetId: "custom_openai_compatible"
+    defaultPresetId: "custom_openai_compatible",
+    supportedConfiguration: ["apiBaseUrl", "apiMode", "reasoningParameterMode"],
+    editor: {
+      sampling: true,
+      apiMode: true,
+      tokenization: true,
+      modelInput: "manual"
+    }
   },
   github_copilot: {
     label: "GitHub Copilot",
     connectionMode: "oauth",
     apiModes: ["chat_completions"],
-    defaultPresetId: null
+    defaultPresetId: null,
+    supportedConfiguration: [],
+    editor: {
+      sampling: false,
+      apiMode: false,
+      tokenization: false,
+      modelInput: "discovered"
+    }
   },
   anthropic: {
     label: "Anthropic compatible",
     connectionMode: "api_key",
     apiModes: ["chat_completions"],
-    defaultPresetId: "anthropic_official"
+    defaultPresetId: "anthropic_official",
+    supportedConfiguration: ["apiBaseUrl"],
+    editor: {
+      sampling: true,
+      apiMode: false,
+      tokenization: true,
+      modelInput: "manual"
+    }
   }
 } as const satisfies Record<
   string,
@@ -48,13 +70,23 @@ export const PROVIDER_CATALOG = {
     connectionMode: ProviderConnectionMode;
     apiModes: readonly ApiMode[];
     defaultPresetId: string | null;
+    supportedConfiguration: readonly (
+      | "apiBaseUrl"
+      | "apiMode"
+      | "reasoningParameterMode"
+    )[];
+    editor: {
+      sampling: boolean;
+      apiMode: boolean;
+      tokenization: boolean;
+      modelInput: "manual" | "discovered";
+    };
   }
 >;
 
 export type ProviderKind = keyof typeof PROVIDER_CATALOG;
-export const PROVIDER_KIND_IDS = Object.keys(PROVIDER_CATALOG) as ProviderKind[];
 
-type ProviderPresetValues = {
+export type ProviderPresetValues = {
   name: string;
   apiBaseUrl: string;
   model: string;
@@ -65,6 +97,7 @@ type ProviderPresetValues = {
   temperature?: number;
   maxOutputTokens?: number;
   visionMode?: VisionMode;
+  reasoningParameterMode?: ReasoningParameterMode;
 };
 
 export const PROVIDER_PRESETS = [
@@ -72,7 +105,6 @@ export const PROVIDER_PRESETS = [
     id: "ollama_cloud",
     label: "Ollama Cloud",
     providerKind: "openai_compatible",
-    requestProfile: "ollama",
     values: {
       name: "Ollama Cloud",
       apiBaseUrl: "https://ollama.com/v1",
@@ -80,7 +112,8 @@ export const PROVIDER_PRESETS = [
       apiMode: "chat_completions",
       reasoningEffort: "medium",
       reasoningSummaryEnabled: true,
-      modelContextLimit: 64000
+      modelContextLimit: 64000,
+      reasoningParameterMode: "mirrored"
     }
   },
   {
@@ -204,19 +237,10 @@ export const PROVIDER_PRESETS = [
   id: string;
   label: string;
   providerKind: ProviderKind;
-  requestProfile?: "ollama";
   values: ProviderPresetValues;
 }>;
 
 export type ProviderPresetId = (typeof PROVIDER_PRESETS)[number]["id"];
-
-export function getProviderRequestProfile(
-  id: ProviderPresetId | null
-): "standard" | "ollama" {
-  if (!id) return "standard";
-  const preset = getProviderPreset(id);
-  return "requestProfile" in preset ? preset.requestProfile : "standard";
-}
 
 type PresetCompatibleProfile = ProviderPresetValues & {
   providerKind?: string;
@@ -259,6 +283,8 @@ export function getMatchingProviderPresetId(
     if (values.temperature !== undefined && values.temperature !== profile.temperature) return false;
     if (values.maxOutputTokens !== undefined && values.maxOutputTokens !== profile.maxOutputTokens) return false;
     if (values.visionMode !== undefined && values.visionMode !== profile.visionMode) return false;
+    if ((values.reasoningParameterMode ?? "standard") !==
+      (profile.reasoningParameterMode ?? "standard")) return false;
     return true;
   });
   return preset?.id ?? null;
@@ -287,6 +313,9 @@ export function createProviderProfileDraft(input?: {
     providerKind,
     ...DEFAULT_PROFILE_BEHAVIOR,
     ...providerValues,
+    reasoningParameterMode: "reasoningParameterMode" in providerValues
+      ? providerValues.reasoningParameterMode
+      : "standard",
     name: input?.name ?? providerValues.name,
     providerPresetId: presetId
   };

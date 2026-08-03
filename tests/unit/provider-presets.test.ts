@@ -161,6 +161,29 @@ describe("provider presets", () => {
     expect(getMatchingProviderPresetId(profile)).toBeNull();
   });
 
+  it("rejects preset matches when optional preset values drift", () => {
+    const deepSeek = {
+      ...createProfile(),
+      ...getProviderPreset("deepseek").values
+    };
+    const xiaomi = {
+      ...createProfile(),
+      ...getProviderPreset("xiaomi_mimo").values
+    };
+    const ollama = {
+      ...createProfile(),
+      ...getProviderPreset("ollama_cloud").values
+    };
+
+    expect(getMatchingProviderPresetId({ ...deepSeek, temperature: 0.7 })).toBeNull();
+    expect(getMatchingProviderPresetId({ ...deepSeek, maxOutputTokens: 4096 })).toBeNull();
+    expect(getMatchingProviderPresetId({ ...xiaomi, visionMode: "none" })).toBeNull();
+    expect(getMatchingProviderPresetId({
+      ...ollama,
+      reasoningParameterMode: "standard"
+    })).toBeNull();
+  });
+
   it("throws for unknown preset id", () => {
     expect(() => getProviderPreset("nonexistent_preset" as any)).toThrow("Unknown provider preset");
   });

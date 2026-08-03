@@ -4,11 +4,8 @@ import { decryptValue, encryptValue } from "@/lib/crypto";
 import { getDb } from "@/lib/db";
 import { getGlobalPreferences, updateGlobalPreferences } from "@/lib/global-preferences";
 import {
-  createProviderProfileDraft,
   PROVIDER_CATALOG,
-  PROVIDER_KIND_IDS,
   PROVIDER_PRESETS,
-  type ProviderKind,
   type ProviderPresetId,
   type ReasoningEffort,
   type VisionMode
@@ -59,7 +56,8 @@ export const providerProfileInputSchema = z.discriminatedUnion("providerKind", [
     providerKind: z.literal("openai_compatible"),
     providerConfig: z.object({
       apiBaseUrl: z.string().url(),
-      apiMode: z.enum(["responses", "chat_completions"])
+      apiMode: z.enum(["responses", "chat_completions"]),
+      reasoningParameterMode: z.enum(["standard", "mirrored"]).default("standard")
     })
   }),
   commonProfileSchema.extend({
@@ -190,10 +188,6 @@ function decryptCredentials(value: string): ProviderCredentials {
   }
 }
 
-function normalizeCompactionThreshold(value: number) {
-  return Math.abs(value - 0.78) < 1e-6 ? 0.8 : value;
-}
-
 function rowToRuntimeProfile(row: ProviderProfileRow): RuntimeProviderProfile {
   const providerKind = isProviderKind(row.provider_kind)
     ? row.provider_kind
@@ -209,7 +203,7 @@ function rowToRuntimeProfile(row: ProviderProfileRow): RuntimeProviderProfile {
     reasoningEffort: row.reasoning_effort,
     reasoningSummaryEnabled: Boolean(row.reasoning_summary_enabled),
     modelContextLimit: row.model_context_limit,
-    compactionThreshold: normalizeCompactionThreshold(row.compaction_threshold),
+    compactionThreshold: row.compaction_threshold,
     freshTailCount: row.fresh_tail_count,
     tokenizerModel: row.tokenizer_model as "gpt-tokenizer" | "off",
     safetyMarginTokens: row.safety_margin_tokens,
@@ -240,7 +234,10 @@ function rowToRuntimeProfile(row: ProviderProfileRow): RuntimeProviderProfile {
     providerKind,
     providerConfig: {
       apiBaseUrl: String(rawConfig.apiBaseUrl ?? ""),
-      apiMode: rawConfig.apiMode === "chat_completions" ? "chat_completions" : "responses"
+      apiMode: rawConfig.apiMode === "chat_completions" ? "chat_completions" : "responses",
+      reasoningParameterMode: rawConfig.reasoningParameterMode === "mirrored"
+        ? "mirrored"
+        : "standard"
     }
   };
 }
@@ -324,18 +321,16 @@ export function updateProviderConnection(
   const timestamp = new Date().toISOString();
   getDb().prepare(`
     INSERT INTO provider_profile_connections (
-      profile_id, provider_kind, credentials_encrypted, metadata_json,
+      profile_id, credentials_encrypted, metadata_json,
       oauth_nonce, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?)
     ON CONFLICT(profile_id) DO UPDATE SET
-      provider_kind = excluded.provider_kind,
       credentials_encrypted = excluded.credentials_encrypted,
       metadata_json = excluded.metadata_json,
       oauth_nonce = excluded.oauth_nonce,
       updated_at = excluded.updated_at
   `).run(
     profileId,
-    profile.providerKind,
     encryptedCredentials(input.credentials),
     JSON.stringify(input.metadata ?? {}),
     input.oauthNonce ?? null,
@@ -352,8 +347,8 @@ export function claimProviderConnectionAttempt(profileId: string) {
   const result = getDb().prepare(`
     UPDATE provider_profile_connections
     SET oauth_nonce = ?, updated_at = ?
-    WHERE profile_id = ? AND provider_kind = ?
-  `).run(nonce, new Date().toISOString(), profileId, profile.providerKind);
+    WHERE profile_id = ?
+  `).run(nonce, new Date().toISOString(), profileId);
   return result.changes === 1 ? nonce : null;
 }
 
@@ -367,13 +362,12 @@ export function updateProviderConnectionIfNonceMatches(
   const result = getDb().prepare(`
     UPDATE provider_profile_connections
     SET credentials_encrypted = ?, metadata_json = ?, oauth_nonce = NULL, updated_at = ?
-    WHERE profile_id = ? AND provider_kind = ? AND oauth_nonce = ?
+    WHERE profile_id = ? AND oauth_nonce = ?
   `).run(
     encryptedCredentials(input.credentials),
     JSON.stringify(input.metadata ?? {}),
     new Date().toISOString(),
     profileId,
-    profile.providerKind,
     nonce
   );
   return result.changes === 1;
@@ -553,12 +547,3 @@ export function saveProviderCatalog(input: unknown) {
   transaction();
   return parsed;
 }
-
-export function getProviderProfileDefaults(input?: { providerKind?: ProviderKind; name?: string }) {
-  return createProviderProfileDraft({
-    providerKind: input?.providerKind,
-    name: input?.name ?? "Default profile"
-  });
-}
-
-export { PROVIDER_KIND_IDS };

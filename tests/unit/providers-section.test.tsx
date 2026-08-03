@@ -109,18 +109,21 @@ function makeSettings(overrides: SettingsOverrides = {}): SettingsFixture {
       providerId: "exa" as const,
       configuration: {},
       configured: true,
+      credentialStored: false,
       scope: "global" as const
     },
     imageGeneration: {
       providerId: "disabled" as const,
       configuration: {},
       configured: true,
+      credentialStored: false,
       scope: "global" as const
     },
     speechTranscription: {
       providerId: "browser" as const,
       configuration: { language: "en" as const },
       configured: true,
+      credentialStored: false,
       scope: "global" as const
     },
     providerProfiles: [
@@ -246,7 +249,7 @@ describe("providers section", () => {
       expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
     });
 
-    expect(screen.getByRole("button", { name: "Connect GitHub" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect GitHub Copilot" })).toBeInTheDocument();
     expect(screen.queryByLabelText("API key")).toBeNull();
   });
 

@@ -14,7 +14,7 @@ import {
   buildUpdateMemoryProposal,
   dismissMemoryProposal
 } from "@/lib/memory-proposals";
-import { getSettings, listProviderProfilesWithApiKeys, updateSettings } from "@/lib/settings";
+import { getSettings, listRuntimeProviderProfiles, updateProviderCatalog } from "@/lib/settings";
 import { createLocalUser } from "@/lib/users";
 
 const { requireUserMock } = vi.hoisted(() => ({
@@ -39,9 +39,9 @@ function buildRouteUser(userId: string) {
 
 function updateMemoryLimit(limit: number) {
   const current = getSettings();
-  const providerProfiles = listProviderProfilesWithApiKeys();
+  const providerProfiles = listRuntimeProviderProfiles();
 
-  updateSettings({
+  updateProviderCatalog({
     defaultProviderProfileId: current.defaultProviderProfileId ?? providerProfiles[0]?.id ?? "profile_default",
     skillsEnabled: current.skillsEnabled,
     conversationRetention: current.conversationRetention,

@@ -1,5 +1,5 @@
 import { GoogleGenAI, Modality } from "@google/genai";
-import type { ImageGenerationModelId } from "@/lib/types";
+import type { ImageGenerationModelId } from "@/lib/image-generation/catalog";
 import type { CompiledImageInstruction, GenerateImageResult } from "./types";
 import { renameGeneratedImages } from "./generated-filenames";
 

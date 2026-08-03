@@ -24,7 +24,6 @@ vi.mock("@github/copilot-sdk", () => ({
 import {
   buildGithubCopilotClient,
   clearGithubCopilotConnection,
-  createGithubOauthState,
   ensureFreshGithubAccessToken,
   exchangeGithubCodeForTokens,
   getGithubAuthorizeUrl,
@@ -34,7 +33,6 @@ import {
   runGithubCopilotChat,
   shouldRefreshGithubToken,
   streamGithubCopilotChat,
-  verifyGithubOauthState
 } from "@/lib/github-copilot";
 
 function createProfile(overrides: Record<string, unknown> = {}) {
@@ -169,20 +167,6 @@ describe("github copilot helpers", () => {
     ).toEqual({
       credentials: {},
       connectionMetadata: {}
-    });
-  });
-
-  it("creates and verifies oauth state tokens", async () => {
-    const state = await createGithubOauthState(
-      "profile_1",
-      "user_1",
-      "github_oauth_test-nonce"
-    );
-
-    await expect(verifyGithubOauthState(state)).resolves.toEqual({
-      profileId: "profile_1",
-      userId: "user_1",
-      profileNonce: "github_oauth_test-nonce"
     });
   });
 

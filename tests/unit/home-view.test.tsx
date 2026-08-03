@@ -213,6 +213,7 @@ describe("home view", () => {
             providerId: "browser",
             configuration: { language: "en" },
             configured: true,
+            credentialStored: false,
             scope: "global"
           }
         }
@@ -267,6 +268,7 @@ describe("home view", () => {
             providerId: "browser",
             configuration: { language: "en" },
             configured: true,
+            credentialStored: false,
             scope: "global"
           }
         }
@@ -288,6 +290,7 @@ describe("home view", () => {
             providerId: "browser",
             configuration: { language: "en" },
             configured: true,
+            credentialStored: false,
             scope: "global"
           }
         }
@@ -307,6 +310,7 @@ describe("home view", () => {
             providerId: "browser",
             configuration: { language: "en" },
             configured: true,
+            credentialStored: false,
             scope: "global"
           }
         }

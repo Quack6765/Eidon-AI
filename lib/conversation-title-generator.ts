@@ -1,7 +1,7 @@
 import { runLocalTitleInference } from "@/lib/local-title-model";
 import { getConversation } from "@/lib/conversations";
 import { callProviderText } from "@/lib/provider";
-import { getSettings, listProviderProfilesWithApiKeys } from "@/lib/settings";
+import { getSettings, listRuntimeProviderProfiles } from "@/lib/settings";
 
 export const DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE = "Files";
 export const DEFAULT_CONVERSATION_TITLE = "Conversation";
@@ -54,7 +54,7 @@ export async function generateConversationTitle(input: {
       console.log(`[title-generation] mode=local model=SmolLM2-360M-Instruct conversationId=${input.conversationId}`);
       rawTitle = await runLocalTitleInference(input.firstMessage);
     } else {
-      const profiles = listProviderProfilesWithApiKeys();
+      const profiles = listRuntimeProviderProfiles();
       let profile: typeof profiles[0] | undefined;
 
       if (mode === "same") {

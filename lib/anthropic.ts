@@ -9,7 +9,7 @@ import type {
   ChatStreamEvent,
   PromptMessage,
   ProviderProfile,
-  ProviderProfileWithApiKey,
+  RuntimeProviderProfile,
   ProviderToolCall,
   ReasoningEffort,
   ToolDefinition
@@ -223,7 +223,7 @@ type AnthropicStreamResult = {
   usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number };
 };
 
-function createAnthropicClient(settings: ProviderProfileWithApiKey): Anthropic {
+function createAnthropicClient(settings: RuntimeProviderProfile): Anthropic {
   return new Anthropic({
     apiKey: getProviderApiKey(settings),
     baseURL: getProviderApiBaseUrl(settings)
@@ -231,7 +231,7 @@ function createAnthropicClient(settings: ProviderProfileWithApiKey): Anthropic {
 }
 
 export async function* streamAnthropicResponse(input: {
-  settings: ProviderProfileWithApiKey;
+  settings: RuntimeProviderProfile;
   promptMessages: PromptMessage[];
   tools?: ToolDefinition[];
   abortSignal?: AbortSignal;
@@ -325,7 +325,7 @@ export async function* streamAnthropicResponse(input: {
 }
 
 export async function callAnthropicText(input: {
-  settings: ProviderProfileWithApiKey;
+  settings: RuntimeProviderProfile;
   messages: PromptMessage[];
   client?: Anthropic;
   abortSignal?: AbortSignal;

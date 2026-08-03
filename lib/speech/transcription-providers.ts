@@ -17,11 +17,15 @@ import {
   RECORDED_SPEECH_SAMPLE_RATE
 } from "@/lib/speech/recording-constants";
 import type { RuntimeAppSettings } from "@/lib/types";
+import {
+  getTranscriptionReadinessError,
+  type TranscriptionProviderId
+} from "@/lib/speech/transcription-catalog";
 
 export interface TranscriptionProvider {
   sampleRate: number;
   maxAudioBytes: number;
-  readinessError(settings: RuntimeAppSettings): string | null;
+  getReadinessError(settings: RuntimeAppSettings): string | null;
   prepare?(): Promise<void>;
   transcribe(input: {
     samples: Float32Array;
@@ -34,10 +38,8 @@ const TRANSCRIPTION_PROVIDERS = {
   canary: {
     sampleRate: CANARY_SAMPLE_RATE,
     maxAudioBytes: MAX_CANARY_AUDIO_BYTES,
-    readinessError(settings) {
-      return settings.speechTranscription.configuration.language === "auto"
-        ? "Canary transcription requires English, French, or Spanish."
-        : null;
+    getReadinessError(settings) {
+      return getTranscriptionReadinessError(settings.speechTranscription);
     },
     async prepare() {
       await ensureCanaryModelReady();
@@ -57,10 +59,8 @@ const TRANSCRIPTION_PROVIDERS = {
   elevenlabs: {
     sampleRate: RECORDED_SPEECH_SAMPLE_RATE,
     maxAudioBytes: MAX_RECORDED_SPEECH_AUDIO_BYTES,
-    readinessError(settings) {
-      return settings.speechTranscription.credentials.apiKey
-        ? null
-        : "Add your ElevenLabs API key in Speech-to-Text settings.";
+    getReadinessError(settings) {
+      return getTranscriptionReadinessError(settings.speechTranscription);
     },
     async transcribe({ samples, settings }) {
       const result = await transcribeWithExternalSttProvider({
@@ -72,14 +72,11 @@ const TRANSCRIPTION_PROVIDERS = {
       return { model: result.model, provider: "elevenlabs", transcript: result.transcript };
     }
   }
-} satisfies Record<"canary" | "elevenlabs", TranscriptionProvider>;
+} satisfies Record<Exclude<TranscriptionProviderId, "browser">, TranscriptionProvider>;
 
 export function getServerTranscriptionProvider(
   settings: RuntimeAppSettings
 ): TranscriptionProvider | null {
-  if (settings.speechTranscription.providerId === "canary") return TRANSCRIPTION_PROVIDERS.canary;
-  if (settings.speechTranscription.providerId === "elevenlabs") {
-    return TRANSCRIPTION_PROVIDERS.elevenlabs;
-  }
-  return null;
+  const providerId = settings.speechTranscription.providerId;
+  return providerId === "browser" ? null : TRANSCRIPTION_PROVIDERS[providerId];
 }

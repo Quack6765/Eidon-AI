@@ -2,51 +2,17 @@ import type { Tool } from "@github/copilot-sdk";
 
 import { throwIfChatTurnAborted } from "@/lib/chat-turn-control";
 import {
-  buildToolDefinitions,
-  type ToolSet
+  buildToolDefinitions
 } from "@/lib/tool-definitions";
 import {
   executeToolCall,
-  type RuntimeAction,
   type SuccessfulReadOnlyToolResult
 } from "@/lib/tool-executors";
+import type { RuntimeToolContext } from "@/lib/runtime-tool-context";
 import type {
-  RuntimeAppSettings,
   McpServer,
-  PromptMessage,
-  ProviderProfileWithApiKey,
-  Skill,
-  VisionMode
+  PromptMessage
 } from "@/lib/types";
-
-export type CopilotToolContext = {
-  settings?: ProviderProfileWithApiKey;
-  appSettings?: RuntimeAppSettings;
-  conversationId?: string;
-  assistantMessageId?: string;
-  promptMessages?: PromptMessage[];
-  mcpToolSets: ToolSet[];
-  skills: Skill[];
-  loadedSkillIds: Set<string>;
-  memoriesEnabled: boolean;
-  effectiveVisionMode: VisionMode;
-  memoryUserId?: string;
-  imageGenerationToolEnabled?: boolean;
-  restrictToGenerateImage?: boolean;
-  imageGenerationActionHandle?: string;
-  hasVisibleImageGenerationAction?: boolean;
-  onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
-  onActionComplete?: (
-    handle: string | undefined,
-    patch: { detail?: string; resultSummary?: string }
-  ) => Promise<void> | void;
-  onActionError?: (
-    handle: string | undefined,
-    patch: { detail?: string; resultSummary?: string }
-  ) => Promise<void> | void;
-  mcpTimeout?: number;
-  abortSignal?: AbortSignal;
-};
 
 function promptResult(messages: PromptMessage[]) {
   const content = messages.at(-1)?.content;
@@ -55,7 +21,7 @@ function promptResult(messages: PromptMessage[]) {
   return content.map((part) => ("text" in part ? part.text : "")).join("");
 }
 
-export function buildCopilotTools(context: CopilotToolContext): Tool[] {
+export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
   const promptMessages = context.promptMessages ?? [];
   const definitions = buildToolDefinitions({
     mcpToolSets: context.mcpToolSets,

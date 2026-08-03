@@ -79,7 +79,7 @@ describe("external speech transcription route", () => {
     const missingKey = await POST(makeAudioRequest());
     expect(missingKey.status).toBe(409);
     await expect(missingKey.json()).resolves.toEqual({
-      error: "Add your ElevenLabs API key in Speech-to-Text settings."
+      error: "ElevenLabs API key is required."
     });
   });
 

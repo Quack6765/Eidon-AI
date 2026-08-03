@@ -16,6 +16,9 @@ import {
   DEFAULT_EXTERNAL_STT_LANGUAGE,
   DEFAULT_EXTERNAL_STT_PROVIDER
 } from "@/lib/speech/external-providers";
+import { normalizeImageGenerationSelection } from "@/lib/image-generation/catalog";
+import { normalizeTranscriptionSelection } from "@/lib/speech/transcription-catalog";
+import { normalizeWebSearchSelection } from "@/lib/web-search-catalog";
 
 const COMPACTION_EVENTS_TABLE_SQL = `
   CREATE TABLE compaction_events (
@@ -50,6 +53,57 @@ function decryptLegacyCredential(value: string | null | undefined) {
   }
 }
 
+function migrateProviderConnectionStorage(db: Database.Database) {
+  if (!tableExists(db, "provider_profile_connections")) return;
+  const columns = db.prepare("PRAGMA table_info(provider_profile_connections)").all() as Array<{
+    name: string;
+  }>;
+  if (!columns.some((column) => column.name === "provider_kind")) return;
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    const transaction = db.transaction(() => {
+      db.exec(`
+        DROP TABLE IF EXISTS provider_profile_connections_new;
+        CREATE TABLE provider_profile_connections_new (
+          profile_id TEXT PRIMARY KEY,
+          credentials_encrypted TEXT NOT NULL DEFAULT '',
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          oauth_nonce TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (profile_id) REFERENCES provider_profiles(id) ON DELETE CASCADE
+        );
+        INSERT INTO provider_profile_connections_new (
+          profile_id, credentials_encrypted, metadata_json,
+          oauth_nonce, created_at, updated_at
+        )
+        SELECT profile_id, credentials_encrypted, metadata_json,
+          oauth_nonce, created_at, updated_at
+        FROM provider_profile_connections;
+        DROP TABLE provider_profile_connections;
+        ALTER TABLE provider_profile_connections_new RENAME TO provider_profile_connections;
+      `);
+    });
+    transaction.immediate();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+}
+
+function migrateProviderRequestConfiguration(db: Database.Database) {
+  db.prepare(`
+    UPDATE provider_profiles
+    SET provider_config_json = json_set(
+      CASE WHEN json_valid(provider_config_json) THEN provider_config_json ELSE '{}' END,
+      '$.reasoningParameterMode',
+      CASE WHEN provider_preset_id = 'ollama_cloud' THEN 'mirrored' ELSE 'standard' END
+    )
+    WHERE provider_kind = 'openai_compatible'
+      AND json_extract(provider_config_json, '$.reasoningParameterMode') IS NULL
+  `).run();
+}
+
 function migrateProviderStorage(db: Database.Database) {
   const columns = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
   if (
@@ -57,6 +111,13 @@ function migrateProviderStorage(db: Database.Database) {
     tableExists(db, "provider_profile_connections") &&
     tableExists(db, "provider_connection_flows")
   ) {
+    migrateProviderConnectionStorage(db);
+    migrateProviderRequestConfiguration(db);
+    db.prepare(`
+      UPDATE provider_profiles
+      SET compaction_threshold = 0.8
+      WHERE ABS(compaction_threshold - 0.78) < 0.000001
+    `).run();
     return;
   }
 
@@ -99,7 +160,6 @@ function migrateProviderStorage(db: Database.Database) {
         );
         CREATE TABLE provider_profile_connections_new (
           profile_id TEXT PRIMARY KEY,
-          provider_kind TEXT NOT NULL,
           credentials_encrypted TEXT NOT NULL DEFAULT '',
           metadata_json TEXT NOT NULL DEFAULT '{}',
           oauth_nonce TEXT,
@@ -141,9 +201,9 @@ function migrateProviderStorage(db: Database.Database) {
       `);
       const insertConnection = db.prepare(`
         INSERT INTO provider_profile_connections_new (
-          profile_id, provider_kind, credentials_encrypted, metadata_json,
+          profile_id, credentials_encrypted, metadata_json,
           oauth_nonce, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?)
       `);
 
       for (const row of rows) {
@@ -154,7 +214,10 @@ function migrateProviderStorage(db: Database.Database) {
             ? { apiBaseUrl: String(row.api_base_url ?? "") }
             : {
                 apiBaseUrl: String(row.api_base_url ?? ""),
-                apiMode: String(row.api_mode ?? "responses")
+                apiMode: String(row.api_mode ?? "responses"),
+                reasoningParameterMode: row.provider_preset_id === "ollama_cloud"
+                  ? "mirrored"
+                  : "standard"
               };
         const credentials = providerKind === "github_copilot"
           ? {
@@ -202,7 +265,6 @@ function migrateProviderStorage(db: Database.Database) {
         });
         insertConnection.run(
           row.id,
-          providerKind,
           Object.keys(nonEmptyCredentials).length
             ? encryptValue(JSON.stringify(nonEmptyCredentials))
             : "",
@@ -250,6 +312,12 @@ function migrateProviderStorage(db: Database.Database) {
 
   const violations = db.pragma("foreign_key_check") as unknown[];
   if (violations.length) throw new Error("Provider storage migration failed foreign-key validation");
+  migrateProviderRequestConfiguration(db);
+  db.prepare(`
+    UPDATE provider_profiles
+    SET compaction_threshold = 0.8
+    WHERE ABS(compaction_threshold - 0.78) < 0.000001
+  `).run();
 }
 
 function migrateIntegrationSettings(db: Database.Database) {
@@ -281,7 +349,11 @@ function migrateIntegrationSettings(db: Database.Database) {
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   const seedUserCapabilities = (row: Record<string, string>, userId: string | null) => {
-    const searchProvider = row.web_search_engine || "disabled";
+    const search = normalizeWebSearchSelection(
+      row.web_search_engine || "exa",
+      { baseUrl: row.searxng_base_url }
+    );
+    const searchProvider = search.providerId;
     const searchCredential = searchProvider === "exa"
       ? row.exa_api_key_encrypted
       : searchProvider === "tavily"
@@ -291,25 +363,27 @@ function migrateIntegrationSettings(db: Database.Database) {
       "web_search",
       userId,
       searchProvider,
-      JSON.stringify(searchProvider === "searxng" ? { baseUrl: row.searxng_base_url } : {}),
+      JSON.stringify(search.configuration),
       encodeCredentials(searchCredential),
       timestamp,
       timestamp
     );
-    const speechProvider = row.stt_engine === "embedded"
+    const legacySpeechProvider = row.stt_engine === "embedded"
       ? "canary"
       : row.stt_engine === "external"
         ? row.stt_provider || "elevenlabs"
         : "browser";
+    const speech = normalizeTranscriptionSelection(legacySpeechProvider, {
+      language: legacySpeechProvider === "elevenlabs"
+        ? row.external_stt_language
+        : row.stt_language
+    });
+    const speechProvider = speech.providerId;
     insert.run(
       "speech_transcription",
       userId,
       speechProvider,
-      JSON.stringify({
-        language: speechProvider === "elevenlabs"
-          ? row.external_stt_language
-          : row.stt_language
-      }),
+      JSON.stringify(speech.configuration),
       encodeCredentials(speechProvider === "elevenlabs" ? row.external_stt_api_key_encrypted : ""),
       timestamp,
       timestamp
@@ -322,7 +396,7 @@ function migrateIntegrationSettings(db: Database.Database) {
     FROM app_settings WHERE id = ?
   `).get(SETTINGS_ROW_ID) as Record<string, string>;
   seedUserCapabilities({
-    web_search_engine: "disabled",
+    web_search_engine: "exa",
     exa_api_key_encrypted: "",
     tavily_api_key_encrypted: "",
     searxng_base_url: "",
@@ -332,12 +406,18 @@ function migrateIntegrationSettings(db: Database.Database) {
     external_stt_language: "en",
     external_stt_api_key_encrypted: ""
   }, null);
+  const image = normalizeImageGenerationSelection(
+    global.image_generation_backend || "disabled",
+    { model: global.google_nano_banana_model }
+  );
   insert.run(
     "image_generation",
     null,
-    global.image_generation_backend || "disabled",
-    JSON.stringify({ model: global.google_nano_banana_model }),
-    encodeCredentials(global.google_nano_banana_api_key_encrypted),
+    image.providerId,
+    JSON.stringify(image.configuration),
+    image.providerId === global.image_generation_backend
+      ? encodeCredentials(global.google_nano_banana_api_key_encrypted)
+      : "",
     timestamp,
     timestamp
   );
@@ -349,6 +429,67 @@ function migrateIntegrationSettings(db: Database.Database) {
     FROM user_settings
   `).all() as Array<Record<string, string>>;
   for (const row of users) seedUserCapabilities(row, row.user_id);
+}
+
+function normalizeIntegrationSettingsStorage(db: Database.Database) {
+  if (!tableExists(db, "integration_settings")) return;
+  const rows = db.prepare(`
+    SELECT rowid, capability, provider_id, configuration_json,
+      credentials_encrypted
+    FROM integration_settings
+  `).all() as Array<{
+    rowid: number;
+    capability: string;
+    provider_id: string;
+    configuration_json: string;
+    credentials_encrypted: string;
+  }>;
+  const update = db.prepare(`
+    UPDATE integration_settings
+    SET provider_id = ?, configuration_json = ?, credentials_encrypted = ?, updated_at = ?
+    WHERE rowid = ?
+  `);
+  const parseConfiguration = (value: string) => {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : {};
+    } catch {
+      return {};
+    }
+  };
+  const transaction = db.transaction(() => {
+    for (const row of rows) {
+      const configuration = parseConfiguration(row.configuration_json);
+      const normalized = row.capability === "web_search"
+        ? normalizeWebSearchSelection(row.provider_id, configuration)
+        : row.capability === "image_generation"
+          ? normalizeImageGenerationSelection(row.provider_id, configuration)
+          : row.capability === "speech_transcription"
+            ? normalizeTranscriptionSelection(row.provider_id, configuration)
+            : null;
+      if (!normalized) continue;
+      const configurationJson = JSON.stringify(normalized.configuration);
+      const credentials = normalized.providerId === row.provider_id
+        ? row.credentials_encrypted
+        : "";
+      if (
+        normalized.providerId !== row.provider_id ||
+        configurationJson !== row.configuration_json ||
+        credentials !== row.credentials_encrypted
+      ) {
+        update.run(
+          normalized.providerId,
+          configurationJson,
+          credentials,
+          new Date().toISOString(),
+          row.rowid
+        );
+      }
+    }
+  });
+  transaction();
 }
 
 function migratePreferenceStorage(db: Database.Database) {
@@ -636,6 +777,11 @@ export function reconcileInterruptedRuntimeState(
 }
 
 export function migrate(db: Database.Database) {
+  const needsLegacySettingsMigration = !(
+    tableExists(db, "global_preferences") &&
+    tableExists(db, "user_preferences") &&
+    tableExists(db, "integration_settings")
+  );
   db.exec(`
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS users (
@@ -675,25 +821,6 @@ export function migrate(db: Database.Database) {
       created_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (profile_id) REFERENCES provider_profiles(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS app_settings (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      default_provider_profile_id TEXT,
-      api_base_url TEXT NOT NULL,
-      api_key_encrypted TEXT NOT NULL,
-      model TEXT NOT NULL,
-      api_mode TEXT NOT NULL,
-      system_prompt TEXT NOT NULL,
-      skills_enabled INTEGER NOT NULL DEFAULT 1,
-      temperature REAL NOT NULL,
-      max_output_tokens INTEGER NOT NULL,
-      reasoning_effort TEXT NOT NULL,
-      reasoning_summary_enabled INTEGER NOT NULL,
-      model_context_limit INTEGER NOT NULL,
-      compaction_threshold REAL NOT NULL,
-      fresh_tail_count INTEGER NOT NULL,
-      mcp_timeout INTEGER NOT NULL DEFAULT 120000,
-      updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS provider_profiles (
       id TEXT PRIMARY KEY,
@@ -912,29 +1039,6 @@ export function migrate(db: Database.Database) {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
-    CREATE TABLE IF NOT EXISTS user_settings (
-      user_id TEXT NOT NULL PRIMARY KEY,
-      default_provider_profile_id TEXT,
-      skills_enabled INTEGER NOT NULL DEFAULT 1,
-      conversation_retention TEXT NOT NULL DEFAULT 'forever',
-      auto_compaction INTEGER NOT NULL DEFAULT 1,
-      memories_enabled INTEGER NOT NULL DEFAULT 1,
-      memories_max_count INTEGER NOT NULL DEFAULT 100,
-      mcp_timeout INTEGER NOT NULL DEFAULT 120000,
-      stt_engine TEXT NOT NULL DEFAULT 'browser',
-      stt_provider TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_PROVIDER}',
-      stt_language TEXT NOT NULL DEFAULT 'auto',
-      external_stt_language TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_LANGUAGE}',
-      external_stt_api_key_encrypted TEXT NOT NULL DEFAULT '',
-      web_search_engine TEXT NOT NULL DEFAULT 'exa',
-      exa_api_key_encrypted TEXT NOT NULL DEFAULT '',
-      tavily_api_key_encrypted TEXT NOT NULL DEFAULT '',
-      searxng_base_url TEXT NOT NULL DEFAULT '',
-      max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
-    );
     CREATE TABLE IF NOT EXISTS automation_runs (
       id TEXT PRIMARY KEY,
       automation_id TEXT NOT NULL,
@@ -950,6 +1054,53 @@ export function migrate(db: Database.Database) {
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
     );
   `);
+
+  if (needsLegacySettingsMigration) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        default_provider_profile_id TEXT,
+        api_base_url TEXT NOT NULL,
+        api_key_encrypted TEXT NOT NULL,
+        model TEXT NOT NULL,
+        api_mode TEXT NOT NULL,
+        system_prompt TEXT NOT NULL,
+        skills_enabled INTEGER NOT NULL DEFAULT 1,
+        temperature REAL NOT NULL,
+        max_output_tokens INTEGER NOT NULL,
+        reasoning_effort TEXT NOT NULL,
+        reasoning_summary_enabled INTEGER NOT NULL,
+        model_context_limit INTEGER NOT NULL,
+        compaction_threshold REAL NOT NULL,
+        fresh_tail_count INTEGER NOT NULL,
+        mcp_timeout INTEGER NOT NULL DEFAULT 120000,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS user_settings (
+        user_id TEXT NOT NULL PRIMARY KEY,
+        default_provider_profile_id TEXT,
+        skills_enabled INTEGER NOT NULL DEFAULT 1,
+        conversation_retention TEXT NOT NULL DEFAULT 'forever',
+        auto_compaction INTEGER NOT NULL DEFAULT 1,
+        memories_enabled INTEGER NOT NULL DEFAULT 1,
+        memories_max_count INTEGER NOT NULL DEFAULT 100,
+        mcp_timeout INTEGER NOT NULL DEFAULT 120000,
+        stt_engine TEXT NOT NULL DEFAULT 'browser',
+        stt_provider TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_PROVIDER}',
+        stt_language TEXT NOT NULL DEFAULT 'auto',
+        external_stt_language TEXT NOT NULL DEFAULT '${DEFAULT_EXTERNAL_STT_LANGUAGE}',
+        external_stt_api_key_encrypted TEXT NOT NULL DEFAULT '',
+        web_search_engine TEXT NOT NULL DEFAULT 'exa',
+        exa_api_key_encrypted TEXT NOT NULL DEFAULT '',
+        tavily_api_key_encrypted TEXT NOT NULL DEFAULT '',
+        searxng_base_url TEXT NOT NULL DEFAULT '',
+        max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
+      );
+    `);
+  }
 
   const convCols = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
   const convColNames = convCols.map((c) => c.name);
@@ -1049,11 +1200,13 @@ export function migrate(db: Database.Database) {
     SELECT id, username, 'admin', 'env_super_admin', NULL, created_at, updated_at
     FROM admin_users
   `);
-  db.exec(`
-    INSERT OR IGNORE INTO user_settings (user_id, updated_at)
-    SELECT id, updated_at
-    FROM admin_users
-  `);
+  if (needsLegacySettingsMigration) {
+    db.exec(`
+      INSERT OR IGNORE INTO user_settings (user_id, updated_at)
+      SELECT id, updated_at
+      FROM admin_users
+    `);
+  }
 
   const authSessionForeignKeys = (
     db.prepare("PRAGMA foreign_key_list(auth_sessions)").all() as Array<{ table: string }>
@@ -1087,6 +1240,7 @@ export function migrate(db: Database.Database) {
     db.exec("ALTER TABLE auth_sessions ADD COLUMN device_name TEXT");
   }
 
+  if (needsLegacySettingsMigration) {
   const settingsCols = db.prepare("PRAGMA table_info(app_settings)").all() as Array<{ name: string }>;
   const settingsColNames = settingsCols.map((c) => c.name);
   if (!settingsColNames.includes("default_provider_profile_id")) {
@@ -1189,6 +1343,7 @@ export function migrate(db: Database.Database) {
   }
   if (!userSettingsColNames.includes("max_assistant_tool_steps")) {
     db.exec("ALTER TABLE user_settings ADD COLUMN max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25");
+  }
   }
 
   const mcpCols = db.prepare("PRAGMA table_info(mcp_servers)").all() as Array<{ name: string }>;
@@ -1373,6 +1528,7 @@ export function migrate(db: Database.Database) {
     }
   }
 
+  if (needsLegacySettingsMigration) {
   db.prepare(
     `INSERT OR IGNORE INTO app_settings (
       id,
@@ -1570,6 +1726,7 @@ export function migrate(db: Database.Database) {
      SET provider_profile_id = ?
      WHERE provider_profile_id IS NULL`
   ).run(resolvedDefaultProfileId);
+  }
 
   db.prepare(
     `UPDATE conversations
@@ -1616,8 +1773,11 @@ export function migrate(db: Database.Database) {
   }
 
   migrateProviderStorage(db);
-  migrateIntegrationSettings(db);
-  migratePreferenceStorage(db);
+  if (needsLegacySettingsMigration) {
+    migrateIntegrationSettings(db);
+    migratePreferenceStorage(db);
+  }
+  normalizeIntegrationSettingsStorage(db);
 }
 
 export function backfillVisionMcpServers(db: Database.Database) {

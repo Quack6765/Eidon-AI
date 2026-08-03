@@ -5,7 +5,7 @@ import {
 import { setActiveTokenizer } from "@/lib/tokenization";
 import { withDateContextUserMessage } from "@/lib/provider-message-formatting";
 import { stripThinkingDelimiters } from "@/lib/thinking-delimiter-parsing";
-import type { ReasoningEffort } from "@/lib/types";
+import type { ChatStreamEvent, ReasoningEffort, RuntimeProviderProfile } from "@/lib/types";
 import Anthropic from "@anthropic-ai/sdk";
 import { getProviderApiBaseUrl, getProviderApiKey } from "@/lib/provider-profile";
 import type {
@@ -33,7 +33,7 @@ export async function callAnthropicAdapterText(input: ProviderTextInput) {
   return text;
 }
 
-export async function discoverAnthropicModels(settings: import("@/lib/types").ProviderProfileWithApiKey) {
+export async function discoverAnthropicModels(settings: RuntimeProviderProfile) {
   const client = new Anthropic({
     apiKey: getProviderApiKey(settings),
     baseURL: getProviderApiBaseUrl(settings)
@@ -48,7 +48,7 @@ export async function discoverAnthropicModels(settings: import("@/lib/types").Pr
 
 export async function* streamAnthropicAdapterResponse(
   input: ProviderStreamInput
-): AsyncGenerator<import("@/lib/types").ChatStreamEvent, ProviderStreamResult, void> {
+): AsyncGenerator<ChatStreamEvent, ProviderStreamResult, void> {
   setActiveTokenizer(input.settings.tokenizerModel ?? "gpt-tokenizer");
   return yield* streamAnthropicResponse({
     settings: input.settings,

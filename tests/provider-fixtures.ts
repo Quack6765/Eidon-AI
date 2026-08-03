@@ -34,7 +34,10 @@ export function createRuntimeProviderProfile(
           apiBaseUrl: String(overrides.providerConfig?.apiBaseUrl ?? "https://api.example.com/v1"),
           apiMode: overrides.providerConfig?.apiMode === "chat_completions"
             ? "chat_completions" as const
-            : "responses" as const
+            : "responses" as const,
+          reasoningParameterMode: overrides.providerConfig?.reasoningParameterMode === "mirrored"
+            ? "mirrored" as const
+            : "standard" as const
         };
   return {
     ...draft,
@@ -118,6 +121,7 @@ export function createRuntimeAppSettings(
       providerId: "disabled",
       configuration: {},
       configured: true,
+      credentialStored: false,
       scope: "global",
       credentials: {}
     },
@@ -125,6 +129,7 @@ export function createRuntimeAppSettings(
       providerId: "disabled",
       configuration: {},
       configured: true,
+      credentialStored: false,
       scope: "global",
       credentials: {}
     },
@@ -132,6 +137,7 @@ export function createRuntimeAppSettings(
       providerId: "browser",
       configuration: { language: "auto" },
       configured: true,
+      credentialStored: false,
       scope: "global",
       credentials: {}
     },

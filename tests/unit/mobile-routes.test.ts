@@ -10,7 +10,7 @@ import {
 import { createAutomationRun } from "@/lib/automations";
 import { createMobileSession, verifyMobileSessionToken } from "@/lib/auth";
 import { createConversation, createMessage } from "@/lib/conversations";
-import { updateSettings } from "@/lib/settings";
+import { updateProviderCatalog } from "@/lib/settings";
 import { createLocalUser } from "@/lib/users";
 import { assertOpenApiResponse } from "@/tests/fixtures/mobile-contract-validator";
 import { createProviderCatalogInput, createProviderProfileInput } from "@/tests/provider-fixtures";
@@ -141,7 +141,7 @@ describe("Mobile API v1 REST adapter", () => {
       role: "admin"
     });
     const session = await createMobileSession(admin.id, "Settings device");
-    updateSettings(createProviderCatalogInput([buildProfile()]));
+    updateProviderCatalog(createProviderCatalogInput([buildProfile()]));
 
     const response = await mobileGet(
       request(["settings"], session.token),
@@ -164,7 +164,7 @@ describe("Mobile API v1 REST adapter", () => {
       role: "admin"
     });
     const session = await createMobileSession(admin.id, "Contract device");
-    updateSettings(createProviderCatalogInput([buildProfile()]));
+    updateProviderCatalog(createProviderCatalogInput([buildProfile()]));
 
     const call = async (
       template: string,

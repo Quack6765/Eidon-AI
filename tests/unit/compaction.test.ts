@@ -7,11 +7,14 @@ import {
   getConversationDebugStats,
   MAX_TOOL_RESULT_CHARS
 } from "@/lib/compaction";
-import { buildChatCompletionMessages, buildResponsesInput } from "@/lib/provider-message-formatting";
+import {
+  buildOpenAIChatCompletionMessages,
+  buildOpenAIResponsesInput
+} from "@/lib/provider-adapters/openai-message-formatting";
 import { toAnthropicMessages } from "@/lib/anthropic";
 import { getDb } from "@/lib/db";
 import { createConversation, createMessage, createMessageAction, listMessages } from "@/lib/conversations";
-import { getDefaultProviderProfileWithApiKey, updateSettings } from "@/lib/settings";
+import { getDefaultRuntimeProviderProfile, updateProviderCatalog } from "@/lib/settings";
 import { createMemory, deleteMemory } from "@/lib/memories";
 import type { Message, MessageAction, PromptMessage } from "@/lib/types";
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
@@ -64,7 +67,7 @@ describe("lossless compaction", () => {
       freshTailCount: number;
     }>
   ) {
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_default",
       skillsEnabled: true,
       providerProfiles: [
@@ -676,7 +679,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!
+      getDefaultRuntimeProviderProfile()!
     );
     const messages = listMessages(conversation.id);
     const trailingEligibleUser = messages.find((message) => message.content.startsWith("Message 44"));
@@ -725,7 +728,7 @@ describe("lossless compaction", () => {
     const controller = new AbortController();
     const operation = ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!,
+      getDefaultRuntimeProviderProfile()!,
       {},
       undefined,
       false,
@@ -768,7 +771,7 @@ describe("lossless compaction", () => {
     });
 
     await expect(
-      ensureCompactedContext(conversation.id, getDefaultProviderProfileWithApiKey()!)
+      ensureCompactedContext(conversation.id, getDefaultRuntimeProviderProfile()!)
     ).rejects.toThrow("Provider returned an empty response");
 
     expect(
@@ -816,7 +819,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!
+      getDefaultRuntimeProviderProfile()!
     );
     const promptText = result.promptMessages.map((message) => getPromptText(message)).join("\n");
 
@@ -861,7 +864,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!
+      getDefaultRuntimeProviderProfile()!
     );
     const messages = listMessages(conversation.id);
 
@@ -893,7 +896,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!
+      getDefaultRuntimeProviderProfile()!
     );
     const stats = getConversationDebugStats(conversation.id);
 
@@ -1019,7 +1022,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!
+      getDefaultRuntimeProviderProfile()!
     );
     const messages = listMessages(conversation.id);
     const systemMessage = result.promptMessages.find((message) => message.role === "system");
@@ -1095,7 +1098,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!
+      getDefaultRuntimeProviderProfile()!
     );
     const memoryNode = getDb()
       .prepare(
@@ -1174,7 +1177,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!
+      getDefaultRuntimeProviderProfile()!
     );
     const promptText = result.promptMessages.map((message) => getPromptText(message)).join("\n");
 
@@ -1279,7 +1282,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!
+      getDefaultRuntimeProviderProfile()!
     );
     const systemMessage = result.promptMessages.find((message) => message.role === "system");
 
@@ -1333,7 +1336,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!
+      getDefaultRuntimeProviderProfile()!
     );
     const messages = listMessages(conversation.id);
 
@@ -1361,7 +1364,7 @@ describe("lossless compaction", () => {
     const lifecycle: string[] = [];
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!,
+      getDefaultRuntimeProviderProfile()!,
       {
         onCompactionStart() {
           lifecycle.push("start");
@@ -1395,12 +1398,12 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!
+      getDefaultRuntimeProviderProfile()!
     );
 
     expect(result.didCompact).toBe(false);
     await expect(
-      ensureCompactedContext("missing", getDefaultProviderProfileWithApiKey()!)
+      ensureCompactedContext("missing", getDefaultRuntimeProviderProfile()!)
     ).rejects.toThrow("Conversation not found");
   });
 
@@ -1422,7 +1425,7 @@ describe("lossless compaction", () => {
 
     const result = await ensureCompactedContext(
       conversation.id,
-      getDefaultProviderProfileWithApiKey()!
+      getDefaultRuntimeProviderProfile()!
     );
 
     expect(result.promptMessages.some(m => m.role === "system")).toBe(true);
@@ -1446,7 +1449,7 @@ describe("lossless compaction", () => {
     await expect(
       ensureCompactedContext(
         conversation.id,
-        getDefaultProviderProfileWithApiKey()!
+        getDefaultRuntimeProviderProfile()!
       )
     ).rejects.toThrow("Conversation exceeds the configured context limit. No fallback available.");
   });
@@ -1622,7 +1625,7 @@ describe("getConversationDebugStats", () => {
 
 describe("estimateContextUsage", () => {
   function seedProfile() {
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_default",
       skillsEnabled: true,
       providerProfiles: [
@@ -1650,7 +1653,7 @@ describe("estimateContextUsage", () => {
     createMessage({ conversationId: conversation.id, role: "user", content: userContent });
     createMessage({ conversationId: conversation.id, role: "assistant", content: assistantContent });
 
-    const settings = getDefaultProviderProfileWithApiKey()!;
+    const settings = getDefaultRuntimeProviderProfile()!;
     const { contextTokens, compactionLimit } = estimateContextUsage(conversation.id, settings);
 
     expect(compactionLimit).toBe(12000);
@@ -1660,7 +1663,7 @@ describe("estimateContextUsage", () => {
 
   it("includes capped tool results in the context estimate", () => {
     seedProfile();
-    const settings = getDefaultProviderProfileWithApiKey()!;
+    const settings = getDefaultRuntimeProviderProfile()!;
 
     const withoutAction = createConversation();
     createMessage({ conversationId: withoutAction.id, role: "user", content: "Run a search" });
@@ -1722,7 +1725,7 @@ describe("estimateContextUsage", () => {
     createMessage({ conversationId: conversation.id, role: "user", content: "Hello there, how are you today?" });
     createMessage({ conversationId: conversation.id, role: "assistant", content: "I am well, thanks for asking." });
 
-    const settings = getDefaultProviderProfileWithApiKey()!;
+    const settings = getDefaultRuntimeProviderProfile()!;
     const estimate = estimateContextUsage(conversation.id, settings);
     const compacted = await ensureCompactedContext(conversation.id, settings, {});
 
@@ -1915,11 +1918,11 @@ describe("buildPromptMessages tool-call replay", () => {
     });
     const history = prompt.filter((m) => m.role !== "system");
 
-    const chat = JSON.stringify(buildChatCompletionMessages(history));
+    const chat = JSON.stringify(buildOpenAIChatCompletionMessages(history));
     expect(chat).toContain('"tool_call_id":"act_1"');
     expect(chat).toMatch(/"tool_calls":\[[^\]]*"id":"act_1"/);
 
-    const responses = JSON.stringify(buildResponsesInput(history));
+    const responses = JSON.stringify(buildOpenAIResponsesInput(history));
     expect(responses).toContain('"call_id":"act_1"');
 
     const anthropic = JSON.stringify(toAnthropicMessages(history));

@@ -2,7 +2,6 @@ import { mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { SignJWT, jwtVerify } from "jose";
 import { CopilotClient } from "@github/copilot-sdk";
 import type { Tool } from "@github/copilot-sdk";
 
@@ -12,12 +11,9 @@ import {
   updateProviderConnectionIfNonceMatches,
   updateProviderConnectionIfRefreshTokenMatches
 } from "@/lib/provider-profiles";
-import type { ProviderProfileWithApiKey } from "@/lib/types";
+import type { RuntimeProviderProfile } from "@/lib/types";
 
 const COPILOT_WORK_DIR = join(tmpdir(), "eidon-copilot");
-const GITHUB_OAUTH_STATE_USE = "github_oauth_state";
-const GITHUB_OAUTH_STATE_ISSUER = "eidon";
-const GITHUB_OAUTH_STATE_AUDIENCE = "eidon-github-oauth";
 
 const COPILOT_EXCLUDED_TOOLS: string[] = [
   "browser_start_debugger",
@@ -37,7 +33,7 @@ const REFRESH_THRESHOLD_MS = 2 * 60 * 1000;
 const GITHUB_REFRESH_REGISTRY_KEY = Symbol.for("eidon:github-copilot-refreshes");
 type GithubRefreshEntry = {
   refreshTokenVersion: string;
-  promise: Promise<ProviderProfileWithApiKey>;
+  promise: Promise<RuntimeProviderProfile>;
 };
 
 function getGithubRefreshes() {
@@ -116,12 +112,12 @@ async function parseGithubTokenResponse(response: Response): Promise<ValidGithub
 }
 
 export function getGithubConnectionStatus(
-  input: ProviderProfileWithApiKey
+  input: RuntimeProviderProfile
 ) {
   return getProviderConnectionSummary(input).status;
 }
 
-export function shouldRefreshGithubToken(input: ProviderProfileWithApiKey): boolean {
+export function shouldRefreshGithubToken(input: RuntimeProviderProfile): boolean {
   if (!input.connectionMetadata.expiresAt) {
     return false;
   }
@@ -134,51 +130,6 @@ export function clearGithubCopilotConnection() {
   return {
     credentials: {},
     connectionMetadata: {}
-  };
-}
-
-export async function createGithubOauthState(
-  profileId: string,
-  userId: string,
-  profileNonce: string
-): Promise<string> {
-  const secret = new TextEncoder().encode(env.EIDON_SESSION_SECRET);
-
-  return new SignJWT({ profileId, userId, profileNonce, tokenUse: GITHUB_OAUTH_STATE_USE })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuer(GITHUB_OAUTH_STATE_ISSUER)
-    .setAudience(GITHUB_OAUTH_STATE_AUDIENCE)
-    .setExpirationTime("10m")
-    .setIssuedAt()
-    .sign(secret);
-}
-
-export async function verifyGithubOauthState(
-  state: string
-): Promise<{ profileId: string; userId: string; profileNonce: string }> {
-  const secret = new TextEncoder().encode(env.EIDON_SESSION_SECRET);
-  const { payload } = await jwtVerify(state, secret, {
-    algorithms: ["HS256"],
-    issuer: GITHUB_OAUTH_STATE_ISSUER,
-    audience: GITHUB_OAUTH_STATE_AUDIENCE
-  });
-
-  if (
-    payload.tokenUse !== GITHUB_OAUTH_STATE_USE ||
-    typeof payload.profileId !== "string" ||
-    !payload.profileId.trim() ||
-    typeof payload.userId !== "string" ||
-    !payload.userId.trim() ||
-    typeof payload.profileNonce !== "string" ||
-    !payload.profileNonce.trim()
-  ) {
-    throw new Error("Invalid GitHub OAuth state");
-  }
-
-  return {
-    profileId: payload.profileId,
-    userId: payload.userId,
-    profileNonce: payload.profileNonce
   };
 }
 
@@ -254,7 +205,7 @@ export async function exchangeGithubCodeForTokens(code: string) {
 }
 
 export async function refreshGithubUserToken(
-  profile: ProviderProfileWithApiKey
+  profile: RuntimeProviderProfile
 ): Promise<{
   accessToken: string;
   refreshToken: string;
@@ -300,9 +251,9 @@ export async function refreshGithubUserToken(
 }
 
 export async function ensureFreshGithubAccessToken(
-  profile: ProviderProfileWithApiKey,
+  profile: RuntimeProviderProfile,
   abortSignal?: AbortSignal
-): Promise<ProviderProfileWithApiKey> {
+): Promise<RuntimeProviderProfile> {
   if (abortSignal?.aborted) {
     throw createAbortError();
   }
@@ -368,7 +319,7 @@ export async function ensureFreshGithubAccessToken(
 }
 
 export async function listGithubCopilotModels(
-  profile: ProviderProfileWithApiKey
+  profile: RuntimeProviderProfile
 ) {
   const accessToken = profile.credentials.accessToken ?? "";
 
@@ -387,7 +338,7 @@ export async function listGithubCopilotModels(
 }
 
 export async function buildGithubCopilotClient(
-  profile: ProviderProfileWithApiKey
+  profile: RuntimeProviderProfile
 ) {
   const accessToken = profile.credentials.accessToken ?? "";
 
@@ -398,7 +349,7 @@ export async function buildGithubCopilotClient(
 }
 
 export async function runGithubCopilotChat(
-  input: ProviderProfileWithApiKey & {
+  input: RuntimeProviderProfile & {
     messages: Array<{ role: string; content: string }>;
     abortSignal?: AbortSignal;
   }
@@ -429,7 +380,7 @@ export async function runGithubCopilotChat(
 }
 
 export async function streamGithubCopilotChat(
-  input: ProviderProfileWithApiKey & {
+  input: RuntimeProviderProfile & {
     messages: Array<{ role: string; content: string }>;
     onEvent: (event: unknown) => void;
     tools?: Tool[];

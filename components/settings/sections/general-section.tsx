@@ -2,185 +2,53 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Info } from "lucide-react";
 
+import {
+  buildIntegrationUpdate,
+  createGeneralSettingsDraft,
+  draftCredentials,
+  type GeneralSettingsDraft
+} from "@/components/settings/integration-settings/general-settings-draft";
+import { ImageGenerationSettings } from "@/components/settings/integration-settings/image-generation-settings";
+import { SpeechTranscriptionSettings } from "@/components/settings/integration-settings/speech-transcription-settings";
+import { WebSearchSettings } from "@/components/settings/integration-settings/web-search-settings";
 import { Button } from "@/components/ui/button";
 import { Toast } from "@/components/ui/toast";
-import { fieldLabel, inputLike, selectLike, sectionTitle, sectionDivider } from "@/lib/settings-styles";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
-import {
-  EXTERNAL_STT_PROVIDER_OPTIONS,
-  getExternalSttProviderConfig,
-  type ExternalSttLanguage,
-  type SttProvider
-} from "@/lib/speech/external-providers";
-import type { SttEngine, SttLanguage } from "@/lib/speech/types";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
-import type {
-  AppSettings,
-  ConversationRetention,
-  ImageGenerationModelId,
-  ImageGenerationProviderId,
-  WebSearchProviderId
-} from "@/lib/types";
+import { getImageGenerationReadinessError } from "@/lib/image-generation/catalog";
+import { fieldLabel, sectionDivider, sectionTitle, selectLike } from "@/lib/settings-styles";
+import { getTranscriptionReadinessError } from "@/lib/speech/transcription-catalog";
+import type { AppSettings, ConversationRetention } from "@/lib/types";
+import { getWebSearchReadinessError } from "@/lib/web-search-catalog";
 
 type GeneralSectionSettings = AppSettings & {
   providerProfiles: Array<{ id: string; name: string; model: string }>;
 };
 
-type GeneralSettingsView = GeneralSectionSettings & {
-  sttEngine: SttEngine;
-  sttProvider: SttProvider;
-  sttLanguage: SttLanguage;
-  externalSttLanguage: ExternalSttLanguage;
-  externalSttApiKey: string;
-  webSearchEngine: WebSearchProviderId;
-  exaApiKey: string;
-  tavilyApiKey: string;
-  searxngBaseUrl: string;
-  imageGenerationBackend: ImageGenerationProviderId;
-  googleNanoBananaModel: ImageGenerationModelId;
-  googleNanoBananaApiKey: string;
-  hasExaApiKey: boolean;
-  hasTavilyApiKey: boolean;
-  hasExternalSttApiKey: boolean;
-  hasGoogleNanoBananaApiKey: boolean;
-};
-
-function toGeneralSettingsView(publicSettings: GeneralSectionSettings): GeneralSettingsView {
-  const speechProvider = publicSettings.speechTranscription.providerId;
-  const speechLanguage = String(publicSettings.speechTranscription.configuration.language ?? "auto");
-  const searchProvider = publicSettings.webSearch.providerId;
-  const imageProvider = publicSettings.imageGeneration.providerId;
-  return {
-    ...publicSettings,
-    sttEngine: speechProvider === "browser"
-      ? "browser"
-      : speechProvider === "canary"
-        ? "embedded"
-        : "external",
-    sttProvider: "elevenlabs",
-    sttLanguage: speechLanguage === "en" || speechLanguage === "fr" || speechLanguage === "es"
-      ? speechLanguage
-      : "auto",
-    externalSttLanguage: speechLanguage as ExternalSttLanguage,
-    externalSttApiKey: "",
-    webSearchEngine: searchProvider,
-    exaApiKey: "",
-    tavilyApiKey: "",
-    searxngBaseUrl: String(publicSettings.webSearch.configuration.baseUrl ?? ""),
-    imageGenerationBackend: imageProvider,
-    googleNanoBananaModel:
-      publicSettings.imageGeneration.configuration.model ?? "gemini-3.1-flash-image-preview",
-    googleNanoBananaApiKey: "",
-    hasExaApiKey: searchProvider === "exa" && publicSettings.webSearch.configured,
-    hasTavilyApiKey: searchProvider === "tavily" && publicSettings.webSearch.configured,
-    hasExternalSttApiKey: speechProvider === "elevenlabs" && publicSettings.speechTranscription.configured,
-    hasGoogleNanoBananaApiKey:
-      imageProvider === "google_nano_banana" && publicSettings.imageGeneration.configured
-  };
-}
-
 export function GeneralSection({
-  settings: publicSettings,
+  settings,
   canManageGlobalIntegrations = false
 }: {
   settings: GeneralSectionSettings;
   canManageGlobalIntegrations?: boolean;
 }) {
-  const settings = toGeneralSettingsView(publicSettings);
   const router = useRouter();
-  const [conversationRetention, setConversationRetention] = useState<ConversationRetention>(
-    settings.conversationRetention
-  );
-  const [mcpTimeout, setMcpTimeout] = useState(settings.mcpTimeout);
-  const [maxAssistantToolSteps, setMaxAssistantToolSteps] = useState(settings.maxAssistantToolSteps);
-  const [sttEngine, setSttEngine] = useState(settings.sttEngine);
-  const [sttProvider, setSttProvider] = useState(settings.sttProvider);
-  const [sttLanguage, setSttLanguage] = useState(settings.sttLanguage);
-  const [externalSttLanguage, setExternalSttLanguage] = useState(settings.externalSttLanguage);
-  const [externalSttApiKey, setExternalSttApiKey] = useState(settings.externalSttApiKey);
-  const [hasEditedExternalSttApiKey, setHasEditedExternalSttApiKey] = useState(false);
-  const [webSearchEngine, setWebSearchEngine] = useState(settings.webSearchEngine);
-  const [exaApiKey, setExaApiKey] = useState(settings.exaApiKey);
-  const [tavilyApiKey, setTavilyApiKey] = useState(settings.tavilyApiKey);
-  const [searxngBaseUrl, setSearxngBaseUrl] = useState(settings.searxngBaseUrl);
-  const [hasEditedExaApiKey, setHasEditedExaApiKey] = useState(false);
-  const [hasEditedTavilyApiKey, setHasEditedTavilyApiKey] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const toast = useToastState();
-  const [hasStoredExaApiKey, setHasStoredExaApiKey] = useState(
-    settings.hasExaApiKey ?? Boolean(settings.exaApiKey)
-  );
-  const [hasStoredTavilyApiKey, setHasStoredTavilyApiKey] = useState(
-    settings.hasTavilyApiKey ?? Boolean(settings.tavilyApiKey)
-  );
-  const [hasStoredExternalSttApiKey, setHasStoredExternalSttApiKey] = useState(
-    settings.hasExternalSttApiKey ?? Boolean(settings.externalSttApiKey)
-  );
+  const initialDraft = createGeneralSettingsDraft(settings);
+  const [draft, setDraft] = useState(initialDraft);
+  const persistedDraft = useRef(initialDraft);
+  const [isSaving, setIsSaving] = useState(false);
+  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState(draft);
 
-  const [imageGenerationBackend, setImageGenerationBackend] = useState<ImageGenerationProviderId>(
-    settings.imageGenerationBackend
-  );
-  const [googleNanoBananaModel, setGoogleNanoBananaModel] = useState(
-    settings.googleNanoBananaModel
-  );
-  const [googleNanoBananaApiKey, setGoogleNanoBananaApiKey] = useState(
-    settings.googleNanoBananaApiKey
-  );
-  const [hasEditedGoogleNanoBananaApiKey, setHasEditedGoogleNanoBananaApiKey] = useState(false);
-  const [hasStoredGoogleNanoBananaApiKey, setHasStoredGoogleNanoBananaApiKey] = useState(
-    settings.hasGoogleNanoBananaApiKey ?? Boolean(settings.googleNanoBananaApiKey)
-  );
+  useEffect(() => {
+    const next = createGeneralSettingsDraft(settings);
+    persistedDraft.current = next;
+    setDraft(next);
+    resetDirty(next);
+  }, [settings, resetDirty]);
 
-  const [titleGenerationMode, setTitleGenerationMode] = useState<AppSettings["titleGenerationMode"]>(
-    settings.titleGenerationMode
-  );
-  const [titleGenerationProfileId, setTitleGenerationProfileId] = useState<string | null>(
-    settings.titleGenerationProfileId
-  );
-  const persistedSettings = useRef({
-    conversationRetention: settings.conversationRetention,
-    mcpTimeout: settings.mcpTimeout,
-    maxAssistantToolSteps: settings.maxAssistantToolSteps,
-    sttEngine: settings.sttEngine,
-    sttProvider: settings.sttProvider,
-    sttLanguage: settings.sttLanguage,
-    externalSttLanguage: settings.externalSttLanguage,
-    webSearchEngine: settings.webSearchEngine,
-    searxngBaseUrl: settings.searxngBaseUrl,
-    imageGenerationBackend: settings.imageGenerationBackend,
-    googleNanoBananaModel: settings.googleNanoBananaModel,
-    titleGenerationMode: settings.titleGenerationMode,
-    titleGenerationProfileId: settings.titleGenerationProfileId,
-    hasStoredExaApiKey,
-    hasStoredTavilyApiKey,
-    hasStoredExternalSttApiKey,
-    hasStoredGoogleNanoBananaApiKey
-  });
-
-  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
-    conversationRetention,
-    mcpTimeout,
-    maxAssistantToolSteps,
-    sttEngine,
-    sttProvider,
-    sttLanguage,
-    externalSttLanguage,
-    externalSttApiKey,
-    hasEditedExternalSttApiKey,
-    webSearchEngine,
-    exaApiKey,
-    tavilyApiKey,
-    searxngBaseUrl,
-    imageGenerationBackend,
-    googleNanoBananaModel,
-    googleNanoBananaApiKey,
-    hasEditedGoogleNanoBananaApiKey,
-    titleGenerationMode,
-    titleGenerationProfileId,
-  });
   useUnsavedChangesGuard({
     isDirty,
     save,
@@ -188,316 +56,90 @@ export function GeneralSection({
     entityType: "these settings"
   });
 
-  const speechLanguageOptions =
-    sttEngine !== "embedded"
-      ? [
-          { value: "auto", label: "Auto-detect" },
-          { value: "en", label: "English" },
-          { value: "fr", label: "French" },
-          { value: "es", label: "Spanish" }
-        ]
-      : [
-          { value: "en", label: "English" },
-          { value: "fr", label: "French" },
-          { value: "es", label: "Spanish" }
-        ];
-  const selectedExternalSttProvider = getExternalSttProviderConfig(sttProvider);
-
-  function resetMessages() {
+  function updateDraft<Key extends keyof GeneralSettingsDraft>(
+    key: Key,
+    value: GeneralSettingsDraft[Key]
+  ) {
     toast.dismissToast();
-  }
-
-  function clearStoredGoogleImageApiKey() {
-    resetMessages();
-    setGoogleNanoBananaApiKey("");
-    setHasEditedGoogleNanoBananaApiKey(true);
-  }
-
-  function keepStoredGoogleImageApiKey() {
-    resetMessages();
-    setGoogleNanoBananaApiKey("");
-    setHasEditedGoogleNanoBananaApiKey(false);
-  }
-
-  function clearStoredExternalSttApiKey() {
-    resetMessages();
-    setExternalSttApiKey("");
-    setHasEditedExternalSttApiKey(true);
-  }
-
-  function keepStoredExternalSttApiKey() {
-    resetMessages();
-    setExternalSttApiKey("");
-    setHasEditedExternalSttApiKey(false);
-  }
-
-  function handleSpeechEngineChange(nextEngine: GeneralSettingsView["sttEngine"]) {
-    resetMessages();
-    setSttEngine(nextEngine);
-    if (nextEngine === "embedded" && sttLanguage === "auto") {
-      setSttLanguage("en");
-    }
-  }
-
-  function handleSttProviderChange(nextProvider: GeneralSettingsView["sttProvider"]) {
-    resetMessages();
-    const provider = getExternalSttProviderConfig(nextProvider);
-    setSttProvider(nextProvider);
-    setExternalSttLanguage(provider.languages[0].value);
-    setExternalSttApiKey("");
-    setHasEditedExternalSttApiKey(false);
-    setHasStoredExternalSttApiKey(
-      nextProvider === persistedSettings.current.sttProvider &&
-        persistedSettings.current.hasStoredExternalSttApiKey
-    );
-  }
-
-  function getSearchValidationError() {
-    if (
-      sttEngine === "external" &&
-      !externalSttApiKey.trim() &&
-      (hasEditedExternalSttApiKey || !hasStoredExternalSttApiKey)
-    ) {
-      return `${selectedExternalSttProvider.label} API key is required.`;
-    }
-
-    if (
-      webSearchEngine === "tavily" &&
-      !tavilyApiKey.trim() &&
-      (hasEditedTavilyApiKey || !hasStoredTavilyApiKey)
-    ) {
-      return "Tavily API key is required.";
-    }
-
-    if (webSearchEngine === "searxng" && !searxngBaseUrl.trim()) {
-      return "SearXNG base URL is required.";
-    }
-
-    if (webSearchEngine === "searxng") {
-      try {
-        new URL(searxngBaseUrl.trim());
-      } catch {
-        return "SearXNG base URL must be valid.";
-      }
-    }
-
-    return "";
-  }
-
-  function acceptSavedSettings(publicSaved: GeneralSectionSettings) {
-    const saved = toGeneralSettingsView(publicSaved);
-    const savedHasExaApiKey = saved.hasExaApiKey ?? false;
-    const savedHasTavilyApiKey = saved.hasTavilyApiKey ?? false;
-    const savedHasExternalSttApiKey = saved.hasExternalSttApiKey ?? false;
-    const savedHasGoogleNanoBananaApiKey = saved.hasGoogleNanoBananaApiKey ?? false;
-
-    setConversationRetention(saved.conversationRetention);
-    setMcpTimeout(saved.mcpTimeout);
-    setMaxAssistantToolSteps(saved.maxAssistantToolSteps);
-    setSttEngine(saved.sttEngine);
-    setSttProvider(saved.sttProvider);
-    setSttLanguage(saved.sttLanguage);
-    setExternalSttLanguage(saved.externalSttLanguage);
-    setWebSearchEngine(saved.webSearchEngine);
-    setSearxngBaseUrl(saved.searxngBaseUrl);
-    setImageGenerationBackend(saved.imageGenerationBackend);
-    setGoogleNanoBananaModel(saved.googleNanoBananaModel);
-    setTitleGenerationMode(saved.titleGenerationMode);
-    setTitleGenerationProfileId(saved.titleGenerationProfileId);
-    setHasStoredExaApiKey(savedHasExaApiKey);
-    setHasStoredTavilyApiKey(savedHasTavilyApiKey);
-    setHasStoredExternalSttApiKey(savedHasExternalSttApiKey);
-    setHasStoredGoogleNanoBananaApiKey(savedHasGoogleNanoBananaApiKey);
-    setExaApiKey("");
-    setTavilyApiKey("");
-    setExternalSttApiKey("");
-    setGoogleNanoBananaApiKey("");
-    setHasEditedExaApiKey(false);
-    setHasEditedTavilyApiKey(false);
-    setHasEditedExternalSttApiKey(false);
-    setHasEditedGoogleNanoBananaApiKey(false);
-
-    persistedSettings.current = {
-      conversationRetention: saved.conversationRetention,
-      mcpTimeout: saved.mcpTimeout,
-      maxAssistantToolSteps: saved.maxAssistantToolSteps,
-      sttEngine: saved.sttEngine,
-      sttProvider: saved.sttProvider,
-      sttLanguage: saved.sttLanguage,
-      externalSttLanguage: saved.externalSttLanguage,
-      webSearchEngine: saved.webSearchEngine,
-      searxngBaseUrl: saved.searxngBaseUrl,
-      imageGenerationBackend: saved.imageGenerationBackend,
-      googleNanoBananaModel: saved.googleNanoBananaModel,
-      titleGenerationMode: saved.titleGenerationMode,
-      titleGenerationProfileId: saved.titleGenerationProfileId,
-      hasStoredExaApiKey: savedHasExaApiKey,
-      hasStoredTavilyApiKey: savedHasTavilyApiKey,
-      hasStoredExternalSttApiKey: savedHasExternalSttApiKey,
-      hasStoredGoogleNanoBananaApiKey: savedHasGoogleNanoBananaApiKey
-    };
-    resetDirty({
-      conversationRetention: saved.conversationRetention,
-      mcpTimeout: saved.mcpTimeout,
-      maxAssistantToolSteps: saved.maxAssistantToolSteps,
-      sttEngine: saved.sttEngine,
-      sttProvider: saved.sttProvider,
-      sttLanguage: saved.sttLanguage,
-      externalSttLanguage: saved.externalSttLanguage,
-      externalSttApiKey: "",
-      hasEditedExternalSttApiKey: false,
-      webSearchEngine: saved.webSearchEngine,
-      exaApiKey: "",
-      tavilyApiKey: "",
-      searxngBaseUrl: saved.searxngBaseUrl,
-      imageGenerationBackend: saved.imageGenerationBackend,
-      googleNanoBananaModel: saved.googleNanoBananaModel,
-      googleNanoBananaApiKey: "",
-      hasEditedGoogleNanoBananaApiKey: false,
-      titleGenerationMode: saved.titleGenerationMode,
-      titleGenerationProfileId: saved.titleGenerationProfileId
-    });
+    setDraft((current) => ({ ...current, [key]: value }));
   }
 
   function restoreSavedSettings() {
-    const saved = persistedSettings.current;
-    setConversationRetention(saved.conversationRetention);
-    setMcpTimeout(saved.mcpTimeout);
-    setMaxAssistantToolSteps(saved.maxAssistantToolSteps);
-    setSttEngine(saved.sttEngine);
-    setSttProvider(saved.sttProvider);
-    setSttLanguage(saved.sttLanguage);
-    setExternalSttLanguage(saved.externalSttLanguage);
-    setExternalSttApiKey("");
-    setWebSearchEngine(saved.webSearchEngine);
-    setExaApiKey("");
-    setTavilyApiKey("");
-    setSearxngBaseUrl(saved.searxngBaseUrl);
-    setImageGenerationBackend(saved.imageGenerationBackend);
-    setGoogleNanoBananaModel(saved.googleNanoBananaModel);
-    setGoogleNanoBananaApiKey("");
-    setTitleGenerationMode(saved.titleGenerationMode);
-    setTitleGenerationProfileId(saved.titleGenerationProfileId);
-    setHasStoredExaApiKey(saved.hasStoredExaApiKey);
-    setHasStoredTavilyApiKey(saved.hasStoredTavilyApiKey);
-    setHasStoredExternalSttApiKey(saved.hasStoredExternalSttApiKey);
-    setHasStoredGoogleNanoBananaApiKey(saved.hasStoredGoogleNanoBananaApiKey);
-    setHasEditedExaApiKey(false);
-    setHasEditedTavilyApiKey(false);
-    setHasEditedExternalSttApiKey(false);
-    setHasEditedGoogleNanoBananaApiKey(false);
-    resetDirty({
-      conversationRetention: saved.conversationRetention,
-      mcpTimeout: saved.mcpTimeout,
-      maxAssistantToolSteps: saved.maxAssistantToolSteps,
-      sttEngine: saved.sttEngine,
-      sttProvider: saved.sttProvider,
-      sttLanguage: saved.sttLanguage,
-      externalSttLanguage: saved.externalSttLanguage,
-      externalSttApiKey: "",
-      hasEditedExternalSttApiKey: false,
-      webSearchEngine: saved.webSearchEngine,
-      exaApiKey: "",
-      tavilyApiKey: "",
-      searxngBaseUrl: saved.searxngBaseUrl,
-      imageGenerationBackend: saved.imageGenerationBackend,
-      googleNanoBananaModel: saved.googleNanoBananaModel,
-      googleNanoBananaApiKey: "",
-      hasEditedGoogleNanoBananaApiKey: false,
-      titleGenerationMode: saved.titleGenerationMode,
-      titleGenerationProfileId: saved.titleGenerationProfileId
+    const restored = persistedDraft.current;
+    setDraft(restored);
+    resetDirty(restored);
+    toast.dismissToast();
+  }
+
+  function getValidationError() {
+    if (draft.webSearch.providerId !== "disabled") {
+      const error = getWebSearchReadinessError({
+        ...draft.webSearch,
+        credentials: draftCredentials(draft.webSearch)
+      });
+      if (error) return error;
+    }
+    if (canManageGlobalIntegrations && draft.imageGeneration.providerId !== "disabled") {
+      const clearingStoredCredential = draft.imageGeneration.credentialStored &&
+        draft.imageGeneration.credentialAction === "clear";
+      if (!clearingStoredCredential) {
+        const error = getImageGenerationReadinessError({
+          ...draft.imageGeneration,
+          credentials: draftCredentials(draft.imageGeneration)
+        });
+        if (error) return error;
+      }
+    }
+    return getTranscriptionReadinessError({
+      ...draft.speechTranscription,
+      credentials: draftCredentials(draft.speechTranscription)
     });
   }
 
   async function save(): Promise<boolean> {
-    resetMessages();
-
-    const validationError = getSearchValidationError();
+    toast.dismissToast();
+    const validationError = getValidationError();
     if (validationError) {
       toast.showToast("error", validationError);
       return false;
     }
 
-    const trimmedExaApiKey = exaApiKey.trim();
-    const trimmedTavilyApiKey = tavilyApiKey.trim();
-    const preferences = {
-      conversationRetention,
-      mcpTimeout,
-      maxAssistantToolSteps
-    };
-
-    const trimmedExternalSttApiKey = externalSttApiKey.trim();
-    const speechCredentialAction = hasEditedExternalSttApiKey
-      ? trimmedExternalSttApiKey
-        ? "replace"
-        : "clear"
-      : "preserve";
-    const speechTranscription = {
-      providerId: sttEngine === "browser" ? "browser" : sttEngine === "embedded" ? "canary" : sttProvider,
-      configuration: { language: sttEngine === "external" ? externalSttLanguage : sttLanguage },
-      credential: trimmedExternalSttApiKey || undefined,
-      credentialAction: speechCredentialAction
-    };
-
-    const searchCredential = webSearchEngine === "exa" ? trimmedExaApiKey : trimmedTavilyApiKey;
-    const searchEdited = webSearchEngine === "exa" ? hasEditedExaApiKey : hasEditedTavilyApiKey;
-    const webSearch = {
-      providerId: webSearchEngine,
-      configuration: webSearchEngine === "searxng" ? { baseUrl: searxngBaseUrl.trim() } : {},
-      credential: searchCredential || undefined,
-      credentialAction: searchEdited ? searchCredential ? "replace" : "clear" : "preserve"
-    };
-
-    const trimmedGoogleApiKey = googleNanoBananaApiKey.trim();
-    const imagePayload = {
-      providerId: imageGenerationBackend,
-      configuration: imageGenerationBackend === "google_nano_banana"
-        ? { model: googleNanoBananaModel }
-        : {},
-      credential: trimmedGoogleApiKey || undefined,
-      credentialAction: hasEditedGoogleNanoBananaApiKey
-        ? trimmedGoogleApiKey ? "replace" : "clear"
-        : "preserve"
-    };
-
-    const titleGenerationPayload: Record<string, unknown> = {
-      titleGenerationMode,
-      titleGenerationProfileId: titleGenerationMode === "specific" ? titleGenerationProfileId : null
-    };
-
     setIsSaving(true);
-
     try {
-      const generalResponse = await fetch("/api/settings/general", {
+      const response = await fetch("/api/settings/general", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          preferences,
-          webSearch,
-          speechTranscription,
+          preferences: draft.preferences,
+          webSearch: buildIntegrationUpdate(draft.webSearch),
+          speechTranscription: buildIntegrationUpdate(draft.speechTranscription),
           ...(canManageGlobalIntegrations
             ? {
-                imageGeneration: imagePayload,
-                titleGeneration: titleGenerationPayload
+                imageGeneration: buildIntegrationUpdate(draft.imageGeneration),
+                titleGeneration: {
+                  titleGenerationMode: draft.titleGeneration.titleGenerationMode,
+                  titleGenerationProfileId:
+                    draft.titleGeneration.titleGenerationMode === "specific"
+                      ? draft.titleGeneration.titleGenerationProfileId
+                      : null
+                }
               }
             : {})
         })
       });
-
-      const generalResult = (await generalResponse.json()) as {
+      const result = await response.json() as {
         settings?: GeneralSectionSettings;
         error?: string;
       };
-
-      if (!generalResponse.ok) {
-        toast.showToast("error", generalResult.error ?? "Unable to save settings");
+      if (!response.ok || !result.settings) {
+        toast.showToast("error", result.error ?? "Unable to save settings");
         return false;
       }
-      if (!generalResult.settings) {
-        throw new Error("Settings response was incomplete");
-      }
 
-      acceptSavedSettings(generalResult.settings);
+      const saved = createGeneralSettingsDraft(result.settings);
+      persistedDraft.current = saved;
+      setDraft(saved);
+      resetDirty(saved);
       toast.showToast("success", "Settings saved.");
       router.refresh();
       return true;
@@ -509,19 +151,24 @@ export function GeneralSection({
     }
   }
 
+  const preferencesDirty = isFieldDirty("preferences");
+  const titleGenerationDirty = isFieldDirty("titleGeneration");
 
   return (
     <div className="w-full max-w-none space-y-6 p-4 sm:p-6 md:max-w-[55%] md:p-8">
-      {/* Conversation Retention */}
       <div className="space-y-4">
         <h3 className={sectionTitle}>Conversation Retention</h3>
         <div className="space-y-1.5">
-          <label className={fieldLabel}>Keep conversations for</label>
-          <p className="text-xs text-[var(--muted)]">Older conversations will be automatically deleted</p>
+          <label htmlFor="conversation-retention" className={fieldLabel}>Keep conversations for</label>
+          <p className="text-xs text-[var(--muted)]">Older conversations will be automatically deleted.</p>
           <select
-            value={conversationRetention}
-            onChange={(event) => setConversationRetention(event.target.value as ConversationRetention)}
-            className={`${selectLike} sm:w-auto ${isFieldDirty("conversationRetention") ? "!border-amber-500/40" : ""}`}
+            id="conversation-retention"
+            value={draft.preferences.conversationRetention}
+            onChange={(event) => updateDraft("preferences", {
+              ...draft.preferences,
+              conversationRetention: event.target.value as ConversationRetention
+            })}
+            className={`${selectLike} sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
           >
             <option value="forever">Forever</option>
             <option value="90d">90 days</option>
@@ -533,558 +180,144 @@ export function GeneralSection({
 
       <div className={sectionDivider} />
 
-      {/* MCP Server Timeout */}
       <div className="space-y-4">
-        <h3 className={sectionTitle}>MCP Server Timeout</h3>
-        <div className="space-y-1.5">
-          <label className={fieldLabel}>Max tool call timeout</label>
-          <p className="text-xs text-[var(--muted)]">Maximum time (seconds) to wait for an MCP server to respond to a tool call</p>
-          <input
-            type="number"
-            aria-label="Max tool call timeout"
-            min={10}
-            max={600}
-            value={Math.round(mcpTimeout / 1000)}
-            onChange={(event) => setMcpTimeout(Number(event.target.value) * 1000)}
-            className={`${inputLike} sm:w-20 ${isFieldDirty("mcpTimeout") ? "!border-amber-500/40" : ""}`}
-          />
+        <h3 className={sectionTitle}>Agent Limits</h3>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label htmlFor="mcp-timeout" className={fieldLabel}>Max tool call timeout</label>
+            <p className="mb-2 text-xs text-[var(--muted)]">Maximum time for an MCP tool call.</p>
+            <input
+              id="mcp-timeout"
+              type="number"
+              min={1}
+              value={draft.preferences.mcpTimeout / 1000}
+              onChange={(event) => updateDraft("preferences", {
+                ...draft.preferences,
+                mcpTimeout: Number(event.target.value) * 1000
+              })}
+              className={`${selectLike} w-full ${preferencesDirty ? "!border-amber-500/40" : ""}`}
+            />
+          </div>
+          <div>
+            <label htmlFor="max-tool-steps" className={fieldLabel}>Maximum tool steps</label>
+            <p className="mb-2 text-xs text-[var(--muted)]">Maximum actions in one assistant turn.</p>
+            <input
+              id="max-tool-steps"
+              type="number"
+              min={1}
+              max={1000}
+              value={draft.preferences.maxAssistantToolSteps}
+              onChange={(event) => updateDraft("preferences", {
+                ...draft.preferences,
+                maxAssistantToolSteps: Number(event.target.value)
+              })}
+              className={`${selectLike} w-full ${preferencesDirty ? "!border-amber-500/40" : ""}`}
+            />
+          </div>
         </div>
       </div>
 
       <div className={sectionDivider} />
 
-      {/* Assistant Tool Steps */}
-      <div className="space-y-4">
-        <h3 className={sectionTitle}>Assistant Tool Steps</h3>
-        <div className="space-y-1.5">
-          <label className={fieldLabel}>Max tool steps per turn</label>
-          <p className="text-xs text-[var(--muted)]">Maximum number of consecutive tool-calling rounds the assistant can take in a single turn before it is asked to answer directly. If it still cannot finish, the turn fails.</p>
-          <input
-            type="number"
-            aria-label="Max tool steps per turn"
-            min={1}
-            max={1000}
-            value={maxAssistantToolSteps}
-            onChange={(event) => setMaxAssistantToolSteps(Number(event.target.value))}
-            className={`${inputLike} sm:w-20 ${isFieldDirty("maxAssistantToolSteps") ? "!border-amber-500/40" : ""}`}
-          />
-        </div>
-      </div>
-
-      <div className={sectionDivider} />
-
-      {/* Speech-to-Text */}
       <div className="space-y-4">
         <h3 className={sectionTitle}>Speech-to-Text</h3>
-        <div className="space-y-3">
-          <div>
-            <label htmlFor="speech-engine" className={fieldLabel}>Transcription method</label>
-            <p className="mb-2 text-xs text-[var(--muted)]">
-              Choose where microphone audio is transcribed.
-            </p>
-            <select
-              id="speech-engine"
-              aria-label="Speech engine"
-              value={sttEngine}
-              onChange={(event) =>
-                handleSpeechEngineChange(event.target.value as GeneralSettingsView["sttEngine"])
-              }
-              className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("sttEngine") ? "!border-amber-500/40" : ""}`}
-            >
-              <option value="browser">Browser</option>
-              <option value="embedded">Embedded model</option>
-              <option value="external">External</option>
-            </select>
-          </div>
-
-          {sttEngine === "external" ? (
-            <div className="space-y-3">
-              <div>
-                <label htmlFor="speech-provider" className={fieldLabel}>Provider</label>
-                <select
-                  id="speech-provider"
-                  aria-label="Speech-to-text provider"
-                  value={sttProvider}
-                  onChange={(event) =>
-                    handleSttProviderChange(event.target.value as GeneralSettingsView["sttProvider"])
-                  }
-                  className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("sttProvider") ? "!border-amber-500/40" : ""}`}
-                >
-                  {EXTERNAL_STT_PROVIDER_OPTIONS.map((provider) => (
-                    <option key={provider.value} value={provider.value}>
-                      {provider.label} · {provider.modelLabel}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label htmlFor="external-stt-api-key" className={fieldLabel}>API key</label>
-                <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
-                  <input
-                    id="external-stt-api-key"
-                    aria-label={`${selectedExternalSttProvider.label} API key`}
-                    type="password"
-                    autoComplete="off"
-                    value={externalSttApiKey}
-                    placeholder={
-                      hasStoredExternalSttApiKey && !hasEditedExternalSttApiKey
-                        ? "••••••••"
-                        : "Required"
-                    }
-                    onChange={(event) => {
-                      resetMessages();
-                      setHasEditedExternalSttApiKey(true);
-                      setExternalSttApiKey(event.target.value);
-                    }}
-                    className={`${inputLike} w-full sm:w-[22rem] ${isFieldDirty("externalSttApiKey") ? "!border-amber-500/40" : ""}`}
-                  />
-                  {hasStoredExternalSttApiKey && !hasEditedExternalSttApiKey ? (
-                    <button
-                      type="button"
-                      onClick={clearStoredExternalSttApiKey}
-                      className="rounded-lg px-2.5 py-2 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
-                    >
-                      Clear stored key
-                    </button>
-                  ) : null}
-                </div>
-                {hasStoredExternalSttApiKey && hasEditedExternalSttApiKey ? (
-                  <div
-                    role="status"
-                    aria-live="polite"
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-amber-300"
-                  >
-                    <span>
-                      {externalSttApiKey.trim()
-                        ? "A replacement key will be saved."
-                        : "Stored key will be cleared when you save."}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={keepStoredExternalSttApiKey}
-                      className="font-medium text-[var(--text)] underline decoration-white/30 underline-offset-4 transition-colors hover:decoration-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
-                    >
-                      Keep stored key
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-
-              <div>
-                <label htmlFor="external-stt-language" className={fieldLabel}>Language</label>
-                <p className="mb-2 text-xs text-[var(--muted)]">
-                  Automatic detects the spoken language.
-                </p>
-                <select
-                  id="external-stt-language"
-                  aria-label={`${selectedExternalSttProvider.label} transcription language`}
-                  value={externalSttLanguage}
-                  onChange={(event) => {
-                    resetMessages();
-                    setExternalSttLanguage(
-                      event.target.value as GeneralSettingsView["externalSttLanguage"]
-                    );
-                  }}
-                  className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("externalSttLanguage") ? "!border-amber-500/40" : ""}`}
-                >
-                  {selectedExternalSttProvider.languages.map((language) => (
-                    <option key={language.value} value={language.value}>
-                      {language.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-            </div>
-          ) : null}
-
-          {sttEngine !== "external" ? (
-            <div>
-              <label htmlFor="speech-language" className={fieldLabel}>Spoken language</label>
-              <select
-                id="speech-language"
-                aria-label="Speech language"
-                value={sttLanguage}
-                onChange={(event) => {
-                  resetMessages();
-                  setSttLanguage(event.target.value as GeneralSettingsView["sttLanguage"]);
-                }}
-                className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("sttLanguage") ? "!border-amber-500/40" : ""}`}
-              >
-                {speechLanguageOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ) : null}
-          {sttEngine === "embedded" ? (
-            <div className="flex max-w-2xl items-start gap-2 pt-1 text-xs leading-5 text-white/60">
-              <Info className="mt-0.5 h-4 w-4 shrink-0 text-violet-300/80" />
-              <p>
-                <span className="font-medium text-white/80">Canary 180M Flash</span> runs on this
-                Eidon server. The 208 MB model downloads only when embedded dictation is first used,
-                then stays cached in the Eidon data directory. Audio is not sent to a transcription
-                provider. {" "}
-                <a
-                  href="https://huggingface.co/nvidia/canary-180m-flash"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-violet-300 underline decoration-violet-300/40 underline-offset-2 hover:text-violet-200"
-                >
-                  NVIDIA model
-                </a>{" "}
-                · {" "}
-                <a
-                  href="https://creativecommons.org/licenses/by/4.0/"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-violet-300 underline decoration-violet-300/40 underline-offset-2 hover:text-violet-200"
-                >
-                  CC BY 4.0
-                </a>
-              </p>
-            </div>
-          ) : null}
-        </div>
+        <SpeechTranscriptionSettings
+          draft={draft.speechTranscription}
+          persisted={persistedDraft.current.speechTranscription}
+          dirty={isFieldDirty("speechTranscription")}
+          onChange={(value) => updateDraft("speechTranscription", value)}
+        />
       </div>
 
       <div className={sectionDivider} />
 
-      {/* Web Search */}
       <div className="space-y-4">
         <h3 className={sectionTitle}>Web Search</h3>
-        <div className="space-y-3">
-          <div>
-            <label htmlFor="web-search-engine" className={fieldLabel}>
-              Search provider
-            </label>
-            <p className="text-xs text-[var(--muted)] mb-2">Choose which web search engine is available to the agent.</p>
-            <select
-              id="web-search-engine"
-              aria-label="Web search engine"
-              value={webSearchEngine}
-              onChange={(event) => {
-                resetMessages();
-                setWebSearchEngine(event.target.value as GeneralSettingsView["webSearchEngine"]);
-              }}
-              className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("webSearchEngine") ? "!border-amber-500/40" : ""}`}
-            >
-              <option value="exa">Exa</option>
-              <option value="tavily">Tavily</option>
-              <option value="searxng">SearXNG</option>
-              <option value="disabled">Disabled</option>
-            </select>
-          </div>
-
-          {webSearchEngine === "exa" ? (
-            <div className="space-y-3">
-              <div className="flex items-start gap-2.5 rounded-xl border border-sky-400/15 bg-sky-400/8 px-4 py-3 text-sm text-sky-200">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
-                <span>Exa API key is optional and the public endpoint works without one.</span>
-              </div>
-              <div>
-                <label htmlFor="exa-api-key" className={fieldLabel}>
-                  Exa API key
-                </label>
-                <input
-                  id="exa-api-key"
-                  aria-label="Exa API key"
-                  type="password"
-                  autoComplete="off"
-                  value={exaApiKey}
-                  placeholder={
-                    hasStoredExaApiKey && !hasEditedExaApiKey ? "••••••••" : "Optional"
-                  }
-                  onChange={(event) => {
-                    resetMessages();
-                    setHasEditedExaApiKey(true);
-                    setExaApiKey(event.target.value);
-                  }}
-                  className={`${inputLike} w-full sm:w-[22rem] ${isFieldDirty("exaApiKey") ? "!border-amber-500/40" : ""}`}
-                />
-              </div>
-            </div>
-          ) : null}
-
-          {webSearchEngine === "tavily" ? (
-            <div>
-              <label htmlFor="tavily-api-key" className={fieldLabel}>
-                Tavily API key
-              </label>
-              <input
-                id="tavily-api-key"
-                aria-label="Tavily API key"
-                type="password"
-                autoComplete="off"
-                value={tavilyApiKey}
-                placeholder={
-                  hasStoredTavilyApiKey && !hasEditedTavilyApiKey ? "••••••••" : "Required"
-                }
-                onChange={(event) => {
-                  resetMessages();
-                  setHasEditedTavilyApiKey(true);
-                  setTavilyApiKey(event.target.value);
-                }}
-                className={`${inputLike} w-full sm:w-[22rem] ${isFieldDirty("tavilyApiKey") ? "!border-amber-500/40" : ""}`}
-              />
-            </div>
-          ) : null}
-
-          {webSearchEngine === "searxng" ? (
-            <div>
-              <label htmlFor="searxng-base-url" className={fieldLabel}>
-                SearXNG base URL
-              </label>
-              <input
-                id="searxng-base-url"
-                aria-label="SearXNG base URL"
-                type="url"
-                autoComplete="off"
-                value={searxngBaseUrl}
-                placeholder="https://search.example.com"
-                onChange={(event) => {
-                  resetMessages();
-                  setSearxngBaseUrl(event.target.value);
-                }}
-                className={`${inputLike} w-full sm:w-[22rem] ${isFieldDirty("searxngBaseUrl") ? "!border-amber-500/40" : ""}`}
-              />
-            </div>
-          ) : null}
-        </div>
+        <WebSearchSettings
+          draft={draft.webSearch}
+          persisted={persistedDraft.current.webSearch}
+          dirty={isFieldDirty("webSearch")}
+          onChange={(value) => updateDraft("webSearch", value)}
+        />
       </div>
 
       <div className={sectionDivider} />
 
-      {/* Image Generation */}
       <div className="space-y-4">
         <h3 className={sectionTitle}>Image Generation</h3>
-        {!canManageGlobalIntegrations ? (
-          <div className="space-y-1.5">
-            <label className={fieldLabel}>Image generation backend</label>
-            <p className="text-xs text-[var(--muted)]">Only admins can change image generation settings.</p>
-            <select
-              aria-label="Image generation backend"
-              value={imageGenerationBackend}
-              disabled
-              className={`${selectLike} sm:w-auto opacity-60`}
-            >
-              <option value="disabled">Disabled</option>
-              <option value="google_nano_banana">Google Nano Banana</option>
-            </select>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div>
-              <label htmlFor="image-generation-backend" className={fieldLabel}>
-                Image generation backend
-              </label>
-              <p className="text-xs text-[var(--muted)] mb-2">Choose the backend used for image generation.</p>
-              <select
-                id="image-generation-backend"
-                aria-label="Image generation backend"
-                value={imageGenerationBackend}
-                onChange={(event) => {
-                  resetMessages();
-                  setImageGenerationBackend(
-                    event.target.value as ImageGenerationProviderId
-                  );
-                }}
-                className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("imageGenerationBackend") ? "!border-amber-500/40" : ""}`}
-              >
-                <option value="disabled">Disabled</option>
-                <option value="google_nano_banana">Google Nano Banana</option>
-              </select>
-            </div>
-
-            {imageGenerationBackend === "google_nano_banana" ? (
-              <div className="space-y-3">
-                <div>
-                  <label htmlFor="google-nano-banana-model" className={fieldLabel}>
-                    Model
-                  </label>
-                  <select
-                    id="google-nano-banana-model"
-                    aria-label="Google Nano Banana model"
-                    value={googleNanoBananaModel}
-                    onChange={(event) => {
-                      resetMessages();
-                      setGoogleNanoBananaModel(
-                        event.target.value as GeneralSettingsView["googleNanoBananaModel"]
-                      );
-                    }}
-                    className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("googleNanoBananaModel") ? "!border-amber-500/40" : ""}`}
-                  >
-                    <option value="gemini-2.5-flash-image">Gemini 2.5 Flash Image</option>
-                    <option value="gemini-3.1-flash-image-preview">
-                      Gemini 3.1 Flash Image Preview
-                    </option>
-                    <option value="gemini-3-pro-image-preview">
-                      Gemini 3 Pro Image Preview
-                    </option>
-                  </select>
-                </div>
-                <div className="space-y-2">
-                  <label htmlFor="google-nano-banana-api-key" className={fieldLabel}>
-                    API key
-                  </label>
-                  <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
-                    <input
-                      id="google-nano-banana-api-key"
-                      aria-label="Google Nano Banana API key"
-                      type="password"
-                      autoComplete="off"
-                      value={googleNanoBananaApiKey}
-                      placeholder={
-                        hasStoredGoogleNanoBananaApiKey && !hasEditedGoogleNanoBananaApiKey
-                          ? "••••••••"
-                          : ""
-                      }
-                      onChange={(event) => {
-                        resetMessages();
-                        setHasEditedGoogleNanoBananaApiKey(true);
-                        setGoogleNanoBananaApiKey(event.target.value);
-                      }}
-                      className={`${inputLike} w-full sm:w-[22rem] ${isFieldDirty("googleNanoBananaApiKey") ? "!border-amber-500/40" : ""}`}
-                    />
-                    {hasStoredGoogleNanoBananaApiKey && !hasEditedGoogleNanoBananaApiKey ? (
-                      <button
-                        type="button"
-                        onClick={clearStoredGoogleImageApiKey}
-                        className="rounded-lg px-2.5 py-2 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-400/50"
-                      >
-                        Clear stored key
-                      </button>
-                    ) : null}
-                  </div>
-                  {hasStoredGoogleNanoBananaApiKey && hasEditedGoogleNanoBananaApiKey ? (
-                    <div
-                      role="status"
-                      aria-live="polite"
-                      className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-amber-300"
-                    >
-                      <span>
-                        {googleNanoBananaApiKey.trim()
-                          ? "A replacement key will be saved."
-                          : "Stored key will be cleared when you save."}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={keepStoredGoogleImageApiKey}
-                        className="font-medium text-[var(--text)] underline decoration-white/30 underline-offset-4 transition-colors hover:decoration-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/50"
-                      >
-                        Keep stored key
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        )}
+        <ImageGenerationSettings
+          draft={draft.imageGeneration}
+          persisted={persistedDraft.current.imageGeneration}
+          canManage={canManageGlobalIntegrations}
+          dirty={isFieldDirty("imageGeneration")}
+          onChange={(value) => updateDraft("imageGeneration", value)}
+        />
       </div>
 
       <div className={sectionDivider} />
 
       <div className="space-y-4">
         <h3 className={sectionTitle}>Title Generation</h3>
-        {!canManageGlobalIntegrations ? (
-          <div className="space-y-1.5">
-            <label className={fieldLabel}>Title generation mode</label>
-            <p className="text-xs text-[var(--muted)]">Only admins can change title generation settings.</p>
+        <div className="space-y-3">
+          <div>
+            <label htmlFor="title-generation-mode" className={fieldLabel}>Title generation mode</label>
+            <p className="mb-2 text-xs text-[var(--muted)]">
+              {canManageGlobalIntegrations ? "Choose which AI generates conversation titles." : "Only admins can change title generation settings."}
+            </p>
             <select
+              id="title-generation-mode"
               aria-label="Title generation mode"
-              value={titleGenerationMode}
-              disabled
-              className={`${selectLike} sm:w-auto opacity-60`}
+              value={draft.titleGeneration.titleGenerationMode}
+              disabled={!canManageGlobalIntegrations}
+              onChange={(event) => {
+                const titleGenerationMode = event.target.value as AppSettings["titleGenerationMode"];
+                updateDraft("titleGeneration", {
+                  titleGenerationMode,
+                  titleGenerationProfileId:
+                    titleGenerationMode === "specific"
+                      ? draft.titleGeneration.titleGenerationProfileId ?? settings.providerProfiles[0]?.id ?? null
+                      : null
+                });
+              }}
+              className={`${selectLike} w-full sm:w-[22rem] ${!canManageGlobalIntegrations ? "opacity-60" : ""} ${titleGenerationDirty ? "!border-amber-500/40" : ""}`}
             >
               <option value="local">Local model</option>
               <option value="same">Same as conversation</option>
               <option value="specific">Specific provider</option>
             </select>
           </div>
-        ) : (
-          <div className="space-y-3">
-            <div>
-              <label htmlFor="title-generation-mode" className={fieldLabel}>
-                Title generation mode
-              </label>
-              <p className="text-xs text-[var(--muted)] mb-2">Choose which AI generates conversation titles. Local model runs on the server without an API key.</p>
-              <select
-                id="title-generation-mode"
-                aria-label="Title generation mode"
-                value={titleGenerationMode}
-                onChange={(event) => {
-                  resetMessages();
-                  const nextMode = event.target.value as AppSettings["titleGenerationMode"];
-                  setTitleGenerationMode(nextMode);
-                  if (nextMode === "specific" && !titleGenerationProfileId && settings.providerProfiles.length > 0) {
-                    setTitleGenerationProfileId(settings.providerProfiles[0].id);
-                  }
-                }}
-                className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("titleGenerationMode") ? "!border-amber-500/40" : ""}`}
-              >
-                <option value="local">Local model</option>
-                <option value="same">Same as conversation</option>
-                <option value="specific">Specific provider</option>
-              </select>
-            </div>
-
-            {titleGenerationMode === "local" && (
-              <div className="flex items-start gap-2.5 rounded-xl border border-sky-400/15 bg-sky-400/8 px-4 py-3 text-sm text-sky-200">
-                <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
-                <span>The SmolLM2-360M-Instruct model (~273 MB) will be downloaded to the server and loaded into memory on save.</span>
+          {canManageGlobalIntegrations && draft.titleGeneration.titleGenerationMode === "specific" ? (
+            settings.providerProfiles.length ? (
+              <div>
+                <label htmlFor="title-generation-profile" className={fieldLabel}>Provider profile</label>
+                <select
+                  id="title-generation-profile"
+                  value={draft.titleGeneration.titleGenerationProfileId ?? ""}
+                  onChange={(event) => updateDraft("titleGeneration", {
+                    ...draft.titleGeneration,
+                    titleGenerationProfileId: event.target.value || null
+                  })}
+                  className={`${selectLike} w-full sm:w-[22rem] ${titleGenerationDirty ? "!border-amber-500/40" : ""}`}
+                >
+                  {settings.providerProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>{profile.name} ({profile.model})</option>
+                  ))}
+                </select>
               </div>
-            )}
-
-            {titleGenerationMode === "specific" && (
-              settings.providerProfiles.length > 0 ? (
-                <div>
-                  <label htmlFor="title-generation-profile" className={fieldLabel}>
-                    Provider profile
-                  </label>
-                  <select
-                    id="title-generation-profile"
-                    aria-label="Title generation provider profile"
-                    value={titleGenerationProfileId ?? settings.providerProfiles[0]?.id ?? ""}
-                    onChange={(event) => {
-                      resetMessages();
-                      setTitleGenerationProfileId(event.target.value || null);
-                    }}
-                    className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("titleGenerationProfileId") ? "!border-amber-500/40" : ""}`}
-                  >
-                    {settings.providerProfiles.map((profile) => (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name} ({profile.model})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : (
-                <p className="text-xs text-[var(--muted)]">No provider profiles available. Create a provider profile first.</p>
-              )
-            )}
-          </div>
-        )}
+            ) : <p className="text-xs text-[var(--muted)]">Create a provider profile first.</p>
+          ) : null}
+        </div>
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {isDirty && (
-          <span className="flex items-center gap-1 text-xs text-amber-400/80">
-            <span className="text-[0.5rem]">●</span> Unsaved changes
-          </span>
-        )}
+        {isDirty ? (
+          <span className="text-xs text-amber-400/80"><span>●</span> Unsaved changes</span>
+        ) : null}
         <Button className="px-3 py-1.5 text-xs" onClick={() => void save()} disabled={isSaving}>
           Save
         </Button>
       </div>
-      <Toast
-        visible={toast.visible}
-        variant={toast.variant}
-        message={toast.message}
-      />
+      <Toast visible={toast.visible} variant={toast.variant} message={toast.message} />
     </div>
   );
 }

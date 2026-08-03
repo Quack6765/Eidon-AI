@@ -1,5 +1,5 @@
 import { compileImageInstruction, extractJsonObject } from "@/lib/image-generation/compile-image-instruction";
-import type { ProviderProfileWithApiKey } from "@/lib/types";
+import type { RuntimeProviderProfile } from "@/lib/types";
 import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
 const { callProviderText } = vi.hoisted(() => ({
@@ -10,7 +10,7 @@ vi.mock("@/lib/provider", () => ({
   callProviderText
 }));
 
-function createSettings(): ProviderProfileWithApiKey {
+function createSettings(): RuntimeProviderProfile {
   return createRuntimeProviderProfile({
     id: "profile_test",
     name: "Test profile",

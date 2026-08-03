@@ -3,8 +3,8 @@ import { badRequest, forbidden, ok } from "@/lib/http";
 import { callProviderText } from "@/lib/provider";
 import { getProviderReadinessError } from "@/lib/provider-adapters";
 import {
-  getDefaultProviderProfileWithApiKey,
-  getProviderProfileWithApiKey
+  getDefaultRuntimeProviderProfile,
+  getRuntimeProviderProfile
 } from "@/lib/settings";
 
 export async function POST(request: Request) {
@@ -16,8 +16,8 @@ export async function POST(request: Request) {
       providerProfileId?: string;
     };
     const settings =
-      (body.providerProfileId ? getProviderProfileWithApiKey(body.providerProfileId) : null) ??
-      getDefaultProviderProfileWithApiKey();
+      (body.providerProfileId ? getRuntimeProviderProfile(body.providerProfileId) : null) ??
+      getDefaultRuntimeProviderProfile();
 
     if (!settings) {
       return badRequest("Provider profile not found");

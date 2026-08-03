@@ -27,7 +27,8 @@ import type {
   MemoryProposalPayload,
   MemoryProposalState,
   MessageActionKind,
-  ProviderProfileWithApiKey,
+  RuntimeAppSettings,
+  RuntimeProviderProfile,
   ProviderToolCall,
   PromptMessage,
   Skill
@@ -79,7 +80,7 @@ export async function executeWebSearch(
   args: Record<string, unknown>,
   context: {
     input: {
-      appSettings?: import("@/lib/types").RuntimeAppSettings;
+      appSettings?: RuntimeAppSettings;
       mcpTimeout?: number;
       abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
@@ -156,8 +157,8 @@ export async function executeImageGeneration(
   args: Record<string, unknown>,
   context: {
     input: {
-      settings?: ProviderProfileWithApiKey;
-      appSettings?: import("@/lib/types").RuntimeAppSettings;
+      settings?: RuntimeProviderProfile;
+      appSettings?: RuntimeAppSettings;
       mcpTimeout?: number;
       conversationId?: string;
       assistantMessageId?: string;
@@ -687,7 +688,7 @@ export async function executeToolCall(
   toolCall: ProviderToolCall,
   context: {
     input: {
-      settings?: ProviderProfileWithApiKey;
+      settings?: RuntimeProviderProfile;
       skills: Skill[];
       mcpToolSets: ToolSet[];
       memoryUserId?: string;
@@ -696,7 +697,7 @@ export async function executeToolCall(
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       imageGenerationActionHandle?: string;
       hasVisibleImageGenerationAction?: boolean;
-      appSettings?: import("@/lib/types").RuntimeAppSettings;
+      appSettings?: RuntimeAppSettings;
       mcpTimeout?: number;
       conversationId?: string;
       assistantMessageId?: string;

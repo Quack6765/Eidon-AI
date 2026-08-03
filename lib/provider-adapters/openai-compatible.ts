@@ -1,14 +1,13 @@
 import { resolveCapabilities, supportsVisibleReasoning } from "@/lib/model-capabilities";
-import { getProviderRequestProfile } from "@/lib/provider-catalog";
 import { getProviderApiKey, getProviderApiMode } from "@/lib/provider-profile";
 import { estimatePromptTokens, setActiveTokenizer } from "@/lib/tokenization";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import {
-  buildChatCompletionMessages,
-  buildResponsesInput,
-  createClient,
-  withDateContextUserMessage
-} from "@/lib/provider-message-formatting";
+  buildOpenAIChatCompletionMessages,
+  buildOpenAIResponsesInput,
+  createOpenAIClient
+} from "@/lib/provider-adapters/openai-message-formatting";
+import { withDateContextUserMessage } from "@/lib/provider-message-formatting";
 import {
   getResponseOutputItemMessageText,
   getResponseText,
@@ -19,7 +18,13 @@ import {
   createThinkingDelimiterInterceptor,
   stripThinkingDelimiters
 } from "@/lib/thinking-delimiter-parsing";
-import type { ProviderProfile, ProviderToolCall, ReasoningEffort } from "@/lib/types";
+import type {
+  ChatStreamEvent,
+  ProviderProfile,
+  ProviderToolCall,
+  ReasoningEffort,
+  RuntimeProviderProfile
+} from "@/lib/types";
 import type {
   ProviderStreamInput,
   ProviderStreamResult,
@@ -83,7 +88,8 @@ function buildChatCompletionsOptions(settings: ProviderProfile) {
 
   const effort = normalizeReasoningEffort(settings.reasoningEffort);
 
-  if (getProviderRequestProfile(settings.providerPresetId) === "ollama") {
+  if (settings.providerKind === "openai_compatible" &&
+    settings.providerConfig.reasoningParameterMode === "mirrored") {
     const ollamaEffort = settings.reasoningSummaryEnabled ? effort : "none";
 
     return {
@@ -120,13 +126,13 @@ export async function callOpenAiCompatibleText(input: ProviderTextInput) {
     : settings;
   const contextualPrompt = withDateContextUserMessage([{ role: "user", content: input.prompt }]);
 
-  const client = createClient(profile, getProviderApiKey(profile));
+  const client = createOpenAIClient(profile, getProviderApiKey(profile));
 
   if (getProviderApiMode(profile) === "responses") {
     const reasoning = buildReasoningConfig(profile);
     const request = {
       model: profile.model,
-      input: buildResponsesInput(contextualPrompt),
+      input: buildOpenAIResponsesInput(contextualPrompt),
       max_output_tokens: Math.min(profile.maxOutputTokens, 4000),
       reasoning
     };
@@ -145,7 +151,7 @@ export async function callOpenAiCompatibleText(input: ProviderTextInput) {
 
   const request = {
     model: profile.model,
-    messages: buildChatCompletionMessages(contextualPrompt, profile),
+    messages: buildOpenAIChatCompletionMessages(contextualPrompt, profile),
     temperature: profile.temperature,
     max_completion_tokens: Math.min(profile.maxOutputTokens, 4000),
     ...buildChatCompletionsOptions(profile)
@@ -169,8 +175,8 @@ export async function callOpenAiCompatibleText(input: ProviderTextInput) {
   return text;
 }
 
-export async function discoverOpenAiCompatibleModels(settings: import("@/lib/types").ProviderProfileWithApiKey) {
-  const client = createClient(settings, getProviderApiKey(settings));
+export async function discoverOpenAiCompatibleModels(settings: RuntimeProviderProfile) {
+  const client = createOpenAIClient(settings, getProviderApiKey(settings));
   const models = await client.models.list();
   return models.data.map((model) => ({
     id: model.id,
@@ -181,12 +187,12 @@ export async function discoverOpenAiCompatibleModels(settings: import("@/lib/typ
 
 export async function* streamOpenAiCompatibleResponse(
   input: ProviderStreamInput
-): AsyncGenerator<import("@/lib/types").ChatStreamEvent, ProviderStreamResult, void> {
+): AsyncGenerator<ChatStreamEvent, ProviderStreamResult, void> {
   const { settings, promptMessages } = input;
   const contextualPromptMessages = withDateContextUserMessage(promptMessages);
   setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
 
-  const client = createClient(settings, getProviderApiKey(settings));
+  const client = createOpenAIClient(settings, getProviderApiKey(settings));
   const abortController = new AbortController();
   const signal = input.abortSignal ?? abortController.signal;
   let answer = "";
@@ -204,7 +210,7 @@ export async function* streamOpenAiCompatibleResponse(
 
     const responseCreateParams: Record<string, unknown> = {
       model: settings.model,
-      input: buildResponsesInput(contextualPromptMessages),
+      input: buildOpenAIResponsesInput(contextualPromptMessages),
       stream: true,
       temperature: settings.temperature,
       max_output_tokens: settings.maxOutputTokens,
@@ -349,7 +355,7 @@ export async function* streamOpenAiCompatibleResponse(
 
   const chatCreateParams: Record<string, unknown> = {
     model: settings.model,
-    messages: buildChatCompletionMessages(contextualPromptMessages, settings),
+    messages: buildOpenAIChatCompletionMessages(contextualPromptMessages, settings),
     stream: true,
     temperature: settings.temperature,
     max_completion_tokens: settings.maxOutputTokens,

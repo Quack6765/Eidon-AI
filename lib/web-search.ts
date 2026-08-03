@@ -1,6 +1,10 @@
 import { callMcpTool, discoverMcpTools, getToolResultText } from "@/lib/mcp-client";
 import { searchSearxng } from "@/lib/searxng";
-import type { McpServer, RuntimeAppSettings, WebSearchProviderId } from "@/lib/types";
+import {
+  getWebSearchReadinessError as getCatalogReadinessError,
+  type WebSearchProviderId
+} from "@/lib/web-search-catalog";
+import type { McpServer, RuntimeAppSettings } from "@/lib/types";
 
 type WebSearchInput = {
   query: string;
@@ -12,7 +16,7 @@ type WebSearchInput = {
 
 export type WebSearchProvider = {
   id: WebSearchProviderId;
-  readinessError(settings: RuntimeAppSettings): string | null;
+  getReadinessError(settings: RuntimeAppSettings): string | null;
   search(input: WebSearchInput): Promise<string>;
 };
 
@@ -61,14 +65,14 @@ async function callSearchMcp(input: {
 const providers: Record<WebSearchProviderId, WebSearchProvider> = {
   disabled: {
     id: "disabled",
-    readinessError: () => "Web search is disabled",
+    getReadinessError: (settings) => getCatalogReadinessError(settings.webSearch),
     async search() {
       throw new Error("Web search is disabled");
     }
   },
   exa: {
     id: "exa",
-    readinessError: () => null,
+    getReadinessError: (settings) => getCatalogReadinessError(settings.webSearch),
     search(input) {
       const url = new URL("https://mcp.exa.ai/mcp");
       const apiKey = input.settings.webSearch.credentials.apiKey?.trim();
@@ -89,9 +93,7 @@ const providers: Record<WebSearchProviderId, WebSearchProvider> = {
   },
   tavily: {
     id: "tavily",
-    readinessError: (settings) => settings.webSearch.credentials.apiKey?.trim()
-      ? null
-      : "The configured web search provider requires an API key",
+    getReadinessError: (settings) => getCatalogReadinessError(settings.webSearch),
     search(input) {
       const url = new URL("https://mcp.tavily.com/mcp/");
       url.searchParams.set("tavilyApiKey", input.settings.webSearch.credentials.apiKey?.trim() ?? "");
@@ -109,9 +111,7 @@ const providers: Record<WebSearchProviderId, WebSearchProvider> = {
   },
   searxng: {
     id: "searxng",
-    readinessError: (settings) => String(settings.webSearch.configuration.baseUrl ?? "").trim()
-      ? null
-      : "The configured web search provider requires a base URL",
+    getReadinessError: (settings) => getCatalogReadinessError(settings.webSearch),
     search(input) {
       return searchSearxng({
         baseUrl: String(input.settings.webSearch.configuration.baseUrl ?? ""),
@@ -124,12 +124,12 @@ const providers: Record<WebSearchProviderId, WebSearchProvider> = {
 };
 
 export function getWebSearchReadinessError(settings: RuntimeAppSettings) {
-  return providers[settings.webSearch.providerId].readinessError(settings);
+  return providers[settings.webSearch.providerId].getReadinessError(settings);
 }
 
 export function searchWeb(input: WebSearchInput) {
   const provider = providers[input.settings.webSearch.providerId];
-  const readinessError = provider.readinessError(input.settings);
+  const readinessError = provider.getReadinessError(input.settings);
   if (readinessError) throw new Error(readinessError);
   return provider.search(input);
 }

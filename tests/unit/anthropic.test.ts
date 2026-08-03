@@ -14,12 +14,12 @@ import {
   toAnthropicTools
 } from "@/lib/anthropic";
 import { estimatePromptTokens } from "@/lib/tokenization";
-import type { ChatStreamEvent, ProviderProfileWithApiKey, PromptMessage, ToolDefinition } from "@/lib/types";
+import type { ChatStreamEvent, RuntimeProviderProfile, PromptMessage, ToolDefinition } from "@/lib/types";
 import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
 function baseSettings(
   overrides: Parameters<typeof createRuntimeProviderProfile>[0] = {}
-): ProviderProfileWithApiKey {
+): RuntimeProviderProfile {
   return createRuntimeProviderProfile({
     id: "p1",
     providerKind: "anthropic",

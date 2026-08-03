@@ -318,6 +318,7 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
         providerId: "browser",
         configuration: { language: "en" },
         configured: true,
+        credentialStored: false,
         scope: "global"
       }
     },
@@ -1253,6 +1254,7 @@ describe("chat view", () => {
               providerId: "canary",
               configuration: { language: "en" },
               configured: true,
+              credentialStored: false,
               scope: "global"
             }
           }

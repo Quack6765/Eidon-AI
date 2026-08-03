@@ -1,10 +1,10 @@
-import type { CopilotToolContext } from "@/lib/copilot-tools";
+import type { RuntimeToolContext } from "@/lib/runtime-tool-context";
 import type {
   ChatStreamEvent,
   AuthUser,
   PromptMessage,
   ProviderProfile,
-  ProviderProfileWithApiKey,
+  RuntimeProviderProfile,
   ProviderToolCall,
   ToolDefinition
 } from "@/lib/types";
@@ -12,7 +12,7 @@ import type {
 export type ProviderTextPurpose = "compaction" | "test" | "title" | "image_instruction";
 
 export type ProviderTextInput = {
-  settings: ProviderProfileWithApiKey;
+  settings: RuntimeProviderProfile;
   prompt: string;
   purpose: ProviderTextPurpose;
   conversationId?: string;
@@ -36,27 +36,31 @@ export type ProviderStreamResult = {
 };
 
 export type ProviderStreamInput = {
-  settings: ProviderProfileWithApiKey;
+  settings: RuntimeProviderProfile;
   promptMessages: PromptMessage[];
   tools?: ToolDefinition[];
   abortSignal?: AbortSignal;
-  runtimeToolContext?: CopilotToolContext;
+  runtimeToolContext?: RuntimeToolContext;
 };
 
 export type ProviderAdapter = {
-  getReadinessError(profile: ProviderProfileWithApiKey): string | null;
+  getReadinessError(profile: RuntimeProviderProfile): string | null;
   supportsStreamRetry: boolean;
   callText(input: ProviderTextInput): Promise<string>;
   stream(
     input: ProviderStreamInput
   ): AsyncGenerator<ChatStreamEvent, ProviderStreamResult, void>;
-  discoverModels(profile: ProviderProfileWithApiKey): Promise<Array<{
+  discoverModels(profile: RuntimeProviderProfile): Promise<Array<{
     id: string;
     name: string;
     maxContextWindowTokens: number | null;
   }>>;
   connectionFlows?: {
-    create(user: AuthUser, profileId: string): Promise<unknown>;
+    create(
+      user: AuthUser,
+      profileId: string,
+      input?: { client?: "native" | "browser" }
+    ): Promise<unknown>;
     get(flowId: string, userId: string): { profileId: string } | null;
     cancel(flowId: string, userId: string): boolean;
   };

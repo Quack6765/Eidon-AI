@@ -33,8 +33,8 @@ import { listEnabledSkills } from "@/lib/skills";
 import {
   getSettings,
   getSettingsForUser,
-  getDefaultProviderProfileWithApiKey,
-  getProviderProfileWithApiKey
+  getDefaultRuntimeProviderProfile,
+  getRuntimeProviderProfile
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
 import { createAssistantContentPersistenceTracker as createAssistantContentPersistenceTrackerImpl, attachAssistantFilesFromCompletedAction as attachAssistantFilesFromCompletedActionImpl } from "./content-persistence";
@@ -165,8 +165,8 @@ export function getAssistantTurnStartPreflight(conversationId: string) {
 
   const settings =
     (conversation.providerProfileId
-      ? getProviderProfileWithApiKey(conversation.providerProfileId)
-      : null) ?? getDefaultProviderProfileWithApiKey();
+      ? getRuntimeProviderProfile(conversation.providerProfileId)
+      : null) ?? getDefaultRuntimeProviderProfile();
   const conversationOwnerId = getConversationOwnerId(conversationId);
   const appSettings = conversationOwnerId ? getSettingsForUser(conversationOwnerId) : getSettings();
 

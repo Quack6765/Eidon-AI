@@ -13,7 +13,7 @@ import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultM
 import type {
   ChatStreamEvent,
   McpServer,
-  ProviderProfileWithApiKey,
+  RuntimeProviderProfile,
   ProviderToolCall,
   PromptMessage,
   Skill,
@@ -163,7 +163,7 @@ function appendTrailingGuidance(promptMessages: PromptMessage[], content: string
 }
 
 function getEffectiveVisionMode(
-  settings: ProviderProfileWithApiKey,
+  settings: RuntimeProviderProfile,
   hasVisionServers: boolean
 ): VisionMode {
   if (settings.visionMode === "native") {
@@ -177,7 +177,7 @@ function getEffectiveVisionMode(
 
 function prepareProviderPromptMessages(input: {
   promptMessages: PromptMessage[];
-  settings: ProviderProfileWithApiKey;
+  settings: RuntimeProviderProfile;
   visionMcpServers?: McpServer[];
 }) {
   const imageAttachments = extractImageAttachments(input.promptMessages);
@@ -204,7 +204,7 @@ function prepareProviderPromptMessages(input: {
 }
 
 async function forceDirectAnswerAfterToolLoop(input: {
-  settings: ProviderProfileWithApiKey;
+  settings: RuntimeProviderProfile;
   promptMessages: PromptMessage[];
   visionMcpServers?: McpServer[];
   abortSignal?: AbortSignal;
@@ -269,7 +269,7 @@ async function forceDirectAnswerAfterToolLoop(input: {
 }
 
 export async function resolveAssistantTurn(input: {
-  settings: ProviderProfileWithApiKey;
+  settings: RuntimeProviderProfile;
   promptMessages: PromptMessage[];
   skills: Skill[];
   mcpServers?: McpServer[];

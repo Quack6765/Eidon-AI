@@ -67,6 +67,11 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
         : searchProvider === "tavily"
           ? overrides.hasTavilyApiKey ?? false
           : searchProvider === "searxng" ? Boolean(overrides.searxngBaseUrl) : true,
+      credentialStored: searchProvider === "exa"
+        ? overrides.hasExaApiKey ?? false
+        : searchProvider === "tavily"
+          ? overrides.hasTavilyApiKey ?? false
+          : false,
       scope: "user"
     },
     speechTranscription: !overrides.sttEngine && overrides.speechTranscription ? overrides.speechTranscription : {
@@ -79,6 +84,9 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
       configured: speechProvider === "elevenlabs"
         ? overrides.hasExternalSttApiKey ?? false
         : true,
+      credentialStored: speechProvider === "elevenlabs"
+        ? overrides.hasExternalSttApiKey ?? false
+        : false,
       scope: "user"
     },
     imageGeneration: !overrides.imageGenerationBackend && overrides.imageGeneration ? overrides.imageGeneration : {
@@ -89,6 +97,9 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
       configured: imageProvider === "google_nano_banana"
         ? overrides.hasGoogleNanoBananaApiKey ?? false
         : true,
+      credentialStored: imageProvider === "google_nano_banana"
+        ? overrides.hasGoogleNanoBananaApiKey ?? false
+        : false,
       scope: "global"
     },
     updatedAt: new Date().toISOString(),
@@ -169,7 +180,7 @@ describe("general section", () => {
     expect(body.speechTranscription).toMatchObject({
       providerId: "canary",
       configuration: { language: "es" },
-      credentialAction: "preserve"
+      credentialAction: "clear"
     });
   });
 
@@ -455,7 +466,7 @@ describe("general section", () => {
 
     const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
     expect(body.preferences).toMatchObject({ conversationRetention: "30d" });
-    expect(body.webSearch).toMatchObject({ providerId: "exa", credentialAction: "preserve" });
+    expect(body.webSearch).toMatchObject({ providerId: "exa", credentialAction: "clear" });
   });
 
   it("renders an image generation card under web search and saves through the global save button", async () => {

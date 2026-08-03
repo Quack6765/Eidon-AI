@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ProviderProfileWithApiKey, PromptMessage } from "@/lib/types";
+import type { RuntimeProviderProfile, PromptMessage } from "@/lib/types";
 import { callProviderText as callProviderTextDefault } from "@/lib/provider";
 import type { CompiledImageInstruction } from "./types";
 import { referencesEarlierImagePromptContext } from "./follow-up-context";
@@ -101,7 +101,7 @@ user: ${latestUserRequest}`;
 }
 
 export async function compileImageInstruction(input: {
-  settings: ProviderProfileWithApiKey;
+  settings: RuntimeProviderProfile;
   promptMessages: PromptMessage[];
   callProviderText?: typeof callProviderTextDefault;
   abortSignal?: AbortSignal;

@@ -11,13 +11,13 @@ import {
   getConversationSnapshot
 } from "@/lib/conversations";
 import { resetDbForTests } from "@/lib/db";
-import { updateSettings } from "@/lib/settings";
+import { updateProviderCatalog } from "@/lib/settings";
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
 
 describe("temporary chat", () => {
   beforeEach(() => {
     resetDbForTests();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_default",
       skillsEnabled: true,
       providerProfiles: [

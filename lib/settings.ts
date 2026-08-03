@@ -1,21 +1,22 @@
-import { createProviderProfileDraft } from "@/lib/provider-catalog";
 import { getDb } from "@/lib/db";
 import { getGlobalPreferences, updateGlobalPreferences } from "@/lib/global-preferences";
 import {
   getIntegrationSetting,
   getRuntimeIntegrationSetting,
+  INTEGRATION_CAPABILITY_CATALOG,
   updateIntegrationSetting,
+  type IntegrationCapability,
   type CredentialAction
 } from "@/lib/integration-settings";
 import {
   duplicateProviderProfileRecord,
   getDefaultProviderProfile as getStoredDefaultProviderProfile,
-  getDefaultRuntimeProviderProfile,
+  getDefaultRuntimeProviderProfile as getStoredDefaultRuntimeProviderProfile,
   getProviderProfile as getStoredProviderProfile,
-  getRuntimeProviderProfile,
+  getRuntimeProviderProfile as getStoredRuntimeProviderProfile,
   listProviderProfiles as listStoredProviderProfiles,
   listProviderProfileSummaries,
-  listRuntimeProviderProfiles,
+  listRuntimeProviderProfiles as listStoredRuntimeProviderProfiles,
   saveProviderCatalog
 } from "@/lib/provider-profiles";
 import { getUserPreferences, updateUserPreferences, type UserPreferences } from "@/lib/user-preferences";
@@ -77,6 +78,7 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
           providerId: "disabled",
           configuration: {},
           configured: true,
+          credentialStored: false,
           scope: "global",
           credentials: {}
         },
@@ -90,6 +92,7 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
           providerId: "disabled",
           configuration: {},
           configured: true,
+          credentialStored: false,
           scope: "global",
           credentials: {}
         },
@@ -106,6 +109,7 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
           providerId: "browser",
           configuration: { language: "auto" },
           configured: true,
+          credentialStored: false,
           scope: "global",
           credentials: {}
         },
@@ -125,8 +129,8 @@ export function listProviderProfiles() {
   return listStoredProviderProfiles();
 }
 
-export function listProviderProfilesWithApiKeys() {
-  return listRuntimeProviderProfiles();
+export function listRuntimeProviderProfiles() {
+  return listStoredRuntimeProviderProfiles();
 }
 
 export function duplicateProviderProfile(sourceProfileId: string) {
@@ -138,16 +142,16 @@ export function getProviderProfile(profileId: string) {
   return getStoredProviderProfile(profileId);
 }
 
-export function getProviderProfileWithApiKey(profileId: string) {
-  return getRuntimeProviderProfile(profileId);
+export function getRuntimeProviderProfile(profileId: string) {
+  return getStoredRuntimeProviderProfile(profileId);
 }
 
 export function getDefaultProviderProfile() {
   return getStoredDefaultProviderProfile();
 }
 
-export function getDefaultProviderProfileWithApiKey() {
-  return getDefaultRuntimeProviderProfile();
+export function getDefaultRuntimeProviderProfile() {
+  return getStoredDefaultRuntimeProviderProfile();
 }
 
 function publicIntegrationSettings(userId?: string) {
@@ -210,18 +214,26 @@ export function updateGeneralSettingsBundleForUser(
   input: GeneralSettingsBundle,
   canManageGlobalIntegrations: boolean
 ) {
-  if (!canManageGlobalIntegrations && (input.imageGeneration || input.titleGeneration)) {
+  const integrationUpdates = [
+    ["web_search", input.webSearch],
+    ["speech_transcription", input.speechTranscription],
+    ...(input.imageGeneration
+      ? [["image_generation", input.imageGeneration] as const]
+      : [])
+  ] as Array<readonly [IntegrationCapability, unknown]>;
+  const hasGlobalIntegrationUpdate = integrationUpdates.some(
+    ([capability]) => INTEGRATION_CAPABILITY_CATALOG[capability].scope === "global"
+  );
+  if (!canManageGlobalIntegrations && (hasGlobalIntegrationUpdate || input.titleGeneration)) {
     throw new Error("Only admins can update global settings");
   }
   const transaction = getDb().transaction(() => {
     updateGeneralSettingsForUser(userId, input.preferences);
-    updateIntegrationSetting({ capability: "web_search", ...input.webSearch }, userId);
-    updateIntegrationSetting(
-      { capability: "speech_transcription", ...input.speechTranscription },
-      userId
-    );
-    if (input.imageGeneration) {
-      updateIntegrationSetting({ capability: "image_generation", ...input.imageGeneration });
+    for (const [capability, update] of integrationUpdates) {
+      updateIntegrationSetting({
+        capability,
+        ...(update as Record<string, unknown>)
+      }, userId);
     }
     if (input.titleGeneration) updateTitleGenerationSettings(input.titleGeneration);
   });
@@ -229,7 +241,7 @@ export function updateGeneralSettingsBundleForUser(
   return getSanitizedSettings(userId);
 }
 
-export function updateSettings(input: unknown) {
+export function updateProviderCatalog(input: unknown) {
   const current = getGlobalPreferences();
   saveProviderCatalog({
     defaultProviderProfileId: current.defaultProviderProfileId,
@@ -241,12 +253,4 @@ export function updateSettings(input: unknown) {
     ...(input && typeof input === "object" ? input : {})
   });
   return getSanitizedSettings();
-}
-
-export function updateProviderCatalog(input: unknown) {
-  return updateSettings(input);
-}
-
-export function getSettingsDefaults() {
-  return createProviderProfileDraft({ name: "Default profile" });
 }

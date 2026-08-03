@@ -8,7 +8,7 @@ import { getProviderProfile } from "@/lib/provider-profiles";
 const paramsSchema = z.object({ profileId: z.string().min(1) });
 
 export async function POST(
-  _request: Request,
+  request: Request,
   context: { params: Promise<{ profileId: string }> }
 ) {
   const admin = await requireAdminResponse();
@@ -22,7 +22,10 @@ export async function POST(
     return badRequest("This provider does not support connection flows");
   }
   try {
-    return ok(await connectionFlows.create(admin, profile.id), { status: 201 });
+    const input = z.object({
+      client: z.enum(["native", "browser"]).optional()
+    }).parse(await request.json().catch(() => ({})));
+    return ok(await connectionFlows.create(admin, profile.id, input), { status: 201 });
   } catch (error) {
     return badRequest(error instanceof Error ? error.message : "Unable to start connection flow");
   }

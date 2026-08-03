@@ -4,6 +4,7 @@ import {
   type ProviderConnectionMode,
   type ProviderKind,
   type ProviderPresetId,
+  type ReasoningParameterMode,
   type ReasoningEffort,
   type VisionMode
 } from "@/lib/provider-catalog";
@@ -37,6 +38,7 @@ export type ProviderProfileCore = {
 export type OpenAiCompatibleProviderConfig = {
   apiBaseUrl: string;
   apiMode: ApiMode;
+  reasoningParameterMode: ReasoningParameterMode;
 };
 
 export type AnthropicProviderConfig = {

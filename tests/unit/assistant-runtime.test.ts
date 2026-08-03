@@ -1,4 +1,4 @@
-import type { ChatStreamEvent, PromptMessage, ProviderProfileWithApiKey, Skill } from "@/lib/types";
+import type { ChatStreamEvent, PromptMessage, RuntimeProviderProfile, Skill } from "@/lib/types";
 import { createRuntimeAppSettings, createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
 const streamProviderResponse = vi.fn();
@@ -93,7 +93,7 @@ function createProviderStream(
   })();
 }
 
-function createSettings(): ProviderProfileWithApiKey {
+function createSettings(): RuntimeProviderProfile {
   return createRuntimeProviderProfile({
     id: "profile_test",
     name: "Test profile",
