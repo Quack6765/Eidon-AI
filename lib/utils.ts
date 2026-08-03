@@ -24,3 +24,15 @@ export function shouldAutofocusTextInput() {
 export function nowIso() {
   return new Date().toISOString();
 }
+
+const AT_BOTTOM_TOLERANCE_PX = 8;
+
+type ScrollGeometry = {
+  scrollHeight: number;
+  clientHeight: number;
+  scrollTop: number;
+};
+
+export function isScrolledToBottom(element: ScrollGeometry) {
+  return element.scrollHeight - element.clientHeight - element.scrollTop <= AT_BOTTOM_TOLERANCE_PX;
+}
