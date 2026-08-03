@@ -1,142 +1,143 @@
-import { appendInjectedWebSearchMcpServer, getInjectedWebSearchMcpServer } from "@/lib/web-search";
-import type { AppSettings, McpServer } from "@/lib/types";
+import {
+  getWebSearchReadinessError,
+  searchWeb
+} from "@/lib/web-search";
+import { createRuntimeAppSettings } from "@/tests/provider-fixtures";
 
-function makeSettings(overrides: Partial<AppSettings> = {}): AppSettings {
-  return {
-    defaultProviderProfileId: "profile_default",
-    skillsEnabled: true,
-    conversationRetention: "forever",
-    memoriesEnabled: true,
-    memoriesMaxCount: 100,
-    mcpTimeout: 120_000,
-    maxAssistantToolSteps: 25,
-    sttEngine: "browser",
-    sttProvider: "elevenlabs",
-    sttLanguage: "auto",
-    externalSttLanguage: "auto",
-    externalSttApiKey: "",
-    webSearchEngine: "exa",
-    exaApiKey: "",
-    tavilyApiKey: "",
-    searxngBaseUrl: "",
-    imageGenerationBackend: "disabled",
-    googleNanoBananaModel: "gemini-3.1-flash-image-preview",
-    googleNanoBananaApiKey: "",
-    titleGenerationMode: "same",
-    titleGenerationProfileId: null,
-    updatedAt: new Date().toISOString(),
-    ...overrides
-  };
-}
+const {
+  callMcpToolMock,
+  discoverMcpToolsMock,
+  getToolResultTextMock,
+  searchSearxngMock
+} = vi.hoisted(() => ({
+  callMcpToolMock: vi.fn(),
+  discoverMcpToolsMock: vi.fn(),
+  getToolResultTextMock: vi.fn(),
+  searchSearxngMock: vi.fn()
+}));
 
-function makeServer(overrides: Partial<McpServer> = {}): McpServer {
-  return {
-    id: "mcp_existing",
-    name: "Existing",
-    slug: "existing",
-    url: "https://mcp.example.com",
-    headers: {},
-    transport: "streamable_http",
-    command: null,
-    args: null,
-    env: null,
-    enabled: true,
-    isVisionMcp: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides
-  };
-}
+vi.mock("@/lib/mcp-client", () => ({
+  callMcpTool: callMcpToolMock,
+  discoverMcpTools: discoverMcpToolsMock,
+  getToolResultText: getToolResultTextMock
+}));
 
-describe("web search provider injection", () => {
-  it("injects Exa by default without authentication", () => {
-    const server = getInjectedWebSearchMcpServer(makeSettings());
+vi.mock("@/lib/searxng", () => ({
+  searchSearxng: searchSearxngMock
+}));
 
+describe("web search providers", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    discoverMcpToolsMock.mockResolvedValue([{ name: "web_search", inputSchema: {} }]);
+    callMcpToolMock.mockResolvedValue({ isError: false });
+    getToolResultTextMock.mockReturnValue("search result");
+    searchSearxngMock.mockResolvedValue("self-hosted result");
+  });
+
+  it("reports disabled search through the shared readiness boundary", async () => {
+    const settings = createRuntimeAppSettings({ webSearch: { providerId: "disabled" } });
+
+    expect(getWebSearchReadinessError(settings)).toBe("Web search is disabled");
+    expect(() => searchWeb({ query: "query", settings })).toThrow("Web search is disabled");
+  });
+
+  it("executes Exa through the provider-neutral MCP flow", async () => {
+    const settings = createRuntimeAppSettings({ webSearch: { providerId: "exa" } });
+
+    await expect(searchWeb({ query: "latest AI", maxResults: 4, settings })).resolves.toBe(
+      "search result"
+    );
+
+    const server = discoverMcpToolsMock.mock.calls[0][0];
     expect(server).toMatchObject({
-      id: "builtin_web_search_exa",
-      name: "Exa",
-      slug: "builtin_search_exa",
-      transport: "streamable_http",
-      headers: {}
+      id: "integration_web_search",
+      name: "Web search",
+      slug: "web_search",
+      url: "https://mcp.exa.ai/mcp"
     });
-    expect(server?.url).toBe("https://mcp.exa.ai/mcp");
-  });
-
-  it("injects Exa with an encoded query-string API key when provided", () => {
-    const server = getInjectedWebSearchMcpServer(
-      makeSettings({
-        exaApiKey: "exa key+value"
-      })
+    expect(callMcpToolMock).toHaveBeenCalledWith(
+      server,
+      "web_search",
+      { query: "latest AI", numResults: 4 },
+      undefined,
+      undefined
     );
-
-    const url = new URL(server!.url);
-    expect(url.origin + url.pathname).toBe("https://mcp.exa.ai/mcp");
-    expect(url.searchParams.get("exaApiKey")).toBe("exa key+value");
   });
 
-  it("injects Tavily with an encoded query-string API key", () => {
-    const server = getInjectedWebSearchMcpServer(
-      makeSettings({
-        webSearchEngine: "tavily",
-        tavilyApiKey: "tvly-secret"
-      })
-    );
-
-    const url = new URL(server!.url);
-    expect(server).toMatchObject({
-      id: "builtin_web_search_tavily",
-      name: "Tavily",
-      slug: "builtin_search_tavily",
-      transport: "streamable_http",
-      headers: {}
-    });
-    expect(url.origin + url.pathname).toBe("https://mcp.tavily.com/mcp/");
-    expect(url.searchParams.get("tavilyApiKey")).toBe("tvly-secret");
-  });
-
-  it("does not inject an MCP server for Disabled or SearXNG", () => {
-    expect(
-      getInjectedWebSearchMcpServer(
-        makeSettings({
-          webSearchEngine: "disabled"
-        })
-      )
-    ).toBeNull();
-
-    expect(
-      getInjectedWebSearchMcpServer(
-        makeSettings({
-          webSearchEngine: "searxng",
-          searxngBaseUrl: "https://search.example.com"
-        })
-      )
-    ).toBeNull();
-  });
-
-  it("does not inject Tavily without an API key and leaves the server list untouched", () => {
-    const baseServers = [makeServer()];
-    const settings = makeSettings({
-      webSearchEngine: "tavily",
-      tavilyApiKey: ""
+  it("keeps Exa transport credentials inside its provider implementation", async () => {
+    const settings = createRuntimeAppSettings({
+      webSearch: { providerId: "exa", credentials: { apiKey: "exa key+value" } }
     });
 
-    expect(getInjectedWebSearchMcpServer(settings)).toBeNull();
-    expect(appendInjectedWebSearchMcpServer(baseServers, settings)).toBe(baseServers);
+    await searchWeb({ query: "query", settings });
+
+    expect(discoverMcpToolsMock.mock.calls[0][0].url).toBe(
+      "https://mcp.exa.ai/mcp?exaApiKey=exa+key%2Bvalue"
+    );
   });
 
-  it("appends the injected MCP server after persisted MCP servers", () => {
-    const baseServers = [makeServer()];
-    const servers = appendInjectedWebSearchMcpServer(
-      baseServers,
-      makeSettings({
-        webSearchEngine: "tavily",
-        tavilyApiKey: "tvly-secret"
-      })
+  it("validates and executes Tavily without changing the public tool name", async () => {
+    const missing = createRuntimeAppSettings({ webSearch: { providerId: "tavily" } });
+    expect(getWebSearchReadinessError(missing)).toContain("requires an API key");
+    expect(() => searchWeb({ query: "query", settings: missing })).toThrow(
+      "requires an API key"
     );
 
-    expect(servers.map((server) => server.id)).toEqual([
-      "mcp_existing",
-      "builtin_web_search_tavily"
-    ]);
+    const settings = createRuntimeAppSettings({
+      webSearch: { providerId: "tavily", credentials: { apiKey: "tvly key" } }
+    });
+    discoverMcpToolsMock.mockResolvedValueOnce([{ name: "tavily_search", inputSchema: {} }]);
+
+    await searchWeb({ query: "query", maxResults: 7, settings });
+
+    const server = discoverMcpToolsMock.mock.calls[0][0];
+    expect(server.url).toBe("https://mcp.tavily.com/mcp/?tavilyApiKey=tvly+key");
+    expect(callMcpToolMock).toHaveBeenCalledWith(
+      server,
+      "tavily_search",
+      { query: "query", max_results: 7 },
+      undefined,
+      undefined
+    );
+  });
+
+  it("delegates SearXNG HTTP behavior to its provider", async () => {
+    const missing = createRuntimeAppSettings({ webSearch: { providerId: "searxng" } });
+    expect(getWebSearchReadinessError(missing)).toContain("requires a base URL");
+
+    const abortController = new AbortController();
+    const settings = createRuntimeAppSettings({
+      webSearch: {
+        providerId: "searxng",
+        configuration: { baseUrl: "https://search.example.com" }
+      }
+    });
+    await expect(searchWeb({
+      query: "query",
+      maxResults: 3,
+      settings,
+      abortSignal: abortController.signal
+    })).resolves.toBe("self-hosted result");
+
+    expect(searchSearxngMock).toHaveBeenCalledWith({
+      baseUrl: "https://search.example.com",
+      query: "query",
+      maxResults: 3,
+      abortSignal: abortController.signal
+    });
+  });
+
+  it("surfaces provider discovery and execution errors consistently", async () => {
+    const settings = createRuntimeAppSettings({ webSearch: { providerId: "exa" } });
+    discoverMcpToolsMock.mockResolvedValueOnce([{ name: "unrelated", inputSchema: {} }]);
+    await expect(searchWeb({ query: "query", settings })).rejects.toThrow(
+      "did not expose its search tool"
+    );
+
+    discoverMcpToolsMock.mockResolvedValueOnce([{ name: "web_search", inputSchema: {} }]);
+    callMcpToolMock.mockResolvedValueOnce({ isError: true });
+    getToolResultTextMock.mockReturnValueOnce("provider failed");
+    await expect(searchWeb({ query: "query", settings })).rejects.toThrow("provider failed");
   });
 });

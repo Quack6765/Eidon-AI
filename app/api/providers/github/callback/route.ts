@@ -2,8 +2,12 @@ import { redirect } from "next/navigation";
 
 import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden } from "@/lib/http";
-import { exchangeGithubCodeForTokens, verifyGithubOauthState } from "@/lib/github-copilot";
-import { getProviderProfile, updateGithubCopilotCredentialsIfNonceMatches } from "@/lib/settings";
+import {
+  exchangeGithubCodeForTokens,
+  updateGithubCopilotConnectionIfNonceMatches,
+  verifyGithubOauthState
+} from "@/lib/github-copilot";
+import { getProviderProfile } from "@/lib/provider-profiles";
 import { handleMobileGithubOauthCallback } from "@/lib/mobile-github-oauth";
 
 export async function GET(request: Request) {
@@ -48,18 +52,18 @@ export async function GET(request: Request) {
       return badRequest("GitHub Copilot is only available for Copilot profiles");
     }
 
-    const updated = updateGithubCopilotCredentialsIfNonceMatches(
+    const updated = updateGithubCopilotConnectionIfNonceMatches(
       claims.profileId,
       claims.profileNonce,
       {
-        githubUserAccessToken: tokens.access_token!,
-        githubRefreshToken: tokens.refresh_token ?? "",
-        githubTokenExpiresAt: tokens.expires_in
+        accessToken: tokens.access_token!,
+        refreshToken: tokens.refresh_token ?? "",
+        expiresAt: tokens.expires_in
           ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
           : null,
-        githubRefreshTokenExpiresAt: null,
-        githubAccountLogin: null,
-        githubAccountName: null
+        refreshExpiresAt: null,
+        accountLogin: null,
+        accountName: null
       }
     );
     if (!updated) {

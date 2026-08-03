@@ -28,10 +28,11 @@ import * as messageRegenerateRoute from "@/app/api/messages/[messageId]/regenera
 import * as messageRetryRoute from "@/app/api/messages/[messageId]/retry/route";
 import * as personaRoute from "@/app/api/personas/[personaId]/route";
 import * as personasRoute from "@/app/api/personas/route";
-import * as githubDisconnectRoute from "@/app/api/providers/github/disconnect/route";
-import * as githubModelsRoute from "@/app/api/providers/github/models/route";
+import * as providerConnectionRoute from "@/app/api/providers/[profileId]/connection/route";
+import * as providerConnectionFlowsRoute from "@/app/api/providers/[profileId]/connection/flows/route";
+import * as providerConnectionFlowRoute from "@/app/api/providers/[profileId]/connection/flows/[flowId]/route";
+import * as providerModelsRoute from "@/app/api/providers/[profileId]/models/route";
 import * as generalSettingsRoute from "@/app/api/settings/general/route";
-import * as imageGenerationSettingsRoute from "@/app/api/settings/image-generation/route";
 import * as providerDuplicateRoute from "@/app/api/settings/providers/duplicate/route";
 import * as providerSettingsRoute from "@/app/api/settings/providers/route";
 import * as settingsRoute from "@/app/api/settings/route";
@@ -39,9 +40,8 @@ import * as settingsTestRoute from "@/app/api/settings/test/route";
 import * as titleGenerationSettingsRoute from "@/app/api/settings/title-generation/route";
 import * as skillRoute from "@/app/api/skills/[skillId]/route";
 import * as skillsRoute from "@/app/api/skills/route";
-import * as speechPrepareRoute from "@/app/api/speech/canary/prepare/route";
-import * as speechTranscribeRoute from "@/app/api/speech/canary/transcribe/route";
-import * as externalSpeechTranscribeRoute from "@/app/api/speech/external/transcribe/route";
+import * as speechPrepareRoute from "@/app/api/speech/transcription/prepare/route";
+import * as speechTranscribeRoute from "@/app/api/speech/transcription/transcribe/route";
 import * as userRoute from "@/app/api/users/[userId]/route";
 import * as usersRoute from "@/app/api/users/route";
 import {
@@ -94,7 +94,6 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["message-actions", ":actionId", "approve"], module: messageActionApproveRoute },
   { pattern: ["message-actions", ":actionId", "dismiss"], module: messageActionDismissRoute },
   { pattern: ["settings", "general"], module: generalSettingsRoute },
-  { pattern: ["settings", "image-generation"], module: imageGenerationSettingsRoute },
   { pattern: ["settings", "title-generation"], module: titleGenerationSettingsRoute },
   { pattern: ["settings", "providers", "duplicate"], module: providerDuplicateRoute },
   { pattern: ["settings", "providers"], module: providerSettingsRoute },
@@ -111,11 +110,12 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["skills", ":skillId"], module: skillRoute },
   { pattern: ["users"], module: usersRoute },
   { pattern: ["users", ":userId"], module: userRoute },
-  { pattern: ["providers", "github", "disconnect"], module: githubDisconnectRoute },
-  { pattern: ["providers", "github", "models"], module: githubModelsRoute },
-  { pattern: ["speech", "canary", "prepare"], module: speechPrepareRoute },
-  { pattern: ["speech", "canary", "transcribe"], module: speechTranscribeRoute },
-  { pattern: ["speech", "external", "transcribe"], module: externalSpeechTranscribeRoute }
+  { pattern: ["providers", ":profileId", "connection"], module: providerConnectionRoute },
+  { pattern: ["providers", ":profileId", "connection", "flows"], module: providerConnectionFlowsRoute },
+  { pattern: ["providers", ":profileId", "connection", "flows", ":flowId"], module: providerConnectionFlowRoute },
+  { pattern: ["providers", ":profileId", "models"], module: providerModelsRoute },
+  { pattern: ["speech", "transcription", "prepare"], module: speechPrepareRoute },
+  { pattern: ["speech", "transcription", "transcribe"], module: speechTranscribeRoute }
 ];
 
 function matchPattern(pattern: string[], path: string[]) {

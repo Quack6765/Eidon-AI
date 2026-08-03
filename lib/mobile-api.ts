@@ -22,10 +22,14 @@ function normalizeResponseKey(key: string) {
 const blockedResponseKeys = new Set([
   "apiKey",
   "apiKeyEncrypted",
+  "accessToken",
   "bearerToken",
   "bearerTokenEncrypted",
   "comfyuiBearerToken",
   "debug",
+  "credential",
+  "credentials",
+  "credentialsEncrypted",
   "exaApiKey",
   "extractedText",
   "githubRefreshToken",
@@ -37,6 +41,7 @@ const blockedResponseKeys = new Set([
   "externalSttApiKey",
   "passwordHash",
   "relativePath",
+  "refreshToken",
   "shareToken",
   "tavilyApiKey",
   "token",
@@ -60,9 +65,13 @@ const maxErrorDetailStringChars = 1_000;
 const maxErrorDetailItems = 50;
 const maxErrorDetailDepth = 5;
 
-export function sanitizeMobilePayload(value: unknown): unknown {
+export function sanitizeMobilePayload(
+  value: unknown,
+  allowedTopLevelKeys = new Set<string>(),
+  depth = 0
+): unknown {
   if (Array.isArray(value)) {
-    return value.map(sanitizeMobilePayload);
+    return value.map((item) => sanitizeMobilePayload(item, allowedTopLevelKeys, depth + 1));
   }
 
   if (!value || typeof value !== "object") {
@@ -71,15 +80,23 @@ export function sanitizeMobilePayload(value: unknown): unknown {
 
   return Object.fromEntries(
     Object.entries(value).flatMap(([key, child]) =>
-      blockedResponseKeys.has(normalizeResponseKey(key))
+      blockedResponseKeys.has(normalizeResponseKey(key)) &&
+      !(depth === 0 && allowedTopLevelKeys.has(normalizeResponseKey(key)))
         ? []
-        : [[key, sanitizeMobilePayload(child)]]
+        : [[key, sanitizeMobilePayload(child, allowedTopLevelKeys, depth + 1)]]
     )
   );
 }
 
-export function mobileApiSuccess(data: unknown, init?: ResponseInit) {
-  return Response.json({ data: sanitizeMobilePayload(data) }, init);
+export function mobileApiSuccess(
+  data: unknown,
+  init?: ResponseInit,
+  options?: { allowedTopLevelKeys?: string[] }
+) {
+  const allowed = new Set(
+    (options?.allowedTopLevelKeys ?? []).map(normalizeResponseKey)
+  );
+  return Response.json({ data: sanitizeMobilePayload(data, allowed) }, init);
 }
 
 function boundMobileErrorDetails(value: unknown, depth = 0): unknown {

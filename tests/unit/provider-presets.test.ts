@@ -1,9 +1,9 @@
-import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
 import {
   applyProviderPreset,
+  DEFAULT_PROFILE_BEHAVIOR,
   getMatchingProviderPresetId,
   getProviderPreset
-} from "@/lib/provider-presets";
+} from "@/lib/provider-catalog";
 
 function createProfile() {
   return {
@@ -69,10 +69,10 @@ describe("provider presets", () => {
     expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://openrouter.ai/api/v1");
     expect(profile.model).toBe("");
-    expect(profile.apiMode).toBe(DEFAULT_PROVIDER_SETTINGS.apiMode);
-    expect(profile.reasoningEffort).toBe(DEFAULT_PROVIDER_SETTINGS.reasoningEffort);
+    expect(profile.apiMode).toBe("responses");
+    expect(profile.reasoningEffort).toBe(DEFAULT_PROFILE_BEHAVIOR.reasoningEffort);
     expect(profile.reasoningSummaryEnabled).toBe(
-      DEFAULT_PROVIDER_SETTINGS.reasoningSummaryEnabled
+      DEFAULT_PROFILE_BEHAVIOR.reasoningSummaryEnabled
     );
     expect(profile.modelContextLimit).toBe(200000);
   });

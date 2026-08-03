@@ -4,17 +4,35 @@ import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { GeneralSection } from "@/components/settings/sections/general-section";
-import type { AppSettings, ConversationRetention } from "@/lib/types";
+import type {
+  AppSettings,
+  ConversationRetention,
+  ImageGenerationModelId,
+  ImageGenerationProviderId,
+  WebSearchProviderId
+} from "@/lib/types";
+import type { ExternalSttLanguage } from "@/lib/speech/external-providers";
+import type { SttEngine, SttLanguage } from "@/lib/speech/types";
 import { getUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 
 const mockRefresh = vi.fn();
 
 type GeneralSectionSettings = AppSettings & {
+  providerProfiles: Array<{ id: string; name: string; model: string }>;
+};
+
+type GeneralSettingsOverrides = Partial<GeneralSectionSettings> & {
+  sttEngine?: SttEngine;
+  sttLanguage?: SttLanguage;
+  externalSttLanguage?: ExternalSttLanguage;
+  webSearchEngine?: WebSearchProviderId;
+  searxngBaseUrl?: string;
+  imageGenerationBackend?: ImageGenerationProviderId;
+  googleNanoBananaModel?: ImageGenerationModelId;
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
   hasExternalSttApiKey?: boolean;
   hasGoogleNanoBananaApiKey?: boolean;
-  providerProfiles: Array<{ id: string; name: string; model: string; hasApiKey: boolean }>;
 };
 
 vi.mock("next/navigation", () => ({
@@ -23,7 +41,14 @@ vi.mock("next/navigation", () => ({
   })
 }));
 
-function makeSettings(overrides: Partial<GeneralSectionSettings> = {}): GeneralSectionSettings {
+function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionSettings {
+  const speechProvider = overrides.sttEngine === "embedded"
+    ? "canary"
+    : overrides.sttEngine === "external"
+      ? "elevenlabs"
+      : "browser";
+  const searchProvider = overrides.webSearchEngine ?? "exa";
+  const imageProvider = overrides.imageGenerationBackend ?? "disabled";
   return {
     defaultProviderProfileId: "profile_default",
     skillsEnabled: true,
@@ -32,26 +57,50 @@ function makeSettings(overrides: Partial<GeneralSectionSettings> = {}): GeneralS
     memoriesMaxCount: 3,
     mcpTimeout: 120_000,
     maxAssistantToolSteps: 25,
-    sttEngine: "browser",
-    sttProvider: "elevenlabs",
-    sttLanguage: "auto",
-    externalSttLanguage: "auto",
-    externalSttApiKey: "",
-    webSearchEngine: "exa",
-    exaApiKey: "",
-    tavilyApiKey: "",
-    searxngBaseUrl: "",
-    imageGenerationBackend: "disabled",
-    googleNanoBananaModel: "gemini-3.1-flash-image-preview",
-    googleNanoBananaApiKey: "",
-    hasExaApiKey: false,
-    hasTavilyApiKey: false,
-    hasExternalSttApiKey: false,
+    webSearch: !overrides.webSearchEngine && overrides.webSearch ? overrides.webSearch : {
+      providerId: searchProvider,
+      configuration: searchProvider === "searxng"
+        ? { baseUrl: overrides.searxngBaseUrl ?? "" }
+        : {},
+      configured: searchProvider === "exa"
+        ? overrides.hasExaApiKey ?? false
+        : searchProvider === "tavily"
+          ? overrides.hasTavilyApiKey ?? false
+          : searchProvider === "searxng" ? Boolean(overrides.searxngBaseUrl) : true,
+      scope: "user"
+    },
+    speechTranscription: !overrides.sttEngine && overrides.speechTranscription ? overrides.speechTranscription : {
+      providerId: speechProvider,
+      configuration: {
+        language: speechProvider === "elevenlabs"
+          ? overrides.externalSttLanguage ?? "auto"
+          : overrides.sttLanguage ?? "auto"
+      },
+      configured: speechProvider === "elevenlabs"
+        ? overrides.hasExternalSttApiKey ?? false
+        : true,
+      scope: "user"
+    },
+    imageGeneration: !overrides.imageGenerationBackend && overrides.imageGeneration ? overrides.imageGeneration : {
+      providerId: imageProvider,
+      configuration: imageProvider === "google_nano_banana"
+        ? { model: overrides.googleNanoBananaModel ?? "gemini-3.1-flash-image-preview" }
+        : {},
+      configured: imageProvider === "google_nano_banana"
+        ? overrides.hasGoogleNanoBananaApiKey ?? false
+        : true,
+      scope: "global"
+    },
     updatedAt: new Date().toISOString(),
     providerProfiles: [],
     titleGenerationMode: "same",
     titleGenerationProfileId: null,
-    ...overrides
+    ...Object.fromEntries(Object.entries(overrides).filter(([key]) => [
+      "defaultProviderProfileId", "skillsEnabled", "conversationRetention",
+      "memoriesEnabled", "memoriesMaxCount", "mcpTimeout", "maxAssistantToolSteps",
+      "titleGenerationMode", "titleGenerationProfileId", "providerProfiles", "updatedAt",
+      "webSearch", "speechTranscription", "imageGeneration"
+    ].includes(key)))
   };
 }
 
@@ -90,11 +139,11 @@ describe("general section", () => {
 
     const body = JSON.parse(String(putCall[1]?.body));
 
-    expect(body.general).toMatchObject({
+    expect(body.preferences).toMatchObject({
       conversationRetention: "30d",
       mcpTimeout: 45_000
     });
-    expect(body.general).not.toHaveProperty("autoCompaction");
+    expect(body.preferences).not.toHaveProperty("autoCompaction");
   });
 
   it("saves speech engine and default language through the general settings endpoint", async () => {
@@ -117,9 +166,10 @@ describe("general section", () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
     const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
-    expect(body.general).toMatchObject({
-      sttEngine: "embedded",
-      sttLanguage: "es"
+    expect(body.speechTranscription).toMatchObject({
+      providerId: "canary",
+      configuration: { language: "es" },
+      credentialAction: "preserve"
     });
   });
 
@@ -197,13 +247,11 @@ describe("general section", () => {
 
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
     const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
-    expect(body.general).toMatchObject({
-      sttEngine: "external",
-      sttProvider: "elevenlabs",
-      sttLanguage: "auto",
-      externalSttLanguage: "fra",
-      externalSttApiKey: "xi-test-key",
-      externalSttApiKeyAction: "replace"
+    expect(body.speechTranscription).toMatchObject({
+      providerId: "elevenlabs",
+      configuration: { language: "fra" },
+      credential: "xi-test-key",
+      credentialAction: "replace"
     });
   });
 
@@ -328,12 +376,11 @@ describe("general section", () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
     const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
-    expect(body.general).toMatchObject({
-      conversationRetention: "30d",
-      webSearchEngine: "tavily"
+    expect(body.preferences).toMatchObject({
+      conversationRetention: "30d"
     });
-    expect(body.general).not.toHaveProperty("tavilyApiKey");
-    expect(body.general).not.toHaveProperty("clearTavilyApiKey");
+    expect(body.webSearch).toMatchObject({ providerId: "tavily", credentialAction: "preserve" });
+    expect(body.webSearch).not.toHaveProperty("credential");
   });
 
   it("renders masked placeholders for stored Exa and Tavily API keys", () => {
@@ -381,11 +428,8 @@ describe("general section", () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
     const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
-    expect(body.general).toMatchObject({
-      webSearchEngine: "exa",
-      exaApiKey: "",
-      clearExaApiKey: true
-    });
+    expect(body.webSearch).toMatchObject({ providerId: "exa", credentialAction: "clear" });
+    expect(body.webSearch).not.toHaveProperty("credential");
   });
 
   it("sends an explicit clear flag when a saved Tavily key is intentionally cleared before switching engines", async () => {
@@ -410,12 +454,8 @@ describe("general section", () => {
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
 
     const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
-    expect(body.general).toMatchObject({
-      conversationRetention: "30d",
-      webSearchEngine: "exa",
-      tavilyApiKey: "",
-      clearTavilyApiKey: true
-    });
+    expect(body.preferences).toMatchObject({ conversationRetention: "30d" });
+    expect(body.webSearch).toMatchObject({ providerId: "exa", credentialAction: "preserve" });
   });
 
   it("renders an image generation card under web search and saves through the global save button", async () => {
@@ -434,7 +474,7 @@ describe("general section", () => {
     render(
       React.createElement(GeneralSection, {
         settings,
-        canManageImageGeneration: true
+        canManageGlobalIntegrations: true
       })
     );
 
@@ -451,9 +491,9 @@ describe("general section", () => {
     const imageSettingsBody = JSON.parse(String(imageSettingsCall?.[1]?.body));
 
     expect(imageSettingsBody.imageGeneration).toEqual({
-      imageGenerationBackend: "google_nano_banana",
-      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
-      googleNanoBananaApiKeyAction: "preserve"
+      providerId: "google_nano_banana",
+      configuration: { model: "gemini-3.1-flash-image-preview" },
+      credentialAction: "preserve"
     });
   });
 
@@ -467,17 +507,15 @@ describe("general section", () => {
       json: async () => ({ settings })
     } as Response);
 
-    render(React.createElement(GeneralSection, { settings, canManageImageGeneration: true }));
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
     fireEvent.click(screen.getByRole("button", { name: "Clear stored key" }));
     expect(screen.getByText("Stored key will be cleared when you save.")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
     const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
-    expect(body.imageGeneration).toMatchObject({
-      googleNanoBananaApiKeyAction: "clear"
-    });
-    expect(body.imageGeneration).not.toHaveProperty("googleNanoBananaApiKey");
+    expect(body.imageGeneration).toMatchObject({ credentialAction: "clear" });
+    expect(body.imageGeneration).not.toHaveProperty("credential");
   });
 
   it("lets an admin undo a pending Google image key clear", () => {
@@ -486,7 +524,7 @@ describe("general section", () => {
       hasGoogleNanoBananaApiKey: true
     });
 
-    render(React.createElement(GeneralSection, { settings, canManageImageGeneration: true }));
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
 
     expect(screen.getByRole("button", { name: "Clear stored key" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear stored key" }));
@@ -505,14 +543,14 @@ describe("general section", () => {
     const settings = makeSettings();
     vi.mocked(global.fetch).mockImplementation(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as {
-        general: { conversationRetention: ConversationRetention };
+        preferences: { conversationRetention: ConversationRetention };
       };
       return {
         ok: true,
         json: async () => ({
           settings: makeSettings({
             ...settings,
-            conversationRetention: body.general.conversationRetention
+            conversationRetention: body.preferences.conversationRetention
           })
         })
       } as Response;
@@ -584,14 +622,14 @@ describe("general section", () => {
     });
 
     const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
-    expect(body.general.conversationRetention).toBe("7d");
+    expect(body.preferences.conversationRetention).toBe("7d");
   });
 
   it("renders the image generation card as read-only for non-admin users", () => {
     render(
       React.createElement(GeneralSection, {
         settings: makeSettings(),
-        canManageImageGeneration: false
+        canManageGlobalIntegrations: false
       })
     );
 

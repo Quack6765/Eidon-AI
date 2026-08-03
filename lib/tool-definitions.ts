@@ -1,6 +1,5 @@
 import { extractEnumHints } from "@/lib/tool-schema-helpers";
-import { isBuiltinWebSearchServer } from "@/lib/web-search";
-import { getSkillResolvedName } from "./prompt-analysis";
+import { getSkillResolvedName } from "./skill-runtime";
 import type { McpServer, McpTool, Skill, ToolDefinition, VisionMode } from "@/lib/types";
 
 export type ToolSet = {
@@ -33,16 +32,16 @@ export function buildToolDefinitions(input: {
   skills: Skill[];
   loadedSkillIds: Set<string>;
   memoriesEnabled: boolean;
-  searxngBaseUrl?: string | null;
-  imageGenerationBackend?: string | null;
+  webSearchEnabled?: boolean;
+  imageGenerationProviderId?: string | null;
   imageGenerationToolEnabled?: boolean;
   restrictToGenerateImage?: boolean;
   effectiveVisionMode: VisionMode;
 }): ToolDefinition[] {
   const imageTool =
     input.imageGenerationToolEnabled !== false &&
-    input.imageGenerationBackend &&
-    input.imageGenerationBackend !== "disabled"
+    input.imageGenerationProviderId &&
+    input.imageGenerationProviderId !== "disabled"
       ? {
           type: "function" as const,
           function: {
@@ -72,8 +71,6 @@ export function buildToolDefinitions(input: {
 
   const tools: ToolDefinition[] = [];
 
-  const webSearchDirective = "Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently.";
-
   for (const { server, tools: mcpTools } of input.mcpToolSets) {
     if (server.isVisionMcp && input.effectiveVisionMode !== "mcp") {
       continue;
@@ -88,8 +85,7 @@ export function buildToolDefinitions(input: {
             tool.annotations?.title ?? tool.name,
             tool.description,
             enumHints || undefined,
-            tool.annotations?.readOnlyHint ? "(read-only)" : undefined,
-            isBuiltinWebSearchServer(server) ? webSearchDirective : undefined
+            tool.annotations?.readOnlyHint ? "(read-only)" : undefined
           ].filter(Boolean).join(" — "),
           parameters: (tool.inputSchema as ToolDefinition["function"]["parameters"]) ?? { type: "object", properties: {} }
         }
@@ -130,12 +126,12 @@ export function buildToolDefinitions(input: {
     }
   });
 
-  if (input.searxngBaseUrl) {
+  if (input.webSearchEnabled) {
     tools.push({
       type: "function",
       function: {
         name: "web_search",
-        description: "Search the web using the configured SearXNG instance. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently.",
+        description: "Search the web using the configured provider. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently.",
         parameters: {
           type: "object",
           properties: {

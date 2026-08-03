@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Info, X, AlertTriangle } from "lucide-react";
 
@@ -46,9 +47,10 @@ export function Toast({ visible, variant, message, onDismiss }: ToastProps) {
   const style = VARIANT_STYLES[variant];
   const IconComponent = style.icon;
 
-  return (
+  if (typeof document === "undefined") return null;
+  return createPortal(
     <AnimatePresence onExitComplete={onDismiss}>
-      {visible && (
+      {visible ? (
         <motion.div
           key="toast"
           role={variant === "error" ? "alert" : "status"}
@@ -66,8 +68,9 @@ export function Toast({ visible, variant, message, onDismiss }: ToastProps) {
           <IconComponent className="h-3.5 w-3.5" />
           {message}
         </motion.div>
-      )}
-    </AnimatePresence>
+      ) : null}
+    </AnimatePresence>,
+    document.body
   );
 }
 

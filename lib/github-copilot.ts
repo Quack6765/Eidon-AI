@@ -6,14 +6,13 @@ import { SignJWT, jwtVerify } from "jose";
 import { CopilotClient } from "@github/copilot-sdk";
 import type { Tool } from "@github/copilot-sdk";
 
-import { decryptValue, encryptValue } from "@/lib/crypto";
 import { env } from "@/lib/env";
-import type {
-  GithubConnectionStatus,
-  ProviderProfile,
-  ProviderProfileWithApiKey
-} from "@/lib/types";
-import { updateGithubCopilotCredentialsIfRefreshTokenMatches } from "@/lib/settings";
+import { getProviderConnectionSummary } from "@/lib/provider-profile";
+import {
+  updateProviderConnectionIfNonceMatches,
+  updateProviderConnectionIfRefreshTokenMatches
+} from "@/lib/provider-profiles";
+import type { ProviderProfileWithApiKey } from "@/lib/types";
 
 const COPILOT_WORK_DIR = join(tmpdir(), "eidon-copilot");
 const GITHUB_OAUTH_STATE_USE = "github_oauth_state";
@@ -33,27 +32,6 @@ function ensureCopilotWorkDir(): string {
   mkdirSync(COPILOT_WORK_DIR, { recursive: true });
   return COPILOT_WORK_DIR;
 }
-
-type GithubConnectionInput = Pick<
-  ProviderProfile,
-  "providerKind" | "githubUserAccessTokenEncrypted" | "githubTokenExpiresAt"
->;
-
-type GithubRefreshInput = Pick<ProviderProfile, "githubTokenExpiresAt">;
-
-type GithubClearInput = Pick<
-  ProviderProfile,
-  | "githubUserAccessTokenEncrypted"
-  | "githubRefreshTokenEncrypted"
-  | "githubTokenExpiresAt"
-  | "githubRefreshTokenExpiresAt"
-  | "githubAccountLogin"
-  | "githubAccountName"
->;
-
-type GithubClearOutput = {
-  [K in keyof GithubClearInput]: K extends `${string}Encrypted` ? string : string | null;
-};
 
 const REFRESH_THRESHOLD_MS = 2 * 60 * 1000;
 const GITHUB_REFRESH_REGISTRY_KEY = Symbol.for("eidon:github-copilot-refreshes");
@@ -84,6 +62,31 @@ type GithubTokenResponse = {
 };
 type ValidGithubTokenResponse = GithubTokenResponse & { access_token: string };
 
+export function updateGithubCopilotConnectionIfNonceMatches(
+  profileId: string,
+  nonce: string,
+  input: {
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: string | null;
+    refreshExpiresAt: string | null;
+    accountLogin: string | null;
+    accountName: string | null;
+  }
+) {
+  return updateProviderConnectionIfNonceMatches(profileId, nonce, {
+    credentials: {
+      accessToken: input.accessToken,
+      refreshToken: input.refreshToken
+    },
+    metadata: {
+      expiresAt: input.expiresAt,
+      refreshExpiresAt: input.refreshExpiresAt,
+      accountLabel: input.accountName ?? input.accountLogin
+    }
+  });
+}
+
 async function parseGithubTokenResponse(response: Response): Promise<ValidGithubTokenResponse> {
   if (response.ok === false) {
     throw new Error(`GitHub OAuth request failed with status ${response.status}`);
@@ -113,45 +116,24 @@ async function parseGithubTokenResponse(response: Response): Promise<ValidGithub
 }
 
 export function getGithubConnectionStatus(
-  input: GithubConnectionInput
-): GithubConnectionStatus {
-  if (
-    input.providerKind !== "github_copilot" ||
-    !input.githubUserAccessTokenEncrypted
-  ) {
-    return "disconnected";
-  }
-
-  if (!input.githubTokenExpiresAt) {
-    return "disconnected";
-  }
-
-  if (new Date(input.githubTokenExpiresAt).getTime() < Date.now()) {
-    return "expired";
-  }
-
-  return "connected";
+  input: ProviderProfileWithApiKey
+) {
+  return getProviderConnectionSummary(input).status;
 }
 
-export function shouldRefreshGithubToken(input: GithubRefreshInput): boolean {
-  if (!input.githubTokenExpiresAt) {
+export function shouldRefreshGithubToken(input: ProviderProfileWithApiKey): boolean {
+  if (!input.connectionMetadata.expiresAt) {
     return false;
   }
 
-  const expiresAt = new Date(input.githubTokenExpiresAt).getTime();
+  const expiresAt = new Date(input.connectionMetadata.expiresAt).getTime();
   return expiresAt - Date.now() < REFRESH_THRESHOLD_MS;
 }
 
-export function clearGithubCopilotConnection(
-  _input: GithubClearInput
-): GithubClearOutput {
+export function clearGithubCopilotConnection() {
   return {
-    githubUserAccessTokenEncrypted: "",
-    githubRefreshTokenEncrypted: "",
-    githubTokenExpiresAt: null,
-    githubRefreshTokenExpiresAt: null,
-    githubAccountLogin: null,
-    githubAccountName: null
+    credentials: {},
+    connectionMetadata: {}
   };
 }
 
@@ -272,14 +254,14 @@ export async function exchangeGithubCodeForTokens(code: string) {
 }
 
 export async function refreshGithubUserToken(
-  profile: ProviderProfile
+  profile: ProviderProfileWithApiKey
 ): Promise<{
-  githubUserAccessTokenEncrypted: string;
-  githubRefreshTokenEncrypted: string;
-  githubTokenExpiresAt: string;
-  githubRefreshTokenExpiresAt: string | null;
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: string;
+  refreshExpiresAt: string | null;
 }> {
-  const refreshToken = decryptValue(profile.githubRefreshTokenEncrypted);
+  const refreshToken = profile.credentials.refreshToken ?? "";
   if (!refreshToken) {
     throw new Error("GitHub Copilot refresh token is missing");
   }
@@ -306,14 +288,12 @@ export async function refreshGithubUserToken(
   const now = Date.now();
 
   return {
-    githubUserAccessTokenEncrypted: encryptValue(tokens.access_token),
-    githubRefreshTokenEncrypted: tokens.refresh_token
-      ? encryptValue(tokens.refresh_token)
-      : profile.githubRefreshTokenEncrypted,
-    githubTokenExpiresAt: new Date(
+    accessToken: tokens.access_token,
+    refreshToken: tokens.refresh_token ?? refreshToken,
+    expiresAt: new Date(
       now + (tokens.expires_in ?? 28800) * 1000
     ).toISOString(),
-    githubRefreshTokenExpiresAt: tokens.refresh_token_expires_in
+    refreshExpiresAt: tokens.refresh_token_expires_in
       ? new Date(now + tokens.refresh_token_expires_in * 1000).toISOString()
       : null
   };
@@ -333,23 +313,27 @@ export async function ensureFreshGithubAccessToken(
 
   const githubRefreshes = getGithubRefreshes();
   const existingRefresh = githubRefreshes.get(profile.id);
-  if (existingRefresh?.refreshTokenVersion === profile.githubRefreshTokenEncrypted) {
+  const refreshToken = profile.credentials.refreshToken ?? "";
+  if (existingRefresh?.refreshTokenVersion === refreshToken) {
     return withAbort(existingRefresh.promise, abortSignal);
   }
 
   const refresh = (async () => {
     const refreshed = await refreshGithubUserToken(profile);
 
-    const persisted = updateGithubCopilotCredentialsIfRefreshTokenMatches(
+    const persisted = updateProviderConnectionIfRefreshTokenMatches(
       profile.id,
-      profile.githubRefreshTokenEncrypted,
+      refreshToken,
       {
-      githubUserAccessToken: decryptValue(refreshed.githubUserAccessTokenEncrypted),
-      githubRefreshToken: decryptValue(refreshed.githubRefreshTokenEncrypted),
-      githubTokenExpiresAt: refreshed.githubTokenExpiresAt,
-      githubRefreshTokenExpiresAt: refreshed.githubRefreshTokenExpiresAt,
-      githubAccountLogin: profile.githubAccountLogin,
-      githubAccountName: profile.githubAccountName
+        credentials: {
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken
+        },
+        metadata: {
+          expiresAt: refreshed.expiresAt,
+          refreshExpiresAt: refreshed.refreshExpiresAt,
+          accountLabel: profile.connectionMetadata.accountLabel
+        }
       }
     );
     if (!persisted) {
@@ -358,12 +342,21 @@ export async function ensureFreshGithubAccessToken(
 
     return {
       ...profile,
-      ...refreshed
+      credentials: {
+        ...profile.credentials,
+        accessToken: refreshed.accessToken,
+        refreshToken: refreshed.refreshToken
+      },
+      connectionMetadata: {
+        ...profile.connectionMetadata,
+        expiresAt: refreshed.expiresAt,
+        refreshExpiresAt: refreshed.refreshExpiresAt
+      }
     };
   })();
 
   const entry = {
-    refreshTokenVersion: profile.githubRefreshTokenEncrypted,
+    refreshTokenVersion: refreshToken,
     promise: refresh
   };
   githubRefreshes.set(profile.id, entry);
@@ -377,9 +370,7 @@ export async function ensureFreshGithubAccessToken(
 export async function listGithubCopilotModels(
   profile: ProviderProfileWithApiKey
 ) {
-  const accessToken = decryptValue(
-    profile.githubUserAccessTokenEncrypted
-  );
+  const accessToken = profile.credentials.accessToken ?? "";
 
   const client = new CopilotClient({
     githubToken: accessToken,
@@ -398,9 +389,7 @@ export async function listGithubCopilotModels(
 export async function buildGithubCopilotClient(
   profile: ProviderProfileWithApiKey
 ) {
-  const accessToken = decryptValue(
-    profile.githubUserAccessTokenEncrypted
-  );
+  const accessToken = profile.credentials.accessToken ?? "";
 
   return new CopilotClient({
     githubToken: accessToken,

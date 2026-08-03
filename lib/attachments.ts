@@ -10,9 +10,11 @@ import {
   resolveSafeAttachmentFilePath
 } from "@/lib/attachment-storage-paths";
 import { getDb } from "@/lib/db";
+import { syncDirectory } from "@/lib/durable-fs";
 import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
 import { normalizeLineBreaks } from "@/lib/text-utils";
+import { estimateMessageTokens } from "@/lib/tokenization";
 import type { AttachmentKind, MessageAttachment } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
 
@@ -227,24 +229,6 @@ function removeAttachmentFile(relativePath: string) {
   }
 }
 
-function syncDirectory(directory: string) {
-  let descriptor: number | null = null;
-
-  try {
-    descriptor = fs.openSync(directory, "r");
-    fs.fsyncSync(descriptor);
-  } catch (error) {
-    const code = error instanceof Error && "code" in error ? error.code : null;
-    if (!["EINVAL", "ENOTSUP", "EISDIR", "EBADF", "EPERM"].includes(String(code))) {
-      throw error;
-    }
-  } finally {
-    if (descriptor !== null) {
-      fs.closeSync(descriptor);
-    }
-  }
-}
-
 export function rollbackAttachmentArtifactPublication(
   publication: AttachmentArtifactPublication
 ) {
@@ -326,6 +310,78 @@ export function publishAttachmentArtifacts(
     return publication;
   } catch (error) {
     publication.directories = [...directories];
+    rollbackAttachmentArtifactPublication(publication);
+    throw error;
+  }
+}
+
+export function copyAttachmentsForConversationFork(input: {
+  sourceMessages: Array<{ id: string; attachments?: MessageAttachment[] }>;
+  targetConversationId: string;
+  targetMessageIdBySourceId: Map<string, string>;
+}) {
+  const records = input.sourceMessages.flatMap((message) => {
+    const messageId = input.targetMessageIdBySourceId.get(message.id);
+    if (!messageId) return [];
+    return (message.attachments ?? []).map((attachment) => {
+      const id = createId("att");
+      let bytes: Buffer;
+      try {
+        bytes = readAttachmentBuffer(attachment);
+      } catch (error) {
+        if (
+          attachment.kind === "text" && error instanceof Error &&
+          "code" in error && error.code === "ENOENT"
+        ) {
+          bytes = Buffer.from(attachment.extractedText, "utf8");
+        } else {
+          throw error;
+        }
+      }
+      return {
+        id,
+        messageId,
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+        byteSize: bytes.length,
+        sha256: createHash("sha256").update(bytes).digest("hex"),
+        relativePath: path.join(
+          input.targetConversationId,
+          `${id}_${path.basename(attachment.filename)}`
+        ),
+        kind: attachment.kind,
+        extractedText: attachment.extractedText,
+        createdAt: attachment.createdAt,
+        bytes
+      };
+    });
+  });
+  if (!records.length) return null;
+  const publication = publishAttachmentArtifacts(
+    records.map((record) => ({ relativePath: record.relativePath, bytes: record.bytes }))
+  );
+  try {
+    const insert = getDb().prepare(`
+      INSERT INTO message_attachments (
+        id, conversation_id, message_id, filename, mime_type, byte_size,
+        sha256, relative_path, kind, extracted_text, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    records.forEach((record) => insert.run(
+      record.id,
+      input.targetConversationId,
+      record.messageId,
+      record.filename,
+      record.mimeType,
+      record.byteSize,
+      record.sha256,
+      record.relativePath,
+      record.kind,
+      record.extractedText,
+      record.createdAt
+    ));
+    return publication;
+  } catch (error) {
     rollbackAttachmentArtifactPublication(publication);
     throw error;
   }
@@ -572,10 +628,6 @@ export async function createAttachments(conversationId: string, files: CreateAtt
   }
 }
 
-export async function createAttachmentsFromBytes(conversationId: string, files: CreateAttachmentInput[]) {
-  return createAttachments(conversationId, files);
-}
-
 export async function importAttachmentFromLocalFile(conversationId: string, sourcePath: string) {
   const sourceStats = fs.lstatSync(sourcePath);
 
@@ -613,7 +665,7 @@ export async function importAttachmentFromLocalFile(conversationId: string, sour
   }
 }
 
-export function assignAttachmentsToMessage(conversationId: string, messageId: string, attachmentIds: string[]) {
+export function bindAttachmentsToMessage(conversationId: string, messageId: string, attachmentIds: string[]) {
   if (!attachmentIds.length) {
     return [];
   }
@@ -662,9 +714,23 @@ export function assignAttachmentsToMessage(conversationId: string, messageId: st
 
   transaction();
 
-  return attachmentIds
+  const attachments = attachmentIds
     .map((attachmentId) => getAttachment(attachmentId))
     .filter((attachment): attachment is MessageAttachment => Boolean(attachment));
+  const message = getDb().prepare(
+    "SELECT content, thinking_content FROM messages WHERE id = ? AND conversation_id = ?"
+  ).get(messageId, conversationId) as { content: string; thinking_content: string } | undefined;
+  if (message) {
+    getDb().prepare("UPDATE messages SET estimated_tokens = ? WHERE id = ?").run(
+      estimateMessageTokens({
+        content: message.content,
+        thinkingContent: message.thinking_content,
+        attachments
+      }),
+      messageId
+    );
+  }
+  return attachments;
 }
 
 export function deleteAttachmentById(

@@ -28,13 +28,33 @@ function rowToUser(row: UserRow): PersistedUser {
   };
 }
 
-function ensureUserSettings(userId: string, timestamp = nowIso()) {
-  getDb()
-    .prepare(
-      `INSERT OR IGNORE INTO user_settings (user_id, updated_at)
-       VALUES (?, ?)`
-    )
-    .run(userId, timestamp);
+function ensureUserPreferences(userId: string, timestamp = nowIso()) {
+  const defaults = getDb().prepare(`
+    SELECT conversation_retention, memories_enabled, memories_max_count,
+      mcp_timeout, max_assistant_tool_steps
+    FROM global_preferences WHERE id = 1
+  `).get() as {
+    conversation_retention: string;
+    memories_enabled: number;
+    memories_max_count: number;
+    mcp_timeout: number;
+    max_assistant_tool_steps: number;
+  };
+  getDb().prepare(`
+    INSERT OR IGNORE INTO user_preferences (
+      user_id, conversation_retention, memories_enabled, memories_max_count,
+      mcp_timeout, max_assistant_tool_steps, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    userId,
+    defaults.conversation_retention,
+    defaults.memories_enabled,
+    defaults.memories_max_count,
+    defaults.mcp_timeout,
+    defaults.max_assistant_tool_steps,
+    timestamp,
+    timestamp
+  );
 }
 
 async function hashLocalPassword(password: string) {
@@ -147,7 +167,7 @@ export async function ensureEnvSuperAdminUser(): Promise<PersistedUser> {
         existingEnvUser.id
       );
     }
-    ensureUserSettings(existingEnvUser.id);
+    ensureUserPreferences(existingEnvUser.id);
     return getUserById(existingEnvUser.id)!;
   }
 
@@ -161,7 +181,7 @@ export async function ensureEnvSuperAdminUser(): Promise<PersistedUser> {
     `INSERT INTO users (id, username, role, auth_source, password_hash, created_at, updated_at)
      VALUES (?, ?, 'admin', 'env_super_admin', NULL, ?, ?)`
   ).run(userId, envUsername, createdAt, updatedAt);
-  ensureUserSettings(userId, updatedAt);
+  ensureUserPreferences(userId, updatedAt);
   return getUserById(userId)!;
 }
 
@@ -187,7 +207,7 @@ export async function createLocalUser({
     `INSERT INTO users (id, username, role, auth_source, password_hash, created_at, updated_at)
      VALUES (?, ?, ?, 'local', ?, ?, ?)`
   ).run(userId, username, role, passwordHash, timestamp, timestamp);
-  ensureUserSettings(userId, timestamp);
+  ensureUserPreferences(userId, timestamp);
   return getUserById(userId)!;
 }
 

@@ -1,4 +1,5 @@
 import type { ChatStreamEvent, ProviderProfileWithApiKey } from "@/lib/types";
+import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
 const responsesCreate = vi.fn();
 const chatCreate = vi.fn();
@@ -43,6 +44,7 @@ function createSettings(
     apiKey: string;
     model: string;
     apiMode: "responses" | "chat_completions";
+    providerPresetId: ProviderProfileWithApiKey["providerPresetId"];
     systemPrompt: string;
     temperature: number;
     maxOutputTokens: number;
@@ -61,41 +63,47 @@ function createSettings(
     updatedAt: string;
   }> = {}
 ): ProviderProfileWithApiKey {
-  return {
+  const providerKind = overrides.providerKind ?? "openai_compatible";
+  const {
+    apiBaseUrl = providerKind === "anthropic"
+      ? "https://api.anthropic.com"
+      : "https://api.example.com/v1",
+    apiMode = "responses",
+    apiKey = "sk-test",
+    apiKeyEncrypted: _apiKeyEncrypted,
+    githubUserAccessTokenEncrypted: _accessToken,
+    githubRefreshTokenEncrypted: _refreshToken,
+    githubTokenExpiresAt: expiresAt,
+    githubRefreshTokenExpiresAt: refreshExpiresAt,
+    githubAccountLogin: accountLogin,
+    githubAccountName: accountName,
+    ...core
+  } = overrides;
+  return createRuntimeProviderProfile({
     id: "profile_test",
     name: "Test profile",
-    providerKind: "openai_compatible",
-    apiBaseUrl: "https://api.example.com/v1",
-    apiKeyEncrypted: "",
-    apiKey: "sk-test",
     model: "gpt-test",
-    apiMode: "responses",
     systemPrompt: "Be exact.",
     temperature: 0.2,
     maxOutputTokens: 512,
-    reasoningEffort: "medium",
-    reasoningSummaryEnabled: true,
     modelContextLimit: 16000,
-    compactionThreshold: 0.8,
     freshTailCount: 12,
-    tokenizerModel: "gpt-tokenizer" as const,
-    safetyMarginTokens: 1200,
-    leafSourceTokenLimit: 12000,
-    leafMinMessageCount: 6,
-    mergedMinNodeCount: 4,
-    mergedTargetTokens: 1600,
-    visionMode: "native" as const,
-    providerPresetId: null,
-    githubUserAccessTokenEncrypted: "",
-    githubRefreshTokenEncrypted: "",
-    githubTokenExpiresAt: null,
-    githubRefreshTokenExpiresAt: null,
-    githubAccountLogin: null,
-    githubAccountName: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    ...overrides
-  };
+    ...core,
+    providerKind,
+    providerConfig: providerKind === "github_copilot"
+      ? {}
+      : providerKind === "anthropic"
+        ? { apiBaseUrl }
+        : { apiBaseUrl, apiMode },
+    credentials: providerKind === "github_copilot"
+      ? { accessToken: "github-test-token", refreshToken: "github-test-refresh" }
+      : { apiKey },
+    connectionMetadata: {
+      expiresAt,
+      refreshExpiresAt,
+      accountLabel: accountName ?? accountLogin
+    }
+  });
 }
 
 describe("provider integration", () => {
@@ -294,6 +302,7 @@ describe("provider integration", () => {
         settings: createSettings({
           apiMode: "chat_completions",
           apiBaseUrl: "https://ollama.com/v1",
+          providerPresetId: "ollama_cloud",
           model: "kimi-k2.5",
           reasoningSummaryEnabled: false
         }),
@@ -1343,6 +1352,7 @@ describe("provider integration", () => {
       settings: createSettings({
         name: "Ollama Cloud",
         apiBaseUrl: "https://ollama.com/v1",
+        providerPresetId: "ollama_cloud",
         model: "kimi-k2.5",
         apiMode: "chat_completions"
       }),
@@ -1563,7 +1573,7 @@ describe("provider integration", () => {
         model: "openai/gpt-4.1"
       }),
       promptMessages: [{ role: "user", content: "Hi" }],
-      copilotToolContext: {
+      runtimeToolContext: {
         mcpToolSets: [],
         skills: [],
         loadedSkillIds: new Set(),
@@ -1658,7 +1668,7 @@ describe("provider integration", () => {
         model: "openai/gpt-4.1"
       }),
       promptMessages: [{ role: "user", content: "Hi" }],
-      copilotToolContext: {
+      runtimeToolContext: {
         mcpToolSets: [],
         skills: [],
         loadedSkillIds: new Set(),
@@ -1756,7 +1766,7 @@ describe("provider integration", () => {
         model: "openai/gpt-4.1"
       }),
       promptMessages: [{ role: "user", content: "Hi" }],
-      copilotToolContext: {
+      runtimeToolContext: {
         mcpToolSets: [],
         skills: [],
         loadedSkillIds: new Set(),
@@ -1855,7 +1865,7 @@ describe("provider integration", () => {
         model: "openai/gpt-4.1"
       }),
       promptMessages: [{ role: "user", content: "Hi" }],
-      copilotToolContext: {
+      runtimeToolContext: {
         mcpToolSets: [],
         skills: [],
         loadedSkillIds: new Set(),

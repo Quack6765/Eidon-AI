@@ -19,22 +19,27 @@ import { fieldLabel, selectLike, sectionTitle, sectionDivider } from "@/lib/sett
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useToastState } from "@/hooks/use-toast-state";
 import { useDirtyState } from "@/hooks/use-dirty-state";
-import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import { createId } from "@/lib/ids";
-import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
 import {
   applyProviderPreset,
+  createProviderProfileDraft,
+  DEFAULT_PROFILE_BEHAVIOR,
   getMatchingProviderPresetId,
   getProviderPreset,
   PROVIDER_PRESETS
-} from "@/lib/provider-presets";
-import type { AppSettings, ApiMode, McpServer, ProviderKind, ProviderPresetId, ReasoningEffort, VisionMode } from "@/lib/types";
+} from "@/lib/provider-catalog";
+import type { AppSettings, ApiMode, McpServer, ProviderKind, ProviderPresetId, ProviderProfileSummary, ReasoningEffort, VisionMode } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
 
 type SettingsPayload = AppSettings & {
-  providerProfiles: Array<{
+  providerProfiles: ProviderProfileSummary[];
+  updatedAt: string;
+};
+
+type ProviderProfileDraft = {
     id: string;
     name: string;
     providerKind: ProviderKind;
@@ -57,31 +62,34 @@ type SettingsPayload = AppSettings & {
     mergedTargetTokens: number;
     visionMode: VisionMode;
     providerPresetId: ProviderPresetId | null;
-    githubAccountLogin: string | null;
-    githubAccountName: string | null;
-    githubTokenExpiresAt: string | null;
-    githubRefreshTokenExpiresAt: string | null;
-    githubConnectionStatus: "disconnected" | "connected" | "expired";
+    connectionAccountLabel: string | null;
+    connectionStatus: "disconnected" | "connected" | "expired";
     createdAt: string;
     updatedAt: string;
     hasApiKey: boolean;
-  }>;
-  updatedAt: string;
-};
-
-type ProviderProfileDraft = SettingsPayload["providerProfiles"][number] & {
   apiKey: string;
   apiKeyAction: "preserve" | "replace" | "clear";
-  visionMode: VisionMode;
-  githubConnectionStatus: "disconnected" | "connected" | "expired";
 };
 
 function toProviderDrafts(profiles: SettingsPayload["providerProfiles"]): ProviderProfileDraft[] {
-  return profiles.map((profile) => ({
-    ...profile,
-    apiKey: "",
-    apiKeyAction: "preserve"
-  }));
+  return profiles.map((profile) => {
+    const apiBaseUrl = profile.providerKind === "github_copilot"
+      ? ""
+      : profile.providerConfig.apiBaseUrl;
+    const apiMode = profile.providerKind === "openai_compatible"
+      ? profile.providerConfig.apiMode
+      : "chat_completions";
+    return {
+      ...profile,
+      apiBaseUrl,
+      apiMode,
+      connectionAccountLabel: profile.connection.accountLabel,
+      connectionStatus: profile.connection.status,
+      hasApiKey: profile.connection.mode === "api_key" && profile.connection.status !== "disconnected",
+      apiKey: "",
+      apiKeyAction: "preserve"
+    };
+  });
 }
 
 function buildDirtySnapshot(
@@ -149,22 +157,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState(
     buildDirtySnapshot(currentActiveProfile, defaultProviderProfileId, skillsEnabled)
   );
-  const unsavedActions = useRef({ save: saveSettings, discard: restorePersistedProviderSettings });
-  unsavedActions.current = { save: saveSettings, discard: restorePersistedProviderSettings };
-
-  useEffect(() => {
-    registerUnsavedChangesGuard(
-      isDirty
-        ? {
-            isDirty: () => isDirty,
-            save: () => unsavedActions.current.save(),
-            discard: () => unsavedActions.current.discard(),
-            entityType: "your provider settings",
-          }
-        : null
-    );
-    return () => registerUnsavedChangesGuard(null);
-  }, [isDirty]);
+  useUnsavedChangesGuard({
+    isDirty,
+    save: saveSettings,
+    discard: restorePersistedProviderSettings,
+    entityType: "your provider settings"
+  });
 
   useEffect(() => {
     fetch("/api/mcp-servers")
@@ -199,16 +197,16 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   useEffect(() => {
     if (
       activeProviderProfile?.providerKind === "github_copilot" &&
-      activeProviderProfile.githubConnectionStatus === "connected"
+      activeProviderProfile.connectionStatus === "connected"
     ) {
-      fetch(`/api/providers/github/models?providerProfileId=${activeProviderProfile.id}`)
+      fetch(`/api/providers/${activeProviderProfile.id}/models`)
         .then((res) => (res.ok ? res.json() : { models: [] }))
         .then((data) => setCopilotModels(data.models ?? []))
         .catch(() => setCopilotModels([]));
     } else {
       setCopilotModels([]);
     }
-  }, [activeProviderProfile?.id, activeProviderProfile?.providerKind, activeProviderProfile?.githubConnectionStatus]);
+  }, [activeProviderProfile?.id, activeProviderProfile?.providerKind, activeProviderProfile?.connectionStatus]);
 
   function updateActiveProviderProfile(patch: Partial<ProviderProfileDraft>) {
     if (!activeProviderProfile) {
@@ -250,47 +248,20 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   ) {
     const template = sourceProfiles.find((profile) => profile.id === sourceProfileId) ?? sourceProfiles[0];
     const nextProfileId = createId("profile");
+    const fallback = createProviderProfileDraft({ id: nextProfileId });
+    const timestamp = new Date().toISOString();
     const nextProfile: ProviderProfileDraft = {
-      ...(template ?? {
-        apiBaseUrl: "https://api.openai.com/v1",
-        model: "gpt-5-mini",
-        apiMode: "responses" as ApiMode,
-        systemPrompt: "You are an helpful AI assistant with advanced reasoning capabilities. You excel at complex problem-solving, analysis, coding, mathematics, and tasks requiring careful, step-by-step thinking.\nWhen responding:\n1. **Think step by step** - Break down complex problems into logical steps. Show your reasoning process clearly before arriving at conclusions.\n2. **Be thorough but concise** - Explore ideas deeply, but avoid unnecessary verbosity. Focus on substantive reasoning over filler text.\n3. **Verify your logic** - Double-check your reasoning for consistency, accuracy, and completeness before finalizing your answer.\n4. **Acknowledge uncertainty** - When appropriate, indicate confidence levels or alternative interpretations of the problem.\n5. **Use structured formats** - For complex answers, use numbered steps, bullet points, or sections to organize your thinking.\n6. **Adapt depth to the task** - Match the depth of your reasoning to the complexity of the question. Simple questions don't need elaborate analysis.\n7. **Use emojis sparingly** - You may use an occasional emoji when it genuinely improves tone or clarity, but keep usage infrequent and minimal. Do not use emojis in every response, avoid repeated or decorative emoji use, and never let them clutter the message.\nAlways aim to be helpful, accurate, and honest in your responses.",
-        temperature: 0.7,
-        maxOutputTokens: 1200,
-        reasoningEffort: "medium" as ReasoningEffort,
-        reasoningSummaryEnabled: true,
-        modelContextLimit: 128000,
-        compactionThreshold: 0.8,
-        freshTailCount: 28,
-        tokenizerModel: "gpt-tokenizer" as const,
-        safetyMarginTokens: 1200,
-        leafSourceTokenLimit: 12000,
-        leafMinMessageCount: 6,
-        mergedMinNodeCount: 4,
-        mergedTargetTokens: 1600,
-        visionMode: "native" as VisionMode,
-        providerPresetId: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        hasApiKey: false,
-        apiKey: "",
-        id: nextProfileId,
-        name: ""
-      }),
+      ...(template ?? fallback),
       id: nextProfileId,
       name: `Profile ${sourceProfiles.length + 1}`,
       hasApiKey: false,
       apiKey: "",
       apiKeyAction: "clear",
       visionMode: template?.visionMode ?? "native" as VisionMode,
-      githubAccountLogin: null,
-      githubAccountName: null,
-      githubTokenExpiresAt: null,
-      githubRefreshTokenExpiresAt: null,
-      githubConnectionStatus: "disconnected",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      connectionAccountLabel: null,
+      connectionStatus: "disconnected",
+      createdAt: timestamp,
+      updatedAt: timestamp
     };
 
     setProviderProfiles([...sourceProfiles, nextProfile]);
@@ -325,24 +296,24 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     }
 
     const patch: Partial<ProviderProfileDraft> = {
-      reasoningEffort: DEFAULT_PROVIDER_SETTINGS.reasoningEffort,
-      modelContextLimit: DEFAULT_PROVIDER_SETTINGS.modelContextLimit,
-      compactionThreshold: DEFAULT_PROVIDER_SETTINGS.compactionThreshold,
-      freshTailCount: DEFAULT_PROVIDER_SETTINGS.freshTailCount,
-      visionMode: DEFAULT_PROVIDER_SETTINGS.visionMode
+      reasoningEffort: DEFAULT_PROFILE_BEHAVIOR.reasoningEffort,
+      modelContextLimit: DEFAULT_PROFILE_BEHAVIOR.modelContextLimit,
+      compactionThreshold: DEFAULT_PROFILE_BEHAVIOR.compactionThreshold,
+      freshTailCount: DEFAULT_PROFILE_BEHAVIOR.freshTailCount,
+      visionMode: DEFAULT_PROFILE_BEHAVIOR.visionMode
     };
 
     if (activeProviderProfile.providerKind !== "github_copilot") {
-      patch.temperature = DEFAULT_PROVIDER_SETTINGS.temperature;
-      patch.maxOutputTokens = DEFAULT_PROVIDER_SETTINGS.maxOutputTokens;
-      patch.reasoningSummaryEnabled = DEFAULT_PROVIDER_SETTINGS.reasoningSummaryEnabled;
-      patch.apiMode = DEFAULT_PROVIDER_SETTINGS.apiMode;
-      patch.tokenizerModel = DEFAULT_PROVIDER_SETTINGS.tokenizerModel;
-      patch.safetyMarginTokens = DEFAULT_PROVIDER_SETTINGS.safetyMarginTokens;
-      patch.leafSourceTokenLimit = DEFAULT_PROVIDER_SETTINGS.leafSourceTokenLimit;
-      patch.leafMinMessageCount = DEFAULT_PROVIDER_SETTINGS.leafMinMessageCount;
-      patch.mergedMinNodeCount = DEFAULT_PROVIDER_SETTINGS.mergedMinNodeCount;
-      patch.mergedTargetTokens = DEFAULT_PROVIDER_SETTINGS.mergedTargetTokens;
+      patch.temperature = DEFAULT_PROFILE_BEHAVIOR.temperature;
+      patch.maxOutputTokens = DEFAULT_PROFILE_BEHAVIOR.maxOutputTokens;
+      patch.reasoningSummaryEnabled = DEFAULT_PROFILE_BEHAVIOR.reasoningSummaryEnabled;
+      patch.apiMode = "responses";
+      patch.tokenizerModel = DEFAULT_PROFILE_BEHAVIOR.tokenizerModel;
+      patch.safetyMarginTokens = DEFAULT_PROFILE_BEHAVIOR.safetyMarginTokens;
+      patch.leafSourceTokenLimit = DEFAULT_PROFILE_BEHAVIOR.leafSourceTokenLimit;
+      patch.leafMinMessageCount = DEFAULT_PROFILE_BEHAVIOR.leafMinMessageCount;
+      patch.mergedMinNodeCount = DEFAULT_PROFILE_BEHAVIOR.mergedMinNodeCount;
+      patch.mergedTargetTokens = DEFAULT_PROFILE_BEHAVIOR.mergedTargetTokens;
     }
 
     updateActiveProviderProfile(patch);
@@ -480,11 +451,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         id: profile.id,
         name: profile.name,
         providerKind: profile.providerKind ?? "openai_compatible",
-        apiBaseUrl: profile.apiBaseUrl,
-        apiKey: profile.apiKey,
-        apiKeyAction: profile.apiKeyAction,
         model: profile.model,
-        apiMode: profile.apiMode,
         systemPrompt: profile.systemPrompt,
         temperature: profile.temperature,
         maxOutputTokens: profile.maxOutputTokens,
@@ -501,10 +468,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         mergedTargetTokens: profile.mergedTargetTokens,
         visionMode: profile.visionMode ?? "native",
         providerPresetId: profile.providerPresetId ?? null,
-        githubAccountLogin: profile.githubAccountLogin ?? null,
-        githubAccountName: profile.githubAccountName ?? null,
-        githubTokenExpiresAt: profile.githubTokenExpiresAt ?? null,
-        githubRefreshTokenExpiresAt: profile.githubRefreshTokenExpiresAt ?? null
+        providerConfig: profile.providerKind === "github_copilot"
+          ? {}
+          : profile.providerKind === "anthropic"
+            ? { apiBaseUrl: profile.apiBaseUrl }
+            : { apiBaseUrl: profile.apiBaseUrl, apiMode: profile.apiMode },
+        credential: profile.apiKey,
+        credentialAction: profile.apiKeyAction
       }))
     };
   }
@@ -701,7 +671,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   ...(!profile.hasApiKey && !profile.apiKey && profile.providerKind !== "github_copilot"
                     ? [{ variant: "no-key" as const, label: "NO KEY" }]
                     : []),
-                  ...(profile.providerKind === "github_copilot" && profile.githubConnectionStatus === "disconnected"
+                  ...(profile.providerKind === "github_copilot" && profile.connectionStatus === "disconnected"
                     ? [{ variant: "no-key" as const, label: "NOT CONNECTED" }]
                     : [])
                 ]}
@@ -734,7 +704,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         No key
                       </span>
                     )}
-                    {activeProviderProfile.providerKind === "github_copilot" && activeProviderProfile.githubConnectionStatus === "disconnected" && (
+                    {activeProviderProfile.providerKind === "github_copilot" && activeProviderProfile.connectionStatus === "disconnected" && (
                       <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
                         Not connected
                       </span>
@@ -862,8 +832,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   {isCopilot ? (
                     <div className="mt-4 space-y-4">
                       <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[var(--text)]">
-                        {activeProviderProfile.githubConnectionStatus === "connected"
-                          ? `Connected as ${activeProviderProfile.githubAccountLogin ?? "GitHub user"}`
+                        {activeProviderProfile.connectionStatus === "connected"
+                          ? `Connected as ${activeProviderProfile.connectionAccountLabel ?? "GitHub user"}`
                           : "No GitHub account connected"}
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
@@ -876,7 +846,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             }
                           }}
                         >
-                          {activeProviderProfile.githubConnectionStatus === "connected"
+                          {activeProviderProfile.connectionStatus === "connected"
                             ? "Reconnect GitHub"
                             : "Connect GitHub"}
                         </Button>
@@ -885,18 +855,15 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           variant="ghost"
                           className="px-2.5 py-1.5 text-xs"
                           onClick={async () => {
-                            await fetch("/api/providers/github/disconnect", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ providerProfileId: activeProviderProfile.id })
+                            await fetch(`/api/providers/${activeProviderProfile.id}/connection`, {
+                              method: "DELETE"
                             });
                             updateActiveProviderProfile({
-                              githubConnectionStatus: "disconnected",
-                              githubAccountLogin: null,
-                              githubAccountName: null
+                              connectionStatus: "disconnected",
+                              connectionAccountLabel: null
                             });
                           }}
-                          disabled={activeProviderProfile.githubConnectionStatus === "disconnected"}
+                          disabled={activeProviderProfile.connectionStatus === "disconnected"}
                         >
                           Disconnect
                         </Button>
@@ -923,7 +890,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           </select>
                         </div>
                       )}
-                      {isCopilot && copilotModels.length === 0 && activeProviderProfile.githubConnectionStatus !== "connected" && (
+                      {isCopilot && copilotModels.length === 0 && activeProviderProfile.connectionStatus !== "connected" && (
                         <div>
                           <label className={fieldLabel}>Model</label>
                           <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-3 text-sm text-[var(--muted)]">

@@ -35,10 +35,8 @@ describe("generateGoogleNanoBananaImages", () => {
     });
 
     const result = await generateGoogleNanoBananaImages({
-      settings: {
-        googleNanoBananaModel: "gemini-3.1-flash-image-preview",
-        googleNanoBananaApiKey: "google-secret"
-      },
+      model: "gemini-3.1-flash-image-preview",
+      apiKey: "google-secret",
       instruction: {
         imagePrompt: "poster of Seoul at dusk",
         negativePrompt: "",
@@ -67,10 +65,21 @@ describe("generateGoogleNanoBananaImages", () => {
     });
 
     await expect(generateGoogleNanoBananaImages({
-      settings: {
-        googleNanoBananaModel: "gemini-3.1-flash-image-preview",
-        googleNanoBananaApiKey: "google-secret"
-      },
+      model: "gemini-3.1-flash-image-preview",
+      apiKey: "google-secret",
+      instruction: {
+        imagePrompt: "poster of Seoul at dusk",
+        negativePrompt: "",
+        assistantText: "",
+        aspectRatio: "1:1",
+        count: 1
+      }
+    })).rejects.toThrow("Google Nano Banana returned no images");
+
+    generateContentMock.mockResolvedValue({});
+    await expect(generateGoogleNanoBananaImages({
+      model: "gemini-3.1-flash-image-preview",
+      apiKey: "google-secret",
       instruction: {
         imagePrompt: "poster of Seoul at dusk",
         negativePrompt: "",

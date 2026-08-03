@@ -4,8 +4,8 @@ import { ChatView } from "@/components/chat-view";
 import { Shell } from "@/components/shell";
 import { requireUser } from "@/lib/auth";
 import { getAutomationRun, listAutomations } from "@/lib/automations";
-import { getConversation, listConversationsPage, listQueuedMessages, listVisibleMessages } from "@/lib/conversations";
-import { getConversationDebugStats, getConversationContextUsage } from "@/lib/compaction";
+import { getConversation, listConversationsPage } from "@/lib/conversations";
+import { buildConversationViewPayload } from "@/lib/conversation-view";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { listFolders } from "@/lib/folders";
 import { getSanitizedSettings } from "@/lib/settings";
@@ -31,7 +31,6 @@ export default async function AutomationRunPage({
   }
 
   const settings = getSanitizedSettings(user.id);
-  const contextUsage = getConversationContextUsage(conversation.id, user.id);
 
   return (
     <Shell
@@ -43,20 +42,7 @@ export default async function AutomationRunPage({
       currentConversation={conversation}
     >
       <ChatView
-        payload={{
-          conversation,
-          messages: listVisibleMessages(conversation.id),
-          queuedMessages: listQueuedMessages(conversation.id),
-          settings: {
-            sttEngine: settings.sttEngine,
-            sttLanguage: settings.sttLanguage
-          },
-          providerProfiles: settings.providerProfiles,
-          defaultProviderProfileId: settings.defaultProviderProfileId,
-          contextTokens: contextUsage?.contextTokens ?? null,
-          compactionLimit: contextUsage?.compactionLimit ?? 0,
-          debug: getConversationDebugStats(conversation.id)
-        }}
+        payload={buildConversationViewPayload(conversation, user.id, settings)}
       />
     </Shell>
   );

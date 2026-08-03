@@ -94,38 +94,17 @@ vi.mock("@/lib/speech/speech-controller", () => ({
 }));
 
 function createProviderProfile() {
-  return {
+  return toProviderProfileSummary(createRuntimeProviderProfile({
     id: "profile_default",
     name: "Default",
-    apiBaseUrl: "https://api.example.com/v1",
     model: "gpt-5-mini",
-    apiMode: "responses" as const,
     systemPrompt: "Be exact",
     temperature: 0.2,
     maxOutputTokens: 512,
-    reasoningEffort: "medium" as const,
-    reasoningSummaryEnabled: true,
     modelContextLimit: 16000,
-    compactionThreshold: 0.8,
     freshTailCount: 12,
-    tokenizerModel: "gpt-tokenizer" as const,
-    safetyMarginTokens: 1200,
-    leafSourceTokenLimit: 12000,
-    leafMinMessageCount: 6,
-    mergedMinNodeCount: 4,
-    mergedTargetTokens: 1600,
-    visionMode: "native" as const,
-    providerPresetId: null,
-    providerKind: "openai_compatible" as "openai_compatible" | "github_copilot",
-    githubTokenExpiresAt: null,
-    githubRefreshTokenExpiresAt: null,
-    githubAccountLogin: null,
-    githubAccountName: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-    hasApiKey: true,
-    githubConnectionStatus: "disconnected" as "disconnected" | "connected" | "expired"
-  };
+    visionMode: "native"
+  }));
 }
 
 describe("home view", () => {
@@ -230,8 +209,12 @@ describe("home view", () => {
         providerProfiles: [createProviderProfile()],
         defaultProviderProfileId: "profile_default",
         settings: {
-          sttEngine: "browser",
-          sttLanguage: "en"
+          speechTranscription: {
+            providerId: "browser",
+            configuration: { language: "en" },
+            configured: true,
+            scope: "global"
+          }
         }
       })
     );
@@ -280,8 +263,12 @@ describe("home view", () => {
         providerProfiles: [createProviderProfile()],
         defaultProviderProfileId: "profile_default",
         settings: {
-          sttEngine: "browser",
-          sttLanguage: "en"
+          speechTranscription: {
+            providerId: "browser",
+            configuration: { language: "en" },
+            configured: true,
+            scope: "global"
+          }
         }
       })
     );
@@ -297,8 +284,12 @@ describe("home view", () => {
         providerProfiles: [createProviderProfile()],
         defaultProviderProfileId: "profile_default",
         settings: {
-          sttEngine: "browser",
-          sttLanguage: "en"
+          speechTranscription: {
+            providerId: "browser",
+            configuration: { language: "en" },
+            configured: true,
+            scope: "global"
+          }
         }
       })
     );
@@ -312,8 +303,12 @@ describe("home view", () => {
         providerProfiles: [createProviderProfile()],
         defaultProviderProfileId: "profile_default",
         settings: {
-          sttEngine: "browser",
-          sttLanguage: "en"
+          speechTranscription: {
+            providerId: "browser",
+            configuration: { language: "en" },
+            configured: true,
+            scope: "global"
+          }
         }
       })
     );
@@ -337,3 +332,5 @@ describe("home view", () => {
     expect(push).not.toHaveBeenCalled();
   });
 });
+import { toProviderProfileSummary } from "@/lib/provider-profile";
+import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";

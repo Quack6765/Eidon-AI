@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden } from "@/lib/http";
 import { createGithubOauthState, getGithubAuthorizeUrl } from "@/lib/github-copilot";
-import { claimGithubCopilotConnectionAttempt, getProviderProfile } from "@/lib/settings";
+import { claimProviderConnectionAttempt, getProviderProfile } from "@/lib/provider-profiles";
 
 export async function GET(request: Request) {
   const user = await requireAdminResponse();
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
     return badRequest("GitHub Copilot is only available for Copilot profiles");
   }
 
-  const profileNonce = claimGithubCopilotConnectionAttempt(profile.id);
+  const profileNonce = claimProviderConnectionAttempt(profile.id);
   if (!profileNonce) {
     return badRequest("GitHub Copilot profile changed before the connection started");
   }

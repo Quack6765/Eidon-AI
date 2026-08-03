@@ -6,12 +6,10 @@ import {
   normalizeMemoryCategory
 } from "@/lib/memory-proposals";
 import { getSettings } from "@/lib/settings";
-import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { executeLocalShellCommand, getShellCommandLabel, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
-import { searchSearxng } from "@/lib/searxng";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
-import { getWebSearchActionLabel } from "@/lib/web-search";
+import { searchWeb } from "@/lib/web-search";
 import { throwIfChatTurnAborted as throwIfAborted } from "@/lib/chat-turn-control";
 import { MAX_RUNTIME_TOOL_RESULT_CHARS, truncateText } from "@/lib/bounded-text";
 import {
@@ -19,7 +17,8 @@ import {
   registerScreenshotArtifact,
   revokeScreenshotArtifact
 } from "@/lib/screenshot-artifact-capabilities";
-import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent } from "./prompt-analysis";
+import { getLatestUserPromptContent } from "./prompt-analysis";
+import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
 import type {
   McpServer,
@@ -75,12 +74,13 @@ function buildShellResultForPrompt(input: { command: string; resultSummary: stri
   ].join("\n");
 }
 
-export async function executeSearxngWebSearch(
+export async function executeWebSearch(
   toolCallId: string,
   args: Record<string, unknown>,
   context: {
     input: {
-      searxngBaseUrl?: string | null;
+      appSettings?: import("@/lib/types").RuntimeAppSettings;
+      mcpTimeout?: number;
       abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -98,8 +98,8 @@ export async function executeSearxngWebSearch(
       ? Math.max(1, Math.min(10, Math.round(args.max_results)))
       : undefined;
 
-  if (!context.input.searxngBaseUrl) {
-    const resultMsg = buildToolResultMessage(toolCallId, "Error: SearXNG is not configured.");
+  if (!context.input.appSettings) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: Web search is not configured.");
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
@@ -110,9 +110,9 @@ export async function executeSearxngWebSearch(
 
   const handle = await context.input.onActionStart?.({
     kind: "mcp_tool_call",
-    label: getWebSearchActionLabel("builtin_web_search_searxng", "Web search"),
+    label: "Web search",
     detail: query,
-    serverId: "builtin_web_search_searxng",
+    serverId: "integration_web_search",
     toolName: "web_search",
     arguments: {
       query,
@@ -122,11 +122,12 @@ export async function executeSearxngWebSearch(
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
   try {
-    const resultSummary = await searchSearxng({
-      baseUrl: context.input.searxngBaseUrl,
+    const resultSummary = await searchWeb({
+      settings: context.input.appSettings,
       query,
       maxResults,
-      abortSignal: context.input.abortSignal
+      abortSignal: context.input.abortSignal,
+      timeout: context.input.mcpTimeout
     });
     throwIfAborted(context.input.abortSignal);
 
@@ -140,7 +141,7 @@ export async function executeSearxngWebSearch(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   } catch (error) {
     throwIfAborted(context.input.abortSignal);
-    const message = error instanceof Error ? error.message : "SearXNG search failed";
+    const message = error instanceof Error ? error.message : "Web search failed";
     await context.input.onActionError?.(actionHandle, {
       detail: query,
       resultSummary: message
@@ -155,8 +156,9 @@ export async function executeImageGeneration(
   args: Record<string, unknown>,
   context: {
     input: {
-      settings: ProviderProfileWithApiKey;
-      appSettings?: import("@/lib/types").AppSettings;
+      settings?: ProviderProfileWithApiKey;
+      appSettings?: import("@/lib/types").RuntimeAppSettings;
+      mcpTimeout?: number;
       conversationId?: string;
       assistantMessageId?: string;
       abortSignal?: AbortSignal;
@@ -179,7 +181,7 @@ export async function executeImageGeneration(
   const conversationId = context.input.conversationId;
   const assistantMessageId = context.input.assistantMessageId;
 
-  if (!appSettings || !conversationId || !assistantMessageId) {
+  if (!context.input.settings || !appSettings || !conversationId || !assistantMessageId) {
     const resultMsg = buildToolResultMessage(toolCallId, "Error: image generation is not configured");
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
   }
@@ -198,9 +200,9 @@ export async function executeImageGeneration(
     }
 
     const { compileImageInstruction } = await import("@/lib/image-generation/compile-image-instruction");
-    const { generateGoogleNanoBananaImages } = await import("@/lib/image-generation/google-nano-banana");
+    const { generateImages } = await import("@/lib/image-generation/provider");
     const { createAttachments } = await import("@/lib/attachments");
-    const { assignAttachmentsToMessage } = await import("@/lib/attachments");
+    const { bindAttachmentsToMessage } = await import("@/lib/attachments");
     const instruction = await compileImageInstruction({
       settings: context.input.settings,
       promptMessages: context.promptMessages,
@@ -208,7 +210,7 @@ export async function executeImageGeneration(
     });
     throwIfAborted(context.input.abortSignal);
 
-    const backendResult = await generateGoogleNanoBananaImages({
+    const backendResult = await generateImages({
       settings: appSettings,
       instruction,
       abortSignal: context.input.abortSignal
@@ -226,7 +228,7 @@ export async function executeImageGeneration(
     createdAttachmentIds = attachments.map((attachment) => attachment.id);
     throwIfAborted(context.input.abortSignal);
 
-    assignAttachmentsToMessage(
+    bindAttachmentsToMessage(
       conversationId,
       assistantMessageId,
       attachments.map((a) => a.id)
@@ -340,7 +342,7 @@ export async function executeMcpToolCall(
 
   const handle = await context.input.onActionStart?.({
     kind: "mcp_tool_call",
-    label: getWebSearchActionLabel(resolvedServer.id, getToolLabel(resolvedTool)),
+    label: getToolLabel(resolvedTool),
     detail: buildArgumentsSummary(correctedArgs),
     serverId: resolvedServer.id,
     toolName: resolvedTool.name,
@@ -402,7 +404,7 @@ export async function executeLoadSkill(
   const skillName = String(args.skill_name ?? "").trim().toLowerCase();
 
   const skill = context.input.skills.find(
-    (s) => (parseSkillContentMetadata(s.content).name?.trim() || s.name).toLowerCase() === skillName
+    (candidate) => getSkillResolvedName(candidate).toLowerCase() === skillName
   );
 
   if (!skill || context.loadedSkillIds.has(skill.id)) {
@@ -685,17 +687,17 @@ export async function executeToolCall(
   toolCall: ProviderToolCall,
   context: {
     input: {
-      settings: ProviderProfileWithApiKey;
+      settings?: ProviderProfileWithApiKey;
       skills: Skill[];
       mcpToolSets: ToolSet[];
-      searxngBaseUrl?: string | null;
       memoryUserId?: string;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       imageGenerationActionHandle?: string;
       hasVisibleImageGenerationAction?: boolean;
-      appSettings?: import("@/lib/types").AppSettings;
+      appSettings?: import("@/lib/types").RuntimeAppSettings;
+      mcpTimeout?: number;
       conversationId?: string;
       assistantMessageId?: string;
       abortSignal?: AbortSignal;
@@ -742,7 +744,7 @@ export async function executeToolCall(
   }
 
   if (name === "web_search") {
-    return executeSearxngWebSearch(toolCallId, args, context);
+    return executeWebSearch(toolCallId, args, context);
   }
 
   if (name === "generate_image") {

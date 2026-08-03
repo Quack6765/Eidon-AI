@@ -15,6 +15,7 @@ import {
 } from "@/components/ai-elements/conversation";
 import { MessageBubble } from "@/components/message-bubble";
 import { Message as AiMessage } from "@/components/ai-elements/message";
+import { Wordmark } from "@/components/ui/wordmark";
 import type { Conversation, Message, MessageAttachment } from "@/lib/types";
 
 function buildSharedAttachmentUrl(
@@ -78,24 +79,7 @@ function SharedConversationTranscript({
               aria-label="Eidon"
               className="flex shrink-0 items-center transition-opacity hover:opacity-80"
             >
-              <span
-                style={{
-                  filter: "drop-shadow(0 0 8px rgba(139,92,246,0.5)) drop-shadow(0 0 20px rgba(139,92,246,0.25)) drop-shadow(0 0 36px rgba(139,92,246,0.12))"
-                }}
-              >
-                <span
-                  className="inline-block text-[24px] font-bold leading-none tracking-[0.12em]"
-                  style={{
-                    fontFamily: "var(--font-wordmark), 'Eurostile', 'Space Grotesk', sans-serif",
-                    WebkitBackgroundClip: "text",
-                    backgroundClip: "text",
-                    WebkitTextFillColor: "transparent",
-                    backgroundImage: "linear-gradient(to bottom, #FFFFFF 0%, #D4C8FF 40%, #8b5cf6 100%)"
-                  }}
-                >
-                  Eidon
-                </span>
-              </span>
+              <Wordmark className="text-[24px]" />
             </a>
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-[var(--text)]">

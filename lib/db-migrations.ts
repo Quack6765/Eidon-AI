@@ -1,13 +1,15 @@
 import Database from "better-sqlite3";
 
 import {
-  DEFAULT_PROVIDER_PROFILE_NAME,
-  DEFAULT_PROVIDER_SETTINGS,
   DEFAULT_SKILLS_ENABLED,
   SETTINGS_ROW_ID
 } from "@/lib/constants";
+import {
+  createProviderProfileDraft,
+  DEFAULT_PROFILE_BEHAVIOR
+} from "@/lib/provider-catalog";
 import { createId } from "@/lib/ids";
-import { encryptValue } from "@/lib/crypto";
+import { decryptValue, encryptValue } from "@/lib/crypto";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
 import { BUILTIN_AGENT_BROWSER_SKILL, deriveSkillDescription } from "@/lib/db-builtin-skills";
 import {
@@ -37,6 +39,399 @@ function tableExists(db: Database.Database, tableName: string) {
       .prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?")
       .get(tableName)
   );
+}
+
+function decryptLegacyCredential(value: string | null | undefined) {
+  if (!value) return "";
+  try {
+    return decryptValue(value);
+  } catch {
+    return "";
+  }
+}
+
+function migrateProviderStorage(db: Database.Database) {
+  const columns = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
+  if (
+    columns.some((column) => column.name === "provider_config_json") &&
+    tableExists(db, "provider_profile_connections") &&
+    tableExists(db, "provider_connection_flows")
+  ) {
+    return;
+  }
+
+  const rows = db.prepare("SELECT * FROM provider_profiles").all() as Array<Record<string, unknown>>;
+  const flowRows = tableExists(db, "mobile_github_oauth_flows")
+    ? db.prepare("SELECT * FROM mobile_github_oauth_flows").all() as Array<Record<string, unknown>>
+    : [];
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    const transaction = db.transaction(() => {
+      db.exec(`
+        DROP TABLE IF EXISTS provider_profiles_new;
+        DROP TABLE IF EXISTS provider_profile_connections_new;
+        DROP TABLE IF EXISTS provider_connection_flows_new;
+        CREATE TABLE provider_profiles_new (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          provider_kind TEXT NOT NULL,
+          provider_config_json TEXT NOT NULL,
+          model TEXT NOT NULL,
+          system_prompt TEXT NOT NULL,
+          temperature REAL NOT NULL,
+          max_output_tokens INTEGER NOT NULL,
+          reasoning_effort TEXT NOT NULL,
+          reasoning_summary_enabled INTEGER NOT NULL,
+          model_context_limit INTEGER NOT NULL,
+          compaction_threshold REAL NOT NULL,
+          fresh_tail_count INTEGER NOT NULL,
+          tokenizer_model TEXT NOT NULL,
+          safety_margin_tokens INTEGER NOT NULL,
+          leaf_source_token_limit INTEGER NOT NULL,
+          leaf_min_message_count INTEGER NOT NULL,
+          merged_min_node_count INTEGER NOT NULL,
+          merged_target_tokens INTEGER NOT NULL,
+          vision_mode TEXT NOT NULL,
+          provider_preset_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE TABLE provider_profile_connections_new (
+          profile_id TEXT PRIMARY KEY,
+          provider_kind TEXT NOT NULL,
+          credentials_encrypted TEXT NOT NULL DEFAULT '',
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          oauth_nonce TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY (profile_id) REFERENCES provider_profiles(id) ON DELETE CASCADE
+        );
+        CREATE TABLE provider_connection_flows_new (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          profile_id TEXT NOT NULL,
+          provider_kind TEXT NOT NULL,
+          state_json TEXT NOT NULL DEFAULT '{}',
+          expires_at TEXT NOT NULL,
+          consumed_at TEXT,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          FOREIGN KEY (profile_id) REFERENCES provider_profiles(id) ON DELETE CASCADE
+        );
+      `);
+
+      const insertProfile = db.prepare(`
+        INSERT INTO provider_profiles_new (
+          id, name, provider_kind, provider_config_json, model, system_prompt,
+          temperature, max_output_tokens, reasoning_effort,
+          reasoning_summary_enabled, model_context_limit, compaction_threshold,
+          fresh_tail_count, tokenizer_model, safety_margin_tokens,
+          leaf_source_token_limit, leaf_min_message_count, merged_min_node_count,
+          merged_target_tokens, vision_mode, provider_preset_id, created_at, updated_at
+        ) VALUES (
+          @id, @name, @providerKind, @providerConfigJson, @model, @systemPrompt,
+          @temperature, @maxOutputTokens, @reasoningEffort,
+          @reasoningSummaryEnabled, @modelContextLimit, @compactionThreshold,
+          @freshTailCount, @tokenizerModel, @safetyMarginTokens,
+          @leafSourceTokenLimit, @leafMinMessageCount, @mergedMinNodeCount,
+          @mergedTargetTokens, @visionMode, @providerPresetId, @createdAt, @updatedAt
+        )
+      `);
+      const insertConnection = db.prepare(`
+        INSERT INTO provider_profile_connections_new (
+          profile_id, provider_kind, credentials_encrypted, metadata_json,
+          oauth_nonce, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      for (const row of rows) {
+        const providerKind = String(row.provider_kind ?? "openai_compatible");
+        const providerConfig = providerKind === "github_copilot"
+          ? {}
+          : providerKind === "anthropic"
+            ? { apiBaseUrl: String(row.api_base_url ?? "") }
+            : {
+                apiBaseUrl: String(row.api_base_url ?? ""),
+                apiMode: String(row.api_mode ?? "responses")
+              };
+        const credentials = providerKind === "github_copilot"
+          ? {
+              accessToken: decryptLegacyCredential(String(row.github_user_access_token_encrypted ?? "")),
+              refreshToken: decryptLegacyCredential(String(row.github_refresh_token_encrypted ?? ""))
+            }
+          : { apiKey: decryptLegacyCredential(String(row.api_key_encrypted ?? "")) };
+        const nonEmptyCredentials = Object.fromEntries(
+          Object.entries(credentials).filter(([, value]) => Boolean(value))
+        );
+        const metadata = providerKind === "github_copilot"
+          ? {
+              expiresAt: row.github_token_expires_at ?? null,
+              refreshExpiresAt: row.github_refresh_token_expires_at ?? null,
+              accountLabel: row.github_account_name ?? row.github_account_login ?? null
+            }
+          : {};
+        const createdAt = String(row.created_at);
+        const updatedAt = String(row.updated_at);
+
+        insertProfile.run({
+          id: row.id,
+          name: row.name,
+          providerKind,
+          providerConfigJson: JSON.stringify(providerConfig),
+          model: row.model,
+          systemPrompt: row.system_prompt,
+          temperature: row.temperature,
+          maxOutputTokens: row.max_output_tokens,
+          reasoningEffort: row.reasoning_effort,
+          reasoningSummaryEnabled: row.reasoning_summary_enabled,
+          modelContextLimit: row.model_context_limit,
+          compactionThreshold: row.compaction_threshold,
+          freshTailCount: row.fresh_tail_count,
+          tokenizerModel: row.tokenizer_model ?? "gpt-tokenizer",
+          safetyMarginTokens: row.safety_margin_tokens ?? 1200,
+          leafSourceTokenLimit: row.leaf_source_token_limit ?? 12000,
+          leafMinMessageCount: row.leaf_min_message_count ?? 6,
+          mergedMinNodeCount: row.merged_min_node_count ?? 4,
+          mergedTargetTokens: row.merged_target_tokens ?? 1600,
+          visionMode: row.vision_mode ?? "native",
+          providerPresetId: row.provider_preset_id ?? null,
+          createdAt,
+          updatedAt
+        });
+        insertConnection.run(
+          row.id,
+          providerKind,
+          Object.keys(nonEmptyCredentials).length
+            ? encryptValue(JSON.stringify(nonEmptyCredentials))
+            : "",
+          JSON.stringify(metadata),
+          row.github_oauth_nonce ?? null,
+          createdAt,
+          updatedAt
+        );
+      }
+
+      const insertFlow = db.prepare(`
+        INSERT INTO provider_connection_flows_new (
+          id, user_id, profile_id, provider_kind, state_json,
+          expires_at, consumed_at, status, created_at
+        ) VALUES (?, ?, ?, 'github_copilot', ?, ?, ?, ?, ?)
+      `);
+      for (const row of flowRows) {
+        insertFlow.run(
+          row.id,
+          row.user_id,
+          row.profile_id,
+          JSON.stringify({ profileNonce: row.profile_nonce }),
+          row.expires_at,
+          row.consumed_at ?? null,
+          row.status,
+          row.created_at
+        );
+      }
+
+      db.exec(`
+        DROP TABLE IF EXISTS mobile_github_oauth_flows;
+        DROP TABLE IF EXISTS provider_connection_flows;
+        DROP TABLE provider_profiles;
+        ALTER TABLE provider_profiles_new RENAME TO provider_profiles;
+        ALTER TABLE provider_profile_connections_new RENAME TO provider_profile_connections;
+        ALTER TABLE provider_connection_flows_new RENAME TO provider_connection_flows;
+        CREATE INDEX idx_provider_connection_flows_user_created
+          ON provider_connection_flows(user_id, created_at DESC);
+      `);
+    });
+    transaction.immediate();
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+
+  const violations = db.pragma("foreign_key_check") as unknown[];
+  if (violations.length) throw new Error("Provider storage migration failed foreign-key validation");
+}
+
+function migrateIntegrationSettings(db: Database.Database) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS integration_settings (
+      capability TEXT NOT NULL,
+      user_id TEXT,
+      provider_id TEXT NOT NULL,
+      configuration_json TEXT NOT NULL DEFAULT '{}',
+      credentials_encrypted TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_settings_global
+      ON integration_settings(capability) WHERE user_id IS NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_integration_settings_user
+      ON integration_settings(capability, user_id) WHERE user_id IS NOT NULL;
+  `);
+  const encodeCredentials = (encrypted: string) => {
+    const apiKey = decryptLegacyCredential(encrypted);
+    return apiKey ? encryptValue(JSON.stringify({ apiKey })) : "";
+  };
+  const timestamp = new Date().toISOString();
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO integration_settings (
+      capability, user_id, provider_id, configuration_json,
+      credentials_encrypted, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  const seedUserCapabilities = (row: Record<string, string>, userId: string | null) => {
+    const searchProvider = row.web_search_engine || "disabled";
+    const searchCredential = searchProvider === "exa"
+      ? row.exa_api_key_encrypted
+      : searchProvider === "tavily"
+        ? row.tavily_api_key_encrypted
+        : "";
+    insert.run(
+      "web_search",
+      userId,
+      searchProvider,
+      JSON.stringify(searchProvider === "searxng" ? { baseUrl: row.searxng_base_url } : {}),
+      encodeCredentials(searchCredential),
+      timestamp,
+      timestamp
+    );
+    const speechProvider = row.stt_engine === "embedded"
+      ? "canary"
+      : row.stt_engine === "external"
+        ? row.stt_provider || "elevenlabs"
+        : "browser";
+    insert.run(
+      "speech_transcription",
+      userId,
+      speechProvider,
+      JSON.stringify({
+        language: speechProvider === "elevenlabs"
+          ? row.external_stt_language
+          : row.stt_language
+      }),
+      encodeCredentials(speechProvider === "elevenlabs" ? row.external_stt_api_key_encrypted : ""),
+      timestamp,
+      timestamp
+    );
+  };
+
+  const global = db.prepare(`
+    SELECT image_generation_backend, google_nano_banana_model,
+      google_nano_banana_api_key_encrypted
+    FROM app_settings WHERE id = ?
+  `).get(SETTINGS_ROW_ID) as Record<string, string>;
+  seedUserCapabilities({
+    web_search_engine: "disabled",
+    exa_api_key_encrypted: "",
+    tavily_api_key_encrypted: "",
+    searxng_base_url: "",
+    stt_engine: "browser",
+    stt_provider: "elevenlabs",
+    stt_language: "auto",
+    external_stt_language: "en",
+    external_stt_api_key_encrypted: ""
+  }, null);
+  insert.run(
+    "image_generation",
+    null,
+    global.image_generation_backend || "disabled",
+    JSON.stringify({ model: global.google_nano_banana_model }),
+    encodeCredentials(global.google_nano_banana_api_key_encrypted),
+    timestamp,
+    timestamp
+  );
+
+  const users = db.prepare(`
+    SELECT user_id, web_search_engine, exa_api_key_encrypted,
+      tavily_api_key_encrypted, searxng_base_url, stt_engine, stt_provider,
+      stt_language, external_stt_language, external_stt_api_key_encrypted
+    FROM user_settings
+  `).all() as Array<Record<string, string>>;
+  for (const row of users) seedUserCapabilities(row, row.user_id);
+}
+
+function migratePreferenceStorage(db: Database.Database) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS global_preferences (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      default_provider_profile_id TEXT,
+      skills_enabled INTEGER NOT NULL DEFAULT 1,
+      conversation_retention TEXT NOT NULL DEFAULT 'forever',
+      memories_enabled INTEGER NOT NULL DEFAULT 1,
+      memories_max_count INTEGER NOT NULL DEFAULT 100,
+      mcp_timeout INTEGER NOT NULL DEFAULT 120000,
+      max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
+      title_generation_mode TEXT NOT NULL DEFAULT 'same',
+      title_generation_profile_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL,
+      FOREIGN KEY (title_generation_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id TEXT PRIMARY KEY,
+      conversation_retention TEXT NOT NULL DEFAULT 'forever',
+      memories_enabled INTEGER NOT NULL DEFAULT 1,
+      memories_max_count INTEGER NOT NULL DEFAULT 100,
+      mcp_timeout INTEGER NOT NULL DEFAULT 120000,
+      max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+  `);
+
+  const timestamp = new Date().toISOString();
+  if (tableExists(db, "app_settings")) {
+    db.prepare(`
+      INSERT OR IGNORE INTO global_preferences (
+        id, default_provider_profile_id, skills_enabled, conversation_retention,
+        memories_enabled, memories_max_count, mcp_timeout,
+        max_assistant_tool_steps, title_generation_mode,
+        title_generation_profile_id, created_at, updated_at
+      )
+      SELECT id, NULLIF(default_provider_profile_id, ''), skills_enabled,
+        conversation_retention, memories_enabled, memories_max_count,
+        mcp_timeout, COALESCE(max_assistant_tool_steps, 25),
+        COALESCE(title_generation_mode, 'same'), title_generation_profile_id,
+        updated_at, updated_at
+      FROM app_settings
+      WHERE id = 1
+    `).run();
+  }
+  db.prepare(`
+    INSERT OR IGNORE INTO global_preferences (
+      id, default_provider_profile_id, skills_enabled, conversation_retention,
+      memories_enabled, memories_max_count, mcp_timeout,
+      max_assistant_tool_steps, title_generation_mode,
+      title_generation_profile_id, created_at, updated_at
+    ) VALUES (1, NULL, 1, 'forever', 1, 100, 120000, 25, 'same', NULL, ?, ?)
+  `).run(timestamp, timestamp);
+
+  if (tableExists(db, "user_settings")) {
+    db.prepare(`
+      INSERT OR IGNORE INTO user_preferences (
+        user_id, conversation_retention, memories_enabled,
+        memories_max_count, mcp_timeout, max_assistant_tool_steps,
+        created_at, updated_at
+      )
+      SELECT user_id, conversation_retention, memories_enabled,
+        memories_max_count, mcp_timeout,
+        COALESCE(max_assistant_tool_steps, 25), updated_at, updated_at
+      FROM user_settings
+    `).run();
+  }
+
+  db.pragma("foreign_keys = OFF");
+  try {
+    db.exec(`
+      DROP TABLE IF EXISTS user_settings;
+      DROP TABLE IF EXISTS app_settings;
+    `);
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
 }
 
 function hasCurrentCompactionEventsSchema(db: Database.Database) {
@@ -268,11 +663,12 @@ export function migrate(db: Database.Database) {
       created_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
-    CREATE TABLE IF NOT EXISTS mobile_github_oauth_flows (
+    CREATE TABLE IF NOT EXISTS provider_connection_flows (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       profile_id TEXT NOT NULL,
-      profile_nonce TEXT NOT NULL,
+      provider_kind TEXT NOT NULL,
+      state_json TEXT NOT NULL DEFAULT '{}',
       expires_at TEXT NOT NULL,
       consumed_at TEXT,
       status TEXT NOT NULL,
@@ -714,6 +1110,9 @@ export function migrate(db: Database.Database) {
   if (!settingsColNames.includes("mcp_timeout")) {
     db.exec("ALTER TABLE app_settings ADD COLUMN mcp_timeout INTEGER NOT NULL DEFAULT 120000");
   }
+  if (!settingsColNames.includes("max_assistant_tool_steps")) {
+    db.exec("ALTER TABLE app_settings ADD COLUMN max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25");
+  }
   if (!settingsColNames.includes("image_generation_backend")) {
     db.exec("ALTER TABLE app_settings ADD COLUMN image_generation_backend TEXT NOT NULL DEFAULT 'disabled'");
   }
@@ -871,6 +1270,7 @@ export function migrate(db: Database.Database) {
 
   const profileCols = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
   const profileColNames = profileCols.map((c) => c.name);
+  if (!profileColNames.includes("provider_config_json")) {
   const newProfileCols = {
     tokenizer_model: "TEXT DEFAULT 'gpt-tokenizer'",
     safety_margin_tokens: "INTEGER DEFAULT 1200",
@@ -923,6 +1323,7 @@ export function migrate(db: Database.Database) {
       db.exec(`ALTER TABLE provider_profiles ADD COLUMN ${colName} ${colDef}`);
     }
   }
+  }
 
   migrateCompactionEventsTable(db);
 
@@ -947,8 +1348,8 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_user_memories_category ON user_memories(category);
     CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_purpose_created
       ON auth_sessions(user_id, purpose, created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_mobile_github_oauth_flows_user_created
-      ON mobile_github_oauth_flows(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_provider_connection_flows_user_created
+      ON provider_connection_flows(user_id, created_at DESC);
   `);
 
   const queuedMessagesCols = db.prepare("PRAGMA table_info(queued_messages)").all() as Array<{ name: string }>;
@@ -1009,10 +1410,10 @@ export function migrate(db: Database.Database) {
       @updatedAt
     )`
   ).run({
+    ...createProviderProfileDraft({ name: "Default profile" }),
     id: SETTINGS_ROW_ID,
-    ...DEFAULT_PROVIDER_SETTINGS,
     skillsEnabled: DEFAULT_SKILLS_ENABLED ? 1 : 0,
-    reasoningSummaryEnabled: DEFAULT_PROVIDER_SETTINGS.reasoningSummaryEnabled ? 1 : 0,
+    reasoningSummaryEnabled: DEFAULT_PROFILE_BEHAVIOR.reasoningSummaryEnabled ? 1 : 0,
     updatedAt: new Date().toISOString()
   });
 
@@ -1113,7 +1514,7 @@ export function migrate(db: Database.Database) {
       )`
     ).run({
       id: profileId,
-      name: DEFAULT_PROVIDER_PROFILE_NAME,
+      name: "Default profile",
       apiBaseUrl: appSettingsRow.api_base_url,
       apiKeyEncrypted: appSettingsRow.api_key_encrypted,
       model: appSettingsRow.model,
@@ -1213,6 +1614,10 @@ export function migrate(db: Database.Database) {
         WHERE status = 'running'
     `);
   }
+
+  migrateProviderStorage(db);
+  migrateIntegrationSettings(db);
+  migratePreferenceStorage(db);
 }
 
 export function backfillVisionMcpServers(db: Database.Database) {

@@ -12,7 +12,7 @@ import { fieldLabel, selectLike, sectionDivider } from "@/lib/settings-styles";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
-import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import type { McpServerSummary, McpTransport } from "@/lib/types";
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
@@ -60,22 +60,12 @@ export function McpServersSection() {
     hasEditedHeaders,
     hasEditedEnv,
   });
-  const unsavedActions = useRef({ save: saveMcpServer, discard: restoreMcpDraft });
-  unsavedActions.current = { save: saveMcpServer, discard: restoreMcpDraft };
-
-  useEffect(() => {
-    registerUnsavedChangesGuard(
-      isDirty
-        ? {
-            isDirty: () => isDirty,
-            save: () => unsavedActions.current.save(),
-            discard: () => unsavedActions.current.discard(),
-            entityType: "this server",
-          }
-        : null
-    );
-    return () => registerUnsavedChangesGuard(null);
-  }, [isDirty]);
+  useUnsavedChangesGuard({
+    isDirty,
+    save: saveMcpServer,
+    discard: restoreMcpDraft,
+    entityType: "this server"
+  });
 
   useEffect(() => {
     const requestVersion = ++mcpServersRequestVersion.current;

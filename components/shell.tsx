@@ -10,6 +10,7 @@ import { SettingsNav } from "@/components/settings/settings-nav";
 import { ShareConversationProvider } from "@/components/share-conversation-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Wordmark } from "@/components/ui/wordmark";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
 import type { AuthUser, Automation, Conversation, ConversationListPage, Folder } from "@/lib/types";
@@ -375,19 +376,7 @@ export function Shell({
               Settings
             </span>
           ) : (
-            <span
-              className="font-bold tracking-[0.12em] leading-none inline-block text-lg"
-              style={{
-                fontFamily: "var(--font-wordmark), 'Eurostile', 'Space Grotesk', sans-serif",
-                WebkitBackgroundClip: "text",
-                backgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                backgroundImage: "linear-gradient(to bottom, #FFFFFF 0%, #D4C8FF 40%, #8b5cf6 100%)",
-                filter: "drop-shadow(0 0 8px rgba(139,92,246,0.5)) drop-shadow(0 0 20px rgba(139,92,246,0.25)) drop-shadow(0 0 36px rgba(139,92,246,0.12))",
-              }}
-            >
-              Eidon
-            </span>
+            <Wordmark className="text-lg" />
           )}
 
           {(isAutomationsPage || isSettingsPage) ? (

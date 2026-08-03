@@ -1,5 +1,6 @@
 import { compileImageInstruction, extractJsonObject } from "@/lib/image-generation/compile-image-instruction";
 import type { ProviderProfileWithApiKey } from "@/lib/types";
+import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
 const { callProviderText } = vi.hoisted(() => ({
   callProviderText: vi.fn()
@@ -10,14 +11,12 @@ vi.mock("@/lib/provider", () => ({
 }));
 
 function createSettings(): ProviderProfileWithApiKey {
-  return {
+  return createRuntimeProviderProfile({
     id: "profile_test",
     name: "Test profile",
-    apiBaseUrl: "https://api.example.com/v1",
-    apiKeyEncrypted: "",
-    apiKey: "sk-test",
+    providerConfig: { apiBaseUrl: "https://api.example.com/v1", apiMode: "responses" },
+    credentials: { apiKey: "sk-test" },
     model: "gpt-5-mini",
-    apiMode: "responses",
     systemPrompt: "Be exact",
     temperature: 0.2,
     maxOutputTokens: 512,
@@ -35,15 +34,9 @@ function createSettings(): ProviderProfileWithApiKey {
     visionMode: "native",
     providerPresetId: null,
     providerKind: "openai_compatible",
-    githubUserAccessTokenEncrypted: "",
-    githubRefreshTokenEncrypted: "",
-    githubTokenExpiresAt: null,
-    githubRefreshTokenExpiresAt: null,
-    githubAccountLogin: null,
-    githubAccountName: null,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString()
-  };
+  });
 }
 
 const profile = createSettings();

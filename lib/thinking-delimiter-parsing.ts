@@ -1,15 +1,7 @@
+import { longestMarkerPrefixAtSuffix } from "@/lib/stream-delimiters";
+
 const THINK_OPEN = "<think>";
 const THINK_CLOSE = "</think>";
-
-function longestSuffixPrefix(text: string, marker: string): number {
-  const max = Math.min(text.length, marker.length - 1);
-  for (let len = max; len > 0; len -= 1) {
-    if (marker.startsWith(text.slice(text.length - len))) {
-      return len;
-    }
-  }
-  return 0;
-}
 
 export interface ThinkingDelimiterResult {
   answer: string;
@@ -35,7 +27,7 @@ export function createThinkingDelimiterInterceptor(): ThinkingDelimiterIntercept
       if (inside) {
         const closeIdx = pending.indexOf(THINK_CLOSE);
         if (closeIdx === -1) {
-          const hold = longestSuffixPrefix(pending, THINK_CLOSE);
+          const hold = longestMarkerPrefixAtSuffix(pending, THINK_CLOSE);
           const safeLen = pending.length - hold;
           if (safeLen > 0) {
             thinking += pending.slice(0, safeLen);
@@ -51,7 +43,7 @@ export function createThinkingDelimiterInterceptor(): ThinkingDelimiterIntercept
 
       const openIdx = pending.indexOf(THINK_OPEN);
       if (openIdx === -1) {
-        const hold = longestSuffixPrefix(pending, THINK_OPEN);
+        const hold = longestMarkerPrefixAtSuffix(pending, THINK_OPEN);
         const safeLen = pending.length - hold;
         if (safeLen > 0) {
           answer += pending.slice(0, safeLen);

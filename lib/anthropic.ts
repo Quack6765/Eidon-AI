@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
+import { getProviderApiBaseUrl, getProviderApiKey, getProviderApiMode } from "@/lib/provider-profile";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import { estimatePromptTokens } from "@/lib/tokenization";
 import type {
@@ -186,7 +187,7 @@ export function buildAnthropicRequest(input: {
 }): Record<string, unknown> {
   const system = extractSystemPrompt(input.messages);
   const messages = withCacheControl(toAnthropicMessages(input.messages));
-  const effort = supportsVisibleReasoning(input.settings.model, input.settings.apiMode)
+  const effort = supportsVisibleReasoning(input.settings.model, getProviderApiMode(input.settings))
     ? mapReasoningEffortToAnthropic(input.settings.reasoningEffort)
     : null;
 
@@ -223,7 +224,10 @@ type AnthropicStreamResult = {
 };
 
 function createAnthropicClient(settings: ProviderProfileWithApiKey): Anthropic {
-  return new Anthropic({ apiKey: settings.apiKey, baseURL: settings.apiBaseUrl });
+  return new Anthropic({
+    apiKey: getProviderApiKey(settings),
+    baseURL: getProviderApiBaseUrl(settings)
+  });
 }
 
 export async function* streamAnthropicResponse(input: {

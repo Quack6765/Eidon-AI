@@ -2,6 +2,7 @@ import OpenAI from "openai";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { resolveCapabilities } from "@/lib/model-capabilities";
+import { getProviderApiBaseUrl, getProviderApiMode } from "@/lib/provider-profile";
 import type { PromptMessage, ProviderProfile } from "@/lib/types";
 
 function buildDateContextContent() {
@@ -32,7 +33,7 @@ export function withDateContextSystemPrompt(systemPrompt: string) {
 export function createClient(settings: ProviderProfile, apiKey: string) {
   return new OpenAI({
     apiKey,
-    baseURL: settings.apiBaseUrl
+    baseURL: getProviderApiBaseUrl(settings)
   });
 }
 
@@ -117,11 +118,12 @@ export function buildResponsesInput(messages: PromptMessage[]): any[] {
 }
 
 function usesThinkingReplay(settings: ProviderProfile) {
-  if (settings.apiMode !== "chat_completions") {
+  const apiMode = getProviderApiMode(settings);
+  if (apiMode !== "chat_completions") {
     return false;
   }
 
-  const caps = resolveCapabilities(settings.model, settings.apiMode);
+  const caps = resolveCapabilities(settings.model, apiMode);
   return caps.thinkingReplay;
 }
 

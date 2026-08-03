@@ -9,7 +9,7 @@ export default async function GeneralPage() {
   return (
     <GeneralSection
       settings={settings}
-      canManageImageGeneration={user.role === "admin"}
+      canManageGlobalIntegrations={user.role === "admin"}
     />
   );
 }

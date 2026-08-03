@@ -76,6 +76,7 @@ export async function POST(request: Request) {
       expiresAt: session.expiresAt.toISOString(),
       user
     },
-    { status: 201, headers: { "cache-control": "no-store" } }
+    { status: 201, headers: { "cache-control": "no-store" } },
+    { allowedTopLevelKeys: ["accessToken"] }
   );
 }

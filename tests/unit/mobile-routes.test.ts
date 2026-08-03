@@ -13,6 +13,7 @@ import { createConversation, createMessage } from "@/lib/conversations";
 import { updateSettings } from "@/lib/settings";
 import { createLocalUser } from "@/lib/users";
 import { assertOpenApiResponse } from "@/tests/fixtures/mobile-contract-validator";
+import { createProviderCatalogInput, createProviderProfileInput } from "@/tests/provider-fixtures";
 
 async function assertResponseContract(
   pathname: string,
@@ -23,23 +24,18 @@ async function assertResponseContract(
 }
 
 function buildProfile() {
-  return {
+  return createProviderProfileInput({
     id: "profile_mobile_routes",
     name: "Mobile routes provider",
     providerKind: "openai_compatible" as const,
-    apiBaseUrl: "https://api.example.com/v1",
-    apiKey: "sk-mobile-route-secret",
+    providerConfig: {
+      apiBaseUrl: "https://api.example.com/v1",
+      apiMode: "responses"
+    },
+    credentials: { apiKey: "sk-mobile-route-secret" },
     model: "gpt-mobile",
-    apiMode: "responses" as const,
-    systemPrompt: "Be exact.",
-    temperature: 0.4,
-    maxOutputTokens: 512,
-    reasoningEffort: "medium" as const,
-    reasoningSummaryEnabled: true,
-    modelContextLimit: 16384,
-    compactionThreshold: 0.8,
-    freshTailCount: 12
-  };
+    systemPrompt: "Be exact."
+  });
 }
 
 function request(
@@ -145,11 +141,7 @@ describe("Mobile API v1 REST adapter", () => {
       role: "admin"
     });
     const session = await createMobileSession(admin.id, "Settings device");
-    updateSettings({
-      defaultProviderProfileId: "profile_mobile_routes",
-      skillsEnabled: true,
-      providerProfiles: [buildProfile()]
-    });
+    updateSettings(createProviderCatalogInput([buildProfile()]));
 
     const response = await mobileGet(
       request(["settings"], session.token),
@@ -159,7 +151,8 @@ describe("Mobile API v1 REST adapter", () => {
     await assertResponseContract("/settings", "get", response);
     const serialized = JSON.stringify(await response.json());
     expect(serialized).toContain("Mobile routes provider");
-    expect(serialized).toContain("hasApiKey");
+    expect(serialized).toContain('"connection"');
+    expect(serialized).toContain('"status":"connected"');
     expect(serialized).not.toContain("sk-mobile-route-secret");
     expect(serialized).not.toContain("apiKeyEncrypted");
   });
@@ -171,11 +164,7 @@ describe("Mobile API v1 REST adapter", () => {
       role: "admin"
     });
     const session = await createMobileSession(admin.id, "Contract device");
-    updateSettings({
-      defaultProviderProfileId: "profile_mobile_routes",
-      skillsEnabled: true,
-      providerProfiles: [buildProfile()]
-    });
+    updateSettings(createProviderCatalogInput([buildProfile()]));
 
     const call = async (
       template: string,

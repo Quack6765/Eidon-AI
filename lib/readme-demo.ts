@@ -14,7 +14,9 @@ import { createFolder, deleteFolder, listFolders } from "@/lib/folders";
 import { createMcpServer, deleteMcpServer, listMcpServers } from "@/lib/mcp-servers";
 import { createMemory, deleteMemory, listMemories } from "@/lib/memories";
 import { createPersona, deletePersona, listPersonas } from "@/lib/personas";
-import { getSettingsDefaults, updateGeneralSettingsForUser, updateSettings } from "@/lib/settings";
+import { createProviderProfileDraft, type ProviderKind, type ProviderPresetId } from "@/lib/provider-catalog";
+import { updateIntegrationSetting } from "@/lib/integration-settings";
+import { updateGeneralSettingsForUser, updateSettings } from "@/lib/settings";
 import { createSkill, listSkills, updateSkill } from "@/lib/skills";
 import {
   createLocalUser,
@@ -31,7 +33,7 @@ function buildProviderProfile(
   overrides: Partial<{
     id: string;
     name: string;
-    providerKind: "openai_compatible" | "github_copilot";
+    providerKind: ProviderKind;
     apiBaseUrl: string;
     apiKey: string;
     model: string;
@@ -51,25 +53,26 @@ function buildProviderProfile(
     mergedMinNodeCount: number;
     mergedTargetTokens: number;
     visionMode: "none" | "native" | "mcp";
-    providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "opencode_go" | "custom_openai_compatible" | null;
-    githubUserAccessTokenEncrypted: string;
-    githubRefreshTokenEncrypted: string;
-    githubTokenExpiresAt: string | null;
-    githubRefreshTokenExpiresAt: string | null;
-    githubAccountLogin: string | null;
-    githubAccountName: string | null;
+    providerPresetId: ProviderPresetId | null;
   }>
 ) {
-  const defaults = getSettingsDefaults();
+  const providerKind = overrides.providerKind ?? "openai_compatible";
+  const defaults = createProviderProfileDraft({ providerKind });
+  const apiBaseUrl = overrides.apiBaseUrl ?? defaults.apiBaseUrl;
+  const apiMode = overrides.apiMode ?? defaults.apiMode;
 
   return {
     id: overrides.id ?? "readme_profile_default",
     name: overrides.name ?? defaults.name,
-    providerKind: overrides.providerKind ?? "openai_compatible",
-    apiBaseUrl: overrides.apiBaseUrl ?? defaults.apiBaseUrl,
-    apiKey: overrides.apiKey ?? "",
+    providerKind,
+    providerConfig: providerKind === "github_copilot"
+      ? {}
+      : providerKind === "anthropic"
+        ? { apiBaseUrl }
+        : { apiBaseUrl, apiMode },
+    credential: overrides.apiKey ?? "",
+    credentialAction: overrides.apiKey ? "replace" as const : "clear" as const,
     model: overrides.model ?? defaults.model,
-    apiMode: overrides.apiMode ?? defaults.apiMode,
     systemPrompt: overrides.systemPrompt ?? defaults.systemPrompt,
     temperature: overrides.temperature ?? defaults.temperature,
     maxOutputTokens: overrides.maxOutputTokens ?? defaults.maxOutputTokens,
@@ -90,16 +93,7 @@ function buildProviderProfile(
     mergedTargetTokens:
       overrides.mergedTargetTokens ?? defaults.mergedTargetTokens,
     visionMode: overrides.visionMode ?? defaults.visionMode,
-    providerPresetId: overrides.providerPresetId ?? null,
-    githubUserAccessTokenEncrypted:
-      overrides.githubUserAccessTokenEncrypted ?? "",
-    githubRefreshTokenEncrypted:
-      overrides.githubRefreshTokenEncrypted ?? "",
-    githubTokenExpiresAt: overrides.githubTokenExpiresAt ?? null,
-    githubRefreshTokenExpiresAt:
-      overrides.githubRefreshTokenExpiresAt ?? null,
-    githubAccountLogin: overrides.githubAccountLogin ?? null,
-    githubAccountName: overrides.githubAccountName ?? null
+    providerPresetId: overrides.providerPresetId ?? null
   };
 }
 
@@ -147,8 +141,6 @@ export const README_DEMO_FIXTURES = {
       id: "readme_profile_copilot",
       name: "GitHub Copilot",
       providerKind: "github_copilot",
-      apiBaseUrl: "https://api.githubcopilot.com",
-      apiKey: "",
       model: "gpt-4.1",
       systemPrompt:
         "Act like a high-signal coding assistant that stays concise and production-minded.",
@@ -418,6 +410,12 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     mcpTimeout: 120_000,
     providerProfiles: README_DEMO_FIXTURES.providerProfiles
   });
+  updateIntegrationSetting({
+    capability: "web_search",
+    providerId: "exa",
+    configuration: {},
+    credentialAction: "clear"
+  });
 
   resetDemoSkills();
   resetDemoMcpServers();
@@ -429,20 +427,26 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     conversationRetention: "forever",
     memoriesEnabled: true,
     memoriesMaxCount: 120,
-    mcpTimeout: 120_000,
-    sttEngine: "browser",
-    sttLanguage: "en",
-    webSearchEngine: "exa"
+    mcpTimeout: 120_000
   });
+  updateIntegrationSetting({
+    capability: "web_search",
+    providerId: "exa",
+    configuration: {},
+    credentialAction: "clear"
+  }, localAdmin.id);
 
   updateGeneralSettingsForUser(member.id, {
     conversationRetention: "30d",
     memoriesEnabled: true,
-    memoriesMaxCount: 60,
-    sttEngine: "browser",
-    sttLanguage: "en",
-    webSearchEngine: "disabled"
+    memoriesMaxCount: 60
   });
+  updateIntegrationSetting({
+    capability: "web_search",
+    providerId: "disabled",
+    configuration: {},
+    credentialAction: "clear"
+  }, member.id);
 
   const personas = README_DEMO_FIXTURES.personas.map((persona) =>
     createPersona(persona, envSuperAdmin.id)

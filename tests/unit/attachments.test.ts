@@ -4,15 +4,15 @@ import path from "node:path";
 import { vi } from "vitest";
 
 import {
+  bindAttachmentsToMessage,
   createAttachments,
-  createAttachmentsFromBytes,
   deleteAttachmentById,
   getAttachment,
   getAttachmentDataUrl,
   importAttachmentFromLocalFile
 } from "@/lib/attachments";
 import { MAX_ATTACHMENT_BYTES } from "@/lib/constants";
-import { bindAttachmentsToMessage, createConversation, createMessage } from "@/lib/conversations";
+import { createConversation, createMessage } from "@/lib/conversations";
 import { getDb, resetDbForTests } from "@/lib/db";
 import { bootstrapRuntimeState, resetRuntimeBootstrapForTests } from "@/lib/runtime-bootstrap";
 import { removeOrphanedAttachmentFiles } from "@/lib/attachment-storage-recovery";
@@ -201,7 +201,7 @@ describe("attachment helpers", () => {
   it("creates an attachment from decoded in-memory bytes", async () => {
     const conversation = createConversation();
     const imageBytes = Buffer.from("decoded-image-bytes", "utf8");
-    const [attachment] = await createAttachmentsFromBytes(conversation.id, [
+    const [attachment] = await createAttachments(conversation.id, [
       {
         filename: "generated.png",
         mimeType: "image/png",
@@ -222,7 +222,7 @@ describe("attachment helpers", () => {
     const conversation = createConversation();
 
     await expect(
-      createAttachmentsFromBytes(conversation.id, [
+      createAttachments(conversation.id, [
         {
           filename: "generated.png",
           mimeType: "image/png",

@@ -1,444 +1,58 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { resolveAssistantTurn } from "@/lib/assistant-runtime";
-import {
-  ChatTurnStoppedError,
-  claimChatTurnStart,
-  releaseChatTurnStart
-} from "@/lib/chat-turn-control";
 import { requireUser } from "@/lib/auth";
-import {
-  createMessageAction,
-  createMessageTextSegment,
-  generateConversationTitleFromFirstUserMessage,
-  getConversation,
-  getConversationOwnerId,
-  getMessage,
-  setConversationActive,
-  updateMessage,
-  updateMessageAction,
-} from "@/lib/conversations";
-import {
-  attachAssistantFilesFromCompletedAction,
-  createAssistantContentPersistenceTracker,
-  createChatTurnMessages
-} from "@/lib/chat-turn";
-import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compaction";
+import { runAssistantTurn } from "@/lib/chat-turn";
+import { getConversation } from "@/lib/conversations";
 import { badRequest, parseRouteParams } from "@/lib/http";
-import {
-  getSettings,
-  getSettingsForUser,
-  getDefaultProviderProfileWithApiKey,
-  getProviderProfileWithApiKey
-} from "@/lib/settings";
 import { encodeSseEvent, encodeSseFlushMarker, encodeSsePrelude } from "@/lib/sse";
-import { estimateTextTokens } from "@/lib/tokenization";
-import { listEnabledMcpServers } from "@/lib/mcp-servers";
-import { listEnabledSkills } from "@/lib/skills";
-import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
-import type { ChatStreamEvent } from "@/lib/types";
 
-const bodySchema = z
-  .object({
-    message: z.string(),
-    attachmentIds: z.array(z.string().min(1)).default([])
-  })
-  .refine(
-    (value) => value.message.trim().length > 0 || value.attachmentIds.length > 0,
-    "Chat message or attachment is required"
-  );
-
-const paramsSchema = z.object({
-  conversationId: z.string().min(1)
-});
+const bodySchema = z.object({
+  message: z.string(),
+  attachmentIds: z.array(z.string().min(1)).default([])
+}).refine(
+  (value) => value.message.trim().length > 0 || value.attachmentIds.length > 0,
+  "Chat message or attachment is required"
+);
+const paramsSchema = z.object({ conversationId: z.string().min(1) });
 
 export async function POST(
   request: Request,
   context: { params: Promise<{ conversationId: string }> }
 ) {
   const user = await requireUser(false);
-
-  if (!user) {
-    return badRequest("Authentication required", 401);
-  }
-    const params = await parseRouteParams(context, paramsSchema, "conversation id");
+  if (!user) return badRequest("Authentication required", 401);
+  const params = await parseRouteParams(context, paramsSchema, "conversation id");
   if (params instanceof NextResponse) return params;
-
-  const payload = bodySchema.safeParse(await request.json());
-
-  if (!payload.success) {
-    return badRequest("Invalid chat payload");
-  }
-
+  const payload = bodySchema.safeParse(await request.json().catch(() => null));
+  if (!payload.success) return badRequest("Invalid chat payload");
   const conversation = getConversation(params.conversationId, user.id);
-
-  if (!conversation) {
-    return badRequest("Conversation not found", 404);
-  }
-  const conversationOwnerId = getConversationOwnerId(conversation.id);
-
-  const settings =
-    (conversation.providerProfileId
-      ? getProviderProfileWithApiKey(conversation.providerProfileId)
-      : null) ?? getDefaultProviderProfileWithApiKey();
-  const appSettings = conversationOwnerId ? getSettingsForUser(conversationOwnerId) : getSettings();
-
-  if (!settings) {
-    return badRequest("No provider profile configured");
-  }
-
-  if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
-    return badRequest("Set an API key in settings before starting a chat");
-  }
-
-  if (settings.providerKind === "github_copilot" && !settings.githubUserAccessTokenEncrypted) {
-    return badRequest("Connect a GitHub account in settings before starting a chat");
-  }
-
-  const claimed = claimChatTurnStart(conversation.id);
-  if (!claimed.ok) {
-    return badRequest("Conversation already has an active assistant turn", 409);
-  }
-  const control = claimed.control;
-  const stopOnRequestAbort = () => control.requestStop();
-
-  if (request.signal.aborted) {
-    stopOnRequestAbort();
-  } else {
-    request.signal.addEventListener("abort", stopOnRequestAbort, { once: true });
-  }
-
-  let turnFinalized = false;
-  const finalizeTurn = () => {
-    if (turnFinalized) {
-      return;
-    }
-
-    turnFinalized = true;
-    try {
-      setConversationActive(conversation.id, false);
-    } finally {
-      request.signal.removeEventListener("abort", stopOnRequestAbort);
-      releaseChatTurnStart(conversation.id, control);
-    }
-  };
-
-  let userMessage: ReturnType<typeof createChatTurnMessages>["userMessage"];
-  let assistantMessage: ReturnType<typeof createChatTurnMessages>["assistantMessage"];
-
-  try {
-    control.throwIfStopped();
-    ({ userMessage, assistantMessage } = createChatTurnMessages({
-      conversationId: conversation.id,
-      content: payload.data.message,
-      attachmentIds: payload.data.attachmentIds
-    }));
-
-    void generateConversationTitleFromFirstUserMessage(conversation.id, userMessage.id);
-  } catch (error) {
-    finalizeTurn();
-    throw error;
-  }
+  if (!conversation) return badRequest("Conversation not found", 404);
 
   const encoder = new TextEncoder();
-  let streamCancelled = false;
-
+  const turnAbortController = new AbortController();
+  const abortTurn = () => turnAbortController.abort();
+  request.signal.addEventListener("abort", abortTurn, { once: true });
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      let contentPersistence: ReturnType<typeof createAssistantContentPersistenceTracker>;
-
-      const enqueue = (data: Uint8Array) => {
-        if (streamCancelled) {
-          return false;
-        }
-
-        try {
-          controller.enqueue(data);
-          return true;
-        } catch (error) {
-          streamCancelled = true;
-          control.requestStop();
-          throw error;
-        }
-      };
-
-      const write = (event: ChatStreamEvent) => {
-        if (!enqueue(encoder.encode(encodeSseEvent(event)))) {
-          return;
-        }
-
+      controller.enqueue(encoder.encode(encodeSsePrelude()));
+      for await (const event of runAssistantTurn({
+        conversationId: conversation.id,
+        content: payload.data.message,
+        attachmentIds: payload.data.attachmentIds,
+        abortSignal: turnAbortController.signal
+      })) {
+        controller.enqueue(encoder.encode(encodeSseEvent(event)));
         if (event.type !== "thinking_delta") {
-          enqueue(encoder.encode(encodeSseFlushMarker()));
+          controller.enqueue(encoder.encode(encodeSseFlushMarker()));
         }
-      };
-
-      const closeStream = () => {
-        if (streamCancelled) {
-          return;
-        }
-
-        try {
-          controller.close();
-        } catch {
-          streamCancelled = true;
-          control.requestStop();
-        }
-      };
-
-      try {
-        control.throwIfStopped();
-        enqueue(encoder.encode(encodeSsePrelude()));
-        write({
-          type: "message_start",
-          messageId: assistantMessage.id
-        });
-
-        setConversationActive(conversation.id, true);
-        contentPersistence = createAssistantContentPersistenceTracker(conversation.id, assistantMessage.id);
-      } catch (error) {
-        const stopped = control.stopped || control.abortController.signal.aborted;
-        try {
-          updateMessage(assistantMessage.id, {
-            content: "",
-            thinkingContent: "",
-            status: stopped ? "stopped" : "error"
-          });
-        } finally {
-          finalizeTurn();
-        }
-        if (stopped) {
-          closeStream();
-        } else if (!streamCancelled) {
-          try {
-            controller.error(error);
-          } catch {}
-        }
-        return;
       }
-      let latestAnswer = "";
-      let latestThinking = "";
-      let sawStreamedAnswerSinceLastSegment = false;
-      const runningActionHandles = new Set<string>();
-
-      try {
-        const compacted = await ensureCompactedContext(conversation.id, settings, {
-          onCompactionStart() {
-            write({ type: "compaction_start" });
-          },
-          onCompactionEnd() {
-            write({ type: "compaction_end" });
-          }
-        }, undefined, false, control.abortController.signal);
-        control.throwIfStopped();
-
-        let promptMessages = compacted.promptMessages;
-        const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
-
-        const mcpServers = appendInjectedWebSearchMcpServer(listEnabledMcpServers(), appSettings);
-        let mcpToolSets: Array<{
-          server: (typeof mcpServers)[number];
-          tools: Awaited<ReturnType<typeof import("@/lib/mcp-client")["discoverMcpTools"]>>;
-        }> = [];
-        if (mcpServers.length) {
-          const { gatherAllMcpTools } = await import("@/lib/mcp-client");
-          mcpToolSets = await gatherAllMcpTools(mcpServers, control.abortController.signal);
-          control.throwIfStopped();
-        }
-
-        const visionMcpServers = mcpServers.filter((server) => server.enabled && server.isVisionMcp);
-
-        let timelineSortOrder = 0;
-
-        const providerResult = await resolveAssistantTurn({
-          settings,
-          promptMessages,
-          skills,
-          mcpServers,
-          mcpToolSets,
-          visionMcpServers,
-          searxngBaseUrl:
-            appSettings.webSearchEngine === "searxng" ? appSettings.searxngBaseUrl : null,
-          mcpTimeout: appSettings.mcpTimeout,
-          memoryUserId: conversationOwnerId ?? undefined,
-          abortSignal: control.abortController.signal,
-          enableStreamRetry: true,
-          throwIfStopped: control.throwIfStopped,
-          appSettings,
-          conversationId: conversation.id,
-          assistantMessageId: assistantMessage.id,
-          onEvent(event: ChatStreamEvent) {
-            write(event);
-            if (event.type === "answer_delta") {
-              latestAnswer += event.text;
-              sawStreamedAnswerSinceLastSegment = true;
-            } else if (event.type === "thinking_delta") {
-              latestThinking += event.text;
-            } else if (event.type === "stream_retry") {
-              latestAnswer = "";
-              latestThinking = "";
-              sawStreamedAnswerSinceLastSegment = false;
-            }
-          },
-          async onAnswerSegment(segment) {
-            if (!sawStreamedAnswerSinceLastSegment) {
-              latestAnswer += segment;
-            }
-            sawStreamedAnswerSinceLastSegment = false;
-            const sanitizedSegment = await contentPersistence.appendSegment(segment);
-            if (!sanitizedSegment) {
-              return;
-            }
-            createMessageTextSegment({
-              messageId: assistantMessage.id,
-              content: sanitizedSegment,
-              sortOrder: timelineSortOrder++
-            });
-          },
-          onActionStart(action) {
-            const persisted = createMessageAction({
-              messageId: assistantMessage.id,
-              kind: action.kind,
-              label: action.label,
-              detail: action.detail,
-              serverId: action.serverId,
-              skillId: action.skillId,
-              toolName: action.toolName,
-              arguments: action.arguments,
-              sortOrder: timelineSortOrder++
-            });
-
-            runningActionHandles.add(persisted.id);
-
-            write({
-              type: "action_start",
-              action: persisted
-            });
-
-            return persisted.id;
-          },
-          async onActionComplete(handle, patch) {
-            if (!handle) {
-              return;
-            }
-
-            runningActionHandles.delete(handle);
-
-            const updated = updateMessageAction(handle, {
-              status: "completed",
-              detail: patch.detail,
-              resultSummary: patch.resultSummary,
-              completedAt: new Date().toISOString()
-            });
-
-            if (updated) {
-              await attachAssistantFilesFromCompletedAction(conversation.id, assistantMessage.id, updated);
-              write({
-                type: "action_complete",
-                action: updated
-              });
-            }
-          },
-          onActionError(handle, patch) {
-            if (!handle) {
-              return;
-            }
-
-            runningActionHandles.delete(handle);
-            const updated = updateMessageAction(handle, {
-              status: "error",
-              detail: patch.detail,
-              resultSummary: patch.resultSummary,
-              completedAt: new Date().toISOString()
-            });
-
-            if (updated) {
-              write({
-                type: "action_error",
-                action: updated
-              });
-            }
-          }
-        });
-        control.throwIfStopped();
-
-        updateMessage(assistantMessage.id, {
-          content: await contentPersistence.finalize(providerResult.answer),
-          thinkingContent: providerResult.thinking,
-          status: "completed",
-          estimatedTokens:
-            (providerResult.usage.inputTokens ?? 0) +
-            (providerResult.usage.outputTokens ?? 0) +
-            (providerResult.usage.reasoningTokens ?? 0)
-        });
-
-        write({
-          type: "done",
-          messageId: assistantMessage.id,
-          message: getMessage(assistantMessage.id) ?? undefined
-        });
-        const contextUsage = getConversationContextUsage(conversation.id);
-        if (contextUsage) {
-          write({
-            type: "context_usage",
-            contextTokens: contextUsage.contextTokens ?? 0,
-            compactionLimit: contextUsage.compactionLimit
-          });
-        }
-        closeStream();
-      } catch (error) {
-        if (
-          error instanceof ChatTurnStoppedError ||
-          control.stopped ||
-          control.abortController.signal.aborted
-        ) {
-          updateMessage(assistantMessage.id, {
-            content: await contentPersistence.finalize(latestAnswer),
-            thinkingContent: latestThinking,
-            status: "stopped",
-            estimatedTokens: estimateTextTokens(latestAnswer)
-          });
-
-          for (const handle of runningActionHandles) {
-            updateMessageAction(handle, {
-              status: "stopped",
-              completedAt: new Date().toISOString()
-            });
-          }
-
-          write({
-            type: "done",
-            messageId: assistantMessage.id,
-            message: getMessage(assistantMessage.id) ?? undefined
-          });
-        } else {
-          for (const handle of runningActionHandles) {
-            updateMessageAction(handle, {
-              status: "error",
-              resultSummary: error instanceof Error ? error.message : "Chat stream failed",
-              completedAt: new Date().toISOString()
-            });
-          }
-
-          updateMessage(assistantMessage.id, {
-            content: "",
-            thinkingContent: "",
-            status: "error"
-          });
-
-          write({
-            type: "error",
-            message: error instanceof Error ? error.message : "Chat stream failed"
-          });
-        }
-        closeStream();
-      } finally {
-        finalizeTurn();
-      }
+      request.signal.removeEventListener("abort", abortTurn);
+      controller.close();
     },
     cancel() {
-      streamCancelled = true;
-      control.requestStop();
+      turnAbortController.abort();
+      request.signal.removeEventListener("abort", abortTurn);
     }
   });
 

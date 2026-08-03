@@ -1,5 +1,6 @@
-import { createAttachmentsFromBytes } from "@/lib/attachments";
-import { bindAttachmentsToMessage, getMessage } from "@/lib/conversations";
+import { createAttachments } from "@/lib/attachments";
+import { getMessage } from "@/lib/conversations";
+import { bindAttachmentsToMessage } from "@/lib/attachments";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import { inferAssistantLocalAttachments } from "@/lib/assistant-local-attachments";
 import { consumeScreenshotArtifact } from "@/lib/screenshot-artifact-capabilities";
@@ -63,7 +64,7 @@ export async function attachAssistantFilesFromCompletedAction(conversationId: st
     return;
   }
 
-  const [attachment] = await createAttachmentsFromBytes(conversationId, [artifact]);
+  const [attachment] = await createAttachments(conversationId, [artifact]);
   bindAttachmentsToMessage(conversationId, messageId, [attachment.id]);
 }
 

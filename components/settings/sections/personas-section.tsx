@@ -12,7 +12,7 @@ import { fieldLabel, sectionTitle, sectionDivider } from "@/lib/settings-styles"
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
-import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import type { Persona } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -37,22 +37,12 @@ export function PersonasSection() {
     personaName,
     personaContent,
   });
-  const unsavedActions = useRef({ save: savePersona, discard: restorePersonaDraft });
-  unsavedActions.current = { save: savePersona, discard: restorePersonaDraft };
-
-  useEffect(() => {
-    registerUnsavedChangesGuard(
-      isDirty
-        ? {
-            isDirty: () => isDirty,
-            save: () => unsavedActions.current.save(),
-            discard: () => unsavedActions.current.discard(),
-            entityType: "this persona",
-          }
-        : null
-    );
-    return () => registerUnsavedChangesGuard(null);
-  }, [isDirty]);
+  useUnsavedChangesGuard({
+    isDirty,
+    save: savePersona,
+    discard: restorePersonaDraft,
+    entityType: "this persona"
+  });
 
   useEffect(() => {
     const requestVersion = ++personasRequestVersion.current;

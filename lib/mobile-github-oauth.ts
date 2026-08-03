@@ -6,14 +6,14 @@ import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import {
   exchangeGithubCodeForTokens,
-  getGithubAuthorizeUrl
+  getGithubAuthorizeUrl,
+  updateGithubCopilotConnectionIfNonceMatches
 } from "@/lib/github-copilot";
 import { createId } from "@/lib/ids";
 import {
-  claimGithubCopilotConnectionAttempt,
-  getProviderProfile,
-  updateGithubCopilotCredentialsIfNonceMatches
-} from "@/lib/settings";
+  claimProviderConnectionAttempt,
+  getProviderProfile
+} from "@/lib/provider-profiles";
 import type { AuthUser } from "@/lib/types";
 
 const mobileGithubStateUse = "github_mobile_oauth_state";
@@ -31,7 +31,8 @@ type MobileGithubFlowRow = {
   id: string;
   user_id: string;
   profile_id: string;
-  profile_nonce: string;
+  provider_kind: string;
+  state_json: string;
   expires_at: string;
   consumed_at: string | null;
   status: string;
@@ -88,8 +89,9 @@ async function verifyMobileGithubState(state: string): Promise<MobileGithubState
 function getMobileGithubFlow(flowId: string) {
   return getDb()
     .prepare(
-      `SELECT id, user_id, profile_id, profile_nonce, expires_at, consumed_at, status, created_at
-       FROM mobile_github_oauth_flows
+      `SELECT id, user_id, profile_id, provider_kind, state_json,
+        expires_at, consumed_at, status, created_at
+       FROM provider_connection_flows
        WHERE id = ?`
     )
     .get(flowId) as MobileGithubFlowRow | undefined;
@@ -110,11 +112,11 @@ function mobileRedirect(flowId: string, status: "success" | "failure") {
 
 function setFlowStatus(flowId: string, status: string) {
   getDb()
-    .prepare("UPDATE mobile_github_oauth_flows SET status = ? WHERE id = ?")
+    .prepare("UPDATE provider_connection_flows SET status = ? WHERE id = ?")
     .run(status, flowId);
 }
 
-export async function createMobileGithubOauthFlow(user: AuthUser, profileId: string) {
+export async function createGithubProviderConnectionFlow(user: AuthUser, profileId: string) {
   if (user.role !== "admin") throw new Error("Only administrators can connect GitHub Copilot");
   if (
     !env.EIDON_GITHUB_APP_CLIENT_ID ||
@@ -129,23 +131,24 @@ export async function createMobileGithubOauthFlow(user: AuthUser, profileId: str
     throw new Error("GitHub Copilot profile not found");
   }
 
-  const profileNonce = claimGithubCopilotConnectionAttempt(profile.id);
+  const profileNonce = claimProviderConnectionAttempt(profile.id);
   if (!profileNonce) throw new Error("GitHub Copilot profile changed before connection started");
 
-  const flowId = createId("mobile_github_oauth");
+  const flowId = createId("provider_connection_flow");
   const createdAt = new Date();
   const expiresAt = new Date(createdAt.getTime() + mobileGithubFlowDurationMs);
   getDb()
     .prepare(
-      `INSERT INTO mobile_github_oauth_flows (
-        id, user_id, profile_id, profile_nonce, expires_at, consumed_at, status, created_at
-       ) VALUES (?, ?, ?, ?, ?, NULL, 'pending', ?)`
+      `INSERT INTO provider_connection_flows (
+        id, user_id, profile_id, provider_kind, state_json,
+        expires_at, consumed_at, status, created_at
+       ) VALUES (?, ?, ?, 'github_copilot', ?, ?, NULL, 'pending', ?)`
     )
     .run(
       flowId,
       user.id,
       profile.id,
-      profileNonce,
+      JSON.stringify({ profileNonce }),
       expiresAt.toISOString(),
       createdAt.toISOString()
     );
@@ -178,7 +181,7 @@ export function getMobileGithubOauthFlowForUser(flowId: string, userId: string) 
 export function cancelMobileGithubOauthFlow(flowId: string, userId: string) {
   const result = getDb()
     .prepare(
-      `UPDATE mobile_github_oauth_flows
+      `UPDATE provider_connection_flows
        SET consumed_at = ?, status = 'canceled'
        WHERE id = ? AND user_id = ? AND consumed_at IS NULL AND status = 'pending'`
     )
@@ -190,25 +193,25 @@ function claimMobileGithubFlow(state: MobileGithubState) {
   const now = new Date().toISOString();
   const result = getDb()
     .prepare(
-      `UPDATE mobile_github_oauth_flows
+      `UPDATE provider_connection_flows
        SET consumed_at = ?, status = 'processing'
        WHERE id = ?
          AND user_id = ?
          AND profile_id = ?
-         AND profile_nonce = ?
+         AND json_extract(state_json, '$.profileNonce') = ?
          AND consumed_at IS NULL
          AND status = 'pending'
          AND expires_at > ?
          AND EXISTS (
            SELECT 1 FROM users
-           WHERE users.id = mobile_github_oauth_flows.user_id
+           WHERE users.id = provider_connection_flows.user_id
              AND users.role = 'admin'
          )
          AND EXISTS (
-           SELECT 1 FROM provider_profiles
-           WHERE provider_profiles.id = mobile_github_oauth_flows.profile_id
-             AND provider_profiles.provider_kind = 'github_copilot'
-             AND provider_profiles.github_oauth_nonce = mobile_github_oauth_flows.profile_nonce
+           SELECT 1 FROM provider_profile_connections
+           WHERE provider_profile_connections.profile_id = provider_connection_flows.profile_id
+             AND provider_profile_connections.provider_kind = provider_connection_flows.provider_kind
+             AND provider_profile_connections.oauth_nonce = json_extract(provider_connection_flows.state_json, '$.profileNonce')
          )`
     )
     .run(
@@ -256,20 +259,20 @@ export async function handleMobileGithubOauthCallback(request: Request) {
     }
 
     const tokens = await exchangeGithubCodeForTokens(code);
-    const updated = updateGithubCopilotCredentialsIfNonceMatches(
+    const updated = updateGithubCopilotConnectionIfNonceMatches(
       state.profileId,
       state.profileNonce,
       {
-        githubUserAccessToken: tokens.access_token,
-        githubRefreshToken: tokens.refresh_token ?? "",
-        githubTokenExpiresAt: tokens.expires_in
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token ?? "",
+        expiresAt: tokens.expires_in
           ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
           : null,
-        githubRefreshTokenExpiresAt: tokens.refresh_token_expires_in
+        refreshExpiresAt: tokens.refresh_token_expires_in
           ? new Date(Date.now() + tokens.refresh_token_expires_in * 1000).toISOString()
           : null,
-        githubAccountLogin: null,
-        githubAccountName: null
+        accountLogin: null,
+        accountName: null
       }
     );
 

@@ -1,6 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-
-type ToastVariant = "success" | "error" | "warning" | "info";
+import type { ToastVariant } from "@/components/ui/toast";
 
 type ToastState = {
   visible: boolean;

@@ -94,7 +94,7 @@ export class EmbeddedSpeechEngine implements SpeechEngine {
       recording.samples.byteOffset,
       recording.samples.byteLength
     ));
-    const response = await fetch("/api/speech/canary/transcribe", {
+    const response = await fetch("/api/speech/transcription/transcribe", {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
@@ -126,7 +126,7 @@ export class EmbeddedSpeechEngine implements SpeechEngine {
   }
 
   private async prepareModel(signal: AbortSignal) {
-    const response = await fetch("/api/speech/canary/prepare", {
+    const response = await fetch("/api/speech/transcription/prepare", {
       method: "POST",
       signal
     });

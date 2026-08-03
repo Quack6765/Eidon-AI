@@ -119,8 +119,8 @@ describe("readme demo seed", () => {
     );
 
     const settings = getSettingsForUser(seeded.envSuperAdminId);
-    expect(settings.sttEngine).toBe("browser");
-    expect(settings.webSearchEngine).toBe("exa");
+    expect(settings.speechTranscription.providerId).toBe("browser");
+    expect(settings.webSearch.providerId).toBe("exa");
   });
 
   it("can be re-run without duplicating the demo workspace", async () => {

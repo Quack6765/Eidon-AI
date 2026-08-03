@@ -2,59 +2,55 @@ import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
 import { badRequest, ok } from "@/lib/http";
-import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
 import {
-  getSanitizedSettings,
-  parseGeneralSettingsInput,
-  updateGeneralSettingsBundleForUser,
-  updateGeneralSettingsForUser
-} from "@/lib/settings";
+  imageGenerationIntegrationUpdateSchema,
+  speechTranscriptionIntegrationUpdateSchema,
+  webSearchIntegrationUpdateSchema
+} from "@/lib/integration-settings";
+import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
+import { updateGeneralSettingsBundleForUser } from "@/lib/settings";
+
+const inputSchema = z.object({
+  preferences: z.object({
+    conversationRetention: z.enum(["forever", "90d", "30d", "7d"]),
+    mcpTimeout: z.number().int().min(10_000).max(600_000),
+    maxAssistantToolSteps: z.number().int().min(1).max(1000)
+  }),
+  webSearch: webSearchIntegrationUpdateSchema,
+  speechTranscription: speechTranscriptionIntegrationUpdateSchema,
+  imageGeneration: imageGenerationIntegrationUpdateSchema.optional(),
+  titleGeneration: z.object({
+    titleGenerationMode: z.enum(["same", "specific", "local"]),
+    titleGenerationProfileId: z.string().nullable()
+  }).optional()
+});
 
 export async function PUT(request: Request) {
   const user = await requireUser();
-  const body = await request.json().catch(() => ({}));
+  const body = inputSchema.safeParse(await request.json().catch(() => null));
+  if (!body.success) {
+    return badRequest(body.error.issues.map((issue) => issue.message).join("; "));
+  }
+  if (user.role !== "admin" && (body.data.imageGeneration || body.data.titleGeneration)) {
+    return badRequest("Only admins can update global settings", 403);
+  }
 
-  if (body && typeof body === "object" && "general" in body) {
-    try {
-      const settings = updateGeneralSettingsBundleForUser(
-        user.id,
-        body,
-        user.role === "admin"
-      );
-      const titleGeneration = (body as {
-        titleGeneration?: { titleGenerationMode?: string };
-      }).titleGeneration;
-
-      if (titleGeneration?.titleGenerationMode === "local") {
-        void initTitleModel().catch(() => undefined);
-      } else if (titleGeneration) {
-        disposeTitleModel();
-      }
-
-      return ok({ settings });
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        return badRequest(error.issues.map((issue) => issue.message).join("; "));
-      }
-      return badRequest(error instanceof Error ? error.message : "Unable to save settings");
+  try {
+    const settings = updateGeneralSettingsBundleForUser(
+      user.id,
+      body.data,
+      user.role === "admin"
+    );
+    if (body.data.titleGeneration?.titleGenerationMode === "local") {
+      void initTitleModel().catch(() => undefined);
+    } else if (body.data.titleGeneration) {
+      disposeTitleModel();
     }
-  }
-
-  let payload;
-  try {
-    payload = parseGeneralSettingsInput(body);
-  } catch {
-    return badRequest("Invalid general settings payload");
-  }
-
-  try {
-    updateGeneralSettingsForUser(user.id, payload);
-    return ok({ settings: getSanitizedSettings(user.id) });
+    return ok({ settings });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      return badRequest("Invalid general settings payload");
+      return badRequest(error.issues.map((issue) => issue.message).join("; "));
     }
-
-    throw error;
+    return badRequest(error instanceof Error ? error.message : "Unable to save settings");
   }
 }

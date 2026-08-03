@@ -1,12 +1,13 @@
 import { resolveAssistantTurn } from "@/lib/assistant-runtime";
+import { getProviderReadinessError } from "@/lib/provider-adapters";
 import {
   ChatTurnStoppedError,
   claimChatTurnStart,
   releaseChatTurnStart,
+  requestStop,
   type ChatTurnControl
 } from "@/lib/chat-turn-control";
 import {
-  bindAttachmentsToMessage,
   createMessage,
   createMessageTextSegment,
   createMessageAction,
@@ -20,6 +21,7 @@ import {
   updateMessage,
   updateMessageAction
 } from "@/lib/conversations";
+import { bindAttachmentsToMessage } from "@/lib/attachments";
 import { badRequest } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
@@ -35,7 +37,6 @@ import {
   getProviderProfileWithApiKey
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
-import { appendInjectedWebSearchMcpServer } from "@/lib/web-search";
 import { createAssistantContentPersistenceTracker as createAssistantContentPersistenceTrackerImpl, attachAssistantFilesFromCompletedAction as attachAssistantFilesFromCompletedActionImpl } from "./content-persistence";
 import type { ChatStreamEvent } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
@@ -79,6 +80,78 @@ export function getChatEmitter(): ChatEmitter {
   return globalEmitter;
 }
 
+export async function* runAssistantTurn(input: {
+  conversationId: string;
+  content: string;
+  attachmentIds?: string[];
+  personaId?: string;
+  abortSignal?: AbortSignal;
+}): AsyncGenerator<ChatStreamEvent, ChatTurnResult> {
+  const events: ChatStreamEvent[] = [];
+  let finished = false;
+  let wake: (() => void) | null = null;
+  const notify = () => {
+    wake?.();
+    wake = null;
+  };
+  const emitter = getChatEmitter();
+  const unsubscribeDelta = emitter.on("delta", (conversationId, event) => {
+    if (conversationId !== input.conversationId) return;
+    events.push(event as ChatStreamEvent);
+    notify();
+  });
+  const unsubscribeStatus = emitter.on("status", (conversationId, status) => {
+    if (conversationId !== input.conversationId || status !== "completed") return;
+    finished = true;
+    notify();
+  });
+  const stop = () => requestStop(input.conversationId);
+  input.abortSignal?.addEventListener("abort", stop, { once: true });
+
+  const resultPromise = startChatTurn(
+    getConversationManager(),
+    input.conversationId,
+    input.content,
+    input.attachmentIds ?? [],
+    input.personaId
+  ).then((result) => {
+    if (result.status === "failed" || result.status === "skipped") {
+      events.push({ type: "error", message: result.errorMessage ?? "Unable to start assistant turn" });
+      finished = true;
+      notify();
+    }
+    return result;
+  }).catch((error) => {
+    events.push({
+      type: "error",
+      message: error instanceof Error ? error.message : "Assistant turn failed"
+    });
+    finished = true;
+    notify();
+    return {
+      status: "failed" as const,
+      errorMessage: error instanceof Error ? error.message : "Assistant turn failed"
+    };
+  });
+
+  try {
+    while (!finished || events.length > 0) {
+      if (!events.length) {
+        await new Promise<void>((resolve) => {
+          wake = resolve;
+        });
+        continue;
+      }
+      yield events.shift()!;
+    }
+    return await resultPromise;
+  } finally {
+    unsubscribeDelta();
+    unsubscribeStatus();
+    input.abortSignal?.removeEventListener("abort", stop);
+  }
+}
+
 export function getAssistantTurnStartPreflight(conversationId: string) {
   const conversation = getConversation(conversationId);
   if (!conversation) {
@@ -106,21 +179,13 @@ export function getAssistantTurnStartPreflight(conversationId: string) {
     };
   }
 
-  if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
+  const readinessError = getProviderReadinessError(settings);
+  if (readinessError) {
     return {
       ok: false as const,
       status: "failed" as const,
       statusCode: 400,
-      errorMessage: "Set an API key in settings before starting a chat"
-    };
-  }
-
-  if (settings.providerKind === "github_copilot" && !settings.githubUserAccessTokenEncrypted) {
-    return {
-      ok: false as const,
-      status: "failed" as const,
-      statusCode: 400,
-      errorMessage: "Connect a GitHub account in settings before starting a chat"
+      errorMessage: readinessError
     };
   }
 
@@ -210,6 +275,10 @@ async function startAssistantTurn(
       conversationId,
       event: { type: "message_start", messageId: assistantMessage.id }
     });
+    globalEmitter.emit("delta", conversationId, {
+      type: "message_start",
+      messageId: assistantMessage.id
+    });
 
     manager.setActive(conversationId, true);
     globalEmitter.emit("status", conversationId, "streaming");
@@ -260,7 +329,7 @@ async function startAssistantTurn(
     control.throwIfStopped();
     let promptMessages = compacted.promptMessages;
     const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
-    const mcpServers = appendInjectedWebSearchMcpServer(listEnabledMcpServers(), appSettings);
+    const mcpServers = listEnabledMcpServers();
 
     let mcpToolSets: Array<{
       server: (typeof mcpServers)[number];
@@ -282,8 +351,6 @@ async function startAssistantTurn(
       mcpToolSets,
       visionMcpServers,
       memoriesEnabled: appSettings.memoriesEnabled,
-      searxngBaseUrl:
-        appSettings.webSearchEngine === "searxng" ? appSettings.searxngBaseUrl : null,
       memoryUserId: conversationOwnerId ?? undefined,
       mcpTimeout: appSettings.mcpTimeout,
       abortSignal: control.abortController.signal,
@@ -414,6 +481,11 @@ async function startAssistantTurn(
       conversationId,
       event: { type: "done", messageId: assistantMessageId, message: completedMessage ?? undefined }
     });
+    globalEmitter.emit("delta", conversationId, {
+      type: "done",
+      messageId: assistantMessageId,
+      message: completedMessage ?? undefined
+    });
     const contextUsage = getConversationContextUsage(conversationId);
     if (contextUsage) {
       manager.broadcast(conversationId, {
@@ -424,6 +496,11 @@ async function startAssistantTurn(
           contextTokens: contextUsage.contextTokens ?? 0,
           compactionLimit: contextUsage.compactionLimit
         }
+      });
+      globalEmitter.emit("delta", conversationId, {
+        type: "context_usage",
+        contextTokens: contextUsage.contextTokens ?? 0,
+        compactionLimit: contextUsage.compactionLimit
       });
     }
     return { status: "completed" };
@@ -472,6 +549,11 @@ async function startAssistantTurn(
         conversationId,
         event: { type: "done", messageId: assistantMessageId, message: getMessage(assistantMessageId) ?? undefined }
       });
+      globalEmitter.emit("delta", conversationId, {
+        type: "done",
+        messageId: assistantMessageId,
+        message: getMessage(assistantMessageId) ?? undefined
+      });
       return { status: "stopped" };
     } else {
       for (const handle of runningActionHandles) {
@@ -497,6 +579,10 @@ async function startAssistantTurn(
           type: "error",
           message: error instanceof Error ? error.message : "Chat stream failed"
         }
+      });
+      globalEmitter.emit("delta", conversationId, {
+        type: "error",
+        message: error instanceof Error ? error.message : "Chat stream failed"
       });
       return {
         status: "failed",
@@ -671,4 +757,27 @@ export function startManipulationTurn(params: {
     releaseChatTurnStart(conversationId, control);
     console.error(`[${logTag}] continuation failed:`, error);
   });
+}
+
+export function restartAssistantTurnAfterMutation<T>(params: {
+  conversationId: string;
+  userMessageId: string;
+  turn: ClaimedTurnContext;
+  logTag: string;
+  mutate: () => T;
+}) {
+  try {
+    const result = params.mutate();
+    startManipulationTurn({
+      conversationId: params.conversationId,
+      userMessageId: params.userMessageId,
+      preflight: params.turn.preflight,
+      control: params.turn.control,
+      logTag: params.logTag
+    });
+    return result;
+  } catch (error) {
+    releaseChatTurnStart(params.conversationId, params.turn.control);
+    throw error;
+  }
 }

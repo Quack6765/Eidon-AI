@@ -14,7 +14,7 @@ import { fieldLabel, selectLike, sectionTitle, sectionDivider } from "@/lib/sett
 import { useToastState } from "@/hooks/use-toast-state";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
-import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import type { Automation, Persona } from "@/lib/types";
 
 type SettingsPayload = {
@@ -105,25 +105,15 @@ export function AutomationsSection() {
   const [isLoading, setIsLoading] = useState(true);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState(form);
-  const unsavedActions = useRef({ save: saveAutomation, discard: restoreAutomationDraft });
-  unsavedActions.current = { save: saveAutomation, discard: restoreAutomationDraft };
-
   const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
   const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
 
-  useEffect(() => {
-    registerUnsavedChangesGuard(
-      isDirty
-        ? {
-            isDirty: () => isDirty,
-            save: () => unsavedActions.current.save(),
-            discard: () => unsavedActions.current.discard(),
-            entityType: "this automation",
-          }
-        : null
-    );
-    return () => registerUnsavedChangesGuard(null);
-  }, [isDirty]);
+  useUnsavedChangesGuard({
+    isDirty,
+    save: saveAutomation,
+    discard: restoreAutomationDraft,
+    entityType: "this automation"
+  });
 
   async function loadData() {
     setIsLoading(true);

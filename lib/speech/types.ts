@@ -2,6 +2,22 @@ export type SttEngine = "browser" | "embedded" | "external";
 
 export type SttLanguage = "auto" | "en" | "fr" | "es";
 
+export function getSpeechInputSettings(input: {
+  providerId: string;
+  configuration: { language?: string };
+}) {
+  const engine: SttEngine = input.providerId === "browser"
+    ? "browser"
+    : input.providerId === "canary"
+      ? "embedded"
+      : "external";
+  const value = input.configuration.language;
+  const language: SttLanguage = value === "en" || value === "fr" || value === "es"
+    ? value
+    : "auto";
+  return { engine, language };
+}
+
 export type SpeechPhase =
   | "idle"
   | "requesting-permission"

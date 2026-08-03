@@ -14,6 +14,7 @@ import { createConversation, createMessage, createMessageAction, listMessages } 
 import { getDefaultProviderProfileWithApiKey, updateSettings } from "@/lib/settings";
 import { createMemory, deleteMemory } from "@/lib/memories";
 import type { Message, MessageAction, PromptMessage } from "@/lib/types";
+import { createProviderProfileInput } from "@/tests/provider-fixtures";
 
 vi.mock("@/lib/provider", async () => {
   return {
@@ -67,13 +68,10 @@ describe("lossless compaction", () => {
       defaultProviderProfileId: "profile_default",
       skillsEnabled: true,
       providerProfiles: [
-        {
+        createProviderProfileInput({
           id: "profile_default",
           name: "Default",
-          apiBaseUrl: overrides.apiBaseUrl ?? "https://api.example.com/v1",
-          apiKey: overrides.apiKey ?? "sk-test",
           model: overrides.model ?? "gpt-test",
-          apiMode: overrides.apiMode ?? "responses",
           systemPrompt: overrides.systemPrompt ?? "Preserve context exactly.",
           temperature: overrides.temperature ?? 0.2,
           maxOutputTokens: overrides.maxOutputTokens ?? 256,
@@ -81,8 +79,13 @@ describe("lossless compaction", () => {
           reasoningSummaryEnabled: overrides.reasoningSummaryEnabled ?? true,
           modelContextLimit: overrides.modelContextLimit ?? 16000,
           compactionThreshold: overrides.compactionThreshold ?? 0.8,
-          freshTailCount: overrides.freshTailCount ?? 8
-        }
+          freshTailCount: overrides.freshTailCount ?? 8,
+          providerConfig: {
+            apiBaseUrl: overrides.apiBaseUrl ?? "https://api.example.com/v1",
+            apiMode: overrides.apiMode ?? "responses"
+          },
+          credentials: { apiKey: overrides.apiKey ?? "sk-test" }
+        })
       ]
     });
   }
@@ -1623,23 +1626,17 @@ describe("estimateContextUsage", () => {
       defaultProviderProfileId: "profile_default",
       skillsEnabled: true,
       providerProfiles: [
-        {
+        createProviderProfileInput({
           id: "profile_default",
           name: "Default",
-          apiBaseUrl: "https://api.example.com/v1",
-          apiKey: "sk-test",
           model: "gpt-test",
-          apiMode: "responses",
           systemPrompt: "You are a helpful assistant.",
           temperature: 0.2,
           maxOutputTokens: 4000,
-          reasoningEffort: "medium",
-          reasoningSummaryEnabled: true,
           modelContextLimit: 20000,
-          compactionThreshold: 0.8,
           freshTailCount: 8,
           safetyMarginTokens: 1000
-        }
+        })
       ]
     });
   }

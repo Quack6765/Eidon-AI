@@ -2,29 +2,49 @@ import type {
   ExternalSttLanguage,
   SttProvider
 } from "@/lib/speech/external-providers";
+import type { SttEngine, SttLanguage } from "@/lib/speech/types";
+import type {
+  ApiMode,
+  ProviderKind,
+  ProviderPresetId,
+  ReasoningEffort,
+  VisionMode
+} from "@/lib/provider-catalog";
+import type {
+  ProviderProfile,
+  ProviderProfileSummary,
+  RuntimeProviderProfile
+} from "@/lib/provider-profile";
 
-export type ApiMode = "responses" | "chat_completions";
+export type {
+  ApiMode,
+  ProviderKind,
+  ProviderPresetId,
+  ReasoningEffort,
+  VisionMode
+} from "@/lib/provider-catalog";
+export type {
+  ProviderConnectionStatus,
+  ProviderProfile,
+  ProviderProfileCore,
+  ProviderProfileSummary,
+  RuntimeProviderProfile
+} from "@/lib/provider-profile";
 
 export type ConversationRetention = "forever" | "90d" | "30d" | "7d";
 
-export type SttEngine = "browser" | "embedded" | "external";
+export type { SttEngine, SttLanguage } from "@/lib/speech/types";
 
-export type SttLanguage = "auto" | "en" | "fr" | "es";
+export type WebSearchProviderId = "exa" | "tavily" | "searxng" | "disabled";
 
-export type WebSearchEngine = "exa" | "tavily" | "searxng" | "disabled";
+export type ImageGenerationProviderId = "disabled" | "google_nano_banana";
 
-export type ImageGenerationBackend = "disabled" | "google_nano_banana";
-
-export type GoogleNanoBananaModel =
+export type ImageGenerationModelId =
   | "gemini-2.5-flash-image"
   | "gemini-3.1-flash-image-preview"
   | "gemini-3-pro-image-preview";
 
 export type ChatInputMode = "chat" | "image";
-
-export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
-
-export type VisionMode = "none" | "native" | "mcp";
 
 export type UserRole = "admin" | "user";
 
@@ -45,10 +65,6 @@ export type AutomationRunStatus =
 export type AutomationTriggerSource = "schedule" | "manual_run" | "manual_retry";
 
 export type ConversationOrigin = "manual" | "automation";
-
-export type ProviderKind = "openai_compatible" | "github_copilot" | "anthropic";
-
-export type GithubConnectionStatus = "disconnected" | "connected" | "expired";
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -74,66 +90,25 @@ export type MemoryNodeType = "leaf_summary" | "merged_summary";
 
 export type SystemMessageKind = "compaction_notice";
 
-export type ProviderPresetId =
-  | "ollama_cloud"
-  | "glm_coding_plan"
-  | "openrouter"
-  | "opencode_go"
-  | "deepseek"
-  | "xiaomi_mimo"
-  | "custom_openai_compatible"
-  | "anthropic_official"
-  | "opencode_go_anthropic";
-
-export type ProviderProfile = {
-  id: string;
-  providerKind: ProviderKind;
-  name: string;
-  apiBaseUrl: string;
-  apiKeyEncrypted: string;
-  model: string;
-  apiMode: ApiMode;
-  systemPrompt: string;
-  temperature: number;
-  maxOutputTokens: number;
-  reasoningEffort: ReasoningEffort;
-  reasoningSummaryEnabled: boolean;
-  modelContextLimit: number;
-  compactionThreshold: number;
-  freshTailCount: number;
-  tokenizerModel: "gpt-tokenizer" | "off";
-  safetyMarginTokens: number;
-  leafSourceTokenLimit: number;
-  leafMinMessageCount: number;
-  mergedMinNodeCount: number;
-  mergedTargetTokens: number;
-  visionMode: VisionMode;
-  providerPresetId: ProviderPresetId | null;
-  githubUserAccessTokenEncrypted: string;
-  githubRefreshTokenEncrypted: string;
-  githubTokenExpiresAt: string | null;
-  githubRefreshTokenExpiresAt: string | null;
-  githubAccountLogin: string | null;
-  githubAccountName: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type ProviderProfileWithApiKey = ProviderProfile & {
-  apiKey: string;
-};
-
-export type ProviderProfileSummary = Omit<
-  ProviderProfile,
-  "apiKeyEncrypted" | "githubUserAccessTokenEncrypted" | "githubRefreshTokenEncrypted"
-> & {
-  hasApiKey: boolean;
-  githubConnectionStatus: GithubConnectionStatus;
-};
+export type ProviderProfileWithApiKey = RuntimeProviderProfile;
 
 export type TitleGenerationMode = "same" | "specific" | "local";
 
-export type AppSettings = {
+export type TranscriptionProviderId = "browser" | "canary" | SttProvider;
+
+export type IntegrationSelection<ProviderId extends string, Configuration> = {
+  providerId: ProviderId;
+  configuration: Configuration;
+  configured: boolean;
+  scope: "global" | "user";
+};
+
+export type RuntimeIntegrationSelection<ProviderId extends string, Configuration> =
+  IntegrationSelection<ProviderId, Configuration> & {
+    credentials: { apiKey?: string };
+  };
+
+type AppSettingsCore = {
   defaultProviderProfileId: string | null;
   skillsEnabled: boolean;
   conversationRetention: ConversationRetention;
@@ -141,21 +116,32 @@ export type AppSettings = {
   memoriesMaxCount: number;
   mcpTimeout: number;
   maxAssistantToolSteps: number;
-  sttEngine: SttEngine;
-  sttProvider: SttProvider;
-  sttLanguage: SttLanguage;
-  externalSttLanguage: ExternalSttLanguage;
-  externalSttApiKey: string;
-  webSearchEngine: WebSearchEngine;
-  exaApiKey: string;
-  tavilyApiKey: string;
-  searxngBaseUrl: string;
-  imageGenerationBackend: ImageGenerationBackend;
-  googleNanoBananaModel: GoogleNanoBananaModel;
-  googleNanoBananaApiKey: string;
   titleGenerationMode: TitleGenerationMode;
   titleGenerationProfileId: string | null;
   updatedAt: string;
+};
+
+export type AppSettings = AppSettingsCore & {
+  webSearch: IntegrationSelection<WebSearchProviderId, { baseUrl?: string }>;
+  imageGeneration: IntegrationSelection<ImageGenerationProviderId, { model?: ImageGenerationModelId }>;
+  speechTranscription: IntegrationSelection<TranscriptionProviderId, {
+    language: SttLanguage | ExternalSttLanguage;
+  }>;
+};
+
+export type RuntimeAppSettings = AppSettingsCore & {
+  webSearch: RuntimeIntegrationSelection<
+    WebSearchProviderId,
+    { baseUrl?: string }
+  >;
+  imageGeneration: RuntimeIntegrationSelection<
+    ImageGenerationProviderId,
+    { model?: ImageGenerationModelId }
+  >;
+  speechTranscription: RuntimeIntegrationSelection<
+    TranscriptionProviderId,
+    { language: SttLanguage | ExternalSttLanguage }
+  >;
 };
 
 export type Conversation = {

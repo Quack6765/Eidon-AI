@@ -63,7 +63,7 @@ export class ExternalSpeechEngine implements SpeechEngine {
       recording.samples.byteOffset,
       recording.samples.byteLength
     ));
-    const response = await fetch("/api/speech/external/transcribe", {
+    const response = await fetch("/api/speech/transcription/transcribe", {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",

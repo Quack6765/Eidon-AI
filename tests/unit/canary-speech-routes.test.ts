@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CanaryTranscriptionBusyError } from "@/lib/speech/canary-transcription-limiter";
+import { createRuntimeAppSettings } from "@/tests/provider-fixtures";
+
+function speechSettings(providerId: "browser" | "canary", language: "auto" | "en" | "fr" | "es" = "auto") {
+  return createRuntimeAppSettings({
+    speechTranscription: { providerId, configuration: { language } }
+  });
+}
 
 const {
   ensureCanaryModelReadyMock,
@@ -42,7 +49,7 @@ function transcriptionRequest(input: {
   language?: string;
   sampleRate?: string;
 } = {}) {
-  return new Request("http://localhost/api/speech/canary/transcribe", {
+  return new Request("http://localhost/api/speech/transcription/transcribe", {
     method: "POST",
     headers: {
       "content-type": input.contentType ?? "application/octet-stream",
@@ -62,34 +69,31 @@ describe("Canary speech routes", () => {
   });
 
   it("prepares the model only for authenticated users in embedded mode", async () => {
-    const { POST } = await import("@/app/api/speech/canary/prepare/route");
+    const { POST } = await import("@/app/api/speech/transcription/prepare/route");
 
     requireUserMock.mockResolvedValueOnce(null);
     expect((await POST()).status).toBe(401);
 
     requireUserMock.mockResolvedValueOnce({ id: "user-1" });
-    getSettingsForUserMock.mockReturnValueOnce({ sttEngine: "browser" });
+    getSettingsForUserMock.mockReturnValueOnce(speechSettings("browser"));
     expect((await POST()).status).toBe(409);
 
     requireUserMock.mockResolvedValueOnce({ id: "user-1" });
-    getSettingsForUserMock.mockReturnValueOnce({ sttEngine: "embedded" });
+    getSettingsForUserMock.mockReturnValueOnce(speechSettings("canary", "en"));
     ensureCanaryModelReadyMock.mockResolvedValueOnce({});
     const response = await POST();
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      model: "Canary 180M Flash",
-      ready: true
-    });
+    await expect(response.json()).resolves.toEqual({ ready: true });
     expect(ensureCanaryModelReadyMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns a service error when model preparation fails", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     requireUserMock.mockResolvedValue({ id: "user-1" });
-    getSettingsForUserMock.mockReturnValue({ sttEngine: "embedded" });
+    getSettingsForUserMock.mockReturnValue(speechSettings("canary", "en"));
     ensureCanaryModelReadyMock.mockRejectedValue(new Error("offline"));
-    const { POST } = await import("@/app/api/speech/canary/prepare/route");
+    const { POST } = await import("@/app/api/speech/transcription/prepare/route");
 
     const response = await POST();
     expect(response.status).toBe(503);
@@ -98,15 +102,16 @@ describe("Canary speech routes", () => {
 
   it("transcribes bounded Float32 audio with the selected language", async () => {
     requireUserMock.mockResolvedValue({ id: "user-1" });
-    getSettingsForUserMock.mockReturnValue({ sttEngine: "embedded" });
+    getSettingsForUserMock.mockReturnValue(speechSettings("canary", "fr"));
     transcribeWithCanaryMock.mockResolvedValue("bonjour");
-    const { POST } = await import("@/app/api/speech/canary/transcribe/route");
+    const { POST } = await import("@/app/api/speech/transcription/transcribe/route");
 
     const response = await POST(transcriptionRequest({ language: "fr" }));
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       model: "Canary 180M Flash",
+      provider: "canary",
       transcript: "bonjour"
     });
     expect(transcribeWithCanaryMock).toHaveBeenCalledWith(
@@ -116,28 +121,29 @@ describe("Canary speech routes", () => {
   });
 
   it("rejects unauthenticated, browser-mode, malformed, and invalid audio requests", async () => {
-    const { POST } = await import("@/app/api/speech/canary/transcribe/route");
+    const { POST } = await import("@/app/api/speech/transcription/transcribe/route");
 
     requireUserMock.mockResolvedValueOnce(null);
     expect((await POST(transcriptionRequest())).status).toBe(401);
 
     requireUserMock.mockResolvedValueOnce({ id: "user-1" });
-    getSettingsForUserMock.mockReturnValueOnce({ sttEngine: "browser" });
+    getSettingsForUserMock.mockReturnValueOnce(speechSettings("browser"));
     expect((await POST(transcriptionRequest())).status).toBe(409);
 
     requireUserMock.mockResolvedValue({ id: "user-1" });
-    getSettingsForUserMock.mockReturnValue({ sttEngine: "embedded" });
+    getSettingsForUserMock.mockReturnValue(speechSettings("canary", "en"));
     expect((await POST(transcriptionRequest({ contentType: "audio/webm" }))).status).toBe(400);
     expect((await POST(transcriptionRequest({ sampleRate: "48000" }))).status).toBe(400);
-    expect((await POST(transcriptionRequest({ language: "de" }))).status).toBe(400);
+    getSettingsForUserMock.mockReturnValueOnce(speechSettings("canary", "auto"));
+    expect((await POST(transcriptionRequest({ language: "de" }))).status).toBe(409);
     expect((await POST(transcriptionRequest({ body: new ArrayBuffer(3) }))).status).toBe(400);
     expect((await POST(transcriptionRequest({ body: audioBody([Number.NaN]) }))).status).toBe(400);
   });
 
   it("maps busy and inference failures to safe responses", async () => {
     requireUserMock.mockResolvedValue({ id: "user-1" });
-    getSettingsForUserMock.mockReturnValue({ sttEngine: "embedded" });
-    const { POST } = await import("@/app/api/speech/canary/transcribe/route");
+    getSettingsForUserMock.mockReturnValue(speechSettings("canary", "en"));
+    const { POST } = await import("@/app/api/speech/transcription/transcribe/route");
 
     transcribeWithCanaryMock.mockRejectedValueOnce(new CanaryTranscriptionBusyError());
     expect((await POST(transcriptionRequest())).status).toBe(429);
@@ -146,9 +152,7 @@ describe("Canary speech routes", () => {
     transcribeWithCanaryMock.mockRejectedValueOnce(new Error("native failure details"));
     const response = await POST(transcriptionRequest());
     expect(response.status).toBe(500);
-    await expect(response.json()).resolves.toEqual({
-      error: "Canary 180M Flash transcription failed."
-    });
+    await expect(response.json()).resolves.toEqual({ error: "Speech transcription failed." });
     errorSpy.mockRestore();
   });
 });

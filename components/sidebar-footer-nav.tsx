@@ -3,6 +3,7 @@
 import Link from "next/link";
 import type { MouseEvent as ReactMouseEvent } from "react";
 import { Clock3, Settings } from "lucide-react";
+import { isUnmodifiedPrimaryClick } from "@/lib/navigation";
 
 const baseLinkClassName =
   "flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-sm text-white/70 transition-all duration-300 hover:bg-white/[0.03] hover:text-white/90";
@@ -16,16 +17,7 @@ function interceptNavigation(
   href: string,
   onNavigateAction: SidebarFooterNavProps["onNavigateAction"]
 ) {
-  if (
-    event.defaultPrevented ||
-    event.button !== 0 ||
-    event.metaKey ||
-    event.ctrlKey ||
-    event.shiftKey ||
-    event.altKey
-  ) {
-    return;
-  }
+  if (!isUnmodifiedPrimaryClick(event)) return;
 
   event.preventDefault();
   void onNavigateAction(href);

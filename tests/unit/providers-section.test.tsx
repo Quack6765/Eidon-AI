@@ -4,6 +4,9 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { ProvidersSection } from "@/components/settings/sections/providers-section";
+import { toProviderProfileSummary } from "@/lib/provider-profile";
+import type { AppSettings, ProviderProfileSummary } from "@/lib/types";
+import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
@@ -44,34 +47,55 @@ type ProviderProfileFixture = {
   hasApiKey: boolean;
 };
 
-type SettingsFixture = {
-  defaultProviderProfileId: string;
-  skillsEnabled: boolean;
-  conversationRetention: "forever" | "90d" | "30d" | "7d";
-  memoriesEnabled: boolean;
-  memoriesMaxCount: number;
-  mcpTimeout: number;
-  maxAssistantToolSteps: number;
-  sttEngine: "browser" | "embedded" | "external";
-  sttProvider: "elevenlabs";
-  sttLanguage: "auto" | "en" | "fr" | "es";
-  externalSttLanguage: "auto";
-  externalSttApiKey: string;
-  webSearchEngine: "exa" | "tavily" | "searxng" | "disabled";
-  exaApiKey: string;
-  tavilyApiKey: string;
-  searxngBaseUrl: string;
-  imageGenerationBackend: "disabled" | "google_nano_banana";
-  googleNanoBananaModel: "gemini-2.5-flash-image" | "gemini-3.1-flash-image-preview" | "gemini-3-pro-image-preview";
-  googleNanoBananaApiKey: string;
-  titleGenerationMode: "same" | "specific" | "local";
-  titleGenerationProfileId: string | null;
-  providerProfiles: ProviderProfileFixture[];
-  updatedAt: string;
+type SettingsFixture = AppSettings & { providerProfiles: ProviderProfileSummary[] };
+
+type SettingsOverrides = Partial<Omit<SettingsFixture, "providerProfiles">> & {
+  providerProfiles?: Array<ProviderProfileFixture | ProviderProfileSummary | Record<string, unknown>>;
 };
 
-function makeSettings(overrides: Partial<SettingsFixture> = {}): SettingsFixture {
-  return {
+function normalizeProfile(profile: ProviderProfileFixture | ProviderProfileSummary | Record<string, unknown>) {
+  const providerKind = profile.providerKind as ProviderProfileSummary["providerKind"];
+  const legacy = profile as ProviderProfileFixture;
+  const current = profile as ProviderProfileSummary;
+  return toProviderProfileSummary(createRuntimeProviderProfile({
+    ...profile,
+    providerKind,
+    providerConfig: "apiMode" in profile || "apiBaseUrl" in profile
+      ? providerKind === "github_copilot"
+        ? {}
+        : providerKind === "anthropic"
+          ? { apiBaseUrl: legacy.apiBaseUrl }
+          : { apiBaseUrl: legacy.apiBaseUrl, apiMode: legacy.apiMode }
+      : "providerConfig" in profile
+      ? current.providerConfig
+      : providerKind === "github_copilot"
+        ? {}
+        : providerKind === "anthropic"
+          ? { apiBaseUrl: legacy.apiBaseUrl }
+          : { apiBaseUrl: legacy.apiBaseUrl, apiMode: legacy.apiMode },
+    credentials: providerKind === "github_copilot"
+      ? {
+          accessToken: ("connection" in profile
+            ? current.connection.status !== "disconnected"
+            : legacy.githubConnectionStatus !== "disconnected") ? "github-test-token" : undefined
+        }
+      : {
+          apiKey: ("hasApiKey" in profile
+            ? legacy.hasApiKey
+            : "connection" in profile
+            ? current.connection.status !== "disconnected"
+            : false) ? "sk-test" : undefined
+        },
+    connectionMetadata: {
+      accountLabel: "connection" in profile ? current.connection.accountLabel :
+        legacy.githubAccountName ?? legacy.githubAccountLogin,
+      expiresAt: "connection" in profile ? current.connection.expiresAt : legacy.githubTokenExpiresAt,
+    }
+  }));
+}
+
+function makeSettings(overrides: SettingsOverrides = {}): SettingsFixture {
+  const settings = {
     defaultProviderProfileId: "profile_default",
     skillsEnabled: true,
     conversationRetention: "forever",
@@ -79,20 +103,26 @@ function makeSettings(overrides: Partial<SettingsFixture> = {}): SettingsFixture
     memoriesMaxCount: 100,
     mcpTimeout: 120_000,
     maxAssistantToolSteps: 25,
-    sttEngine: "browser",
-    sttProvider: "elevenlabs",
-    sttLanguage: "en",
-    externalSttLanguage: "auto",
-    externalSttApiKey: "",
-    webSearchEngine: "exa",
-    exaApiKey: "",
-    tavilyApiKey: "",
-    searxngBaseUrl: "",
-    imageGenerationBackend: "disabled",
-    googleNanoBananaModel: "gemini-3.1-flash-image-preview",
-    googleNanoBananaApiKey: "",
     titleGenerationMode: "same",
     titleGenerationProfileId: null,
+    webSearch: {
+      providerId: "exa" as const,
+      configuration: {},
+      configured: true,
+      scope: "global" as const
+    },
+    imageGeneration: {
+      providerId: "disabled" as const,
+      configuration: {},
+      configured: true,
+      scope: "global" as const
+    },
+    speechTranscription: {
+      providerId: "browser" as const,
+      configuration: { language: "en" as const },
+      configured: true,
+      scope: "global" as const
+    },
     providerProfiles: [
       {
         id: "profile_default",
@@ -130,6 +160,10 @@ function makeSettings(overrides: Partial<SettingsFixture> = {}): SettingsFixture
     updatedAt: new Date().toISOString(),
     ...overrides
   };
+  return {
+    ...settings,
+    providerProfiles: settings.providerProfiles.map(normalizeProfile)
+  } as SettingsFixture;
 }
 
 describe("providers section", () => {
@@ -227,7 +261,7 @@ describe("providers section", () => {
         } as Response);
       }
 
-      if (url.startsWith("/api/providers/github/models")) {
+      if (url === "/api/providers/profile_copilot/models") {
         return Promise.resolve({
           ok: true,
           json: async () => ({
@@ -392,8 +426,8 @@ describe("providers section", () => {
     const body = JSON.parse(String(putCall?.[1]?.body));
     expect(body.providerProfiles[0]).toMatchObject({
       providerPresetId: "openrouter",
-      apiKey: "",
-      apiKeyAction: "clear"
+      credential: "",
+      credentialAction: "clear"
     });
   });
 

@@ -28,13 +28,22 @@ async function main() {
   const db = getDb();
   db.prepare(
     `UPDATE provider_profiles
-     SET api_base_url = ?, api_key_encrypted = ?, model = ?, api_mode = 'chat_completions'
+     SET provider_config_json = ?, model = ?
      WHERE provider_kind = 'openai_compatible'`
   ).run(
-    "http://fake-provider:4010/v1",
-    encryptValue("native-test-provider-key"),
+    JSON.stringify({
+      apiBaseUrl: "http://fake-provider:4010/v1",
+      apiMode: "chat_completions"
+    }),
     "eidon-native-test"
   );
+  db.prepare(`
+    UPDATE provider_profile_connections
+    SET credentials_encrypted = ?
+    WHERE profile_id IN (
+      SELECT id FROM provider_profiles WHERE provider_kind = 'openai_compatible'
+    )
+  `).run(encryptValue(JSON.stringify({ apiKey: "native-test-provider-key" })));
 
   const snapshot = conversations.getConversationSnapshot(
     seeded.primaryConversationId,
@@ -42,7 +51,7 @@ async function main() {
   );
   const targetMessage = snapshot?.messages.find((message) => message.role === "user");
   if (targetMessage) {
-    const created = await attachments.createAttachmentsFromBytes(
+    const created = await attachments.createAttachments(
       seeded.primaryConversationId,
       [{
         filename: "native-test-checklist.txt",
@@ -50,7 +59,7 @@ async function main() {
         bytes: Buffer.from("Mobile API v1 fixture attachment\n", "utf8")
       }]
     );
-    attachments.assignAttachmentsToMessage(
+    attachments.bindAttachmentsToMessage(
       seeded.primaryConversationId,
       targetMessage.id,
       created.map((attachment) => attachment.id)

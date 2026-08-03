@@ -15,17 +15,18 @@ import {
 } from "@/lib/anthropic";
 import { estimatePromptTokens } from "@/lib/tokenization";
 import type { ChatStreamEvent, ProviderProfileWithApiKey, PromptMessage, ToolDefinition } from "@/lib/types";
+import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
-function baseSettings(overrides: Partial<ProviderProfileWithApiKey> = {}): ProviderProfileWithApiKey {
-  return {
+function baseSettings(
+  overrides: Parameters<typeof createRuntimeProviderProfile>[0] = {}
+): ProviderProfileWithApiKey {
+  return createRuntimeProviderProfile({
     id: "p1",
     providerKind: "anthropic",
     name: "A",
-    apiBaseUrl: "https://api.anthropic.com",
-    apiKeyEncrypted: "",
-    apiKey: "sk-ant-test",
+    providerConfig: { apiBaseUrl: "https://api.anthropic.com" },
+    credentials: { apiKey: "sk-ant-test" },
     model: "claude-opus-4-8",
-    apiMode: "chat_completions",
     systemPrompt: "",
     temperature: 0.7,
     maxOutputTokens: 8000,
@@ -42,16 +43,10 @@ function baseSettings(overrides: Partial<ProviderProfileWithApiKey> = {}): Provi
     mergedTargetTokens: 1600,
     visionMode: "native",
     providerPresetId: "anthropic_official",
-    githubUserAccessTokenEncrypted: "",
-    githubRefreshTokenEncrypted: "",
-    githubTokenExpiresAt: null,
-    githubRefreshTokenExpiresAt: null,
-    githubAccountLogin: null,
-    githubAccountName: null,
     createdAt: "",
     updatedAt: "",
     ...overrides
-  };
+  });
 }
 
 describe("mapReasoningEffortToAnthropic", () => {
@@ -269,7 +264,7 @@ describe("streamAnthropicResponse", () => {
     ];
 
     const gen = streamAnthropicResponse({
-      settings: baseSettings({ apiKey: "k" }),
+      settings: baseSettings({ credentials: { apiKey: "k" } }),
       promptMessages: [
         { role: "system", content: "sys" },
         { role: "user", content: "hi" }
@@ -305,7 +300,7 @@ describe("streamAnthropicResponse", () => {
     ];
 
     const gen = streamAnthropicResponse({
-      settings: baseSettings({ apiKey: "k" }),
+      settings: baseSettings({ credentials: { apiKey: "k" } }),
       promptMessages: [{ role: "user", content: "hi" }],
       client: fakeStreamClient(events)
     });
@@ -339,7 +334,7 @@ describe("streamAnthropicResponse", () => {
     ];
 
     const gen = streamAnthropicResponse({
-      settings: baseSettings({ apiKey: "k" }),
+      settings: baseSettings({ credentials: { apiKey: "k" } }),
       promptMessages,
       client: fakeStreamClient(events)
     });
@@ -365,7 +360,7 @@ describe("streamAnthropicResponse", () => {
     ];
 
     const gen = streamAnthropicResponse({
-      settings: baseSettings({ apiKey: "k", reasoningSummaryEnabled: false }),
+      settings: baseSettings({ credentials: { apiKey: "k" }, reasoningSummaryEnabled: false }),
       promptMessages: [{ role: "user", content: "hi" }],
       client: fakeStreamClient(events)
     });
@@ -385,7 +380,7 @@ describe("streamAnthropicResponse", () => {
 describe("callAnthropicText", () => {
   it("concatenates text blocks from the response", async () => {
     const text = await callAnthropicText({
-      settings: baseSettings({ apiKey: "k" }),
+      settings: baseSettings({ credentials: { apiKey: "k" } }),
       messages: [{ role: "user", content: "hi" }],
       client: fakeCreateClient([
         { type: "text", text: "con" },
@@ -516,7 +511,7 @@ describe("anthropic conversion branch coverage", () => {
     const controller = new AbortController();
 
     const gen = streamAnthropicResponse({
-      settings: baseSettings({ apiKey: "k" }),
+      settings: baseSettings({ credentials: { apiKey: "k" } }),
       promptMessages: [{ role: "user", content: "hi" }],
       abortSignal: controller.signal,
       client: fakeStreamClient(events)
@@ -534,7 +529,7 @@ describe("anthropic conversion branch coverage", () => {
 
   it("returns an empty string when the text response has no content", async () => {
     const text = await callAnthropicText({
-      settings: baseSettings({ apiKey: "k" }),
+      settings: baseSettings({ credentials: { apiKey: "k" } }),
       messages: [{ role: "user", content: "hi" }],
       client: { messages: { async create() { return {}; } } } as never
     });

@@ -16,49 +16,28 @@ import { getConversation } from "@/lib/conversations";
 import { createPersona } from "@/lib/personas";
 import { createLocalUser } from "@/lib/users";
 import type { ChatTurnResult } from "@/lib/chat-turn";
-import type { ProviderProfileWithApiKey } from "@/lib/types";
+import { createProviderProfileInput } from "@/tests/provider-fixtures";
 import {
   getAutomationExecutionLimiterSnapshot,
   resetAutomationExecutionLimiterForTests
 } from "@/lib/automation-execution-limiter";
 
-function createProviderProfile(id = "profile_scheduler"): ProviderProfileWithApiKey {
+function createProviderProfile(id = "profile_scheduler") {
   const timestamp = "2026-04-10T00:00:00.000Z";
 
-  return {
+  return createProviderProfileInput({
     id,
     name: "Scheduler Test",
-    apiBaseUrl: "https://api.example.com/v1",
-    apiKeyEncrypted: "",
-    apiKey: "sk-test",
     model: "gpt-test",
-    apiMode: "responses",
     systemPrompt: "Be exact.",
     temperature: 0.2,
     maxOutputTokens: 512,
-    reasoningEffort: "medium",
-    reasoningSummaryEnabled: true,
     modelContextLimit: 16384,
-    compactionThreshold: 0.8,
     freshTailCount: 12,
-    tokenizerModel: "gpt-tokenizer",
-    safetyMarginTokens: 1200,
-    leafSourceTokenLimit: 12000,
-    leafMinMessageCount: 6,
-    mergedMinNodeCount: 4,
-    mergedTargetTokens: 1600,
     visionMode: "none",
-    providerPresetId: null,
-    providerKind: "openai_compatible",
-    githubUserAccessTokenEncrypted: "",
-    githubRefreshTokenEncrypted: "",
-    githubTokenExpiresAt: null,
-    githubRefreshTokenExpiresAt: null,
-    githubAccountLogin: null,
-    githubAccountName: null,
     createdAt: timestamp,
     updatedAt: timestamp
-  };
+  });
 }
 
 async function waitForRunStatus(runId: string, status: string) {

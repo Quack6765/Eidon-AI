@@ -15,7 +15,6 @@ import {
   sanitizeMcpServer,
   updateMcpServer
 } from "@/lib/mcp-servers";
-import { updateSettings } from "@/lib/settings";
 
 describe("mcp servers", () => {
   it("creates, lists, updates, and deletes MCP servers", () => {
@@ -226,42 +225,29 @@ describe("mcp servers isVisionMcp", () => {
   });
 
   it("backfills isVisionMcp for servers referenced by a profile's vision_mcp_server_id", () => {
-    const visionServer = createMcpServer({ name: "Legacy Vision", url: "https://example.com" });
-    const otherServer = createMcpServer({ name: "Other", url: "https://example.com" });
+    const db = new Database(":memory:");
+    db.exec(`
+      CREATE TABLE provider_profiles (
+        id TEXT PRIMARY KEY,
+        vision_mcp_server_id TEXT
+      );
+      CREATE TABLE mcp_servers (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        is_vision_mcp INTEGER NOT NULL DEFAULT 0
+      );
+      INSERT INTO mcp_servers VALUES ('vision', 'Legacy Vision', 0);
+      INSERT INTO mcp_servers VALUES ('other', 'Other', 0);
+      INSERT INTO provider_profiles VALUES ('profile_a', 'vision');
+    `);
 
-    updateSettings({
-      defaultProviderProfileId: "profile_a",
-      skillsEnabled: true,
-      providerProfiles: [
-        {
-          id: "profile_a",
-          name: "A",
-          apiBaseUrl: "https://api.example.com/v1",
-          apiKey: "",
-          model: "gpt-test",
-          apiMode: "responses",
-          systemPrompt: "Be exact.",
-          temperature: 0.4,
-          maxOutputTokens: 512,
-          reasoningEffort: "medium",
-          reasoningSummaryEnabled: true,
-          modelContextLimit: 16384,
-          compactionThreshold: 0.8,
-          freshTailCount: 28,
-          providerPresetId: null
-        }
-      ]
-    });
+    backfillVisionMcpServers(db);
 
-    getDb()
-      .prepare("UPDATE provider_profiles SET vision_mcp_server_id = ? WHERE id = ?")
-      .run(visionServer.id, "profile_a");
-
-    backfillVisionMcpServers(getDb());
-
-    expect(getMcpServer(visionServer.id)?.isVisionMcp).toBe(true);
-    expect(getMcpServer(otherServer.id)?.isVisionMcp).toBe(false);
-    expect(listMcpServers().filter((s) => s.isVisionMcp)).toHaveLength(1);
+    expect(db.prepare("SELECT is_vision_mcp FROM mcp_servers WHERE id = 'vision'").get())
+      .toEqual({ is_vision_mcp: 1 });
+    expect(db.prepare("SELECT is_vision_mcp FROM mcp_servers WHERE id = 'other'").get())
+      .toEqual({ is_vision_mcp: 0 });
+    db.close();
   });
 
   it("backfillVisionMcpServers is a no-op when vision_mcp_server_id column does not exist", () => {

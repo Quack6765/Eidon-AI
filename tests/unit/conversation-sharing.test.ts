@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assignAttachmentsToMessage, createAttachments } from "@/lib/attachments";
+import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import {
   createConversation,
   createMessageAction,
@@ -78,7 +78,7 @@ describe("conversation sharing", () => {
         bytes: Buffer.from("public attachment", "utf8")
       }
     ]);
-    assignAttachmentsToMessage(conversation.id, userMessage.id, [attachment.id]);
+    bindAttachmentsToMessage(conversation.id, userMessage.id, [attachment.id]);
     const assistantMessage = createMessage({
       conversationId: conversation.id,
       role: "assistant",

@@ -39,46 +39,28 @@ vi.mock("@/lib/conversation-title-generator", () => ({
   MAX_CONVERSATION_TITLE_LENGTH: 48
 }));
 
-import type { ProviderProfileWithApiKey } from "@/lib/types";
+import {
+  createProviderProfileInput,
+  createRuntimeProviderProfile
+} from "@/tests/provider-fixtures";
 import { createLocalUser } from "@/lib/users";
 
-function setupProviderProfile(): { profileId: string; profile: ProviderProfileWithApiKey } {
+function setupProviderProfile() {
   const profileId = "profile_chat_test";
-  const profile: ProviderProfileWithApiKey = {
+  const profileSettings = {
     id: profileId,
     name: "Test",
-    apiBaseUrl: "https://api.example.com/v1",
-    apiKeyEncrypted: "",
-    apiKey: "sk-test",
     model: "gpt-test",
-    apiMode: "responses" as const,
     systemPrompt: "Be exact.",
     temperature: 0.4,
     maxOutputTokens: 512,
-    reasoningEffort: "medium" as const,
-    reasoningSummaryEnabled: true,
     modelContextLimit: 16384,
-    compactionThreshold: 0.8,
     freshTailCount: 12,
-    tokenizerModel: "gpt-tokenizer" as const,
-    safetyMarginTokens: 1200,
-    leafSourceTokenLimit: 12000,
-    leafMinMessageCount: 6,
-    mergedMinNodeCount: 4,
-    mergedTargetTokens: 1600,
-    visionMode: "native" as const,
-    providerPresetId: null,
-    providerKind: "openai_compatible",
-    githubUserAccessTokenEncrypted: "",
-    githubRefreshTokenEncrypted: "",
-    githubTokenExpiresAt: null,
-    githubRefreshTokenExpiresAt: null,
-    githubAccountLogin: null,
-    githubAccountName: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-  return { profileId, profile };
+    visionMode: "native"
+  } as const;
+  const profile = createProviderProfileInput(profileSettings);
+  const runtimeProfile = createRuntimeProviderProfile(profileSettings);
+  return { profileId, profile, runtimeProfile };
 }
 
 function createMockSocket(send = vi.fn()) {
@@ -278,13 +260,14 @@ describe("chat-turn", () => {
     expect(listVisibleMessages(conv.id)).toHaveLength(0);
   });
 
-  it("injects the selected user's built-in web search MCP server into tool discovery", async () => {
+  it("keeps web search provider transport out of MCP discovery", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { gatherAllMcpTools } = await import("@/lib/mcp-client");
     const mockedGatherAllMcpTools = vi.mocked(gatherAllMcpTools);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings, updateGeneralSettingsForUser } = await import("@/lib/settings");
+    const { updateSettings } = await import("@/lib/settings");
+    const { updateIntegrationSetting } = await import("@/lib/integration-settings");
 
     const user = await createLocalUser({
       username: "web-search-owner",
@@ -299,10 +282,13 @@ describe("chat-turn", () => {
       skillsEnabled: false,
       providerProfiles: [profile]
     });
-    updateGeneralSettingsForUser(user.id, {
-      webSearchEngine: "tavily",
-      tavilyApiKey: "tvly-user-key"
-    });
+    updateIntegrationSetting({
+      capability: "web_search",
+      providerId: "tavily",
+      configuration: {},
+      credential: "tvly-user-key",
+      credentialAction: "replace"
+    }, user.id);
 
     const conv = (await import("@/lib/conversations")).createConversation(
       undefined,
@@ -321,15 +307,7 @@ describe("chat-turn", () => {
     const { startChatTurn } = await import("@/lib/chat-turn");
     await startChatTurn(manager, conv.id, "Hi", []);
 
-    expect(mockedGatherAllMcpTools).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: "builtin_web_search_tavily",
-          name: "Tavily"
-        })
-      ]),
-      expect.any(AbortSignal)
-    );
+    expect(mockedGatherAllMcpTools).not.toHaveBeenCalled();
   });
 
   it("persists a partial assistant message as stopped when the turn is cancelled", async () => {
@@ -527,7 +505,7 @@ describe("chat-turn", () => {
         assistantMessageId?: string;
         onEvent?: (event: { type: string; text: string }) => void;
       }) => {
-        const { createAttachments, assignAttachmentsToMessage } = await import("@/lib/attachments");
+        const { createAttachments, bindAttachmentsToMessage } = await import("@/lib/attachments");
         const attachments = await createAttachments(input.conversationId!, [
           {
             filename: "generated-inline.jpeg",
@@ -535,7 +513,7 @@ describe("chat-turn", () => {
             bytes: Buffer.from([1, 2, 3])
           }
         ]);
-        assignAttachmentsToMessage(
+        bindAttachmentsToMessage(
           input.conversationId!,
           input.assistantMessageId!,
           attachments.map((attachment) => attachment.id)
@@ -594,7 +572,7 @@ describe("chat-turn", () => {
         assistantMessageId?: string;
         onAnswerSegment?: (segment: string) => Promise<void> | void;
       }) => {
-        const { createAttachments, assignAttachmentsToMessage } = await import("@/lib/attachments");
+        const { createAttachments, bindAttachmentsToMessage } = await import("@/lib/attachments");
         const attachments = await createAttachments(input.conversationId!, [
           {
             filename: "generated-segment.jpeg",
@@ -602,7 +580,7 @@ describe("chat-turn", () => {
             bytes: Buffer.from([1, 2, 3])
           }
         ]);
-        assignAttachmentsToMessage(
+        bindAttachmentsToMessage(
           input.conversationId!,
           input.assistantMessageId!,
           attachments.map((attachment) => attachment.id)
@@ -847,7 +825,7 @@ describe("chat-turn", () => {
   it("adds runtime guidance not to base64 screenshot files or embed data image URLs", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
-    const { profile } = setupProviderProfile();
+    const { runtimeProfile: profile } = setupProviderProfile();
 
     mockedStreamProviderResponse.mockReturnValueOnce(
       (async function* () {
@@ -886,7 +864,7 @@ describe("chat-turn", () => {
   it("does not add the inline attachment directive when the user explicitly asks for base64 image output", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
-    const { profile } = setupProviderProfile();
+    const { runtimeProfile: profile } = setupProviderProfile();
 
     mockedStreamProviderResponse.mockReturnValueOnce(
       (async function* () {
@@ -928,7 +906,7 @@ describe("chat-turn", () => {
   it("keeps the inline attachment directive when the user explicitly says not to send base64 or a data URL", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
-    const { profile } = setupProviderProfile();
+    const { runtimeProfile: profile } = setupProviderProfile();
 
     mockedStreamProviderResponse.mockReturnValueOnce(
       (async function* () {
@@ -972,7 +950,7 @@ describe("chat-turn", () => {
   it("does not add the inline attachment directive when the user wants only image bytes without markdown", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
-    const { profile } = setupProviderProfile();
+    const { runtimeProfile: profile } = setupProviderProfile();
 
     mockedStreamProviderResponse.mockReturnValueOnce(
       (async function* () {
@@ -1231,7 +1209,7 @@ describe("chat-turn", () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { getDb } = await import("@/lib/db");
     const { updateSettings } = await import("@/lib/settings");
-    const { createAttachmentsFromBytes, getAttachment } = await import("@/lib/attachments");
+    const { createAttachments, getAttachment } = await import("@/lib/attachments");
     const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
     const { claimChatTurnStart, releaseChatTurnStart } = await import("@/lib/chat-turn-control");
     const { startChatTurn } = await import("@/lib/chat-turn");
@@ -1244,7 +1222,7 @@ describe("chat-turn", () => {
 
     const manager = createConversationManager();
     const conversation = createConversation("Atomic setup");
-    const [attachment] = await createAttachmentsFromBytes(conversation.id, [{
+    const [attachment] = await createAttachments(conversation.id, [{
       filename: "setup.txt",
       mimeType: "text/plain",
       bytes: Buffer.from("setup")
@@ -1515,7 +1493,7 @@ describe("chat-turn", () => {
     );
   });
 
-  it("claims the legacy SSE turn before inserting messages", async () => {
+  it("reports an active-turn conflict through the SSE stream before inserting messages", async () => {
     const { updateSettings } = await import("@/lib/settings");
     const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
     const { claimChatTurnStart, releaseChatTurnStart } = await import("@/lib/chat-turn-control");
@@ -1553,10 +1531,8 @@ describe("chat-turn", () => {
         { params: Promise.resolve({ conversationId: conversation.id }) }
       );
 
-      expect(response.status).toBe(409);
-      await expect(response.json()).resolves.toEqual({
-        error: "Conversation already has an active assistant turn"
-      });
+      expect(response.status).toBe(200);
+      await expect(response.text()).resolves.toContain("Conversation already has an active assistant turn");
       expect(listVisibleMessages(conversation.id)).toEqual(existingMessages);
     } finally {
       if (claimed.ok) {

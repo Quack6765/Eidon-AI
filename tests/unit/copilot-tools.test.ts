@@ -5,6 +5,10 @@ import path from "node:path";
 import { beforeEach, describe, it, expect, vi } from "vitest";
 import { buildCopilotTools } from "@/lib/copilot-tools";
 import type { McpServer, McpTool, Skill } from "@/lib/types";
+import {
+  createRuntimeAppSettings,
+  type RuntimeAppSettingsOverrides
+} from "@/tests/provider-fixtures";
 
 const localShellMocks = vi.hoisted(() => ({
   executeLocalShellCommand: vi.fn().mockResolvedValue({
@@ -120,32 +124,11 @@ function makeCtx(overrides: Partial<Parameters<typeof buildCopilotTools>[0]> = {
   };
 }
 
-function makeAppSettings(overrides: Partial<import("@/lib/types").AppSettings> = {}) {
-  return {
-    defaultProviderProfileId: "profile_default",
-    skillsEnabled: true,
-    conversationRetention: "forever" as const,
-    memoriesEnabled: true,
-    memoriesMaxCount: 100,
-    mcpTimeout: 30000,
-    maxAssistantToolSteps: 25,
-    sttEngine: "browser" as const,
-    sttProvider: "elevenlabs" as const,
-    sttLanguage: "en" as const,
-    externalSttLanguage: "auto" as const,
-    externalSttApiKey: "",
-    webSearchEngine: "exa" as const,
-    exaApiKey: "",
-    tavilyApiKey: "",
-    searxngBaseUrl: "",
-    imageGenerationBackend: "disabled" as const,
-    googleNanoBananaModel: "gemini-3.1-flash-image-preview" as const,
-    googleNanoBananaApiKey: "",
-    titleGenerationMode: "same" as const,
-    titleGenerationProfileId: null,
-    updatedAt: new Date().toISOString(),
+function makeAppSettings(overrides: RuntimeAppSettingsOverrides = {}) {
+  return createRuntimeAppSettings({
+    webSearch: { providerId: "exa" },
     ...overrides
-  };
+  });
 }
 
 describe("buildCopilotTools", () => {
@@ -199,7 +182,7 @@ describe("buildCopilotTools", () => {
     const tools = buildCopilotTools(ctx);
 
     expect(tools.length).toBeGreaterThanOrEqual(2);
-    const mcpTool = tools.find((t) => t.name === "mcp_server_1_read_file");
+    const mcpTool = tools.find((t) => t.name === "mcp_test_server_read_file");
     expect(mcpTool).toBeDefined();
     expect(mcpTool!.description).toContain("read_file");
     expect(mcpTool!.handler).toBeInstanceOf(Function);
@@ -211,32 +194,23 @@ describe("buildCopilotTools", () => {
     });
   });
 
-  it("labels built-in Exa MCP tools as Web search", async () => {
-    const onActionStart = vi.fn();
-    const ctx = makeCtx({
-      mcpToolSets: [{
-        server: makeMcpServer({
-          id: "builtin_web_search_exa",
-          slug: "builtin_search_exa",
-          name: "Exa"
-        }),
-        tools: [makeMcpTool({ name: "web_search_exa", title: "web_search_exa" })]
-      }],
-      onActionStart
-    });
-
-    const tools = buildCopilotTools(ctx);
-    const exaTool = tools.find((t) => t.name === "mcp_builtin_web_search_exa_web_search_exa")!;
-
-    await exaTool.handler!(
-      { query: "latest AI" },
-      { sessionId: "s1", toolCallId: "tc1", toolName: exaTool.name, arguments: { query: "latest AI" } }
-    );
-
-    expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
-      label: "Web search",
-      serverId: "builtin_web_search_exa"
-    }));
+  it("uses the same web-search tool name for every configured provider", () => {
+    for (const appSettings of [
+      makeAppSettings({ webSearch: { providerId: "exa" } }),
+      makeAppSettings({
+        webSearch: { providerId: "tavily", credentials: { apiKey: "tvly-key" } }
+      }),
+      makeAppSettings({
+        webSearch: {
+          providerId: "searxng",
+          configuration: { baseUrl: "https://search.example.com" }
+        }
+      })
+    ]) {
+      const names = buildCopilotTools(makeCtx({ appSettings })).map((tool) => tool.name);
+      expect(names.filter((name) => name === "web_search")).toHaveLength(1);
+      expect(names.some((name) => /exa|tavily|searx/i.test(name))).toBe(false);
+    }
   });
 
   it("creates shell, skill, and memory tools", () => {
@@ -283,9 +257,14 @@ describe("buildCopilotTools", () => {
     expect(tools.find((t) => t.name === "execute_shell_command")).toBeDefined();
   });
 
-  it("adds a native SearXNG web search tool when configured", () => {
+  it("adds the provider-neutral web search tool when search is configured", () => {
     const ctx = makeCtx({
-      searxngBaseUrl: "https://search.example.com"
+      appSettings: makeAppSettings({
+        webSearch: {
+          providerId: "searxng",
+          configuration: { baseUrl: "https://search.example.com" }
+        }
+      })
     });
 
     const tools = buildCopilotTools(ctx);
@@ -306,10 +285,10 @@ describe("buildCopilotTools", () => {
     expect(loadSkillTool?.overridesBuiltInTool).toBe(true);
   });
 
-  it("creates MCP tools with sanitized server id in function name", () => {
+  it("uses the stable server slug in MCP function names", () => {
     const ctx = makeCtx({
       mcpToolSets: [{
-        server: makeMcpServer({ id: "my-server/v2" }),
+        server: makeMcpServer({ id: "my-server/v2", slug: "my_server_v2" }),
         tools: [makeMcpTool({ name: "search" })]
       }]
     });
@@ -328,7 +307,7 @@ describe("buildCopilotTools", () => {
     });
 
     const tools = buildCopilotTools(ctx);
-    const mcpTool = tools.find((t) => t.name === "mcp_server_1_read_file");
+    const mcpTool = tools.find((t) => t.name === "mcp_test_server_read_file");
 
     expect(mcpTool!.description).toContain("(read-only)");
   });
@@ -342,7 +321,7 @@ describe("buildCopilotTools", () => {
     });
 
     const tools = buildCopilotTools(ctx);
-    const mcpTool = tools.find((t) => t.name === "mcp_server_1_read_file");
+    const mcpTool = tools.find((t) => t.name === "mcp_test_server_read_file");
 
     expect(mcpTool?.parameters).toEqual({ type: "object", properties: {} });
   });
@@ -358,11 +337,11 @@ describe("buildCopilotTools", () => {
     });
 
     const tools = buildCopilotTools(ctx);
-    const mcpTool = tools.find((t) => t.name === "mcp_server_1_read_file")!;
+    const mcpTool = tools.find((t) => t.name === "mcp_test_server_read_file")!;
 
     await mcpTool.handler!(
       undefined,
-      { sessionId: "s1", toolCallId: "tc1", toolName: "mcp_server_1_read_file", arguments: {} }
+      { sessionId: "s1", toolCallId: "tc1", toolName: "mcp_test_server_read_file", arguments: {} }
     );
 
     expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
@@ -381,9 +360,9 @@ describe("buildCopilotTools", () => {
     });
 
     const tools = buildCopilotTools(ctx);
-    const mcpTool = tools.find((t) => t.name === "mcp_server_1_read_file")!;
+    const mcpTool = tools.find((t) => t.name === "mcp_test_server_read_file")!;
 
-    const result = await mcpTool.handler!({ path: "/tmp/test.txt" }, { sessionId: "s1", toolCallId: "tc1", toolName: "mcp_server_1_read_file", arguments: { path: "/tmp/test.txt" } });
+    const result = await mcpTool.handler!({ path: "/tmp/test.txt" }, { sessionId: "s1", toolCallId: "tc1", toolName: "mcp_test_server_read_file", arguments: { path: "/tmp/test.txt" } });
 
     expect(result).toBe("mock result");
     expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
@@ -403,7 +382,7 @@ describe("buildCopilotTools", () => {
     });
 
     const tools = buildCopilotTools(ctx);
-    const mcpTool = tools.find((t) => t.name === "mcp_server_1_search")!;
+    const mcpTool = tools.find((t) => t.name === "mcp_test_server_search")!;
 
     await mcpTool.handler!(
       {
@@ -411,7 +390,7 @@ describe("buildCopilotTools", () => {
           tags: Array.from({ length: 40 }, (_, index) => `tag-${index}`)
         }
       },
-      { sessionId: "s1", toolCallId: "tc1", toolName: "mcp_server_1_search", arguments: {} }
+      { sessionId: "s1", toolCallId: "tc1", toolName: "mcp_test_server_search", arguments: {} }
     );
 
     expect(onActionStart).toHaveBeenCalledWith(expect.objectContaining({
@@ -440,9 +419,9 @@ describe("buildCopilotTools", () => {
     });
 
     const tools = buildCopilotTools(ctx);
-    const mcpTool = tools.find((t) => t.name === "mcp_server_1_read_file")!;
+    const mcpTool = tools.find((t) => t.name === "mcp_test_server_read_file")!;
 
-    await mcpTool.handler!({ path: "/bad" }, { sessionId: "s1", toolCallId: "tc1", toolName: "mcp_server_1_read_file", arguments: { path: "/bad" } });
+    await mcpTool.handler!({ path: "/bad" }, { sessionId: "s1", toolCallId: "tc1", toolName: "mcp_test_server_read_file", arguments: { path: "/bad" } });
 
     expect(onActionError).toHaveBeenCalledWith(undefined, expect.any(Object));
   });

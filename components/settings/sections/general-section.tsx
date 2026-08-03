@@ -11,26 +11,85 @@ import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
 import {
   EXTERNAL_STT_PROVIDER_OPTIONS,
-  getExternalSttProviderConfig
+  getExternalSttProviderConfig,
+  type ExternalSttLanguage,
+  type SttProvider
 } from "@/lib/speech/external-providers";
-import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
-import type { AppSettings, ConversationRetention, ImageGenerationBackend } from "@/lib/types";
+import type { SttEngine, SttLanguage } from "@/lib/speech/types";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
+import type {
+  AppSettings,
+  ConversationRetention,
+  ImageGenerationModelId,
+  ImageGenerationProviderId,
+  WebSearchProviderId
+} from "@/lib/types";
 
 type GeneralSectionSettings = AppSettings & {
-  hasExaApiKey?: boolean;
-  hasTavilyApiKey?: boolean;
-  hasExternalSttApiKey?: boolean;
-  hasGoogleNanoBananaApiKey?: boolean;
-  providerProfiles: Array<{ id: string; name: string; model: string; hasApiKey: boolean }>;
+  providerProfiles: Array<{ id: string; name: string; model: string }>;
 };
 
+type GeneralSettingsView = GeneralSectionSettings & {
+  sttEngine: SttEngine;
+  sttProvider: SttProvider;
+  sttLanguage: SttLanguage;
+  externalSttLanguage: ExternalSttLanguage;
+  externalSttApiKey: string;
+  webSearchEngine: WebSearchProviderId;
+  exaApiKey: string;
+  tavilyApiKey: string;
+  searxngBaseUrl: string;
+  imageGenerationBackend: ImageGenerationProviderId;
+  googleNanoBananaModel: ImageGenerationModelId;
+  googleNanoBananaApiKey: string;
+  hasExaApiKey: boolean;
+  hasTavilyApiKey: boolean;
+  hasExternalSttApiKey: boolean;
+  hasGoogleNanoBananaApiKey: boolean;
+};
+
+function toGeneralSettingsView(publicSettings: GeneralSectionSettings): GeneralSettingsView {
+  const speechProvider = publicSettings.speechTranscription.providerId;
+  const speechLanguage = String(publicSettings.speechTranscription.configuration.language ?? "auto");
+  const searchProvider = publicSettings.webSearch.providerId;
+  const imageProvider = publicSettings.imageGeneration.providerId;
+  return {
+    ...publicSettings,
+    sttEngine: speechProvider === "browser"
+      ? "browser"
+      : speechProvider === "canary"
+        ? "embedded"
+        : "external",
+    sttProvider: "elevenlabs",
+    sttLanguage: speechLanguage === "en" || speechLanguage === "fr" || speechLanguage === "es"
+      ? speechLanguage
+      : "auto",
+    externalSttLanguage: speechLanguage as ExternalSttLanguage,
+    externalSttApiKey: "",
+    webSearchEngine: searchProvider,
+    exaApiKey: "",
+    tavilyApiKey: "",
+    searxngBaseUrl: String(publicSettings.webSearch.configuration.baseUrl ?? ""),
+    imageGenerationBackend: imageProvider,
+    googleNanoBananaModel:
+      publicSettings.imageGeneration.configuration.model ?? "gemini-3.1-flash-image-preview",
+    googleNanoBananaApiKey: "",
+    hasExaApiKey: searchProvider === "exa" && publicSettings.webSearch.configured,
+    hasTavilyApiKey: searchProvider === "tavily" && publicSettings.webSearch.configured,
+    hasExternalSttApiKey: speechProvider === "elevenlabs" && publicSettings.speechTranscription.configured,
+    hasGoogleNanoBananaApiKey:
+      imageProvider === "google_nano_banana" && publicSettings.imageGeneration.configured
+  };
+}
+
 export function GeneralSection({
-  settings,
-  canManageImageGeneration = false
+  settings: publicSettings,
+  canManageGlobalIntegrations = false
 }: {
   settings: GeneralSectionSettings;
-  canManageImageGeneration?: boolean;
+  canManageGlobalIntegrations?: boolean;
 }) {
+  const settings = toGeneralSettingsView(publicSettings);
   const router = useRouter();
   const [conversationRetention, setConversationRetention] = useState<ConversationRetention>(
     settings.conversationRetention
@@ -61,7 +120,7 @@ export function GeneralSection({
     settings.hasExternalSttApiKey ?? Boolean(settings.externalSttApiKey)
   );
 
-  const [imageGenerationBackend, setImageGenerationBackend] = useState<ImageGenerationBackend>(
+  const [imageGenerationBackend, setImageGenerationBackend] = useState<ImageGenerationProviderId>(
     settings.imageGenerationBackend
   );
   const [googleNanoBananaModel, setGoogleNanoBananaModel] = useState(
@@ -122,22 +181,12 @@ export function GeneralSection({
     titleGenerationMode,
     titleGenerationProfileId,
   });
-  const unsavedActions = useRef({ save, discard: restoreSavedSettings });
-  unsavedActions.current = { save, discard: restoreSavedSettings };
-
-  useEffect(() => {
-    registerUnsavedChangesGuard(
-      isDirty
-        ? {
-            isDirty: () => isDirty,
-            save: () => unsavedActions.current.save(),
-            discard: () => unsavedActions.current.discard(),
-            entityType: "these settings",
-          }
-        : null
-    );
-    return () => registerUnsavedChangesGuard(null);
-  }, [isDirty]);
+  useUnsavedChangesGuard({
+    isDirty,
+    save,
+    discard: restoreSavedSettings,
+    entityType: "these settings"
+  });
 
   const speechLanguageOptions =
     sttEngine !== "embedded"
@@ -182,7 +231,7 @@ export function GeneralSection({
     setHasEditedExternalSttApiKey(false);
   }
 
-  function handleSpeechEngineChange(nextEngine: AppSettings["sttEngine"]) {
+  function handleSpeechEngineChange(nextEngine: GeneralSettingsView["sttEngine"]) {
     resetMessages();
     setSttEngine(nextEngine);
     if (nextEngine === "embedded" && sttLanguage === "auto") {
@@ -190,7 +239,7 @@ export function GeneralSection({
     }
   }
 
-  function handleSttProviderChange(nextProvider: AppSettings["sttProvider"]) {
+  function handleSttProviderChange(nextProvider: GeneralSettingsView["sttProvider"]) {
     resetMessages();
     const provider = getExternalSttProviderConfig(nextProvider);
     setSttProvider(nextProvider);
@@ -235,7 +284,8 @@ export function GeneralSection({
     return "";
   }
 
-  function acceptSavedSettings(saved: GeneralSectionSettings) {
+  function acceptSavedSettings(publicSaved: GeneralSectionSettings) {
+    const saved = toGeneralSettingsView(publicSaved);
     const savedHasExaApiKey = saved.hasExaApiKey ?? false;
     const savedHasTavilyApiKey = saved.hasTavilyApiKey ?? false;
     const savedHasExternalSttApiKey = saved.hasExternalSttApiKey ?? false;
@@ -370,58 +420,45 @@ export function GeneralSection({
 
     const trimmedExaApiKey = exaApiKey.trim();
     const trimmedTavilyApiKey = tavilyApiKey.trim();
-    const payload: Record<string, unknown> = {
+    const preferences = {
       conversationRetention,
       mcpTimeout,
-      maxAssistantToolSteps,
-      sttEngine,
-      sttProvider,
-      sttLanguage,
-      externalSttLanguage,
-      webSearchEngine,
-      searxngBaseUrl: searxngBaseUrl.trim()
+      maxAssistantToolSteps
     };
 
     const trimmedExternalSttApiKey = externalSttApiKey.trim();
-    payload.externalSttApiKeyAction = hasEditedExternalSttApiKey
+    const speechCredentialAction = hasEditedExternalSttApiKey
       ? trimmedExternalSttApiKey
         ? "replace"
         : "clear"
       : "preserve";
-    if (trimmedExternalSttApiKey) {
-      payload.externalSttApiKey = trimmedExternalSttApiKey;
-    }
+    const speechTranscription = {
+      providerId: sttEngine === "browser" ? "browser" : sttEngine === "embedded" ? "canary" : sttProvider,
+      configuration: { language: sttEngine === "external" ? externalSttLanguage : sttLanguage },
+      credential: trimmedExternalSttApiKey || undefined,
+      credentialAction: speechCredentialAction
+    };
 
-    if (hasEditedExaApiKey || !hasStoredExaApiKey) {
-      payload.exaApiKey = trimmedExaApiKey;
-    }
-
-    if (hasEditedExaApiKey && !trimmedExaApiKey && hasStoredExaApiKey) {
-      payload.clearExaApiKey = true;
-    }
-
-    if (hasEditedTavilyApiKey || !hasStoredTavilyApiKey) {
-      payload.tavilyApiKey = trimmedTavilyApiKey;
-    }
-
-    if (hasEditedTavilyApiKey && !trimmedTavilyApiKey && hasStoredTavilyApiKey) {
-      payload.clearTavilyApiKey = true;
-    }
-
-    const imagePayload: Record<string, unknown> = {
-      imageGenerationBackend,
-      googleNanoBananaModel
+    const searchCredential = webSearchEngine === "exa" ? trimmedExaApiKey : trimmedTavilyApiKey;
+    const searchEdited = webSearchEngine === "exa" ? hasEditedExaApiKey : hasEditedTavilyApiKey;
+    const webSearch = {
+      providerId: webSearchEngine,
+      configuration: webSearchEngine === "searxng" ? { baseUrl: searxngBaseUrl.trim() } : {},
+      credential: searchCredential || undefined,
+      credentialAction: searchEdited ? searchCredential ? "replace" : "clear" : "preserve"
     };
 
     const trimmedGoogleApiKey = googleNanoBananaApiKey.trim();
-    imagePayload.googleNanoBananaApiKeyAction = hasEditedGoogleNanoBananaApiKey
-      ? trimmedGoogleApiKey
-        ? "replace"
-        : "clear"
-      : "preserve";
-    if (trimmedGoogleApiKey) {
-      imagePayload.googleNanoBananaApiKey = trimmedGoogleApiKey;
-    }
+    const imagePayload = {
+      providerId: imageGenerationBackend,
+      configuration: imageGenerationBackend === "google_nano_banana"
+        ? { model: googleNanoBananaModel }
+        : {},
+      credential: trimmedGoogleApiKey || undefined,
+      credentialAction: hasEditedGoogleNanoBananaApiKey
+        ? trimmedGoogleApiKey ? "replace" : "clear"
+        : "preserve"
+    };
 
     const titleGenerationPayload: Record<string, unknown> = {
       titleGenerationMode,
@@ -435,8 +472,10 @@ export function GeneralSection({
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          general: payload,
-          ...(canManageImageGeneration
+          preferences,
+          webSearch,
+          speechTranscription,
+          ...(canManageGlobalIntegrations
             ? {
                 imageGeneration: imagePayload,
                 titleGeneration: titleGenerationPayload
@@ -548,7 +587,7 @@ export function GeneralSection({
               aria-label="Speech engine"
               value={sttEngine}
               onChange={(event) =>
-                handleSpeechEngineChange(event.target.value as AppSettings["sttEngine"])
+                handleSpeechEngineChange(event.target.value as GeneralSettingsView["sttEngine"])
               }
               className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("sttEngine") ? "!border-amber-500/40" : ""}`}
             >
@@ -567,7 +606,7 @@ export function GeneralSection({
                   aria-label="Speech-to-text provider"
                   value={sttProvider}
                   onChange={(event) =>
-                    handleSttProviderChange(event.target.value as AppSettings["sttProvider"])
+                    handleSttProviderChange(event.target.value as GeneralSettingsView["sttProvider"])
                   }
                   className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("sttProvider") ? "!border-amber-500/40" : ""}`}
                 >
@@ -644,7 +683,7 @@ export function GeneralSection({
                   onChange={(event) => {
                     resetMessages();
                     setExternalSttLanguage(
-                      event.target.value as AppSettings["externalSttLanguage"]
+                      event.target.value as GeneralSettingsView["externalSttLanguage"]
                     );
                   }}
                   className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("externalSttLanguage") ? "!border-amber-500/40" : ""}`}
@@ -669,7 +708,7 @@ export function GeneralSection({
                 value={sttLanguage}
                 onChange={(event) => {
                   resetMessages();
-                  setSttLanguage(event.target.value as AppSettings["sttLanguage"]);
+                  setSttLanguage(event.target.value as GeneralSettingsView["sttLanguage"]);
                 }}
                 className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("sttLanguage") ? "!border-amber-500/40" : ""}`}
               >
@@ -729,7 +768,7 @@ export function GeneralSection({
               value={webSearchEngine}
               onChange={(event) => {
                 resetMessages();
-                setWebSearchEngine(event.target.value as AppSettings["webSearchEngine"]);
+                setWebSearchEngine(event.target.value as GeneralSettingsView["webSearchEngine"]);
               }}
               className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("webSearchEngine") ? "!border-amber-500/40" : ""}`}
             >
@@ -822,7 +861,7 @@ export function GeneralSection({
       {/* Image Generation */}
       <div className="space-y-4">
         <h3 className={sectionTitle}>Image Generation</h3>
-        {!canManageImageGeneration ? (
+        {!canManageGlobalIntegrations ? (
           <div className="space-y-1.5">
             <label className={fieldLabel}>Image generation backend</label>
             <p className="text-xs text-[var(--muted)]">Only admins can change image generation settings.</p>
@@ -850,7 +889,7 @@ export function GeneralSection({
                 onChange={(event) => {
                   resetMessages();
                   setImageGenerationBackend(
-                    event.target.value as ImageGenerationBackend
+                    event.target.value as ImageGenerationProviderId
                   );
                 }}
                 className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("imageGenerationBackend") ? "!border-amber-500/40" : ""}`}
@@ -873,7 +912,7 @@ export function GeneralSection({
                     onChange={(event) => {
                       resetMessages();
                       setGoogleNanoBananaModel(
-                        event.target.value as AppSettings["googleNanoBananaModel"]
+                        event.target.value as GeneralSettingsView["googleNanoBananaModel"]
                       );
                     }}
                     className={`${selectLike} w-full sm:w-[22rem] ${isFieldDirty("googleNanoBananaModel") ? "!border-amber-500/40" : ""}`}
@@ -951,7 +990,7 @@ export function GeneralSection({
 
       <div className="space-y-4">
         <h3 className={sectionTitle}>Title Generation</h3>
-        {!canManageImageGeneration ? (
+        {!canManageGlobalIntegrations ? (
           <div className="space-y-1.5">
             <label className={fieldLabel}>Title generation mode</label>
             <p className="text-xs text-[var(--muted)]">Only admins can change title generation settings.</p>
