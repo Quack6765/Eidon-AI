@@ -8,6 +8,7 @@ import { ShareConversationProvider } from "@/components/share-conversation-conte
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
 import type { SpeechSessionSnapshot, SttEngine, SttLanguage } from "@/lib/speech/types";
 import type { Message, MessageAttachment, MessageTimelineItem, QueuedMessage } from "@/lib/types";
+import { IOS_PWA_CONVERSATION_VIEWPORT_EVENT } from "@/lib/use-ios-pwa";
 
 const push = vi.fn();
 const refresh = vi.fn();
@@ -144,6 +145,8 @@ vi.mock("@/lib/speech/speech-controller", () => ({
 const stickToBottomMock = vi.hoisted(() => ({
   isAtBottomValue: true,
   scrollToBottom: vi.fn(),
+  stopScroll: vi.fn(),
+  targetScrollTop: null as (() => number) | null,
   listeners: new Set<() => void>(),
   _forceRender: null as (() => void) | null,
 }));
@@ -165,6 +168,9 @@ vi.mock("use-stick-to-bottom", () => ({
   useStickToBottomContext: () => ({
     get isAtBottom() { return stickToBottomMock.isAtBottomValue; },
     scrollToBottom: stickToBottomMock.scrollToBottom,
+    stopScroll: stickToBottomMock.stopScroll,
+    get targetScrollTop() { return stickToBottomMock.targetScrollTop; },
+    set targetScrollTop(value: (() => number) | null) { stickToBottomMock.targetScrollTop = value; },
   }),
 }));
 
@@ -184,7 +190,11 @@ vi.mock("@/components/ai-elements/conversation", () => {
       React.useEffect(() => {
         if (scrollerRef) scrollerRef(divRef.current);
       }, [divRef, scrollerRef]);
-      return React.createElement("div", { "data-testid": "conversation-content", ref: divRef }, children as React.ReactNode);
+      return React.createElement(
+        "div",
+        { "data-testid": "conversation-content", className: "conversation-scroller", ref: divRef },
+        React.createElement("div", null, children as React.ReactNode)
+      );
     },
     ConversationScrollButton: () => {
       const isAtBottom = React.useSyncExternalStore(
@@ -559,6 +569,8 @@ describe("chat view", () => {
     window.ResizeObserver = originalResizeObserver;
     stickToBottomMock.isAtBottomValue = true;
     stickToBottomMock.scrollToBottom.mockClear();
+    stickToBottomMock.stopScroll.mockClear();
+    stickToBottomMock.targetScrollTop = null;
   });
 
   function renderWithProvider(ui: React.ReactElement) {
@@ -685,6 +697,21 @@ describe("chat view", () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     expect(screen.getByRole("textbox").closest(".ios-keyboard-lift")).toBeNull();
+  });
+
+  it("keeps the keyboard-compensated viewport locked against streaming follow", () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent<number>(IOS_PWA_CONVERSATION_VIEWPORT_EVENT, {
+          detail: 420,
+        }),
+      );
+    });
+
+    expect(stickToBottomMock.targetScrollTop?.()).toBe(420);
+    expect(stickToBottomMock.stopScroll).toHaveBeenCalledTimes(1);
   });
 
   it("does not autofocus the composer on touch devices", () => {
@@ -3018,7 +3045,7 @@ describe("chat view", () => {
     });
   });
 
-  it("jumps back to the latest messages when a scrolled-up user queues another prompt", async () => {
+  it("keeps the viewport fixed when a scrolled-up user queues another prompt", async () => {
     renderWithProvider(
       React.createElement(ChatView, {
         payload: createPayload({
@@ -3055,7 +3082,7 @@ describe("chat view", () => {
       });
     });
 
-    expect(stickToBottomMock.scrollToBottom).toHaveBeenCalled();
+    expect(stickToBottomMock.scrollToBottom).not.toHaveBeenCalled();
   });
 
   it("does not force-scroll streaming updates when the user has scrolled away from the bottom", async () => {
@@ -3145,7 +3172,7 @@ describe("chat view", () => {
     });
   });
 
-  it("follows streaming overflow after sending", async () => {
+  it("keeps rendering streaming overflow after releasing auto-follow", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const textarea = screen.getByRole("textbox");
 
@@ -3264,11 +3291,112 @@ describe("chat view", () => {
     expect(messageIds).toEqual(["msg_prior", "msg_user_server"]);
   });
 
-  it("scrolls to anchor the user message near the top after sending", async () => {
-    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-    const textarea = screen.getByRole("textbox");
+  function measureComposerGrowth(nextComposerHeight: number) {
+    const conversationContent = getScrollContainer()!;
+    const composerArea = document.querySelector<HTMLElement>(
+      ".absolute.inset-x-0.bottom-0.z-50"
+    )!;
+    const composerHeightVar = () => {
+      const holder = document.querySelector<HTMLElement>('[style*="--composer-height"]');
+      return Number.parseFloat(holder?.style.getPropertyValue("--composer-height") ?? "0") || 0;
+    };
+    const metrics = { scrollTop: 0 };
+    Object.defineProperties(conversationContent, {
+      clientHeight: { configurable: true, get: () => 600 },
+      scrollHeight: { configurable: true, get: () => 1000 + composerHeightVar() + 24 },
+      scrollTop: {
+        configurable: true,
+        get: () => metrics.scrollTop,
+        set: (value: number) => {
+          metrics.scrollTop = value;
+        }
+      }
+    });
 
-    const scrollIntoViewSpy2 = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    return {
+      metrics,
+      grow: async () => {
+        Object.defineProperty(composerArea, "offsetHeight", {
+          configurable: true,
+          value: nextComposerHeight
+        });
+        await flushResizeObservers();
+      }
+    };
+  }
+
+  it("keeps the transcript against the composer when the composer grows on focus", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          messages: [createMessage({ id: "msg_assistant_first", content: "First answer" })]
+        })
+      })
+    );
+
+    const { metrics, grow } = measureComposerGrowth(60);
+    metrics.scrollTop = 424;
+
+    await grow();
+
+    expect(metrics.scrollTop).toBe(484);
+  });
+
+  it("leaves a scrolled-up transcript alone when the composer grows on focus", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          messages: [createMessage({ id: "msg_assistant_first", content: "First answer" })]
+        })
+      })
+    );
+
+    const { metrics, grow } = measureComposerGrowth(60);
+    metrics.scrollTop = 120;
+
+    await grow();
+
+    expect(metrics.scrollTop).toBe(120);
+  });
+
+  it("animates a second user message to the top with empty space for the response", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          messages: [
+            createMessage({ id: "msg_user_first", role: "user", content: "First question" }),
+            createMessage({ id: "msg_assistant_first", content: "First answer" })
+          ]
+        })
+      })
+    );
+    const textarea = screen.getByRole("textbox");
+    const conversationContent = getScrollContainer()!;
+    Object.defineProperty(conversationContent, "clientHeight", {
+      configurable: true,
+      value: 640
+    });
+    Object.defineProperty(conversationContent, "scrollTop", {
+      configurable: true,
+      writable: true,
+      value: 500
+    });
+    const getBoundingClientRectSpy = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function(this: Element) {
+        if (this === conversationContent) {
+          return { top: 80 } as DOMRect;
+        }
+        if (
+          this instanceof HTMLElement &&
+          this.hasAttribute("data-message-id") &&
+          this.textContent?.includes("Hello world")
+        ) {
+          return { top: 200 } as DOMRect;
+        }
+        return { top: 0 } as DOMRect;
+      });
+    const scrollToSpy = vi.spyOn(conversationContent, "scrollTo");
 
     fireEvent.change(textarea, { target: { value: "Hello world" } });
     fireEvent.keyDown(textarea, { key: "Enter" });
@@ -3279,14 +3407,87 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
     await flushAnimationFrame();
+    await flushAnimationFrame();
 
-    expect(scrollIntoViewSpy2).toHaveBeenCalledWith(
-      expect.objectContaining({ block: "start", behavior: "auto" })
-    );
-    scrollIntoViewSpy2.mockRestore();
+    expect(scrollToSpy).toHaveBeenCalledWith({ top: 608, behavior: "smooth" });
+    expect(conversationContent.firstElementChild).toHaveStyle({ minHeight: "1248px" });
+    expect(stickToBottomMock.targetScrollTop?.()).toBe(608);
+    expect(stickToBottomMock.stopScroll).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant_streaming" }
+      });
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "The response starts here." }
+      });
+    });
+
+    await flushAnimationFrame();
+    await flushAnimationFrame();
+
+    await waitFor(() => {
+      expect(screen.getByText(streamedText("The response starts here."))).toBeInTheDocument();
+    });
+    expect(conversationContent.firstElementChild).toHaveStyle({ minHeight: "1248px" });
+    scrollToSpy.mockRestore();
+    getBoundingClientRectSpy.mockRestore();
   });
 
-  it("scrolls to bottom when queuing a follow-up during an active turn", async () => {
+  it("anchors the user message instantly when reduced motion is preferred", async () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query === "(prefers-reduced-motion: reduce)",
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn()
+      }))
+    });
+
+    try {
+      renderWithProvider(
+        React.createElement(ChatView, {
+          payload: createPayload({
+            messages: [createMessage({ id: "msg_assistant_first", content: "First answer" })]
+          })
+        })
+      );
+      const textarea = screen.getByRole("textbox");
+      const conversationContent = getScrollContainer()!;
+      const scrollToSpy = vi.spyOn(conversationContent, "scrollTo");
+
+      fireEvent.change(textarea, { target: { value: "Second question" } });
+      fireEvent.keyDown(textarea, { key: "Enter" });
+
+      await waitFor(() => {
+        expect(screen.getByText("Second question")).toBeInTheDocument();
+      });
+      await flushAnimationFrame();
+      await flushAnimationFrame();
+
+      expect(scrollToSpy).toHaveBeenCalledWith({ top: 0, behavior: "auto" });
+      scrollToSpy.mockRestore();
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia
+      });
+    }
+  });
+
+  it("does not scroll when queuing a follow-up during an active turn", async () => {
     renderWithProvider(
       React.createElement(ChatView, {
         payload: createPayload({
@@ -3324,7 +3525,7 @@ describe("chat view", () => {
 
     await flushAnimationFrame();
 
-    expect(stickToBottomMock.scrollToBottom).toHaveBeenCalled();
+    expect(stickToBottomMock.scrollToBottom).not.toHaveBeenCalled();
   });
 
   it("cancels streaming follow immediately when the user wheels away", async () => {
@@ -3418,7 +3619,8 @@ describe("chat view", () => {
       })
     );
 
-    const scrollIntoViewSpy3 = vi.spyOn(Element.prototype, 'scrollIntoView').mockImplementation(() => {});
+    const conversationContent = getScrollContainer()!;
+    const scrollToSpy = vi.spyOn(conversationContent, "scrollTo");
 
     fireEvent.click(screen.getByRole("button", { name: "Edit message" }));
     fireEvent.change(screen.getByDisplayValue("Original prompt"), {
@@ -3441,10 +3643,8 @@ describe("chat view", () => {
     await flushAnimationFrame();
     await flushAnimationFrame();
 
-    expect(scrollIntoViewSpy3).toHaveBeenCalledWith(
-      expect.objectContaining({ block: "start", behavior: "auto" })
-    );
-    scrollIntoViewSpy3.mockRestore();
+    expect(scrollToSpy).toHaveBeenCalledWith({ top: 0, behavior: "smooth" });
+    scrollToSpy.mockRestore();
   });
 
   it("shows regenerate button only on the last user message", async () => {

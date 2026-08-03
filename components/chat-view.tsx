@@ -37,6 +37,7 @@ import { clearChatBootstrap, readChatBootstrap } from "@/lib/chat-bootstrap";
 import { createStreamBuffer } from "@/lib/stream-buffer";
 import { StreamingMessage } from "@/components/streaming-message";
 import { useStableHandler } from "@/lib/use-stable-handler";
+import { IOS_PWA_CONVERSATION_VIEWPORT_EVENT } from "@/lib/use-ios-pwa";
 import { useContextTokens } from "@/lib/context-tokens-context";
 import {
   dispatchConversationActivityUpdated,
@@ -46,7 +47,7 @@ import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { appendTranscriptToDraft } from "@/lib/speech/append-transcript-to-draft";
 import { useSpeechInput } from "@/lib/speech/use-speech-input";
-import { shouldAutofocusTextInput } from "@/lib/utils";
+import { isScrolledToBottom, shouldAutofocusTextInput } from "@/lib/utils";
 import type { AppSettings } from "@/lib/types";
 import type {
   ChatStreamEvent,
@@ -79,19 +80,32 @@ type ConversationPayload = {
 
 const INITIAL_VISIBLE_MESSAGE_COUNT = 60;
 const VISIBLE_MESSAGE_INCREMENT = 100;
+const PINNED_TURN_TOP_INSET_PX = 12;
 const EMPTY_TIMELINE: MessageTimelineItem[] = [];
 
 function StickToBottomBridge({
-  scrollToBottomRef
+  scrollToBottomRef,
+  setScrollTargetRef
 }: {
   scrollToBottomRef: React.RefObject<(() => void) | null>;
+  setScrollTargetRef: React.RefObject<((target: number | null) => void) | null>;
 }) {
-  const { scrollToBottom } = useStickToBottomContext();
+  const stickToBottom = useStickToBottomContext();
+  const { scrollToBottom, stopScroll } = stickToBottom;
 
   useEffect(() => {
     scrollToBottomRef.current = scrollToBottom;
-    return () => { scrollToBottomRef.current = null; };
-  }, [scrollToBottom, scrollToBottomRef]);
+    setScrollTargetRef.current = (target) => {
+      stickToBottom.targetScrollTop = target === null ? null : () => target;
+      if (target !== null) {
+        stopScroll();
+      }
+    };
+    return () => {
+      scrollToBottomRef.current = null;
+      setScrollTargetRef.current = null;
+    };
+  }, [scrollToBottom, scrollToBottomRef, setScrollTargetRef, stickToBottom, stopScroll]);
 
   return null;
 }
@@ -178,9 +192,12 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
   const [personaId, setPersonaId] = useState<string | null>(null);
   const scrollToBottomRef = useRef<(() => void) | null>(null);
-  const anchorSpacerRef = useRef<HTMLDivElement>(null);
+  const setScrollTargetRef = useRef<((target: number | null) => void) | null>(null);
+  const contentEndRef = useRef<HTMLDivElement>(null);
   const composerAreaRef = useRef<HTMLDivElement>(null);
   const [composerAreaHeight, setComposerAreaHeight] = useState(160);
+  const composerAreaHeightRef = useRef(160);
+  const absorbComposerGrowthRef = useRef(false);
   const finalizePendingRef = useRef(false);
 
   const {
@@ -459,15 +476,44 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   }, []);
 
   useEffect(() => {
+    contentEndRef.current?.parentElement?.style.removeProperty("min-height");
+    setScrollTargetRef.current?.(null);
     scrollToBottomRef.current?.();
   }, [payload.conversation.id]);
+
+  useEffect(() => {
+    const preserveKeyboardViewport = (event: Event) => {
+      const scrollTop = (event as CustomEvent<number>).detail;
+      if (Number.isFinite(scrollTop)) {
+        setScrollTargetRef.current?.(scrollTop);
+      }
+    };
+
+    window.addEventListener(
+      IOS_PWA_CONVERSATION_VIEWPORT_EVENT,
+      preserveKeyboardViewport,
+    );
+    return () => {
+      window.removeEventListener(
+        IOS_PWA_CONVERSATION_VIEWPORT_EVENT,
+        preserveKeyboardViewport,
+      );
+    };
+  }, []);
 
   useLayoutEffect(() => {
     const el = composerAreaRef.current;
     if (!el) return;
     const measure = () => {
       const next = el.offsetHeight;
-      setComposerAreaHeight((current) => (current === next ? current : next));
+      if (next === composerAreaHeightRef.current) return;
+      const scroller = contentEndRef.current?.closest(".conversation-scroller");
+      absorbComposerGrowthRef.current =
+        next > composerAreaHeightRef.current &&
+        scroller instanceof HTMLElement &&
+        isScrolledToBottom(scroller);
+      composerAreaHeightRef.current = next;
+      setComposerAreaHeight(next);
     };
     measure();
     if (typeof ResizeObserver === "undefined") return;
@@ -475,6 +521,14 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  useLayoutEffect(() => {
+    if (!absorbComposerGrowthRef.current) return;
+    absorbComposerGrowthRef.current = false;
+    const scroller = contentEndRef.current?.closest(".conversation-scroller");
+    if (!(scroller instanceof HTMLElement)) return;
+    scroller.scrollTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+  }, [composerAreaHeight]);
 
   useEffect(() => {
     if (!pendingAnchorMessageIdRef.current) return;
@@ -484,18 +538,29 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
 
     pendingAnchorMessageIdRef.current = null;
     requestAnimationFrame(() => {
-      if (anchorSpacerRef.current) {
-        const scrollerHeight =
-          anchorSpacerRef.current.closest(".conversation-scroller")?.clientHeight ?? 800;
-        anchorSpacerRef.current.style.height = `${scrollerHeight}px`;
-      }
       const targetEl = document.querySelector(`[data-message-id="${messageId}"]`);
-      targetEl?.scrollIntoView({ block: "start", behavior: "auto" });
-      requestAnimationFrame(() => {
-        if (anchorSpacerRef.current) {
-          anchorSpacerRef.current.style.height = "";
-        }
-      });
+      const content = contentEndRef.current?.parentElement;
+      const scroller = contentEndRef.current?.closest(".conversation-scroller");
+      const behavior =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth";
+      if (targetEl && content && scroller) {
+        const targetTop = Math.max(
+          0,
+          scroller.scrollTop +
+            targetEl.getBoundingClientRect().top -
+            scroller.getBoundingClientRect().top -
+            PINNED_TURN_TOP_INSET_PX
+        );
+        content.style.minHeight = `${targetTop + scroller.clientHeight}px`;
+        setScrollTargetRef.current?.(targetTop);
+        scroller.scrollTo({ top: targetTop, behavior });
+      } else {
+        setScrollTargetRef.current?.(scroller?.scrollTop ?? 0);
+        targetEl?.scrollIntoView({ block: "start", behavior });
+      }
     });
   }, [visibleMessages]);
 
@@ -1743,7 +1808,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         return;
       }
 
-      scrollToBottomRef.current?.();
       setError("");
       setInput("");
       dismissComposerKeyboardOnTouch();
@@ -1979,7 +2043,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
         style={{ ["--composer-height" as string]: `${composerAreaHeight}px` }}
       >
       <ConversationContainer>
-        <StickToBottomBridge scrollToBottomRef={scrollToBottomRef} />
+        <StickToBottomBridge
+          scrollToBottomRef={scrollToBottomRef}
+          setScrollTargetRef={setScrollTargetRef}
+        />
         <ConversationContent
           className="gap-2.5 px-2 pt-4 md:gap-4 md:px-8"
         >
@@ -2046,7 +2113,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               {error}
             </div>
           ) : null}
-          <div ref={anchorSpacerRef} />
+          <div ref={contentEndRef} />
           <div aria-hidden style={{ height: "calc(var(--composer-height, 160px) + 24px)" }} />
         </ConversationContent>
         <ConversationScrollButton />

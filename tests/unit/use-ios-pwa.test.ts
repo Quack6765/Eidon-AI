@@ -2,7 +2,10 @@
 
 import { act, renderHook } from "@testing-library/react";
 
-import { useIosPwa } from "@/lib/use-ios-pwa";
+import {
+  IOS_PWA_CONVERSATION_VIEWPORT_EVENT,
+  useIosPwa,
+} from "@/lib/use-ios-pwa";
 
 function setNavigatorStandalone(value: boolean | undefined) {
   if (value === undefined) {
@@ -52,6 +55,29 @@ function setElementScroll(element: Element, top: number, left: number) {
     get: () => leftValue,
     set: (value: number) => {
       leftValue = value;
+    },
+  });
+}
+
+function setScrollMetrics(
+  element: HTMLElement,
+  metrics: { scrollTop: number; scrollHeight: number; clientHeight: number },
+) {
+  Object.defineProperties(element, {
+    scrollTop: {
+      configurable: true,
+      get: () => metrics.scrollTop,
+      set: (value: number) => {
+        metrics.scrollTop = value;
+      },
+    },
+    scrollHeight: {
+      configurable: true,
+      get: () => metrics.scrollHeight,
+    },
+    clientHeight: {
+      configurable: true,
+      get: () => metrics.clientHeight,
     },
   });
 }
@@ -687,6 +713,444 @@ describe("useIosPwa", () => {
     input.remove();
   });
 
+  it("remeasures the visual viewport after focus when WebKit misses the keyboard resize event", () => {
+    vi.useFakeTimers();
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+    Element.prototype.scrollIntoView = vi.fn();
+
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+
+    renderHook(() => useIosPwa());
+    expect(appHeightVar()).toBe("812px");
+
+    act(() => {
+      input.focus();
+      flushRaf();
+    });
+
+    fakeVisualViewport.height = 500;
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(appHeightVar()).toBe("500px");
+
+    input.remove();
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it("keeps the latest transcript content above the composer when the keyboard opens", () => {
+    vi.useFakeTimers();
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+    Element.prototype.scrollIntoView = vi.fn();
+
+    const transcript = document.createElement("div");
+    transcript.className = "conversation-scroller";
+    const metrics = { scrollTop: 400, scrollHeight: 1000, clientHeight: 600 };
+    setScrollMetrics(transcript, metrics);
+    document.body.appendChild(transcript);
+
+    const input = document.createElement("textarea");
+    document.body.appendChild(input);
+    const viewportPreserved = vi.fn();
+    window.addEventListener(IOS_PWA_CONVERSATION_VIEWPORT_EVENT, viewportPreserved);
+
+    renderHook(() => useIosPwa());
+
+    act(() => {
+      input.focus();
+      flushRaf();
+    });
+
+    fakeVisualViewport.height = 500;
+    metrics.clientHeight = 300;
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(metrics.scrollTop).toBe(700);
+    expect(metrics.scrollHeight - metrics.clientHeight - metrics.scrollTop).toBe(0);
+    expect(viewportPreserved).toHaveBeenCalledTimes(1);
+    expect((viewportPreserved.mock.calls[0]?.[0] as CustomEvent<number>).detail).toBe(700);
+
+    fakeVisualViewport.height = 812;
+    metrics.clientHeight = 600;
+    metrics.scrollTop = 400;
+    act(() => {
+      input.blur();
+      window.dispatchEvent(new Event("resize"));
+      vi.runOnlyPendingTimers();
+      flushRaf();
+    });
+
+    expect(viewportPreserved).toHaveBeenCalledTimes(2);
+    expect((viewportPreserved.mock.calls[1]?.[0] as CustomEvent<number>).detail).toBe(400);
+
+    window.removeEventListener(IOS_PWA_CONVERSATION_VIEWPORT_EVENT, viewportPreserved);
+    input.remove();
+    transcript.remove();
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it("compensates a viewport shrink that lands after the focus settle delay", () => {
+    vi.useFakeTimers();
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+    Element.prototype.scrollIntoView = vi.fn();
+
+    const transcript = document.createElement("div");
+    transcript.className = "conversation-scroller";
+    const metrics = { scrollTop: 400, scrollHeight: 1000, clientHeight: 600 };
+    setScrollMetrics(transcript, metrics);
+    document.body.appendChild(transcript);
+
+    const input = document.createElement("textarea");
+    document.body.appendChild(input);
+
+    renderHook(() => useIosPwa());
+
+    act(() => {
+      input.focus();
+      flushRaf();
+    });
+
+    fakeVisualViewport.height = 500;
+    metrics.clientHeight = 300;
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(metrics.scrollTop).toBe(700);
+
+    fakeVisualViewport.height = 456;
+    metrics.clientHeight = 256;
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+      vi.runOnlyPendingTimers();
+      flushRaf();
+    });
+
+    expect(metrics.scrollTop).toBe(744);
+    expect(metrics.scrollHeight - metrics.clientHeight - metrics.scrollTop).toBe(0);
+
+    act(() => {
+      input.blur();
+    });
+    input.remove();
+    transcript.remove();
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it("compensates a transcript parked a pixel short of the bottom", () => {
+    vi.useFakeTimers();
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+    Element.prototype.scrollIntoView = vi.fn();
+
+    const transcript = document.createElement("div");
+    transcript.className = "conversation-scroller";
+    const metrics = { scrollTop: 399, scrollHeight: 1000, clientHeight: 600 };
+    setScrollMetrics(transcript, metrics);
+    document.body.appendChild(transcript);
+
+    const input = document.createElement("textarea");
+    document.body.appendChild(input);
+
+    renderHook(() => useIosPwa());
+
+    act(() => {
+      input.focus();
+      flushRaf();
+    });
+
+    fakeVisualViewport.height = 500;
+    metrics.clientHeight = 300;
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(metrics.scrollTop).toBe(699);
+
+    act(() => {
+      input.blur();
+    });
+    input.remove();
+    transcript.remove();
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it("compensates the viewport loss from wherever the transcript has followed to", () => {
+    vi.useFakeTimers();
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+    Element.prototype.scrollIntoView = vi.fn();
+
+    const transcript = document.createElement("div");
+    transcript.className = "conversation-scroller";
+    const metrics = { scrollTop: 400, scrollHeight: 1000, clientHeight: 600 };
+    setScrollMetrics(transcript, metrics);
+    document.body.appendChild(transcript);
+
+    const input = document.createElement("textarea");
+    document.body.appendChild(input);
+
+    renderHook(() => useIosPwa());
+
+    act(() => {
+      input.focus();
+      flushRaf();
+    });
+
+    fakeVisualViewport.height = 500;
+    metrics.clientHeight = 300;
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(metrics.scrollTop).toBe(700);
+
+    metrics.scrollHeight = 1400;
+    metrics.scrollTop = 1100;
+    fakeVisualViewport.height = 456;
+    metrics.clientHeight = 256;
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+      vi.runOnlyPendingTimers();
+      flushRaf();
+    });
+
+    expect(metrics.scrollTop).toBe(1144);
+    expect(metrics.scrollHeight - metrics.clientHeight - metrics.scrollTop).toBe(0);
+
+    act(() => {
+      input.blur();
+    });
+    input.remove();
+    transcript.remove();
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it("captures the latest transcript before iOS moves the composer ahead of focus", () => {
+    vi.useFakeTimers();
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+    Element.prototype.scrollIntoView = vi.fn();
+
+    const transcript = document.createElement("div");
+    transcript.className = "conversation-scroller";
+    const metrics = { scrollTop: 400, scrollHeight: 1000, clientHeight: 600 };
+    setScrollMetrics(transcript, metrics);
+    document.body.appendChild(transcript);
+
+    const input = document.createElement("textarea");
+    document.body.appendChild(input);
+
+    renderHook(() => useIosPwa());
+
+    act(() => {
+      input.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+      fakeVisualViewport.height = 500;
+      metrics.clientHeight = 300;
+      input.focus();
+      flushRaf();
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(metrics.scrollTop).toBe(700);
+    expect(metrics.scrollHeight - metrics.clientHeight - metrics.scrollTop).toBe(0);
+
+    input.remove();
+    transcript.remove();
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it("does not follow streamed content while compensating for the keyboard viewport", () => {
+    vi.useFakeTimers();
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+    Element.prototype.scrollIntoView = vi.fn();
+
+    const transcript = document.createElement("div");
+    transcript.className = "conversation-scroller";
+    const metrics = { scrollTop: 400, scrollHeight: 1000, clientHeight: 600 };
+    setScrollMetrics(transcript, metrics);
+    document.body.appendChild(transcript);
+
+    const input = document.createElement("textarea");
+    document.body.appendChild(input);
+
+    renderHook(() => useIosPwa());
+
+    act(() => {
+      input.focus();
+      flushRaf();
+    });
+
+    fakeVisualViewport.height = 500;
+    metrics.clientHeight = 300;
+    metrics.scrollHeight = 1100;
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(metrics.scrollTop).toBe(700);
+    expect(metrics.scrollHeight - metrics.clientHeight - metrics.scrollTop).toBe(100);
+
+    input.remove();
+    transcript.remove();
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
+  it("keeps a manually browsed transcript fixed when the keyboard opens", () => {
+    vi.useFakeTimers();
+    setNavigatorStandalone(true);
+    setInnerHeight(812);
+
+    const fakeVisualViewport = {
+      height: 812,
+      scale: 1,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: fakeVisualViewport,
+    });
+    Element.prototype.scrollIntoView = vi.fn();
+
+    const transcript = document.createElement("div");
+    transcript.className = "conversation-scroller";
+    const metrics = { scrollTop: 250, scrollHeight: 1000, clientHeight: 600 };
+    setScrollMetrics(transcript, metrics);
+    document.body.appendChild(transcript);
+
+    const input = document.createElement("textarea");
+    document.body.appendChild(input);
+
+    renderHook(() => useIosPwa());
+
+    act(() => {
+      input.focus();
+      flushRaf();
+    });
+
+    fakeVisualViewport.height = 500;
+    metrics.clientHeight = 300;
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(metrics.scrollTop).toBe(250);
+
+    input.remove();
+    transcript.remove();
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+
   it("clears the trailing focus correction on unmount", () => {
     vi.useFakeTimers();
     setNavigatorStandalone(true);
@@ -741,7 +1205,7 @@ describe("useIosPwa", () => {
     button.remove();
   });
 
-  it("does not listen for focusin and never corrects scroll when not standalone", () => {
+  it("does not listen for focus events and never corrects scroll when not standalone", () => {
     setNavigatorStandalone(false);
     setInnerHeight(812);
 
@@ -752,13 +1216,15 @@ describe("useIosPwa", () => {
 
     renderHook(() => useIosPwa());
 
+    expect(docAddSpy).not.toHaveBeenCalledWith("pointerdown", expect.any(Function), true);
     expect(docAddSpy).not.toHaveBeenCalledWith("focusin", expect.any(Function));
+    expect(docAddSpy).not.toHaveBeenCalledWith("focusout", expect.any(Function));
     expect(scrollToMock).not.toHaveBeenCalled();
 
     docAddSpy.mockRestore();
   });
 
-  it("removes the visualViewport scroll and document focusin listeners on unmount", () => {
+  it("removes the visualViewport scroll and document focus listeners on unmount", () => {
     setNavigatorStandalone(true);
     setInnerHeight(812);
 
@@ -780,12 +1246,16 @@ describe("useIosPwa", () => {
     const { unmount } = renderHook(() => useIosPwa());
 
     expect(fakeVisualViewport.addEventListener).toHaveBeenCalledWith("scroll", expect.any(Function));
+    expect(docAddSpy).toHaveBeenCalledWith("pointerdown", expect.any(Function), true);
     expect(docAddSpy).toHaveBeenCalledWith("focusin", expect.any(Function));
+    expect(docAddSpy).toHaveBeenCalledWith("focusout", expect.any(Function));
 
     unmount();
 
     expect(fakeVisualViewport.removeEventListener).toHaveBeenCalledWith("scroll", expect.any(Function));
+    expect(docRemoveSpy).toHaveBeenCalledWith("pointerdown", expect.any(Function), true);
     expect(docRemoveSpy).toHaveBeenCalledWith("focusin", expect.any(Function));
+    expect(docRemoveSpy).toHaveBeenCalledWith("focusout", expect.any(Function));
 
     docAddSpy.mockRestore();
     docRemoveSpy.mockRestore();

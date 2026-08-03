@@ -1,11 +1,12 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { IOS_PWA_CONVERSATION_VIEWPORT_EVENT } from "@/lib/use-ios-pwa";
+import { cn, isScrolledToBottom } from "@/lib/utils";
 import type { UIMessage } from "ai";
 import { ArrowDownIcon, DownloadIcon } from "lucide-react";
 import type { ComponentProps } from "react";
-import { useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;
@@ -90,14 +91,50 @@ export const ConversationScrollButton = ({
   className,
   ...props
 }: ConversationScrollButtonProps) => {
-  const { isAtBottom, scrollToBottom } = useStickToBottomContext();
+  const stickToBottom = useStickToBottomContext();
+  const { contentRef, scrollRef, scrollToBottom, state, stopScroll } = stickToBottom;
+  const [hasContentBelow, setHasContentBelow] = useState(false);
+
+  useEffect(() => {
+    const scrollElement = scrollRef.current;
+    const contentElement = contentRef.current;
+    if (!scrollElement || !contentElement) return;
+
+    const update = () => {
+      setHasContentBelow(!isScrolledToBottom(scrollElement));
+    };
+
+    update();
+    scrollElement.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update);
+    window.addEventListener(IOS_PWA_CONVERSATION_VIEWPORT_EVENT, update);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(contentElement);
+
+    return () => {
+      observer?.disconnect();
+      scrollElement.removeEventListener("scroll", update);
+      window.removeEventListener("resize", update);
+      window.removeEventListener(IOS_PWA_CONVERSATION_VIEWPORT_EVENT, update);
+    };
+  }, [contentRef, scrollRef]);
 
   const handleScrollToBottom = useCallback(() => {
-    void scrollToBottom(SCROLL_TO_LATEST_OPTIONS);
-  }, [scrollToBottom]);
+    const targetScrollTop = state.targetScrollTop;
+    stickToBottom.targetScrollTop = () => targetScrollTop;
+
+    const releaseScroll = () => {
+      stopScroll();
+    };
+
+    void Promise.resolve(scrollToBottom(SCROLL_TO_LATEST_OPTIONS)).then(
+      releaseScroll,
+      releaseScroll
+    );
+  }, [scrollToBottom, state, stickToBottom, stopScroll]);
 
   return (
-    !isAtBottom && (
+    hasContentBelow && (
       <Button
         aria-label="Scroll to latest messages"
         className={cn(
