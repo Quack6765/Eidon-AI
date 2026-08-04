@@ -8,10 +8,14 @@ import {
 import {
   runCanaryTranscription
 } from "@/lib/speech/canary-transcription-limiter";
+import type {
+  AssemblyAiLanguage,
+  AssemblyAiModelId
+} from "@/lib/speech/assemblyai-languages";
 import {
   transcribeWithExternalSttProvider
 } from "@/lib/speech/external-transcription";
-import type { ExternalSttLanguage } from "@/lib/speech/external-providers";
+import type { ExternalSttLanguageForProvider } from "@/lib/speech/external-providers";
 import {
   MAX_RECORDED_SPEECH_AUDIO_BYTES,
   RECORDED_SPEECH_SAMPLE_RATE
@@ -31,6 +35,7 @@ export interface TranscriptionProvider {
     samples: Float32Array;
     settings: RuntimeAppSettings;
     userId: string;
+    signal?: AbortSignal;
   }): Promise<{ model: string; provider: string; transcript: string }>;
 }
 
@@ -62,14 +67,34 @@ const TRANSCRIPTION_PROVIDERS = {
     getReadinessError(settings) {
       return getTranscriptionReadinessError(settings.speechTranscription);
     },
-    async transcribe({ samples, settings }) {
+    async transcribe({ samples, settings, signal }) {
       const result = await transcribeWithExternalSttProvider({
         provider: "elevenlabs",
         apiKey: settings.speechTranscription.credentials.apiKey ?? "",
         samples,
-        language: settings.speechTranscription.configuration.language as ExternalSttLanguage
+        language: settings.speechTranscription.configuration.language as
+          ExternalSttLanguageForProvider<"elevenlabs">,
+        signal
       });
       return { model: result.model, provider: "elevenlabs", transcript: result.transcript };
+    }
+  },
+  assemblyai: {
+    sampleRate: RECORDED_SPEECH_SAMPLE_RATE,
+    maxAudioBytes: MAX_RECORDED_SPEECH_AUDIO_BYTES,
+    getReadinessError(settings) {
+      return getTranscriptionReadinessError(settings.speechTranscription);
+    },
+    async transcribe({ samples, settings, signal }) {
+      const result = await transcribeWithExternalSttProvider({
+        provider: "assemblyai",
+        apiKey: settings.speechTranscription.credentials.apiKey ?? "",
+        samples,
+        language: settings.speechTranscription.configuration.language as AssemblyAiLanguage,
+        model: settings.speechTranscription.configuration.model as AssemblyAiModelId,
+        signal
+      });
+      return { model: result.model, provider: "assemblyai", transcript: result.transcript };
     }
   }
 } satisfies Record<Exclude<TranscriptionProviderId, "browser">, TranscriptionProvider>;

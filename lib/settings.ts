@@ -102,7 +102,11 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
           providerId: speechTranscription.providerId as TranscriptionProviderId,
           configuration: {
             language: String(speechTranscription.configuration.language ?? "auto") as
-              RuntimeAppSettings["speechTranscription"]["configuration"]["language"]
+              RuntimeAppSettings["speechTranscription"]["configuration"]["language"],
+            ...(speechTranscription.configuration.model
+              ? { model: speechTranscription.configuration.model as
+                  RuntimeAppSettings["speechTranscription"]["configuration"]["model"] }
+              : {})
           }
         }
       : {

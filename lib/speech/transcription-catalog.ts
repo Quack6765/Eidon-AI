@@ -2,15 +2,24 @@ import { z } from "zod";
 
 import type { IntegrationProviderDescriptor } from "@/lib/integration-types";
 import {
-  EXTERNAL_STT_LANGUAGE_CODES,
+  ASSEMBLYAI_UNIVERSAL_2_LANGUAGE_CODES,
+  ASSEMBLYAI_UNIVERSAL_3_5_PRO_LANGUAGE_CODES,
+  DEFAULT_ASSEMBLYAI_MODEL,
+  getAssemblyAiLanguages,
+  isAssemblyAiModelId,
+  type AssemblyAiModelId
+} from "@/lib/speech/assemblyai-languages";
+import {
   EXTERNAL_STT_PROVIDERS,
   type ExternalSttLanguage,
   type SttProvider
 } from "@/lib/speech/external-providers";
+import { ELEVENLABS_SCRIBE_LANGUAGE_CODES } from "@/lib/speech/elevenlabs-languages";
 
 export type TranscriptionProviderId = "browser" | "canary" | SttProvider;
 export type TranscriptionConfiguration = {
   language: "auto" | "en" | "fr" | "es" | ExternalSttLanguage;
+  model?: AssemblyAiModelId;
 };
 export type SttEngine = "browser" | "embedded" | "external";
 
@@ -32,7 +41,21 @@ export const speechTranscriptionIntegrationUpdateSchema = z.discriminatedUnion("
   }).strict(),
   z.object({
     providerId: z.literal("elevenlabs"),
-    configuration: z.object({ language: z.enum(EXTERNAL_STT_LANGUAGE_CODES) }).strict(),
+    configuration: z.object({ language: z.enum(ELEVENLABS_SCRIBE_LANGUAGE_CODES) }).strict(),
+    ...credentialFields
+  }).strict(),
+  z.object({
+    providerId: z.literal("assemblyai"),
+    configuration: z.discriminatedUnion("model", [
+      z.object({
+        model: z.literal("universal-3-5-pro"),
+        language: z.enum(ASSEMBLYAI_UNIVERSAL_3_5_PRO_LANGUAGE_CODES)
+      }).strict(),
+      z.object({
+        model: z.literal("universal-2"),
+        language: z.enum(ASSEMBLYAI_UNIVERSAL_2_LANGUAGE_CODES)
+      }).strict()
+    ]),
     ...credentialFields
   }).strict()
 ]);
@@ -104,6 +127,16 @@ export function normalizeTranscriptionSelection(
       providerId,
       configuration: { language: normalizeLocalLanguage(configuration.language, false) }
     };
+  }
+  if (providerId === "assemblyai") {
+    const model = isAssemblyAiModelId(configuration.model)
+      ? configuration.model
+      : DEFAULT_ASSEMBLYAI_MODEL;
+    const languages = getAssemblyAiLanguages(model);
+    const language = languages.some((entry) => entry.value === configuration.language)
+      ? configuration.language as ExternalSttLanguage
+      : "auto";
+    return { providerId, configuration: { language, model } };
   }
   const provider = EXTERNAL_STT_PROVIDERS[providerId];
   const language = provider.languages.some((entry) => entry.value === configuration.language)

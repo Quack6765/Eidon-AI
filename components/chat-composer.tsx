@@ -457,26 +457,36 @@ export function ChatComposer({
                 transition={{ duration: 0.16 }}
                 className="flex items-center justify-end gap-2"
               >
-                <div className="flex h-8 w-[80px] sm:w-[96px] items-center rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 sm:px-3">
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className="h-full rounded-full bg-emerald-400 transition-[width] duration-100"
-                      style={{ width: `${speechLevelWidth}%` }}
-                    />
+                {speechPhase === "transcribing" ? (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    aria-atomic="true"
+                    className="flex h-9 items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-3 text-[11px] font-medium text-violet-100 sm:h-8"
+                  >
+                    <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin text-violet-300" />
+                    <span>Transcribing…</span>
                   </div>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Stop voice input"
-                  onClick={() => void onStopSpeech()}
-                  disabled={speechPhase === "transcribing"}
-                  className={cn(
-                    "flex h-9 w-9 sm:h-8 sm:w-8 items-center justify-center rounded-full bg-red-500 text-white transition-colors duration-200 hover:bg-red-400",
-                    speechPhase === "transcribing" && "cursor-not-allowed opacity-60"
-                  )}
-                >
-                  <Square className="h-3 w-3 fill-current" />
-                </button>
+                ) : (
+                  <>
+                    <div className="flex h-8 w-[80px] items-center rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 sm:w-[96px] sm:px-3">
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className="h-full rounded-full bg-emerald-400 transition-[width] duration-100"
+                          style={{ width: `${speechLevelWidth}%` }}
+                        />
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="Stop voice input"
+                      onClick={() => void onStopSpeech()}
+                      className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500 text-white transition-colors duration-200 hover:bg-red-400 sm:h-8 sm:w-8"
+                    >
+                      <Square className="h-3 w-3 fill-current" />
+                    </button>
+                  </>
+                )}
               </motion.div>
             ) : (
               <motion.div

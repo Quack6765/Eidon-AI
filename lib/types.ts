@@ -1,5 +1,6 @@
 import type {
   ExternalSttLanguage,
+  ExternalSttModel
 } from "@/lib/speech/external-providers";
 import type { SttEngine, SttLanguage } from "@/lib/speech/types";
 import type {
@@ -118,6 +119,7 @@ export type AppSettings = AppSettingsCore & {
   imageGeneration: IntegrationSelection<ImageGenerationProviderId, { model?: ImageGenerationModelId }>;
   speechTranscription: IntegrationSelection<TranscriptionProviderId, {
     language: SttLanguage | ExternalSttLanguage;
+    model?: ExternalSttModel;
   }>;
 };
 
@@ -132,7 +134,7 @@ export type RuntimeAppSettings = AppSettingsCore & {
   >;
   speechTranscription: RuntimeIntegrationSelection<
     TranscriptionProviderId,
-    { language: SttLanguage | ExternalSttLanguage }
+    { language: SttLanguage | ExternalSttLanguage; model?: ExternalSttModel }
   >;
 };
 

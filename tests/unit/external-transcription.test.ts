@@ -1,6 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 
 const transcribeWithElevenLabsMock = vi.hoisted(() => vi.fn());
+const transcribeWithAssemblyAiMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/speech/assemblyai", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/speech/assemblyai")>(
+    "@/lib/speech/assemblyai"
+  );
+  return {
+    ...actual,
+    transcribeWithAssemblyAi: transcribeWithAssemblyAiMock
+  };
+});
 
 vi.mock("@/lib/speech/elevenlabs", async () => {
   const actual = await vi.importActual<typeof import("@/lib/speech/elevenlabs")>(
@@ -33,7 +44,34 @@ describe("external speech-to-text transcription", () => {
     expect(transcribeWithElevenLabsMock).toHaveBeenCalledWith({
       apiKey: "xi-secret",
       samples,
-      language: "fra"
+      language: "fra",
+      signal: undefined
+    });
+  });
+
+  it("dispatches AssemblyAI model and language configuration", async () => {
+    transcribeWithAssemblyAiMock.mockResolvedValue({
+      model: "universal-2",
+      transcript: "bonjour"
+    });
+    const samples = new Float32Array([0.5]);
+
+    await expect(transcribeWithExternalSttProvider({
+      provider: "assemblyai",
+      apiKey: "assembly-secret",
+      samples,
+      model: "universal-2",
+      language: "fr"
+    })).resolves.toEqual({
+      model: "universal-2",
+      transcript: "bonjour"
+    });
+    expect(transcribeWithAssemblyAiMock).toHaveBeenCalledWith({
+      apiKey: "assembly-secret",
+      samples,
+      model: "universal-2",
+      language: "fr",
+      signal: undefined
     });
   });
 });

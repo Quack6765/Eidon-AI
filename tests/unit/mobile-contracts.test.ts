@@ -185,6 +185,28 @@ describe("Mobile API v1 contracts", () => {
     expect(attachmentProperties).not.toHaveProperty("relativePath");
     expect(attachmentProperties).not.toHaveProperty("extractedText");
     expect(contract.components.schemas.User.properties).not.toHaveProperty("passwordHash");
+    const speechTranscriptionUpdate = contract.components.schemas.SpeechTranscriptionUpdate as unknown as {
+      oneOf: Array<{
+        properties: {
+          providerId: { const: string };
+          configuration: { oneOf?: Array<{ properties: { model: { const: string } } }> };
+        };
+      }>;
+    };
+    const assemblyAiUpdate = speechTranscriptionUpdate.oneOf.find(
+      ({ properties }) => properties.providerId.const === "assemblyai"
+    );
+    expect(assemblyAiUpdate?.properties.configuration.oneOf?.map(
+      ({ properties }) => properties.model.const
+    )).toEqual(["universal-3-5-pro", "universal-2"]);
+    const universal35Languages = contract.components.schemas
+      .AssemblyAiUniversal35Language as unknown as { enum: string[] };
+    const universal2Languages = contract.components.schemas
+      .AssemblyAiUniversal2Language as unknown as { enum: string[] };
+    expect(universal35Languages.enum).toHaveLength(19);
+    expect(universal35Languages.enum).not.toContain("sw");
+    expect(universal2Languages.enum).toContain("sw");
+    expect(universal2Languages.enum).toHaveLength(103);
     expect(compileOpenApiJsonRequestBodies()).toBe(35);
     expect(compileOpenApiJsonResponses()).toBe(87);
   });

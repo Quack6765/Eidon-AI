@@ -61,7 +61,7 @@ Use it as a private assistant, a day-to-day work companion, or a shared workspac
 - Chat forking from assistant replies when you want to branch a thread without losing context
 - Shareable chat conversations for sending read-only transcript links
 - Previous message editing with restart-from-edit flow for fast iteration
-- Browser-native, self-hosted Canary 180M Flash, or ElevenLabs Scribe v2 speech-to-text in the chat composer
+- Browser-native, self-hosted Canary 180M Flash, ElevenLabs Scribe v2, or AssemblyAI Universal 3.5 Pro and Universal 2 speech-to-text in the chat composer
 - Image generation support
 - Mermaid diagram generation
 - Multiple clients live sync

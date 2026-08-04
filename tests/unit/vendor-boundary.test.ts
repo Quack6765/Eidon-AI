@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { getDb } from "@/lib/db";
 
-const vendorPattern = /github|copilot|google|elevenlabs|\bexa\b|tavily|searxng|openai|anthropic|claude|gemini|ollama|comfyui/i;
+const vendorPattern = /github|copilot|google|assemblyai|elevenlabs|\bexa\b|tavily|searxng|openai|anthropic|claude|gemini|ollama|comfyui/i;
 
 const allowedVendorPaths = new Set([
   "app/api/providers/github/callback/route.ts",
@@ -25,6 +25,8 @@ const allowedVendorPaths = new Set([
   "lib/provider-profiles.ts",
   "lib/readme-demo.ts",
   "lib/searxng.ts",
+  "lib/speech/assemblyai-languages.ts",
+  "lib/speech/assemblyai.ts",
   "lib/speech/elevenlabs-languages.ts",
   "lib/speech/elevenlabs.ts",
   "lib/speech/external-providers.ts",
@@ -90,7 +92,7 @@ describe("vendor boundaries", () => {
       "lib/provider-profile.ts",
       "contracts/mobile-api-v1.openapi.json"
     ].map((file) => fs.readFileSync(path.resolve(file), "utf8"));
-    const vendorFieldPattern = /github(?:UserAccess|Refresh|Account|Token|Connection)|googleNanoBananaApiKey|elevenLabsApiKey|exaApiKey|tavilyApiKey|searxngBaseUrl/i;
+    const vendorFieldPattern = /github(?:UserAccess|Refresh|Account|Token|Connection)|assemblyAiApiKey|googleNanoBananaApiKey|elevenLabsApiKey|exaApiKey|tavilyApiKey|searxngBaseUrl/i;
 
     for (const source of publicSources) expect(source).not.toMatch(vendorFieldPattern);
   });

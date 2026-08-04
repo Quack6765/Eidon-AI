@@ -232,6 +232,16 @@ describe("ChatComposer clipboard image paste", () => {
   });
 });
 
+describe("ChatComposer speech progress", () => {
+  it("shows an announced indeterminate status while transcription is processing", () => {
+    renderComposer({ speechPhase: "transcribing" });
+
+    expect(screen.getByRole("status")).toHaveTextContent("Transcribing…");
+    expect(screen.queryByRole("button", { name: "Stop voice input" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeDisabled();
+  });
+});
+
 describe("ChatComposer Enter key submission", () => {
   it("submits on Enter on a desktop viewport", () => {
     installMatchMedia(false);
