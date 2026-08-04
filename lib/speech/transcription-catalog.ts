@@ -2,15 +2,21 @@ import { z } from "zod";
 
 import type { IntegrationProviderDescriptor } from "@/lib/integration-types";
 import {
-  EXTERNAL_STT_LANGUAGE_CODES,
   EXTERNAL_STT_PROVIDERS,
+  EXTERNAL_STT_PROVIDER_IDS,
   type ExternalSttLanguage,
+  type ExternalSttModel,
+  getExternalSttDefaultModel,
+  getExternalSttLanguageCodes,
+  getExternalSttLanguageOptions,
+  isExternalSttModelForProvider,
   type SttProvider
 } from "@/lib/speech/external-providers";
 
 export type TranscriptionProviderId = "browser" | "canary" | SttProvider;
 export type TranscriptionConfiguration = {
   language: "auto" | "en" | "fr" | "es" | ExternalSttLanguage;
+  model?: ExternalSttModel;
 };
 export type SttEngine = "browser" | "embedded" | "external";
 
@@ -18,6 +24,39 @@ const credentialFields = {
   credential: z.string().optional(),
   credentialAction: z.enum(["preserve", "replace", "clear"]).default("preserve")
 };
+
+function createExternalSttConfigurationSchema(providerId: SttProvider) {
+  const provider = EXTERNAL_STT_PROVIDERS[providerId];
+  if (!("modelOptions" in provider)) {
+    return z.object({
+      language: z.enum(getExternalSttLanguageCodes(providerId))
+    }).strict() as z.ZodType<TranscriptionConfiguration>;
+  }
+  const modelSchemas = provider.modelOptions.map((model) => z.object({
+    model: z.literal(model.value),
+    language: z.enum(getExternalSttLanguageCodes(providerId, model.value))
+  }).strict());
+  if (modelSchemas.length === 1) {
+    return modelSchemas[0] as z.ZodType<TranscriptionConfiguration>;
+  }
+  return z.union(modelSchemas as unknown as [
+    z.ZodTypeAny,
+    z.ZodTypeAny,
+    ...z.ZodTypeAny[]
+  ]) as z.ZodType<TranscriptionConfiguration>;
+}
+
+function createExternalSttUpdateSchema<Provider extends SttProvider>(providerId: Provider) {
+  return z.object({
+    providerId: z.literal(providerId),
+    configuration: createExternalSttConfigurationSchema(providerId),
+    ...credentialFields
+  }).strict();
+}
+
+const externalSttUpdateSchemas = EXTERNAL_STT_PROVIDER_IDS.map(
+  createExternalSttUpdateSchema
+);
 
 export const speechTranscriptionIntegrationUpdateSchema = z.discriminatedUnion("providerId", [
   z.object({
@@ -30,11 +69,7 @@ export const speechTranscriptionIntegrationUpdateSchema = z.discriminatedUnion("
     configuration: z.object({ language: z.enum(["en", "fr", "es"]) }).strict(),
     ...credentialFields
   }).strict(),
-  z.object({
-    providerId: z.literal("elevenlabs"),
-    configuration: z.object({ language: z.enum(EXTERNAL_STT_LANGUAGE_CODES) }).strict(),
-    ...credentialFields
-  }).strict()
+  ...externalSttUpdateSchemas
 ]);
 
 const externalProviders = Object.fromEntries(
@@ -105,11 +140,17 @@ export function normalizeTranscriptionSelection(
       configuration: { language: normalizeLocalLanguage(configuration.language, false) }
     };
   }
-  const provider = EXTERNAL_STT_PROVIDERS[providerId];
-  const language = provider.languages.some((entry) => entry.value === configuration.language)
+  const model = isExternalSttModelForProvider(providerId, configuration.model)
+    ? configuration.model
+    : getExternalSttDefaultModel(providerId);
+  const languages = getExternalSttLanguageOptions(providerId, model);
+  const language = languages.some((entry) => entry.value === configuration.language)
     ? configuration.language as ExternalSttLanguage
-    : provider.languages[0].value;
-  return { providerId, configuration: { language } };
+    : languages[0].value as ExternalSttLanguage;
+  return {
+    providerId,
+    configuration: { language, ...(model ? { model } : {}) }
+  };
 }
 
 export function getTranscriptionReadinessError(input: {

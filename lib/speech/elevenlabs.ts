@@ -1,4 +1,5 @@
 import type { ElevenLabsScribeLanguage } from "@/lib/speech/elevenlabs-languages";
+import { convertFloat32ToPcm16 } from "@/lib/speech/raw-audio";
 
 export const ELEVENLABS_SCRIBE_MODEL = "scribe_v2";
 export const ELEVENLABS_SPEECH_TO_TEXT_URL = "https://api.elevenlabs.io/v1/speech-to-text";
@@ -10,24 +11,12 @@ export class ElevenLabsTranscriptionError extends Error {
   }
 }
 
-export function convertFloat32ToPcm16(samples: Float32Array) {
-  const buffer = new ArrayBuffer(samples.length * Int16Array.BYTES_PER_ELEMENT);
-  const view = new DataView(buffer);
-
-  samples.forEach((sample, index) => {
-    const clamped = Math.max(-1, Math.min(1, sample));
-    const value = clamped < 0 ? clamped * 32768 : clamped * 32767;
-    view.setInt16(index * Int16Array.BYTES_PER_ELEMENT, Math.round(value), true);
-  });
-
-  return buffer;
-}
-
 export async function transcribeWithElevenLabs(input: {
   apiKey: string;
   samples: Float32Array;
   language: ElevenLabsScribeLanguage;
   fetcher?: typeof fetch;
+  signal?: AbortSignal;
 }) {
   const form = new FormData();
   form.append(
@@ -46,7 +35,8 @@ export async function transcribeWithElevenLabs(input: {
   const response = await (input.fetcher ?? fetch)(ELEVENLABS_SPEECH_TO_TEXT_URL, {
     method: "POST",
     headers: { "xi-api-key": input.apiKey },
-    body: form
+    body: form,
+    signal: input.signal
   });
 
   if (!response.ok) {

@@ -1,23 +1,32 @@
+import { transcribeWithAssemblyAi } from "@/lib/speech/assemblyai";
 import {
   ELEVENLABS_SCRIBE_MODEL,
   transcribeWithElevenLabs
 } from "@/lib/speech/elevenlabs";
 import type {
   ExternalSttLanguageForProvider,
-  SttProvider
+  ExternalSttModelForProvider
 } from "@/lib/speech/external-providers";
 
-type ExternalSttTranscriptionInput = {
-  [Provider in SttProvider]: {
-    provider: Provider;
-    apiKey: string;
-    samples: Float32Array;
-    language: ExternalSttLanguageForProvider<Provider>;
-  }
-}[SttProvider];
+type ExternalSttTranscriptionInput =
+  | {
+      provider: "elevenlabs";
+      apiKey: string;
+      samples: Float32Array;
+      language: ExternalSttLanguageForProvider<"elevenlabs">;
+      signal?: AbortSignal;
+    }
+  | {
+      provider: "assemblyai";
+      apiKey: string;
+      samples: Float32Array;
+      language: ExternalSttLanguageForProvider<"assemblyai">;
+      model: ExternalSttModelForProvider<"assemblyai">;
+      signal?: AbortSignal;
+    };
 
-function assertNever(value: never): never {
-  throw new Error(`Unsupported external speech-to-text provider: ${String(value)}`);
+function assertNever(_value: never): never {
+  throw new Error("Unsupported external speech-to-text provider.");
 }
 
 export async function transcribeWithExternalSttProvider(
@@ -30,11 +39,20 @@ export async function transcribeWithExternalSttProvider(
         transcript: await transcribeWithElevenLabs({
           apiKey: input.apiKey,
           samples: input.samples,
-          language: input.language
+          language: input.language,
+          signal: input.signal
         })
       };
+    case "assemblyai":
+      return transcribeWithAssemblyAi({
+        apiKey: input.apiKey,
+        samples: input.samples,
+        language: input.language,
+        model: input.model,
+        signal: input.signal
+      });
     default:
-      return assertNever(input.provider);
+      return assertNever(input);
   }
 }
 

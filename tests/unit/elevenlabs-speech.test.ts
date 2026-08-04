@@ -1,9 +1,9 @@
 import {
-  convertFloat32ToPcm16,
   ELEVENLABS_SPEECH_TO_TEXT_URL,
   transcribeWithElevenLabs
 } from "@/lib/speech/elevenlabs";
 import { ELEVENLABS_SCRIBE_LANGUAGES } from "@/lib/speech/elevenlabs-languages";
+import { convertFloat32ToPcm16 } from "@/lib/speech/raw-audio";
 
 describe("ElevenLabs Scribe transcription", () => {
   it("offers automatic detection first and the complete Scribe language catalog", () => {

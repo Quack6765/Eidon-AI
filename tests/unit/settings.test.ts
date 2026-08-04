@@ -328,6 +328,68 @@ describe("settings domains", () => {
     });
   });
 
+  it("normalizes AssemblyAI configuration and isolates credentials when providers change", async () => {
+    saveProfiles();
+    const user = await createLocalUser({
+      username: "assembly-credential-user",
+      password: "password-123",
+      role: "user"
+    });
+    const preferences = {
+      conversationRetention: "forever" as const,
+      mcpTimeout: 120000,
+      maxAssistantToolSteps: 25
+    };
+
+    updateGeneralSettingsBundleForUser(user.id, {
+      preferences,
+      webSearch: {
+        providerId: "disabled",
+        configuration: {},
+        credentialAction: "clear"
+      },
+      speechTranscription: {
+        providerId: "assemblyai",
+        configuration: { model: "universal-3-5-pro", language: "auto" },
+        credential: "assembly-secret",
+        credentialAction: "replace"
+      }
+    }, false);
+    expect(getSettingsForUser(user.id).speechTranscription).toMatchObject({
+      providerId: "assemblyai",
+      configuration: { model: "universal-3-5-pro", language: "auto" },
+      credentials: { apiKey: "assembly-secret" }
+    });
+
+    getDb().prepare(`
+      UPDATE integration_settings SET configuration_json = ?
+      WHERE capability = 'speech_transcription' AND user_id = ?
+    `).run(JSON.stringify({ model: "unsupported", language: "sw" }), user.id);
+    expect(getSettingsForUser(user.id).speechTranscription).toMatchObject({
+      providerId: "assemblyai",
+      configuration: { model: "universal-3-5-pro", language: "auto" },
+      credentials: { apiKey: "assembly-secret" }
+    });
+
+    updateGeneralSettingsBundleForUser(user.id, {
+      preferences,
+      webSearch: {
+        providerId: "disabled",
+        configuration: {},
+        credentialAction: "preserve"
+      },
+      speechTranscription: {
+        providerId: "elevenlabs",
+        configuration: { language: "eng" },
+        credentialAction: "preserve"
+      }
+    }, false);
+    expect(getSettingsForUser(user.id).speechTranscription).toMatchObject({
+      providerId: "elevenlabs",
+      credentials: {}
+    });
+  });
+
   it("protects global integrations and updates them atomically for admins", async () => {
     saveProfiles();
     const user = await createLocalUser({ username: "admin-user", password: "password-123", role: "admin" });

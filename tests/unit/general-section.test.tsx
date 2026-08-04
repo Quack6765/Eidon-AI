@@ -266,6 +266,91 @@ describe("general section", () => {
     });
   });
 
+  it("shows AssemblyAI model-specific languages and resets unsupported selections", () => {
+    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+
+    fireEvent.change(screen.getByLabelText("Speech engine"), {
+      target: { value: "external" }
+    });
+    fireEvent.change(screen.getByLabelText("Speech-to-text provider"), {
+      target: { value: "assemblyai" }
+    });
+
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+    expect(screen.getByLabelText("AssemblyAI API key")).toHaveAttribute(
+      "placeholder",
+      "Required"
+    );
+    expect(screen.getByLabelText("AssemblyAI transcription model")).toHaveValue(
+      "universal-3-5-pro"
+    );
+    expect(screen.getByLabelText("AssemblyAI transcription language")).toHaveValue("auto");
+    expect(screen.getByText(/most reliable with at least 15 seconds/)).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Swahili" })).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("AssemblyAI transcription model"), {
+      target: { value: "universal-2" }
+    });
+    expect(screen.getByRole("option", { name: "Swahili" })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("AssemblyAI transcription language"), {
+      target: { value: "fr" }
+    });
+    fireEvent.change(screen.getByLabelText("AssemblyAI transcription model"), {
+      target: { value: "universal-3-5-pro" }
+    });
+    expect(screen.getByLabelText("AssemblyAI transcription language")).toHaveValue("fr");
+    fireEvent.change(screen.getByLabelText("AssemblyAI transcription model"), {
+      target: { value: "universal-2" }
+    });
+    fireEvent.change(screen.getByLabelText("AssemblyAI transcription language"), {
+      target: { value: "sw" }
+    });
+    fireEvent.change(screen.getByLabelText("AssemblyAI transcription model"), {
+      target: { value: "universal-3-5-pro" }
+    });
+    expect(screen.getByLabelText("AssemblyAI transcription language")).toHaveValue("auto");
+  });
+
+  it("requires and saves the selected AssemblyAI model, language, and key", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+    fireEvent.change(screen.getByLabelText("Speech engine"), {
+      target: { value: "external" }
+    });
+    fireEvent.change(screen.getByLabelText("Speech-to-text provider"), {
+      target: { value: "assemblyai" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(await screen.findByText("AssemblyAI API key is required.")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("AssemblyAI API key"), {
+      target: { value: "assembly-test-key" }
+    });
+    fireEvent.change(screen.getByLabelText("AssemblyAI transcription model"), {
+      target: { value: "universal-2" }
+    });
+    fireEvent.change(screen.getByLabelText("AssemblyAI transcription language"), {
+      target: { value: "sw" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
+    expect(body.speechTranscription).toMatchObject({
+      providerId: "assemblyai",
+      configuration: { model: "universal-2", language: "sw" },
+      credential: "assembly-test-key",
+      credentialAction: "replace"
+    });
+  });
+
   it("shows Exa by default with an optional API key note", () => {
     render(React.createElement(GeneralSection, { settings: makeSettings() }));
 

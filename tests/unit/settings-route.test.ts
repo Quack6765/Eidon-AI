@@ -65,4 +65,55 @@ describe("settings route", () => {
       })
     );
   });
+
+  it("accepts AssemblyAI model configuration and rejects unsupported strict languages", async () => {
+    const user = await createLocalUser({
+      username: "assembly-settings-user",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+    const { PUT } = await import("@/app/api/settings/general/route");
+    const body = (configuration: { model: string; language: string }) => JSON.stringify({
+      preferences: {
+        conversationRetention: "forever",
+        mcpTimeout: 120000,
+        maxAssistantToolSteps: 25
+      },
+      webSearch: {
+        providerId: "disabled",
+        configuration: {},
+        credentialAction: "clear"
+      },
+      speechTranscription: {
+        providerId: "assemblyai",
+        configuration,
+        credential: "assembly-route-secret",
+        credentialAction: "replace"
+      }
+    });
+
+    const invalid = await PUT(new Request("http://localhost/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: body({ model: "universal-3-5-pro", language: "sw" })
+    }));
+    expect(invalid.status).toBe(400);
+
+    const valid = await PUT(new Request("http://localhost/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: body({ model: "universal-2", language: "sw" })
+    }));
+    expect(valid.status).toBe(200);
+    await expect(valid.json()).resolves.toEqual(expect.objectContaining({
+      settings: expect.objectContaining({
+        speechTranscription: expect.objectContaining({
+          providerId: "assemblyai",
+          configuration: { model: "universal-2", language: "sw" },
+          credentialStored: true
+        })
+      })
+    }));
+  });
 });

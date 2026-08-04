@@ -124,7 +124,40 @@ describe("external speech transcription route", () => {
       provider: "elevenlabs",
       apiKey: "xi-secret",
       samples: expect.any(Float32Array),
-      language: "fra"
+      language: "fra",
+      signal: expect.any(AbortSignal)
+    });
+  });
+
+  it("dispatches AssemblyAI with the selected strict model", async () => {
+    transcribeWithExternalSttProviderMock.mockResolvedValue({
+      model: "universal-2",
+      transcript: "bonjour"
+    });
+    getSettingsForUserMock.mockReturnValue(createRuntimeAppSettings({
+      speechTranscription: {
+        providerId: "assemblyai",
+        configuration: { model: "universal-2", language: "fr" },
+        credentials: { apiKey: "assembly-secret" }
+      }
+    }));
+    const { POST } = await import("@/app/api/speech/transcription/transcribe/route");
+
+    const response = await POST(makeAudioRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      model: "universal-2",
+      provider: "assemblyai",
+      transcript: "bonjour"
+    });
+    expect(transcribeWithExternalSttProviderMock).toHaveBeenCalledWith({
+      provider: "assemblyai",
+      apiKey: "assembly-secret",
+      samples: expect.any(Float32Array),
+      model: "universal-2",
+      language: "fr",
+      signal: expect.any(AbortSignal)
     });
   });
 });

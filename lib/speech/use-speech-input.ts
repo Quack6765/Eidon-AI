@@ -168,7 +168,9 @@ export function useSpeechInput({ engine, initialLanguage, resetKey }: UseSpeechI
     }
 
     try {
-      const result = await controller.stop();
+      const stopPromise = controller.stop();
+      syncSpeechSnapshot(controller);
+      const result = await stopPromise;
       syncSpeechSnapshot(controller);
       return result.transcript;
     } catch (caughtError) {

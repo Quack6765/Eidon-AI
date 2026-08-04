@@ -8,7 +8,10 @@ import {
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import {
   EXTERNAL_STT_PROVIDERS,
-  type ExternalSttLanguage
+  getExternalSttLanguageOptions,
+  type ExternalSttLanguage,
+  type ExternalSttModel,
+  type ExternalSttProviderDefinition
 } from "@/lib/speech/external-providers";
 import {
   TRANSCRIPTION_PROVIDER_CATALOG,
@@ -39,16 +42,29 @@ export function SpeechTranscriptionSettings({
 }) {
   const descriptor = TRANSCRIPTION_PROVIDER_CATALOG[draft.providerId];
   const externalProvider = descriptor.engine === "external"
-    ? EXTERNAL_STT_PROVIDERS[draft.providerId as keyof typeof EXTERNAL_STT_PROVIDERS]
+    ? EXTERNAL_STT_PROVIDERS[draft.providerId as keyof typeof EXTERNAL_STT_PROVIDERS] as
+      ExternalSttProviderDefinition
     : null;
-  const languageOptions = externalProvider?.languages ?? LOCAL_LANGUAGE_OPTIONS.filter(
-    (option) => draft.providerId !== "canary" || option.value !== "auto"
-  );
+  const languageOptions = externalProvider
+    ? getExternalSttLanguageOptions(
+        draft.providerId as keyof typeof EXTERNAL_STT_PROVIDERS,
+        draft.configuration.model
+      )
+    : LOCAL_LANGUAGE_OPTIONS.filter(
+        (option) => draft.providerId !== "canary" || option.value !== "auto"
+      );
 
   function selectProvider(providerId: TranscriptionProviderId) {
     const provider = TRANSCRIPTION_PROVIDER_CATALOG[providerId];
-    const language = provider.engine === "external"
-      ? EXTERNAL_STT_PROVIDERS[providerId as keyof typeof EXTERNAL_STT_PROVIDERS].languages[0].value
+    const external = provider.engine === "external"
+      ? EXTERNAL_STT_PROVIDERS[providerId as keyof typeof EXTERNAL_STT_PROVIDERS] as
+        ExternalSttProviderDefinition
+      : null;
+    const language = external
+      ? getExternalSttLanguageOptions(
+          providerId as keyof typeof EXTERNAL_STT_PROVIDERS,
+          external.defaultModel
+        )[0].value
       : providerId === "canary"
         ? "en"
         : "auto";
@@ -56,8 +72,26 @@ export function SpeechTranscriptionSettings({
       draft,
       persisted,
       providerId,
-      { language }
+      {
+        language: language as ExternalSttLanguage,
+        ...(external?.defaultModel ? { model: external.defaultModel as ExternalSttModel } : {})
+      }
     ));
+  }
+
+  function selectModel(model: ExternalSttModel) {
+    const options = getExternalSttLanguageOptions(
+      draft.providerId as keyof typeof EXTERNAL_STT_PROVIDERS,
+      model
+    );
+    const currentLanguage = draft.configuration.language;
+    const language = options.some((option) => option.value === currentLanguage)
+      ? currentLanguage
+      : options[0].value as ExternalSttLanguage;
+    onChange({
+      ...draft,
+      configuration: { ...draft.configuration, model, language }
+    });
   }
 
   function selectEngine(engine: SttEngine) {
@@ -103,6 +137,23 @@ export function SpeechTranscriptionSettings({
         </div>
       ) : null}
 
+      {externalProvider?.modelOptions && externalProvider.modelOptions.length > 1 ? (
+        <div>
+          <label htmlFor="speech-transcription-model" className={fieldLabel}>Speech-to-text model</label>
+          <select
+            id="speech-transcription-model"
+            aria-label={`${externalProvider.label} transcription model`}
+            value={draft.configuration.model ?? externalProvider.defaultModel}
+            onChange={(event) => selectModel(event.target.value as ExternalSttModel)}
+            className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
+          >
+            {externalProvider.modelOptions.map((model) => (
+              <option key={model.value} value={model.value}>{model.label}</option>
+            ))}
+          </select>
+        </div>
+      ) : null}
+
       {descriptor.requiresCredential ? (
         <CredentialField
           id="speech-transcription-credential"
@@ -125,7 +176,10 @@ export function SpeechTranscriptionSettings({
           value={draft.configuration.language}
           onChange={(event) => onChange({
             ...draft,
-            configuration: { language: event.target.value as ExternalSttLanguage }
+            configuration: {
+              ...draft.configuration,
+              language: event.target.value as ExternalSttLanguage
+            }
           })}
           className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
         >
@@ -133,6 +187,11 @@ export function SpeechTranscriptionSettings({
             <option key={language.value} value={language.value}>{language.label}</option>
           ))}
         </select>
+        {draft.configuration.language === "auto" && externalProvider?.automaticLanguageHint ? (
+          <p className="mt-2 max-w-2xl text-xs leading-5 text-[var(--muted)]">
+            {externalProvider.automaticLanguageHint}
+          </p>
+        ) : null}
       </div>
 
       {draft.providerId === "canary" ? (

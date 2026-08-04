@@ -25,7 +25,12 @@ export async function POST(request: Request) {
   }
   try {
     const samples = await readBoundedFloat32Audio(request, provider.maxAudioBytes);
-    return ok(await provider.transcribe({ samples, settings, userId: user.id }));
+    return ok(await provider.transcribe({
+      samples,
+      settings,
+      userId: user.id,
+      signal: request.signal
+    }));
   } catch (error) {
     if (error instanceof CanaryTranscriptionBusyError) return badRequest(error.message, 429);
     if (isExternalSttProviderError(error)) return badRequest(error.message, error.status);
