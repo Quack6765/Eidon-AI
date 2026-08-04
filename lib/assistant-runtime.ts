@@ -13,6 +13,7 @@ import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultM
 import type {
   ChatStreamEvent,
   McpServer,
+  ProviderResponseItem,
   RuntimeProviderProfile,
   ProviderToolCall,
   PromptMessage,
@@ -436,6 +437,7 @@ export async function resolveAssistantTurn(input: {
     let answer = "";
     let thinking = "";
     let reasoningSignature: string | undefined;
+    let responseItems: ProviderResponseItem[] | undefined;
     let usage: Usage = {};
     let toolCalls: ProviderToolCall[] = [];
 
@@ -453,6 +455,7 @@ export async function resolveAssistantTurn(input: {
         answer = next.value.answer;
         thinking = next.value.thinking;
         reasoningSignature = next.value.reasoningSignature;
+        responseItems = next.value.responseItems;
         usage = next.value.usage;
         toolCalls = next.value.toolCalls ?? [];
         break;
@@ -502,7 +505,8 @@ export async function resolveAssistantTurn(input: {
         content: answer,
         reasoningContent: thinking || undefined,
         reasoningSignature,
-        toolCalls
+        toolCalls,
+        responseItems
       }
     ];
 

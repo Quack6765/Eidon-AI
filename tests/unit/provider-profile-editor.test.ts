@@ -14,6 +14,7 @@ describe("provider profile editor", () => {
 
     expect(openAi.providerConfig).toMatchObject({
       apiMode: "responses",
+      processingMode: "standard",
       reasoningParameterMode: "standard"
     });
     expect(anthropic.providerConfig).toEqual({ apiBaseUrl: "https://api.anthropic.com" });
@@ -58,7 +59,7 @@ describe("provider profile editor", () => {
     const anthropic = createProviderProfileEditorDraft({ providerKind: "anthropic" });
     const copilot = createProviderProfileEditorDraft({ providerKind: "github_copilot" });
 
-    expect(getMatchingEditorPresetId(openAi)).toBe("custom_openai_compatible");
+    expect(getMatchingEditorPresetId(openAi)).toBe("openai_official");
     expect(getMatchingEditorPresetId(anthropic)).toBe("anthropic_official");
     expect(getMatchingEditorPresetId(copilot)).toBeNull();
   });

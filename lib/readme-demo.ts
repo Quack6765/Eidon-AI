@@ -41,7 +41,7 @@ function buildProviderProfile(
     systemPrompt: string;
     temperature: number;
     maxOutputTokens: number;
-    reasoningEffort: "low" | "medium" | "high" | "xhigh";
+    reasoningEffort: "low" | "medium" | "high" | "xhigh" | "max";
     reasoningSummaryEnabled: boolean;
     modelContextLimit: number;
     compactionThreshold: number;
@@ -72,6 +72,7 @@ function buildProviderProfile(
         : {
             apiBaseUrl,
             apiMode,
+            processingMode: defaults.processingMode,
             reasoningParameterMode: defaults.reasoningParameterMode
           },
     credential: overrides.apiKey ?? "",
@@ -121,7 +122,7 @@ export const README_DEMO_FIXTURES = {
       model: "gpt-5",
       systemPrompt:
         "Help a self-hosted engineering team ship changes with precise summaries and practical next steps.",
-      providerPresetId: "custom_openai_compatible"
+      providerPresetId: "openai_official"
     }),
     buildProviderProfile({
       id: "readme_profile_openrouter",

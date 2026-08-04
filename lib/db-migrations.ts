@@ -95,12 +95,34 @@ function migrateProviderRequestConfiguration(db: Database.Database) {
   db.prepare(`
     UPDATE provider_profiles
     SET provider_config_json = json_set(
-      CASE WHEN json_valid(provider_config_json) THEN provider_config_json ELSE '{}' END,
+      json_set(
+        CASE WHEN json_valid(provider_config_json) THEN provider_config_json ELSE '{}' END,
+        '$.processingMode',
+        CASE
+          WHEN json_extract(provider_config_json, '$.processingMode') = 'fast' THEN 'fast'
+          ELSE 'standard'
+        END
+      ),
       '$.reasoningParameterMode',
-      CASE WHEN provider_preset_id = 'ollama_cloud' THEN 'mirrored' ELSE 'standard' END
+      CASE
+        WHEN json_extract(provider_config_json, '$.reasoningParameterMode') = 'mirrored'
+          THEN 'mirrored'
+        WHEN json_extract(provider_config_json, '$.reasoningParameterMode') = 'standard'
+          THEN 'standard'
+        WHEN provider_preset_id = 'ollama_cloud' THEN 'mirrored'
+        ELSE 'standard'
+      END
     )
     WHERE provider_kind = 'openai_compatible'
-      AND json_extract(provider_config_json, '$.reasoningParameterMode') IS NULL
+      AND (
+        json_extract(provider_config_json, '$.processingMode') IS NULL OR
+        json_extract(provider_config_json, '$.reasoningParameterMode') IS NULL
+      )
+  `).run();
+  db.prepare(`
+    UPDATE provider_profiles
+    SET provider_preset_id = 'openai_official'
+    WHERE provider_preset_id = 'custom_openai_compatible'
   `).run();
 }
 
@@ -215,6 +237,7 @@ function migrateProviderStorage(db: Database.Database) {
             : {
                 apiBaseUrl: String(row.api_base_url ?? ""),
                 apiMode: String(row.api_mode ?? "responses"),
+                processingMode: row.service_tier === "fast" ? "fast" : "standard",
                 reasoningParameterMode: row.provider_preset_id === "ollama_cloud"
                   ? "mirrored"
                   : "standard"

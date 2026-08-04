@@ -4,10 +4,12 @@ import {
   type ProviderConnectionMode,
   type ProviderKind,
   type ProviderPresetId,
+  type ProcessingMode,
   type ReasoningParameterMode,
   type ReasoningEffort,
   type VisionMode
 } from "@/lib/provider-catalog";
+import { modelMatchesPrefix } from "@/lib/model-capabilities";
 
 export type ProviderConnectionStatus = "disconnected" | "connected" | "expired";
 
@@ -38,7 +40,17 @@ export type ProviderProfileCore = {
 export type OpenAiCompatibleProviderConfig = {
   apiBaseUrl: string;
   apiMode: ApiMode;
+  processingMode: ProcessingMode;
   reasoningParameterMode: ReasoningParameterMode;
+};
+
+export type ProviderProfileCapabilities = {
+  supportsTemperature: boolean;
+  processingModes: readonly ProcessingMode[];
+  reasoningEfforts: readonly ReasoningEffort[];
+  explicitDisabledReasoning: boolean;
+  outputTokenBudgetIncludesReasoning: boolean;
+  longContextPricingThreshold: number | null;
 };
 
 export type AnthropicProviderConfig = {
@@ -102,6 +114,35 @@ export function getProviderApiBaseUrl(profile: ProviderProfile) {
 
 export function getProviderApiKey(profile: RuntimeProviderProfile) {
   return profile.credentials.apiKey ?? "";
+}
+
+export function getProviderProcessingMode(profile: ProviderProfile): ProcessingMode {
+  return profile.providerKind === "openai_compatible"
+    ? profile.providerConfig.processingMode
+    : "standard";
+}
+
+export function resolveProviderProfileCapabilities(
+  profile: ProviderProfile
+): ProviderProfileCapabilities {
+  const isOfficialEndpoint =
+    profile.providerKind === "openai_compatible" &&
+    profile.providerConfig.apiBaseUrl.trim().replace(/\/+$/, "").toLowerCase() ===
+      "https://api.openai.com/v1";
+  const hasExtendedReasoning = isOfficialEndpoint && modelMatchesPrefix(profile.model, "gpt-5.6");
+  const reasoningEfforts = ["none", "low", "medium", "high", "xhigh"] as const;
+
+  return {
+    supportsTemperature:
+      PROVIDER_CATALOG[profile.providerKind].editor.sampling && !isOfficialEndpoint,
+    processingModes: isOfficialEndpoint ? ["standard", "fast"] : [],
+    reasoningEfforts: hasExtendedReasoning
+      ? [...reasoningEfforts, "max"]
+      : reasoningEfforts,
+    explicitDisabledReasoning: hasExtendedReasoning,
+    outputTokenBudgetIncludesReasoning: hasExtendedReasoning,
+    longContextPricingThreshold: hasExtendedReasoning ? 272000 : null
+  };
 }
 
 export function getProviderConnectionSummary(

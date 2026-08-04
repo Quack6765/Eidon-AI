@@ -24,7 +24,7 @@ type ProviderProfileFixture = {
   systemPrompt: string;
   temperature: number;
   maxOutputTokens: number;
-  reasoningEffort: "low" | "medium" | "high" | "xhigh";
+  reasoningEffort: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   reasoningSummaryEnabled: boolean;
   modelContextLimit: number;
   compactionThreshold: number;
@@ -36,7 +36,7 @@ type ProviderProfileFixture = {
   mergedMinNodeCount: number;
   mergedTargetTokens: number;
   visionMode: "none" | "native" | "mcp";
-  providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openrouter" | "opencode_go" | "custom_openai_compatible" | "anthropic_official" | "opencode_go_anthropic" | null;
+  providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openai_official" | "openrouter" | "opencode_go" | "deepseek" | "xiaomi_mimo" | "anthropic_official" | "opencode_go_anthropic" | null;
   githubAccountLogin: string | null;
   githubAccountName: string | null;
   githubTokenExpiresAt: string | null;
@@ -353,6 +353,54 @@ describe("providers section", () => {
     expect(profileNameInput).toHaveValue("Default");
     expect(apiBaseUrlInput).toHaveValue("https://openrouter.ai/api/v1");
     expect(modelInput).toHaveValue("");
+  });
+
+  it("applies request capabilities from the official provider preset", async () => {
+    const { container } = render(
+      React.createElement(ProvidersSection, { settings: makeSettings() })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    const presetSelect = screen.getByDisplayValue("Manual configuration");
+    const apiBaseUrlInput = screen.getByDisplayValue("https://api.example.com/v1");
+    const modelInput = container.querySelector<HTMLInputElement>(
+      'input[name="provider-model"]'
+    );
+
+    expect(screen.getByRole("option", { name: "OpenAI" })).toBeInTheDocument();
+    expect(container.querySelector('input[name="provider-temperature"]')).toBeInTheDocument();
+
+    fireEvent.change(presetSelect, { target: { value: "openai_official" } });
+
+    expect(apiBaseUrlInput).toHaveValue("https://api.openai.com/v1");
+    expect(modelInput).toHaveValue("gpt-5.6-luna");
+    expect(container.querySelector('input[name="provider-max-output-tokens"]')).toHaveValue(128000);
+    expect(container.querySelector('input[name="provider-model-context-limit"]')).toHaveValue(1050000);
+    expect(container.querySelector('input[name="provider-temperature"]')).not.toBeInTheDocument();
+    expect(screen.getByText("This limit includes reasoning and visible output tokens.")).toBeInTheDocument();
+    expect(screen.getByText("Long-context pricing applies above 272,000 input tokens.")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "max" })).toBeInTheDocument();
+    expect(presetSelect).toHaveValue("openai_official");
+
+    const processingMode = container.querySelector<HTMLSelectElement>(
+      'select[name="provider-processing-mode"]'
+    );
+    expect(processingMode).toHaveValue("standard");
+
+    fireEvent.change(processingMode!, { target: { value: "fast" } });
+    expect(processingMode).toHaveValue("fast");
+    expect(screen.getByText(/lower-latency processing at a per-token premium/i)).toBeInTheDocument();
+
+    fireEvent.change(modelInput!, { target: { value: "gpt-4.1-mini" } });
+    expect(container.querySelector('input[name="provider-temperature"]')).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "max" })).not.toBeInTheDocument();
+
+    fireEvent.change(apiBaseUrlInput, { target: { value: "https://custom.example.com/v1" } });
+    expect(container.querySelector('input[name="provider-temperature"]')).toBeInTheDocument();
+    expect(container.querySelector('select[name="provider-processing-mode"]')).not.toBeInTheDocument();
   });
 
   it("keeps the selected preset when the model changes", async () => {

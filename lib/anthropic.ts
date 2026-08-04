@@ -21,7 +21,8 @@ const EFFORT_BY_REASONING: Record<Exclude<ReasoningEffort, "none">, AnthropicEff
   low: "low",
   medium: "medium",
   high: "high",
-  xhigh: "max"
+  xhigh: "max",
+  max: "max"
 };
 
 export function mapReasoningEffortToAnthropic(effort: ReasoningEffort): AnthropicEffort | null {

@@ -623,18 +623,21 @@ describe("inferAssistantLocalAttachments", () => {
   it("denies default app-data paths even when EIDON_DATA_DIR is unset", async () => {
     const conversation = createConversation();
     const previousDataDir = process.env.EIDON_DATA_DIR;
-    const defaultAppDataDir = path.resolve(".data");
+    const previousCwd = process.cwd();
+    const sandboxDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-default-data-"));
+    const defaultAppDataDir = path.join(sandboxDir, ".data");
     const sourcePath = path.join(defaultAppDataDir, "assistant-private.txt");
 
     try {
       delete process.env.EIDON_DATA_DIR;
+      process.chdir(sandboxDir);
       fs.mkdirSync(defaultAppDataDir, { recursive: true });
       fs.writeFileSync(sourcePath, "private app data", "utf8");
 
       const result = await inferAssistantLocalAttachments({
         conversationId: conversation.id,
         content: `[private](${sourcePath})`,
-        workspaceRoot: process.cwd(),
+        workspaceRoot: sandboxDir,
         authorizedLocalPaths: [sourcePath]
       });
 
@@ -642,12 +645,13 @@ describe("inferAssistantLocalAttachments", () => {
       expect(result.content).toBe("");
       expect(result.failureNote).toContain("not produced by a completed tool action");
     } finally {
+      process.chdir(previousCwd);
       if (previousDataDir === undefined) {
         delete process.env.EIDON_DATA_DIR;
       } else {
         process.env.EIDON_DATA_DIR = previousDataDir;
       }
-      fs.rmSync(defaultAppDataDir, { recursive: true, force: true });
+      fs.rmSync(sandboxDir, { recursive: true, force: true });
     }
   });
 

@@ -32,11 +32,17 @@ import {
   createProviderProfileEditorDraft,
   getMatchingEditorPresetId,
   setProviderApiMode,
+  setProviderProcessingMode,
   switchProviderProfileKind,
   toProviderProfileEditorDrafts,
   type ProviderProfileEditorDraft
 } from "@/lib/provider-profile-editor";
-import { getProviderApiBaseUrl, getProviderApiMode } from "@/lib/provider-profile";
+import {
+  getProviderApiBaseUrl,
+  getProviderApiMode,
+  getProviderProcessingMode,
+  resolveProviderProfileCapabilities
+} from "@/lib/provider-profile";
 import type { AppSettings, McpServer, ProviderKind, ProviderPresetId, ProviderProfileSummary, ReasoningEffort, VisionMode } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -138,6 +144,9 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     : null;
   const activeProviderEditor = activeProviderProfile
     ? PROVIDER_CATALOG[activeProviderProfile.providerKind].editor
+    : null;
+  const activeProviderCapabilities = activeProviderProfile
+    ? resolveProviderProfileCapabilities(activeProviderProfile)
     : null;
   const usesThinkingToggle =
     activeProviderEditor?.apiMode &&
@@ -286,9 +295,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       patch.mergedTargetTokens = DEFAULT_PROFILE_BEHAVIOR.mergedTargetTokens;
     }
 
-    replaceActiveProviderProfile(setProviderApiMode(
-      { ...activeProviderProfile, ...patch } as ProviderProfileDraft,
-      activeProviderEditor?.apiMode ? "responses" : getProviderApiMode(activeProviderProfile)
+    replaceActiveProviderProfile(setProviderProcessingMode(
+      setProviderApiMode(
+        { ...activeProviderProfile, ...patch } as ProviderProfileDraft,
+        activeProviderEditor?.apiMode ? "responses" : getProviderApiMode(activeProviderProfile)
+      ),
+      "standard"
     ));
   }
 
@@ -764,19 +776,21 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                   <div className="mt-4 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
                     {activeProviderEditor?.sampling && (
                       <>
-                        <div>
-                          <label className={fieldLabel}>Temperature</label>
-                          <Input
-                            name="provider-temperature"
-                            type="number"
-                            step="0.1"
-                            value={activeProviderProfile.temperature}
-                            onChange={(event) =>
-                              updateActiveProviderProfile({ temperature: Number(event.target.value || 0) })
-                            }
-                            className={isFieldDirty("activeTemperature") ? "!border-amber-500/40" : ""}
-                          />
-                        </div>
+                        {activeProviderCapabilities?.supportsTemperature ? (
+                          <div>
+                            <label className={fieldLabel}>Temperature</label>
+                            <Input
+                              name="provider-temperature"
+                              type="number"
+                              step="0.1"
+                              value={activeProviderProfile.temperature}
+                              onChange={(event) =>
+                                updateActiveProviderProfile({ temperature: Number(event.target.value || 0) })
+                              }
+                              className={isFieldDirty("activeTemperature") ? "!border-amber-500/40" : ""}
+                            />
+                          </div>
+                        ) : null}
                         <div>
                           <label className={fieldLabel}>Max output tokens</label>
                           <Input
@@ -788,6 +802,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             }
                             className={isFieldDirty("activeMaxOutputTokens") ? "!border-amber-500/40" : ""}
                           />
+                          {activeProviderCapabilities?.outputTokenBudgetIncludesReasoning ? (
+                            <p className="mt-1.5 text-xs leading-5 text-[var(--muted)]">
+                              This limit includes reasoning and visible output tokens.
+                            </p>
+                          ) : null}
                         </div>
                       </>
                     )}
@@ -819,11 +838,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           }
                           className={`${selectLike} ${isFieldDirty("activeReasoningEffort") ? "!border-amber-500/40" : ""}`}
                         >
-                          <option value="none">disabled</option>
-                          <option value="low">low</option>
-                          <option value="medium">medium</option>
-                          <option value="high">high</option>
-                          <option value="xhigh">xhigh</option>
+                          {(activeProviderCapabilities?.reasoningEfforts ?? []).map((effort) => (
+                            <option key={effort} value={effort}>
+                              {effort === "none" ? "disabled" : effort}
+                            </option>
+                          ))}
                         </select>
                       </div>
                     )}
@@ -847,6 +866,28 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             </select>
                           </div>
                         )}
+                        {activeProviderCapabilities?.processingModes.length ? (
+                          <div>
+                            <label className={fieldLabel}>Processing mode</label>
+                            <select
+                              name="provider-processing-mode"
+                              value={getProviderProcessingMode(activeProviderProfile)}
+                              onChange={(event) => replaceActiveProviderProfile(
+                                setProviderProcessingMode(
+                                  activeProviderProfile,
+                                  event.target.value as "standard" | "fast"
+                                )
+                              )}
+                              className={`${selectLike} ${isFieldDirty("activeProviderConfig") ? "!border-amber-500/40" : ""}`}
+                            >
+                              <option value="standard">Standard</option>
+                              <option value="fast">Fast</option>
+                            </select>
+                            <p className="mt-1.5 text-xs leading-5 text-[var(--muted)]">
+                              Fast uses lower-latency processing at a per-token premium and does not support long-context requests.
+                            </p>
+                          </div>
+                        ) : null}
                         {activeProviderProfile.reasoningEffort !== "none" && !usesThinkingToggle && (
                         <div>
                           <label className={fieldLabel}>Reasoning summary</label>
@@ -875,6 +916,11 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                             }
                             className={isFieldDirty("activeModelContextLimit") ? "!border-amber-500/40" : ""}
                           />
+                          {activeProviderCapabilities?.longContextPricingThreshold ? (
+                            <p className="mt-1.5 text-xs leading-5 text-[var(--muted)]">
+                              Long-context pricing applies above {activeProviderCapabilities.longContextPricingThreshold.toLocaleString()} input tokens.
+                            </p>
+                          ) : null}
                     </div>
                     <div>
                       <label className={fieldLabel}>Compaction threshold %</label>

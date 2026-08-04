@@ -16,6 +16,13 @@ type ResolvedCapabilities = {
   strictExtraRejection: boolean;
 };
 
+function bareModelId(model: string) {
+  const normalized = model.trim().toLowerCase();
+  return normalized.includes("/")
+    ? normalized.slice(normalized.lastIndexOf("/") + 1)
+    : normalized;
+}
+
 const DEFAULT_CAPABILITIES: ResolvedCapabilities = {
   reasoning: false,
   vision: false,
@@ -34,8 +41,7 @@ export function resolveCapabilities(
   apiMode: ApiMode,
   userOverrides?: Partial<ResolvedCapabilities>
 ): ResolvedCapabilities {
-  const normalized = model.trim().toLowerCase();
-  const bareModel = normalized.includes("/") ? normalized.slice(normalized.lastIndexOf("/") + 1) : normalized;
+  const bareModel = bareModelId(model);
 
   const resolved = { ...DEFAULT_CAPABILITIES };
 
@@ -74,6 +80,10 @@ export function resolveCapabilities(
 
 export function supportsVisibleReasoning(model: string, apiMode: ApiMode): boolean {
   return resolveCapabilities(model, apiMode).reasoning;
+}
+
+export function modelMatchesPrefix(model: string, prefix: string): boolean {
+  return bareModelId(model).startsWith(prefix.trim().toLowerCase());
 }
 
 export function supportsImageInput(model: string, apiMode: ApiMode): boolean {

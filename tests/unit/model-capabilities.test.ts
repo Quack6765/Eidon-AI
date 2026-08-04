@@ -1,4 +1,10 @@
-import { getDefaultVisionMode, resolveCapabilities, supportsImageInput, supportsVisibleReasoning } from "@/lib/model-capabilities";
+import {
+  getDefaultVisionMode,
+  modelMatchesPrefix,
+  resolveCapabilities,
+  supportsImageInput,
+  supportsVisibleReasoning
+} from "@/lib/model-capabilities";
 
 describe("resolveCapabilities", () => {
   it("returns defaults for unknown models", () => {
@@ -138,6 +144,15 @@ describe("supportsImageInput", () => {
 
   it("glm-5v-turbo has native vision", () => {
     expect(supportsImageInput("glm-5v-turbo", "chat_completions")).toBe(true);
+  });
+});
+
+describe("modelMatchesPrefix", () => {
+  it("matches normalized bare model prefixes", () => {
+    expect(modelMatchesPrefix("gpt-5.6-luna", "gpt-5.6")).toBe(true);
+    expect(modelMatchesPrefix("openai/gpt-5.6-terra", "GPT-5.6")).toBe(true);
+    expect(modelMatchesPrefix("gpt-5.5", "gpt-5.6")).toBe(false);
+    expect(modelMatchesPrefix("gpt-4.1-mini", "gpt-5.6")).toBe(false);
   });
 });
 

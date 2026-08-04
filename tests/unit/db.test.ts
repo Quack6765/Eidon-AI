@@ -679,6 +679,14 @@ describe("db", () => {
       `).run(providerId, capability);
     }
     db.prepare("UPDATE provider_profiles SET compaction_threshold = 0.78").run();
+    db.prepare(`
+      UPDATE provider_profiles
+      SET provider_config_json = json_object(
+        'apiBaseUrl', 'https://api.openai.com/v1',
+        'apiMode', 'responses',
+        'reasoningParameterMode', 'mirrored'
+      ), provider_preset_id = 'custom_openai_compatible'
+    `).run();
 
     expect(() => migrate(db)).not.toThrow();
     expect(
@@ -694,6 +702,14 @@ describe("db", () => {
     expect(
       db.prepare("SELECT DISTINCT compaction_threshold FROM provider_profiles").all()
     ).toEqual([{ compaction_threshold: 0.8 }]);
+    const migratedProfile = db.prepare(`
+      SELECT provider_config_json, provider_preset_id FROM provider_profiles LIMIT 1
+    `).get() as { provider_config_json: string; provider_preset_id: string };
+    expect(JSON.parse(migratedProfile.provider_config_json)).toMatchObject({
+      processingMode: "standard",
+      reasoningParameterMode: "mirrored"
+    });
+    expect(migratedProfile.provider_preset_id).toBe("openai_official");
     expect(db.prepare("PRAGMA table_info(app_settings)").all()).toEqual([]);
     expect(db.prepare("PRAGMA table_info(user_settings)").all()).toEqual([]);
 

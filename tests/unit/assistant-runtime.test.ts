@@ -1,4 +1,10 @@
-import type { ChatStreamEvent, PromptMessage, RuntimeProviderProfile, Skill } from "@/lib/types";
+import type {
+  ChatStreamEvent,
+  PromptMessage,
+  ProviderResponseItem,
+  RuntimeProviderProfile,
+  Skill
+} from "@/lib/types";
 import { createRuntimeAppSettings, createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
 const streamProviderResponse = vi.fn();
@@ -77,6 +83,7 @@ function createProviderStream(
     answer: string;
     thinking: string;
     toolCalls?: Array<{ id: string; name: string; arguments: string }>;
+    responseItems?: ProviderResponseItem[];
     usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number };
   }
 ) {
@@ -88,6 +95,7 @@ function createProviderStream(
       answer: result.answer,
       thinking: result.thinking,
       toolCalls: result.toolCalls,
+      responseItems: result.responseItems,
       usage: result.usage
     };
   })();
@@ -261,6 +269,13 @@ ${JSON.stringify({
           answer: "",
           thinking: "Need to load the release-notes skill.",
           toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }],
+          responseItems: [{
+            id: "fc_1",
+            type: "function_call",
+            call_id: "call_1",
+            name: "load_skill",
+            arguments: JSON.stringify({ skill_name: "Release Notes" })
+          }],
           usage: { inputTokens: 10 }
         })
       )
@@ -291,6 +306,13 @@ ${JSON.stringify({
       expect.objectContaining({
         role: "assistant",
         reasoningContent: "Need to load the release-notes skill.",
+        responseItems: [{
+          id: "fc_1",
+          type: "function_call",
+          call_id: "call_1",
+          name: "load_skill",
+          arguments: JSON.stringify({ skill_name: "Release Notes" })
+        }],
         toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }]
       })
     );

@@ -1,5 +1,9 @@
 import { resolveCapabilities, supportsVisibleReasoning } from "@/lib/model-capabilities";
-import { getProviderApiKey, getProviderApiMode } from "@/lib/provider-profile";
+import {
+  getProviderApiKey,
+  getProviderApiMode,
+  resolveProviderProfileCapabilities
+} from "@/lib/provider-profile";
 import { estimatePromptTokens, setActiveTokenizer } from "@/lib/tokenization";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import {
@@ -21,6 +25,7 @@ import {
 import type {
   ChatStreamEvent,
   ProviderProfile,
+  ProviderResponseItem,
   ProviderToolCall,
   ReasoningEffort,
   RuntimeProviderProfile
@@ -32,13 +37,15 @@ import type {
 } from "@/lib/provider-adapters/types";
 
 function normalizeReasoningEffort(
-  effort: ProviderProfile["reasoningEffort"]
-): "low" | "medium" | "high" | undefined {
+  settings: ProviderProfile
+): "none" | "low" | "medium" | "high" | "xhigh" | "max" | undefined {
+  const effort = settings.reasoningEffort;
+  const capabilities = resolveProviderProfileCapabilities(settings);
   if (effort === "none") {
-    return undefined;
+    return capabilities.explicitDisabledReasoning ? "none" : undefined;
   }
-  if (effort === "xhigh") {
-    return "high";
+  if (effort === "xhigh" || effort === "max") {
+    return capabilities.reasoningEfforts.includes("max") ? effort : "high";
   }
 
   return effort;
@@ -49,11 +56,12 @@ function buildReasoningConfig(settings: ProviderProfile) {
     return undefined;
   }
 
-  if (settings.reasoningEffort === "none") {
+  const effort = normalizeReasoningEffort(settings);
+  if (!effort) {
     return undefined;
   }
 
-  const effort = normalizeReasoningEffort(settings.reasoningEffort);
+  if (effort === "none") return { effort } as const;
 
   if (settings.reasoningSummaryEnabled) {
     return {
@@ -86,7 +94,7 @@ function buildChatCompletionsOptions(settings: ProviderProfile) {
     return {};
   }
 
-  const effort = normalizeReasoningEffort(settings.reasoningEffort);
+  const effort = normalizeReasoningEffort(settings);
 
   if (settings.providerKind === "openai_compatible" &&
     settings.providerConfig.reasoningParameterMode === "mirrored") {
@@ -115,6 +123,24 @@ function buildChatCompletionsOptions(settings: ProviderProfile) {
   return {};
 }
 
+function buildRequestParameters(settings: ProviderProfile) {
+  const capabilities = resolveProviderProfileCapabilities(settings);
+  return {
+    ...(capabilities.supportsTemperature
+      ? { temperature: settings.temperature }
+      : {}),
+    ...(settings.providerKind === "openai_compatible" &&
+    capabilities.processingModes.length
+      ? {
+          service_tier:
+            settings.providerConfig.processingMode === "fast"
+              ? "priority"
+              : "default"
+        }
+      : {})
+  };
+}
+
 export async function callOpenAiCompatibleText(input: ProviderTextInput) {
   const { settings } = input;
   const profile = input.purpose === "title"
@@ -134,11 +160,12 @@ export async function callOpenAiCompatibleText(input: ProviderTextInput) {
       model: profile.model,
       input: buildOpenAIResponsesInput(contextualPrompt),
       max_output_tokens: Math.min(profile.maxOutputTokens, 4000),
-      reasoning
+      reasoning,
+      ...buildRequestParameters(profile)
     };
     const response = input.abortSignal
-      ? await client.responses.create(request, { signal: input.abortSignal })
-      : await client.responses.create(request);
+      ? await client.responses.create(request as any, { signal: input.abortSignal })
+      : await client.responses.create(request as any);
 
     const text = stripThinkingDelimiters(normalizeLineBreaks(getResponseText(response)));
 
@@ -152,9 +179,9 @@ export async function callOpenAiCompatibleText(input: ProviderTextInput) {
   const request = {
     model: profile.model,
     messages: buildOpenAIChatCompletionMessages(contextualPrompt, profile),
-    temperature: profile.temperature,
     max_completion_tokens: Math.min(profile.maxOutputTokens, 4000),
-    ...buildChatCompletionsOptions(profile)
+    ...buildChatCompletionsOptions(profile),
+    ...buildRequestParameters(profile)
   } as any;
   const response = input.abortSignal
     ? await client.chat.completions.create(request, { signal: input.abortSignal })
@@ -197,6 +224,7 @@ export async function* streamOpenAiCompatibleResponse(
   const signal = input.abortSignal ?? abortController.signal;
   let answer = "";
   let thinking = "";
+  const responseItems: ProviderResponseItem[] = [];
   let usage: {
     inputTokens?: number;
     outputTokens?: number;
@@ -212,9 +240,9 @@ export async function* streamOpenAiCompatibleResponse(
       model: settings.model,
       input: buildOpenAIResponsesInput(contextualPromptMessages),
       stream: true,
-      temperature: settings.temperature,
       max_output_tokens: settings.maxOutputTokens,
-      reasoning
+      reasoning,
+      ...buildRequestParameters(settings)
     };
 
     let stream: AsyncIterable<any>;
@@ -290,7 +318,7 @@ export async function* streamOpenAiCompatibleResponse(
         }
 
         if (event.type === "response.output_item.done") {
-          const item = event.item as {
+          const item = event.item as ProviderResponseItem & {
             type?: string;
             name?: string;
             arguments?: string;
@@ -298,6 +326,8 @@ export async function* streamOpenAiCompatibleResponse(
             summary?: Array<{ text?: string }>;
             content?: unknown[];
           };
+
+          responseItems.push(item);
 
           if (item.type === "function_call" && item.call_id) {
             pendingToolCalls.set(item.call_id, {
@@ -349,6 +379,7 @@ export async function* streamOpenAiCompatibleResponse(
       answer,
       thinking,
       toolCalls: toolCalls.length ? toolCalls : undefined,
+      responseItems: responseItems.length ? responseItems : undefined,
       usage
     };
   }
@@ -357,9 +388,9 @@ export async function* streamOpenAiCompatibleResponse(
     model: settings.model,
     messages: buildOpenAIChatCompletionMessages(contextualPromptMessages, settings),
     stream: true,
-    temperature: settings.temperature,
     max_completion_tokens: settings.maxOutputTokens,
-    ...buildChatCompletionsOptions(settings)
+    ...buildChatCompletionsOptions(settings),
+    ...buildRequestParameters(settings)
   };
 
   if (input.tools?.length) {

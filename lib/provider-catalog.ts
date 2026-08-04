@@ -1,7 +1,8 @@
 export type ProviderConnectionMode = "api_key" | "oauth";
 export type ApiMode = "responses" | "chat_completions";
 export type ReasoningParameterMode = "standard" | "mirrored";
-export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
+export type ProcessingMode = "standard" | "fast";
+export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
 export type VisionMode = "none" | "native" | "mcp";
 
 export const DEFAULT_PROFILE_BEHAVIOR = {
@@ -28,7 +29,7 @@ export const PROVIDER_CATALOG = {
     label: "OpenAI compatible",
     connectionMode: "api_key",
     apiModes: ["responses", "chat_completions"],
-    defaultPresetId: "custom_openai_compatible",
+    defaultPresetId: "openai_official",
     supportedConfiguration: ["apiBaseUrl", "apiMode", "reasoningParameterMode"],
     editor: {
       sampling: true,
@@ -91,6 +92,7 @@ export type ProviderPresetValues = {
   apiBaseUrl: string;
   model: string;
   apiMode: ApiMode;
+  processingMode?: ProcessingMode;
   reasoningEffort: ReasoningEffort;
   reasoningSummaryEnabled: boolean;
   modelContextLimit: number;
@@ -192,17 +194,20 @@ export const PROVIDER_PRESETS = [
     }
   },
   {
-    id: "custom_openai_compatible",
-    label: "Custom OpenAI compatible",
+    id: "openai_official",
+    label: "OpenAI",
     providerKind: "openai_compatible",
     values: {
-      name: "Custom OpenAI compatible",
+      name: "OpenAI",
       apiBaseUrl: "https://api.openai.com/v1",
-      model: "gpt-5-mini",
+      model: "gpt-5.6-luna",
       apiMode: "responses",
+      processingMode: "standard",
       reasoningEffort: DEFAULT_PROFILE_BEHAVIOR.reasoningEffort,
       reasoningSummaryEnabled: DEFAULT_PROFILE_BEHAVIOR.reasoningSummaryEnabled,
-      modelContextLimit: DEFAULT_PROFILE_BEHAVIOR.modelContextLimit
+      modelContextLimit: 1050000,
+      maxOutputTokens: 128000,
+      visionMode: "native"
     }
   },
   {
@@ -244,6 +249,7 @@ export type ProviderPresetId = (typeof PROVIDER_PRESETS)[number]["id"];
 
 type PresetCompatibleProfile = ProviderPresetValues & {
   providerKind?: string;
+  processingMode?: ProcessingMode;
   temperature?: number;
   maxOutputTokens?: number;
   visionMode?: VisionMode;
@@ -258,7 +264,7 @@ export function getProviderPreset(id: ProviderPresetId) {
 export function applyProviderPreset<T extends PresetCompatibleProfile>(
   profile: T,
   presetId: ProviderPresetId
-) {
+): T & Omit<ProviderPresetValues, "name"> {
   const preset = getProviderPreset(presetId);
   if (preset.providerKind !== (profile.providerKind ?? "openai_compatible")) return profile;
   const { name: _presetName, ...presetValues } = preset.values;
@@ -313,6 +319,9 @@ export function createProviderProfileDraft(input?: {
     providerKind,
     ...DEFAULT_PROFILE_BEHAVIOR,
     ...providerValues,
+    processingMode: "processingMode" in providerValues
+      ? providerValues.processingMode
+      : "standard",
     reasoningParameterMode: "reasoningParameterMode" in providerValues
       ? providerValues.reasoningParameterMode
       : "standard",

@@ -100,6 +100,38 @@ describe("settings domains", () => {
     })])).toThrow("changed connection identity");
   });
 
+  it("persists request behavior without treating it as a connection identity change", () => {
+    const profile = apiKeyProfile({
+      providerConfig: {
+        apiBaseUrl: "https://api.openai.com/v1",
+        apiMode: "responses",
+        processingMode: "standard"
+      }
+    });
+    if (profile.providerKind !== "openai_compatible") throw new Error("Expected compatible profile");
+    saveProfiles([profile]);
+
+    saveProfiles([{
+      ...profile,
+      providerConfig: {
+        ...profile.providerConfig,
+        apiMode: "chat_completions",
+        processingMode: "fast"
+      },
+      credential: "",
+      credentialAction: "preserve"
+    }]);
+
+    const stored = getRuntimeProviderProfile(profile.id);
+    expect(stored?.providerKind).toBe("openai_compatible");
+    if (stored?.providerKind !== "openai_compatible") return;
+    expect(stored.providerConfig).toMatchObject({
+      apiMode: "chat_completions",
+      processingMode: "fast"
+    });
+    expect(stored.credentials.apiKey).toBe("sk-primary");
+  });
+
   it("exposes a generic connection summary without credentials", () => {
     const oauthProfile = apiKeyProfile({
       id: "profile_oauth",

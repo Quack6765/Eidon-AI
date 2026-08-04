@@ -51,16 +51,18 @@ describe("provider presets", () => {
     expect(profile.modelContextLimit).toBe(200000);
   });
 
-  it("applies the custom OpenAI compatible preset values without overwriting the name", () => {
-    const profile = applyProviderPreset(createProfile(), "custom_openai_compatible");
+  it("applies the official OpenAI preset values without overwriting the name", () => {
+    const profile = applyProviderPreset(createProfile(), "openai_official");
 
     expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://api.openai.com/v1");
-    expect(profile.model).toBe("gpt-5-mini");
+    expect(profile.model).toBe("gpt-5.6-luna");
     expect(profile.apiMode).toBe("responses");
+    expect(profile.processingMode).toBe("standard");
     expect(profile.reasoningEffort).toBe("medium");
     expect(profile.reasoningSummaryEnabled).toBe(true);
-    expect(profile.modelContextLimit).toBe(200000);
+    expect(profile.modelContextLimit).toBe(1050000);
+    expect(profile.maxOutputTokens).toBe(128000);
   });
 
   it("applies the OpenRouter preset values without overwriting the name", () => {

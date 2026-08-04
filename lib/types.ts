@@ -17,6 +17,7 @@ import type {
 } from "@/lib/integration-types";
 import type {
   ApiMode,
+  ProcessingMode,
   ProviderKind,
   ProviderPresetId,
   ReasoningEffort,
@@ -30,6 +31,7 @@ import type {
 
 export type {
   ApiMode,
+  ProcessingMode,
   ProviderKind,
   ProviderPresetId,
   ReasoningEffort,
@@ -507,11 +509,17 @@ export type PromptImageContentPart = {
 
 export type PromptContentPart = PromptTextContentPart | PromptImageContentPart;
 
+export type ProviderResponseItem = {
+  type: string;
+  [key: string]: unknown;
+};
+
 export type PromptMessage = {
   role: "system" | "user" | "assistant" | "tool";
   content: string | PromptContentPart[];
   toolCallId?: string;
   toolCalls?: ProviderToolCall[];
+  responseItems?: ProviderResponseItem[];
   reasoningContent?: string;
   reasoningSignature?: string;
 };
