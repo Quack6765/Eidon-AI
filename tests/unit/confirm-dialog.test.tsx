@@ -65,7 +65,7 @@ describe("ConfirmDialog", () => {
       />
     );
 
-    const backdrop = screen.getByRole("dialog").querySelector(".absolute.inset-0");
+    const backdrop = screen.getByTestId("dialog-overlay");
     expect(backdrop).toBeTruthy();
     fireEvent.click(backdrop!);
     expect(onOpenChange).toHaveBeenCalledWith(false);

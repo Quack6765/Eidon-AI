@@ -21,6 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { getUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
+import { isUnmodifiedPrimaryClick } from "@/lib/navigation";
 import type { AuthUser } from "@/lib/types";
 
 const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || "dev";
@@ -105,12 +106,7 @@ export function SettingsNav({
   const [pendingNavTarget, setPendingNavTarget] = useState<string | null>(null);
 
   function navigateWithGuard(href: string, event: React.MouseEvent) {
-    if (
-      !event.defaultPrevented &&
-      !event.metaKey &&
-      !event.ctrlKey &&
-      event.button === 0
-    ) {
+    if (isUnmodifiedPrimaryClick(event)) {
       event.preventDefault();
       const guard = getUnsavedChangesGuard();
       if (guard && guard.isDirty()) {

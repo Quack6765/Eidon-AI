@@ -93,13 +93,6 @@ function AnsiText({
   );
 }
 
-const ANIMATED_STREAM_OPTIONS = {
-  animation: "fadeIn",
-  duration: 200,
-  easing: "ease-out",
-  sep: "word"
-} as const;
-
 const AssistantMarkdown = React.memo(
   function AssistantMarkdown({
     content,
@@ -118,7 +111,6 @@ const AssistantMarkdown = React.memo(
       <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
         <Streamdown
           plugins={plugins}
-          animated={ANIMATED_STREAM_OPTIONS}
           isAnimating={isAnimating}
           caret={showCaret ? "block" : undefined}
         >

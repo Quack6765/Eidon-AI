@@ -15,7 +15,7 @@ describe("settings route", () => {
     requireUserMock.mockReset();
   });
 
-  it("accepts speech-to-text fields on the general settings endpoint", async () => {
+  it("accepts provider-neutral speech settings on the general settings endpoint", async () => {
     const user = await createLocalUser({
       username: "settings-route-user",
       password: "Password123!",
@@ -24,18 +24,28 @@ describe("settings route", () => {
 
     requireUserMock.mockResolvedValue(user);
 
-    const { PUT } = await import("@/app/api/settings/route");
+    const { PUT } = await import("@/app/api/settings/general/route");
     const response = await PUT(
       new Request("http://localhost/api/settings", {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          sttEngine: "external",
-          sttProvider: "elevenlabs",
-          sttLanguage: "auto",
-          externalSttLanguage: "zho",
-          externalSttApiKey: "xi-route-secret",
-          externalSttApiKeyAction: "replace"
+          preferences: {
+            conversationRetention: "forever",
+            mcpTimeout: 120000,
+            maxAssistantToolSteps: 25
+          },
+          webSearch: {
+            providerId: "disabled",
+            configuration: {},
+            credentialAction: "clear"
+          },
+          speechTranscription: {
+            providerId: "elevenlabs",
+            configuration: { language: "zho" },
+            credential: "xi-route-secret",
+            credentialAction: "replace"
+          }
         })
       })
     );
@@ -44,12 +54,13 @@ describe("settings route", () => {
     await expect(response.json()).resolves.toEqual(
       expect.objectContaining({
         settings: expect.objectContaining({
-          sttEngine: "external",
-          sttProvider: "elevenlabs",
-          sttLanguage: "auto",
-          externalSttLanguage: "zho",
-          externalSttApiKey: "",
-          hasExternalSttApiKey: true
+          speechTranscription: {
+            providerId: "elevenlabs",
+            configuration: { language: "zho" },
+            configured: true,
+            credentialStored: true,
+            scope: "user"
+          }
         })
       })
     );

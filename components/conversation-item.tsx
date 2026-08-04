@@ -26,6 +26,7 @@ import type { Folder } from "@/lib/types";
 import { highlightMatch } from "@/lib/sidebar-helpers";
 import type { SidebarConversation } from "@/lib/sidebar-helpers";
 import { RenameModal } from "@/components/ui/rename-modal";
+import { isUnmodifiedPrimaryClick } from "@/lib/navigation";
 
 export function DropdownPortal({
   anchorRef,
@@ -117,15 +118,7 @@ export function ConversationItem({
     : "opacity-100 md:opacity-0 md:group-hover:opacity-100";
 
   function handleNavigate(event: ReactMouseEvent<HTMLAnchorElement>) {
-    if (
-      !onNavigate ||
-      event.defaultPrevented ||
-      event.button !== 0 ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.shiftKey ||
-      event.altKey
-    ) {
+    if (!onNavigate || !isUnmodifiedPrimaryClick(event)) {
       return;
     }
 

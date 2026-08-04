@@ -2,13 +2,14 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
+import { getProviderApiBaseUrl, getProviderApiKey, getProviderApiMode } from "@/lib/provider-profile";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import { estimatePromptTokens } from "@/lib/tokenization";
 import type {
   ChatStreamEvent,
   PromptMessage,
   ProviderProfile,
-  ProviderProfileWithApiKey,
+  RuntimeProviderProfile,
   ProviderToolCall,
   ReasoningEffort,
   ToolDefinition
@@ -186,7 +187,7 @@ export function buildAnthropicRequest(input: {
 }): Record<string, unknown> {
   const system = extractSystemPrompt(input.messages);
   const messages = withCacheControl(toAnthropicMessages(input.messages));
-  const effort = supportsVisibleReasoning(input.settings.model, input.settings.apiMode)
+  const effort = supportsVisibleReasoning(input.settings.model, getProviderApiMode(input.settings))
     ? mapReasoningEffortToAnthropic(input.settings.reasoningEffort)
     : null;
 
@@ -222,12 +223,15 @@ type AnthropicStreamResult = {
   usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number };
 };
 
-function createAnthropicClient(settings: ProviderProfileWithApiKey): Anthropic {
-  return new Anthropic({ apiKey: settings.apiKey, baseURL: settings.apiBaseUrl });
+function createAnthropicClient(settings: RuntimeProviderProfile): Anthropic {
+  return new Anthropic({
+    apiKey: getProviderApiKey(settings),
+    baseURL: getProviderApiBaseUrl(settings)
+  });
 }
 
 export async function* streamAnthropicResponse(input: {
-  settings: ProviderProfileWithApiKey;
+  settings: RuntimeProviderProfile;
   promptMessages: PromptMessage[];
   tools?: ToolDefinition[];
   abortSignal?: AbortSignal;
@@ -321,7 +325,7 @@ export async function* streamAnthropicResponse(input: {
 }
 
 export async function callAnthropicText(input: {
-  settings: ProviderProfileWithApiKey;
+  settings: RuntimeProviderProfile;
   messages: PromptMessage[];
   client?: Anthropic;
   abortSignal?: AbortSignal;

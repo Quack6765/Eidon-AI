@@ -1,17 +1,8 @@
 import type { ProviderToolCall } from "@/lib/types";
+import { longestMarkerPrefixAtSuffix } from "@/lib/stream-delimiters";
 
 const OPEN_TAG = "<tool_call";
 const CLOSE_TAG = "</tool_call>";
-
-function longestSuffixPrefix(text: string, marker: string): number {
-  const max = Math.min(text.length, marker.length - 1);
-  for (let len = max; len > 0; len -= 1) {
-    if (marker.startsWith(text.slice(text.length - len))) {
-      return len;
-    }
-  }
-  return 0;
-}
 
 function coerceToolCallValue(raw: string): unknown {
   const trimmed = raw.trim();
@@ -137,7 +128,7 @@ export function createTextToolCallInterceptor(): TextToolCallInterceptor {
       if (inside) {
         const closeIdx = pending.indexOf(CLOSE_TAG);
         if (closeIdx === -1) {
-          const hold = longestSuffixPrefix(pending, CLOSE_TAG);
+        const hold = longestMarkerPrefixAtSuffix(pending, CLOSE_TAG);
           const safeLen = pending.length - hold;
           if (safeLen > 0) {
             toolBody += pending.slice(0, safeLen);
@@ -158,7 +149,7 @@ export function createTextToolCallInterceptor(): TextToolCallInterceptor {
 
       const openIdx = pending.indexOf(OPEN_TAG);
       if (openIdx === -1) {
-        const hold = longestSuffixPrefix(pending, OPEN_TAG);
+      const hold = longestMarkerPrefixAtSuffix(pending, OPEN_TAG);
         const safeLen = pending.length - hold;
         if (safeLen > 0) {
           emitted += pending.slice(0, safeLen);

@@ -1,25 +1,32 @@
-import type { AppSettings, McpServer } from "@/lib/types";
+import { callMcpTool, discoverMcpTools, getToolResultText } from "@/lib/mcp-client";
+import { searchSearxng } from "@/lib/searxng";
+import {
+  getWebSearchReadinessError as getCatalogReadinessError,
+  type WebSearchProviderId
+} from "@/lib/web-search-catalog";
+import type { McpServer, RuntimeAppSettings } from "@/lib/types";
 
-const BUILTIN_WEB_SEARCH_SERVER_IDS = new Set([
-  "builtin_web_search_exa",
-  "builtin_web_search_tavily",
-  "builtin_web_search_searxng"
-]);
+type WebSearchInput = {
+  query: string;
+  maxResults?: number;
+  settings: RuntimeAppSettings;
+  abortSignal?: AbortSignal;
+  timeout?: number;
+};
 
-export function isBuiltinWebSearchServer(server: McpServer): boolean {
-  return BUILTIN_WEB_SEARCH_SERVER_IDS.has(server.id);
-}
+export type WebSearchProvider = {
+  id: WebSearchProviderId;
+  getReadinessError(settings: RuntimeAppSettings): string | null;
+  search(input: WebSearchInput): Promise<string>;
+};
 
-function buildBuiltinServer(
-  input: Pick<McpServer, "id" | "name" | "slug" | "url">
-): McpServer {
+function mcpServer(url: string): McpServer {
   const timestamp = new Date().toISOString();
-
   return {
-    id: input.id,
-    name: input.name,
-    slug: input.slug,
-    url: input.url,
+    id: "integration_web_search",
+    name: "Web search",
+    slug: "web_search",
+    url,
     headers: {},
     transport: "streamable_http",
     command: null,
@@ -32,52 +39,97 @@ function buildBuiltinServer(
   };
 }
 
-export function getInjectedWebSearchMcpServer(settings: Pick<AppSettings, "webSearchEngine" | "exaApiKey" | "tavilyApiKey">) {
-  if (settings.webSearchEngine === "exa") {
-    const url = new URL("https://mcp.exa.ai/mcp");
-    const apiKey = settings.exaApiKey.trim();
-
-    if (apiKey) {
-      url.searchParams.set("exaApiKey", apiKey);
-    }
-
-    return buildBuiltinServer({
-      id: "builtin_web_search_exa",
-      name: "Exa",
-      slug: "builtin_search_exa",
-      url: url.toString()
-    });
-  }
-
-  if (settings.webSearchEngine === "tavily") {
-    const apiKey = settings.tavilyApiKey.trim();
-    if (!apiKey) {
-      return null;
-    }
-
-    const url = new URL("https://mcp.tavily.com/mcp/");
-    url.searchParams.set("tavilyApiKey", apiKey);
-
-    return buildBuiltinServer({
-      id: "builtin_web_search_tavily",
-      name: "Tavily",
-      slug: "builtin_search_tavily",
-      url: url.toString()
-    });
-  }
-
-  return null;
+async function callSearchMcp(input: {
+  server: McpServer;
+  preferredToolNames: string[];
+  args: Record<string, unknown>;
+  timeout?: number;
+  abortSignal?: AbortSignal;
+}) {
+  const tools = await discoverMcpTools(input.server, input.abortSignal);
+  const tool = input.preferredToolNames
+    .map((name) => tools.find((candidate) => candidate.name === name))
+    .find(Boolean);
+  if (!tool) throw new Error("The configured search provider did not expose its search tool");
+  const result = await callMcpTool(
+    input.server,
+    tool.name,
+    input.args,
+    input.timeout,
+    input.abortSignal
+  );
+  if (result.isError) throw new Error(getToolResultText(result));
+  return getToolResultText(result);
 }
 
-export function appendInjectedWebSearchMcpServer(
-  servers: McpServer[],
-  settings: Pick<AppSettings, "webSearchEngine" | "exaApiKey" | "tavilyApiKey">
-) {
-  const injectedServer = getInjectedWebSearchMcpServer(settings);
+const providers: Record<WebSearchProviderId, WebSearchProvider> = {
+  disabled: {
+    id: "disabled",
+    getReadinessError: (settings) => getCatalogReadinessError(settings.webSearch),
+    async search() {
+      throw new Error("Web search is disabled");
+    }
+  },
+  exa: {
+    id: "exa",
+    getReadinessError: (settings) => getCatalogReadinessError(settings.webSearch),
+    search(input) {
+      const url = new URL("https://mcp.exa.ai/mcp");
+      const apiKey = input.settings.webSearch.credentials.apiKey?.trim();
+      if (apiKey) {
+        url.searchParams.set("exaApiKey", apiKey);
+      }
+      return callSearchMcp({
+        server: mcpServer(url.toString()),
+        preferredToolNames: ["web_search_exa", "web_search"],
+        args: {
+          query: input.query,
+          ...(input.maxResults ? { numResults: input.maxResults } : {})
+        },
+        timeout: input.timeout,
+        abortSignal: input.abortSignal
+      });
+    }
+  },
+  tavily: {
+    id: "tavily",
+    getReadinessError: (settings) => getCatalogReadinessError(settings.webSearch),
+    search(input) {
+      const url = new URL("https://mcp.tavily.com/mcp/");
+      url.searchParams.set("tavilyApiKey", input.settings.webSearch.credentials.apiKey?.trim() ?? "");
+      return callSearchMcp({
+        server: mcpServer(url.toString()),
+        preferredToolNames: ["tavily_search", "search"],
+        args: {
+          query: input.query,
+          ...(input.maxResults ? { max_results: input.maxResults } : {})
+        },
+        timeout: input.timeout,
+        abortSignal: input.abortSignal
+      });
+    }
+  },
+  searxng: {
+    id: "searxng",
+    getReadinessError: (settings) => getCatalogReadinessError(settings.webSearch),
+    search(input) {
+      return searchSearxng({
+        baseUrl: String(input.settings.webSearch.configuration.baseUrl ?? ""),
+        query: input.query,
+        maxResults: input.maxResults,
+        abortSignal: input.abortSignal
+      });
+    }
+  }
+};
 
-  return injectedServer ? [...servers, injectedServer] : servers;
+export function getWebSearchReadinessError(settings: RuntimeAppSettings) {
+  return providers[settings.webSearch.providerId].getReadinessError(settings);
 }
 
-export function getWebSearchActionLabel(serverId: string | null | undefined, fallbackLabel: string) {
-  return serverId && BUILTIN_WEB_SEARCH_SERVER_IDS.has(serverId) ? "Web search" : fallbackLabel;
+export function searchWeb(input: WebSearchInput) {
+  const provider = providers[input.settings.webSearch.providerId];
+  const readinessError = provider.getReadinessError(input.settings);
+  if (readinessError) throw new Error(readinessError);
+  return provider.search(input);
 }

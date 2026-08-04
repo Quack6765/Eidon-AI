@@ -39,46 +39,28 @@ vi.mock("@/lib/conversation-title-generator", () => ({
   MAX_CONVERSATION_TITLE_LENGTH: 48
 }));
 
-import type { ProviderProfileWithApiKey } from "@/lib/types";
+import {
+  createProviderProfileInput,
+  createRuntimeProviderProfile
+} from "@/tests/provider-fixtures";
 import { createLocalUser } from "@/lib/users";
 
-function setupProviderProfile(): { profileId: string; profile: ProviderProfileWithApiKey } {
+function setupProviderProfile() {
   const profileId = "profile_chat_test";
-  const profile: ProviderProfileWithApiKey = {
+  const profileSettings = {
     id: profileId,
     name: "Test",
-    apiBaseUrl: "https://api.example.com/v1",
-    apiKeyEncrypted: "",
-    apiKey: "sk-test",
     model: "gpt-test",
-    apiMode: "responses" as const,
     systemPrompt: "Be exact.",
     temperature: 0.4,
     maxOutputTokens: 512,
-    reasoningEffort: "medium" as const,
-    reasoningSummaryEnabled: true,
     modelContextLimit: 16384,
-    compactionThreshold: 0.8,
     freshTailCount: 12,
-    tokenizerModel: "gpt-tokenizer" as const,
-    safetyMarginTokens: 1200,
-    leafSourceTokenLimit: 12000,
-    leafMinMessageCount: 6,
-    mergedMinNodeCount: 4,
-    mergedTargetTokens: 1600,
-    visionMode: "native" as const,
-    providerPresetId: null,
-    providerKind: "openai_compatible",
-    githubUserAccessTokenEncrypted: "",
-    githubRefreshTokenEncrypted: "",
-    githubTokenExpiresAt: null,
-    githubRefreshTokenExpiresAt: null,
-    githubAccountLogin: null,
-    githubAccountName: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-  return { profileId, profile };
+    visionMode: "native"
+  } as const;
+  const profile = createProviderProfileInput(profileSettings);
+  const runtimeProfile = createRuntimeProviderProfile(profileSettings);
+  return { profileId, profile, runtimeProfile };
 }
 
 function createMockSocket(send = vi.fn()) {
@@ -99,7 +81,7 @@ describe("chat-turn", () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
 
     const manager = createConversationManager();
 
@@ -107,7 +89,7 @@ describe("chat-turn", () => {
     manager.subscribe("conv-1", mockWs);
 
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -149,12 +131,12 @@ describe("chat-turn", () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
 
     const manager = createConversationManager();
 
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -199,12 +181,12 @@ describe("chat-turn", () => {
     }));
     try {
       const { createConversationManager } = await import("@/lib/conversation-manager");
-      const { updateSettings } = await import("@/lib/settings");
+      const { updateProviderCatalog } = await import("@/lib/settings");
 
       const manager = createConversationManager();
 
       const { profileId, profile } = setupProviderProfile();
-      updateSettings({
+      updateProviderCatalog({
         defaultProviderProfileId: profileId,
         skillsEnabled: false,
         providerProfiles: [profile]
@@ -278,13 +260,14 @@ describe("chat-turn", () => {
     expect(listVisibleMessages(conv.id)).toHaveLength(0);
   });
 
-  it("injects the selected user's built-in web search MCP server into tool discovery", async () => {
+  it("keeps web search provider transport out of MCP discovery", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { gatherAllMcpTools } = await import("@/lib/mcp-client");
     const mockedGatherAllMcpTools = vi.mocked(gatherAllMcpTools);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings, updateGeneralSettingsForUser } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { updateIntegrationSetting } = await import("@/lib/integration-settings");
 
     const user = await createLocalUser({
       username: "web-search-owner",
@@ -294,15 +277,18 @@ describe("chat-turn", () => {
     const manager = createConversationManager();
     const { profileId, profile } = setupProviderProfile();
 
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
     });
-    updateGeneralSettingsForUser(user.id, {
-      webSearchEngine: "tavily",
-      tavilyApiKey: "tvly-user-key"
-    });
+    updateIntegrationSetting({
+      capability: "web_search",
+      providerId: "tavily",
+      configuration: {},
+      credential: "tvly-user-key",
+      credentialAction: "replace"
+    }, user.id);
 
     const conv = (await import("@/lib/conversations")).createConversation(
       undefined,
@@ -321,15 +307,7 @@ describe("chat-turn", () => {
     const { startChatTurn } = await import("@/lib/chat-turn");
     await startChatTurn(manager, conv.id, "Hi", []);
 
-    expect(mockedGatherAllMcpTools).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: "builtin_web_search_tavily",
-          name: "Tavily"
-        })
-      ]),
-      expect.any(AbortSignal)
-    );
+    expect(mockedGatherAllMcpTools).not.toHaveBeenCalled();
   });
 
   it("persists a partial assistant message as stopped when the turn is cancelled", async () => {
@@ -337,12 +315,12 @@ describe("chat-turn", () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
     const { requestStop } = await import("@/lib/chat-turn-control");
 
     const manager = createConversationManager();
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
     const conv = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
 
     let release = () => {};
@@ -374,12 +352,12 @@ describe("chat-turn", () => {
     mockedGatherAllMcpTools.mockClear();
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { createMcpServer } = await import("@/lib/mcp-servers");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
     const { requestStop } = await import("@/lib/chat-turn-control");
 
     const manager = createConversationManager();
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
     createMcpServer({ name: "Abort discovery", url: "https://mcp.example.com" });
     const conversation = (await import("@/lib/conversations")).createConversation(
       undefined,
@@ -422,13 +400,13 @@ describe("chat-turn", () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
     const { requestStop } = await import("@/lib/chat-turn-control");
     const { listVisibleMessages } = await import("@/lib/conversations");
 
     const manager = createConversationManager();
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
     const conversation = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
 
     const tempDir = fs.mkdtempSync(path.join("/tmp", "chat-turn-stop-local-file-"));
@@ -472,12 +450,12 @@ describe("chat-turn", () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
 
     const manager = createConversationManager();
 
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -527,7 +505,7 @@ describe("chat-turn", () => {
         assistantMessageId?: string;
         onEvent?: (event: { type: string; text: string }) => void;
       }) => {
-        const { createAttachments, assignAttachmentsToMessage } = await import("@/lib/attachments");
+        const { createAttachments, bindAttachmentsToMessage } = await import("@/lib/attachments");
         const attachments = await createAttachments(input.conversationId!, [
           {
             filename: "generated-inline.jpeg",
@@ -535,7 +513,7 @@ describe("chat-turn", () => {
             bytes: Buffer.from([1, 2, 3])
           }
         ]);
-        assignAttachmentsToMessage(
+        bindAttachmentsToMessage(
           input.conversationId!,
           input.assistantMessageId!,
           attachments.map((attachment) => attachment.id)
@@ -556,13 +534,13 @@ describe("chat-turn", () => {
 
     try {
       const { createConversationManager } = await import("@/lib/conversation-manager");
-      const { updateSettings } = await import("@/lib/settings");
+      const { updateProviderCatalog } = await import("@/lib/settings");
       const { listVisibleMessages } = await import("@/lib/conversations");
       const { startChatTurn } = await import("@/lib/chat-turn");
 
       const manager = createConversationManager();
       const { profileId, profile } = setupProviderProfile();
-      updateSettings({
+      updateProviderCatalog({
         defaultProviderProfileId: profileId,
         skillsEnabled: false,
         providerProfiles: [profile]
@@ -594,7 +572,7 @@ describe("chat-turn", () => {
         assistantMessageId?: string;
         onAnswerSegment?: (segment: string) => Promise<void> | void;
       }) => {
-        const { createAttachments, assignAttachmentsToMessage } = await import("@/lib/attachments");
+        const { createAttachments, bindAttachmentsToMessage } = await import("@/lib/attachments");
         const attachments = await createAttachments(input.conversationId!, [
           {
             filename: "generated-segment.jpeg",
@@ -602,7 +580,7 @@ describe("chat-turn", () => {
             bytes: Buffer.from([1, 2, 3])
           }
         ]);
-        assignAttachmentsToMessage(
+        bindAttachmentsToMessage(
           input.conversationId!,
           input.assistantMessageId!,
           attachments.map((attachment) => attachment.id)
@@ -620,13 +598,13 @@ describe("chat-turn", () => {
 
     try {
       const { createConversationManager } = await import("@/lib/conversation-manager");
-      const { updateSettings } = await import("@/lib/settings");
+      const { updateProviderCatalog } = await import("@/lib/settings");
       const { getConversationSnapshot, listVisibleMessages } = await import("@/lib/conversations");
       const { startChatTurn } = await import("@/lib/chat-turn");
 
       const manager = createConversationManager();
       const { profileId, profile } = setupProviderProfile();
-      updateSettings({
+      updateProviderCatalog({
         defaultProviderProfileId: profileId,
         skillsEnabled: false,
         providerProfiles: [profile]
@@ -658,11 +636,11 @@ describe("chat-turn", () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
 
     const manager = createConversationManager();
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -740,13 +718,13 @@ describe("chat-turn", () => {
 
     try {
       const { createConversationManager } = await import("@/lib/conversation-manager");
-      const { updateSettings } = await import("@/lib/settings");
+      const { updateProviderCatalog } = await import("@/lib/settings");
       const { listVisibleMessages } = await import("@/lib/conversations");
       const { startChatTurn } = await import("@/lib/chat-turn");
 
       const manager = createConversationManager();
       const { profileId, profile } = setupProviderProfile();
-      updateSettings({
+      updateProviderCatalog({
         defaultProviderProfileId: profileId,
         skillsEnabled: false,
         providerProfiles: [profile]
@@ -811,13 +789,13 @@ describe("chat-turn", () => {
 
     try {
       const { createConversationManager } = await import("@/lib/conversation-manager");
-      const { updateSettings } = await import("@/lib/settings");
+      const { updateProviderCatalog } = await import("@/lib/settings");
       const { listVisibleMessages } = await import("@/lib/conversations");
       const { startChatTurn } = await import("@/lib/chat-turn");
 
       const manager = createConversationManager();
       const { profileId, profile } = setupProviderProfile();
-      updateSettings({
+      updateProviderCatalog({
         defaultProviderProfileId: profileId,
         skillsEnabled: false,
         providerProfiles: [profile]
@@ -847,7 +825,7 @@ describe("chat-turn", () => {
   it("adds runtime guidance not to base64 screenshot files or embed data image URLs", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
-    const { profile } = setupProviderProfile();
+    const { runtimeProfile: profile } = setupProviderProfile();
 
     mockedStreamProviderResponse.mockReturnValueOnce(
       (async function* () {
@@ -886,7 +864,7 @@ describe("chat-turn", () => {
   it("does not add the inline attachment directive when the user explicitly asks for base64 image output", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
-    const { profile } = setupProviderProfile();
+    const { runtimeProfile: profile } = setupProviderProfile();
 
     mockedStreamProviderResponse.mockReturnValueOnce(
       (async function* () {
@@ -928,7 +906,7 @@ describe("chat-turn", () => {
   it("keeps the inline attachment directive when the user explicitly says not to send base64 or a data URL", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
-    const { profile } = setupProviderProfile();
+    const { runtimeProfile: profile } = setupProviderProfile();
 
     mockedStreamProviderResponse.mockReturnValueOnce(
       (async function* () {
@@ -972,7 +950,7 @@ describe("chat-turn", () => {
   it("does not add the inline attachment directive when the user wants only image bytes without markdown", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
-    const { profile } = setupProviderProfile();
+    const { runtimeProfile: profile } = setupProviderProfile();
 
     mockedStreamProviderResponse.mockReturnValueOnce(
       (async function* () {
@@ -1011,12 +989,12 @@ describe("chat-turn", () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
 
     const manager = createConversationManager();
 
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       memoriesEnabled: true,
@@ -1092,11 +1070,11 @@ describe("chat-turn", () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
 
     const manager = createConversationManager();
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1129,13 +1107,13 @@ describe("chat-turn", () => {
   it("continues from an existing user message without creating a duplicate user row", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
     const { createConversation, createMessage, listVisibleMessages } = await import("@/lib/conversations");
     const { startAssistantTurnFromExistingUserMessage } = await import("@/lib/chat-turn");
     const { getConversationManager } = await import("@/lib/ws-singleton");
 
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1181,11 +1159,11 @@ describe("chat-turn", () => {
     }));
 
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
 
     const manager = createConversationManager();
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1230,13 +1208,13 @@ describe("chat-turn", () => {
   it("rolls back the user row and attachment binding when assistant setup fails", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const { getDb } = await import("@/lib/db");
-    const { updateSettings } = await import("@/lib/settings");
-    const { createAttachmentsFromBytes, getAttachment } = await import("@/lib/attachments");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createAttachments, getAttachment } = await import("@/lib/attachments");
     const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
     const { claimChatTurnStart, releaseChatTurnStart } = await import("@/lib/chat-turn-control");
     const { startChatTurn } = await import("@/lib/chat-turn");
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1244,7 +1222,7 @@ describe("chat-turn", () => {
 
     const manager = createConversationManager();
     const conversation = createConversation("Atomic setup");
-    const [attachment] = await createAttachmentsFromBytes(conversation.id, [{
+    const [attachment] = await createAttachments(conversation.id, [{
       filename: "setup.txt",
       mimeType: "text/plain",
       bytes: Buffer.from("setup")
@@ -1310,11 +1288,11 @@ describe("chat-turn", () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
 
     const manager = createConversationManager();
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1353,11 +1331,11 @@ describe("chat-turn", () => {
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
     const { startChatTurn } = await import("@/lib/chat-turn");
 
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1398,13 +1376,13 @@ describe("chat-turn", () => {
 
   it("completes a turn that triggers image generation via the agentic tool system", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
 
     const manager = createConversationManager();
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1431,11 +1409,11 @@ describe("chat-turn", () => {
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
 
     const manager = createConversationManager();
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1479,11 +1457,11 @@ describe("chat-turn", () => {
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
 
     const manager = createConversationManager();
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1515,12 +1493,12 @@ describe("chat-turn", () => {
     );
   });
 
-  it("claims the legacy SSE turn before inserting messages", async () => {
-    const { updateSettings } = await import("@/lib/settings");
+  it("reports an active-turn conflict through the SSE stream before inserting messages", async () => {
+    const { updateProviderCatalog } = await import("@/lib/settings");
     const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
     const { claimChatTurnStart, releaseChatTurnStart } = await import("@/lib/chat-turn-control");
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1553,10 +1531,8 @@ describe("chat-turn", () => {
         { params: Promise.resolve({ conversationId: conversation.id }) }
       );
 
-      expect(response.status).toBe(409);
-      await expect(response.json()).resolves.toEqual({
-        error: "Conversation already has an active assistant turn"
-      });
+      expect(response.status).toBe(200);
+      await expect(response.text()).resolves.toContain("Conversation already has an active assistant turn");
       expect(listVisibleMessages(conversation.id)).toEqual(existingMessages);
     } finally {
       if (claimed.ok) {
@@ -1574,11 +1550,11 @@ describe("chat-turn", () => {
     });
     requireUserMock.mockResolvedValue(user);
 
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
     const { createConversation, getConversation, listVisibleMessages } = await import("@/lib/conversations");
     const { claimChatTurnStart, releaseChatTurnStart } = await import("@/lib/chat-turn-control");
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1644,10 +1620,10 @@ describe("chat-turn", () => {
     });
     requireUserMock.mockResolvedValue(user);
 
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
     const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1706,10 +1682,10 @@ describe("chat-turn", () => {
     });
     requireUserMock.mockResolvedValue(user);
 
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
     const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1773,14 +1749,14 @@ describe("chat-turn", () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
 
     const manager = createConversationManager();
     const sent: unknown[] = [];
     const mockWs = createMockSocket(vi.fn((data: string) => sent.push(JSON.parse(data))));
 
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1821,7 +1797,7 @@ describe("chat-turn", () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
     const { getConversationContextUsage } = await import("@/lib/compaction");
 
     const manager = createConversationManager();
@@ -1829,7 +1805,7 @@ describe("chat-turn", () => {
     const mockWs = createMockSocket(vi.fn((data: string) => sent.push(JSON.parse(data))));
 
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]
@@ -1865,7 +1841,7 @@ describe("chat-turn", () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
     const { createConversationManager } = await import("@/lib/conversation-manager");
-    const { updateSettings } = await import("@/lib/settings");
+    const { updateProviderCatalog } = await import("@/lib/settings");
     const { getConversationContextUsage } = await import("@/lib/compaction");
 
     const manager = createConversationManager();
@@ -1873,7 +1849,7 @@ describe("chat-turn", () => {
     const mockWs = createMockSocket(vi.fn((data: string) => sent.push(JSON.parse(data))));
 
     const { profileId, profile } = setupProviderProfile();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: profileId,
       skillsEnabled: false,
       providerProfiles: [profile]

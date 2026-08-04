@@ -4,21 +4,23 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation";
 
 import { ChatComposer } from "@/components/chat-composer";
+import { FileDropOverlay } from "@/components/file-drop-overlay";
+import { useComposerSpeech } from "@/hooks/use-composer-speech";
+import { useFileDrop } from "@/hooks/use-file-drop";
+import { usePendingAttachments } from "@/hooks/use-pending-attachments";
+import { usePersonas } from "@/hooks/use-personas";
 import { markHomeSubmitSidebarAutoHide, storeChatBootstrap } from "@/lib/chat-bootstrap";
-import { appendTranscriptToDraft } from "@/lib/speech/append-transcript-to-draft";
-import { useSpeechInput } from "@/lib/speech/use-speech-input";
 import { cn, shouldAutofocusTextInput } from "@/lib/utils";
 import type {
   AppSettings,
   Conversation,
-  MessageAttachment,
   ProviderProfileSummary
 } from "@/lib/types";
 
 type HomeViewProps = {
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string | null;
-  settings: Pick<AppSettings, "sttEngine" | "sttLanguage">;
+  settings: Pick<AppSettings, "speechTranscription">;
 };
 
 export function HomeView({
@@ -32,26 +34,29 @@ export function HomeView({
   const [providerProfileId, setProviderProfileId] = useState(
     defaultProviderProfileId ?? providerProfiles[0]?.id ?? ""
   );
-  const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
-  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
-  const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
+  const personas = usePersonas();
   const [personaId, setPersonaId] = useState<string | null>(null);
   const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
   const [isTemporary, setIsTemporary] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const dragDepthRef = useRef(0);
   const [entranceAnimDone, setEntranceAnimDone] = useState(false);
   const onEntranceAnimEnd = useCallback(() => setEntranceAnimDone(true), []);
-  const {
-    speechSnapshot,
-    startSpeech,
-    stopSpeech
-  } = useSpeechInput({
-    engine: settings.sttEngine,
-    initialLanguage: settings.sttLanguage
+  const { speechSnapshot, onStartSpeech, onStopSpeech } = useComposerSpeech({
+    selection: settings.speechTranscription,
+    setDraft: setInput,
+    clearError: () => setError("")
   });
+  const {
+    pendingAttachments,
+    isUploadingAttachments,
+    uploadFiles,
+    removePendingAttachment
+  } = usePendingAttachments({
+    resolveConversationId: ensureDraftConversation,
+    onError: setError
+  });
+  const { isDraggingFiles, fileDropProps } = useFileDrop((files) => void uploadFiles(files));
 
   useEffect(() => {
     if (!shouldAutofocusTextInput()) {
@@ -65,15 +70,6 @@ export function HomeView({
     });
 
     return () => window.cancelAnimationFrame(handle);
-  }, []);
-
-  useEffect(() => {
-    fetch("/api/personas")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.personas) setPersonas(d.personas);
-      })
-      .catch(() => {});
   }, []);
 
   const selectedProfile = useMemo(
@@ -148,78 +144,6 @@ export function HomeView({
     }
   }
 
-  async function uploadFiles(files: File[]) {
-    if (!files.length) {
-      return;
-    }
-
-    setError("");
-    setIsUploadingAttachments(true);
-
-    try {
-      const conversationId = await ensureDraftConversation();
-      const formData = new FormData();
-      formData.append("conversationId", conversationId);
-      files.forEach((file) => {
-        formData.append("files", file);
-      });
-
-      const response = await fetch("/api/attachments", {
-        method: "POST",
-        body: formData
-      });
-
-      if (!response.ok) {
-        let message = "Unable to upload attachments";
-
-        try {
-          const failure = (await response.json()) as { error?: string };
-          message = failure.error ?? message;
-        } catch {}
-
-        throw new Error(message);
-      }
-
-      const data = (await response.json()) as { attachments: MessageAttachment[] };
-      setPendingAttachments((current) => [...current, ...data.attachments]);
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error ? caughtError.message : "Unable to upload attachments"
-      );
-    } finally {
-      setIsUploadingAttachments(false);
-    }
-  }
-
-  async function removePendingAttachment(attachmentId: string) {
-    setError("");
-
-    try {
-      const response = await fetch(`/api/attachments/${attachmentId}`, {
-        method: "DELETE"
-      });
-
-      if (!response.ok) {
-        let message = "Unable to remove attachment";
-
-        try {
-          const failure = (await response.json()) as { error?: string };
-          message = failure.error ?? message;
-        } catch {}
-
-        throw new Error(message);
-      }
-
-      setPendingAttachments((current) =>
-        current.filter((attachment) => attachment.id !== attachmentId)
-      );
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error ? caughtError.message : "Unable to remove attachment"
-      );
-    }
-  }
-
   async function handleProviderProfileChange(nextProviderProfileId: string) {
     const previousProviderProfileId = providerProfileId;
     setError("");
@@ -276,55 +200,9 @@ export function HomeView({
   return (
     <main
       className="relative flex min-h-0 flex-1 flex-col items-center px-4 sm:justify-center sm:pb-8"
-      onDragEnter={(event) => {
-        if (!event.dataTransfer.types.includes("Files")) {
-          return;
-        }
-
-        event.preventDefault();
-        dragDepthRef.current += 1;
-        setIsDraggingFiles(true);
-      }}
-      onDragOver={(event) => {
-        if (!event.dataTransfer.types.includes("Files")) {
-          return;
-        }
-
-        event.preventDefault();
-      }}
-      onDragLeave={(event) => {
-        if (!event.dataTransfer.types.includes("Files")) {
-          return;
-        }
-
-        event.preventDefault();
-        dragDepthRef.current = Math.max(dragDepthRef.current - 1, 0);
-
-        if (dragDepthRef.current === 0) {
-          setIsDraggingFiles(false);
-        }
-      }}
-      onDrop={(event) => {
-        if (!event.dataTransfer.files.length) {
-          return;
-        }
-
-        event.preventDefault();
-        dragDepthRef.current = 0;
-        setIsDraggingFiles(false);
-        void uploadFiles(Array.from(event.dataTransfer.files));
-      }}
+      {...fileDropProps}
     >
-      {isDraggingFiles ? (
-        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-black/45 backdrop-blur-sm">
-          <div className="rounded-2xl border border-[var(--accent)]/25 bg-[var(--panel)] px-6 py-5 text-center shadow-[var(--shadow)]">
-            <div className="text-sm font-medium text-[var(--text)]">Drop files to attach</div>
-            <div className="mt-1 text-xs text-white/45">
-              Images and text-like files are supported
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {isDraggingFiles ? <FileDropOverlay /> : null}
 
       <div
         className={cn(
@@ -372,19 +250,8 @@ export function HomeView({
             speechPhase={speechSnapshot.phase}
             speechLevel={speechSnapshot.level}
             speechError={speechSnapshot.error}
-            onStartSpeech={() => {
-              setError("");
-              void startSpeech();
-            }}
-            onStopSpeech={() => {
-              void stopSpeech().then((transcript) => {
-                if (!transcript) {
-                  return;
-                }
-
-                setInput((current) => appendTranscriptToDraft(current, transcript));
-              });
-            }}
+            onStartSpeech={onStartSpeech}
+            onStopSpeech={onStopSpeech}
             isTemporary={isTemporary}
             showTemporaryToggle={true}
             onTemporaryChange={setIsTemporary}

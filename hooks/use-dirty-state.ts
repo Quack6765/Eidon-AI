@@ -1,8 +1,10 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
 export function useDirtyState<T extends Record<string, unknown>>(current: T) {
   const [snapshot, setSnapshot] = useState<string>(JSON.stringify(current));
   const currentJson = JSON.stringify(current);
+  const currentJsonRef = useRef(currentJson);
+  currentJsonRef.current = currentJson;
   const isDirty = currentJson !== snapshot;
 
   const snapshotObj = useMemo<T>(() => JSON.parse(snapshot), [snapshot]);
@@ -15,8 +17,8 @@ export function useDirtyState<T extends Record<string, unknown>>(current: T) {
   );
 
   const reset = useCallback((next?: T) => {
-    setSnapshot(next !== undefined ? JSON.stringify(next) : currentJson);
-  }, [currentJson]);
+    setSnapshot(next !== undefined ? JSON.stringify(next) : currentJsonRef.current);
+  }, []);
 
   return { isDirty, isFieldDirty, reset };
 }

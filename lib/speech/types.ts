@@ -1,6 +1,27 @@
-export type SttEngine = "browser" | "embedded" | "external";
+import {
+  TRANSCRIPTION_PROVIDER_CATALOG,
+  isTranscriptionProviderId,
+  type SttEngine
+} from "@/lib/speech/transcription-catalog";
+
+export type { SttEngine } from "@/lib/speech/transcription-catalog";
 
 export type SttLanguage = "auto" | "en" | "fr" | "es";
+
+export function getSpeechInputSettings(input: {
+  providerId: string;
+  configuration: { language?: string };
+}) {
+  const providerId = isTranscriptionProviderId(input.providerId)
+    ? input.providerId
+    : "browser";
+  const engine: SttEngine = TRANSCRIPTION_PROVIDER_CATALOG[providerId].engine;
+  const value = input.configuration.language;
+  const language: SttLanguage = value === "en" || value === "fr" || value === "es"
+    ? value
+    : "auto";
+  return { engine, language };
+}
 
 export type SpeechPhase =
   | "idle"

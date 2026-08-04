@@ -1,13 +1,10 @@
-import { createHash, randomBytes } from "node:crypto";
-import path from "node:path";
+import { randomBytes } from "node:crypto";
 
 import {
-  assignAttachmentsToMessage,
+  copyAttachmentsForConversationFork,
   deleteAttachmentFiles,
   listAttachmentsForConversation,
   listAttachmentsForMessageIds,
-  publishAttachmentArtifacts,
-  readAttachmentBuffer,
   rollbackAttachmentArtifactPublication,
   type AttachmentArtifactPublication
 } from "@/lib/attachments";
@@ -16,6 +13,7 @@ import {
   DEFAULT_CONVERSATION_TITLE,
   generateConversationTitle
 } from "@/lib/conversation-title-generator";
+import { copyCompactionStateForConversationFork } from "@/lib/compaction-fork";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import {
@@ -24,7 +22,6 @@ import {
 import { getConversationManager } from "@/lib/ws-singleton";
 import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
-  AttachmentKind,
   Conversation,
   ConversationListPage,
   ConversationOrigin,
@@ -1097,28 +1094,6 @@ export function getMessage(messageId: string, userId?: string) {
   return hydrateMessages([rowToMessage(row)])[0] ?? null;
 }
 
-function updateMessageEstimatedTokens(messageId: string) {
-  const message = getMessage(messageId);
-
-  if (!message) {
-    return;
-  }
-
-  getDb()
-    .prepare(
-      `UPDATE messages
-       SET estimated_tokens = ?
-       WHERE id = ?`
-    )
-    .run(estimateMessageTokens(message), messageId);
-}
-
-export function bindAttachmentsToMessage(conversationId: string, messageId: string, attachmentIds: string[]) {
-  const attachments = assignAttachmentsToMessage(conversationId, messageId, attachmentIds);
-  updateMessageEstimatedTokens(messageId);
-  return attachments;
-}
-
 export function forkConversationFromMessage(messageId: string, userId?: string) {
   const db = getDb();
   const attachmentPublications: AttachmentArtifactPublication[] = [];
@@ -1206,21 +1181,6 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       );
     });
 
-    const clonedAttachments: Array<{
-      id: string;
-      conversationId: string;
-      messageId: string;
-      filename: string;
-      mimeType: string;
-      byteSize: number;
-      sha256: string;
-      relativePath: string;
-      kind: AttachmentKind;
-      extractedText: string;
-      createdAt: string;
-      bytes: Buffer;
-    }> = [];
-
     retainedMessages.forEach((message) => {
       const clonedMessageId = clonedMessageIdBySourceId.get(message.id);
 
@@ -1277,278 +1237,18 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       });
     });
 
-    retainedMessages.forEach((message) => {
-      const clonedMessageId = clonedMessageIdBySourceId.get(message.id);
-
-      if (!clonedMessageId) {
-        return;
-      }
-
-      message.attachments.forEach((attachment) => {
-        const clonedAttachmentId = createId("att");
-        const clonedRelativePath = path.join(
-          forkConversation.id,
-          `${clonedAttachmentId}_${path.basename(attachment.filename)}`
-        );
-        let bytes: Buffer;
-
-        try {
-          bytes = readAttachmentBuffer(attachment);
-        } catch (error) {
-          if (
-            attachment.kind === "text" &&
-            error instanceof Error &&
-            "code" in error &&
-            error.code === "ENOENT"
-          ) {
-            bytes = Buffer.from(attachment.extractedText, "utf8");
-          } else {
-            throw error;
-          }
-        }
-
-        clonedAttachments.push({
-          id: clonedAttachmentId,
-          conversationId: forkConversation.id,
-          messageId: clonedMessageId,
-          filename: attachment.filename,
-          mimeType: attachment.mimeType,
-          byteSize: bytes.length,
-          sha256: createHash("sha256").update(bytes).digest("hex"),
-          relativePath: clonedRelativePath,
-          kind: attachment.kind,
-          extractedText: attachment.extractedText,
-          createdAt: attachment.createdAt,
-          bytes
-        });
-      });
+    const attachmentPublication = copyAttachmentsForConversationFork({
+      sourceMessages: retainedMessages,
+      targetConversationId: forkConversation.id,
+      targetMessageIdBySourceId: clonedMessageIdBySourceId
     });
+    if (attachmentPublication) attachmentPublications.push(attachmentPublication);
 
-    if (clonedAttachments.length > 0) {
-      const publication = publishAttachmentArtifacts(
-        clonedAttachments.map((attachment) => ({
-          relativePath: attachment.relativePath,
-          bytes: attachment.bytes
-        }))
-      );
-      attachmentPublications.push(publication);
-
-      clonedAttachments.forEach((attachment) => {
-        db.prepare(
-          `INSERT INTO message_attachments (
-            id,
-            conversation_id,
-            message_id,
-            filename,
-            mime_type,
-            byte_size,
-            sha256,
-            relative_path,
-            kind,
-            extracted_text,
-            created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(
-          attachment.id,
-          attachment.conversationId,
-          attachment.messageId,
-          attachment.filename,
-          attachment.mimeType,
-          attachment.byteSize,
-          attachment.sha256,
-          attachment.relativePath,
-          attachment.kind,
-          attachment.extractedText,
-          attachment.createdAt
-        );
-      });
-    }
-
-    const sourceMemoryNodes = db
-      .prepare(
-        `SELECT
-          id,
-          type,
-          depth,
-          content,
-          source_start_message_id,
-          source_end_message_id,
-          source_token_count,
-          summary_token_count,
-          child_node_ids,
-          superseded_by_node_id,
-          created_at
-         FROM memory_nodes
-         WHERE conversation_id = ?
-         ORDER BY created_at ASC, rowid ASC`
-      )
-      .all(sourceConversation.id) as Array<{
-      id: string;
-      type: "leaf_summary" | "merged_summary";
-      depth: number;
-      content: string;
-      source_start_message_id: string;
-      source_end_message_id: string;
-      source_token_count: number;
-      summary_token_count: number;
-      child_node_ids: string;
-      superseded_by_node_id: string | null;
-      created_at: string;
-    }>;
-
-    const retainedMemoryNodes = sourceMemoryNodes.filter((node) => {
-      return (
-        retainedMessageIds.has(node.source_start_message_id) &&
-        retainedMessageIds.has(node.source_end_message_id)
-      );
-    });
-
-    const cloneableMemoryNodeIds = new Set(retainedMemoryNodes.map((node) => node.id));
-    let hasChanges = true;
-
-    while (hasChanges) {
-      hasChanges = false;
-
-      for (const node of retainedMemoryNodes) {
-        if (!cloneableMemoryNodeIds.has(node.id)) {
-          continue;
-        }
-
-        const childNodeIds = JSON.parse(node.child_node_ids) as string[];
-        const referencesMissingChild = childNodeIds.some((childNodeId) => {
-          return !cloneableMemoryNodeIds.has(childNodeId);
-        });
-        if (referencesMissingChild) {
-          cloneableMemoryNodeIds.delete(node.id);
-          hasChanges = true;
-        }
-      }
-    }
-
-    const cloneableRetainedMemoryNodes = retainedMemoryNodes.filter((node) =>
-      cloneableMemoryNodeIds.has(node.id)
-    );
-    const clonedNodeIdBySourceId = new Map<string, string>();
-
-    cloneableRetainedMemoryNodes.forEach((node) => {
-      clonedNodeIdBySourceId.set(node.id, createId("mem"));
-    });
-
-    cloneableRetainedMemoryNodes.forEach((node) => {
-      const clonedStartMessageId = clonedMessageIdBySourceId.get(node.source_start_message_id);
-      const clonedEndMessageId = clonedMessageIdBySourceId.get(node.source_end_message_id);
-
-      if (!clonedStartMessageId || !clonedEndMessageId) {
-        return;
-      }
-
-      const childNodeIds = JSON.parse(node.child_node_ids) as string[];
-      const clonedChildNodeIds = childNodeIds
-        .map((childNodeId) => clonedNodeIdBySourceId.get(childNodeId))
-        .filter((childNodeId): childNodeId is string => Boolean(childNodeId));
-
-      if (clonedChildNodeIds.length !== childNodeIds.length) {
-        return;
-      }
-
-      const clonedSupersededByNodeId =
-        node.superseded_by_node_id && cloneableMemoryNodeIds.has(node.superseded_by_node_id)
-          ? clonedNodeIdBySourceId.get(node.superseded_by_node_id) ?? null
-          : null;
-
-      db.prepare(
-        `INSERT INTO memory_nodes (
-          id,
-          conversation_id,
-          type,
-          depth,
-          content,
-          source_start_message_id,
-          source_end_message_id,
-          source_token_count,
-          summary_token_count,
-          child_node_ids,
-          superseded_by_node_id,
-          created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        clonedNodeIdBySourceId.get(node.id),
-        forkConversation.id,
-        node.type,
-        node.depth,
-        node.content,
-        clonedStartMessageId,
-        clonedEndMessageId,
-        node.source_token_count,
-        node.summary_token_count,
-        JSON.stringify(clonedChildNodeIds),
-        clonedSupersededByNodeId,
-        node.created_at
-      );
-    });
-
-    const sourceCompactionEvents = db
-      .prepare(
-        `SELECT
-          id,
-          node_id,
-          source_start_message_id,
-          source_end_message_id,
-          notice_message_id,
-          created_at
-         FROM compaction_events
-         WHERE conversation_id = ?
-         ORDER BY created_at ASC, rowid ASC`
-      )
-      .all(sourceConversation.id) as Array<{
-      id: string;
-      node_id: string;
-      source_start_message_id: string;
-      source_end_message_id: string;
-      notice_message_id: string | null;
-      created_at: string;
-    }>;
-
-    sourceCompactionEvents.forEach((event) => {
-      const clonedNodeId = clonedNodeIdBySourceId.get(event.node_id);
-      const clonedStartMessageId = clonedMessageIdBySourceId.get(event.source_start_message_id);
-      const clonedEndMessageId = clonedMessageIdBySourceId.get(event.source_end_message_id);
-
-      if (!clonedNodeId || !clonedStartMessageId || !clonedEndMessageId) {
-        return;
-      }
-
-      if (event.notice_message_id && !retainedMessageIds.has(event.notice_message_id)) {
-        return;
-      }
-
-      const clonedNoticeMessageId = event.notice_message_id
-        ? clonedMessageIdBySourceId.get(event.notice_message_id) ?? null
-        : null;
-
-      if (event.notice_message_id && !clonedNoticeMessageId) {
-        return;
-      }
-
-      db.prepare(
-        `INSERT INTO compaction_events (
-          id,
-          conversation_id,
-          node_id,
-          source_start_message_id,
-          source_end_message_id,
-          notice_message_id,
-          created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        createId("cmp"),
-        forkConversation.id,
-        clonedNodeId,
-        clonedStartMessageId,
-        clonedEndMessageId,
-        clonedNoticeMessageId,
-        event.created_at
-      );
+    copyCompactionStateForConversationFork({
+      sourceConversationId: sourceConversation.id,
+      targetConversationId: forkConversation.id,
+      retainedMessageIds,
+      targetMessageIdBySourceId: clonedMessageIdBySourceId
     });
 
     const hydratedForkConversation = getConversation(forkConversation.id);
@@ -1604,9 +1304,13 @@ export function rewriteConversationFromEditedUserMessage(
     const deletedIds = deletedMessages.map((item) => item.id);
 
     updateMessage(message.id, {
-      content: input.content
+      content: input.content,
+      estimatedTokens: estimateMessageTokens({
+        content: input.content,
+        thinkingContent: message.thinkingContent,
+        attachments: message.attachments
+      })
     });
-    updateMessageEstimatedTokens(message.id);
 
     const affectedPlaceholders = affectedIds.map(() => "?").join(", ");
     const allNodeRows = (

@@ -166,7 +166,7 @@ app.prepare().then(async () => {
   if (initTitleModel && getDb) {
     try {
       const db = getDb();
-      const row = db.prepare("SELECT title_generation_mode FROM app_settings WHERE id = 1").get();
+      const row = db.prepare("SELECT title_generation_mode FROM global_preferences WHERE id = 1").get();
       if (row && row.title_generation_mode === "local") {
         initTitleModel().catch((err) => {
           console.error("[title-model] Init failed:", err.message);

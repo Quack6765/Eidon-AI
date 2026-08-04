@@ -572,7 +572,7 @@ export function ChatComposer({
       ) : null}
 
       <AnimatePresence initial={false}>
-        {showToolbar && (
+        {mounted && showToolbar && (
           <motion.div
             key="composer-toolbar"
             initial={{ height: 0, opacity: 0 }}

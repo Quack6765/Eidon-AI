@@ -191,7 +191,7 @@ describe("SharedConversationView", () => {
       "https://github.com/Quack6765/Eidon-AI"
     );
     expect(screen.getByRole("link", { name: "Eidon" })).toContainHTML(
-      'font-bold leading-none tracking-[0.12em]'
+      'font-bold tracking-[0.12em]'
     );
     expect(screen.getByRole("link", { name: "Eidon" })).toContainHTML(
       "linear-gradient(to bottom, #FFFFFF 0%, #D4C8FF 40%, #8b5cf6 100%)"

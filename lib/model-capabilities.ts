@@ -1,5 +1,10 @@
 import type { ApiMode, VisionMode } from "@/lib/types";
-import { MODEL_REGISTRY, type ModelCapabilityOverride } from "@/lib/model-registry";
+import {
+  MODEL_REGISTRY,
+  MODEL_REQUEST_QUIRKS,
+  type ModelCapabilityOverride,
+  type ModelRequestQuirk
+} from "@/lib/model-registry";
 
 type CapabilityFlag = boolean | { apiModes: ApiMode[] };
 
@@ -51,6 +56,13 @@ export function resolveCapabilities(
         }
       }
     }
+  }
+
+  const requestQuirk: Partial<ModelRequestQuirk> | undefined =
+    MODEL_REQUEST_QUIRKS.find((candidate) => bareModel.startsWith(candidate.prefix));
+  if (requestQuirk) {
+    const { prefix: _, ...quirks } = requestQuirk;
+    Object.assign(resolved, quirks);
   }
 
   if (userOverrides) {

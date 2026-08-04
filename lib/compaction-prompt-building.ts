@@ -1,7 +1,7 @@
 import { buildCompactionSummaryPromptBody } from "@/lib/compaction-summary";
 import { callProviderText } from "@/lib/provider";
 import { estimateTextTokens } from "@/lib/tokenization";
-import type { Message, MessageAttachment, PromptContentPart, PromptMessage, ProviderProfileWithApiKey } from "@/lib/types";
+import type { Message, MessageAttachment, PromptContentPart, PromptMessage, RuntimeProviderProfile } from "@/lib/types";
 
 export function buildSummaryPrompt(label: string, blocks: string, sourceSpan: {
   startMessageId: string;
@@ -19,7 +19,7 @@ export function buildSummaryPrompt(label: string, blocks: string, sourceSpan: {
 export async function summarizeBlocks(
   conversationId: string,
   prompt: string,
-  settings: ProviderProfileWithApiKey,
+  settings: RuntimeProviderProfile,
   abortSignal?: AbortSignal
 ): Promise<string> {
   return await callProviderText({

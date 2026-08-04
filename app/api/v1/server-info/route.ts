@@ -31,7 +31,7 @@ export async function GET() {
         personas: true,
         memories: true,
         administratorSettings: true,
-        githubCopilotOAuth: true,
+        providerConnections: true,
         offlineMutations: false,
         pushNotifications: false
       },

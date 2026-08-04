@@ -8,7 +8,7 @@ import {
   README_DEMO_FIXTURES,
   seedReadmeDemoData
 } from "@/lib/readme-demo";
-import { listProviderProfilesWithApiKeys, getSettingsForUser } from "@/lib/settings";
+import { listRuntimeProviderProfiles, getSettingsForUser } from "@/lib/settings";
 import { listSkills } from "@/lib/skills";
 import { listUsers } from "@/lib/users";
 
@@ -24,7 +24,7 @@ describe("readme demo seed", () => {
       ])
     );
 
-    expect(listProviderProfilesWithApiKeys().map((profile) => profile.name)).toEqual(
+    expect(listRuntimeProviderProfiles().map((profile) => profile.name)).toEqual(
       expect.arrayContaining(README_DEMO_FIXTURES.providerProfiles.map((profile) => profile.name))
     );
 
@@ -119,8 +119,8 @@ describe("readme demo seed", () => {
     );
 
     const settings = getSettingsForUser(seeded.envSuperAdminId);
-    expect(settings.sttEngine).toBe("browser");
-    expect(settings.webSearchEngine).toBe("exa");
+    expect(settings.speechTranscription.providerId).toBe("browser");
+    expect(settings.webSearch.providerId).toBe("exa");
   });
 
   it("can be re-run without duplicating the demo workspace", async () => {

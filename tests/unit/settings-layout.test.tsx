@@ -4,15 +4,11 @@ import React from "react";
 import { render, screen } from "@testing-library/react";
 
 import { GeneralSection } from "@/components/settings/sections/general-section";
-import { SettingRow } from "@/components/settings/setting-row";
 import { Shell } from "@/components/shell";
 import type { AppSettings, AuthUser, ConversationListPage } from "@/lib/types";
 
 type GeneralSectionSettings = AppSettings & {
-  hasExaApiKey?: boolean;
-  hasTavilyApiKey?: boolean;
-  hasGoogleNanoBananaApiKey?: boolean;
-  providerProfiles: Array<{ id: string; name: string; model: string; hasApiKey: boolean }>;
+  providerProfiles: Array<{ id: string; name: string; model: string }>;
 };
 
 const mockRefresh = vi.fn();
@@ -60,22 +56,31 @@ const settings: GeneralSectionSettings = {
   memoriesMaxCount: 100,
   mcpTimeout: 120_000,
   maxAssistantToolSteps: 25,
-  sttEngine: "browser",
-  sttProvider: "elevenlabs",
-  sttLanguage: "en",
-  externalSttLanguage: "auto",
-  externalSttApiKey: "",
-  webSearchEngine: "exa",
-  exaApiKey: "",
-  tavilyApiKey: "",
-  searxngBaseUrl: "",
-  imageGenerationBackend: "disabled",
-  googleNanoBananaModel: "gemini-3.1-flash-image-preview",
-  googleNanoBananaApiKey: "",
+  speechTranscription: {
+    providerId: "browser",
+    configuration: { language: "en" },
+    configured: true,
+    credentialStored: false,
+    scope: "global"
+  },
+  webSearch: {
+    providerId: "exa",
+    configuration: {},
+    configured: true,
+    credentialStored: false,
+    scope: "global"
+  },
+  imageGeneration: {
+    providerId: "disabled",
+    configuration: {},
+    configured: true,
+    credentialStored: false,
+    scope: "global"
+  },
   titleGenerationMode: "same",
   titleGenerationProfileId: null,
   providerProfiles: [
-    { id: "profile_default", name: "Default", model: "gpt-test", hasApiKey: true }
+    { id: "profile_default", name: "Default", model: "gpt-test" }
   ],
   updatedAt: new Date().toISOString()
 };
@@ -110,23 +115,6 @@ describe("settings mobile layout", () => {
     expect(container.firstElementChild).toHaveClass("max-w-none");
     expect(container.firstElementChild).toHaveClass("md:max-w-[55%]");
     expect(container.firstElementChild).not.toHaveClass("max-w-[55%]");
-  });
-
-  it("stacks setting rows vertically before the small breakpoint", () => {
-    const { container } = render(
-      <SettingRow
-        label="Keep conversations for"
-        description="Older conversations will be automatically deleted"
-      >
-        <select aria-label="Retention" />
-      </SettingRow>
-    );
-
-    expect(container.firstElementChild).toHaveClass("flex-col");
-    expect(container.firstElementChild).toHaveClass("items-start");
-    expect(container.firstElementChild).toHaveClass("sm:flex-row");
-    expect(container.firstElementChild).toHaveClass("sm:items-center");
-    expect(container.firstElementChild).toHaveClass("sm:justify-between");
   });
 
   it("shows a settings-specific mobile header when browsing settings", () => {

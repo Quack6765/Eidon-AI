@@ -8,15 +8,8 @@ function matchMediaSupported(): boolean {
   return typeof window !== "undefined" && typeof window.matchMedia === "function";
 }
 
-function getInitialMobile(): boolean {
-  if (!matchMediaSupported()) {
-    return false;
-  }
-  return window.matchMedia(MOBILE_QUERY).matches;
-}
-
 export function useIsMobile(): boolean {
-  const [isMobile, setIsMobile] = useState<boolean>(getInitialMobile);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     if (!matchMediaSupported()) {

@@ -15,8 +15,13 @@ import {
   useAttachmentPreviewController
 } from "@/components/attachment-preview-modal";
 import { ChatComposer } from "@/components/chat-composer";
+import { FileDropOverlay } from "@/components/file-drop-overlay";
 import { QueuedMessageBanner } from "@/components/queued-message-banner";
 import { useShareConversation } from "@/components/share-conversation-context";
+import { useComposerSpeech } from "@/hooks/use-composer-speech";
+import { useFileDrop } from "@/hooks/use-file-drop";
+import { usePendingAttachments } from "@/hooks/use-pending-attachments";
+import { usePersonas } from "@/hooks/use-personas";
 import {
   type PendingLocalSubmission,
   adoptStreamingSnapshotState,
@@ -45,10 +50,8 @@ import {
 } from "@/lib/conversation-events";
 import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
-import { appendTranscriptToDraft } from "@/lib/speech/append-transcript-to-draft";
-import { useSpeechInput } from "@/lib/speech/use-speech-input";
 import { isScrolledToBottom, shouldAutofocusTextInput } from "@/lib/utils";
-import type { AppSettings } from "@/lib/types";
+import type { ConversationViewPayload } from "@/lib/conversation-view";
 import type {
   ChatStreamEvent,
   Conversation,
@@ -60,23 +63,6 @@ import type {
   QueuedMessage,
   ProviderProfileSummary
 } from "@/lib/types";
-
-type ConversationPayload = {
-  conversation: Conversation;
-  messages: Message[];
-  queuedMessages: QueuedMessage[];
-  settings: Pick<AppSettings, "sttEngine" | "sttLanguage">;
-  providerProfiles: ProviderProfileSummary[];
-  defaultProviderProfileId: string | null;
-  contextTokens: number | null;
-  compactionLimit: number;
-  debug: {
-    rawTurnCount: number;
-    memoryNodeCount: number;
-    latestCompactionAt: string | null;
-  };
-};
-
 
 const INITIAL_VISIBLE_MESSAGE_COUNT = 60;
 const VISIBLE_MESSAGE_INCREMENT = 100;
@@ -110,7 +96,7 @@ function StickToBottomBridge({
   return null;
 }
 
-export function ChatView({ payload }: { payload: ConversationPayload }) {
+export function ChatView({ payload }: { payload: ConversationViewPayload }) {
   const router = useRouter();
   const { getTokenUsage, setTokenUsage } = useContextTokens();
   const { canShare, openShareModal } = useShareConversation();
@@ -186,11 +172,19 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       payload.defaultProviderProfileId
     )
   );
-  const [pendingAttachments, setPendingAttachments] = useState<MessageAttachment[]>([]);
-  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
-  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
-  const [personas, setPersonas] = useState<Array<{ id: string; name: string }>>([]);
+  const personas = usePersonas();
   const [personaId, setPersonaId] = useState<string | null>(null);
+  const {
+    pendingAttachments,
+    setPendingAttachments,
+    isUploadingAttachments,
+    uploadFiles,
+    removePendingAttachment
+  } = usePendingAttachments({
+    resolveConversationId: () => payload.conversation.id,
+    onError: setError
+  });
+  const { isDraggingFiles, fileDropProps } = useFileDrop((files) => void uploadFiles(files));
   const scrollToBottomRef = useRef<(() => void) | null>(null);
   const setScrollTargetRef = useRef<((target: number | null) => void) | null>(null);
   const contentEndRef = useRef<HTMLDivElement>(null);
@@ -200,13 +194,10 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
   const absorbComposerGrowthRef = useRef(false);
   const finalizePendingRef = useRef(false);
 
-  const {
-    speechSnapshot,
-    startSpeech,
-    stopSpeech
-  } = useSpeechInput({
-    engine: payload.settings.sttEngine,
-    initialLanguage: payload.settings.sttLanguage,
+  const { speechSnapshot, onStartSpeech, onStopSpeech } = useComposerSpeech({
+    selection: payload.settings.speechTranscription,
+    setDraft: setInput,
+    clearError: () => setError(""),
     resetKey: payload.conversation.id
   });
   const hasEmptyAssistantShell = useMemo(
@@ -221,8 +212,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     [messages]
   );
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const dragDepthRef = useRef(0);
-  const messagesRef = useRef(payload.messages);
+  const messagesRef = useRef<Message[]>(payload.messages);
   const streamMessageIdRef = useRef<string | null>(null);
   const renderKeyByMessageIdRef = useRef(new Map<string, string>());
   const wsConnectedRef = useRef(false);
@@ -465,15 +455,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
       )
     );
   }, [payload.conversation.providerProfileId, payload.defaultProviderProfileId, payload.providerProfiles]);
-
-  useEffect(() => {
-    fetch("/api/personas")
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.personas) setPersonas(d.personas);
-      })
-      .catch(() => {});
-  }, []);
 
   useEffect(() => {
     contentEndRef.current?.parentElement?.style.removeProperty("min-height");
@@ -1133,7 +1114,7 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     setError(
       "Realtime chat connection is unavailable. Restart Eidon with the websocket server enabled."
     );
-  }, [wsFailed]);
+  }, [setPendingAttachments, wsFailed]);
 
   function stopTitlePolling() {
     if (titlePollTimeoutRef.current !== null) {
@@ -1375,77 +1356,6 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     hasPendingImages &&
     selectedProfile &&
     selectedProfile.visionMode === "none";
-
-  async function uploadFiles(files: File[]) {
-    if (!files.length) {
-      return;
-    }
-
-    setError("");
-    setIsUploadingAttachments(true);
-
-    try {
-      const formData = new FormData();
-      formData.append("conversationId", payload.conversation.id);
-      files.forEach((file) => {
-        formData.append("files", file);
-      });
-
-      const response = await fetch("/api/attachments", {
-        method: "POST",
-        body: formData
-      });
-
-      if (!response.ok) {
-        let message = "Unable to upload attachments";
-
-        try {
-          const failure = (await response.json()) as { error?: string };
-          message = failure.error ?? message;
-        } catch {}
-
-        throw new Error(message);
-      }
-
-      const data = (await response.json()) as { attachments: MessageAttachment[] };
-      setPendingAttachments((current) => [...current, ...data.attachments]);
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error ? caughtError.message : "Unable to upload attachments"
-      );
-    } finally {
-      setIsUploadingAttachments(false);
-    }
-  }
-
-  async function removePendingAttachment(attachmentId: string) {
-    setError("");
-
-    try {
-      const response = await fetch(`/api/attachments/${attachmentId}`, {
-        method: "DELETE"
-      });
-
-      if (!response.ok) {
-        let message = "Unable to remove attachment";
-
-        try {
-          const failure = (await response.json()) as { error?: string };
-          message = failure.error ?? message;
-        } catch {}
-
-        throw new Error(message);
-      }
-
-      setPendingAttachments((current) =>
-        current.filter((attachment) => attachment.id !== attachmentId)
-      );
-    } catch (caughtError) {
-      setError(
-        caughtError instanceof Error ? caughtError.message : "Unable to remove attachment"
-      );
-    }
-  }
 
   async function updateUserMessage(messageId: string, content: string) {
     const previousMessage = messages.find((message) => message.id === messageId);
@@ -1952,55 +1862,9 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
     >
       <div
         className="contents"
-        onDragEnter={(event) => {
-          if (!event.dataTransfer.types.includes("Files")) {
-            return;
-          }
-
-          event.preventDefault();
-          dragDepthRef.current += 1;
-          setIsDraggingFiles(true);
-        }}
-        onDragOver={(event) => {
-          if (!event.dataTransfer.types.includes("Files")) {
-            return;
-          }
-
-          event.preventDefault();
-        }}
-        onDragLeave={(event) => {
-          if (!event.dataTransfer.types.includes("Files")) {
-            return;
-          }
-
-          event.preventDefault();
-          dragDepthRef.current = Math.max(dragDepthRef.current - 1, 0);
-
-          if (dragDepthRef.current === 0) {
-            setIsDraggingFiles(false);
-          }
-        }}
-        onDrop={(event) => {
-          if (!event.dataTransfer.files.length) {
-            return;
-          }
-
-          event.preventDefault();
-          dragDepthRef.current = 0;
-          setIsDraggingFiles(false);
-          void uploadFiles(Array.from(event.dataTransfer.files));
-        }}
+        {...fileDropProps}
       >
-      {isDraggingFiles ? (
-        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-black/45 backdrop-blur-sm">
-          <div className="rounded-2xl border border-[var(--accent)]/25 bg-[var(--panel)] px-6 py-5 text-center shadow-[var(--shadow)]">
-            <div className="text-sm font-medium text-[var(--text)]">Drop files to attach</div>
-            <div className="mt-1 text-xs text-white/45">
-              Images and text-like files are supported
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {isDraggingFiles ? <FileDropOverlay /> : null}
       <div className="border-b border-white/4 px-4 py-3.5 md:px-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
@@ -2169,19 +2033,8 @@ export function ChatView({ payload }: { payload: ConversationPayload }) {
               }).catch(() => {});
             }}
             collapsibleToolbarOnMobile
-            onStartSpeech={() => {
-              setError("");
-              void startSpeech();
-            }}
-            onStopSpeech={() => {
-              void stopSpeech().then((transcript) => {
-                if (!transcript) {
-                  return;
-                }
-
-                setInput((current) => appendTranscriptToDraft(current, transcript));
-              });
-            }}
+            onStartSpeech={onStartSpeech}
+            onStopSpeech={onStopSpeech}
           />
            </div>
         </div>

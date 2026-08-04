@@ -1,9 +1,9 @@
-import { DEFAULT_PROVIDER_SETTINGS } from "@/lib/constants";
 import {
   applyProviderPreset,
+  DEFAULT_PROFILE_BEHAVIOR,
   getMatchingProviderPresetId,
   getProviderPreset
-} from "@/lib/provider-presets";
+} from "@/lib/provider-catalog";
 
 function createProfile() {
   return {
@@ -69,10 +69,10 @@ describe("provider presets", () => {
     expect(profile.name).toBe("Original profile");
     expect(profile.apiBaseUrl).toBe("https://openrouter.ai/api/v1");
     expect(profile.model).toBe("");
-    expect(profile.apiMode).toBe(DEFAULT_PROVIDER_SETTINGS.apiMode);
-    expect(profile.reasoningEffort).toBe(DEFAULT_PROVIDER_SETTINGS.reasoningEffort);
+    expect(profile.apiMode).toBe("responses");
+    expect(profile.reasoningEffort).toBe(DEFAULT_PROFILE_BEHAVIOR.reasoningEffort);
     expect(profile.reasoningSummaryEnabled).toBe(
-      DEFAULT_PROVIDER_SETTINGS.reasoningSummaryEnabled
+      DEFAULT_PROFILE_BEHAVIOR.reasoningSummaryEnabled
     );
     expect(profile.modelContextLimit).toBe(200000);
   });
@@ -159,6 +159,29 @@ describe("provider presets", () => {
     };
 
     expect(getMatchingProviderPresetId(profile)).toBeNull();
+  });
+
+  it("rejects preset matches when optional preset values drift", () => {
+    const deepSeek = {
+      ...createProfile(),
+      ...getProviderPreset("deepseek").values
+    };
+    const xiaomi = {
+      ...createProfile(),
+      ...getProviderPreset("xiaomi_mimo").values
+    };
+    const ollama = {
+      ...createProfile(),
+      ...getProviderPreset("ollama_cloud").values
+    };
+
+    expect(getMatchingProviderPresetId({ ...deepSeek, temperature: 0.7 })).toBeNull();
+    expect(getMatchingProviderPresetId({ ...deepSeek, maxOutputTokens: 4096 })).toBeNull();
+    expect(getMatchingProviderPresetId({ ...xiaomi, visionMode: "none" })).toBeNull();
+    expect(getMatchingProviderPresetId({
+      ...ollama,
+      reasoningParameterMode: "standard"
+    })).toBeNull();
   });
 
   it("throws for unknown preset id", () => {

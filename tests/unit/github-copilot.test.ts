@@ -1,19 +1,19 @@
-import { decryptValue, encryptValue } from "@/lib/crypto";
+import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
 const {
-  updateGithubCopilotCredentialsIfRefreshTokenMatches,
+  updateProviderConnectionIfRefreshTokenMatchesMock,
   copilotClientCtor
 } = vi.hoisted(() => ({
-  updateGithubCopilotCredentialsIfRefreshTokenMatches: vi.fn(() => true),
+  updateProviderConnectionIfRefreshTokenMatchesMock: vi.fn(() => true),
   copilotClientCtor: vi.fn()
 }));
 
-vi.mock("@/lib/settings", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/settings")>("@/lib/settings");
+vi.mock("@/lib/provider-profiles", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/provider-profiles")>("@/lib/provider-profiles");
 
   return {
     ...actual,
-    updateGithubCopilotCredentialsIfRefreshTokenMatches
+    updateProviderConnectionIfRefreshTokenMatches: updateProviderConnectionIfRefreshTokenMatchesMock
   };
 });
 
@@ -24,7 +24,6 @@ vi.mock("@github/copilot-sdk", () => ({
 import {
   buildGithubCopilotClient,
   clearGithubCopilotConnection,
-  createGithubOauthState,
   ensureFreshGithubAccessToken,
   exchangeGithubCodeForTokens,
   getGithubAuthorizeUrl,
@@ -34,21 +33,20 @@ import {
   runGithubCopilotChat,
   shouldRefreshGithubToken,
   streamGithubCopilotChat,
-  verifyGithubOauthState
 } from "@/lib/github-copilot";
 
 function createProfile(overrides: Record<string, unknown> = {}) {
-  const now = new Date().toISOString();
-
-  return {
+  const {
+    githubTokenExpiresAt,
+    githubRefreshTokenExpiresAt,
+    ...profileOverrides
+  } = overrides;
+  return createRuntimeProviderProfile({
     id: "profile_copilot",
     providerKind: "github_copilot" as const,
+    providerConfig: {},
     name: "Copilot",
-    apiBaseUrl: "",
-    apiKeyEncrypted: "",
-    apiKey: "",
     model: "openai/gpt-4.1",
-    apiMode: "responses" as const,
     systemPrompt: "Be exact.",
     temperature: 0.2,
     maxOutputTokens: 512,
@@ -65,18 +63,18 @@ function createProfile(overrides: Record<string, unknown> = {}) {
     mergedTargetTokens: 1600,
     visionMode: "native" as const,
     providerPresetId: null,
-    githubUserAccessTokenEncrypted: encryptValue("ghu_access"),
-    githubRefreshTokenEncrypted: encryptValue("ghr_refresh"),
-    githubTokenExpiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
-    githubRefreshTokenExpiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
-    githubAccountLogin: "octocat",
-    githubAccountName: "The Octocat",
-    createdAt: now,
-    updatedAt: now,
-    hasApiKey: false,
-    githubConnectionStatus: "connected" as const,
-    ...overrides
-  };
+    credentials: { accessToken: "ghu_access", refreshToken: "ghr_refresh" },
+    connectionMetadata: {
+      expiresAt: githubTokenExpiresAt === undefined
+        ? new Date(Date.now() + 10 * 60_000).toISOString()
+        : githubTokenExpiresAt as string | null,
+      refreshExpiresAt: githubRefreshTokenExpiresAt === undefined
+        ? new Date(Date.now() + 60 * 60_000).toISOString()
+        : githubRefreshTokenExpiresAt as string | null,
+      accountLabel: "The Octocat"
+    },
+    ...profileOverrides
+  });
 }
 
 type MockSession = {
@@ -115,92 +113,60 @@ describe("github copilot helpers", () => {
   it("detects when a token should be refreshed", () => {
     expect(
       shouldRefreshGithubToken({
-        githubTokenExpiresAt: new Date(Date.now() + 30_000).toISOString()
+        ...createProfile(),
+        connectionMetadata: { expiresAt: new Date(Date.now() + 30_000).toISOString() }
       })
     ).toBe(true);
 
     expect(
       shouldRefreshGithubToken({
-        githubTokenExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString()
+        ...createProfile(),
+        connectionMetadata: { expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() }
       })
     ).toBe(false);
   });
 
   it("does not refresh a github token when no expiry is stored", () => {
     expect(
-      shouldRefreshGithubToken({
-        githubTokenExpiresAt: null
-      })
+      shouldRefreshGithubToken(createProfile({ githubTokenExpiresAt: null }))
     ).toBe(false);
   });
 
   it("computes connection state from stored credentials", () => {
     expect(
-      getGithubConnectionStatus({
-        providerKind: "github_copilot",
-        githubUserAccessTokenEncrypted: "",
-        githubTokenExpiresAt: null
-      })
+      getGithubConnectionStatus(createProfile({ credentials: {}, connectionMetadata: {} }))
     ).toBe("disconnected");
 
     expect(
-      getGithubConnectionStatus({
-        providerKind: "github_copilot",
-        githubUserAccessTokenEncrypted: encryptValue("ghu_123"),
-        githubTokenExpiresAt: new Date(Date.now() + 60_000).toISOString()
-      })
+      getGithubConnectionStatus(createProfile({
+        credentials: { accessToken: "ghu_123" },
+        connectionMetadata: { expiresAt: new Date(Date.now() + 60_000).toISOString() }
+      }))
     ).toBe("connected");
 
     expect(
-      getGithubConnectionStatus({
-        providerKind: "github_copilot",
-        githubUserAccessTokenEncrypted: encryptValue("ghu_123"),
-        githubTokenExpiresAt: new Date(Date.now() - 60_000).toISOString()
-      })
+      getGithubConnectionStatus(createProfile({
+        credentials: { accessToken: "ghu_123" },
+        connectionMetadata: { expiresAt: new Date(Date.now() - 60_000).toISOString() }
+      }))
     ).toBe("expired");
   });
 
   it("treats copilot profiles without an expiry timestamp as disconnected", () => {
     expect(
-      getGithubConnectionStatus({
-        providerKind: "github_copilot",
-        githubUserAccessTokenEncrypted: encryptValue("ghu_123"),
-        githubTokenExpiresAt: null
-      })
-    ).toBe("disconnected");
+      getGithubConnectionStatus(createProfile({
+        credentials: { accessToken: "ghu_123" },
+        connectionMetadata: {}
+      }))
+    ).toBe("connected");
   });
 
   it("clears only github oauth fields when disconnecting", () => {
     expect(
-      clearGithubCopilotConnection({
-        githubUserAccessTokenEncrypted: "ciphertext-access",
-        githubRefreshTokenEncrypted: "ciphertext-refresh",
-        githubTokenExpiresAt: "2026-04-08T16:00:00.000Z",
-        githubRefreshTokenExpiresAt: "2026-10-08T16:00:00.000Z",
-        githubAccountLogin: "octocat",
-        githubAccountName: "The Octocat"
-      })
+      clearGithubCopilotConnection()
     ).toEqual({
-      githubUserAccessTokenEncrypted: "",
-      githubRefreshTokenEncrypted: "",
-      githubTokenExpiresAt: null,
-      githubRefreshTokenExpiresAt: null,
-      githubAccountLogin: null,
-      githubAccountName: null
-    });
-  });
-
-  it("creates and verifies oauth state tokens", async () => {
-    const state = await createGithubOauthState(
-      "profile_1",
-      "user_1",
-      "github_oauth_test-nonce"
-    );
-
-    await expect(verifyGithubOauthState(state)).resolves.toEqual({
-      profileId: "profile_1",
-      userId: "user_1",
-      profileNonce: "github_oauth_test-nonce"
+      credentials: {},
+      connectionMetadata: {}
     });
   });
 
@@ -252,12 +218,10 @@ describe("github copilot helpers", () => {
 
     const refreshed = await refreshGithubUserToken(profile);
 
-    expect(refreshed.githubRefreshTokenEncrypted).toBe(profile.githubRefreshTokenEncrypted);
-    expect(decryptValue(refreshed.githubUserAccessTokenEncrypted)).toBe(
-      "ghu_refreshed"
-    );
-    expect(refreshed.githubTokenExpiresAt).toBe("2026-04-09T10:02:00.000Z");
-    expect(refreshed.githubRefreshTokenExpiresAt).toBeNull();
+    expect(refreshed.refreshToken).toBe(profile.credentials.refreshToken);
+    expect(refreshed.accessToken).toBe("ghu_refreshed");
+    expect(refreshed.expiresAt).toBe("2026-04-09T10:02:00.000Z");
+    expect(refreshed.refreshExpiresAt).toBeNull();
     expect(global.fetch).toHaveBeenCalledWith(
       "https://github.com/login/oauth/access_token",
       expect.objectContaining({
@@ -278,7 +242,7 @@ describe("github copilot helpers", () => {
     });
 
     await expect(ensureFreshGithubAccessToken(profile)).resolves.toBe(profile);
-    expect(updateGithubCopilotCredentialsIfRefreshTokenMatches).not.toHaveBeenCalled();
+    expect(updateProviderConnectionIfRefreshTokenMatchesMock).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
@@ -300,26 +264,25 @@ describe("github copilot helpers", () => {
 
     const refreshed = await ensureFreshGithubAccessToken(profile);
 
-    expect(decryptValue(refreshed.githubUserAccessTokenEncrypted)).toBe(
-      "ghu_refreshed"
-    );
-    expect(decryptValue(refreshed.githubRefreshTokenEncrypted)).toBe(
-      "ghr_rotated"
-    );
-    expect(refreshed.githubTokenExpiresAt).toBe("2026-04-09T10:05:00.000Z");
-    expect(refreshed.githubRefreshTokenExpiresAt).toBe(
+    expect(refreshed.credentials.accessToken).toBe("ghu_refreshed");
+    expect(refreshed.credentials.refreshToken).toBe("ghr_rotated");
+    expect(refreshed.connectionMetadata.expiresAt).toBe("2026-04-09T10:05:00.000Z");
+    expect(refreshed.connectionMetadata.refreshExpiresAt).toBe(
       "2026-04-09T12:00:00.000Z"
     );
-    expect(updateGithubCopilotCredentialsIfRefreshTokenMatches).toHaveBeenCalledWith(
+    expect(updateProviderConnectionIfRefreshTokenMatchesMock).toHaveBeenCalledWith(
       "profile_copilot",
-      profile.githubRefreshTokenEncrypted,
+      "ghr_refresh",
       {
-      githubUserAccessToken: "ghu_refreshed",
-      githubRefreshToken: "ghr_rotated",
-      githubTokenExpiresAt: "2026-04-09T10:05:00.000Z",
-      githubRefreshTokenExpiresAt: "2026-04-09T12:00:00.000Z",
-      githubAccountLogin: "octocat",
-      githubAccountName: "The Octocat"
+        credentials: {
+          accessToken: "ghu_refreshed",
+          refreshToken: "ghr_rotated"
+        },
+        metadata: {
+          expiresAt: "2026-04-09T10:05:00.000Z",
+          refreshExpiresAt: "2026-04-09T12:00:00.000Z",
+          accountLabel: "The Octocat"
+        }
       }
     );
   });
@@ -350,8 +313,8 @@ describe("github copilot helpers", () => {
     const [firstResult, secondResult] = await Promise.all([first, second]);
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
-    expect(updateGithubCopilotCredentialsIfRefreshTokenMatches).toHaveBeenCalledTimes(1);
-    expect(decryptValue(firstResult.githubUserAccessTokenEncrypted)).toBe("ghu_coalesced");
+    expect(updateProviderConnectionIfRefreshTokenMatchesMock).toHaveBeenCalledTimes(1);
+    expect(firstResult.credentials.accessToken).toBe("ghu_coalesced");
     expect(secondResult).toEqual(firstResult);
   });
 
@@ -379,14 +342,14 @@ describe("github copilot helpers", () => {
     await Promise.all([first, second]);
 
     expect(global.fetch).toHaveBeenCalledTimes(1);
-    expect(updateGithubCopilotCredentialsIfRefreshTokenMatches).toHaveBeenCalledTimes(1);
+    expect(updateProviderConnectionIfRefreshTokenMatchesMock).toHaveBeenCalledTimes(1);
   });
 
   it("does not restore credentials when disconnect wins a refresh race", async () => {
     const profile = createProfile({
       githubTokenExpiresAt: new Date(Date.now() + 30_000).toISOString()
     });
-    updateGithubCopilotCredentialsIfRefreshTokenMatches.mockReturnValueOnce(false);
+    updateProviderConnectionIfRefreshTokenMatchesMock.mockReturnValueOnce(false);
     vi.mocked(global.fetch).mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -399,9 +362,9 @@ describe("github copilot helpers", () => {
     await expect(ensureFreshGithubAccessToken(profile)).rejects.toThrow(
       "GitHub Copilot connection changed during token refresh"
     );
-    expect(updateGithubCopilotCredentialsIfRefreshTokenMatches).toHaveBeenCalledWith(
+    expect(updateProviderConnectionIfRefreshTokenMatchesMock).toHaveBeenCalledWith(
       profile.id,
-      profile.githubRefreshTokenEncrypted,
+      profile.credentials.refreshToken,
       expect.any(Object)
     );
   });
@@ -421,7 +384,7 @@ describe("github copilot helpers", () => {
     await expect(ensureFreshGithubAccessToken(profile)).rejects.toThrow(
       "The refresh token is invalid"
     );
-    expect(updateGithubCopilotCredentialsIfRefreshTokenMatches).not.toHaveBeenCalled();
+    expect(updateProviderConnectionIfRefreshTokenMatchesMock).not.toHaveBeenCalled();
   });
 
   it("lists github copilot models with a started and stopped client", async () => {

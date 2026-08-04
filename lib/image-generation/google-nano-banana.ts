@@ -1,16 +1,17 @@
 import { GoogleGenAI, Modality } from "@google/genai";
-import type { AppSettings } from "@/lib/types";
+import type { ImageGenerationModelId } from "@/lib/image-generation/catalog";
 import type { CompiledImageInstruction, GenerateImageResult } from "./types";
 import { renameGeneratedImages } from "./generated-filenames";
 
 export async function generateGoogleNanoBananaImages(input: {
-  settings: Pick<AppSettings, "googleNanoBananaApiKey" | "googleNanoBananaModel">;
+  apiKey: string;
+  model: ImageGenerationModelId;
   instruction: CompiledImageInstruction;
   abortSignal?: AbortSignal;
 }): Promise<GenerateImageResult> {
-  const ai = new GoogleGenAI({ apiKey: input.settings.googleNanoBananaApiKey });
+  const ai = new GoogleGenAI({ apiKey: input.apiKey });
   const request = {
-    model: input.settings.googleNanoBananaModel,
+    model: input.model,
     contents: input.instruction.imagePrompt,
     config: {
       responseModalities: [Modality.IMAGE],

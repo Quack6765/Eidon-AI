@@ -75,6 +75,25 @@ describe("message bubble avatar", () => {
     expect(screen.queryByRole("button", { name: "Edit message" })).toBeNull();
   });
 
+  it("renders buffered streaming text without a second word animation queue", () => {
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "",
+          status: "streaming"
+        },
+        streamingTimeline: [],
+        streamingAnswer: "The paragraph appears progressively from its first character."
+      })
+    );
+
+    expect(screen.getByTestId("assistant-message-content")).toHaveTextContent(
+      "The paragraph appears progressively from its first character."
+    );
+    expect(container.querySelector("[data-sd-animate]")).toBeNull();
+  });
+
   it("renders assistant-imported local screenshots and files as attachment tiles without markdown output", () => {
     const rawContent = [
       "Here is the exported report.",

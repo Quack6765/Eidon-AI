@@ -4,9 +4,8 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import {
   prepareMessageManipulationTurn,
-  startManipulationTurn
+  restartAssistantTurnAfterMutation
 } from "@/lib/chat-turn";
-import { releaseChatTurnStart } from "@/lib/chat-turn-control";
 import {
   deleteAssistantMessageAndChildren,
   getMessage,
@@ -59,20 +58,11 @@ export async function POST(
   });
   if (turn instanceof Response) return turn;
 
-  try {
-    const rewritten = deleteAssistantMessageAndChildren(message.id, user.id);
-
-    startManipulationTurn({
-      conversationId: message.conversationId,
-      userMessageId: userMessageId!,
-      preflight: turn.preflight,
-      control: turn.control,
-      logTag: "message-retry-route"
-    });
-
-    return ok(rewritten);
-  } catch (error) {
-    releaseChatTurnStart(message.conversationId, turn.control);
-    throw error;
-  }
+  return ok(restartAssistantTurnAfterMutation({
+    conversationId: message.conversationId,
+    userMessageId,
+    turn,
+    logTag: "message-retry-route",
+    mutate: () => deleteAssistantMessageAndChildren(message.id, user.id)
+  }));
 }

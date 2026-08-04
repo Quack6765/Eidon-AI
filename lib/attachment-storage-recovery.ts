@@ -8,6 +8,7 @@ import {
   getAttachmentStorageRoot,
   resolveSafeAttachmentFilePath
 } from "@/lib/attachment-storage-paths";
+import { syncDirectory } from "@/lib/durable-fs";
 
 type StoredAttachmentRow = {
   id: string;
@@ -145,20 +146,7 @@ export function removeOrphanedAttachmentFiles(db: Database.Database, dataDir: st
       continue;
     }
 
-    let descriptor: number | null = null;
-    try {
-      descriptor = fs.openSync(directory, "r");
-      fs.fsyncSync(descriptor);
-    } catch (error) {
-      const code = error instanceof Error && "code" in error ? error.code : null;
-      if (!["EINVAL", "ENOTSUP", "EISDIR", "EBADF", "EPERM"].includes(String(code))) {
-        throw error;
-      }
-    } finally {
-      if (descriptor !== null) {
-        fs.closeSync(descriptor);
-      }
-    }
+    syncDirectory(directory);
   }
 
   return { invalidRecords: invalidIds.length, removedArtifacts };

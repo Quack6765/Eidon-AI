@@ -3,8 +3,8 @@ import { notFound, redirect } from "next/navigation";
 import { ChatView } from "@/components/chat-view";
 import { Shell } from "@/components/shell";
 import { requireUser } from "@/lib/auth";
-import { getConversation, listConversationsPage, listQueuedMessages, listVisibleMessages } from "@/lib/conversations";
-import { getConversationDebugStats, getConversationContextUsage } from "@/lib/compaction";
+import { getConversation, listConversationsPage } from "@/lib/conversations";
+import { buildConversationViewPayload } from "@/lib/conversation-view";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { listFolders } from "@/lib/folders";
 import { getSanitizedSettings } from "@/lib/settings";
@@ -53,21 +53,6 @@ export default async function ConversationPage({
     redirect(`/automations/${conversation.automationId}/runs/${conversation.automationRunId}`);
   }
 
-  const validProviderIds = new Set(settings.providerProfiles.map((p) => p.id));
-  const resolvedProviderProfileId =
-    conversation.providerProfileId && validProviderIds.has(conversation.providerProfileId)
-      ? conversation.providerProfileId
-      : settings.defaultProviderProfileId && validProviderIds.has(settings.defaultProviderProfileId)
-        ? settings.defaultProviderProfileId
-        : settings.providerProfiles[0]?.id ?? null;
-
-  const validatedConversation =
-    resolvedProviderProfileId !== conversation.providerProfileId
-      ? { ...conversation, providerProfileId: resolvedProviderProfileId }
-      : conversation;
-
-  const contextUsage = getConversationContextUsage(conversation.id, user.id);
-
   return (
     <Shell
       currentUser={user}
@@ -78,20 +63,7 @@ export default async function ConversationPage({
     >
       <ChatView
         key={conversation.id}
-        payload={{
-          conversation: validatedConversation,
-          messages: listVisibleMessages(conversation.id),
-          queuedMessages: listQueuedMessages(conversation.id),
-          settings: {
-            sttEngine: settings.sttEngine,
-            sttLanguage: settings.sttLanguage
-          },
-          providerProfiles: settings.providerProfiles,
-          defaultProviderProfileId: settings.defaultProviderProfileId,
-          contextTokens: contextUsage?.contextTokens ?? null,
-          compactionLimit: contextUsage?.compactionLimit ?? 0,
-          debug: getConversationDebugStats(conversation.id)
-        }}
+        payload={buildConversationViewPayload(conversation, user.id, settings)}
       />
     </Shell>
   );

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
+import { isUnmodifiedPrimaryClick } from "@/lib/navigation";
 import {
   Plus,
   Search,
@@ -54,6 +55,7 @@ import {
 import { ConversationItem } from "@/components/conversation-item";
 import { FolderItem } from "@/components/folder-item";
 import { SidebarFooterNav } from "@/components/sidebar-footer-nav";
+import { Wordmark } from "@/components/ui/wordmark";
 
 export { highlightMatch } from "@/lib/sidebar-helpers";
 
@@ -596,40 +598,14 @@ export function Sidebar({
           <Link
             href="/"
             onClick={(event) => {
-              if (
-                event.defaultPrevented ||
-                event.button !== 0 ||
-                event.metaKey ||
-                event.ctrlKey ||
-                event.shiftKey ||
-                event.altKey
-              ) {
-                return;
-              }
+              if (!isUnmodifiedPrimaryClick(event)) return;
 
               event.preventDefault();
               void navigateToHref("/");
             }}
             className="flex items-center transition-opacity hover:opacity-80"
           >
-            <span
-              style={{
-                filter: "drop-shadow(0 0 8px rgba(139,92,246,0.5)) drop-shadow(0 0 20px rgba(139,92,246,0.25)) drop-shadow(0 0 36px rgba(139,92,246,0.12))",
-              }}
-            >
-              <span
-                className="font-bold tracking-[0.12em] leading-none inline-block text-[24px]"
-                style={{
-                  fontFamily: "var(--font-wordmark), 'Eurostile', 'Space Grotesk', sans-serif",
-                  WebkitBackgroundClip: "text",
-                  backgroundClip: "text",
-                  WebkitTextFillColor: "transparent",
-                  backgroundImage: "linear-gradient(to bottom, #FFFFFF 0%, #D4C8FF 40%, #8b5cf6 100%)",
-                }}
-              >
-                Eidon
-              </span>
-            </span>
+            <Wordmark className="text-[24px]" />
           </Link>
           <button
             onClick={() => handleCreate()}

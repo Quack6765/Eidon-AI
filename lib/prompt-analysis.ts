@@ -1,4 +1,8 @@
-import { parseSkillContentMetadata } from "@/lib/skill-metadata";
+import {
+  getSkillAllowedCommandPrefixes,
+  getSkillResolvedDescription,
+  getSkillResolvedName
+} from "@/lib/skill-runtime";
 import { isFreshImageGenerationRequest } from "@/lib/image-generation/follow-up-context";
 import type { PromptMessage, Skill } from "@/lib/types";
 
@@ -13,18 +17,6 @@ const NEGATED_IMAGE_BYTE_OUTPUT_PATTERN =
   /\b(?:do\s+not|don't|dont|avoid)\b[\s\S]{0,24}\b(?:base64|data\s*:?\s*url|data:image\/|image\s+bytes|raw\s+bytes)\b|\bwithout\b[\s\S]{0,12}\b(?:base64|data\s*:?\s*url|data:image\/|image\s+bytes|raw\s+bytes)\b|\bno\s+(?:base64|data\s*:?\s*url|data:image\/|image\s+bytes|raw\s+bytes)\b/i;
 const POSITIVE_IMAGE_BYTE_OUTPUT_REQUEST_PATTERN =
   /\b(?:give|send|return|provide|output|reply|respond|share|embed|inline|format)\b[\s\S]{0,40}\b(?:base64|data\s*:?\s*url|data:image\/|image\s+bytes|raw\s+bytes)\b|\b(?:as|in)\s+(?:a\s+)?(?:base64|data\s*:?\s*url|data:image\/|image\s+bytes|raw\s+bytes)\b/i;
-
-function getSkillAllowedCommandPrefixes(skill: Skill) {
-  return parseSkillContentMetadata(skill.content).shellCommandPrefixes;
-}
-
-function getSkillResolvedName(skill: Skill) {
-  return parseSkillContentMetadata(skill.content).name?.trim() || skill.name;
-}
-
-function getSkillResolvedDescription(skill: Skill) {
-  return parseSkillContentMetadata(skill.content).description?.trim() || skill.description;
-}
 
 export {
   SHELL_SKILL_INTENT_PATTERN,

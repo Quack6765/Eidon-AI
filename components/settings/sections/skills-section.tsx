@@ -13,7 +13,7 @@ import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
 import { parseSkillContentMetadata } from "@/lib/skill-metadata";
-import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import type { Skill } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -68,22 +68,12 @@ export function SkillsSection() {
     skillContent,
     skillEnabledDraft,
   });
-  const unsavedActions = useRef({ save: saveSkill, discard: restoreSkillDraft });
-  unsavedActions.current = { save: saveSkill, discard: restoreSkillDraft };
-
-  useEffect(() => {
-    registerUnsavedChangesGuard(
-      isDirty
-        ? {
-            isDirty: () => isDirty,
-            save: () => unsavedActions.current.save(),
-            discard: () => unsavedActions.current.discard(),
-            entityType: "this skill",
-          }
-        : null
-    );
-    return () => registerUnsavedChangesGuard(null);
-  }, [isDirty]);
+  useUnsavedChangesGuard({
+    isDirty,
+    save: saveSkill,
+    discard: restoreSkillDraft,
+    entityType: "this skill"
+  });
 
   useEffect(() => {
     fetch("/api/skills")

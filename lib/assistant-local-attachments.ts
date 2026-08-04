@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { createAttachmentsFromBytes, importAttachmentFromLocalFile } from "@/lib/attachments";
+import { createAttachments, importAttachmentFromLocalFile } from "@/lib/attachments";
 import {
   decodeMarkdownTarget,
   findMarkdownTargets,
@@ -183,7 +183,7 @@ export async function inferAssistantLocalAttachments(
         }
 
         try {
-          const [attachment] = await createAttachmentsFromBytes(input.conversationId, [
+          const [attachment] = await createAttachments(input.conversationId, [
             {
               filename: parsedDataImage.filename,
               mimeType: parsedDataImage.mimeType,

@@ -68,12 +68,12 @@ describe("embedded speech engine", () => {
     expect(recorder.stop).toHaveBeenCalledTimes(1);
     expect(global.fetch).toHaveBeenNthCalledWith(
       1,
-      "/api/speech/canary/prepare",
+      "/api/speech/transcription/prepare",
       expect.objectContaining({ method: "POST" })
     );
     expect(global.fetch).toHaveBeenNthCalledWith(
       2,
-      "/api/speech/canary/transcribe",
+      "/api/speech/transcription/transcribe",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({

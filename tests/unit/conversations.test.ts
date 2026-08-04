@@ -2,14 +2,13 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
-import { createAttachments } from "@/lib/attachments";
+import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { createAutomation, createAutomationRun } from "@/lib/automations";
 import { createFolder } from "@/lib/folders";
 import {
   claimConversationTitleGeneration,
   completeConversationTitleGeneration,
   createConversation,
-  bindAttachmentsToMessage,
   createMessageAction,
   createMessageTextSegment,
   createMessage,
@@ -35,9 +34,10 @@ import {
   updateMessageAction
 } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
-import { getSettings, listProviderProfiles, updateSettings } from "@/lib/settings";
+import { getSettings, listProviderProfiles, updateProviderCatalog } from "@/lib/settings";
 import { estimateMessageTokens } from "@/lib/tokenization";
 import { createLocalUser } from "@/lib/users";
+import { createProviderProfileInput } from "@/tests/provider-fixtures";
 
 const { generateConversationTitle } = vi.hoisted(() => ({
   generateConversationTitle: vi.fn()
@@ -100,26 +100,20 @@ function observeArtifactPublication() {
 describe("conversation helpers", () => {
   beforeEach(() => {
     generateConversationTitle.mockReset();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_default",
       skillsEnabled: true,
       providerProfiles: [
-        {
+        createProviderProfileInput({
           id: "profile_default",
           name: "Default",
-          apiBaseUrl: "https://api.example.com/v1",
-          apiKey: "sk-test",
           model: "gpt-5-mini",
-          apiMode: "responses",
           systemPrompt: "Be exact.",
           temperature: 0.2,
           maxOutputTokens: 512,
-          reasoningEffort: "medium",
-          reasoningSummaryEnabled: true,
           modelContextLimit: 16000,
-          compactionThreshold: 0.8,
           freshTailCount: 12
-        }
+        })
       ]
     });
   });
@@ -532,26 +526,21 @@ describe("conversation helpers", () => {
   });
 
   it("updates the conversation provider profile only for the requested user", async () => {
-    updateSettings({
+    updateProviderCatalog({
       ...getSettings(),
       providerProfiles: [
         ...listProviderProfiles(),
-        {
+        createProviderProfileInput({
           id: "profile_secondary",
           name: "Secondary",
-          apiBaseUrl: "https://api.example.com/v1",
-          apiKey: "sk-secondary",
           model: "gpt-5-mini",
-          apiMode: "responses",
           systemPrompt: "Be exact.",
           temperature: 0.2,
           maxOutputTokens: 512,
-          reasoningEffort: "medium",
-          reasoningSummaryEnabled: true,
           modelContextLimit: 16000,
-          compactionThreshold: 0.8,
-          freshTailCount: 12
-        }
+          freshTailCount: 12,
+          credentials: { apiKey: "sk-secondary" }
+        })
       ]
     });
     const nextProfileId = "profile_secondary";

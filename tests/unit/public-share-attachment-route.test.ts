@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { assignAttachmentsToMessage, createAttachments } from "@/lib/attachments";
+import { bindAttachmentsToMessage, createAttachments } from "@/lib/attachments";
 import { createConversation, createMessage, enableConversationShare } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
 
@@ -24,7 +24,7 @@ describe("public shared attachment route", () => {
         bytes: Buffer.from("shared notes", "utf8")
       }
     ]);
-    assignAttachmentsToMessage(conversation.id, message.id, [attachment.id]);
+    bindAttachmentsToMessage(conversation.id, message.id, [attachment.id]);
     const share = enableConversationShare(conversation.id, user.id);
     expect(share).not.toBeNull();
 

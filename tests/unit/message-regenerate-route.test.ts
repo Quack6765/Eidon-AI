@@ -33,7 +33,24 @@ vi.mock("@/lib/auth", () => ({
 vi.mock("@/lib/chat-turn", () => ({
   startAssistantTurnFromExistingUserMessage: startAssistantTurnFromExistingUserMessageMock,
   prepareMessageManipulationTurn: prepareMessageManipulationTurnMock,
-  startManipulationTurn: startManipulationTurnMock
+  startManipulationTurn: startManipulationTurnMock,
+  restartAssistantTurnAfterMutation: (input: {
+    conversationId: string;
+    userMessageId: string;
+    turn: { preflight: unknown; control: unknown };
+    logTag: string;
+    mutate: () => unknown;
+  }) => {
+    const result = input.mutate();
+    startManipulationTurnMock({
+      conversationId: input.conversationId,
+      userMessageId: input.userMessageId,
+      preflight: input.turn.preflight,
+      control: input.turn.control,
+      logTag: input.logTag
+    });
+    return result;
+  }
 }));
 
 vi.mock("@/lib/chat-turn-control", () => ({

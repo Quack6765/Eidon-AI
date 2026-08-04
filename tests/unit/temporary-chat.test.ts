@@ -11,31 +11,26 @@ import {
   getConversationSnapshot
 } from "@/lib/conversations";
 import { resetDbForTests } from "@/lib/db";
-import { updateSettings } from "@/lib/settings";
+import { updateProviderCatalog } from "@/lib/settings";
+import { createProviderProfileInput } from "@/tests/provider-fixtures";
 
 describe("temporary chat", () => {
   beforeEach(() => {
     resetDbForTests();
-    updateSettings({
+    updateProviderCatalog({
       defaultProviderProfileId: "profile_default",
       skillsEnabled: true,
       providerProfiles: [
-        {
+        createProviderProfileInput({
           id: "profile_default",
           name: "Default",
-          apiBaseUrl: "https://api.example.com/v1",
-          apiKey: "sk-test",
           model: "gpt-5-mini",
-          apiMode: "responses",
           systemPrompt: "Be exact.",
           temperature: 0.2,
           maxOutputTokens: 512,
-          reasoningEffort: "medium",
-          reasoningSummaryEnabled: true,
           modelContextLimit: 16000,
-          compactionThreshold: 0.8,
           freshTailCount: 12
-        }
+        })
       ]
     });
   });

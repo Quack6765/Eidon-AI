@@ -56,7 +56,7 @@ describe("external speech engine", () => {
 
     expect(recorder.start).toHaveBeenCalledTimes(1);
     expect(global.fetch).toHaveBeenCalledWith(
-      "/api/speech/external/transcribe",
+      "/api/speech/transcription/transcribe",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({

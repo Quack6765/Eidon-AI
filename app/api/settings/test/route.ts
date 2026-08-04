@@ -1,9 +1,10 @@
 import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden, ok } from "@/lib/http";
 import { callProviderText } from "@/lib/provider";
+import { getProviderReadinessError } from "@/lib/provider-adapters";
 import {
-  getDefaultProviderProfileWithApiKey,
-  getProviderProfileWithApiKey
+  getDefaultRuntimeProviderProfile,
+  getRuntimeProviderProfile
 } from "@/lib/settings";
 
 export async function POST(request: Request) {
@@ -15,23 +16,15 @@ export async function POST(request: Request) {
       providerProfileId?: string;
     };
     const settings =
-      (body.providerProfileId ? getProviderProfileWithApiKey(body.providerProfileId) : null) ??
-      getDefaultProviderProfileWithApiKey();
+      (body.providerProfileId ? getRuntimeProviderProfile(body.providerProfileId) : null) ??
+      getDefaultRuntimeProviderProfile();
 
     if (!settings) {
       return badRequest("Provider profile not found");
     }
 
-    if (settings.providerKind !== "github_copilot" && !settings.apiKey) {
-      return badRequest("Set an API key before running a connection test");
-    }
-
-    if (
-      settings.providerKind === "github_copilot" &&
-      !settings.githubUserAccessTokenEncrypted
-    ) {
-      return badRequest("Connect a GitHub account before running a Copilot connection test");
-    }
+    const readinessError = getProviderReadinessError(settings);
+    if (readinessError) return badRequest(readinessError);
 
     const text = await callProviderText({
       settings,

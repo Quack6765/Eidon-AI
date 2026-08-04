@@ -55,7 +55,7 @@ function getMobileSessionSecret() {
 }
 
 
-function rowToUser(row: {
+function mapPersistedUserToAuthUser(row: {
   id: string;
   username: string;
   role: AuthUser["role"];
@@ -102,7 +102,7 @@ export async function ensureAdminBootstrap() {
 
 async function getBootstrapUser() {
   const user = await ensureEnvSuperAdminUser();
-  return rowToUser(user);
+  return mapPersistedUserToAuthUser(user);
 }
 
 export async function findUserByUsername(username: string) {
@@ -113,7 +113,7 @@ export async function findUserByUsername(username: string) {
   }
 
   return {
-    user: rowToUser(record.user),
+    user: mapPersistedUserToAuthUser(record.user),
     passwordHash: record.passwordHash
   };
 }
@@ -440,7 +440,7 @@ export async function authenticateMobileRequest(request: Request) {
   if (!session) return null;
   const record = getUserById(session.userId);
   if (!record) return null;
-  return { sessionId: session.sessionId, user: rowToUser(record) };
+  return { sessionId: session.sessionId, user: mapPersistedUserToAuthUser(record) };
 }
 
 export function runWithMobileUser<T>(
@@ -459,7 +459,7 @@ export async function getCurrentUser() {
   const mobileContext = mobileAuthContext.getStore();
   if (mobileContext) {
     const current = getUserById(mobileContext.user.id);
-    return current ? rowToUser(current) : null;
+    return current ? mapPersistedUserToAuthUser(current) : null;
   }
 
   if (!isPasswordLoginEnabled()) {
@@ -504,7 +504,7 @@ export async function getCurrentUser() {
     return null;
   }
 
-  return rowToUser(user);
+  return mapPersistedUserToAuthUser(user);
 }
 
 export async function requireUser(redirectToLogin?: true): Promise<AuthUser>

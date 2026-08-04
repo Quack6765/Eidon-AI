@@ -106,7 +106,7 @@ describe("Mobile API v1 contracts", () => {
     expect(body.data.capabilities).toMatchObject({
       conversations: true,
       automations: true,
-      githubCopilotOAuth: true,
+      providerConnections: true,
       offlineMutations: false,
       pushNotifications: false
     });
@@ -148,34 +148,28 @@ describe("Mobile API v1 contracts", () => {
       "/conversations/{conversationId}/queue/order",
       "/folders/{folderId}",
       "/attachments/{attachmentId}",
-      "/speech/canary/prepare",
-      "/speech/canary/transcribe",
-      "/speech/external/transcribe",
+      "/speech/transcription/prepare",
+      "/speech/transcription/transcribe",
       "/automations/{automationId}/runs",
       "/automation-runs/{runId}",
       "/messages/{messageId}/edit-restart",
       "/message-actions/{actionId}/approve",
       "/settings/providers",
-      "/settings/image-generation",
+      "/settings/general",
       "/personas",
       "/memories",
       "/mcp-servers",
       "/skills",
       "/users",
-      "/providers/github/connect/{flowId}"
+      "/providers/{profileId}/connection",
+      "/providers/{profileId}/connection/flows",
+      "/providers/{profileId}/connection/flows/{flowId}",
+      "/providers/{profileId}/models"
     ]));
     expect(contract.paths["/server-info"].get).toMatchObject({ security: [] });
     expect(contract.paths["/auth/login"].post).toMatchObject({ security: [] });
     expect(contract.paths["/users"].get).toMatchObject({ "x-eidon-role": "admin" });
-    expect(contract.paths["/speech/canary/transcribe"].post).toMatchObject({
-      parameters: [
-        { $ref: "#/components/parameters/speechAudioSampleRate" },
-        { $ref: "#/components/parameters/canarySpeechLanguage" }
-      ],
-      requestBody: { $ref: "#/components/requestBodies/RecordedSpeechAudio" },
-      responses: { "200": { $ref: "#/components/responses/SpeechTranscription" } }
-    });
-    expect(contract.paths["/speech/external/transcribe"].post).toMatchObject({
+    expect(contract.paths["/speech/transcription/transcribe"].post).toMatchObject({
       parameters: [{ $ref: "#/components/parameters/speechAudioSampleRate" }],
       requestBody: { $ref: "#/components/requestBodies/RecordedSpeechAudio" },
       responses: { "200": { $ref: "#/components/responses/SpeechTranscription" } }
@@ -191,8 +185,8 @@ describe("Mobile API v1 contracts", () => {
     expect(attachmentProperties).not.toHaveProperty("relativePath");
     expect(attachmentProperties).not.toHaveProperty("extractedText");
     expect(contract.components.schemas.User.properties).not.toHaveProperty("passwordHash");
-    expect(compileOpenApiJsonRequestBodies()).toBe(38);
-    expect(compileOpenApiJsonResponses()).toBe(89);
+    expect(compileOpenApiJsonRequestBodies()).toBe(35);
+    expect(compileOpenApiJsonResponses()).toBe(87);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {
@@ -263,7 +257,7 @@ describe("Mobile API v1 contracts", () => {
       expect([...propertyNames]).not.toContain(forbidden);
     }
 
-    expect(openApi.components.schemas.ProviderProfileWrite.properties?.apiKey).toMatchObject({
+    expect(openApi.components.schemas.ProviderProfileCoreWrite.properties?.credential).toMatchObject({
       writeOnly: true
     });
     expect(openApi.components.schemas.McpHttpServerDraft.properties?.headers).toMatchObject({

@@ -14,7 +14,7 @@ vi.mock("@/lib/settings", () => ({
     defaultProviderProfileId: null,
     titleGenerationProfileId: null
   })),
-  listProviderProfilesWithApiKeys: vi.fn(() => [])
+  listRuntimeProviderProfiles: vi.fn(() => [])
 }));
 
 vi.mock("@/lib/conversations", () => ({
@@ -85,8 +85,8 @@ describe("conversation title generator", () => {
       defaultProviderProfileId: "profile-1",
       titleGenerationProfileId: null
     });
-    const { listProviderProfilesWithApiKeys } = await import("@/lib/settings");
-    (listProviderProfilesWithApiKeys as ReturnType<typeof vi.fn>).mockReturnValue([
+    const { listRuntimeProviderProfiles } = await import("@/lib/settings");
+    (listRuntimeProviderProfiles as ReturnType<typeof vi.fn>).mockReturnValue([
       { id: "profile-1", model: "MiniMax-M3", name: "Default", providerKind: "openai_compatible", apiMode: "chat_completions" }
     ]);
     const { getConversation } = await import("@/lib/conversations");

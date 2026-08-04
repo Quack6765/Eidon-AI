@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createRuntimeAppSettings } from "@/tests/provider-fixtures";
 
 const {
   getSettingsForUserMock,
@@ -32,7 +33,7 @@ function makeAudioRequest(input: {
   contentType?: string;
   sampleRate?: string;
 } = {}) {
-  return new Request("http://localhost/api/speech/external/transcribe", {
+  return new Request("http://localhost/api/speech/transcription/transcribe", {
     method: "POST",
     headers: {
       "content-type": input.contentType ?? "application/octet-stream",
@@ -48,47 +49,46 @@ describe("external speech transcription route", () => {
     getSettingsForUserMock.mockReset();
     transcribeWithExternalSttProviderMock.mockReset();
     requireUserMock.mockResolvedValue({ id: "user_speech" });
-    getSettingsForUserMock.mockReturnValue({
-      sttEngine: "external",
-      sttProvider: "elevenlabs",
-      externalSttLanguage: "auto",
-      externalSttApiKey: "xi-secret"
-    });
+    getSettingsForUserMock.mockReturnValue(createRuntimeAppSettings({
+      speechTranscription: {
+        providerId: "elevenlabs",
+        configuration: { language: "auto" },
+        credentials: { apiKey: "xi-secret" }
+      }
+    }));
   });
 
   it("requires authentication, External mode, and a saved key", async () => {
-    const { POST } = await import("@/app/api/speech/external/transcribe/route");
+    const { POST } = await import("@/app/api/speech/transcription/transcribe/route");
 
     requireUserMock.mockResolvedValueOnce(null);
     expect((await POST(makeAudioRequest())).status).toBe(401);
 
-    getSettingsForUserMock.mockReturnValueOnce({
-      sttEngine: "browser",
-      sttProvider: "elevenlabs",
-      externalSttLanguage: "auto",
-      externalSttApiKey: "xi-secret"
-    });
+    getSettingsForUserMock.mockReturnValueOnce(createRuntimeAppSettings({
+      speechTranscription: { providerId: "browser" }
+    }));
     expect((await POST(makeAudioRequest())).status).toBe(409);
 
-    getSettingsForUserMock.mockReturnValueOnce({
-      sttEngine: "external",
-      sttProvider: "elevenlabs",
-      externalSttLanguage: "auto",
-      externalSttApiKey: ""
-    });
+    getSettingsForUserMock.mockReturnValueOnce(createRuntimeAppSettings({
+      speechTranscription: {
+        providerId: "elevenlabs",
+        configuration: { language: "auto" },
+        credentials: {}
+      }
+    }));
     const missingKey = await POST(makeAudioRequest());
     expect(missingKey.status).toBe(409);
     await expect(missingKey.json()).resolves.toEqual({
-      error: "Add your ElevenLabs API key in Speech-to-Text settings."
+      error: "ElevenLabs API key is required."
     });
   });
 
   it("validates recorded audio metadata before calling the provider", async () => {
-    const { POST } = await import("@/app/api/speech/external/transcribe/route");
+    const { POST } = await import("@/app/api/speech/transcription/transcribe/route");
 
     expect((await POST(makeAudioRequest({ contentType: "audio/wav" }))).status).toBe(400);
     expect((await POST(makeAudioRequest({ sampleRate: "48000" }))).status).toBe(400);
-    expect((await POST(new Request("http://localhost/api/speech/external/transcribe", {
+    expect((await POST(new Request("http://localhost/api/speech/transcription/transcribe", {
       method: "POST",
       headers: {
         "content-type": "application/octet-stream",
@@ -103,13 +103,14 @@ describe("external speech transcription route", () => {
       model: "scribe_v2",
       transcript: "hello from Scribe"
     });
-    getSettingsForUserMock.mockReturnValue({
-      sttEngine: "external",
-      sttProvider: "elevenlabs",
-      externalSttLanguage: "fra",
-      externalSttApiKey: "xi-secret"
-    });
-    const { POST } = await import("@/app/api/speech/external/transcribe/route");
+    getSettingsForUserMock.mockReturnValue(createRuntimeAppSettings({
+      speechTranscription: {
+        providerId: "elevenlabs",
+        configuration: { language: "fra" },
+        credentials: { apiKey: "xi-secret" }
+      }
+    }));
+    const { POST } = await import("@/app/api/speech/transcription/transcribe/route");
 
     const response = await POST(makeAudioRequest());
 
