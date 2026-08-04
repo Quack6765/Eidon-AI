@@ -1059,6 +1059,35 @@ describe("chat view", () => {
     });
   });
 
+  it("restores an unsaved prompt and shows preflight errors", async () => {
+    const { container } = renderWithProvider(
+      React.createElement(ChatView, { payload: createPayload() })
+    );
+    const textarea = screen.getByRole("textbox");
+
+    fireEvent.change(textarea, { target: { value: "Hello world" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-message-id^="local_"]')).not.toBeNull();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "error",
+        message: "Set an API key in settings before starting a chat"
+      });
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-message-id^="local_"]')).toBeNull();
+      expect(textarea).toHaveValue("Hello world");
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Set an API key in settings before starting a chat"
+      );
+    });
+  });
+
   it("queues a follow-up over WebSocket when the conversation already has an active turn", async () => {
     renderWithProvider(
       React.createElement(ChatView, {

@@ -12,7 +12,16 @@ export function createOpenAIClient(settings: ProviderProfile, apiKey: string) {
   });
 }
 
-function toResponseContentParts(content: PromptMessage["content"]) {
+function toResponseContent(
+  content: PromptMessage["content"],
+  role: "system" | "user" | "assistant"
+) {
+  if (role === "assistant") {
+    return typeof content === "string"
+      ? content
+      : content.flatMap((part) => part.type === "text" ? [part.text] : []).join("");
+  }
+
   const parts = typeof content === "string"
     ? [{ type: "text" as const, text: content }]
     : content;
@@ -90,14 +99,17 @@ export function buildOpenAIResponsesInput(messages: PromptMessage[]): any[] {
       }
       const hasReturnedMessage = responseItems.some((item) => item.type === "message");
       if (!hasReturnedMessage && typeof message.content === "string" && message.content.trim()) {
-        input.push({ role: "assistant", content: toResponseContentParts(message.content) });
+        input.push({
+          role: "assistant",
+          content: toResponseContent(message.content, "assistant")
+        });
       }
       continue;
     }
 
     input.push({
       role: message.role,
-      content: toResponseContentParts(message.content)
+      content: toResponseContent(message.content, message.role)
     });
   }
 

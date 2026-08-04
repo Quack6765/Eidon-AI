@@ -237,6 +237,25 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
     personaId?: string;
   } | null>(null);
   const bootstrapSubmittedRef = useRef(false);
+
+  const restorePendingSubmissions = useCallback(() => {
+    if (pendingLocalSubmissionsRef.current.length === 0) {
+      return;
+    }
+
+    const failedIds = new Set(
+      pendingLocalSubmissionsRef.current.map((submission) => submission.localMessageId)
+    );
+    const latestSubmission =
+      pendingLocalSubmissionsRef.current[pendingLocalSubmissionsRef.current.length - 1];
+
+    setMessages((current) => current.filter((message) => !failedIds.has(message.id)));
+    setInput((current) => current || latestSubmission?.content || "");
+    setPendingAttachments((current) =>
+      current.length > 0 ? current : (latestSubmission?.attachments ?? [])
+    );
+    pendingLocalSubmissionsRef.current = [];
+  }, [setPendingAttachments]);
   const submitRef = useRef<
     (nextInput?: string, nextPendingAttachments?: MessageAttachment[], nextPersonaId?: string) => Promise<void>
   >(async () => {});
@@ -1020,17 +1039,19 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
             )
           );
           const finalTimeline = streamTimelineRef.current;
-          setMessages((current) => {
-            if (activeStreamMessageId) {
-              return current.map((m) =>
+          if (activeStreamMessageId) {
+            setMessages((current) =>
+              current.map((m) =>
                 m.id === activeStreamMessageId
                   ? { ...m, status: "error" as const, content: msg.message, timeline: finalTimeline }
                   : m
-              );
-            }
-            return current;
-          });
-          setError("");
+              )
+            );
+            setError("");
+          } else {
+            restorePendingSubmissions();
+            setError(msg.message);
+          }
           finalizePendingRef.current = false;
           setStreamMessageId(null);
           updateStreamTimeline([]);
@@ -1095,26 +1116,13 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
       return;
     }
 
-    if (pendingLocalSubmissionsRef.current.length > 0) {
-      const failedIds = new Set(
-        pendingLocalSubmissionsRef.current.map((submission) => submission.localMessageId)
-      );
-      const latestSubmission =
-        pendingLocalSubmissionsRef.current[pendingLocalSubmissionsRef.current.length - 1];
-
-      setMessages((current) => current.filter((message) => !failedIds.has(message.id)));
-      setInput((current) => current || latestSubmission?.content || "");
-      setPendingAttachments((current) =>
-        current.length > 0 ? current : (latestSubmission?.attachments ?? [])
-      );
-      pendingLocalSubmissionsRef.current = [];
-    }
+    restorePendingSubmissions();
 
     setIsSending(false);
     setError(
       "Realtime chat connection is unavailable. Restart Eidon with the websocket server enabled."
     );
-  }, [setPendingAttachments, wsFailed]);
+  }, [restorePendingSubmissions, wsFailed]);
 
   function stopTitlePolling() {
     if (titlePollTimeoutRef.current !== null) {
@@ -1973,7 +1981,7 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
             );
           })}
           {error ? (
-            <div className="mx-auto mt-3 max-w-md rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
+            <div role="alert" className="mx-auto mt-3 max-w-md rounded-xl bg-red-500/8 border border-red-400/10 px-4 py-3 text-sm text-red-300 text-center animate-slide-up">
               {error}
             </div>
           ) : null}

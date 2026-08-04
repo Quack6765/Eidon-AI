@@ -964,6 +964,10 @@ describe("provider integration", () => {
       }),
       promptMessages: [
         {
+          role: "assistant",
+          content: "The previous answer."
+        },
+        {
           role: "user",
           content: [
             { type: "text", text: "What is in this file?" },
@@ -993,6 +997,10 @@ describe("provider integration", () => {
               })
             ])
           }),
+          {
+            role: "assistant",
+            content: "The previous answer."
+          },
           {
             role: "user",
             content: [
@@ -1124,7 +1132,7 @@ describe("provider integration", () => {
           },
           {
             role: "assistant",
-            content: [{ type: "input_text", text: "I searched already." }]
+            content: "I searched already."
           },
           {
             type: "function_call_output",
