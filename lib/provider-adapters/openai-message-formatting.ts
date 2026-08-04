@@ -68,16 +68,28 @@ export function buildOpenAIResponsesInput(messages: PromptMessage[]): any[] {
     }
 
     if (message.role === "assistant" && message.toolCalls?.length) {
+      const responseItems = message.responseItems ?? [];
+      const returnedCallIds = new Set(
+        responseItems.flatMap((item) =>
+          item.type === "function_call" && typeof item.call_id === "string"
+            ? [item.call_id]
+            : []
+        )
+      );
+
+      input.push(...responseItems);
+
       for (const toolCall of message.toolCalls) {
+        if (returnedCallIds.has(toolCall.id)) continue;
         input.push({
           type: "function_call",
-          id: toolCall.id,
           name: toolCall.name,
           arguments: toolCall.arguments,
           call_id: toolCall.id
         });
       }
-      if (typeof message.content === "string" && message.content.trim()) {
+      const hasReturnedMessage = responseItems.some((item) => item.type === "message");
+      if (!hasReturnedMessage && typeof message.content === "string" && message.content.trim()) {
         input.push({ role: "assistant", content: toResponseContentParts(message.content) });
       }
       continue;

@@ -4,6 +4,7 @@ import type {
   AuthUser,
   PromptMessage,
   ProviderProfile,
+  ProviderResponseItem,
   RuntimeProviderProfile,
   ProviderToolCall,
   ToolDefinition
@@ -31,6 +32,7 @@ export type ProviderStreamResult = {
   answer: string;
   thinking: string;
   toolCalls?: ProviderToolCall[];
+  responseItems?: ProviderResponseItem[];
   reasoningSignature?: string;
   usage: ProviderUsage;
 };

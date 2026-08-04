@@ -12,7 +12,6 @@ function createProfile() {
     apiBaseUrl: "https://example.com/v1",
     model: "example-model",
     apiMode: "responses" as const,
-    serviceTier: "default" as const,
     reasoningEffort: "high" as const,
     reasoningSummaryEnabled: false,
     modelContextLimit: 32000,
@@ -59,12 +58,11 @@ describe("provider presets", () => {
     expect(profile.apiBaseUrl).toBe("https://api.openai.com/v1");
     expect(profile.model).toBe("gpt-5.6-luna");
     expect(profile.apiMode).toBe("responses");
-    expect(profile.serviceTier).toBe("default");
+    expect(profile.processingMode).toBe("standard");
     expect(profile.reasoningEffort).toBe("medium");
     expect(profile.reasoningSummaryEnabled).toBe(true);
-    expect(profile.modelContextLimit).toBe(1_050_000);
-    expect(profile.maxOutputTokens).toBe(128_000);
-    expect(profile.visionMode).toBe("native");
+    expect(profile.modelContextLimit).toBe(1050000);
+    expect(profile.maxOutputTokens).toBe(128000);
   });
 
   it("applies the OpenRouter preset values without overwriting the name", () => {

@@ -1,8 +1,16 @@
-import type { ChatStreamEvent, PromptMessage, ProviderProfileWithApiKey, ProviderResponseItem, Skill } from "@/lib/types";
+import type {
+  ChatStreamEvent,
+  PromptMessage,
+  ProviderResponseItem,
+  RuntimeProviderProfile,
+  Skill
+} from "@/lib/types";
+import { createRuntimeAppSettings, createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
 const streamProviderResponse = vi.fn();
 const callProviderText = vi.fn();
 const callMcpTool = vi.fn();
+const discoverMcpTools = vi.fn();
 const getToolResultText = vi.fn();
 const localShellMocks = vi.hoisted(() => ({
   executeLocalShellCommand: vi.fn(),
@@ -17,7 +25,7 @@ const getSettingsFn = vi.fn();
 const searchSearxng = vi.fn();
 const generateGoogleNanoBananaImages = vi.fn();
 const createAttachments = vi.fn();
-const assignAttachmentsToMessage = vi.fn();
+const bindAttachmentsToMessage = vi.fn();
 const deleteAttachmentById = vi.fn();
 const resolveAttachmentPath = vi.fn();
 
@@ -28,6 +36,7 @@ vi.mock("@/lib/provider", () => ({
 
 vi.mock("@/lib/mcp-client", () => ({
   callMcpTool,
+  discoverMcpTools,
   getToolResultText,
   MAX_MCP_RESULT_CHARS: 32_000
 }));
@@ -63,7 +72,7 @@ vi.mock("@/lib/image-generation/google-nano-banana", () => ({
 
 vi.mock("@/lib/attachments", () => ({
   createAttachments,
-  assignAttachmentsToMessage,
+  bindAttachmentsToMessage,
   deleteAttachmentById,
   resolveAttachmentPath
 }));
@@ -92,65 +101,31 @@ function createProviderStream(
   })();
 }
 
-function createSettings(): ProviderProfileWithApiKey {
-  return {
+function createSettings(): RuntimeProviderProfile {
+  return createRuntimeProviderProfile({
     id: "profile_test",
     name: "Test profile",
-    apiBaseUrl: "https://api.example.com/v1",
-    apiKeyEncrypted: "",
-    apiKey: "sk-test",
     model: "gpt-5-mini",
-    apiMode: "responses",
     systemPrompt: "Be exact.",
     temperature: 0.2,
     maxOutputTokens: 512,
-    reasoningEffort: "medium",
-    reasoningSummaryEnabled: true,
     modelContextLimit: 16000,
-    compactionThreshold: 0.8,
-    freshTailCount: 12,
-    tokenizerModel: "gpt-tokenizer",
-    safetyMarginTokens: 1200,
-    leafSourceTokenLimit: 12000,
-    leafMinMessageCount: 6,
-    mergedMinNodeCount: 4,
-    mergedTargetTokens: 1600,
-    visionMode: "native" as const,
-    providerPresetId: null,
-    providerKind: "openai_compatible",
-    githubUserAccessTokenEncrypted: "",
-    githubRefreshTokenEncrypted: "",
-    githubTokenExpiresAt: null,
-    githubRefreshTokenExpiresAt: null,
-    githubAccountLogin: null,
-    githubAccountName: null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
+    freshTailCount: 12
+  });
 }
 
-function createAppSettings() {
-  return {
-    defaultProviderProfileId: "profile_test",
+function createAppSettings(overrides = {}) {
+  return createRuntimeAppSettings({
     skillsEnabled: false,
-    conversationRetention: "30d" as const,
+    conversationRetention: "30d",
     memoriesEnabled: false,
-    memoriesMaxCount: 100,
     mcpTimeout: 30000,
-    maxAssistantToolSteps: 25,
-    sttEngine: "browser" as const,
-    sttLanguage: "auto" as const,
-    webSearchEngine: "disabled" as const,
-    exaApiKey: "",
-    tavilyApiKey: "",
-    searxngBaseUrl: "",
-    imageGenerationBackend: "google_nano_banana" as const,
-    googleNanoBananaModel: "gemini-3.1-flash-image-preview" as const,
-    googleNanoBananaApiKey: "google-secret",
-    titleGenerationMode: "same" as const,
-    titleGenerationProfileId: null,
-    updatedAt: new Date().toISOString()
-  };
+    imageGeneration: {
+      providerId: "google_nano_banana",
+      credentials: { apiKey: "google-secret" }
+    },
+    ...overrides
+  });
 }
 
 function createSkill(overrides: Partial<Skill> = {}): Skill {
@@ -172,6 +147,7 @@ describe("assistant runtime", () => {
     streamProviderResponse.mockReset();
     callProviderText.mockReset();
     callMcpTool.mockReset();
+    discoverMcpTools.mockReset();
     getToolResultText.mockReset();
     localShellMocks.executeLocalShellCommand.mockReset();
     localShellMocks.summarizeShellResult.mockReset();
@@ -186,7 +162,7 @@ describe("assistant runtime", () => {
     searchSearxng.mockReset();
     generateGoogleNanoBananaImages.mockReset();
     createAttachments.mockReset();
-    assignAttachmentsToMessage.mockReset();
+    bindAttachmentsToMessage.mockReset();
     deleteAttachmentById.mockReset();
     resolveAttachmentPath.mockReset();
     resolveAttachmentPath.mockImplementation(({ relativePath }: { relativePath: string }) => `/tmp/${relativePath}`);
@@ -293,21 +269,13 @@ ${JSON.stringify({
           answer: "",
           thinking: "Need to load the release-notes skill.",
           toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }],
-          responseItems: [
-            {
-              id: "rs_1",
-              type: "reasoning",
-              summary: [{ type: "summary_text", text: "Need to load the release-notes skill." }]
-            },
-            {
-              id: "fc_1",
-              type: "function_call",
-              call_id: "call_1",
-              name: "load_skill",
-              arguments: JSON.stringify({ skill_name: "Release Notes" }),
-              status: "completed"
-            }
-          ],
+          responseItems: [{
+            id: "fc_1",
+            type: "function_call",
+            call_id: "call_1",
+            name: "load_skill",
+            arguments: JSON.stringify({ skill_name: "Release Notes" })
+          }],
           usage: { inputTokens: 10 }
         })
       )
@@ -338,11 +306,14 @@ ${JSON.stringify({
       expect.objectContaining({
         role: "assistant",
         reasoningContent: "Need to load the release-notes skill.",
-        toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }],
-        responseItems: [
-          expect.objectContaining({ id: "rs_1", type: "reasoning" }),
-          expect.objectContaining({ id: "fc_1", type: "function_call", call_id: "call_1" })
-        ]
+        responseItems: [{
+          id: "fc_1",
+          type: "function_call",
+          call_id: "call_1",
+          name: "load_skill",
+          arguments: JSON.stringify({ skill_name: "Release Notes" })
+        }],
+        toolCalls: [{ id: "call_1", name: "load_skill", arguments: JSON.stringify({ skill_name: "Release Notes" }) }]
       })
     );
     expect(replayMessages).toEqual(
@@ -410,7 +381,12 @@ ${JSON.stringify({
       promptMessages: [{ role: "user", content: "Search the web" }],
       skills: [],
       mcpToolSets: [],
-      searxngBaseUrl: "https://search.example.com",
+      appSettings: createAppSettings({
+        webSearch: {
+          providerId: "searxng",
+          configuration: { baseUrl: "https://search.example.com" }
+        }
+      }),
       onEvent: () => {},
       onActionStart: () => {},
       onActionComplete: () => {}
@@ -419,7 +395,7 @@ ${JSON.stringify({
     const toolDefs = streamProviderResponse.mock.calls[0][0].tools!;
     const webSearchTool = toolDefs.find((tool: any) => tool.function.name === "web_search");
     expect(webSearchTool).toBeDefined();
-    expect(webSearchTool.function.description).toContain("SearXNG");
+    expect(webSearchTool.function.description).toContain("configured provider");
   });
 
   it("executes MCP tool calls via native function calling", async () => {
@@ -492,7 +468,12 @@ ${JSON.stringify({
       promptMessages: [{ role: "user", content: "Find Eidon" }],
       skills: [],
       mcpToolSets: [],
-      searxngBaseUrl: "https://search.example.com",
+      appSettings: createAppSettings({
+        webSearch: {
+          providerId: "searxng",
+          configuration: { baseUrl: "https://search.example.com" }
+        }
+      }),
       onEvent: () => {},
       onActionStart: (action) => {
         started.push(action);
@@ -511,14 +492,15 @@ ${JSON.stringify({
     expect(started).toEqual([
       expect.objectContaining({
         label: "Web search",
-        serverId: "builtin_web_search_searxng"
+        serverId: "integration_web_search",
+        toolName: "web_search"
       })
     ]);
     expect(completed).toEqual([{ handle: "act_web_search", resultSummary: "SearXNG result text" }]);
     expect(result.answer).toBe("Final answer");
   });
 
-  it("labels built-in Tavily search actions as Web search", async () => {
+  it("executes Tavily through the stable web search action", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([], {
@@ -526,8 +508,8 @@ ${JSON.stringify({
           thinking: "",
           toolCalls: [{
             id: "call_1",
-            name: "mcp_builtin_search_tavily_tavily_search",
-            arguments: JSON.stringify({ query: "latest AI", time_range: "week" })
+            name: "web_search",
+            arguments: JSON.stringify({ query: "latest AI" })
           }],
           usage: { inputTokens: 9 }
         })
@@ -539,33 +521,23 @@ ${JSON.stringify({
           usage: { inputTokens: 11, outputTokens: 3 }
         })
       );
+    discoverMcpTools.mockResolvedValue([{ name: "tavily_search" }]);
     callMcpTool.mockResolvedValue({ content: [{ type: "text", text: "Found AI news" }] });
 
-    const started: Array<{ label: string; serverId?: string | null }> = [];
+    const started: Array<{ label: string; serverId?: string | null; toolName?: string | null }> = [];
     const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
     const result = await resolveAssistantTurn({
       settings: createSettings(),
       promptMessages: [{ role: "user", content: "Find AI news" }],
       skills: [],
-      mcpToolSets: [{
-        server: {
-          id: "builtin_web_search_tavily",
-          slug: "builtin_search_tavily",
-          name: "Tavily",
-          url: "https://mcp.tavily.com/mcp/",
-          headers: {},
-          transport: "streamable_http",
-          command: null,
-          args: null,
-          env: null,
-          enabled: true,
-          isVisionMcp: false,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        },
-        tools: [{ name: "tavily_search", title: "tavily_search", description: "Search the web", inputSchema: { type: "object" } }]
-      }],
+      mcpToolSets: [],
+      appSettings: createAppSettings({
+        webSearch: {
+          providerId: "tavily",
+          credentials: { apiKey: "tavily-test-key" }
+        }
+      }),
       onEvent: () => {},
       onActionStart: (action) => {
         started.push(action);
@@ -576,7 +548,8 @@ ${JSON.stringify({
     expect(started).toEqual([
       expect.objectContaining({
         label: "Web search",
-        serverId: "builtin_web_search_tavily"
+        serverId: "integration_web_search",
+        toolName: "web_search"
       })
     ]);
     expect(result.answer).toBe("Final answer");
@@ -749,7 +722,7 @@ ${JSON.stringify({
     expect(result.answer).toBe("Here is the generated image.");
     expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
     expect(createAttachments).toHaveBeenCalledTimes(1);
-    expect(assignAttachmentsToMessage).toHaveBeenCalledWith("conv_image", "msg_assistant_image", ["att_1"]);
+    expect(bindAttachmentsToMessage).toHaveBeenCalledWith("conv_image", "msg_assistant_image", ["att_1"]);
   });
 
   it("removes generated attachments when cancellation arrives after the file write", async () => {
@@ -796,7 +769,7 @@ ${JSON.stringify({
     expect(deleteAttachmentById).toHaveBeenCalledWith("att_abort", {
       allowAssigned: true
     });
-    expect(assignAttachmentsToMessage).not.toHaveBeenCalled();
+    expect(bindAttachmentsToMessage).not.toHaveBeenCalled();
   });
 
   it("injects the mermaid diagram directive into the system prompt", async () => {
@@ -887,7 +860,7 @@ ${JSON.stringify({
     });
 
     expect(result.answer).toBe("Attached two images.");
-    expect(assignAttachmentsToMessage).toHaveBeenCalledWith(
+    expect(bindAttachmentsToMessage).toHaveBeenCalledWith(
       "conv_image",
       "msg_assistant_image",
       ["att_1", "att_2"]
@@ -1231,9 +1204,13 @@ ${JSON.stringify({
       promptMessages: [{ role: "user", content: "Generate an image of a red square" }],
       skills: [createSkill()],
       mcpToolSets: [],
-      searxngBaseUrl: "https://search.example.com",
       memoriesEnabled: true,
-      appSettings: createAppSettings(),
+      appSettings: createAppSettings({
+        webSearch: {
+          providerId: "searxng",
+          configuration: { baseUrl: "https://search.example.com" }
+        }
+      }),
       conversationId: "conv_image",
       assistantMessageId: "msg_assistant_image"
     });
@@ -1553,7 +1530,7 @@ ${JSON.stringify({
     expect(content).toContain("- Vision MCP");
   });
 
-  it("passes copilot tool context only for github copilot profiles", async () => {
+  it("passes runtime tool context only to adapters that execute tools directly", async () => {
     streamProviderResponse.mockReturnValueOnce(
       createProviderStream([{ type: "answer_delta", text: "Done" }], {
         answer: "Done",
@@ -1565,10 +1542,7 @@ ${JSON.stringify({
     const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
     await resolveAssistantTurn({
-      settings: {
-        ...createSettings(),
-        providerKind: "github_copilot"
-      },
+      settings: createRuntimeProviderProfile({ providerKind: "github_copilot" }),
       promptMessages: [{ role: "user", content: "Use the configured tools." }],
       skills: [],
       mcpToolSets: [],
@@ -1578,7 +1552,7 @@ ${JSON.stringify({
       onActionError: () => undefined
     });
 
-    expect(streamProviderResponse.mock.calls.at(-1)?.[0].copilotToolContext).toEqual(
+    expect(streamProviderResponse.mock.calls.at(-1)?.[0].runtimeToolContext).toEqual(
       expect.objectContaining({
         mcpToolSets: [],
         mcpTimeout: 12345
@@ -2016,7 +1990,10 @@ Run browser commands.`
           server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
           tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
         }],
-        appSettings: { ...createAppSettings(), maxAssistantToolSteps: 2, imageGenerationBackend: "disabled" as const }
+        appSettings: createAppSettings({
+          maxAssistantToolSteps: 2,
+          imageGeneration: { providerId: "disabled" }
+        })
       })
     ).rejects.toThrow("Assistant exceeded the maximum number of tool steps");
 

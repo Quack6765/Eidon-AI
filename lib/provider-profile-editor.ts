@@ -36,6 +36,7 @@ export function createProviderProfileEditorDraft(input?: {
   const {
     apiBaseUrl,
     apiMode,
+    processingMode,
     reasoningParameterMode,
     ...core
   } = flat;
@@ -44,7 +45,7 @@ export function createProviderProfileEditorDraft(input?: {
     ? {}
     : flat.providerKind === "anthropic"
       ? { apiBaseUrl }
-      : { apiBaseUrl, apiMode, reasoningParameterMode };
+      : { apiBaseUrl, apiMode, processingMode, reasoningParameterMode };
   return {
     ...core,
     providerConfig,
@@ -93,6 +94,7 @@ export function applyPresetToProviderProfile(
     name: _name,
     apiBaseUrl,
     apiMode,
+    processingMode,
     reasoningParameterMode,
     ...behavior
   } = values;
@@ -100,6 +102,7 @@ export function applyPresetToProviderProfile(
     ? {
         apiBaseUrl,
         apiMode,
+        processingMode: processingMode ?? "standard",
         reasoningParameterMode: reasoningParameterMode ?? "standard" as const
       }
     : profile.providerKind === "anthropic"
@@ -129,6 +132,9 @@ export function getMatchingEditorPresetId(profile: ProviderProfileEditorDraft) {
     apiMode: profile.providerKind === "openai_compatible"
       ? profile.providerConfig.apiMode
       : "chat_completions",
+    processingMode: profile.providerKind === "openai_compatible"
+      ? profile.providerConfig.processingMode
+      : "standard",
     reasoningParameterMode: profile.providerKind === "openai_compatible"
       ? profile.providerConfig.reasoningParameterMode
       : "standard"
@@ -157,5 +163,16 @@ export function setProviderApiMode(
     ...profile,
     providerConfig: { ...profile.providerConfig, apiMode },
     providerPresetId: null
+  };
+}
+
+export function setProviderProcessingMode(
+  profile: ProviderProfileEditorDraft,
+  processingMode: "standard" | "fast"
+): ProviderProfileEditorDraft {
+  if (profile.providerKind !== "openai_compatible") return profile;
+  return {
+    ...profile,
+    providerConfig: { ...profile.providerConfig, processingMode }
   };
 }

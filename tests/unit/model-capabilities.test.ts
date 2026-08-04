@@ -1,6 +1,6 @@
 import {
   getDefaultVisionMode,
-  isOpenAIGpt56Model,
+  modelMatchesPrefix,
   resolveCapabilities,
   supportsImageInput,
   supportsVisibleReasoning
@@ -119,14 +119,6 @@ describe("supportsVisibleReasoning", () => {
   });
 });
 
-describe("isOpenAIGpt56Model", () => {
-  it("recognizes only GPT-5.6 model ids for GPT-5.6-specific controls", () => {
-    expect(isOpenAIGpt56Model("gpt-5.6-luna")).toBe(true);
-    expect(isOpenAIGpt56Model("openai/gpt-5.6-terra")).toBe(true);
-    expect(isOpenAIGpt56Model("gpt-5.5")).toBe(false);
-  });
-});
-
 describe("supportsImageInput", () => {
   it("detects image-capable models", () => {
     expect(supportsImageInput("gpt-4o-mini", "chat_completions")).toBe(true);
@@ -152,6 +144,15 @@ describe("supportsImageInput", () => {
 
   it("glm-5v-turbo has native vision", () => {
     expect(supportsImageInput("glm-5v-turbo", "chat_completions")).toBe(true);
+  });
+});
+
+describe("modelMatchesPrefix", () => {
+  it("matches normalized bare model prefixes", () => {
+    expect(modelMatchesPrefix("gpt-5.6-luna", "gpt-5.6")).toBe(true);
+    expect(modelMatchesPrefix("openai/gpt-5.6-terra", "GPT-5.6")).toBe(true);
+    expect(modelMatchesPrefix("gpt-5.5", "gpt-5.6")).toBe(false);
+    expect(modelMatchesPrefix("gpt-4.1-mini", "gpt-5.6")).toBe(false);
   });
 });
 

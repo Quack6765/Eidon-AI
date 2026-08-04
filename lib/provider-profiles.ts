@@ -29,7 +29,7 @@ const commonProfileSchema = z.object({
   systemPrompt: z.string(),
   temperature: z.coerce.number().min(0).max(2),
   maxOutputTokens: z.coerce.number().int().min(128),
-  reasoningEffort: z.enum(["none", "low", "medium", "high", "xhigh"]),
+  reasoningEffort: z.enum(["none", "low", "medium", "high", "xhigh", "max"]),
   reasoningSummaryEnabled: z.coerce.boolean(),
   modelContextLimit: z.coerce.number().int().min(4096).max(2_000_000),
   compactionThreshold: z.coerce.number().min(0.5).max(0.95),
@@ -57,6 +57,7 @@ export const providerProfileInputSchema = z.discriminatedUnion("providerKind", [
     providerConfig: z.object({
       apiBaseUrl: z.string().url(),
       apiMode: z.enum(["responses", "chat_completions"]),
+      processingMode: z.enum(["standard", "fast"]).default("standard"),
       reasoningParameterMode: z.enum(["standard", "mirrored"]).default("standard")
     })
   }),
@@ -235,6 +236,7 @@ function rowToRuntimeProfile(row: ProviderProfileRow): RuntimeProviderProfile {
     providerConfig: {
       apiBaseUrl: String(rawConfig.apiBaseUrl ?? ""),
       apiMode: rawConfig.apiMode === "chat_completions" ? "chat_completions" : "responses",
+      processingMode: rawConfig.processingMode === "fast" ? "fast" : "standard",
       reasoningParameterMode: rawConfig.reasoningParameterMode === "mirrored"
         ? "mirrored"
         : "standard"
@@ -393,6 +395,12 @@ function providerConfigJson(profile: ProviderProfile) {
   return JSON.stringify(profile.providerConfig);
 }
 
+function providerConnectionIdentity(profile: ProviderProfile) {
+  return profile.providerKind === "github_copilot"
+    ? profile.providerKind
+    : `${profile.providerKind}:${profile.providerConfig.apiBaseUrl}`;
+}
+
 export function duplicateProviderProfileRecord(sourceProfileId: string) {
   const source = getRuntimeProviderProfile(sourceProfileId);
   if (!source) throw new Error("Provider profile not found");
@@ -480,8 +488,7 @@ export function saveProviderCatalog(input: unknown) {
       } as ProviderProfile;
       const identityChanged = Boolean(
         previous && (
-          previous.providerKind !== profile.providerKind ||
-          providerConfigJson(previous) !== providerConfigJson(profile)
+          providerConnectionIdentity(previous) !== providerConnectionIdentity(profile)
         )
       );
       const action = profileInput.credentialAction ?? (

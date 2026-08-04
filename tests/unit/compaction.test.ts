@@ -60,7 +60,7 @@ describe("lossless compaction", () => {
       systemPrompt: string;
       temperature: number;
       maxOutputTokens: number;
-      reasoningEffort: "low" | "medium" | "high" | "xhigh" | "max";
+      reasoningEffort: "low" | "medium" | "high" | "xhigh";
       reasoningSummaryEnabled: boolean;
       modelContextLimit: number;
       compactionThreshold: number;

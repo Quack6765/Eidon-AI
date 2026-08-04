@@ -35,6 +35,9 @@ export function createRuntimeProviderProfile(
           apiMode: overrides.providerConfig?.apiMode === "chat_completions"
             ? "chat_completions" as const
             : "responses" as const,
+          processingMode: overrides.providerConfig?.processingMode === "fast"
+            ? "fast" as const
+            : "standard" as const,
           reasoningParameterMode: overrides.providerConfig?.reasoningParameterMode === "mirrored"
             ? "mirrored" as const
             : "standard" as const

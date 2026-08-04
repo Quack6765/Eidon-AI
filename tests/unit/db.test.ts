@@ -344,31 +344,17 @@ describe("db", () => {
     );
   });
 
-  it("migrates the renamed official OpenAI preset id", async () => {
-    const legacyDb = openLegacyDatabase();
-    legacyDb.exec("ALTER TABLE provider_profiles ADD COLUMN provider_preset_id TEXT");
-    legacyDb.prepare(
-      "UPDATE provider_profiles SET provider_preset_id = 'custom_openai_compatible'"
-    ).run();
-    legacyDb.close();
-
-    const { getDb } = await import("@/lib/db");
-    const db = getDb();
-    const profile = db.prepare(
-      "SELECT provider_preset_id AS providerPresetId FROM provider_profiles WHERE id = 'profile_existing'"
-    ).get() as { providerPresetId: string };
-
-    expect(profile.providerPresetId).toBe("openai_official");
-  });
-
   it("adds multi-user tables and owner columns", async () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();
 
     const userColumns = (db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>)
       .map((column) => column.name);
-    const userSettingsColumns = (
-      db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>
+    const userPreferenceColumns = (
+      db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const globalPreferenceColumns = (
+      db.prepare("PRAGMA table_info(global_preferences)").all() as Array<{ name: string }>
     ).map((column) => column.name);
     const conversationColumns = (
       db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>
@@ -387,14 +373,17 @@ describe("db", () => {
     expect(userColumns).toEqual(
       expect.arrayContaining(["username", "role", "auth_source", "password_hash"])
     );
-    expect(userSettingsColumns).toEqual(
-      expect.arrayContaining([
-        "user_id",
-        "default_provider_profile_id",
-        "conversation_retention",
-        "mcp_timeout"
-      ])
-    );
+    expect(userPreferenceColumns).toEqual(expect.arrayContaining([
+      "user_id",
+      "conversation_retention",
+      "mcp_timeout",
+      "max_assistant_tool_steps"
+    ]));
+    expect(globalPreferenceColumns).toEqual(expect.arrayContaining([
+      "default_provider_profile_id",
+      "skills_enabled",
+      "title_generation_mode"
+    ]));
     expect(conversationColumns).toContain("user_id");
     expect(folderColumns).toContain("user_id");
     expect(personaColumns).toContain("user_id");
@@ -402,7 +391,7 @@ describe("db", () => {
     expect(legacyAutomationColumns).toContain("user_id");
   });
 
-  it("adds speech-to-text columns to user_settings during migration", async () => {
+  it("migrates legacy speech settings into the integration store", async () => {
     const legacyDb = openLegacyDatabase({
       userSettingsColumns: [
         "user_id",
@@ -421,16 +410,21 @@ describe("db", () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();
 
-    const userSettingsColumns = (
-      db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>
+    const integrationColumns = (
+      db.prepare("PRAGMA table_info(integration_settings)").all() as Array<{ name: string }>
     ).map((column) => column.name);
 
-    expect(userSettingsColumns).toEqual(
-      expect.arrayContaining(["stt_engine", "stt_language"])
-    );
+    expect(integrationColumns).toEqual(expect.arrayContaining([
+      "capability",
+      "user_id",
+      "provider_id",
+      "configuration_json",
+      "credentials_encrypted"
+    ]));
+    expect(db.prepare("PRAGMA table_info(user_settings)").all()).toEqual([]);
   });
 
-  it("adds web search columns to user_settings during migration", async () => {
+  it("creates partial unique indexes for global and user integration selections", async () => {
     const legacyDb = openLegacyDatabase({
       userSettingsColumns: [
         "user_id",
@@ -451,18 +445,15 @@ describe("db", () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();
 
-    const userSettingsColumns = (
-      db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>
-    ).map((column) => column.name);
+    const integrationIndexes = (
+      db.prepare("PRAGMA index_list(integration_settings)").all() as Array<{ name: string }>
+    ).map((index) => index.name);
 
-    expect(userSettingsColumns).toEqual(
-      expect.arrayContaining([
-        "web_search_engine",
-        "exa_api_key_encrypted",
-        "tavily_api_key_encrypted",
-        "searxng_base_url"
-      ])
-    );
+    expect(integrationIndexes).toEqual(expect.arrayContaining([
+      "idx_integration_settings_global",
+      "idx_integration_settings_user"
+    ]));
+    expect(db.prepare("PRAGMA table_info(user_settings)").all()).toEqual([]);
   });
 
   it("migrates legacy schemas and backfills defaults", async () => {
@@ -473,8 +464,8 @@ describe("db", () => {
 
     const userColumns = (db.prepare("PRAGMA table_info(users)").all() as Array<{ name: string }>)
       .map((column) => column.name);
-    const userSettingsColumns = (
-      db.prepare("PRAGMA table_info(user_settings)").all() as Array<{ name: string }>
+    const userPreferenceColumns = (
+      db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>
     ).map((column) => column.name);
     const conversationColumns = (db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>)
       .map((column) => column.name);
@@ -488,7 +479,7 @@ describe("db", () => {
     const legacyAutomationColumns = (
       db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>
     ).map((column) => column.name);
-    const settingsColumns = (db.prepare("PRAGMA table_info(app_settings)").all() as Array<{ name: string }>)
+    const settingsColumns = (db.prepare("PRAGMA table_info(global_preferences)").all() as Array<{ name: string }>)
       .map((column) => column.name);
     const providerProfileColumns = (
       db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>
@@ -515,8 +506,11 @@ describe("db", () => {
     const authSessionColumns = (
       db.prepare("PRAGMA table_info(auth_sessions)").all() as Array<{ name: string }>
     ).map((column) => column.name);
-    const mobileGithubFlowColumns = (
-      db.prepare("PRAGMA table_info(mobile_github_oauth_flows)").all() as Array<{ name: string }>
+    const connectionFlowColumns = (
+      db.prepare("PRAGMA table_info(provider_connection_flows)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const connectionColumns = (
+      db.prepare("PRAGMA table_info(provider_profile_connections)").all() as Array<{ name: string }>
     ).map((column) => column.name);
 
     expect(conversationColumns).toEqual(
@@ -535,16 +529,14 @@ describe("db", () => {
     expect(userColumns).toEqual(
       expect.arrayContaining(["id", "username", "role", "auth_source", "password_hash"])
     );
-    expect(userSettingsColumns).toEqual(
+    expect(userPreferenceColumns).toEqual(
       expect.arrayContaining([
         "user_id",
-        "default_provider_profile_id",
-        "skills_enabled",
         "conversation_retention",
-        "auto_compaction",
         "memories_enabled",
         "memories_max_count",
         "mcp_timeout",
+        "max_assistant_tool_steps",
         "updated_at"
       ])
     );
@@ -555,10 +547,11 @@ describe("db", () => {
     expect(authSessionForeignKeys).toContain("users");
     expect(authSessionForeignKeys).not.toContain("admin_users");
     expect(authSessionColumns).toEqual(expect.arrayContaining(["purpose", "device_name"]));
-    expect(mobileGithubFlowColumns).toEqual(expect.arrayContaining([
+    expect(connectionFlowColumns).toEqual(expect.arrayContaining([
       "user_id",
       "profile_id",
-      "profile_nonce",
+      "provider_kind",
+      "state_json",
       "expires_at",
       "consumed_at",
       "status"
@@ -566,13 +559,25 @@ describe("db", () => {
     expect(settingsColumns).toEqual(
       expect.arrayContaining(["default_provider_profile_id", "skills_enabled"])
     );
-    expect(providerProfileColumns).toEqual(
-      expect.arrayContaining(["github_oauth_nonce", "service_tier"])
-    );
+    expect(providerProfileColumns).toEqual(expect.arrayContaining([
+      "provider_kind",
+      "provider_config_json",
+      "provider_preset_id"
+    ]));
+    expect(providerProfileColumns).not.toContain("api_key_encrypted");
+    expect(connectionColumns).toEqual(expect.arrayContaining([
+      "profile_id",
+      "credentials_encrypted",
+      "metadata_json",
+      "oauth_nonce"
+    ]));
+    expect(connectionColumns).not.toContain("provider_kind");
     expect(() => migrate(db)).not.toThrow();
     expect((
-      db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>
-    ).filter((column) => column.name === "github_oauth_nonce")).toHaveLength(1);
+      db.prepare("PRAGMA table_info(provider_profile_connections)").all() as Array<{ name: string }>
+    ).filter((column) => column.name === "oauth_nonce")).toHaveLength(1);
+    expect(db.prepare("PRAGMA table_info(app_settings)").all()).toEqual([]);
+    expect(db.prepare("PRAGMA table_info(user_settings)").all()).toEqual([]);
     expect(mcpColumns).toEqual(expect.arrayContaining(["transport", "command", "args", "env", "slug"]));
     expect(skillColumns).toContain("description");
     expect(automationColumns).toEqual(
@@ -610,8 +615,8 @@ describe("db", () => {
       automation_run_id: string | null;
       conversation_origin: string;
     };
-    const appSettings = db
-      .prepare("SELECT default_provider_profile_id, skills_enabled FROM app_settings WHERE id = 1")
+    const globalPreferences = db
+      .prepare("SELECT default_provider_profile_id, skills_enabled FROM global_preferences WHERE id = 1")
       .get() as {
       default_provider_profile_id: string;
       skills_enabled: number;
@@ -629,8 +634,8 @@ describe("db", () => {
       .prepare("SELECT id, slug FROM mcp_servers ORDER BY id ASC")
       .all() as Array<{ id: string; slug: string }>;
 
-    expect(appSettings.default_provider_profile_id).toBe("profile_existing");
-    expect(appSettings.skills_enabled).toBe(1);
+    expect(globalPreferences.default_provider_profile_id).toBe("profile_existing");
+    expect(globalPreferences.skills_enabled).toBe(1);
     expect(conversation.provider_profile_id).toBe("profile_existing");
     expect(conversation.title_generation_status).toBe("completed");
     expect(conversation.automation_id).toBeNull();
@@ -649,6 +654,69 @@ describe("db", () => {
       { id: "mcp_legacy", slug: "legacy_mcp" },
       { id: "mcp_legacy_duplicate", slug: "legacy_mcp_2" }
     ]);
+    expect(
+      db.prepare("SELECT provider_id FROM integration_settings WHERE capability = 'web_search' AND user_id IS NULL").get()
+    ).toEqual({ provider_id: "exa" });
+  });
+
+  it("normalizes invalid integration rows and one-time provider data fixes idempotently", async () => {
+    const { migrate } = await import("@/lib/db-migrations");
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    migrate(db);
+
+    const invalidRows = [
+      ["web_search", "unknown-search"],
+      ["image_generation", "comfyui"],
+      ["speech_transcription", "unknown-speech"]
+    ] as const;
+    for (const [capability, providerId] of invalidRows) {
+      db.prepare(`
+        UPDATE integration_settings
+        SET provider_id = ?, configuration_json = '{"legacy":true}',
+          credentials_encrypted = 'legacy-secret'
+        WHERE capability = ? AND user_id IS NULL
+      `).run(providerId, capability);
+    }
+    db.prepare("UPDATE provider_profiles SET compaction_threshold = 0.78").run();
+    db.prepare(`
+      UPDATE provider_profiles
+      SET provider_config_json = json_object(
+        'apiBaseUrl', 'https://api.openai.com/v1',
+        'apiMode', 'responses',
+        'reasoningParameterMode', 'mirrored'
+      ), provider_preset_id = 'custom_openai_compatible'
+    `).run();
+
+    expect(() => migrate(db)).not.toThrow();
+    expect(
+      db.prepare(`
+        SELECT capability, provider_id, credentials_encrypted
+        FROM integration_settings WHERE user_id IS NULL ORDER BY capability
+      `).all()
+    ).toEqual([
+      { capability: "image_generation", provider_id: "disabled", credentials_encrypted: "" },
+      { capability: "speech_transcription", provider_id: "browser", credentials_encrypted: "" },
+      { capability: "web_search", provider_id: "exa", credentials_encrypted: "" }
+    ]);
+    expect(
+      db.prepare("SELECT DISTINCT compaction_threshold FROM provider_profiles").all()
+    ).toEqual([{ compaction_threshold: 0.8 }]);
+    const migratedProfile = db.prepare(`
+      SELECT provider_config_json, provider_preset_id FROM provider_profiles LIMIT 1
+    `).get() as { provider_config_json: string; provider_preset_id: string };
+    expect(JSON.parse(migratedProfile.provider_config_json)).toMatchObject({
+      processingMode: "standard",
+      reasoningParameterMode: "mirrored"
+    });
+    expect(migratedProfile.provider_preset_id).toBe("openai_official");
+    expect(db.prepare("PRAGMA table_info(app_settings)").all()).toEqual([]);
+    expect(db.prepare("PRAGMA table_info(user_settings)").all()).toEqual([]);
+
+    expect(() => migrate(db)).not.toThrow();
+    expect(db.prepare("PRAGMA table_info(app_settings)").all()).toEqual([]);
+    expect(db.prepare("PRAGMA table_info(user_settings)").all()).toEqual([]);
+    db.close();
   });
 
   it("reconciles interrupted state only during explicit guarded runtime bootstrap", async () => {

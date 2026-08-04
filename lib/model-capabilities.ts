@@ -18,7 +18,6 @@ type ResolvedCapabilities = {
 
 function bareModelId(model: string) {
   const normalized = model.trim().toLowerCase();
-
   return normalized.includes("/")
     ? normalized.slice(normalized.lastIndexOf("/") + 1)
     : normalized;
@@ -83,8 +82,8 @@ export function supportsVisibleReasoning(model: string, apiMode: ApiMode): boole
   return resolveCapabilities(model, apiMode).reasoning;
 }
 
-export function isOpenAIGpt56Model(model: string): boolean {
-  return bareModelId(model).startsWith("gpt-5.6");
+export function modelMatchesPrefix(model: string, prefix: string): boolean {
+  return bareModelId(model).startsWith(prefix.trim().toLowerCase());
 }
 
 export function supportsImageInput(model: string, apiMode: ApiMode): boolean {
