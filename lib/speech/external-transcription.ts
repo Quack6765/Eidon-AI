@@ -1,14 +1,11 @@
 import { transcribeWithAssemblyAi } from "@/lib/speech/assemblyai";
-import type {
-  AssemblyAiLanguage,
-  AssemblyAiModelId
-} from "@/lib/speech/assemblyai-languages";
 import {
   ELEVENLABS_SCRIBE_MODEL,
   transcribeWithElevenLabs
 } from "@/lib/speech/elevenlabs";
 import type {
-  ExternalSttLanguageForProvider
+  ExternalSttLanguageForProvider,
+  ExternalSttModelForProvider
 } from "@/lib/speech/external-providers";
 
 type ExternalSttTranscriptionInput =
@@ -23,8 +20,8 @@ type ExternalSttTranscriptionInput =
       provider: "assemblyai";
       apiKey: string;
       samples: Float32Array;
-      language: AssemblyAiLanguage;
-      model: AssemblyAiModelId;
+      language: ExternalSttLanguageForProvider<"assemblyai">;
+      model: ExternalSttModelForProvider<"assemblyai">;
       signal?: AbortSignal;
     };
 

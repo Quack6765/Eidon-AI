@@ -132,17 +132,6 @@ export type AssemblyAiUniversal2Language =
   typeof ASSEMBLYAI_UNIVERSAL_2_LANGUAGES[number]["value"];
 export type AssemblyAiLanguage = AssemblyAiUniversal35Language | AssemblyAiUniversal2Language;
 
-export const ASSEMBLYAI_UNIVERSAL_3_5_PRO_LANGUAGE_CODES =
-  ASSEMBLYAI_UNIVERSAL_3_5_PRO_LANGUAGES.map(({ value }) => value) as [
-    AssemblyAiUniversal35Language,
-    ...AssemblyAiUniversal35Language[]
-  ];
-export const ASSEMBLYAI_UNIVERSAL_2_LANGUAGE_CODES =
-  ASSEMBLYAI_UNIVERSAL_2_LANGUAGES.map(({ value }) => value) as [
-    AssemblyAiUniversal2Language,
-    ...AssemblyAiUniversal2Language[]
-  ];
-
 export const ASSEMBLYAI_MODEL_OPTIONS = [
   {
     value: "universal-3-5-pro",
@@ -165,9 +154,4 @@ export const DEFAULT_ASSEMBLYAI_MODEL: AssemblyAiModelId = "universal-3-5-pro";
 
 export function isAssemblyAiModelId(value: unknown): value is AssemblyAiModelId {
   return typeof value === "string" && ASSEMBLYAI_MODEL_IDS.includes(value as AssemblyAiModelId);
-}
-
-export function getAssemblyAiLanguages(model: AssemblyAiModelId) {
-  return ASSEMBLYAI_MODEL_OPTIONS.find((option) => option.value === model)?.languages ??
-    ASSEMBLYAI_UNIVERSAL_3_5_PRO_LANGUAGES;
 }

@@ -103,7 +103,3 @@ export const ELEVENLABS_SCRIBE_LANGUAGES = [
 
 export type ElevenLabsScribeLanguage =
   typeof ELEVENLABS_SCRIBE_LANGUAGES[number]["value"];
-
-export const ELEVENLABS_SCRIBE_LANGUAGE_CODES = ELEVENLABS_SCRIBE_LANGUAGES.map(
-  ({ value }) => value
-) as [ElevenLabsScribeLanguage, ...ElevenLabsScribeLanguage[]];

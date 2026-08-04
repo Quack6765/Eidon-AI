@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_EXTERNAL_STT_PROVIDER,
   EXTERNAL_STT_PROVIDER_OPTIONS,
+  getExternalSttDefaultModel,
+  getExternalSttLanguageCodes,
   getExternalSttLanguageOptions,
   getExternalSttProviderConfig,
   isExternalSttLanguageForProvider,
+  isExternalSttModelForProvider,
   isSttProvider
 } from "@/lib/speech/external-providers";
 import {
@@ -52,8 +55,14 @@ describe("external speech-to-text providers", () => {
       "sw",
       "universal-2"
     )).toBe(true);
+    expect(getExternalSttLanguageCodes("elevenlabs")).toContain("fra");
+    expect(getExternalSttLanguageCodes("assemblyai", "universal-3-5-pro"))
+      .not.toContain("sw");
     expect(getExternalSttLanguageOptions("assemblyai", "universal-2").length)
       .toBeGreaterThan(99);
+    expect(getExternalSttDefaultModel("assemblyai")).toBe("universal-3-5-pro");
+    expect(isExternalSttModelForProvider("assemblyai", "universal-2")).toBe(true);
+    expect(isExternalSttModelForProvider("elevenlabs", "universal-2")).toBe(false);
   });
 
   it("normalizes AssemblyAI defaults and validates model-specific languages", () => {

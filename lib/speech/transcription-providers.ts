@@ -8,14 +8,13 @@ import {
 import {
   runCanaryTranscription
 } from "@/lib/speech/canary-transcription-limiter";
-import type {
-  AssemblyAiLanguage,
-  AssemblyAiModelId
-} from "@/lib/speech/assemblyai-languages";
 import {
   transcribeWithExternalSttProvider
 } from "@/lib/speech/external-transcription";
-import type { ExternalSttLanguageForProvider } from "@/lib/speech/external-providers";
+import type {
+  ExternalSttLanguageForProvider,
+  ExternalSttModelForProvider
+} from "@/lib/speech/external-providers";
 import {
   MAX_RECORDED_SPEECH_AUDIO_BYTES,
   RECORDED_SPEECH_SAMPLE_RATE
@@ -90,8 +89,10 @@ const TRANSCRIPTION_PROVIDERS = {
         provider: "assemblyai",
         apiKey: settings.speechTranscription.credentials.apiKey ?? "",
         samples,
-        language: settings.speechTranscription.configuration.language as AssemblyAiLanguage,
-        model: settings.speechTranscription.configuration.model as AssemblyAiModelId,
+        language: settings.speechTranscription.configuration.language as
+          ExternalSttLanguageForProvider<"assemblyai">,
+        model: settings.speechTranscription.configuration.model as
+          ExternalSttModelForProvider<"assemblyai">,
         signal
       });
       return { model: result.model, provider: "assemblyai", transcript: result.transcript };

@@ -97,6 +97,18 @@ describe("vendor boundaries", () => {
     for (const source of publicSources) expect(source).not.toMatch(vendorFieldPattern);
   });
 
+  it("keeps shared transcription behavior on generic provider capabilities", () => {
+    const sharedSources = [
+      "lib/speech/transcription-catalog.ts",
+      "lib/speech/transcription-providers.ts"
+    ].map((file) => fs.readFileSync(path.resolve(file), "utf8"));
+
+    for (const source of sharedSources) {
+      expect(source).not.toMatch(/from "@\/lib\/speech\/(?:assemblyai|elevenlabs)-languages"/);
+      expect(source).not.toMatch(/\b(?:AssemblyAi|ElevenLabsScribe)(?:Language|Model)/);
+    }
+  });
+
   it("keeps vendor-specific columns out of steady-state core tables", () => {
     const tables = [
       "provider_profiles",
