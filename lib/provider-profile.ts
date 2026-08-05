@@ -1,5 +1,6 @@
 import {
   PROVIDER_CATALOG,
+  resolveProviderRequestApiMode,
   type ApiMode,
   type ProviderConnectionMode,
   type ProviderKind,
@@ -9,7 +10,7 @@ import {
   type ReasoningEffort,
   type VisionMode
 } from "@/lib/provider-catalog";
-import { modelMatchesPrefix } from "@/lib/model-capabilities";
+import { modelMatchesPrefix, resolveCapabilities } from "@/lib/model-capabilities";
 
 export type ProviderConnectionStatus = "disconnected" | "connected" | "expired";
 
@@ -101,9 +102,15 @@ export type ProviderProfileSummary = ProviderProfile & {
 };
 
 export function getProviderApiMode(profile: ProviderProfile): ApiMode {
-  return profile.providerKind === "openai_compatible"
-    ? profile.providerConfig.apiMode
-    : "chat_completions";
+  if (profile.providerKind !== "openai_compatible") {
+    return "chat_completions";
+  }
+  return resolveProviderRequestApiMode({
+    providerKind: profile.providerKind,
+    apiBaseUrl: profile.providerConfig.apiBaseUrl,
+    apiMode: profile.providerConfig.apiMode,
+    model: profile.model
+  });
 }
 
 export function getProviderApiBaseUrl(profile: ProviderProfile) {
@@ -131,10 +138,13 @@ export function resolveProviderProfileCapabilities(
       "https://api.openai.com/v1";
   const hasExtendedReasoning = isOfficialEndpoint && modelMatchesPrefix(profile.model, "gpt-5.6");
   const reasoningEfforts = ["none", "low", "medium", "high", "xhigh"] as const;
+  const modelCapabilities = resolveCapabilities(profile.model, getProviderApiMode(profile));
 
   return {
     supportsTemperature:
-      PROVIDER_CATALOG[profile.providerKind].editor.sampling && !isOfficialEndpoint,
+      PROVIDER_CATALOG[profile.providerKind].editor.sampling &&
+      !isOfficialEndpoint &&
+      modelCapabilities.supportsTemperature,
     processingModes: isOfficialEndpoint ? ["standard", "fast"] : [],
     reasoningEfforts: hasExtendedReasoning
       ? [...reasoningEfforts, "max"]

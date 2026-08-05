@@ -11,6 +11,7 @@ describe("resolveCapabilities", () => {
     const caps = resolveCapabilities("unknown-model", "chat_completions");
     expect(caps.reasoning).toBe(false);
     expect(caps.vision).toBe(false);
+    expect(caps.supportsTemperature).toBe(true);
     expect(caps.thinkingReplay).toBe(false);
     expect(caps.extraBody).toBe("none");
     expect(caps.strictExtraRejection).toBe(false);
@@ -29,6 +30,10 @@ describe("resolveCapabilities", () => {
     expect(caps.strictExtraRejection).toBe(true);
     expect(caps.thinkingReplay).toBe(false);
     expect(caps.extraBody).toBe("none");
+  });
+
+  it("omits temperature for GPT-5 models", () => {
+    expect(resolveCapabilities("gpt-5.6-luna", "responses").supportsTemperature).toBe(false);
   });
 
   it("applies registry overrides for glm-5", () => {
