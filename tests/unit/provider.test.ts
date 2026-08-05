@@ -287,7 +287,7 @@ describe("provider integration", () => {
     await callProviderText({
       settings: createSettings({
         apiBaseUrl: "https://custom.example.com/v1",
-        model: "gpt-5.6-luna",
+        model: "custom-chat-model",
         temperature: 0.6
       }),
       prompt: "Reply with connected",
@@ -1014,6 +1014,82 @@ describe("provider integration", () => {
         signal: expect.any(AbortSignal)
       })
     );
+  });
+
+  it("uses responses image input for OpenCode Go GPT-5.6 models saved in chat mode", async () => {
+    responsesCreate.mockResolvedValue(
+      createAsyncStream([{ type: "response.output_text.delta", delta: "done" }])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        apiBaseUrl: "https://opencode.ai/zen/go/v1",
+        apiMode: "chat_completions",
+        model: "gpt-5.6-luna",
+        providerPresetId: "opencode_go",
+        temperature: 0.6
+      }),
+      promptMessages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Describe this image" },
+            {
+              type: "image",
+              attachmentId: "att_1",
+              filename: "photo.png",
+              mimeType: "image/png",
+              relativePath: "conv_1/att_1_photo.png"
+            }
+          ]
+        }
+      ]
+    });
+
+    await stream.next();
+
+    expect(responsesCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        input: expect.arrayContaining([
+          {
+            role: "user",
+            content: [
+              { type: "input_text", text: "Describe this image" },
+              { type: "input_image", image_url: "data:image/png;base64,abc123" }
+            ]
+          }
+        ])
+      }),
+      expect.objectContaining({
+        signal: expect.any(AbortSignal)
+      })
+    );
+    expect(responsesCreate.mock.calls.at(-1)?.[0]).not.toHaveProperty("temperature");
+    expect(chatCreate).not.toHaveBeenCalled();
+  });
+
+  it("keeps OpenCode Go Kimi models on chat completions", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([{ choices: [{ delta: { content: "done" } }] }])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        apiBaseUrl: "https://opencode.ai/zen/go/v1",
+        apiMode: "chat_completions",
+        model: "kimi-k2.6",
+        providerPresetId: "opencode_go",
+        reasoningSummaryEnabled: false
+      }),
+      promptMessages: [{ role: "user", content: "Hello" }]
+    });
+
+    await stream.next();
+
+    expect(chatCreate).toHaveBeenCalledOnce();
+    expect(responsesCreate).not.toHaveBeenCalled();
   });
 
   it("serializes tool outputs and assistant tool calls for responses mode streams", async () => {

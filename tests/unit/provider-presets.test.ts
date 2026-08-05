@@ -2,7 +2,8 @@ import {
   applyProviderPreset,
   DEFAULT_PROFILE_BEHAVIOR,
   getMatchingProviderPresetId,
-  getProviderPreset
+  getProviderPreset,
+  resolveProviderRequestApiMode
 } from "@/lib/provider-catalog";
 
 function createProfile() {
@@ -98,6 +99,33 @@ describe("provider presets", () => {
     };
 
     expect(getMatchingProviderPresetId(profile)).toBe("opencode_go");
+  });
+
+  it("uses responses for OpenCode Go GPT-5.6 models", () => {
+    expect(resolveProviderRequestApiMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://opencode.ai/zen/go/v1/",
+      apiMode: "chat_completions",
+      model: "openai/gpt-5.6-luna"
+    })).toBe("responses");
+  });
+
+  it("keeps OpenCode Go Kimi models on chat completions", () => {
+    expect(resolveProviderRequestApiMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://opencode.ai/zen/go/v1",
+      apiMode: "chat_completions",
+      model: "kimi-k2.6"
+    })).toBe("chat_completions");
+  });
+
+  it("preserves the configured mode for unmatched compatible endpoints", () => {
+    expect(resolveProviderRequestApiMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://custom.example.com/v1",
+      apiMode: "chat_completions",
+      model: "gpt-5.6-luna"
+    })).toBe("chat_completions");
   });
 
   it("matches a profile back to its preset even with a different name", () => {

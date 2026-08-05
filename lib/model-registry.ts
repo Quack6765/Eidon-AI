@@ -2,6 +2,7 @@ export type ModelCapabilityOverride = {
   prefix: string;
   reasoning?: boolean | { apiModes: Array<"responses" | "chat_completions"> };
   vision?: boolean | { apiModes: Array<"responses" | "chat_completions"> };
+  supportsTemperature?: boolean;
 };
 
 export type ModelRequestQuirk = {
@@ -12,7 +13,12 @@ export type ModelRequestQuirk = {
 };
 
 export const MODEL_REGISTRY: ModelCapabilityOverride[] = [
-  { prefix: "gpt-5", reasoning: { apiModes: ["responses"] }, vision: true },
+  {
+    prefix: "gpt-5",
+    reasoning: { apiModes: ["responses"] },
+    vision: true,
+    supportsTemperature: false
+  },
   { prefix: "o1", reasoning: { apiModes: ["responses"] }, vision: true },
   { prefix: "o3", reasoning: { apiModes: ["responses"] }, vision: true },
   { prefix: "o4", reasoning: { apiModes: ["responses"] }, vision: true },

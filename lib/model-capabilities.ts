@@ -11,6 +11,7 @@ type CapabilityFlag = boolean | { apiModes: ApiMode[] };
 type ResolvedCapabilities = {
   reasoning: boolean;
   vision: boolean;
+  supportsTemperature: boolean;
   thinkingReplay: boolean;
   extraBody: "none" | "thinking" | "reasoning_effort";
   strictExtraRejection: boolean;
@@ -26,6 +27,7 @@ function bareModelId(model: string) {
 const DEFAULT_CAPABILITIES: ResolvedCapabilities = {
   reasoning: false,
   vision: false,
+  supportsTemperature: true,
   thinkingReplay: false,
   extraBody: "none",
   strictExtraRejection: false,
