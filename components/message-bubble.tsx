@@ -153,6 +153,30 @@ function CollapsibleActionRow({
   onToggle: () => void;
 }) {
   const isMemoryAction = action.kind === "create_memory" || action.kind === "update_memory" || action.kind === "delete_memory";
+  const argumentQuery = typeof action.arguments?.query === "string"
+    ? action.arguments.query.trim()
+    : "";
+  const webSearchQuery = action.toolName === "web_search"
+    ? argumentQuery || action.detail.trim()
+    : "";
+  const expandedDetail = webSearchQuery ? "" : action.detail;
+  const actionTitle = (
+    <span
+      className={`min-w-0 break-words text-xs font-medium leading-4 ${
+        action.status === "running" ? "text-white/55" : "text-white/85"
+      }`}
+    >
+      {action.label}
+      {webSearchQuery ? (
+        <>
+          {": "}
+          <span className={action.status === "running" ? "font-normal text-white/45" : "font-normal text-white/55"}>
+            {webSearchQuery}
+          </span>
+        </>
+      ) : null}
+    </span>
+  );
 
   const statusIcon = action.status === "running"
     ? <LoaderCircle className="h-2.5 w-2.5 animate-spin text-white/55" />
@@ -164,11 +188,11 @@ function CollapsibleActionRow({
 
   if (action.status === "running") {
     return (
-      <div className="inline-flex w-fit items-center gap-1.5 rounded-lg border border-white/6 bg-white/[0.02] px-2.5 py-1.5 text-xs">
+      <div className="inline-flex w-fit max-w-full items-start gap-1.5 rounded-lg border border-white/6 bg-white/[0.02] px-2.5 py-1.5 text-xs">
         <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
           {isMemoryAction ? <Brain className="h-2.5 w-2.5 text-violet-400" /> : statusIcon}
         </span>
-        <span className="whitespace-nowrap text-[12px] font-medium text-white/55">{action.label}</span>
+        {actionTitle}
       </div>
     );
   }
@@ -182,17 +206,17 @@ function CollapsibleActionRow({
       <button
         type="button"
         onClick={onToggle}
-        className={`flex items-center gap-1.5 px-2.5 py-1.5 text-left transition hover:opacity-80 ${isOpen ? "w-full" : "w-fit min-w-0"}`}
+        className={`flex max-w-full items-start gap-1.5 px-2.5 py-1.5 text-left transition hover:opacity-80 ${isOpen ? "w-full" : "w-fit min-w-0"}`}
       >
         <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
           {isMemoryAction ? <Brain className="h-3 w-3 text-violet-400" /> : statusIcon}
         </span>
-        <span className="whitespace-nowrap text-[12px] font-medium text-white/85">{action.label}</span>
-        <span className="ml-auto flex items-center">
+        {actionTitle}
+        <span className="ml-auto flex items-center pt-px">
           {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-white/30" /> : <ChevronRight className="h-3.5 w-3.5 text-white/30" />}
         </span>
       </button>
-      {isOpen && (action.detail || action.resultSummary) ? (
+      {isOpen && (expandedDetail || action.resultSummary) ? (
         <div
           className="px-2.5 pb-2"
           onClick={() => {
@@ -201,13 +225,13 @@ function CollapsibleActionRow({
             }
           }}
         >
-          {action.detail ? (
+          {expandedDetail ? (
             <pre className="overflow-x-auto rounded-md bg-black/30 p-2 text-[11px] leading-5 whitespace-pre-wrap break-words font-mono">
-              <AnsiText text={action.detail} defaultTextClassName="text-white/45" />
+              <AnsiText text={expandedDetail} defaultTextClassName="text-white/45" />
             </pre>
           ) : null}
           {action.resultSummary ? (
-            <div className="mt-1.5 text-[11px] break-words whitespace-pre-wrap font-mono">
+            <div className={`${expandedDetail ? "mt-1.5 " : ""}text-[11px] break-words whitespace-pre-wrap font-mono`}>
               <AnsiText text={action.resultSummary} defaultTextClassName="text-white/35" />
             </div>
           ) : null}
