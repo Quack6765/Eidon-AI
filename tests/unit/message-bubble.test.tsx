@@ -75,6 +75,37 @@ describe("message bubble avatar", () => {
     expect(screen.queryByRole("button", { name: "Edit message" })).toBeNull();
   });
 
+  it("uses a 4px gap between user text and attachments", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          attachments: [
+            {
+              id: "att_image",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "screenshot.png",
+              mimeType: "image/png",
+              byteSize: 10,
+              sha256: "hash-image",
+              relativePath: "conv_test/att_image_screenshot.png",
+              kind: "image",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            }
+          ]
+        }
+      })
+    );
+
+    const previewButton = screen.getByRole("button", { name: "Preview screenshot.png" });
+    const attachmentWrapper = previewButton.parentElement?.parentElement?.parentElement;
+
+    expect(attachmentWrapper).not.toHaveClass("mt-3");
+    expect(attachmentWrapper?.parentElement).toHaveClass("gap-1");
+  });
+
   it("renders buffered streaming text without a second word animation queue", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
