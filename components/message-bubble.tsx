@@ -729,7 +729,7 @@ function MessageBubbleImpl({
       <>
         <Message from="user" data-message-id={message.id}>
           <div className="group flex w-full flex-col items-end md:max-w-[95%]">
-            <MessageContent className={`${!readOnly && isEditing ? "w-full" : "w-fit max-w-full"} rounded-2xl border border-[var(--accent)]/10 bg-[var(--accent-soft)] px-4 py-3 text-[var(--text)]`}>
+            <MessageContent className={`${!readOnly && isEditing ? "w-full" : "w-fit max-w-full"} gap-1 rounded-2xl border border-[var(--accent)]/10 bg-[var(--accent-soft)] px-4 py-3 text-[var(--text)]`}>
               {!readOnly && isEditing ? (
                 <Textarea
                   ref={editRef}
@@ -754,7 +754,7 @@ function MessageBubbleImpl({
                 </div>
               ) : null}
               {message.attachments?.length ? (
-                <div className={content || (!readOnly && isEditing) ? "mt-3" : ""}>
+                <div>
                   <MessageAttachments
                     attachments={message.attachments}
                     compact
