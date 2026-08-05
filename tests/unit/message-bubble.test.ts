@@ -840,6 +840,43 @@ describe("message bubble", () => {
     expect(toolButtons).toHaveLength(1);
   });
 
+  it("shows the web search query in the collapsed title without repeating it in expanded results", () => {
+    const query = "Pokemon Pokopia launch impressions";
+    const { container } = render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Done",
+          timeline: [
+            {
+              ...createToolAction({
+                id: "act_web_search",
+                messageId: "msg_assistant",
+                label: "Web search",
+                detail: query,
+                resultSummary: "Result one\nResult two",
+                serverId: "integration_web_search",
+                toolName: "web_search",
+                arguments: { query }
+              }),
+              timelineKind: "action"
+            }
+          ]
+        }
+      })
+    );
+
+    const toolButton = screen.getByRole("button", { name: `Web search: ${query}` });
+
+    expect(screen.queryByText(/Result one/)).not.toBeInTheDocument();
+    fireEvent.click(toolButton);
+
+    const actionShell = screen.getByTestId("assistant-actions-shell");
+    expect(screen.getByText(/Result one/)).toBeInTheDocument();
+    expect(within(actionShell).getAllByText(query)).toHaveLength(1);
+    expect(container.querySelector('[data-testid="assistant-actions-shell"] pre')).toBeNull();
+  });
+
   it("renders expanded thinking content with the compact thinking markdown wrapper", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
