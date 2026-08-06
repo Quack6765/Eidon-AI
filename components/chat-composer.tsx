@@ -1,19 +1,22 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import {
   AlertCircle,
   ArrowUp,
   Bot,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  EyeOff,
   FileText,
   LoaderCircle,
   Mic,
   Paperclip,
+  Plus,
   Square,
-  ToggleLeft,
-  ToggleRight,
   Users,
   X
 } from "lucide-react";
@@ -24,7 +27,6 @@ import { Textarea } from "@/components/ui/textarea";
 import type { SpeechPhase } from "@/lib/speech/types";
 import { cn } from "@/lib/utils";
 import { useAutoResize } from "@/lib/use-auto-resize";
-import { useCollapsibleToolbar } from "@/lib/use-collapsible-toolbar";
 import { useIsMobile } from "@/lib/use-is-mobile";
 import type {
   MessageAttachment,
@@ -65,7 +67,7 @@ type ChatComposerProps = {
   isTemporary?: boolean;
   showTemporaryToggle?: boolean;
   onTemporaryChange?: (value: boolean) => void;
-  collapsibleToolbarOnMobile?: boolean;
+  compactOnMobile?: boolean;
 };
 
 function CustomDropdown<T extends { id: string; name: string }>({
@@ -261,30 +263,64 @@ export function ChatComposer({
   isTemporary = false,
   showTemporaryToggle = false,
   onTemporaryChange,
-  collapsibleToolbarOnMobile = false,
+  compactOnMobile = false,
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const [mounted, setMounted] = useState(false);
   const { height: textareaHeight } = useAutoResize({
     ref: textareaRef as React.RefObject<HTMLTextAreaElement | null>,
-    value: input
+    value: input,
+    minHeight: 44
   });
-  const isExpanded = textareaHeight > 52;
-  const { showToolbar, inputFocusProps, onControlOpenChange } = useCollapsibleToolbar({
-    enabled: collapsibleToolbarOnMobile
-  });
+  const textareaWraps = textareaHeight > 52;
+  const [layoutStacked, setLayoutStacked] = useState(false);
+  const isExpanded = layoutStacked || textareaWraps;
   const isMobile = useIsMobile();
   const [toolbarOverflow, setToolbarOverflow] = useState<"hidden" | "visible">("visible");
+  const [mobilePanel, setMobilePanel] = useState<"closed" | "tools" | "models" | "personas">("closed");
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
+  useLayoutEffect(() => {
+    if (input.length === 0) {
+      setLayoutStacked(false);
+    } else if (textareaWraps) {
+      setLayoutStacked(true);
+    }
+  }, [input.length, textareaWraps]);
+
+  useEffect(() => {
+    if (mobilePanel === "closed") {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!mobileMenuRef.current?.contains(event.target as Node)) {
+        setMobilePanel("closed");
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setMobilePanel("closed");
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [mobilePanel]);
+
   const hasTextDraft = input.trim().length > 0;
   const canQueueDraft = queueingEnabled && hasTextDraft;
   const canImmediateDraft = !queueingEnabled && (hasTextDraft || pendingAttachments.length > 0);
+  const composerPlaceholder = queueingEnabled ? "Queue a message" : "Message Eidon";
   const showStopButton = canStop && !isUploadingAttachments;
-  const busyButtonStops = showStopButton && !canQueueDraft;
   const isSubmitDisabled =
     !mounted ||
     isUploadingAttachments ||
@@ -297,6 +333,14 @@ export function ChatComposer({
   const speechLevelWidth = Math.max(8, Math.round(speechLevel * 100));
   const speechControlsDisabled = !mounted || isSending || isUploadingAttachments || isSpeechActive;
   const showBusyQueueHint = showStopButton;
+  const showQueueAndStop = showStopButton && canQueueDraft;
+  const primaryActionStops = showStopButton && !canQueueDraft;
+  const hideIdleSubmitOnMobile =
+    !showStopButton &&
+    !hasTextDraft &&
+    pendingAttachments.length === 0 &&
+    !isSending &&
+    !isUploadingAttachments;
 
   // For the model selector, we want to show the profile name prominently
   const displayModels = providerProfiles.map(p => ({
@@ -304,33 +348,38 @@ export function ChatComposer({
     name: p.name, // Show profile name as primary
     model: p.model
   }));
+  const selectedModel = displayModels.find((model) => model.id === providerProfileId) ?? null;
+  const selectedPersona = personas.find((persona) => persona.id === personaId) ?? null;
 
   return (
-    <div className="relative">
+    <div className="group/composer relative">
       {isTemporary && !showTemporaryToggle && (
-        <div className="absolute -top-[19px] right-4 z-10 flex items-center h-[19px]">
-          <div className="relative flex h-full items-center rounded-t-md border border-b-0 border-violet-500/50 border-dashed bg-zinc-900/85 backdrop-blur-md px-2.5 text-[10px] font-bold uppercase tracking-wider text-violet-300">
+        <div className="absolute -top-[31px] right-6 z-10 flex h-8 items-center">
+          <div className="relative flex h-8 items-center gap-1 rounded-t-[14px] rounded-b-none border border-b-0 border-violet-500/50 bg-zinc-900/95 px-2.5 text-[11px] font-semibold uppercase text-[var(--thinking)] backdrop-blur-md">
+            <Eye className="h-3 w-3" />
             Temporary
           </div>
         </div>
       )}
       {showTemporaryToggle && (
-        <div className="absolute -top-[19px] right-4 z-10 flex items-center h-[19px]">
+        <div className="absolute -top-[31px] right-6 z-10 flex h-8 items-center">
           <button
             type="button"
             onClick={() => onTemporaryChange?.(!isTemporary)}
-            style={{ fontSize: '10px' }}
+            aria-label="Temporary conversation"
+            aria-pressed={isTemporary}
+            style={{ fontSize: "11px" }}
             className={cn(
-              "relative flex h-full items-center gap-1 rounded-t-md border border-b-0 px-2 font-bold uppercase tracking-wider transition-all duration-200",
+              "relative flex h-8 items-center gap-1 rounded-t-[14px] rounded-b-none border border-b-0 bg-zinc-900/95 px-2.5 font-semibold uppercase backdrop-blur-md transition-[border-color,color] duration-150 group-focus-within/composer:border-[var(--accent)]/30",
               isTemporary
-                ? "border-violet-500/50 border-dashed bg-zinc-900/85 backdrop-blur-md text-violet-300"
-                : "border-white/10 border-solid bg-zinc-900/85 backdrop-blur-md text-white/40 hover:text-white/60"
+                ? "border-violet-500/50 text-[var(--thinking)]"
+                : "border-white/10 text-white/40 hover:text-white/60"
             )}
           >
             {isTemporary ? (
-              <ToggleRight className="h-3 w-3 text-violet-400" />
+              <Eye className="h-3 w-3 text-[var(--thinking)]" />
             ) : (
-              <ToggleLeft className="h-3 w-3" />
+              <EyeOff className="h-3 w-3" />
             )}
             Temporary
           </button>
@@ -338,7 +387,7 @@ export function ChatComposer({
       )}
     <div
       className={cn(
-        "relative z-[1] rounded-[22px] sm:rounded-[26px] border bg-zinc-900/85 backdrop-blur-md px-2 py-2 shadow-[0_8px_28px_rgba(0,0,0,0.4)] transition-all duration-500 focus-within:border-[var(--accent)]/30 focus-within:shadow-[0_8px_28px_rgba(0,0,0,0.45),0_0_16px_var(--accent-soft)]",
+        "relative z-[1] rounded-[28px] border bg-zinc-900/95 px-2 py-2 shadow-[0_8px_28px_rgba(0,0,0,0.4)] backdrop-blur-xl transition-[border-color,box-shadow] duration-200 focus-within:border-[var(--accent)]/30 focus-within:shadow-[0_8px_28px_rgba(0,0,0,0.45),0_0_16px_var(--accent-soft)] md:rounded-[26px] md:bg-zinc-900/85 md:backdrop-blur-md",
         isTemporary ? "border-violet-500/50 border-dashed" : "border-white/10",
         className
       )}
@@ -411,20 +460,207 @@ export function ChatComposer({
         ) : null}
       </AnimatePresence>
 
-      <div className={cn("flex w-full gap-1.5 sm:gap-2 pr-1 sm:pr-1.5", isExpanded ? "items-end" : "items-start")}>
-        <div className="flex-1 min-w-0">
+      <div
+        className={cn(
+          "grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-end gap-x-2 gap-y-1.5 md:grid-cols-[minmax(0,1fr)_auto] md:gap-x-3 md:gap-y-1",
+          isExpanded && "grid-rows-[auto_auto]"
+        )}
+      >
+        {compactOnMobile ? (
+          <div
+            ref={mobileMenuRef}
+            className={cn(
+              "relative col-start-1 shrink-0 justify-self-start md:hidden",
+              isExpanded ? "row-start-2" : "row-start-1"
+            )}
+          >
+            <button
+              type="button"
+              aria-label={mobilePanel === "closed" ? "Open composer tools" : "Close composer tools"}
+              aria-expanded={mobilePanel !== "closed"}
+              aria-haspopup="dialog"
+              disabled={!mounted}
+              onClick={() => setMobilePanel((current) => current === "closed" ? "tools" : "closed")}
+              className="flex h-11 w-11 items-center justify-center rounded-full text-white/65 transition-colors duration-150 hover:bg-white/[0.07] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 disabled:text-white/20"
+            >
+              <Plus className={cn("h-5 w-5 transition-transform duration-150", mobilePanel !== "closed" && "rotate-45")} />
+            </button>
+
+            <AnimatePresence initial={false}>
+              {mobilePanel !== "closed" ? (
+                <motion.div
+                  role="dialog"
+                  aria-label="Composer tools"
+                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                  transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                  className="absolute bottom-full left-0 z-50 mb-3 w-[320px] max-w-[calc(100vw-32px)] overflow-hidden rounded-2xl bg-zinc-900 p-1.5 text-white shadow-[0_12px_36px_rgba(0,0,0,0.52)]"
+                >
+                  {mobilePanel === "tools" ? (
+                    <div className="max-h-[min(360px,45vh)] overflow-y-auto scrollbar-thin">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMobilePanel("closed");
+                          fileInputRef.current?.click();
+                        }}
+                        className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm text-white/85 transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                      >
+                        <Paperclip className="h-4.5 w-4.5 text-white/55" />
+                        <span className="font-medium">Attach files</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={!mounted || isSending || displayModels.length === 0}
+                        onClick={() => setMobilePanel("models")}
+                        className="flex min-h-14 w-full items-center gap-3 rounded-xl px-3 text-left transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Bot className="h-4.5 w-4.5 shrink-0 text-cyan-400/75" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-medium text-white/55">Model</span>
+                          <span className="block truncate text-sm font-medium text-white/90">
+                            {selectedModel?.name ?? "No model selected"}
+                          </span>
+                        </span>
+                        <ChevronRight className="h-4 w-4 text-white/30" />
+                      </button>
+
+                      <button
+                        type="button"
+                        disabled={!mounted || isSending || personas.length === 0}
+                        onClick={() => setMobilePanel("personas")}
+                        className="flex min-h-14 w-full items-center gap-3 rounded-xl px-3 text-left transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Users className="h-4.5 w-4.5 shrink-0 text-violet-400/75" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-medium text-white/55">Persona</span>
+                          <span className="block truncate text-sm font-medium text-white/90">
+                            {selectedPersona?.name ?? "No persona"}
+                          </span>
+                        </span>
+                        <ChevronRight className="h-4 w-4 text-white/30" />
+                      </button>
+
+                      {showContextUsage ? (
+                        <div className="flex min-h-11 items-center gap-3 px-3">
+                          <span className="flex-1 text-sm font-medium text-white/70">Context usage</span>
+                          <ContextGauge
+                            usedTokens={usedTokens}
+                            usableLimit={compactionLimit}
+                            maxLimit={modelContextLimit}
+                          />
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  {mobilePanel === "models" ? (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setMobilePanel("tools")}
+                        className="flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-white/85 transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Model
+                      </button>
+                      <div className="max-h-[min(300px,40vh)] overflow-y-auto scrollbar-thin">
+                        {displayModels.map((model) => (
+                          <button
+                            key={model.id}
+                            type="button"
+                            onClick={() => {
+                              void onProviderProfileChange(model.id);
+                              setMobilePanel("closed");
+                            }}
+                            className={cn(
+                              "flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20",
+                              model.id === providerProfileId && "bg-cyan-400/[0.08]"
+                            )}
+                          >
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate text-sm font-medium text-white/90">{model.name}</span>
+                              <span className="block truncate text-xs text-white/55">{model.model}</span>
+                            </span>
+                            {model.id === providerProfileId ? <Check className="h-4 w-4 text-cyan-400" /> : null}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {mobilePanel === "personas" ? (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setMobilePanel("tools")}
+                        className="flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-white/85 transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Persona
+                      </button>
+                      <div className="max-h-[min(300px,40vh)] overflow-y-auto scrollbar-thin">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void onPersonaChange(null);
+                            setMobilePanel("closed");
+                          }}
+                          className={cn(
+                            "flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20",
+                            personaId === null ? "bg-violet-400/[0.08] text-white/90" : "text-white/65"
+                          )}
+                        >
+                          <span className="flex-1 font-medium">No persona</span>
+                          {personaId === null ? <Check className="h-4 w-4 text-violet-400" /> : null}
+                        </button>
+                        {personas.map((persona) => (
+                          <button
+                            key={persona.id}
+                            type="button"
+                            onClick={() => {
+                              void onPersonaChange(persona.id);
+                              setMobilePanel("closed");
+                            }}
+                            className={cn(
+                              "flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20",
+                              persona.id === personaId ? "bg-violet-400/[0.08] text-white/90" : "text-white/65"
+                            )}
+                          >
+                            <span className="flex-1 truncate font-medium">{persona.name}</span>
+                            {persona.id === personaId ? <Check className="h-4 w-4 text-violet-400" /> : null}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+          </div>
+        ) : null}
+
+        <div
+          className={cn(
+            "min-w-0 md:col-span-2 md:col-start-1 md:row-start-1 md:px-1 md:pb-1",
+            isExpanded
+              ? "col-span-3 row-start-1 px-1 pb-1"
+              : "col-start-2 row-start-1"
+          )}
+        >
           <Textarea
             ref={textareaRef}
             value={input}
-            {...inputFocusProps}
             onChange={(event) => onInputChange(event.target.value)}
-            placeholder=""
+            placeholder={composerPlaceholder}
             rows={1}
             className={cn(
-              "block max-h-[60vh] min-h-[40px] w-full resize-none border border-white/[0.06] rounded-2xl bg-white/[0.03] px-3 sm:px-4 py-2 text-[15px] text-[var(--text)] leading-relaxed focus-visible:ring-0 focus:outline-none focus:border-[var(--accent)]/30 focus:bg-white/[0.05] placeholder:text-white/20 caret-[var(--accent)]",
+              "block max-h-[60vh] min-h-11 w-full resize-none rounded-[14px] border border-white/[0.06] bg-white/[0.03] px-1.5 py-2 text-[16px] leading-relaxed text-[var(--text)] caret-[var(--accent)] transition-[background-color,border-color] duration-150 placeholder:text-center placeholder:text-white/30 focus:border-[var(--accent)]/30 focus:bg-white/[0.05] focus:shadow-none focus:outline-none focus-visible:ring-0 contrast-more:border-white/[0.14] contrast-more:bg-white/[0.08] contrast-more:placeholder:text-white/45 contrast-more:focus:bg-white/[0.12] md:px-2.5 md:text-[15px]",
               isExpanded ? "overflow-y-auto scrollbar-thin" : "overflow-hidden"
             )}
-            style={{ height: `${textareaHeight}px`, transition: "height 150ms ease" }}
+            style={{ height: `${textareaHeight}px` }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey && !isMobile) {
                 event.preventDefault();
@@ -446,8 +682,13 @@ export function ChatComposer({
           />
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          <AnimatePresence mode="wait" initial={false}>
+        <div
+          className={cn(
+            "col-start-3 flex shrink-0 items-center justify-self-end gap-2 md:col-start-2 md:row-start-2 md:pr-1",
+            isExpanded ? "row-start-2" : "row-start-1"
+          )}
+        >
+          {!showStopButton ? <AnimatePresence mode="wait" initial={false}>
             {isSpeechActive ? (
               <motion.div
                 key="active-speech-controls"
@@ -462,14 +703,14 @@ export function ChatComposer({
                     role="status"
                     aria-live="polite"
                     aria-atomic="true"
-                    className="flex h-9 items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-3 text-[11px] font-medium text-violet-100 sm:h-8"
+                    className="flex h-9 items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-3 text-[11px] font-medium text-violet-100 md:h-8"
                   >
                     <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin text-violet-300" />
                     <span>Transcribing…</span>
                   </div>
                 ) : (
                   <>
-                    <div className="flex h-8 w-[80px] items-center rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 sm:w-[96px] sm:px-3">
+                    <div className="flex h-8 w-[80px] items-center rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 md:w-[96px] md:px-3">
                       <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
                         <div
                           className="h-full rounded-full bg-emerald-400 transition-[width] duration-100"
@@ -481,7 +722,7 @@ export function ChatComposer({
                       type="button"
                       aria-label="Stop voice input"
                       onClick={() => void onStopSpeech()}
-                      className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500 text-white transition-colors duration-200 hover:bg-red-400 sm:h-8 sm:w-8"
+                      className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500 text-white transition-colors duration-200 hover:bg-red-400 md:h-8 md:w-8"
                     >
                       <Square className="h-3 w-3 fill-current" />
                     </button>
@@ -503,7 +744,7 @@ export function ChatComposer({
                   disabled={speechControlsDisabled}
                   onClick={() => void onStartSpeech()}
                   className={cn(
-                    "flex h-9 w-9 sm:h-8 sm:w-8 items-center justify-center rounded-full transition-colors duration-200 shrink-0",
+                    "flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors duration-150 md:h-8 md:w-8",
                     speechControlsDisabled
                       ? "bg-white/5 text-white/20 cursor-not-allowed"
                       : "bg-white/5 text-white/45 hover:bg-white/10 hover:text-white/75"
@@ -513,18 +754,31 @@ export function ChatComposer({
                 </button>
               </motion.div>
             )}
-          </AnimatePresence>
+          </AnimatePresence> : null}
+
+          {showQueueAndStop ? (
+            <button
+              type="button"
+              aria-label="Stop response"
+              onClick={() => void onStop()}
+              disabled={isStopPending}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/[0.07] text-white/80 transition-colors duration-150 hover:bg-white/[0.12] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 disabled:text-white/20 md:h-10 md:w-10"
+            >
+              <Square className="h-3.5 w-3.5 fill-current" />
+            </button>
+          ) : null}
 
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() =>
-              void (busyButtonStops ? onStop() : onSubmit())
+              void (primaryActionStops ? onStop() : onSubmit())
             }
-            disabled={busyButtonStops ? isStopPending : isSubmitDisabled}
+            disabled={primaryActionStops ? isStopPending : isSubmitDisabled}
             className={cn(
-              "relative flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full transition-all duration-300 shrink-0",
-              showStopButton
+              "relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-[background-color,color,box-shadow,transform] duration-150 md:h-10 md:w-10",
+              hideIdleSubmitOnMobile && "hidden md:flex",
+              primaryActionStops
                 ? isStopPending
                   ? "bg-white/5 text-white/20"
                   : "border border-white/12 bg-zinc-900 text-white shadow-[0_0_15px_rgba(167,139,250,0.18)]"
@@ -532,27 +786,96 @@ export function ChatComposer({
                   ? "bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)]"
                   : "bg-white/5 text-white/20"
             )}
-            aria-label={busyButtonStops ? "Stop response" : canQueueDraft ? "Queue follow-up" : "Send message"}
+            aria-label={primaryActionStops ? "Stop response" : canQueueDraft ? "Queue follow-up" : "Send message"}
           >
-            {showStopButton && !isStopPending ? (
+            {primaryActionStops && !isStopPending ? (
               <span className="pointer-events-none absolute inset-[-3px] rounded-full border-2 border-white/10 border-t-violet-400 animate-spin" />
             ) : null}
-            {showStopButton ? (
+            {primaryActionStops ? (
               <Square className="h-4 w-4 fill-current" />
-            ) : isSending || isUploadingAttachments ? (
+            ) : isUploadingAttachments || (isSending && !canQueueDraft) ? (
               <LoaderCircle className="h-5 w-5 animate-spin" />
             ) : (
               <ArrowUp className="h-5 w-5 stroke-[2.5px]" />
             )}
           </motion.button>
         </div>
+
+        <AnimatePresence initial={false}>
+          {mounted && (!compactOnMobile || !isMobile) && (
+            <motion.div
+              key="composer-toolbar"
+              className={cn(
+                "col-span-3 min-w-0",
+                isExpanded ? "row-start-3" : "row-start-2",
+                compactOnMobile && "hidden md:block",
+                "md:col-span-1 md:col-start-1 md:row-start-2"
+              )}
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+              style={{ overflow: toolbarOverflow }}
+              onAnimationStart={() => setToolbarOverflow("hidden")}
+              onAnimationComplete={() => setToolbarOverflow("visible")}
+            >
+              <div className="flex min-w-0 items-center justify-between px-1 pb-1">
+                <div className="flex min-w-0 items-center gap-0.5">
+                  <button
+                    className="shrink-0 rounded-xl p-2 text-white/30 transition-all duration-200 hover:bg-white/5 hover:text-white/60"
+                    aria-label="Attach files"
+                    type="button"
+                    disabled={!mounted}
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Paperclip className="h-4.5 w-4.5" />
+                  </button>
+
+                  <div className="mx-1 h-4 w-px bg-white/5" />
+
+                  <CustomDropdown
+                    items={displayModels}
+                    selectedId={providerProfileId}
+                    onSelect={(id) => id && void onProviderProfileChange(id)}
+                    icon={Bot}
+                    placeholder=""
+                    accentColor="cyan"
+                    disabled={!mounted || isSending}
+                  />
+
+                  <CustomDropdown
+                    items={personas}
+                    selectedId={personaId}
+                    onSelect={(id) => void onPersonaChange(id)}
+                    icon={Users}
+                    accentColor="violet"
+                    disabled={!mounted || isSending}
+                    mutedWhenEmpty
+                    allowDeselect
+                  />
+                </div>
+
+                {showContextUsage && (
+                  <div className="flex shrink-0 items-center gap-2 px-1">
+                    <span className="hidden text-[10px] font-medium uppercase tracking-wider text-white/20 lg:inline-block">Context</span>
+                    <ContextGauge
+                      usedTokens={usedTokens}
+                      usableLimit={compactionLimit}
+                      maxLimit={modelContextLimit}
+                    />
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {showBusyQueueHint ? (
         <motion.div
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
-          className="px-4 pt-2 pb-2 text-[11px] font-medium text-white/45"
+          className="hidden px-4 pb-2 pt-2 text-[11px] font-medium text-white/45 md:block"
         >
           Agent working - send still queues
         </motion.div>
@@ -575,78 +898,12 @@ export function ChatComposer({
         <motion.div
           initial={{ opacity: 0, y: 5 }}
           animate={{ opacity: 1, y: 0 }}
-          className="mx-2 mb-2 rounded-2xl border border-red-400/10 bg-red-500/8 px-3 py-2 text-[11px] text-red-300"
+          className="mx-2 mb-2 mt-2 rounded-2xl border border-red-400/10 bg-red-500/8 px-3 py-2 text-[11px] text-red-300"
         >
           {speechError}
         </motion.div>
       ) : null}
 
-      <AnimatePresence initial={false}>
-        {mounted && showToolbar && (
-          <motion.div
-            key="composer-toolbar"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            style={{ overflow: toolbarOverflow }}
-            onAnimationStart={() => setToolbarOverflow("hidden")}
-            onAnimationComplete={() => setToolbarOverflow("visible")}
-          >
-            <div className="flex items-center justify-between px-1.5 pb-1 pt-1.5 mt-1.5 sm:mt-2 border-t border-white/5">
-              <div className="flex items-center gap-0.5">
-                <button
-                  className="p-2 text-white/30 hover:text-white/60 transition-all duration-200 rounded-xl hover:bg-white/5 shrink-0"
-                  aria-label="Attach files"
-                  type="button"
-                  disabled={!mounted}
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <Paperclip className="h-4.5 w-4.5" />
-                </button>
-
-                <div className="h-4 w-px bg-white/5 mx-1" />
-
-                <CustomDropdown
-                  items={displayModels}
-                  selectedId={providerProfileId}
-                  onSelect={(id) => id && void onProviderProfileChange(id)}
-                  icon={Bot}
-                  placeholder=""
-                  accentColor="cyan"
-                  disabled={!mounted || isSending}
-                  onOpenChange={onControlOpenChange}
-                />
-
-                <CustomDropdown
-                  items={personas}
-                  selectedId={personaId}
-                  onSelect={(id) => void onPersonaChange(id)}
-                  icon={Users}
-                  accentColor="violet"
-                  disabled={!mounted || isSending}
-                  mutedWhenEmpty
-                  allowDeselect
-                  onOpenChange={onControlOpenChange}
-                />
-              </div>
-
-              <div className="flex items-center gap-2 sm:gap-3">
-                {showContextUsage && (
-                  <div className="flex items-center gap-2 px-1">
-                    <span className="text-[10px] text-white/20 font-medium tracking-wider uppercase hidden md:inline-block">Context</span>
-                    <ContextGauge
-                      usedTokens={usedTokens}
-                      usableLimit={compactionLimit}
-                      maxLimit={modelContextLimit}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
     </div>
   );

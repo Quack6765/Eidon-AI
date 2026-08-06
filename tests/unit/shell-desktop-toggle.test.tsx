@@ -212,13 +212,36 @@ describe("Desktop Sidebar Toggle", () => {
     setViewportWidth(390);
 
     render(<Shell {...mockProps} />);
-    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+    const mobileMenu = screen.getByRole("button", { name: "Open menu" });
+    expect(mobileMenu).toHaveAttribute("aria-expanded", "false");
+    expect(mobileMenu).toHaveClass("h-11", "w-11");
+    fireEvent.click(mobileMenu);
 
     const overlay = Array.from(document.querySelectorAll("div")).find((element) => {
       return element.className.includes("bg-black/70") && element.className.includes("z-[60]");
     });
 
-    expect(overlay).toHaveClass("z-[60]");
+    expect(overlay).toHaveClass("z-[60]", "md:hidden");
     expect(screen.getByTestId("sidebar").parentElement).toHaveClass("z-[70]");
+    expect(mobileMenu).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("sidebar").parentElement).toHaveClass("translate-x-0");
+  });
+
+  it("opens the mobile sidebar even when its saved preference is unavailable", () => {
+    mockPathname = "/chat/conv_existing";
+    setViewportWidth(390);
+    const removeItem = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+      throw new DOMException("Unavailable", "SecurityError");
+    });
+
+    render(<Shell {...mockProps} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open menu" }));
+
+    expect(screen.getByTestId("sidebar").parentElement).toHaveClass("translate-x-0");
+    expect(screen.getByRole("button", { name: "Open menu" })).toHaveAttribute(
+      "aria-expanded",
+      "true"
+    );
+    removeItem.mockRestore();
   });
 });

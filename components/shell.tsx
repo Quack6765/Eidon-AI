@@ -84,6 +84,21 @@ export function Shell({
   const sidebarToggleLabel = isSidebarOpen ? "Collapse sidebar" : "Expand sidebar";
   const shareCopyAcknowledged = shareCopyState !== "idle";
 
+  const persistSidebarPreference = (closed: boolean) => {
+    try {
+      if (closed) {
+        sessionStorage.setItem("eidon:sidebar:user-closed", "true");
+      } else {
+        sessionStorage.removeItem("eidon:sidebar:user-closed");
+      }
+    } catch {}
+  };
+
+  const openMobileSidebar = () => {
+    setIsSidebarOpen(true);
+    persistSidebarPreference(false);
+  };
+
   const clearShareCopyTimers = () => {
     if (shareCopyResetHandle.current) {
       window.clearTimeout(shareCopyResetHandle.current);
@@ -304,13 +319,14 @@ export function Shell({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm"
-            onClick={() => { sessionStorage.setItem("eidon:sidebar:user-closed", "true"); setIsSidebarOpen(false); }}
+            className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm md:hidden"
+            onClick={() => { setIsSidebarOpen(false); persistSidebarPreference(true); }}
           />
         )}
       </AnimatePresence>
 
       <div
+        id="app-sidebar"
         className={`fixed inset-y-0 left-0 z-[70] w-[280px] transform transition-transform duration-300 ease-out border-r border-white/5 md:z-[70] ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${
@@ -364,11 +380,13 @@ export function Shell({
         <div className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 pt-safe-mobile h-mobile-header md:hidden bg-[var(--background)]/90 backdrop-blur-md border-b border-white/4">
           <button
             type="button"
-            className="p-2 -ml-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
-            onClick={() => { sessionStorage.removeItem("eidon:sidebar:user-closed"); setIsSidebarOpen(true); }}
+            className="-ml-3 flex h-11 w-11 items-center justify-center rounded-lg text-[var(--text)] transition-colors duration-200 hover:bg-white/5"
+            onClick={openMobileSidebar}
             aria-label={mobileMenuLabel}
+            aria-controls="app-sidebar"
+            aria-expanded={isSidebarOpen}
           >
-            <Menu className="h-5 w-5" />
+            <Menu className="h-[18px] w-[18px] stroke-[2.25px]" />
           </button>
 
           {isSettingsPage ? (

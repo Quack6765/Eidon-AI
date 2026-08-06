@@ -713,7 +713,7 @@ describe("chat view", () => {
     ).not.toHaveFocus();
   });
 
-  it("collapses the composer toolbar at rest on mobile (collapsibleToolbarOnMobile wired)", async () => {
+  it("uses the compact composer tools entry point on mobile", async () => {
     const originalMatchMedia = window.matchMedia;
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -733,6 +733,7 @@ describe("chat view", () => {
     try {
       renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
       await waitFor(() => expect(screen.queryByLabelText("Attach files")).toBeNull());
+      expect(screen.getByRole("button", { name: "Open composer tools" })).toBeInTheDocument();
     } finally {
       Object.defineProperty(window, "matchMedia", {
         configurable: true,
@@ -4687,7 +4688,7 @@ describe("chat view", () => {
     expect(screen.getByText("Agent working - send still queues")).toBeInTheDocument();
   });
 
-  it("reuses the primary action as queue follow-up while drafting during an active turn", async () => {
+  it("keeps stop available beside queue follow-up while drafting during an active turn", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     await act(async () => {
@@ -4703,11 +4704,11 @@ describe("chat view", () => {
     fireEvent.change(textarea, { target: { value: "Queued while streaming" } });
 
     expect(screen.getByRole("button", { name: "Queue follow-up" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
     expect(screen.getByText("Agent working - send still queues")).toBeInTheDocument();
   });
 
-  it("aligns the composer controls with the top of the textarea", async () => {
+  it("keeps the compact composer in one row for a single-line draft", async () => {
     await act(async () => {
       renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     });
@@ -4715,8 +4716,11 @@ describe("chat view", () => {
     const textarea = screen.getByRole("textbox");
     const composerRow = textarea.parentElement?.parentElement;
 
-    expect(composerRow).toHaveClass("items-start");
-    expect(composerRow).not.toHaveClass("items-end");
+    expect(composerRow).toHaveClass(
+      "grid-cols-[auto_minmax(0,1fr)_auto]",
+      "md:grid-cols-[minmax(0,1fr)_auto]"
+    );
+    expect(composerRow).not.toHaveClass("grid-rows-[auto_auto]");
   });
 
   it("shows the context gauge immediately when loading a conversation with existing messages", async () => {

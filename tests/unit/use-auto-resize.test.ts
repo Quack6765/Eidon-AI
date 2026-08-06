@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 
 import { useAutoResize } from "@/lib/use-auto-resize";
 
@@ -93,5 +93,47 @@ describe("useAutoResize", () => {
     );
 
     expect(result.current.height).toBe(40);
+  });
+
+  it("remeasures when the textarea width changes", () => {
+    const originalResizeObserver = globalThis.ResizeObserver;
+    const textarea = createTextarea(200);
+    const ref = { current: textarea };
+    let resizeCallback: ResizeObserverCallback | null = null;
+    const disconnect = vi.fn();
+
+    globalThis.ResizeObserver = class {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+
+      observe() {}
+      unobserve() {}
+      disconnect() {
+        disconnect();
+      }
+    } as typeof ResizeObserver;
+
+    const { result, unmount } = renderHook(() =>
+      useAutoResize({ ref, value: "wrapped text" })
+    );
+
+    Object.defineProperty(textarea, "scrollHeight", {
+      get: () => 88,
+      configurable: true
+    });
+
+    act(() => {
+      resizeCallback?.([
+        { contentRect: { width: 316 } } as ResizeObserverEntry
+      ], {} as ResizeObserver);
+    });
+
+    expect(result.current.height).toBe(88);
+    expect(textarea.style.height).toBe("88px");
+
+    unmount();
+    expect(disconnect).toHaveBeenCalledOnce();
+    globalThis.ResizeObserver = originalResizeObserver;
   });
 });

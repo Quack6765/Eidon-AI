@@ -183,11 +183,12 @@ describe("ConversationScrollButton", () => {
     });
   });
 
-  it("sits flush against the composer area top", () => {
+  it("clears the mobile composer with an icon-only control", () => {
     placeContentBelowViewport();
     render(React.createElement(ConversationScrollButton));
 
     const button = screen.getByRole("button", { name: "Scroll to latest messages" });
-    expect(button.className).toContain("bottom-[var(--composer-height,160px)]");
+    expect(button.className).toContain("bottom-[calc(var(--composer-height,80px)+12px)]");
+    expect(screen.getByText("Latest")).toHaveClass("hidden", "md:inline");
   });
 });
