@@ -355,7 +355,7 @@ export function ChatComposer({
     <div className="group/composer relative">
       {isTemporary && !showTemporaryToggle && (
         <div className="absolute -top-[31px] right-6 z-10 flex h-8 items-center">
-          <div className="relative flex h-8 items-center gap-1 rounded-t-[14px] rounded-b-none border border-b-0 border-violet-500/50 bg-zinc-900/95 px-2.5 text-[11px] font-semibold uppercase text-[var(--thinking)] backdrop-blur-md">
+          <div className="relative flex h-8 items-center gap-1 rounded-t-[14px] rounded-b-none border border-b-0 border-dashed border-violet-500/50 bg-zinc-900/95 px-2.5 text-[11px] font-semibold uppercase text-[var(--thinking)] backdrop-blur-md">
             <Eye className="h-3 w-3" />
             Temporary
           </div>
@@ -372,7 +372,7 @@ export function ChatComposer({
             className={cn(
               "relative flex h-8 items-center gap-1 rounded-t-[14px] rounded-b-none border border-b-0 bg-zinc-900/95 px-2.5 font-semibold uppercase backdrop-blur-md transition-[border-color,color] duration-150 group-focus-within/composer:border-[var(--accent)]/30",
               isTemporary
-                ? "border-violet-500/50 text-[var(--thinking)]"
+                ? "border-dashed border-violet-500/50 text-[var(--thinking)]"
                 : "border-white/10 text-white/40 hover:text-white/60"
             )}
           >

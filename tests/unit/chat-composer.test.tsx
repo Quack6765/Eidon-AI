@@ -257,7 +257,7 @@ describe("ChatComposer responsive controls", () => {
     installMatchMedia(true);
     const onTemporaryChange = vi.fn();
 
-    renderComposer({
+    const { rerenderComposer } = renderComposer({
       compactOnMobile: true,
       showTemporaryToggle: true,
       onTemporaryChange
@@ -276,6 +276,18 @@ describe("ChatComposer responsive controls", () => {
     fireEvent.click(temporaryToggle);
 
     expect(onTemporaryChange).toHaveBeenCalledWith(true);
+
+    rerenderComposer({
+      compactOnMobile: true,
+      showTemporaryToggle: true,
+      onTemporaryChange,
+      isTemporary: true
+    });
+
+    expect(screen.getByRole("button", { name: "Temporary conversation" })).toHaveClass(
+      "border-dashed",
+      "border-b-0"
+    );
   });
 
   it("keeps model, persona, and context usage available in the mobile menu", async () => {
