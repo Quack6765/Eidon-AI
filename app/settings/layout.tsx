@@ -18,7 +18,7 @@ export default async function SettingsLayout({ children }: { children: React.Rea
       conversationPage={conversationPage}
       folders={folders}
     >
-      <main className="flex-1 overflow-y-auto animate-fade-in">
+      <main className="flex min-h-0 flex-1 overflow-hidden [--muted:#8b8b94] animate-fade-in">
         {children}
       </main>
     </Shell>

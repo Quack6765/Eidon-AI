@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Check, Copy, Link2, Menu, PanelLeftClose, PanelLeftOpen, Plus, Share2, X } from "lucide-react";
+import { ArrowLeft, Check, Copy, Link2, Menu, PanelLeftClose, PanelLeftOpen, Plus, Share2, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AutomationsNav } from "@/components/automations/automations-nav";
 import { Sidebar } from "@/components/sidebar";
 import { SettingsNav } from "@/components/settings/settings-nav";
+import { useMobileSettingsDetailNav } from "@/hooks/use-mobile-settings-detail-nav";
+import { useUnsavedChangesGate } from "@/hooks/use-unsaved-changes-gate";
 import { ShareConversationProvider } from "@/components/share-conversation-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -81,8 +83,24 @@ export function Shell({
   const isAutomationsPage = pathname.startsWith("/automations");
   const isDesktopSidebarOpen = isSettingsPage || isSidebarOpen;
   const mobileMenuLabel = isSettingsPage ? "Open settings menu" : "Open menu";
+  const settingsPageTitle = isSettingsPage
+    ? ({
+        "/settings/account": "Account",
+        "/settings/general": "General",
+        "/settings/providers": "Providers",
+        "/settings/personas": "Personas",
+        "/settings/memories": "Memories",
+        "/settings/mcp-servers": "MCP Servers",
+        "/settings/skills": "Skills",
+        "/settings/automations": "Scheduled automations",
+        "/settings/users": "Users"
+      } as Record<string, string>)[pathname] ?? "Settings"
+    : null;
   const sidebarToggleLabel = isSidebarOpen ? "Collapse sidebar" : "Expand sidebar";
   const shareCopyAcknowledged = shareCopyState !== "idle";
+  const { detail: mobileSettingsDetail, back: backMobileSettingsDetail } = useMobileSettingsDetailNav();
+  const { gate: gateSettingsDetailBack, dialog: settingsDetailUnsavedDialog } = useUnsavedChangesGate();
+  const activeSettingsDetail = isSettingsPage ? mobileSettingsDetail : null;
 
   const persistSidebarPreference = (closed: boolean) => {
     try {
@@ -331,7 +349,7 @@ export function Shell({
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${
           isDesktopSidebarOpen ? "md:translate-x-0" : "md:-translate-x-full"
-        }`}
+        } ${isSettingsPage ? "w-full md:w-[280px]" : "w-[280px]"}`}
         style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
       >
         {isSettingsPage ? (
@@ -378,20 +396,32 @@ export function Shell({
         isDesktopSidebarOpen ? "md:pl-[280px]" : "md:pl-0"
       }`}>
         <div className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 pt-safe-mobile h-mobile-header md:hidden bg-[var(--background)]/90 backdrop-blur-md border-b border-white/4">
-          <button
-            type="button"
-            className="-ml-3 flex h-11 w-11 items-center justify-center rounded-lg text-[var(--text)] transition-colors duration-200 hover:bg-white/5"
-            onClick={openMobileSidebar}
-            aria-label={mobileMenuLabel}
-            aria-controls="app-sidebar"
-            aria-expanded={isSidebarOpen}
-          >
-            <Menu className="h-[18px] w-[18px] stroke-[2.25px]" />
-          </button>
+          {isSettingsPage && activeSettingsDetail ? (
+            <button
+              type="button"
+              className="-ml-2 flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[var(--accent)] transition-colors duration-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
+              onClick={() => gateSettingsDetailBack(backMobileSettingsDetail)}
+              aria-label={`Back to ${activeSettingsDetail.backLabel}`}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              {activeSettingsDetail.backLabel}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="-ml-3 flex h-11 w-11 items-center justify-center rounded-lg text-[var(--text)] transition-colors duration-200 hover:bg-white/5"
+              onClick={openMobileSidebar}
+              aria-label={mobileMenuLabel}
+              aria-controls="app-sidebar"
+              aria-expanded={isSidebarOpen}
+            >
+              <Menu className="h-[18px] w-[18px] stroke-[2.25px]" />
+            </button>
+          )}
 
           {isSettingsPage ? (
             <span className="text-sm font-semibold tracking-[0.01em] text-[var(--text)]">
-              Settings
+              {activeSettingsDetail ? activeSettingsDetail.title : settingsPageTitle}
             </span>
           ) : (
             <Wordmark className="text-lg" />
@@ -557,6 +587,7 @@ export function Shell({
           </motion.div>
         ) : null}
       </AnimatePresence>
+      {settingsDetailUnsavedDialog}
     </div>
   );
 }

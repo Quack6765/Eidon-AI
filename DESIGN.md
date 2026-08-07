@@ -196,7 +196,21 @@ The palette is a restrained private-workspace palette: near-black neutrals carry
 
 **The Wordmark Containment Rule.** Orbitron is for the Eidon mark. It is not a general display font for headings, buttons, or cards.
 
-## 4. Elevation
+## 4. Layout
+
+Settings use an edge-to-edge application shell with independent scrolling for the global navigation, contextual list, and editor. At the desktop breakpoint (768px), the persistent global settings rail is 280px wide. Sections with meaningful categories or records add a fixed 320px contextual pane, while the detail pane remains fluid; keep the form itself within a readable 720px to 840px measure. Simple one-step settings skip the contextual pane and use a focused editor up to 760px wide.
+
+Separate settings zones with near-black tonal planes and hairlines rather than card-shaped page wrappers. The editor owns the remaining width, and long editors may anchor save and state controls in a bottom action footer while short forms keep actions inline.
+
+On mobile, replace simultaneous columns with named two-level push navigation. Lists and details each occupy the full width: the parent label identifies the way back, and the centered title names the current page or record. Preserve safe-area spacing and a minimum 44px target for primary controls.
+
+### Named Rules
+
+**The Context Earns A Pane Rule.** Add the 320px contextual pane only when users need to choose among real categories or records. Do not create an empty intermediate level for a short, direct editor.
+
+**The Named Way Back Rule.** Mobile back controls name their parent destination, such as Settings, General, or Providers. Never replace that context with a generic Back label.
+
+## 5. Elevation
 
 Eidon uses a hybrid of tonal layering, translucent surfaces, faint borders, and selective shadows. Most surfaces are flat at rest. Elevation appears when a control opens, a composer receives focus, or a surface must clearly float above the workspace.
 
@@ -213,7 +227,7 @@ Eidon uses a hybrid of tonal layering, translucent surfaces, faint borders, and 
 
 **The Glow Has A Job Rule.** Glow means focus, active work, or a primary action. Decorative glow is prohibited.
 
-## 5. Components
+## 6. Components
 
 ### Buttons
 
@@ -256,9 +270,21 @@ Inputs should feel integrated with the dark surface rather than pasted on top.
 Navigation is compact and persistent, with stronger state than decoration.
 
 - **Sidebar:** Charcoal surface, faint dividers, 280px desktop width, grouped conversations, and muted inactive rows.
+- **Settings Rail:** Persistent at 280px on desktop and full width as the settings root on mobile. Group destinations by stable user intent, and keep permission-dependent destinations out of view rather than showing unavailable rows.
+- **Contextual Lists:** Use a fixed 320px pane only for categories or records. Rows use compact Inter labels, hairline containment, and a soft violet active state; the adjacent editor remains the visual priority.
 - **Active Rows:** Soft Eidon Violet fill, faint violet border, and Signal Text.
 - **Footer Navigation:** Rounded 16px rows with icons, muted text at rest, and translucent hover fill.
-- **Mobile Treatment:** Top bar with menu, centered wordmark or page title, and one right-side action. Do not add explanatory text to the bar.
+- **Mobile Treatment:** Use full-width list and detail levels. The header carries a named parent action on the left and the current destination in the center; do not compress the desktop rails into side-by-side mobile columns.
+- **Touch And Motion:** Primary mobile actions are at least 44px tall or wide. Use restrained utility transitions for color, focus, rail movement, and directional chevrons; avoid decorative navigation choreography.
+
+### Settings Accordions
+
+Accordions disclose secondary or long technical groups without turning the editor into stacked cards. Short editors remain open.
+
+- **Structure:** Full-width sections separated by top hairlines, with title and optional description in a minimum 58px summary row.
+- **State:** Open the first essential setup groups when that shortens the path to completion; collapse advanced or secondary groups by default.
+- **Motion:** Limit animation to a restrained 200ms chevron rotation and existing state-color transitions.
+- **Containment:** Accordion content stays on the editor plane. Do not wrap it in another card.
 
 ### Chat Composer
 
@@ -287,7 +313,7 @@ Assistant content is readable prose first, with code blocks designed as compact 
 - **Inline Code:** Small translucent pill with mono type.
 - **Code Blocks:** Darker panel, 14px radius, faint border, header strip, language tag, and icon-only copy action.
 
-## 6. Do's and Don'ts
+## 7. Do's and Don'ts
 
 ### Do:
 

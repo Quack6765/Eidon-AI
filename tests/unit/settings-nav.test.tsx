@@ -48,6 +48,11 @@ describe("settings nav", () => {
     expect(screen.getByText("Providers")).toBeInTheDocument();
     expect(screen.getByText("MCP Servers")).toBeInTheDocument();
     expect(screen.getByText("Skills")).toBeInTheDocument();
+    expect(screen.getByText("Personal")).toBeInTheDocument();
+    expect(screen.getByText("Assistant")).toBeInTheDocument();
+    expect(screen.getByText("Capabilities")).toBeInTheDocument();
+    expect(screen.getByText("Automation")).toBeInTheDocument();
+    expect(screen.getByText("Administration")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
   });
 
