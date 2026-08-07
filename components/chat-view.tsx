@@ -1992,6 +1992,11 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
       </ConversationContainer>
 
         <div ref={composerAreaRef} className="absolute inset-x-0 bottom-0 z-50 pointer-events-none">
+         <div
+           aria-hidden
+           className="absolute inset-x-0 -top-14 bottom-0 md:hidden"
+           style={{ background: "linear-gradient(to top, var(--background) 0%, var(--background) 46%, transparent 100%)" }}
+         />
          <div className="mx-auto w-full max-w-[980px] px-3 sm:px-4 md:px-8 pt-1 pb-composer-safe pointer-events-auto">
           <div>
             <QueuedMessageBanner
@@ -2040,7 +2045,7 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
                 body: JSON.stringify({ isTemporary: value })
               }).catch(() => {});
             }}
-            collapsibleToolbarOnMobile
+            compactOnMobile
             onStartSpeech={onStartSpeech}
             onStopSpeech={onStopSpeech}
           />
