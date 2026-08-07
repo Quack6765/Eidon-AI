@@ -1,7 +1,0 @@
-{
-  "concept": "Option A - contextual three-pane",
-  "promptFile": "option-a-contextual-three-pane.prompt.txt",
-  "promptEmbedded": true,
-  "approved": true,
-  "selectedTreatment": "Option A shell with selective Option C accordions inside long detail editors"
-}

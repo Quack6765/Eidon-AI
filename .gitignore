@@ -8,6 +8,7 @@ seed-native-test.cjs
 
 .playwright-cli/
 .context/
+.impeccable/
 .data
 .cache/
 .test-data

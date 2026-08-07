@@ -1,9 +1,0 @@
-Use case: ui-mockup
-Asset type: high-fidelity responsive behavior comparison for Eidon Settings
-Primary request: Create a flat, production-grade side-by-side comparison board showing how Option A and Option C behave on mobile for the same Eidon Skills task.
-Scene/backdrop: 16:9 landscape near-black comparison canvas divided into two equal halves with a subtle divider.
-Left heading: “OPTION A — PUSH NAVIGATION”. Show three portrait screens: Settings with all main setting rows and Skills highlighted; Skills with search, Add, and four skill rows; Research Assistant with sections Details, Instructions, Availability, and sticky Save changes. Captions: “Choose setting”, “Choose item”, “Edit item”.
-Right heading: “OPTION C — INLINE ACCORDIONS”. Show two portrait screens: Settings with the same rows and Skills highlighted; Skills with search, tabs All skills, Built-in, Custom, Research Assistant expanded inline with accordions Details, Instructions, Availability, collapsed skill rows, and sticky Save changes. Captions: “Choose setting”, “Browse and edit inline”.
-Style: same Eidon Private Control Room system as the comparison comps. Compact typography; near-black #0a0a0a; panel zinc #18181b; text #f4f4f5; muted #71717a; faint hairlines; scarce violet #8b5cf6; 12px corners; flat tonal depth.
-Constraints: compare navigation topology only; keep content, palette, typography, controls, and density matched; touch targets 44–48px high; render quoted labels legibly.
-Avoid: photorealistic devices, hands, desks, perspective, gradients, neon glow, purple washes, tiny controls, illegible microtext, watermarks, and Mobbin branding.
