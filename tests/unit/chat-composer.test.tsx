@@ -4,7 +4,9 @@ import React from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 
 import { ChatComposer } from "@/components/chat-composer";
+import { toProviderProfileSummary } from "@/lib/provider-profile";
 import type { SpeechPhase } from "@/lib/speech/types";
+import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
 function createMockClipboardData(initialFiles: File[] = []) {
   const storedFiles: File[] = [...initialFiles];
@@ -115,35 +117,226 @@ function renderComposer(overrides: Partial<React.ComponentProps<typeof ChatCompo
     onStopSpeech: vi.fn(),
     ...overrides
   };
-  render(<ChatComposer {...props} />);
-  return { textareaRef };
+  const view = render(<ChatComposer {...props} />);
+  return {
+    textareaRef,
+    rerenderComposer: (nextOverrides: Partial<React.ComponentProps<typeof ChatComposer>>) => {
+      view.rerender(<ChatComposer {...props} {...nextOverrides} />);
+    }
+  };
 }
 
-describe("ChatComposer collapsible toolbar", () => {
+describe("ChatComposer responsive controls", () => {
+  it("matches the native composer placeholder in idle and queueing states", () => {
+    const { rerenderComposer } = renderComposer();
+
+    expect(screen.getByPlaceholderText("Message Eidon")).toBeInTheDocument();
+
+    rerenderComposer({ queueingEnabled: true });
+
+    expect(screen.getByPlaceholderText("Queue a message")).toBeInTheDocument();
+  });
+
+  it("keeps the text entry surface visually distinct from the composer shell", () => {
+    renderComposer();
+
+    expect(screen.getByRole("textbox")).toHaveClass(
+      "border-white/[0.06]",
+      "bg-white/[0.03]",
+      "min-h-11",
+      "placeholder:text-center",
+      "placeholder:text-white/30",
+      "focus:border-[var(--accent)]/30",
+      "focus:bg-white/[0.05]"
+    );
+  });
+
   it("shows the toolbar when the feature is disabled (home view), even on mobile", () => {
     installMatchMedia(true);
-    renderComposer({ collapsibleToolbarOnMobile: false });
+    renderComposer({ compactOnMobile: false });
     expect(screen.getByLabelText("Attach files")).toBeInTheDocument();
   });
 
   it("shows the toolbar on desktop when the feature is enabled", () => {
     installMatchMedia(false);
-    renderComposer({ collapsibleToolbarOnMobile: true });
+    renderComposer({ compactOnMobile: true });
     expect(screen.getByLabelText("Attach files")).toBeInTheDocument();
   });
 
-  it("hides the toolbar at rest on mobile and reveals it on input focus", async () => {
+  it("uses a compact tools menu on mobile instead of revealing the toolbar on focus", async () => {
     installMatchMedia(true);
-    const { textareaRef } = renderComposer({ collapsibleToolbarOnMobile: true });
+    const { textareaRef } = renderComposer({ compactOnMobile: true });
 
     expect(screen.queryByLabelText("Attach files")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open composer tools" })).toBeInTheDocument();
 
     act(() => {
       textareaRef.current?.focus();
       if (textareaRef.current) fireEvent.focus(textareaRef.current);
     });
 
-    expect(await screen.findByLabelText("Attach files")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Attach files")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open composer tools" }));
+
+    expect(await screen.findByRole("dialog", { name: "Composer tools" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Attach files" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Close composer tools" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("moves wrapped text above a spacious bottom action row on mobile", () => {
+    installMatchMedia(true);
+    const { textareaRef, rerenderComposer } = renderComposer({ compactOnMobile: true });
+    const textarea = textareaRef.current!;
+    let measuredHeight = 88;
+
+    Object.defineProperty(textarea, "scrollHeight", {
+      configurable: true,
+      get: () => measuredHeight
+    });
+
+    rerenderComposer({
+      compactOnMobile: true,
+      input: "A long mobile draft that wraps onto a second line in the composer."
+    });
+
+    const composerLayout = textarea.parentElement?.parentElement;
+    const toolsControl = screen.getByRole("button", { name: "Open composer tools" }).parentElement;
+    const actionRow = screen.getByRole("button", { name: "Send message" }).parentElement;
+
+    expect(composerLayout).toHaveClass("grid-rows-[auto_auto]", "gap-x-2", "gap-y-1.5");
+    expect(textarea.parentElement).toHaveClass("col-span-3", "row-start-1");
+    expect(toolsControl).toHaveClass("col-start-1", "row-start-2");
+    expect(actionRow).toHaveClass("col-start-3", "row-start-2", "gap-2");
+
+    measuredHeight = 40;
+    rerenderComposer({
+      compactOnMobile: true,
+      input: "A long mobile draft that now fits after the textarea becomes wider."
+    });
+
+    expect(composerLayout).toHaveClass("grid-rows-[auto_auto]");
+    expect(textarea.parentElement).toHaveClass("col-span-3", "row-start-1");
+
+    rerenderComposer({ compactOnMobile: true, input: "" });
+
+    expect(composerLayout).not.toHaveClass("grid-rows-[auto_auto]");
+  });
+
+  it("keeps desktop tools and actions on one bottom rail below the text input", () => {
+    installMatchMedia(false);
+    const { textareaRef } = renderComposer({
+      compactOnMobile: true,
+      input: "A desktop draft stays above every composer control."
+    });
+    const textarea = textareaRef.current!;
+    const composerLayout = textarea.parentElement?.parentElement;
+    const actionRow = screen.getByRole("button", { name: "Send message" }).parentElement;
+    const toolbar = screen.getByRole("button", { name: "Attach files" }).closest("[style]");
+
+    expect(composerLayout).toHaveClass(
+      "md:grid-cols-[minmax(0,1fr)_auto]",
+      "md:gap-x-3"
+    );
+    expect(textarea.parentElement).toHaveClass(
+      "md:col-span-2",
+      "md:col-start-1",
+      "md:row-start-1"
+    );
+    expect(actionRow).toHaveClass("md:col-start-2", "md:row-start-2", "gap-2");
+    expect(toolbar).toHaveClass("md:col-start-1", "md:row-start-2");
+  });
+
+  it("keeps speech errors separated from the composer controls", () => {
+    renderComposer({ speechError: "Selected speech engine is unavailable." });
+
+    expect(screen.getByText("Selected speech engine is unavailable.")).toHaveClass("mt-2");
+  });
+
+  it("keeps temporary mode exposed above the composer on mobile", () => {
+    installMatchMedia(true);
+    const onTemporaryChange = vi.fn();
+
+    const { rerenderComposer } = renderComposer({
+      compactOnMobile: true,
+      showTemporaryToggle: true,
+      onTemporaryChange
+    });
+
+    const temporaryToggle = screen.getByRole("button", { name: "Temporary conversation" });
+    expect(temporaryToggle.parentElement).toHaveClass("-top-[31px]", "flex", "h-8");
+    expect(temporaryToggle).toHaveClass(
+      "gap-1",
+      "border-b-0",
+      "group-focus-within/composer:border-[var(--accent)]/30"
+    );
+    expect(temporaryToggle).toHaveStyle({ fontSize: "11px" });
+    expect(temporaryToggle.querySelector("svg")).toHaveClass("h-3", "w-3");
+
+    fireEvent.click(temporaryToggle);
+
+    expect(onTemporaryChange).toHaveBeenCalledWith(true);
+
+    rerenderComposer({
+      compactOnMobile: true,
+      showTemporaryToggle: true,
+      onTemporaryChange,
+      isTemporary: true
+    });
+
+    expect(screen.getByRole("button", { name: "Temporary conversation" })).toHaveClass(
+      "border-dashed",
+      "border-b-0"
+    );
+  });
+
+  it("keeps model, persona, and context usage available in the mobile menu", async () => {
+    installMatchMedia(true);
+    const onProviderProfileChange = vi.fn();
+    const onPersonaChange = vi.fn();
+    const providerProfile = toProviderProfileSummary(createRuntimeProviderProfile({
+      id: "profile_1",
+      name: "Daily model",
+      model: "gpt-5-mini"
+    }));
+
+    renderComposer({
+      compactOnMobile: true,
+      providerProfiles: [providerProfile],
+      providerProfileId: providerProfile.id,
+      onProviderProfileChange,
+      personas: [{ id: "persona_1", name: "Editor" }],
+      personaId: "persona_1",
+      onPersonaChange,
+      hasMessages: true,
+      usedTokens: 1200
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open composer tools" }));
+
+    expect(screen.getByText("Daily model")).toBeInTheDocument();
+    expect(screen.getByText("Editor")).toBeInTheDocument();
+    expect(screen.getByText("Context usage")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Daily model"));
+    fireEvent.click(screen.getByRole("button", { name: /Daily model/ }));
+
+    expect(onProviderProfileChange).toHaveBeenCalledWith("profile_1");
+  });
+
+  it("shows separate stop and queue actions when drafting during an active response", () => {
+    installMatchMedia(true);
+    renderComposer({
+      compactOnMobile: true,
+      input: "One more thing",
+      isSending: true,
+      canStop: true,
+      queueingEnabled: true
+    });
+
+    expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Queue follow-up" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start voice input" })).toBeNull();
   });
 });
 

@@ -45,6 +45,12 @@ typography:
     fontWeight: 400
     lineHeight: 1.75
     letterSpacing: "0"
+  mobileInput:
+    fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
+    fontSize: "16px"
+    fontWeight: 400
+    lineHeight: 1.5
+    letterSpacing: "0"
   label:
     fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif"
     fontSize: "11px"
@@ -284,11 +290,20 @@ Accordions disclose secondary or long technical groups without turning the edito
 
 The composer is the signature component. It carries text input, provider selection, persona selection, attachment controls, speech controls, context usage, queueing, and send/stop state without becoming a dashboard.
 
-- **Shape:** Large rounded shell (22px mobile, 26px desktop).
+- **Shape:** A compact single-row pill on mobile that becomes a two-row shell only when the draft wraps; desktop keeps the larger 26px shell.
 - **Background:** Zinc 900 at 70% opacity with backdrop blur and faint white border.
 - **Focus:** Border shifts toward Eidon Violet and adds a soft focus glow.
-- **Action Cluster:** Send/stop remains a 40px circular button. Provider and persona controls stay compact below the draft field.
+- **Mobile Tools:** A 44px plus action opens one progressive-disclosure menu for attachments, model, persona, and context usage. Keep these controls inline on desktop.
+- **Temporary Chat:** Keep the native-sized 32px Temporary card attached to the composer like a folder tab. Raise it so 31px remains exposed, overlap the composer border by only 1px, and omit the tab's bottom stroke so its side borders merge into the composer outline. When Temporary mode is active, use the same dashed outline on the tab and composer. Use 14px top corners, an 11px semibold uppercase label without added tracking, and a 12px eye icon. Selecting it arms temporary mode for the conversation created on first send.
+- **Action Cluster:** Mobile shows voice at rest, send when a draft exists, and stop while a response is active. When drafting during a response, stop and queue remain separate actions.
+- **Desktop Layout:** Text owns the full top row. Attachment, model, persona, and context controls share the bottom rail with voice and send or stop so the draft never competes with actions for width.
+- **Multiline Layout:** Wrapped mobile text owns the full top row. Plus stays bottom-left while voice and send or stop stay bottom-right, with 8px between sibling actions and at least 8px of shell padding. Once wrapping triggers, keep the two-row layout until the draft is cleared so width remeasurement cannot make the composer oscillate. Desktop keeps its two-row composition at every draft height.
+- **Mobile Input Type:** Use the 16px mobile input step to prevent automatic viewport zoom when the PWA focuses the composer.
+- **Input Surface:** Match the native 44px control height so the outer 8px top and bottom insets are equal. Keep the text-entry area visibly distinct from the outer shell with a 3% white fill and faint border at rest, rising to 5% fill with a soft violet border on focus. Center placeholder copy within the empty field at 30% white while keeping entered text left-aligned. Use stronger native-equivalent values in high-contrast mode.
+- **Placeholder Copy:** Show “Message Eidon” for a normal draft and “Queue a message” while the current conversation is actively responding, on both mobile and desktop.
+- **Latest:** On mobile, use an icon-only 44px circle positioned 12px above the measured composer with a transcript fade behind it. Desktop keeps the labeled pill.
 - **Attachments:** Small rounded chips with thumbnails or file icons, metadata, and a remove icon.
+- **Inline Errors:** Composer error banners keep at least 8px between their top edge and the nearest action control.
 
 ### Markdown And Code Blocks
 

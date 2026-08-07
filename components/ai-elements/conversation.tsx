@@ -138,7 +138,7 @@ export const ConversationScrollButton = ({
       <Button
         aria-label="Scroll to latest messages"
         className={cn(
-          "absolute bottom-[var(--composer-height,160px)] left-[50%] z-10 translate-x-[-50%] flex h-8 items-center gap-1 rounded-full border border-[var(--accent)] bg-[var(--accent)] px-3.5 text-[10px] font-bold uppercase tracking-wider text-white shadow-[0_0_16px_var(--accent-glow)] transition-all duration-200 animate-fade-in hover:bg-[var(--accent)] hover:text-white hover:opacity-90 active:scale-[0.96]",
+          "absolute bottom-[calc(var(--composer-height,80px)+12px)] left-1/2 z-10 flex h-11 w-11 -translate-x-1/2 animate-fade-in items-center justify-center rounded-full bg-white p-0 text-zinc-950 shadow-[0_6px_20px_rgba(0,0,0,0.42)] transition-[background-color,transform] duration-150 hover:bg-zinc-100 hover:text-zinc-950 active:scale-[0.96] md:bottom-[var(--composer-height,160px)] md:h-8 md:w-auto md:gap-1 md:bg-[var(--accent)] md:px-3.5 md:text-[10px] md:font-bold md:uppercase md:tracking-wider md:text-white md:ring-1 md:ring-[var(--accent)] md:hover:bg-[var(--accent)] md:hover:text-white md:hover:opacity-90",
           className
         )}
         onClick={handleScrollToBottom}
@@ -147,8 +147,8 @@ export const ConversationScrollButton = ({
         variant="ghost"
         {...props}
       >
-        <ArrowDownIcon className="size-3.5" />
-        Latest
+        <ArrowDownIcon className="size-4 md:size-3.5" />
+        <span className="hidden md:inline">Latest</span>
       </Button>
     )
   );

@@ -102,6 +102,21 @@ export function Shell({
   const { gate: gateSettingsDetailBack, dialog: settingsDetailUnsavedDialog } = useUnsavedChangesGate();
   const activeSettingsDetail = isSettingsPage ? mobileSettingsDetail : null;
 
+  const persistSidebarPreference = (closed: boolean) => {
+    try {
+      if (closed) {
+        sessionStorage.setItem("eidon:sidebar:user-closed", "true");
+      } else {
+        sessionStorage.removeItem("eidon:sidebar:user-closed");
+      }
+    } catch {}
+  };
+
+  const openMobileSidebar = () => {
+    setIsSidebarOpen(true);
+    persistSidebarPreference(false);
+  };
+
   const clearShareCopyTimers = () => {
     if (shareCopyResetHandle.current) {
       window.clearTimeout(shareCopyResetHandle.current);
@@ -322,14 +337,15 @@ export function Shell({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm"
-            onClick={() => { sessionStorage.setItem("eidon:sidebar:user-closed", "true"); setIsSidebarOpen(false); }}
+            className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm md:hidden"
+            onClick={() => { setIsSidebarOpen(false); persistSidebarPreference(true); }}
           />
         )}
       </AnimatePresence>
 
       <div
-        className={`fixed inset-y-0 left-0 z-[70] transform border-r border-white/5 transition-transform duration-300 ease-out md:z-[70] ${
+        id="app-sidebar"
+        className={`fixed inset-y-0 left-0 z-[70] w-[280px] transform transition-transform duration-300 ease-out border-r border-white/5 md:z-[70] ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${
           isDesktopSidebarOpen ? "md:translate-x-0" : "md:-translate-x-full"
@@ -380,36 +396,26 @@ export function Shell({
         isDesktopSidebarOpen ? "md:pl-[280px]" : "md:pl-0"
       }`}>
         <div className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 pt-safe-mobile h-mobile-header md:hidden bg-[var(--background)]/90 backdrop-blur-md border-b border-white/4">
-          {isSettingsPage ? (
-            activeSettingsDetail ? (
-              <button
-                type="button"
-                className="-ml-2 flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[var(--accent)] transition-colors duration-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
-                onClick={() => gateSettingsDetailBack(backMobileSettingsDetail)}
-                aria-label={`Back to ${activeSettingsDetail.backLabel}`}
-              >
-                <ArrowLeft className="h-4 w-4" />
-                {activeSettingsDetail.backLabel}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="-ml-2 flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[var(--accent)] transition-colors duration-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
-                onClick={() => { sessionStorage.removeItem("eidon:sidebar:user-closed"); setIsSidebarOpen(true); }}
-                aria-label={mobileMenuLabel}
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Settings
-              </button>
-            )
+          {isSettingsPage && activeSettingsDetail ? (
+            <button
+              type="button"
+              className="-ml-2 flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[var(--accent)] transition-colors duration-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
+              onClick={() => gateSettingsDetailBack(backMobileSettingsDetail)}
+              aria-label={`Back to ${activeSettingsDetail.backLabel}`}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              {activeSettingsDetail.backLabel}
+            </button>
           ) : (
             <button
               type="button"
-              className="p-2 -ml-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
-              onClick={() => { sessionStorage.removeItem("eidon:sidebar:user-closed"); setIsSidebarOpen(true); }}
+              className="-ml-3 flex h-11 w-11 items-center justify-center rounded-lg text-[var(--text)] transition-colors duration-200 hover:bg-white/5"
+              onClick={openMobileSidebar}
               aria-label={mobileMenuLabel}
+              aria-controls="app-sidebar"
+              aria-expanded={isSidebarOpen}
             >
-              <Menu className="h-5 w-5" />
+              <Menu className="h-[18px] w-[18px] stroke-[2.25px]" />
             </button>
           )}
 
