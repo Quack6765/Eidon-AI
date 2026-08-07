@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { createPortal } from "react-dom";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useRouter } from "next/navigation";
@@ -20,8 +19,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
-import { getUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
+import { useUnsavedChangesGate } from "@/hooks/use-unsaved-changes-gate";
 import { isUnmodifiedPrimaryClick } from "@/lib/navigation";
 import type { AuthUser } from "@/lib/types";
 
@@ -113,49 +111,15 @@ export function SettingsNav({
   const pathname = usePathname();
   const router = useRouter();
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
-  const [pendingNavTarget, setPendingNavTarget] = useState<string | null>(null);
+  const { gate: gateNavigation, dialog: unsavedDialog } = useUnsavedChangesGate();
 
   function navigateWithGuard(href: string, event: React.MouseEvent) {
     if (isUnmodifiedPrimaryClick(event)) {
       event.preventDefault();
-      const guard = getUnsavedChangesGuard();
-      if (guard && guard.isDirty()) {
-        setPendingNavTarget(href);
-        setUnsavedDialogOpen(true);
-        return;
-      }
-      onCloseAction();
-      router.push(href);
-    }
-  }
-
-  async function handleUnsavedSave() {
-    const guard = getUnsavedChangesGuard();
-    if (guard) {
-      try {
-        const saved = await guard.save();
-        if (saved === false) return;
-      } catch {
-        return;
-      }
-    }
-    setUnsavedDialogOpen(false);
-    if (pendingNavTarget) {
-      onCloseAction();
-      router.push(pendingNavTarget);
-      setPendingNavTarget(null);
-    }
-  }
-
-  function handleUnsavedDiscard() {
-    const guard = getUnsavedChangesGuard();
-    if (guard) guard.discard();
-    setUnsavedDialogOpen(false);
-    if (pendingNavTarget) {
-      onCloseAction();
-      router.push(pendingNavTarget);
-      setPendingNavTarget(null);
+      gateNavigation(() => {
+        onCloseAction();
+        router.push(href);
+      });
     }
   }
 
@@ -255,16 +219,7 @@ export function SettingsNav({
           </div>
         </div>
       </div>
-      {typeof document !== "undefined" && createPortal(
-        <UnsavedChangesDialog
-          open={unsavedDialogOpen}
-          onOpenChange={setUnsavedDialogOpen}
-          entityType={getUnsavedChangesGuard()?.entityType ?? "your settings"}
-          onSave={() => void handleUnsavedSave()}
-          onDiscard={handleUnsavedDiscard}
-        />,
-        document.body
-      )}
+      {unsavedDialog}
     </aside>
   );
 }

@@ -200,7 +200,7 @@ describe("MCP servers section", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(await screen.findAllByText("Canonical server")).toHaveLength(3);
+    expect(await screen.findAllByText("Canonical server")).toHaveLength(2);
     resolveInitialLoad?.({
       ok: true,
       json: async () => {
@@ -210,6 +210,6 @@ describe("MCP servers section", () => {
     } as Response);
 
     await waitFor(() => expect(initialLoadRead).toBe(true));
-    expect(screen.getAllByText("Canonical server")).toHaveLength(3);
+    expect(screen.getAllByText("Canonical server")).toHaveLength(2);
   });
 });

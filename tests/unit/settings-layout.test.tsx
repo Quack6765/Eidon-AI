@@ -1,13 +1,19 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { GeneralSection } from "@/components/settings/sections/general-section";
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsAccordion } from "@/components/settings/settings-accordion";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 import { Shell } from "@/components/shell";
+import {
+  backMobileSettingsDetailNav,
+  clearMobileSettingsDetailNav,
+  getMobileSettingsDetailNavSnapshot
+} from "@/lib/mobile-settings-detail-nav";
+import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 import type { AppSettings, AuthUser, ConversationListPage } from "@/lib/types";
 
 type GeneralSectionSettings = AppSettings & {
@@ -111,6 +117,12 @@ describe("settings mobile layout", () => {
     mockPush.mockReset();
   });
 
+  afterEach(() => {
+    cleanup();
+    clearMobileSettingsDetailNav();
+    registerUnsavedChangesGuard(null);
+  });
+
   it("uses the full viewport for the general settings hierarchy", () => {
     const { container } = render(React.createElement(GeneralSection, { settings }));
 
@@ -140,7 +152,7 @@ describe("settings mobile layout", () => {
     expect(screen.queryByText("Eidon")).not.toBeInTheDocument();
   });
 
-  it("names each level of list-to-detail navigation", () => {
+  it("publishes detail navigation to the shared store when a detail is open", () => {
     const onBack = vi.fn();
 
     render(
@@ -156,10 +168,91 @@ describe("settings mobile layout", () => {
       />
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Back to Skills" }));
+    expect(getMobileSettingsDetailNavSnapshot()).toEqual({
+      title: "Research assistant",
+      backLabel: "Skills"
+    });
+    backMobileSettingsDetailNav();
     expect(onBack).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("Research assistant")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+
+  it("clears the shared store while no detail is visible", () => {
+    render(
+      <SettingsSplitPane
+        listHeader={<h2>Skills</h2>}
+        listPanel={<div>Skill list</div>}
+        detailPanel={<div>Editor</div>}
+        isDetailVisible={false}
+        onBackAction={() => {}}
+        backLabel="Skills"
+        detailTitle="Research assistant"
+      />
+    );
+
+    expect(getMobileSettingsDetailNavSnapshot()).toBeNull();
+  });
+
+  it("renders one adaptive mobile bar that reflects detail depth", () => {
+    const onBack = vi.fn();
+
+    render(
+      React.createElement(
+        Shell,
+        { currentUser, passwordLoginEnabled: true, conversationPage },
+        React.createElement(SettingsSplitPane, {
+          listHeader: React.createElement("h2", null, "General"),
+          listPanel: React.createElement("div", null, "General list"),
+          detailPanel: React.createElement("div", null, "Web search editor"),
+          isDetailVisible: true,
+          onBackAction: onBack,
+          backLabel: "General",
+          detailTitle: "Web search"
+        })
+      )
+    );
+
+    expect(screen.getByText("Web search")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Back to General" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open settings menu" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to General" }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("gates closing a detail behind the unsaved-changes dialog", async () => {
+    const onBack = vi.fn();
+    const save = vi.fn().mockResolvedValue(true);
+    registerUnsavedChangesGuard({
+      isDirty: () => true,
+      save,
+      discard: vi.fn(),
+      entityType: "web search settings"
+    });
+
+    render(
+      React.createElement(
+        Shell,
+        { currentUser, passwordLoginEnabled: true, conversationPage },
+        React.createElement(SettingsSplitPane, {
+          listHeader: React.createElement("h2", null, "General"),
+          listPanel: React.createElement("div", null, "General list"),
+          detailPanel: React.createElement("div", null, "Web search editor"),
+          isDetailVisible: true,
+          onBackAction: onBack,
+          backLabel: "General",
+          detailTitle: "Web search"
+        })
+      )
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to General" }));
+    expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
+    expect(onBack).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(onBack).toHaveBeenCalledTimes(1);
   });
 
   it("keeps accordions and list records keyboard-operable", () => {

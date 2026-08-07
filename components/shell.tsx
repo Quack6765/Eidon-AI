@@ -7,6 +7,8 @@ import { motion, AnimatePresence } from "framer-motion";
 import { AutomationsNav } from "@/components/automations/automations-nav";
 import { Sidebar } from "@/components/sidebar";
 import { SettingsNav } from "@/components/settings/settings-nav";
+import { useMobileSettingsDetailNav } from "@/hooks/use-mobile-settings-detail-nav";
+import { useUnsavedChangesGate } from "@/hooks/use-unsaved-changes-gate";
 import { ShareConversationProvider } from "@/components/share-conversation-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -96,6 +98,9 @@ export function Shell({
     : null;
   const sidebarToggleLabel = isSidebarOpen ? "Collapse sidebar" : "Expand sidebar";
   const shareCopyAcknowledged = shareCopyState !== "idle";
+  const { detail: mobileSettingsDetail, back: backMobileSettingsDetail } = useMobileSettingsDetailNav();
+  const { gate: gateSettingsDetailBack, dialog: settingsDetailUnsavedDialog } = useUnsavedChangesGate();
+  const activeSettingsDetail = isSettingsPage ? mobileSettingsDetail : null;
 
   const clearShareCopyTimers = () => {
     if (shareCopyResetHandle.current) {
@@ -376,15 +381,27 @@ export function Shell({
       }`}>
         <div className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 pt-safe-mobile h-mobile-header md:hidden bg-[var(--background)]/90 backdrop-blur-md border-b border-white/4">
           {isSettingsPage ? (
-            <button
-              type="button"
-              className="-ml-2 flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[var(--accent)] transition-colors duration-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
-              onClick={() => { sessionStorage.removeItem("eidon:sidebar:user-closed"); setIsSidebarOpen(true); }}
-              aria-label={mobileMenuLabel}
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Settings
-            </button>
+            activeSettingsDetail ? (
+              <button
+                type="button"
+                className="-ml-2 flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[var(--accent)] transition-colors duration-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
+                onClick={() => gateSettingsDetailBack(backMobileSettingsDetail)}
+                aria-label={`Back to ${activeSettingsDetail.backLabel}`}
+              >
+                <ArrowLeft className="h-4 w-4" />
+                {activeSettingsDetail.backLabel}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="-ml-2 flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[var(--accent)] transition-colors duration-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
+                onClick={() => { sessionStorage.removeItem("eidon:sidebar:user-closed"); setIsSidebarOpen(true); }}
+                aria-label={mobileMenuLabel}
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Settings
+              </button>
+            )
           ) : (
             <button
               type="button"
@@ -398,7 +415,7 @@ export function Shell({
 
           {isSettingsPage ? (
             <span className="text-sm font-semibold tracking-[0.01em] text-[var(--text)]">
-              {settingsPageTitle}
+              {activeSettingsDetail ? activeSettingsDetail.title : settingsPageTitle}
             </span>
           ) : (
             <Wordmark className="text-lg" />
@@ -564,6 +581,7 @@ export function Shell({
           </motion.div>
         ) : null}
       </AnimatePresence>
+      {settingsDetailUnsavedDialog}
     </div>
   );
 }
