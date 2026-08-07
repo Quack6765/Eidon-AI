@@ -354,7 +354,8 @@ describe("general section", () => {
   it("shows Exa by default with an optional API key note", () => {
     render(React.createElement(GeneralSection, { settings: makeSettings() }));
 
-    expect(screen.getByRole("heading", { name: "Web Search" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Web search/ }));
+    expect(screen.getByRole("heading", { name: "Web search" })).toBeInTheDocument();
     expect(screen.getByLabelText("Web search engine")).toHaveValue("exa");
     expect(
       screen.getByText("Exa API key is optional and the public endpoint works without one.")
@@ -574,7 +575,8 @@ describe("general section", () => {
       })
     );
 
-    expect(screen.getByRole("heading", { name: "Image Generation" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Image generation/ }));
+    expect(screen.getByRole("heading", { name: "Image generation" })).toBeInTheDocument();
     expect(screen.getByLabelText("Image generation backend")).toHaveValue("google_nano_banana");
     expect(screen.queryByRole("option", { name: "ComfyUI" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Test ComfyUI workflow" })).toBeNull();

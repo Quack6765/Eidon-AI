@@ -149,7 +149,7 @@ describe("automations section", () => {
       expect(screen.getByText("Automation saved.")).toBeInTheDocument();
     });
 
-    const cancelButton = screen.getByRole("button", { name: "Cancel" });
+    const cancelButton = screen.getByRole("button", { name: "Discard" });
     const successMessage = screen.getByText("Automation saved.");
     expect(
       cancelButton.compareDocumentPosition(successMessage) & Node.DOCUMENT_POSITION_FOLLOWING

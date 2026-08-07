@@ -6,11 +6,17 @@ import { Plus, Trash2, UserRound } from "lucide-react";
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 import { Badge } from "@/components/settings/badge";
+import { DetailActionBar } from "@/components/settings/detail-action-bar";
+import { DetailHeader } from "@/components/settings/detail-header";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Toast } from "@/components/ui/toast";
-import { fieldLabel, inputLike, selectLike, sectionTitle, sectionDivider } from "@/lib/settings-styles";
+import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
+import { fieldLabel, inputLike, selectLike } from "@/lib/settings-styles";
 import { useToastState } from "@/hooks/use-toast-state";
+import { useDirtyState } from "@/hooks/use-dirty-state";
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import type { PersistedUser, UserRole } from "@/lib/types";
 
 function readErrorMessage(payload: unknown, fallback: string) {
@@ -41,13 +47,29 @@ function buildAuthBadge(user: PersistedUser) {
 export function UsersSection({ users }: { users: PersistedUser[] }) {
   const [userRows, setUserRows] = useState(users);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(users[0]?.id ?? null);
-  const [mobileDetailVisible, setMobileDetailVisible] = useState(Boolean(users[0]));
+  const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [draftUsername, setDraftUsername] = useState(users[0]?.username ?? "");
   const [draftPassword, setDraftPassword] = useState("");
   const [draftRole, setDraftRole] = useState<UserRole>(users[0]?.role ?? "user");
   const [isSaving, setIsSaving] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false);
+  const [pendingSwitch, setPendingSwitch] = useState<(() => void) | null>(null);
   const toast = useToastState();
+
+  const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState({
+    draftUsername,
+    draftPassword,
+    draftRole,
+  });
+  useUnsavedChangesGuard({
+    isDirty,
+    save: saveUser,
+    discard: restoreUserDraft,
+    entityType: "this user"
+  });
 
   const selectedUser = useMemo(
     () => userRows.find((user) => user.id === selectedUserId) ?? null,
@@ -55,12 +77,23 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
   );
 
   function loadDraft(user: PersistedUser | null) {
-    setDraftUsername(user?.username ?? "");
+    const draft = {
+      draftUsername: user?.username ?? "",
+      draftPassword: "",
+      draftRole: user?.role ?? ("user" as UserRole),
+    };
+    setDraftUsername(draft.draftUsername);
     setDraftPassword("");
-    setDraftRole(user?.role ?? "user");
+    setDraftRole(draft.draftRole);
+    resetDirty(draft);
   }
 
-  function handleSelectUser(user: PersistedUser) {
+  function restoreUserDraft() {
+    const saved = userRows.find((user) => user.id === selectedUserId) ?? null;
+    loadDraft(saved);
+  }
+
+  function selectUser(user: PersistedUser) {
     setSelectedUserId(user.id);
     setIsAddingNew(false);
     setMobileDetailVisible(true);
@@ -68,14 +101,34 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
     loadDraft(user);
   }
 
-  function handleAddUser() {
+  function handleSelectUser(user: PersistedUser) {
+    if (isDirty && selectedUserId !== user.id) {
+      setPendingSwitch(() => () => selectUser(user));
+      setUnsavedDialogOpen(true);
+      return;
+    }
+    selectUser(user);
+  }
+
+  function addUser() {
     setSelectedUserId(null);
     setIsAddingNew(true);
     setMobileDetailVisible(true);
+    const draft = { draftUsername: "", draftPassword: "", draftRole: "user" as UserRole };
     setDraftUsername("");
     setDraftPassword("");
     setDraftRole("user");
     toast.dismissToast();
+    resetDirty(draft);
+  }
+
+  function handleAddUser() {
+    if (isDirty) {
+      setPendingSwitch(() => () => addUser());
+      setUnsavedDialogOpen(true);
+      return;
+    }
+    addUser();
   }
 
   async function refreshUsers(nextSelectedUserId?: string | null) {
@@ -97,19 +150,19 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
     loadDraft(fallbackUser);
   }
 
-  async function saveUser() {
+  async function saveUser(): Promise<boolean> {
     if (!draftUsername.trim()) {
       toast.showToast("error", "Username is required.");
-      return;
+      return false;
     }
 
     if (isAddingNew && draftPassword.length < 8) {
       toast.showToast("error", "New users must have a password with at least 8 characters.");
-      return;
+      return false;
     }
 
     if (!isAddingNew && selectedUser?.authSource === "env_super_admin") {
-      return;
+      return false;
     }
 
     setIsSaving(true);
@@ -132,14 +185,16 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
 
       if (!response.ok) {
         toast.showToast("error", readErrorMessage(payload, "Unable to save user"));
-        return;
+        return false;
       }
 
       await refreshUsers(payload.user?.id ?? selectedUserId);
       toast.showToast("success", isAddingNew ? "User created." : "User updated.");
       setMobileDetailVisible(true);
+      return true;
     } catch (caughtError) {
       toast.showToast("error", caughtError instanceof Error ? caughtError.message : "Unable to save user");
+      return false;
     } finally {
       setIsSaving(false);
     }
@@ -147,10 +202,6 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
 
   async function deleteUser() {
     if (!selectedUser || selectedUser.authSource === "env_super_admin") {
-      return;
-    }
-
-    if (!window.confirm(`Delete ${selectedUser.username}?`)) {
       return;
     }
 
@@ -178,6 +229,28 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
     }
   }
 
+  function handleDeleteConfirm() {
+    void deleteUser();
+    setDeleteConfirmOpen(false);
+    setPendingDeleteId(null);
+  }
+
+  async function handleUnsavedSave() {
+    if (!(await saveUser())) return;
+    setUnsavedDialogOpen(false);
+    pendingSwitch?.();
+    setPendingSwitch(null);
+  }
+
+  function handleUnsavedDiscard() {
+    setUnsavedDialogOpen(false);
+    restoreUserDraft();
+    if (pendingSwitch) {
+      pendingSwitch();
+      setPendingSwitch(null);
+    }
+  }
+
   const showDetail = isAddingNew || Boolean(selectedUser);
   const isProtectedUser = selectedUser?.authSource === "env_super_admin";
 
@@ -194,8 +267,10 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
   );
 
   return (
-    <div className="min-h-0 p-4 md:h-full md:p-8">
+    <div className="flex min-h-0 w-full flex-1">
       <SettingsSplitPane
+        backLabel="Users"
+        detailTitle={isAddingNew ? "New user" : selectedUser?.username ?? "User"}
         isDetailVisible={mobileDetailVisible}
         onBackAction={() => setMobileDetailVisible(false)}
         listHeader={
@@ -209,7 +284,7 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
             <button
               type="button"
               onClick={handleAddUser}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[var(--muted)] transition-all duration-200 hover:bg-white/[0.06] hover:text-[var(--text)]"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] text-[var(--muted)] transition-colors duration-200 hover:bg-white/[0.06] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 md:h-9 md:w-9"
               aria-label="Add user"
             >
               <Plus className="h-4 w-4" />
@@ -233,41 +308,28 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
         detailPanel={
           showDetail ? (
             <div className="max-w-[720px] space-y-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <h3 className={sectionTitle}>
-                    {isAddingNew ? "Create user" : selectedUser?.username}
-                  </h3>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
-                    {selectedUser ? (
-                      <>
-                        <Badge variant={buildRoleBadge(selectedUser).variant}>
-                          {buildRoleBadge(selectedUser).label}
-                        </Badge>
-                        <Badge variant={buildAuthBadge(selectedUser).variant}>
-                          {buildAuthBadge(selectedUser).label}
-                        </Badge>
-                      </>
-                    ) : (
-                      <Badge variant="default">New account</Badge>
-                    )}
-                  </div>
-                </div>
-
-                {!isAddingNew && !isProtectedUser ? (
-                  <button
-                    type="button"
-                    onClick={() => void deleteUser()}
-                    disabled={isSaving}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    Delete
-                  </button>
-                ) : null}
-              </div>
-
-              <div className={sectionDivider} />
+              <DetailHeader
+                title={isAddingNew ? "Create user" : selectedUser?.username ?? "User"}
+                summary={
+                  isAddingNew
+                    ? "Create a new login with its own private workspace."
+                    : "Manage this login's credentials, role, and access."
+                }
+                badge={
+                  selectedUser ? (
+                    <>
+                      <Badge variant={buildRoleBadge(selectedUser).variant}>
+                        {buildRoleBadge(selectedUser).label}
+                      </Badge>
+                      <Badge variant={buildAuthBadge(selectedUser).variant}>
+                        {buildAuthBadge(selectedUser).label}
+                      </Badge>
+                    </>
+                  ) : (
+                    <Badge variant="default">New account</Badge>
+                  )
+                }
+              />
 
               {isProtectedUser ? (
                 <div className="space-y-4">
@@ -295,7 +357,7 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
                         value={draftUsername}
                         onChange={(event) => setDraftUsername(event.target.value)}
                         placeholder="Username"
-                        className={inputLike}
+                        className={`${inputLike} ${isFieldDirty("draftUsername") ? "!border-amber-500/40" : ""}`}
                       />
                     </div>
                     <div>
@@ -303,7 +365,7 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
                       <select
                         value={draftRole}
                         onChange={(event) => setDraftRole(event.target.value as UserRole)}
-                        className={selectLike}
+                        className={`${selectLike} ${isFieldDirty("draftRole") ? "!border-amber-500/40" : ""}`}
                       >
                         <option value="user">User</option>
                         <option value="admin">Admin</option>
@@ -318,7 +380,7 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
                       value={draftPassword}
                       onChange={(event) => setDraftPassword(event.target.value)}
                       placeholder={isAddingNew ? "Set a password" : "Leave blank to keep the current password"}
-                      className={inputLike}
+                      className={`${inputLike} ${isFieldDirty("draftPassword") ? "!border-amber-500/40" : ""}`}
                     />
                   </div>
 
@@ -335,32 +397,8 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
                       </>
                     )}
                   </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Button type="button" className="px-3 py-1.5 text-xs" onClick={() => void saveUser()} disabled={isSaving}>
-                      Save
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="px-2.5 py-1.5 text-xs"
-                      onClick={() => {
-                        if (selectedUser) {
-                          handleSelectUser(selectedUser);
-                          return;
-                        }
-                        setIsAddingNew(false);
-                        setMobileDetailVisible(false);
-                      }}
-                      disabled={isSaving}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
                 </div>
               )}
-
-              <div className={sectionDivider} />
 
               <Toast
                 visible={toast.visible}
@@ -372,6 +410,70 @@ export function UsersSection({ users }: { users: PersistedUser[] }) {
             emptyState
           )
         }
+        detailFooter={
+          showDetail && !isProtectedUser ? (
+            <DetailActionBar
+              status={isDirty ? "unsaved" : "saved"}
+              leftActions={
+                !isAddingNew && selectedUser ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingDeleteId(selectedUser.id);
+                      setDeleteConfirmOpen(true);
+                    }}
+                    disabled={isSaving}
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm text-red-400/80 transition-colors hover:bg-red-500/[0.06] hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50 md:min-h-10"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
+                ) : null
+              }
+              rightActions={
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="lg"
+                    className="min-h-11 px-4 text-sm md:min-h-10"
+                    onClick={restoreUserDraft}
+                    disabled={isSaving}
+                  >
+                    Discard
+                  </Button>
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="min-h-11 px-5 text-sm md:min-h-10"
+                    onClick={() => void saveUser()}
+                    disabled={isSaving}
+                  >
+                    Save
+                  </Button>
+                </>
+              }
+            />
+          ) : null
+        }
+      />
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onOpenChange={setDeleteConfirmOpen}
+        title="Delete user?"
+        description={
+          <>
+            <strong className="text-[var(--text)] font-medium">{selectedUser?.username || "This user"}</strong> will be permanently deleted. This action cannot be undone.
+          </>
+        }
+        onConfirm={handleDeleteConfirm}
+      />
+      <UnsavedChangesDialog
+        open={unsavedDialogOpen}
+        onOpenChange={setUnsavedDialogOpen}
+        entityType="this user"
+        onSave={handleUnsavedSave}
+        onDiscard={handleUnsavedDiscard}
       />
     </div>
   );

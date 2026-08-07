@@ -8,7 +8,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
-import { fieldLabel, sectionTitle, sectionDivider } from "@/lib/settings-styles";
+import { fieldLabel, sectionTitle } from "@/lib/settings-styles";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
@@ -17,6 +17,8 @@ import type { Persona } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
+import { DetailActionBar } from "../detail-action-bar";
+import { DetailHeader } from "../detail-header";
 
 export function PersonasSection() {
   const [personas, setPersonas] = useState<Persona[]>([]);
@@ -226,17 +228,6 @@ export function PersonasSection() {
     }
   }
 
-  function resetPersonaForm() {
-    const empty = { personaName: "", personaContent: "" };
-    setPersonaName("");
-    setPersonaContent("");
-    setEditingPersonaId(null);
-    setSelectedPersonaId(null);
-    setIsAddingNew(false);
-    setMobileDetailVisible(false);
-    resetDirty(empty);
-  }
-
   function openPersonaContent() {
     setIsPersonaContentOpen(true);
   }
@@ -251,8 +242,10 @@ export function PersonasSection() {
 
 
   return (
-    <div className="min-h-0 p-4 md:h-full md:p-8">
+    <div className="flex min-h-0 w-full flex-1">
       <SettingsSplitPane
+        backLabel="Personas"
+        detailTitle={isAddingNew ? "New persona" : selectedPersona?.name ?? "Persona"}
         listHeader={
           <div className="flex items-center justify-between w-full">
             <div>
@@ -264,7 +257,7 @@ export function PersonasSection() {
             <button
               type="button"
               onClick={handleAddNew}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/[0.07] transition-all duration-200"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-[var(--muted)] transition-colors duration-200 hover:bg-white/[0.07] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 md:h-9 md:w-9"
               aria-label="Add persona"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -290,23 +283,17 @@ export function PersonasSection() {
             {showDetail ? (
               <div className="space-y-0">
                 {/* Header */}
-                <div className="pb-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-base font-semibold text-[var(--text)]">
-                        {isAddingNew ? "New persona" : selectedPersona?.name}
-                      </h3>
-                      <p className="mt-1 text-xs text-[var(--muted)]">
-                        {isAddingNew
-                          ? "Create a new persona with custom system instructions."
-                          : "Edit the name and system instructions for this persona."}
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <DetailHeader
+                  title={isAddingNew ? "New persona" : selectedPersona?.name ?? "Persona"}
+                  summary={
+                    isAddingNew
+                      ? "Create a new persona with custom system instructions."
+                      : "Edit the name and system instructions for this persona."
+                  }
+                />
 
                 {/* Identity */}
-                <div className={`${sectionDivider} py-5`}>
+                <div className="py-5">
                   <h4 className={sectionTitle}>Identity</h4>
                   <div className="mt-4 space-y-5">
                     <div>
@@ -340,37 +327,6 @@ export function PersonasSection() {
                 </div>
 
                 {/* Actions */}
-                <div className={`${sectionDivider} py-5`}>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {isDirty && (
-                        <span className="flex items-center gap-1 text-xs text-amber-400/80">
-                          <span className="text-[0.5rem]">●</span> Unsaved changes
-                        </span>
-                      )}
-                      <Button type="button" className="px-3 py-1.5 text-xs" onClick={savePersona}>
-                        Save
-                      </Button>
-                      <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={resetPersonaForm}>
-                        Cancel
-                      </Button>
-                    </div>
-                    {!isAddingNew && selectedPersona ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setPendingDeleteId(selectedPersona.id);
-                          setDeleteConfirmOpen(true);
-                        }}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Delete
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-
                 <TextEditModal
                   open={isPersonaContentOpen}
                   onOpenChange={setIsPersonaContentOpen}
@@ -391,6 +347,49 @@ export function PersonasSection() {
               </div>
             )}
           </div>
+        }
+        detailFooter={
+          showDetail ? (
+            <DetailActionBar
+              status={isDirty ? "unsaved" : "saved"}
+              leftActions={
+                !isAddingNew && selectedPersona ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingDeleteId(selectedPersona.id);
+                      setDeleteConfirmOpen(true);
+                    }}
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm text-red-400/80 transition-colors hover:bg-red-500/[0.06] hover:text-red-300 md:min-h-10"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
+                ) : null
+              }
+              rightActions={
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="lg"
+                    className="min-h-11 px-4 text-sm md:min-h-10"
+                    onClick={restorePersonaDraft}
+                  >
+                    Discard
+                  </Button>
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="min-h-11 px-5 text-sm md:min-h-10"
+                    onClick={savePersona}
+                  >
+                    Save
+                  </Button>
+                </>
+              }
+            />
+          ) : null
         }
       />
       <Toast

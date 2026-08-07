@@ -8,7 +8,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
-import { fieldLabel, inputLike, sectionTitle, sectionDivider } from "@/lib/settings-styles";
+import { fieldLabel, inputLike } from "@/lib/settings-styles";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
@@ -18,6 +18,8 @@ import type { Skill } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
+import { DetailActionBar } from "../detail-action-bar";
+import { DetailHeader } from "../detail-header";
 
 type SkillDraft = {
   skillName: string;
@@ -292,19 +294,6 @@ export function SkillsSection() {
     e.target.value = "";
   }
 
-  function resetSkillForm() {
-    const empty = emptySkillDraft();
-    setSkillName("");
-    setSkillDescription("");
-    setSkillContent("");
-    setSkillEnabledDraft(true);
-    setEditingSkillId(null);
-    setSelectedSkillId(null);
-    setIsAddingNew(false);
-    setMobileDetailVisible(false);
-    toast.dismissToast();
-    resetDirty(empty);
-  }
 
   const selectedSkill = skills.find((s) => s.id === selectedSkillId);
   const isBuiltin = selectedSkill?.id.startsWith("builtin-") ?? false;
@@ -312,8 +301,10 @@ export function SkillsSection() {
 
 
   return (
-    <div className="min-h-0 p-4 md:h-full md:p-8">
+    <div className="flex min-h-0 w-full flex-1">
       <SettingsSplitPane
+        backLabel="Skills"
+        detailTitle={isAddingNew ? "New skill" : selectedSkill?.name ?? "Skill"}
         listHeader={
           <div className="flex items-center justify-between w-full">
             <div>
@@ -333,7 +324,7 @@ export function SkillsSection() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/[0.06] transition-all duration-200"
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] text-[var(--muted)] transition-colors duration-200 hover:bg-white/[0.06] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 md:h-9 md:w-9"
                 title="Import skill from .md file"
               >
                 <Upload className="h-4 w-4" />
@@ -343,7 +334,7 @@ export function SkillsSection() {
                 onClick={handleAddNew}
                 aria-label="Add skill"
                 title="Add skill"
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/6 bg-white/[0.03] text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/[0.06] transition-all duration-200"
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.03] text-[var(--muted)] transition-colors duration-200 hover:bg-white/[0.06] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 md:h-9 md:w-9"
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -375,20 +366,10 @@ export function SkillsSection() {
           <div className="max-w-[720px] space-y-6">
             {showDetail ? (
               <>
-                <div className="space-y-4">
-                  <div>
-                    <h3 className={sectionTitle}>
-                      {isAddingNew ? "New Skill" : selectedSkill?.name}
-                    </h3>
-                    {!isAddingNew && selectedSkill ? (
-                      <p className="mt-0.5 text-xs text-[var(--muted)]">
-                        {selectedSkill.description}
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-
-                <div className={sectionDivider} />
+                <DetailHeader
+                  title={isAddingNew ? "New Skill" : selectedSkill?.name ?? "Skill"}
+                  summary={!isAddingNew && selectedSkill ? selectedSkill.description : undefined}
+                />
 
                 <div className="space-y-5">
                   {selectedSkill && isBuiltin ? (
@@ -459,34 +440,6 @@ export function SkillsSection() {
                   </div>
                 ) : null}
 
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2">
-                    {isDirty && (
-                      <span className="flex items-center gap-1 text-xs text-amber-400/80">
-                        <span className="text-[0.5rem]">●</span> Unsaved changes
-                      </span>
-                    )}
-                    <Button type="button" className="px-3 py-1.5 text-xs" onClick={saveSkill}>
-                      Save
-                    </Button>
-                    <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={resetSkillForm}>
-                      {isBuiltin ? "Close" : "Cancel"}
-                    </Button>
-                  </div>
-                  {!isAddingNew && !isBuiltin && selectedSkill ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPendingDeleteId(selectedSkill.id);
-                        setDeleteConfirmOpen(true);
-                      }}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete
-                    </button>
-                  ) : null}
-                </div>
                 <TextEditModal
                   open={isInstructionsOpen}
                   onOpenChange={setIsInstructionsOpen}
@@ -532,6 +485,49 @@ export function SkillsSection() {
               </div>
             )}
           </div>
+        }
+        detailFooter={
+          showDetail ? (
+            <DetailActionBar
+              status={isDirty ? "unsaved" : "saved"}
+              leftActions={
+                !isAddingNew && !isBuiltin && selectedSkill ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingDeleteId(selectedSkill.id);
+                      setDeleteConfirmOpen(true);
+                    }}
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm text-red-400/80 transition-colors hover:bg-red-500/[0.06] hover:text-red-300 md:min-h-10"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
+                ) : null
+              }
+              rightActions={
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="lg"
+                    className="min-h-11 px-4 text-sm md:min-h-10"
+                    onClick={restoreSkillDraft}
+                  >
+                    Discard
+                  </Button>
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="min-h-11 px-5 text-sm md:min-h-10"
+                    onClick={saveSkill}
+                  >
+                    Save
+                  </Button>
+                </>
+              }
+            />
+          ) : null
         }
       />
     </div>

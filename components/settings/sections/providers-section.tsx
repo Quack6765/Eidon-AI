@@ -9,12 +9,15 @@ import {
 } from "lucide-react";
 
 import { ProviderConnectionFields } from "@/components/settings/provider-connection-fields";
+import { SettingsAccordion } from "@/components/settings/settings-accordion";
+import { DetailActionBar } from "@/components/settings/detail-action-bar";
+import { DetailHeader } from "@/components/settings/detail-header";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
-import { fieldLabel, selectLike, sectionTitle, sectionDivider } from "@/lib/settings-styles";
+import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useToastState } from "@/hooks/use-toast-state";
 import { useDirtyState } from "@/hooks/use-dirty-state";
@@ -93,6 +96,7 @@ function buildDirtySnapshot(
 export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const toast = useToastState();
   const [testResult, setTestResult] = useState<{ text: string; isSuccess: boolean } | null>(null);
+  const [isTesting, setIsTesting] = useState(false);
   const [defaultProviderProfileId, setDefaultProviderProfileId] = useState(
     settings.defaultProviderProfileId ?? settings.providerProfiles[0]?.id ?? ""
   );
@@ -509,14 +513,19 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
 
   async function runConnectionTest() {
     setTestResult(null);
-    const response = await fetch("/api/settings/test", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ providerProfileId: selectedProviderProfileId })
-    });
-    const result = (await response.json()) as { text?: string; error?: string };
-    const text = result.text ?? result.error ?? "No result";
-    setTestResult({ text, isSuccess: response.ok && !result.error });
+    setIsTesting(true);
+    try {
+      const response = await fetch("/api/settings/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerProfileId: selectedProviderProfileId })
+      });
+      const result = (await response.json()) as { text?: string; error?: string };
+      const text = result.text ?? result.error ?? "No result";
+      setTestResult({ text, isSuccess: response.ok && !result.error });
+    } finally {
+      setIsTesting(false);
+    }
   }
 
   async function handleToggleDefault() {
@@ -555,10 +564,76 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
     }
   }
 
+  const providerDetailFooter = activeProviderProfile ? (
+    <DetailActionBar
+      status={isDirty ? "unsaved" : "saved"}
+      leftActions={
+        <button
+          type="button"
+          onClick={() => {
+            setPendingDeleteId(activeProviderProfile.id);
+            setDeleteConfirmOpen(true);
+          }}
+          disabled={providerProfiles.length === 1}
+          className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm text-red-400/80 transition-colors hover:bg-red-500/[0.06] hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50 md:min-h-10"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          Delete
+        </button>
+      }
+      rightActions={
+        <>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={runConnectionTest}
+            size="lg"
+            disabled={isTesting}
+            className="min-h-11 gap-1.5 px-4 text-sm md:min-h-10"
+          >
+            <Zap className="h-3.5 w-3.5" />
+            {isTesting ? "Testing…" : "Test"}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={handleDuplicateProviderProfile}
+            size="lg"
+            className="min-h-11 gap-1.5 px-4 text-sm md:min-h-10"
+          >
+            <Copy className="h-3.5 w-3.5" />
+            Duplicate
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={restorePersistedProviderSettings}
+            size="lg"
+            className="min-h-11 px-4 text-sm md:min-h-10"
+          >
+            Discard
+          </Button>
+          <Button
+            type="submit"
+            form="provider-settings-form"
+            size="lg"
+            className="min-h-11 px-5 text-sm md:min-h-10"
+            disabled={isDuplicateName}
+          >
+            Save
+          </Button>
+        </>
+      }
+    />
+  ) : null;
+
 
   return (
-    <div className="min-h-0 p-4 md:h-full md:p-8">
+    <div className="flex min-h-0 w-full flex-1">
       <SettingsSplitPane
+        backLabel="Providers"
+        detailTitle={activeProviderProfile?.name ?? "Provider"}
+        detailFooter={providerDetailFooter}
         listHeader={
           <div className="flex items-center justify-between w-full">
             <div>
@@ -581,7 +656,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                 }
                 addProviderProfile();
               }}
-              className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-[var(--muted)] hover:text-[var(--text)] hover:bg-white/[0.07] transition-all duration-200"
+              className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-[var(--muted)] transition-colors duration-200 hover:bg-white/[0.07] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 md:h-9 md:w-9"
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
@@ -639,41 +714,42 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         onBackAction={() => setMobileDetailVisible(false)}
         detailPanel={
           <form
+            id="provider-settings-form"
             onSubmit={(event) => void handleSettings(event)}
             className="w-full max-w-[840px]"
           >
             {activeProviderProfile ? (
               <div className="space-y-0">
                 {/* Header */}
-                <div className="pb-5">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="text-base font-semibold text-[var(--text)]">
-                      {activeProviderProfile.name}
-                    </h3>
-                    {activeProviderProfile.id === defaultProviderProfileId && (
-                      <span className="inline-flex items-center rounded-md bg-[var(--accent)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
-                        Default
-                      </span>
-                    )}
-                    {activeProviderProfile.connection.status === "disconnected" && activeProviderProfile.connection.mode === "api_key" && !activeProviderProfile.credential && (
-                      <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
-                        No key
-                      </span>
-                    )}
-                    {activeProviderProfile.connection.status === "disconnected" && activeProviderProfile.connection.mode === "oauth" && (
-                      <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
-                        Not connected
-                      </span>
-                    )}
-                  </div>
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    {`${PROVIDER_CATALOG[activeProviderProfile.providerKind].label}${getProviderApiBaseUrl(activeProviderProfile) ? ` · ${getProviderApiBaseUrl(activeProviderProfile)}` : ""}${activeProviderProfile.model ? ` · ${activeProviderProfile.model}` : ""}${activeProviderEditor?.apiMode ? ` · ${getProviderApiMode(activeProviderProfile)}` : ""}`}
-                  </p>
-                </div>
+                <DetailHeader
+                  title={activeProviderProfile.name}
+                  summary={`${PROVIDER_CATALOG[activeProviderProfile.providerKind].label}${getProviderApiBaseUrl(activeProviderProfile) ? ` · ${getProviderApiBaseUrl(activeProviderProfile)}` : ""}${activeProviderProfile.model ? ` · ${activeProviderProfile.model}` : ""}${activeProviderEditor?.apiMode ? ` · ${getProviderApiMode(activeProviderProfile)}` : ""}`}
+                  badge={
+                    <>
+                      {activeProviderProfile.id === defaultProviderProfileId && (
+                        <span className="inline-flex items-center rounded-md bg-[var(--accent)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--accent)]">
+                          Default
+                        </span>
+                      )}
+                      {activeProviderProfile.connection.status === "disconnected" && activeProviderProfile.connection.mode === "api_key" && !activeProviderProfile.credential && (
+                        <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+                          No key
+                        </span>
+                      )}
+                      {activeProviderProfile.connection.status === "disconnected" && activeProviderProfile.connection.mode === "oauth" && (
+                        <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+                          Not connected
+                        </span>
+                      )}
+                    </>
+                  }
+                />
 
-                {/* Identity */}
-                <div className={`${sectionDivider} py-5`}>
-                  <h4 className={sectionTitle}>Identity</h4>
+                <SettingsAccordion
+                  title="Identity"
+                  description="Name, provider type, and default behavior"
+                  defaultOpen
+                >
                   <div className="mt-4 grid grid-cols-1 gap-5 sm:grid-cols-2">
                     <div className="sm:col-span-2">
                       <label className={fieldLabel}>Profile name</label>
@@ -745,11 +821,13 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                       </div>
                     )}
                   </div>
-                </div>
+                </SettingsAccordion>
 
-                {/* Connection */}
-                <div className={`${sectionDivider} py-5`}>
-                  <h4 className={sectionTitle}>Connection</h4>
+                <SettingsAccordion
+                  title="Connection"
+                  description="Credentials, endpoint, and model"
+                  defaultOpen
+                >
                   <ProviderConnectionFields
                     profile={activeProviderProfile}
                     models={discoveredModels}
@@ -758,17 +836,19 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     onSave={saveSettings}
                     onError={(message) => toast.showToast("error", message)}
                   />
-                </div>
+                </SettingsAccordion>
 
-                {/* Configuration */}
-                <div className={`${sectionDivider} py-5`}>
-                  <div className="flex items-center justify-between">
-                    <h4 className={sectionTitle}>Configuration</h4>
+                <SettingsAccordion
+                  title="Configuration"
+                  description="Reasoning, context, compaction, and vision"
+                >
+                  <div className="flex items-center justify-end">
                     <Button
                       type="button"
                       variant="ghost"
                       onClick={resetActiveProviderAdvancedSettings}
-                      className="px-2.5 py-1 text-[11px]"
+                      size="lg"
+                      className="px-3 text-xs"
                     >
                       Reset defaults
                     </Button>
@@ -1050,11 +1130,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         </p>
                       )}
                   </div>
-                </div>
+                </SettingsAccordion>
 
-                {/* System */}
-                <div className={`${sectionDivider} py-5`}>
-                  <h4 className={sectionTitle}>System</h4>
+                <SettingsAccordion
+                  title="System instructions"
+                  description="Persistent guidance for this provider profile"
+                >
                   <div className="mt-4 space-y-4">
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
@@ -1086,54 +1167,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                       Make enabled skills available to every chat in this workspace
                     </label>
                   </div>
-                </div>
-
-                {/* Actions */}
-                <div className={`${sectionDivider} py-5`}>
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {isDirty && (
-                        <span className="flex items-center gap-1 text-xs text-amber-400/80">
-                          <span className="text-[0.5rem]">●</span> Unsaved changes
-                        </span>
-                      )}
-                      <Button type="submit" className="px-3 py-1.5 text-xs" disabled={isDuplicateName}>
-                        Save
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={runConnectionTest}
-                        className="gap-1.5 px-2.5 py-1.5 text-xs"
-                      >
-                        <Zap className="h-3.5 w-3.5" />
-                        Test
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        onClick={handleDuplicateProviderProfile}
-                        className="gap-1.5 px-2.5 py-1.5 text-xs"
-                      >
-                        <Copy className="h-3.5 w-3.5" />
-                        Duplicate
-                      </Button>
-
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPendingDeleteId(activeProviderProfile.id);
-                        setDeleteConfirmOpen(true);
-                      }}
-                      disabled={providerProfiles.length === 1}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Delete
-                    </button>
-                  </div>
-                </div>
+                </SettingsAccordion>
 
                 {/* Messages */}
                 {testResult ? (

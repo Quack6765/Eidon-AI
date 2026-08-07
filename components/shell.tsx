@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type PropsWithChildren } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Check, Copy, Link2, Menu, PanelLeftClose, PanelLeftOpen, Plus, Share2, X } from "lucide-react";
+import { ArrowLeft, Check, Copy, Link2, Menu, PanelLeftClose, PanelLeftOpen, Plus, Share2, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AutomationsNav } from "@/components/automations/automations-nav";
 import { Sidebar } from "@/components/sidebar";
@@ -81,6 +81,19 @@ export function Shell({
   const isAutomationsPage = pathname.startsWith("/automations");
   const isDesktopSidebarOpen = isSettingsPage || isSidebarOpen;
   const mobileMenuLabel = isSettingsPage ? "Open settings menu" : "Open menu";
+  const settingsPageTitle = isSettingsPage
+    ? ({
+        "/settings/account": "Account",
+        "/settings/general": "General",
+        "/settings/providers": "Providers",
+        "/settings/personas": "Personas",
+        "/settings/memories": "Memories",
+        "/settings/mcp-servers": "MCP Servers",
+        "/settings/skills": "Skills",
+        "/settings/automations": "Scheduled automations",
+        "/settings/users": "Users"
+      } as Record<string, string>)[pathname] ?? "Settings"
+    : null;
   const sidebarToggleLabel = isSidebarOpen ? "Collapse sidebar" : "Expand sidebar";
   const shareCopyAcknowledged = shareCopyState !== "idle";
 
@@ -311,11 +324,11 @@ export function Shell({
       </AnimatePresence>
 
       <div
-        className={`fixed inset-y-0 left-0 z-[70] w-[280px] transform transition-transform duration-300 ease-out border-r border-white/5 md:z-[70] ${
+        className={`fixed inset-y-0 left-0 z-[70] transform border-r border-white/5 transition-transform duration-300 ease-out md:z-[70] ${
           isSidebarOpen ? "translate-x-0" : "-translate-x-full"
         } ${
           isDesktopSidebarOpen ? "md:translate-x-0" : "md:-translate-x-full"
-        }`}
+        } ${isSettingsPage ? "w-full md:w-[280px]" : "w-[280px]"}`}
         style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
       >
         {isSettingsPage ? (
@@ -362,18 +375,30 @@ export function Shell({
         isDesktopSidebarOpen ? "md:pl-[280px]" : "md:pl-0"
       }`}>
         <div className="fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 pt-safe-mobile h-mobile-header md:hidden bg-[var(--background)]/90 backdrop-blur-md border-b border-white/4">
-          <button
-            type="button"
-            className="p-2 -ml-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
-            onClick={() => { sessionStorage.removeItem("eidon:sidebar:user-closed"); setIsSidebarOpen(true); }}
-            aria-label={mobileMenuLabel}
-          >
-            <Menu className="h-5 w-5" />
-          </button>
+          {isSettingsPage ? (
+            <button
+              type="button"
+              className="-ml-2 flex min-h-11 items-center gap-1 rounded-lg px-2 text-sm font-medium text-[var(--accent)] transition-colors duration-200 hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
+              onClick={() => { sessionStorage.removeItem("eidon:sidebar:user-closed"); setIsSidebarOpen(true); }}
+              aria-label={mobileMenuLabel}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Settings
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="p-2 -ml-2 text-[var(--text)] hover:bg-white/5 rounded-lg transition-colors duration-200"
+              onClick={() => { sessionStorage.removeItem("eidon:sidebar:user-closed"); setIsSidebarOpen(true); }}
+              aria-label={mobileMenuLabel}
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+          )}
 
           {isSettingsPage ? (
             <span className="text-sm font-semibold tracking-[0.01em] text-[var(--text)]">
-              Settings
+              {settingsPageTitle}
             </span>
           ) : (
             <Wordmark className="text-lg" />

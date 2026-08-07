@@ -1,0 +1,12 @@
+Use case: ui-mockup
+Asset type: high-fidelity product design comparison comp for Eidon settings, Option A
+Primary request: Render a production-grade flat UI mockup of Eidon’s universal contextual three-pane Settings experience. This is a direct orthographic interface composition, not a photograph, not a device floating in a scene, and not a marketing page.
+Scene/backdrop: 16:9 landscape design comp on Eidon’s near-black app background.
+Structure: A large desktop application viewport occupying roughly 78% of the canvas, with one smaller portrait mobile viewport aligned at the right. The desktop has exactly three functional regions: a 248px global Settings rail, a 280px contextual Skills list pane, and a spacious selected-skill detail workspace. The mobile inset shows the selected-skill detail as a pushed full-screen page with a clear back control labeled “Skills”.
+Desktop global Settings rail text: “Settings”, “PERSONAL”, “Account”, “ASSISTANT”, “General”, “Providers”, “Personas”, “Memories”, “CAPABILITIES”, “MCP Servers”, “Skills”, “AUTOMATION”, “Scheduled automations”, “ADMINISTRATION”, “Users”. Make “Skills” selected with a restrained soft violet selection.
+Contextual list pane: header “Skills”, count “4”, search “Search skills”, an Add button, and rows “Research Assistant”, “Web Search”, “Image Analysis”, and “Code Reviewer”. Research Assistant is selected, custom, and enabled.
+Detail workspace: breadcrumb “Settings / Skills / Research Assistant”; title “Research Assistant”; subtitle “Finds, evaluates, and summarizes reliable sources.”; Enabled toggle; sections “Details”, “Instructions”, and “Availability”; fields “Name” and “Description”; sticky dirty-state action bar with “Unsaved changes”, “Save changes”, and “Discard”.
+Mobile inset: back label “Skills”, title “Research Assistant”, stacked sections, and sticky full-width “Save changes”.
+Style: Eidon Private Control Room. Inter-like compact typography; near-black #0a0a0a; sidebar #0f0f0f; panel zinc #18181b; text #f4f4f5; muted #71717a; faint hairlines; scarce violet #8b5cf6 for selection and primary action; 12px corners; flat tonal depth; no card nesting.
+Constraints: coherent hierarchy, accessible contrast, desktop controls 36–40px high, mobile controls 44–48px high. Render quoted labels legibly.
+Avoid: perspective, glossy device mockups, gradients, neon fog, purple washes, huge headings, bento dashboards, excessive pills, tiny controls, nested cards, illegible microtext, watermarks, and Mobbin branding.

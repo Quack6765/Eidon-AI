@@ -5,12 +5,14 @@ import { CalendarDays, Clock3, Plus, Trash2 } from "lucide-react";
 
 import { ProfileCard } from "@/components/settings/profile-card";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
+import { DetailActionBar } from "@/components/settings/detail-action-bar";
+import { DetailHeader } from "@/components/settings/detail-header";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Toast } from "@/components/ui/toast";
-import { fieldLabel, selectLike, sectionTitle, sectionDivider } from "@/lib/settings-styles";
+import { fieldLabel, selectLike, sectionTitle } from "@/lib/settings-styles";
 import { useToastState } from "@/hooks/use-toast-state";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
@@ -382,8 +384,10 @@ export function AutomationsSection() {
 
 
   return (
-    <div className="min-h-0 p-4 md:h-full md:p-8">
+    <div className="flex min-h-0 w-full flex-1">
       <SettingsSplitPane
+        backLabel="Automations"
+        detailTitle={isAddingNew ? "New automation" : form.name || "Automation"}
         listHeader={
           <div className="flex w-full items-center justify-between">
             <div>
@@ -396,7 +400,7 @@ export function AutomationsSection() {
               <button
                 type="button"
                 onClick={openNewAutomation}
-                className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/[0.08] bg-white/[0.04] text-[var(--muted)] transition-all duration-200 hover:bg-white/[0.07] hover:text-[var(--text)]"
+                className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.08] bg-white/[0.04] text-[var(--muted)] transition-colors duration-200 hover:bg-white/[0.07] hover:text-[var(--text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 md:h-9 md:w-9"
                 aria-label="Add automation"
               >
                 <Plus className="h-3.5 w-3.5" />
@@ -437,21 +441,13 @@ export function AutomationsSection() {
             {showDetail ? (
               <div className="space-y-0">
                 {/* Header */}
-                <div className="pb-5">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <h3 className="text-base font-semibold text-[var(--text)]">
-                        {isAddingNew ? "New automation" : form.name || "Edit automation"}
-                      </h3>
-                      <p className="mt-1 text-xs text-[var(--muted)]">
-                        Configure the prompt, execution profile, and cadence for this scheduled automation.
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                <DetailHeader
+                  title={isAddingNew ? "New automation" : form.name || "Edit automation"}
+                  summary="Configure the prompt, execution profile, and cadence for this scheduled automation."
+                />
 
                 {/* Details */}
-                <div className={`${sectionDivider} py-5`}>
+                <div className="py-5">
                   <h4 className={sectionTitle}>Details</h4>
                   <div className="mt-4 space-y-5">
                     <div>
@@ -521,7 +517,7 @@ export function AutomationsSection() {
                 </div>
 
                 {/* Schedule */}
-                <div className={`${sectionDivider} py-5`}>
+                <div className="py-5">
                   <h4 className={sectionTitle}>Schedule</h4>
                   <div className="mt-4 space-y-5">
                     <div className="grid gap-5 md:grid-cols-[1fr_auto] md:items-end">
@@ -640,34 +636,6 @@ export function AutomationsSection() {
                 </div>
 
                 {/* Actions */}
-                <div className={`${sectionDivider} py-5`}>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      {isDirty && (
-                        <span className="flex items-center gap-1 text-xs text-amber-400/80">
-                          <span className="text-[0.5rem]">●</span> Unsaved changes
-                        </span>
-                      )}
-                      <Button type="button" className="px-3 py-1.5 text-xs" onClick={() => void saveAutomation()}>
-                        Save
-                      </Button>
-                      <Button type="button" variant="ghost" className="px-2.5 py-1.5 text-xs" onClick={resetSelection}>
-                        Cancel
-                      </Button>
-                    </div>
-                    {selectedAutomationId ? (
-                      <button
-                        type="button"
-                        onClick={() => setDeleteConfirmOpen(true)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-red-400/80 transition-colors hover:text-red-300"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        Delete
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-
                 <Toast
                   visible={toast.visible}
                   variant={toast.variant}
@@ -703,6 +671,46 @@ export function AutomationsSection() {
               </div>
             )}
           </div>
+        }
+        detailFooter={
+          showDetail ? (
+            <DetailActionBar
+              status={isDirty ? "unsaved" : "saved"}
+              leftActions={
+                selectedAutomationId ? (
+                  <button
+                    type="button"
+                    onClick={() => setDeleteConfirmOpen(true)}
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm text-red-400/80 transition-colors hover:bg-red-500/[0.06] hover:text-red-300 md:min-h-10"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    Delete
+                  </button>
+                ) : null
+              }
+              rightActions={
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="lg"
+                    className="min-h-11 px-4 text-sm md:min-h-10"
+                    onClick={restoreAutomationDraft}
+                  >
+                    Discard
+                  </Button>
+                  <Button
+                    type="button"
+                    size="lg"
+                    className="min-h-11 px-5 text-sm md:min-h-10"
+                    onClick={() => void saveAutomation()}
+                  >
+                    Save
+                  </Button>
+                </>
+              }
+            />
+          ) : null
         }
       />
     </div>

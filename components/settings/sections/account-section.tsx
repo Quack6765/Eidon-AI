@@ -4,11 +4,12 @@ import { type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Shield } from "lucide-react";
 
+import { DetailHeader } from "@/components/settings/detail-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Toast } from "@/components/ui/toast";
 import type { AuthUser } from "@/lib/types";
-import { fieldLabel, sectionTitle } from "@/lib/settings-styles";
+import { fieldLabel } from "@/lib/settings-styles";
 import { useToastState } from "@/hooks/use-toast-state";
 
 export function AccountSection({ user }: { user: AuthUser }) {
@@ -39,22 +40,17 @@ export function AccountSection({ user }: { user: AuthUser }) {
 
 
   return (
-    <div className="w-full max-w-none space-y-6 p-6 md:max-w-[55%] md:p-8">
+    <div className="h-full w-full max-w-[760px] space-y-6 overflow-y-auto px-5 py-6 sm:px-7 md:px-9 md:py-8">
       <div className="space-y-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-300">
-            <Shield className="h-4 w-4" />
-          </div>
-          <div>
-            <p className={sectionTitle}>Account</p>
-            <h2
-              className="mt-1 text-2xl leading-none text-[var(--text)]"
-              style={{ fontFamily: "var(--font-display)" }}
-            >
-              {isEnvManaged ? "Environment-managed access" : "Local access"}
-            </h2>
-          </div>
-        </div>
+        <DetailHeader
+          title={isEnvManaged ? "Environment-managed access" : "Local access"}
+          summary="Manage your sign-in credentials for this workspace."
+          badge={
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-500/10 text-sky-300">
+              <Shield className="h-4 w-4" />
+            </div>
+          }
+        />
 
         {isEnvManaged ? (
           <div className="space-y-4">
@@ -85,8 +81,8 @@ export function AccountSection({ user }: { user: AuthUser }) {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Button type="submit" className="px-3 py-1.5 text-xs">
-                Save
+              <Button type="submit" size="lg" className="min-h-11 px-5 text-sm md:min-h-10">
+                Save changes
               </Button>
             </div>
           </form>
