@@ -101,7 +101,9 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
           ...speechTranscription,
           providerId: speechTranscription.providerId as TranscriptionProviderId,
           configuration: {
-            language: String(speechTranscription.configuration.language ?? "auto") as
+            language: (Array.isArray(speechTranscription.configuration.language)
+              ? speechTranscription.configuration.language
+              : String(speechTranscription.configuration.language ?? "auto")) as
               RuntimeAppSettings["speechTranscription"]["configuration"]["language"],
             ...(speechTranscription.configuration.model
               ? { model: speechTranscription.configuration.model as

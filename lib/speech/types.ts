@@ -10,7 +10,7 @@ export type SttLanguage = "auto" | "en" | "fr" | "es";
 
 export function getSpeechInputSettings(input: {
   providerId: string;
-  configuration: { language?: string };
+  configuration: { language?: string | readonly string[] };
 }) {
   const providerId = isTranscriptionProviderId(input.providerId)
     ? input.providerId

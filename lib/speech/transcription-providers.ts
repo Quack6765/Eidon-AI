@@ -97,6 +97,24 @@ const TRANSCRIPTION_PROVIDERS = {
       });
       return { model: result.model, provider: "assemblyai", transcript: result.transcript };
     }
+  },
+  soniox: {
+    sampleRate: RECORDED_SPEECH_SAMPLE_RATE,
+    maxAudioBytes: MAX_RECORDED_SPEECH_AUDIO_BYTES,
+    getReadinessError(settings) {
+      return getTranscriptionReadinessError(settings.speechTranscription);
+    },
+    async transcribe({ samples, settings, signal }) {
+      const result = await transcribeWithExternalSttProvider({
+        provider: "soniox",
+        apiKey: settings.speechTranscription.credentials.apiKey ?? "",
+        samples,
+        language: settings.speechTranscription.configuration.language as
+          ExternalSttLanguageForProvider<"soniox">,
+        signal
+      });
+      return { model: result.model, provider: "soniox", transcript: result.transcript };
+    }
   }
 } satisfies Record<Exclude<TranscriptionProviderId, "browser">, TranscriptionProvider>;
 

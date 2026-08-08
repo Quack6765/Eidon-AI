@@ -3,6 +3,7 @@ import {
   DEFAULT_ASSEMBLYAI_MODEL
 } from "@/lib/speech/assemblyai-languages";
 import { ELEVENLABS_SCRIBE_LANGUAGES } from "@/lib/speech/elevenlabs-languages";
+import { SONIOX_LANGUAGES } from "@/lib/speech/soniox-languages";
 
 export type ExternalSttLanguageOption = {
   value: string;
@@ -19,6 +20,7 @@ type ExternalSttProviderDetails = {
   label: string;
   modelLabel: string;
   automaticLanguageHint?: string;
+  multiLanguage?: boolean;
 };
 
 export type ExternalSttProviderDefinition = ExternalSttProviderDetails & (
@@ -46,6 +48,12 @@ export const EXTERNAL_STT_PROVIDERS = {
     modelOptions: ASSEMBLYAI_MODEL_OPTIONS,
     defaultModel: DEFAULT_ASSEMBLYAI_MODEL,
     automaticLanguageHint: "Automatic language detection is most reliable with at least 15 seconds of speech."
+  },
+  soniox: {
+    label: "Soniox",
+    modelLabel: "stt-rt-v5",
+    languages: SONIOX_LANGUAGES,
+    multiLanguage: true
   }
 } as const satisfies Record<string, ExternalSttProviderDefinition>;
 
@@ -77,10 +85,13 @@ type LanguageValue<Definition> = Definition extends {
     ? OptionValue<Options>
     : never;
 
+type ScalarLanguageForProvider<Provider extends SttProvider> =
+  LanguageValue<typeof EXTERNAL_STT_PROVIDERS[Provider]>;
+
 export type ExternalSttLanguageForProvider<Provider extends SttProvider> =
-  Provider extends SttProvider
-    ? LanguageValue<typeof EXTERNAL_STT_PROVIDERS[Provider]>
-    : never;
+  typeof EXTERNAL_STT_PROVIDERS[Provider] extends { multiLanguage: true }
+    ? readonly ScalarLanguageForProvider<Provider>[]
+    : ScalarLanguageForProvider<Provider>;
 
 export type ExternalSttLanguage = {
   [Provider in SttProvider]: ExternalSttLanguageForProvider<Provider>;
@@ -112,6 +123,10 @@ export function getExternalSttProviderConfig<Provider extends SttProvider>(provi
   return EXTERNAL_STT_PROVIDERS[provider];
 }
 
+export function isExternalSttMultiLanguage(provider: SttProvider) {
+  return (EXTERNAL_STT_PROVIDERS[provider] as ExternalSttProviderDefinition).multiLanguage ?? false;
+}
+
 export function getExternalSttLanguageOptions(
   provider: SttProvider,
   model?: string
@@ -130,8 +145,8 @@ export function getExternalSttLanguageCodes<Provider extends SttProvider>(
   return getExternalSttLanguageOptions(provider, model).map(
     ({ value }) => value
   ) as [
-    ExternalSttLanguageForProvider<Provider>,
-    ...ExternalSttLanguageForProvider<Provider>[]
+    ScalarLanguageForProvider<Provider>,
+    ...ScalarLanguageForProvider<Provider>[]
   ];
 }
 

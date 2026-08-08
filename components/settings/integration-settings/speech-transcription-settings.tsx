@@ -9,6 +9,7 @@ import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import {
   EXTERNAL_STT_PROVIDERS,
   getExternalSttLanguageOptions,
+  isExternalSttMultiLanguage,
   type ExternalSttLanguage,
   type ExternalSttModel,
   type ExternalSttProviderDefinition
@@ -53,6 +54,12 @@ export function SpeechTranscriptionSettings({
     : LOCAL_LANGUAGE_OPTIONS.filter(
         (option) => draft.providerId !== "canary" || option.value !== "auto"
       );
+  const multiLanguage = externalProvider
+    ? isExternalSttMultiLanguage(draft.providerId as keyof typeof EXTERNAL_STT_PROVIDERS)
+    : false;
+  const selectedLanguages = Array.isArray(draft.configuration.language)
+    ? draft.configuration.language
+    : [];
 
   function selectProvider(providerId: TranscriptionProviderId) {
     const provider = TRANSCRIPTION_PROVIDER_CATALOG[providerId];
@@ -61,10 +68,12 @@ export function SpeechTranscriptionSettings({
         ExternalSttProviderDefinition
       : null;
     const language = external
-      ? getExternalSttLanguageOptions(
-          providerId as keyof typeof EXTERNAL_STT_PROVIDERS,
-          external.defaultModel
-        )[0].value
+      ? isExternalSttMultiLanguage(providerId as keyof typeof EXTERNAL_STT_PROVIDERS)
+        ? []
+        : getExternalSttLanguageOptions(
+            providerId as keyof typeof EXTERNAL_STT_PROVIDERS,
+            external.defaultModel
+          )[0].value
       : providerId === "canary"
         ? "en"
         : "auto";
@@ -77,6 +86,19 @@ export function SpeechTranscriptionSettings({
         ...(external?.defaultModel ? { model: external.defaultModel as ExternalSttModel } : {})
       }
     ));
+  }
+
+  function toggleLanguage(code: string) {
+    const current = Array.isArray(draft.configuration.language)
+      ? draft.configuration.language
+      : [];
+    const next = current.includes(code)
+      ? current.filter((value) => value !== code)
+      : [...current, code];
+    onChange({
+      ...draft,
+      configuration: { ...draft.configuration, language: next as ExternalSttLanguage }
+    });
   }
 
   function selectModel(model: ExternalSttModel) {
@@ -166,33 +188,64 @@ export function SpeechTranscriptionSettings({
         />
       ) : null}
 
-      <div>
-        <label htmlFor="speech-transcription-language" className={fieldLabel}>Spoken language</label>
-        <select
-          id="speech-transcription-language"
-          aria-label={externalProvider
-            ? `${externalProvider.label} transcription language`
-            : "Default transcription language"}
-          value={draft.configuration.language}
-          onChange={(event) => onChange({
-            ...draft,
-            configuration: {
-              ...draft.configuration,
-              language: event.target.value as ExternalSttLanguage
-            }
-          })}
-          className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
-        >
-          {languageOptions.map((language) => (
-            <option key={language.value} value={language.value}>{language.label}</option>
-          ))}
-        </select>
-        {draft.configuration.language === "auto" && externalProvider?.automaticLanguageHint ? (
-          <p className="mt-2 max-w-2xl text-xs leading-5 text-[var(--muted)]">
-            {externalProvider.automaticLanguageHint}
+      {multiLanguage ? (
+        <fieldset className="m-0 border-0 p-0">
+          <legend className={fieldLabel}>Spoken languages</legend>
+          <p className="mb-2 text-xs text-[var(--muted)]">
+            Select one or more languages to bias detection, or leave all unchecked to auto-detect.
           </p>
-        ) : null}
-      </div>
+          <ul
+            className={`max-h-56 overflow-y-auto rounded-xl border bg-white/4 p-1 ${dirty ? "!border-amber-500/40" : "border-white/6"}`}
+          >
+            {languageOptions.map((language) => (
+              <li key={language.value}>
+                <label className="flex cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-[var(--text)] hover:bg-white/5">
+                  <input
+                    type="checkbox"
+                    checked={selectedLanguages.includes(language.value)}
+                    onChange={() => toggleLanguage(language.value)}
+                    className="h-4 w-4 accent-[var(--accent)]"
+                  />
+                  {language.label}
+                </label>
+              </li>
+            ))}
+          </ul>
+          {selectedLanguages.length === 0 ? (
+            <p className="mt-2 max-w-2xl text-xs leading-5 text-[var(--muted)]">
+              No languages selected — {externalProvider?.label ?? "the provider"} will auto-detect the spoken language.
+            </p>
+          ) : null}
+        </fieldset>
+      ) : (
+        <div>
+          <label htmlFor="speech-transcription-language" className={fieldLabel}>Spoken language</label>
+          <select
+            id="speech-transcription-language"
+            aria-label={externalProvider
+              ? `${externalProvider.label} transcription language`
+              : "Default transcription language"}
+            value={draft.configuration.language}
+            onChange={(event) => onChange({
+              ...draft,
+              configuration: {
+                ...draft.configuration,
+                language: event.target.value as ExternalSttLanguage
+              }
+            })}
+            className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
+          >
+            {languageOptions.map((language) => (
+              <option key={language.value} value={language.value}>{language.label}</option>
+            ))}
+          </select>
+          {draft.configuration.language === "auto" && externalProvider?.automaticLanguageHint ? (
+            <p className="mt-2 max-w-2xl text-xs leading-5 text-[var(--muted)]">
+              {externalProvider.automaticLanguageHint}
+            </p>
+          ) : null}
+        </div>
+      )}
 
       {draft.providerId === "canary" ? (
         <div className="flex max-w-2xl items-start gap-2 pt-1 text-xs leading-5 text-white/60">
