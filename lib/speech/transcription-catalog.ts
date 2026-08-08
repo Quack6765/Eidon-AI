@@ -10,6 +10,7 @@ import {
   getExternalSttLanguageCodes,
   getExternalSttLanguageOptions,
   isExternalSttModelForProvider,
+  isExternalSttMultiLanguage,
   type SttProvider
 } from "@/lib/speech/external-providers";
 
@@ -27,15 +28,22 @@ const credentialFields = {
 
 function createExternalSttConfigurationSchema(providerId: SttProvider) {
   const provider = EXTERNAL_STT_PROVIDERS[providerId];
+  const multiLanguage = isExternalSttMultiLanguage(providerId);
   if (!("modelOptions" in provider)) {
-    return z.object({
-      language: z.enum(getExternalSttLanguageCodes(providerId))
-    }).strict() as z.ZodType<TranscriptionConfiguration>;
+    const language = multiLanguage
+      ? z.array(z.enum(getExternalSttLanguageCodes(providerId)))
+      : z.enum(getExternalSttLanguageCodes(providerId));
+    return z.object({ language }).strict() as z.ZodType<TranscriptionConfiguration>;
   }
-  const modelSchemas = provider.modelOptions.map((model) => z.object({
-    model: z.literal(model.value),
-    language: z.enum(getExternalSttLanguageCodes(providerId, model.value))
-  }).strict());
+  const modelSchemas = provider.modelOptions.map((model) => {
+    const language = multiLanguage
+      ? z.array(z.enum(getExternalSttLanguageCodes(providerId, model.value)))
+      : z.enum(getExternalSttLanguageCodes(providerId, model.value));
+    return z.object({
+      model: z.literal(model.value),
+      language
+    }).strict();
+  });
   if (modelSchemas.length === 1) {
     return modelSchemas[0] as z.ZodType<TranscriptionConfiguration>;
   }
@@ -143,6 +151,17 @@ export function normalizeTranscriptionSelection(
   const model = isExternalSttModelForProvider(providerId, configuration.model)
     ? configuration.model
     : getExternalSttDefaultModel(providerId);
+  if (isExternalSttMultiLanguage(providerId)) {
+    const validCodes = new Set<string>(getExternalSttLanguageCodes(providerId, model));
+    const raw = Array.isArray(configuration.language) ? configuration.language : [];
+    const language = raw.filter(
+      (code): code is string => typeof code === "string" && validCodes.has(code)
+    ) as unknown as ExternalSttLanguage;
+    return {
+      providerId,
+      configuration: { language, ...(model ? { model } : {}) }
+    };
+  }
   const languages = getExternalSttLanguageOptions(providerId, model);
   const language = languages.some((entry) => entry.value === configuration.language)
     ? configuration.language as ExternalSttLanguage

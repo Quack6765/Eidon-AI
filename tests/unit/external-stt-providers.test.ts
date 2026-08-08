@@ -9,6 +9,7 @@ import {
   getExternalSttProviderConfig,
   isExternalSttLanguageForProvider,
   isExternalSttModelForProvider,
+  isExternalSttMultiLanguage,
   isSttProvider
 } from "@/lib/speech/external-providers";
 import {
@@ -63,6 +64,41 @@ describe("external speech-to-text providers", () => {
     expect(getExternalSttDefaultModel("assemblyai")).toBe("universal-3-5-pro");
     expect(isExternalSttModelForProvider("assemblyai", "universal-2")).toBe(true);
     expect(isExternalSttModelForProvider("elevenlabs", "universal-2")).toBe(false);
+  });
+
+  it("marks Soniox as multi-language and accepts multiple languages", () => {
+    expect(isExternalSttMultiLanguage("soniox")).toBe(true);
+    expect(isExternalSttMultiLanguage("elevenlabs")).toBe(false);
+    expect(isExternalSttMultiLanguage("assemblyai")).toBe(false);
+
+    expect(speechTranscriptionIntegrationUpdateSchema.safeParse({
+      providerId: "soniox",
+      configuration: { language: ["en", "es"] },
+      credentialAction: "clear"
+    }).success).toBe(true);
+    expect(speechTranscriptionIntegrationUpdateSchema.safeParse({
+      providerId: "soniox",
+      configuration: { language: "en" },
+      credentialAction: "clear"
+    }).success).toBe(false);
+    expect(speechTranscriptionIntegrationUpdateSchema.safeParse({
+      providerId: "soniox",
+      configuration: { language: ["en", "xx"] },
+      credentialAction: "clear"
+    }).success).toBe(false);
+
+    expect(normalizeTranscriptionSelection("soniox", {
+      language: ["es", "en", "xx"]
+    })).toEqual({
+      providerId: "soniox",
+      configuration: { language: ["es", "en"] }
+    });
+    expect(normalizeTranscriptionSelection("soniox", {
+      language: "en"
+    })).toEqual({
+      providerId: "soniox",
+      configuration: { language: [] }
+    });
   });
 
   it("normalizes AssemblyAI defaults and validates model-specific languages", () => {

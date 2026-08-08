@@ -3,6 +3,10 @@ import {
   ELEVENLABS_SCRIBE_MODEL,
   transcribeWithElevenLabs
 } from "@/lib/speech/elevenlabs";
+import {
+  SONIOX_REALTIME_MODEL,
+  transcribeWithSoniox
+} from "@/lib/speech/soniox";
 import type {
   ExternalSttLanguageForProvider,
   ExternalSttModelForProvider
@@ -22,6 +26,13 @@ type ExternalSttTranscriptionInput =
       samples: Float32Array;
       language: ExternalSttLanguageForProvider<"assemblyai">;
       model: ExternalSttModelForProvider<"assemblyai">;
+      signal?: AbortSignal;
+    }
+  | {
+      provider: "soniox";
+      apiKey: string;
+      samples: Float32Array;
+      language: ExternalSttLanguageForProvider<"soniox">;
       signal?: AbortSignal;
     };
 
@@ -51,6 +62,16 @@ export async function transcribeWithExternalSttProvider(
         model: input.model,
         signal: input.signal
       });
+    case "soniox":
+      return {
+        model: SONIOX_REALTIME_MODEL,
+        transcript: await transcribeWithSoniox({
+          apiKey: input.apiKey,
+          samples: input.samples,
+          language: input.language,
+          signal: input.signal
+        })
+      };
     default:
       return assertNever(input);
   }

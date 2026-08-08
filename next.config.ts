@@ -6,7 +6,8 @@ const nextConfig: NextConfig = {
     "onnxruntime-node",
     "@huggingface/transformers",
     "pdfjs-dist",
-    "sherpa-onnx-node"
+    "sherpa-onnx-node",
+    "ws"
   ],
   experimental: {
     middlewareClientMaxBodySize: "100mb"
