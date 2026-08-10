@@ -469,6 +469,7 @@ export type ChatStreamEvent =
   | { type: "message_start"; messageId: string }
   | { type: "thinking_delta"; text: string }
   | { type: "answer_delta"; text: string }
+  | { type: "answer_reset" }
   | { type: "action_start"; action: MessageAction }
   | { type: "action_complete"; action: MessageAction }
   | { type: "action_error"; action: MessageAction }

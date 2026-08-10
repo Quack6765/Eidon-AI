@@ -715,6 +715,10 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
       }
     }
 
+    if (event.type === "answer_reset") {
+      streamBuffer.setAnswer("", { immediate: true });
+    }
+
     if (event.type === "system_notice") {
       setMessages((current) => [
         ...current,

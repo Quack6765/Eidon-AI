@@ -376,6 +376,10 @@ async function startAssistantTurn(
           latestAnswer = "";
           latestThinking = "";
           sawStreamedAnswerSinceLastSegment = false;
+        } else if (event.type === "answer_reset") {
+          answerBuffer = "";
+          latestAnswer = "";
+          sawStreamedAnswerSinceLastSegment = false;
         }
       },
       async onAnswerSegment(segment) {

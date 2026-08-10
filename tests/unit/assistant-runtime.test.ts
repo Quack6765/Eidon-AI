@@ -2198,7 +2198,7 @@ Run browser commands.`
     })]);
   });
 
-  it("commits answer text that appears before tool calls", async () => {
+  it("discards preamble answer text streamed before tool calls", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([{ type: "answer_delta", text: "Let me search." }], {
@@ -2220,6 +2220,7 @@ Run browser commands.`
     });
 
     const persistedSegments: string[] = [];
+    const emitted: ChatStreamEvent[] = [];
     const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
     await resolveAssistantTurn({
@@ -2230,14 +2231,16 @@ Run browser commands.`
         server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
         tools: [{ name: "search_docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
       }],
-      onEvent: () => {},
+      onEvent: (event) => { emitted.push(event); },
       onAnswerSegment: (segment) => { persistedSegments.push(segment); }
     });
 
-    expect(persistedSegments).toEqual([
+    expect(emitted.filter((event) => event.type === "answer_delta").map((event) => event.type === "answer_delta" && event.text)).toEqual([
       "Let me search.",
       "Here are the results."
     ]);
+    expect(emitted.some((event) => event.type === "answer_reset")).toBe(true);
+    expect(persistedSegments).toEqual(["Here are the results."]);
   });
 
   describe("memory tools", () => {
