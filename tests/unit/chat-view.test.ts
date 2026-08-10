@@ -4226,6 +4226,52 @@ describe("chat view", () => {
     });
   });
 
+  it("clears streamed preamble text on answer_reset before a tool action", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const send = (event: unknown) =>
+      wsMock.onMessage!({ type: "delta", conversationId: "conv_1", event });
+
+    send({ type: "message_start", messageId: "msg_assistant" });
+    send({ type: "answer_delta", text: "Let me dig deeper to confirm. " });
+    send({ type: "answer_reset" });
+    send({
+      type: "action_start",
+      action: {
+        id: "act_search",
+        messageId: "msg_assistant",
+        kind: "mcp_tool_call",
+        status: "running",
+        serverId: "integration_web_search",
+        skillId: null,
+        toolName: "web_search",
+        label: "Web search",
+        detail: "palworld stacking",
+        arguments: { query: "palworld stacking" },
+        resultSummary: "",
+        sortOrder: 1,
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        proposalState: null,
+        proposalPayload: null,
+        proposalUpdatedAt: null
+      }
+    });
+    send({ type: "answer_delta", text: "Here are the confirmed results." });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("assistant-actions-shell")).toBeInTheDocument();
+    });
+
+    for (let i = 0; i < 40; i += 1) {
+      await flushAnimationFrame();
+    }
+
+    const content = screen.getAllByTestId("assistant-message-content").map((node) => node.textContent).join("");
+    expect(content).toContain("Here are the confirmed results.");
+    expect(content).not.toContain("Let me dig deeper");
+  });
+
   it("keeps a pending memory proposal visible when action_start and done arrive back to back", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 

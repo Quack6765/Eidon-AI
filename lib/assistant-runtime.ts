@@ -471,11 +471,13 @@ export async function resolveAssistantTurn(input: {
         hasImageGeneration &&
         hasUnfulfilledImageGenerationIntent(promptMessages)
       ) {
+        input.onEvent?.({ type: "answer_reset" });
         promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_REQUIRED_DIRECTIVE);
         continue;
       }
 
       if ((input.memoriesEnabled ?? false) && hasUnfulfilledMemoryIntent(answer)) {
+        input.onEvent?.({ type: "answer_reset" });
         promptMessages = mergeSystemMessage(
           promptMessages,
           "Do not say that you saved, stored, remembered, updated, or deleted a memory unless you actually call the corresponding memory tool in that same response. If a memory proposal is warranted, call the memory tool now. Otherwise, answer normally without mentioning memory-saving."
@@ -484,6 +486,7 @@ export async function resolveAssistantTurn(input: {
       }
 
       if (!answer.trim()) {
+        input.onEvent?.({ type: "answer_reset" });
         promptMessages = mergeSystemMessage(
           promptMessages,
           "Your previous response was empty. Answer the user directly. Do not emit an empty response."
@@ -494,8 +497,14 @@ export async function resolveAssistantTurn(input: {
       return { answer, thinking, usage };
     }
 
-    if (answer) {
+    const isMemoryProposalFinalStep =
+      Boolean(answer.trim()) &&
+      toolCalls.every((toolCall) => isMemoryProposalToolCall(toolCall.name));
+
+    if (isMemoryProposalFinalStep) {
       await commitAnswerSegment(answer);
+    } else {
+      input.onEvent?.({ type: "answer_reset" });
     }
 
     promptMessages = [
@@ -573,7 +582,7 @@ export async function resolveAssistantTurn(input: {
       }
     }
 
-    if (answer.trim() && toolCalls.every((toolCall) => isMemoryProposalToolCall(toolCall.name))) {
+    if (isMemoryProposalFinalStep) {
       return { answer, thinking, usage };
     }
   }
