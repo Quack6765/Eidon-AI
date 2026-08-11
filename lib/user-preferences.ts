@@ -8,6 +8,7 @@ export type UserPreferences = {
   memoriesMaxCount: number;
   mcpTimeout: number;
   maxAssistantToolSteps: number;
+  confirmExternalLinks: boolean;
   updatedAt: string;
 };
 
@@ -17,6 +18,7 @@ type UserPreferencesRow = {
   memories_max_count: number;
   mcp_timeout: number;
   max_assistant_tool_steps: number;
+  confirm_external_links: number;
   updated_at: string;
 };
 
@@ -25,8 +27,8 @@ function ensureUserPreferences(userId: string, defaults: GlobalPreferences) {
   getDb().prepare(`
     INSERT OR IGNORE INTO user_preferences (
       user_id, conversation_retention, memories_enabled, memories_max_count,
-      mcp_timeout, max_assistant_tool_steps, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      mcp_timeout, max_assistant_tool_steps, confirm_external_links, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
     defaults.conversationRetention,
@@ -34,6 +36,7 @@ function ensureUserPreferences(userId: string, defaults: GlobalPreferences) {
     defaults.memoriesMaxCount,
     defaults.mcpTimeout,
     defaults.maxAssistantToolSteps,
+    defaults.confirmExternalLinks ? 1 : 0,
     timestamp,
     timestamp
   );
@@ -43,7 +46,7 @@ export function getUserPreferences(userId: string, defaults: GlobalPreferences) 
   ensureUserPreferences(userId, defaults);
   const row = getDb().prepare(`
     SELECT conversation_retention, memories_enabled, memories_max_count,
-      mcp_timeout, max_assistant_tool_steps, updated_at
+      mcp_timeout, max_assistant_tool_steps, confirm_external_links, updated_at
     FROM user_preferences
     WHERE user_id = ?
   `).get(userId) as UserPreferencesRow;
@@ -53,6 +56,7 @@ export function getUserPreferences(userId: string, defaults: GlobalPreferences) 
     memoriesMaxCount: row.memories_max_count,
     mcpTimeout: row.mcp_timeout,
     maxAssistantToolSteps: row.max_assistant_tool_steps,
+    confirmExternalLinks: Boolean(row.confirm_external_links),
     updatedAt: row.updated_at
   } satisfies UserPreferences;
 }
@@ -68,7 +72,7 @@ export function updateUserPreferences(
     UPDATE user_preferences
     SET conversation_retention = ?, memories_enabled = ?,
       memories_max_count = ?, mcp_timeout = ?, max_assistant_tool_steps = ?,
-      updated_at = ?
+      confirm_external_links = ?, updated_at = ?
     WHERE user_id = ?
   `).run(
     next.conversationRetention,
@@ -76,6 +80,7 @@ export function updateUserPreferences(
     next.memoriesMaxCount,
     next.mcpTimeout,
     next.maxAssistantToolSteps,
+    next.confirmExternalLinks ? 1 : 0,
     next.updatedAt,
     userId
   );

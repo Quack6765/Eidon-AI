@@ -111,6 +111,7 @@ type AppSettingsCore = {
   memoriesMaxCount: number;
   mcpTimeout: number;
   maxAssistantToolSteps: number;
+  confirmExternalLinks: boolean;
   titleGenerationMode: TitleGenerationMode;
   titleGenerationProfileId: string | null;
   updatedAt: string;

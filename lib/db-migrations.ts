@@ -526,6 +526,7 @@ function migratePreferenceStorage(db: Database.Database) {
       memories_max_count INTEGER NOT NULL DEFAULT 100,
       mcp_timeout INTEGER NOT NULL DEFAULT 120000,
       max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
+      confirm_external_links INTEGER NOT NULL DEFAULT 1,
       title_generation_mode TEXT NOT NULL DEFAULT 'same',
       title_generation_profile_id TEXT,
       created_at TEXT NOT NULL,
@@ -540,6 +541,7 @@ function migratePreferenceStorage(db: Database.Database) {
       memories_max_count INTEGER NOT NULL DEFAULT 100,
       mcp_timeout INTEGER NOT NULL DEFAULT 120000,
       max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
+      confirm_external_links INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -552,13 +554,13 @@ function migratePreferenceStorage(db: Database.Database) {
       INSERT OR IGNORE INTO global_preferences (
         id, default_provider_profile_id, skills_enabled, conversation_retention,
         memories_enabled, memories_max_count, mcp_timeout,
-        max_assistant_tool_steps, title_generation_mode,
+        max_assistant_tool_steps, confirm_external_links, title_generation_mode,
         title_generation_profile_id, created_at, updated_at
       )
       SELECT id, NULLIF(default_provider_profile_id, ''), skills_enabled,
         conversation_retention, memories_enabled, memories_max_count,
         mcp_timeout, COALESCE(max_assistant_tool_steps, 25),
-        COALESCE(title_generation_mode, 'same'), title_generation_profile_id,
+        1, COALESCE(title_generation_mode, 'same'), title_generation_profile_id,
         updated_at, updated_at
       FROM app_settings
       WHERE id = 1
@@ -568,9 +570,9 @@ function migratePreferenceStorage(db: Database.Database) {
     INSERT OR IGNORE INTO global_preferences (
       id, default_provider_profile_id, skills_enabled, conversation_retention,
       memories_enabled, memories_max_count, mcp_timeout,
-      max_assistant_tool_steps, title_generation_mode,
+      max_assistant_tool_steps, confirm_external_links, title_generation_mode,
       title_generation_profile_id, created_at, updated_at
-    ) VALUES (1, NULL, 1, 'forever', 1, 100, 120000, 25, 'same', NULL, ?, ?)
+    ) VALUES (1, NULL, 1, 'forever', 1, 100, 120000, 25, 1, 'same', NULL, ?, ?)
   `).run(timestamp, timestamp);
 
   if (tableExists(db, "user_settings")) {
@@ -1801,6 +1803,15 @@ export function migrate(db: Database.Database) {
     migratePreferenceStorage(db);
   }
   normalizeIntegrationSettingsStorage(db);
+
+  const globalPreferencesCols = db.prepare("PRAGMA table_info(global_preferences)").all() as Array<{ name: string }>;
+  if (!globalPreferencesCols.some((column) => column.name === "confirm_external_links")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN confirm_external_links INTEGER NOT NULL DEFAULT 1");
+  }
+  const userPreferencesCols = db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>;
+  if (!userPreferencesCols.some((column) => column.name === "confirm_external_links")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN confirm_external_links INTEGER NOT NULL DEFAULT 1");
+  }
 }
 
 export function backfillVisionMcpServers(db: Database.Database) {

@@ -40,7 +40,7 @@ type IntegrationUpdate<ProviderId extends string> = {
 export type GeneralSettingsBundle = {
   preferences: Pick<
     UserPreferences,
-    "conversationRetention" | "mcpTimeout" | "maxAssistantToolSteps"
+    "conversationRetention" | "mcpTimeout" | "maxAssistantToolSteps" | "confirmExternalLinks"
   >;
   webSearch: IntegrationUpdate<WebSearchProviderId>;
   speechTranscription: IntegrationUpdate<TranscriptionProviderId>;
@@ -66,6 +66,7 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
     memoriesMaxCount: user.memoriesMaxCount,
     mcpTimeout: user.mcpTimeout,
     maxAssistantToolSteps: user.maxAssistantToolSteps,
+    confirmExternalLinks: user.confirmExternalLinks,
     titleGenerationMode: global.titleGenerationMode,
     titleGenerationProfileId: global.titleGenerationProfileId,
     webSearch: webSearch
@@ -183,6 +184,7 @@ export function getSanitizedSettings(userId?: string): PublicAppSettings & {
     memoriesMaxCount: settings.memoriesMaxCount,
     mcpTimeout: settings.mcpTimeout,
     maxAssistantToolSteps: settings.maxAssistantToolSteps,
+    confirmExternalLinks: settings.confirmExternalLinks,
     titleGenerationMode: settings.titleGenerationMode,
     titleGenerationProfileId: settings.titleGenerationProfileId,
     updatedAt: settings.updatedAt,

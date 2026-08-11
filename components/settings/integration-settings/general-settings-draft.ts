@@ -17,6 +17,7 @@ export type GeneralSettingsDraft = {
     conversationRetention: ConversationRetention;
     mcpTimeout: number;
     maxAssistantToolSteps: number;
+    confirmExternalLinks: boolean;
   };
   webSearch: IntegrationDraft<AppSettings["webSearch"]>;
   imageGeneration: IntegrationDraft<AppSettings["imageGeneration"]>;
@@ -46,7 +47,8 @@ export function createGeneralSettingsDraft(settings: AppSettings): GeneralSettin
     preferences: {
       conversationRetention: settings.conversationRetention,
       mcpTimeout: settings.mcpTimeout,
-      maxAssistantToolSteps: settings.maxAssistantToolSteps
+      maxAssistantToolSteps: settings.maxAssistantToolSteps,
+      confirmExternalLinks: settings.confirmExternalLinks
     },
     webSearch: createIntegrationDraft(settings.webSearch),
     imageGeneration: createIntegrationDraft(settings.imageGeneration),

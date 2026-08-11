@@ -1969,6 +1969,7 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
                   hasReceivedFirstToken={hasReceivedFirstToken}
                   compactionInProgress={compactionInProgress}
                   thinkingDuration={thinkingDuration}
+                  confirmExternalLinks={payload.settings.confirmExternalLinks}
                   onPreviewAttachment={onPreviewAttachmentStable}
                   onUpdateUserMessage={onUpdateUserMessageStable}
                   onApproveMemoryProposal={onApproveMemoryProposalStable}

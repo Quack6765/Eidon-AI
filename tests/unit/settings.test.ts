@@ -241,7 +241,8 @@ describe("settings domains", () => {
       preferences: {
         conversationRetention: "7d",
         mcpTimeout: 45000,
-        maxAssistantToolSteps: 12
+        maxAssistantToolSteps: 12,
+        confirmExternalLinks: true
       },
       webSearch: {
         providerId: "disabled",
@@ -264,6 +265,37 @@ describe("settings domains", () => {
     expect(getSettings().defaultProviderProfileId).toBe(profile.id);
   });
 
+  it("defaults confirmExternalLinks to true and keeps it user-scoped", async () => {
+    saveProfiles();
+    const first = await createLocalUser({ username: "links-first", password: "password-123", role: "user" });
+    const second = await createLocalUser({ username: "links-second", password: "password-123", role: "user" });
+
+    expect(getSettingsForUser(first.id).confirmExternalLinks).toBe(true);
+
+    updateGeneralSettingsBundleForUser(first.id, {
+      preferences: {
+        conversationRetention: "forever",
+        mcpTimeout: 120000,
+        maxAssistantToolSteps: 25,
+        confirmExternalLinks: false
+      },
+      webSearch: {
+        providerId: "disabled",
+        configuration: {},
+        credentialAction: "clear"
+      },
+      speechTranscription: {
+        providerId: "browser",
+        configuration: { language: "en" },
+        credentialAction: "clear"
+      }
+    }, false);
+
+    expect(getSettingsForUser(first.id).confirmExternalLinks).toBe(false);
+    expect(getSettingsForUser(second.id).confirmExternalLinks).toBe(true);
+    expect(getSanitizedSettings(first.id).confirmExternalLinks).toBe(false);
+  });
+
   it("stores capability settings with user fallback and no public credentials", async () => {
     saveProfiles();
     const user = await createLocalUser({ username: "integration-user", password: "password-123", role: "user" });
@@ -272,7 +304,8 @@ describe("settings domains", () => {
       preferences: {
         conversationRetention: "30d",
         mcpTimeout: 60000,
-        maxAssistantToolSteps: 20
+        maxAssistantToolSteps: 20,
+        confirmExternalLinks: true
       },
       webSearch: {
         providerId: "tavily",
@@ -320,7 +353,8 @@ describe("settings domains", () => {
     const preferences = {
       conversationRetention: "forever" as const,
       mcpTimeout: 120000,
-      maxAssistantToolSteps: 25
+      maxAssistantToolSteps: 25,
+      confirmExternalLinks: true
     };
 
     updateGeneralSettingsBundleForUser(user.id, {
@@ -370,7 +404,8 @@ describe("settings domains", () => {
     const preferences = {
       conversationRetention: "forever" as const,
       mcpTimeout: 120000,
-      maxAssistantToolSteps: 25
+      maxAssistantToolSteps: 25,
+      confirmExternalLinks: true
     };
 
     updateGeneralSettingsBundleForUser(user.id, {
@@ -429,7 +464,8 @@ describe("settings domains", () => {
       preferences: {
         conversationRetention: "90d" as const,
         mcpTimeout: 90000,
-        maxAssistantToolSteps: 30
+        maxAssistantToolSteps: 30,
+        confirmExternalLinks: true
       },
       webSearch: {
         providerId: "exa" as const,

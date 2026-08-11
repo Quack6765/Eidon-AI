@@ -12,6 +12,7 @@ import { CompactionIndicator } from "@/components/compaction-indicator";
 import { parseAnsiText } from "@/lib/ansi";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import { useStreamdownPlugins } from "@/lib/streamdown-plugins";
+import { useLinkSafety } from "@/components/link-safety-modal";
 import { writeRichTextToClipboard } from "@/lib/clipboard";
 import {
   isMemoryProposalAction,
@@ -97,11 +98,13 @@ const AssistantMarkdown = React.memo(
   function AssistantMarkdown({
     content,
     isAnimating = false,
-    showCaret = false
+    showCaret = false,
+    linkSafety
   }: {
     content: string;
     isAnimating?: boolean;
     showCaret?: boolean;
+    linkSafety: ReturnType<typeof useLinkSafety>;
   }) {
     const plugins = useStreamdownPlugins(content);
     const fallback = (
@@ -113,6 +116,7 @@ const AssistantMarkdown = React.memo(
           plugins={plugins}
           isAnimating={isAnimating}
           caret={showCaret ? "block" : undefined}
+          linkSafety={linkSafety}
         >
           {content}
         </Streamdown>
@@ -122,7 +126,8 @@ const AssistantMarkdown = React.memo(
   (previous, next) =>
     previous.content === next.content &&
     previous.isAnimating === next.isAnimating &&
-    previous.showCaret === next.showCaret
+    previous.showCaret === next.showCaret &&
+    previous.linkSafety === next.linkSafety
 );
 
 export function InProgressIndicator() {
@@ -316,6 +321,7 @@ function MessageBubbleImpl({
   thinkingInProgress = false,
   thinkingDuration,
   hasThinking = false,
+  confirmExternalLinks = true,
   onUpdateUserMessage,
   isUpdating = false,
   onForkAssistantMessage,
@@ -338,6 +344,7 @@ function MessageBubbleImpl({
   thinkingInProgress?: boolean;
   thinkingDuration?: number;
   hasThinking?: boolean;
+  confirmExternalLinks?: boolean;
   onUpdateUserMessage?: (messageId: string, content: string) => Promise<void>;
   onApproveMemoryProposal?: (
     actionId: string,
@@ -363,6 +370,7 @@ function MessageBubbleImpl({
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   const copyResetHandle = useRef<number | null>(null);
   const previewController = useAttachmentPreviewController();
+  const linkSafety = useLinkSafety(confirmExternalLinks);
   const userPlugins = useStreamdownPlugins(
     message.role === "user" ? streamingAnswer ?? message.content : ""
   );
@@ -619,7 +627,7 @@ function MessageBubbleImpl({
               }
             }}
           >
-            <Streamdown>{thinkingShellContent}</Streamdown>
+            <Streamdown linkSafety={linkSafety}>{thinkingShellContent}</Streamdown>
           </div>
         ) : null}
       </div>
@@ -793,7 +801,7 @@ function MessageBubbleImpl({
                 />
               ) : content ? (
                 <div ref={contentRef} className="markdown-body">
-                  <Streamdown mode="static" plugins={userPlugins}>{content.replace(/\n/g, "  \n")}</Streamdown>
+                  <Streamdown mode="static" plugins={userPlugins} linkSafety={linkSafety}>{content.replace(/\n/g, "  \n")}</Streamdown>
                 </div>
               ) : null}
               {message.attachments?.length ? (
@@ -969,6 +977,7 @@ function MessageBubbleImpl({
                               content={renderedContent}
                               isAnimating={isStreamingTailBlock}
                               showCaret={isStreamingTailBlock}
+                              linkSafety={linkSafety}
                             />
                           </div>
                           {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (

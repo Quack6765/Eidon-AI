@@ -29,6 +29,7 @@ function StreamingMessageImpl({
   hasReceivedFirstToken,
   compactionInProgress,
   thinkingDuration,
+  confirmExternalLinks,
   onPreviewAttachment,
   onUpdateUserMessage,
   onApproveMemoryProposal,
@@ -48,6 +49,7 @@ function StreamingMessageImpl({
   hasReceivedFirstToken: boolean;
   compactionInProgress: boolean;
   thinkingDuration?: number;
+  confirmExternalLinks: boolean;
   onPreviewAttachment?: (attachment: MessageAttachment) => void;
   onUpdateUserMessage?: (messageId: string, content: string) => Promise<void>;
   onApproveMemoryProposal?: (
@@ -90,6 +92,7 @@ function StreamingMessageImpl({
         active && Boolean(snapshot.thinkingTarget) && !snapshot.answerTarget && !hasRunningStreamingAction
       }
       thinkingDuration={active ? thinkingDuration : undefined}
+      confirmExternalLinks={confirmExternalLinks}
       hasThinking={active && Boolean(snapshot.thinkingTarget)}
       onPreviewAttachment={onPreviewAttachment}
       onUpdateUserMessage={onUpdateUserMessage}

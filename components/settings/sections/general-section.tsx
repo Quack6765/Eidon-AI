@@ -36,8 +36,8 @@ const GENERAL_SECTIONS = [
   {
     id: "conversation",
     label: "Conversation",
-    description: "Retention and history",
-    detail: "Choose how long Eidon keeps conversations in this workspace.",
+    description: "Retention and links",
+    detail: "Choose how long Eidon keeps conversations and how links open.",
     icon: Archive
   },
   {
@@ -211,23 +211,40 @@ export function GeneralSection({
 
   const detailContent = {
     conversation: (
-      <div className="space-y-1.5">
-        <label htmlFor="conversation-retention" className={fieldLabel}>Keep conversations for</label>
-        <p className="text-xs leading-5 text-[var(--muted)]">Older conversations will be automatically deleted.</p>
-        <select
-          id="conversation-retention"
-          value={draft.preferences.conversationRetention}
-          onChange={(event) => updateDraft("preferences", {
-            ...draft.preferences,
-            conversationRetention: event.target.value as ConversationRetention
-          })}
-          className={`${selectLike} mt-2 sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
-        >
-          <option value="forever">Forever</option>
-          <option value="90d">90 days</option>
-          <option value="30d">30 days</option>
-          <option value="7d">7 days</option>
-        </select>
+      <div className="space-y-6">
+        <div className="space-y-1.5">
+          <label htmlFor="conversation-retention" className={fieldLabel}>Keep conversations for</label>
+          <p className="text-xs leading-5 text-[var(--muted)]">Older conversations will be automatically deleted.</p>
+          <select
+            id="conversation-retention"
+            value={draft.preferences.conversationRetention}
+            onChange={(event) => updateDraft("preferences", {
+              ...draft.preferences,
+              conversationRetention: event.target.value as ConversationRetention
+            })}
+            className={`${selectLike} mt-2 sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
+          >
+            <option value="forever">Forever</option>
+            <option value="90d">90 days</option>
+            <option value="30d">30 days</option>
+            <option value="7d">7 days</option>
+          </select>
+        </div>
+        <label htmlFor="confirm-external-links" className="flex items-center gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3 text-sm text-[var(--text)] cursor-pointer sm:max-w-md">
+          <input
+            id="confirm-external-links"
+            type="checkbox"
+            checked={draft.preferences.confirmExternalLinks}
+            onChange={(event) => updateDraft("preferences", {
+              ...draft.preferences,
+              confirmExternalLinks: event.target.checked
+            })}
+          />
+          <span className="flex flex-col gap-1">
+            <span className="font-medium">Ask before opening external links</span>
+            <span className="text-xs leading-5 text-[var(--muted)]">When on, tapping a link shows a confirmation. When off, links open immediately.</span>
+          </span>
+        </label>
       </div>
     ),
     "agent-limits": (

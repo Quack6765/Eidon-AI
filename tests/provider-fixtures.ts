@@ -118,6 +118,7 @@ export function createRuntimeAppSettings(
     memoriesMaxCount: 100,
     mcpTimeout: 120000,
     maxAssistantToolSteps: 25,
+    confirmExternalLinks: true,
     titleGenerationMode: "same",
     titleGenerationProfileId: null,
     webSearch: {
