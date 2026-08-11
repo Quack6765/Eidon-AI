@@ -172,11 +172,6 @@ select {
   50% { opacity: 1; }
 }
 
-@keyframes typing-dot {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.3; }
-  30% { transform: translateY(calc(var(--typing-dot-lift, 6px) * -1)); opacity: 1; }
-}
-
 .animate-fade-in {
   animation: fade-in 0.3s ease-out forwards;
 }
@@ -556,8 +551,8 @@ select {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .typing-dot {
-    animation: none !important;
+  [data-testid="assistant-in-progress"] .animate-spin {
+    animation: none;
   }
 
   .animate-slide-up,

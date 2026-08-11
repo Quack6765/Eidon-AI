@@ -125,20 +125,23 @@ const AssistantMarkdown = React.memo(
     previous.showCaret === next.showCaret
 );
 
-export function TypingIndicator({ compact = false }: { compact?: boolean }) {
+export function InProgressIndicator() {
   return (
-    <div className={compact ? "flex items-center gap-1" : "flex items-center gap-1.5 px-1 py-2"}>
-      {[0, 1, 2].map((i) => (
-        <div
-          key={i}
-          className="typing-dot h-1.5 w-1.5 rounded-full bg-white/40"
-          style={{
-            ["--typing-dot-lift" as string]: compact ? "2px" : "6px",
-            animation: "typing-dot 1.4s ease-in-out infinite",
-            animationDelay: `${i * 0.2}s`
-          }}
-        />
-      ))}
+    <div
+      className="w-fit rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 animate-fade-in"
+      data-testid="assistant-in-progress"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="flex items-center gap-1.5">
+        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
+          <LoaderCircle className="h-3 w-3 animate-spin text-white/45" aria-hidden="true" />
+        </span>
+        <span className="flex items-center gap-1 text-[11px] leading-[16.5px] text-white/50">
+          <span className="font-medium">Working</span>
+          <span className="text-white/30" aria-hidden="true">...</span>
+        </span>
+      </span>
     </div>
   );
 }
@@ -244,9 +247,6 @@ function CollapsibleActionRow({
 const ASSISTANT_CONTENT =
   "w-full max-w-full text-[var(--text)]";
 const ASSISTANT_ERROR_MAX_WIDTH = "max-w-full md:max-w-[95%]";
-const ASSISTANT_LOADING_SHELL =
-  "mt-[6px] inline-flex items-center overflow-hidden rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1";
-
 type ThinkingTimelineItem = Extract<MessageTimelineItem, { timelineKind: "thinking" }>;
 type RenderedThinkingTimelineItem = ThinkingTimelineItem & { content: string };
 type AssistantBlock =
@@ -593,7 +593,7 @@ function MessageBubbleImpl({
           <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
             {statusIcon}
           </span>
-          <span className="flex items-center gap-1 text-[11px] text-white/50">
+          <span className="flex items-center gap-1 text-[11px] leading-[16.5px] text-white/50">
             <span className="font-medium">{isRunning ? "Thinking" : "Thought"}</span>
             {isRunning ? (
               <span className="text-white/30">...</span>
@@ -680,6 +680,25 @@ function MessageBubbleImpl({
         duration: thinkingDuration
       })
     : null;
+
+  const lastAssistantBlock = assistantBlocks[assistantBlocks.length - 1];
+  const lastBlockIsRunningAction =
+    lastAssistantBlock?.timelineKind === "action" && lastAssistantBlock.status === "running";
+  const lastBlockIsRunningThinking =
+    lastAssistantBlock?.timelineKind === "thinking" && lastAssistantBlock.status === "running";
+  const lastBlockIsStreamingText =
+    isAssistantStreaming &&
+    lastAssistantBlock?.timelineKind === "text" &&
+    lastAssistantBlock.id === lastRenderableAssistantTextId;
+  const showInProgressTail =
+    isAssistantStreaming &&
+    !awaitingFirstToken &&
+    message.status !== "error" &&
+    message.status !== "stopped" &&
+    !lastBlockIsRunningAction &&
+    !lastBlockIsRunningThinking &&
+    !lastBlockIsStreamingText &&
+    !(showThinkingShell && thinkingInProgress);
 
   function setCopyFeedback(nextState: "copied" | "error") {
     setCopyState(nextState);
@@ -869,12 +888,7 @@ function MessageBubbleImpl({
               compactionInProgress ? (
                 <CompactionIndicator />
               ) : (
-                <div
-                  className={ASSISTANT_LOADING_SHELL}
-                  data-testid="assistant-loading-shell"
-                >
-                  <TypingIndicator compact />
-                </div>
+                <InProgressIndicator />
               )
             ) : message.status === "error" ? (
               <div className="group flex w-full min-w-0 flex-col items-start">
@@ -984,6 +998,9 @@ function MessageBubbleImpl({
                         <Square className="h-2.5 w-2.5 fill-current" />
                         <span>Stopped</span>
                       </div>
+                    ) : null}
+                    {showInProgressTail ? (
+                      <InProgressIndicator />
                     ) : null}
                     {assistantFileAttachments.length ? (
                       <div>
