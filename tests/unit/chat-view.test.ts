@@ -320,7 +320,8 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
         configured: true,
         credentialStored: false,
         scope: "global"
-      }
+      },
+      confirmExternalLinks: true
     },
     providerProfiles: [
       toProviderProfileSummary(createRuntimeProviderProfile({
@@ -1286,7 +1287,8 @@ describe("chat view", () => {
               configured: true,
               credentialStored: false,
               scope: "global"
-            }
+            },
+            confirmExternalLinks: true
           }
         })
       })

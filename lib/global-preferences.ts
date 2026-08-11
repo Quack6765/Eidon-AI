@@ -9,6 +9,7 @@ export type GlobalPreferences = {
   memoriesMaxCount: number;
   mcpTimeout: number;
   maxAssistantToolSteps: number;
+  confirmExternalLinks: boolean;
   titleGenerationMode: TitleGenerationMode;
   titleGenerationProfileId: string | null;
   updatedAt: string;
@@ -22,6 +23,7 @@ type GlobalPreferencesRow = {
   memories_max_count: number;
   mcp_timeout: number;
   max_assistant_tool_steps: number;
+  confirm_external_links: number;
   title_generation_mode: TitleGenerationMode;
   title_generation_profile_id: string | null;
   updated_at: string;
@@ -36,6 +38,7 @@ function rowToPreferences(row: GlobalPreferencesRow): GlobalPreferences {
     memoriesMaxCount: row.memories_max_count,
     mcpTimeout: row.mcp_timeout,
     maxAssistantToolSteps: row.max_assistant_tool_steps,
+    confirmExternalLinks: Boolean(row.confirm_external_links),
     titleGenerationMode: row.title_generation_mode,
     titleGenerationProfileId: row.title_generation_profile_id,
     updatedAt: row.updated_at
@@ -46,7 +49,7 @@ export function getGlobalPreferences() {
   const row = getDb().prepare(`
     SELECT default_provider_profile_id, skills_enabled, conversation_retention,
       memories_enabled, memories_max_count, mcp_timeout,
-      max_assistant_tool_steps, title_generation_mode,
+      max_assistant_tool_steps, confirm_external_links, title_generation_mode,
       title_generation_profile_id, updated_at
     FROM global_preferences
     WHERE id = 1
@@ -62,7 +65,8 @@ export function updateGlobalPreferences(input: Partial<GlobalPreferences>) {
     SET default_provider_profile_id = ?, skills_enabled = ?,
       conversation_retention = ?, memories_enabled = ?,
       memories_max_count = ?, mcp_timeout = ?, max_assistant_tool_steps = ?,
-      title_generation_mode = ?, title_generation_profile_id = ?, updated_at = ?
+      confirm_external_links = ?, title_generation_mode = ?,
+      title_generation_profile_id = ?, updated_at = ?
     WHERE id = 1
   `).run(
     next.defaultProviderProfileId,
@@ -72,6 +76,7 @@ export function updateGlobalPreferences(input: Partial<GlobalPreferences>) {
     next.memoriesMaxCount,
     next.mcpTimeout,
     next.maxAssistantToolSteps,
+    next.confirmExternalLinks ? 1 : 0,
     next.titleGenerationMode,
     next.titleGenerationProfileId,
     next.updatedAt

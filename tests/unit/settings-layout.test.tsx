@@ -65,6 +65,7 @@ const settings: GeneralSectionSettings = {
   memoriesMaxCount: 100,
   mcpTimeout: 120_000,
   maxAssistantToolSteps: 25,
+  confirmExternalLinks: true,
   speechTranscription: {
     providerId: "browser",
     configuration: { language: "en" },
@@ -129,7 +130,7 @@ describe("settings mobile layout", () => {
     expect(container.firstElementChild).toHaveClass("w-full");
     expect(container.firstElementChild).toHaveClass("flex-1");
     expect(screen.getByRole("heading", { name: "General" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Conversation Retention and history" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Conversation Retention and links" })).toBeInTheDocument();
   });
 
   it("shows a settings-specific mobile header when browsing settings", () => {

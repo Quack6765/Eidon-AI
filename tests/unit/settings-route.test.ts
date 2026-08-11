@@ -33,7 +33,8 @@ describe("settings route", () => {
           preferences: {
             conversationRetention: "forever",
             mcpTimeout: 120000,
-            maxAssistantToolSteps: 25
+            maxAssistantToolSteps: 25,
+            confirmExternalLinks: true
           },
           webSearch: {
             providerId: "disabled",
@@ -78,7 +79,8 @@ describe("settings route", () => {
       preferences: {
         conversationRetention: "forever",
         mcpTimeout: 120000,
-        maxAssistantToolSteps: 25
+        maxAssistantToolSteps: 25,
+        confirmExternalLinks: true
       },
       webSearch: {
         providerId: "disabled",

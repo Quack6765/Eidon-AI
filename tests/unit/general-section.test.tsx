@@ -57,6 +57,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
     memoriesMaxCount: 3,
     mcpTimeout: 120_000,
     maxAssistantToolSteps: 25,
+    confirmExternalLinks: true,
     webSearch: !overrides.webSearchEngine && overrides.webSearch ? overrides.webSearch : {
       providerId: searchProvider,
       configuration: searchProvider === "searxng"
@@ -109,6 +110,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
     ...Object.fromEntries(Object.entries(overrides).filter(([key]) => [
       "defaultProviderProfileId", "skillsEnabled", "conversationRetention",
       "memoriesEnabled", "memoriesMaxCount", "mcpTimeout", "maxAssistantToolSteps",
+      "confirmExternalLinks",
       "titleGenerationMode", "titleGenerationProfileId", "providerProfiles", "updatedAt",
       "webSearch", "speechTranscription", "imageGeneration"
     ].includes(key)))
@@ -155,6 +157,31 @@ describe("general section", () => {
       mcpTimeout: 45_000
     });
     expect(body.preferences).not.toHaveProperty("autoCompaction");
+  });
+
+  it("saves the external link confirmation preference from the Conversation section", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    const toggle = screen.getByRole("checkbox", { name: /Ask before opening external links/ });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    expect(toggle).not.toBeChecked();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    const body = JSON.parse(String(putCall[1]?.body));
+    expect(body.preferences.confirmExternalLinks).toBe(false);
   });
 
   it("saves speech engine and default language through the general settings endpoint", async () => {

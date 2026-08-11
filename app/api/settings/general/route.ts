@@ -14,7 +14,8 @@ const inputSchema = z.object({
   preferences: z.object({
     conversationRetention: z.enum(["forever", "90d", "30d", "7d"]),
     mcpTimeout: z.number().int().min(10_000).max(600_000),
-    maxAssistantToolSteps: z.number().int().min(1).max(1000)
+    maxAssistantToolSteps: z.number().int().min(1).max(1000),
+    confirmExternalLinks: z.boolean()
   }),
   webSearch: webSearchIntegrationUpdateSchema,
   speechTranscription: speechTranscriptionIntegrationUpdateSchema,

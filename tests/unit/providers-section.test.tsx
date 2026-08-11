@@ -103,6 +103,7 @@ function makeSettings(overrides: SettingsOverrides = {}): SettingsFixture {
     memoriesMaxCount: 100,
     mcpTimeout: 120_000,
     maxAssistantToolSteps: 25,
+    confirmExternalLinks: true,
     titleGenerationMode: "same",
     titleGenerationProfileId: null,
     webSearch: {
