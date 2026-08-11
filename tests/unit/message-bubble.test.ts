@@ -1493,6 +1493,117 @@ describe("message bubble", () => {
     ).toBeNull();
   });
 
+  it("shows an inline in-progress indicator while awaiting the first token", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        awaitingFirstToken: true
+      })
+    );
+
+    const indicator = screen.getByTestId("assistant-in-progress");
+    expect(indicator).toHaveTextContent("Working");
+  });
+
+  it("hides the in-progress indicator while answer text is streaming", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "So far" },
+        streamingAnswer: "So far",
+        streamingTimeline: [
+          { id: "txt_1", timelineKind: "text", sortOrder: 0, createdAt: new Date().toISOString(), content: "So far" }
+        ]
+      })
+    );
+
+    expect(screen.queryByTestId("assistant-in-progress")).toBeNull();
+  });
+
+  it("shows the working indicator again after text finishes and a step completes", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "Done so far" },
+        streamingAnswer: "Done so far",
+        streamingTimeline: [
+          { id: "txt_1", timelineKind: "text", sortOrder: 0, createdAt: new Date().toISOString(), content: "Done so far" },
+          {
+            ...createToolAction({
+              id: "act_done",
+              messageId: "msg_assistant",
+              label: "Read documentation",
+              detail: "url=https://example.com",
+              resultSummary: "Loaded",
+              status: "completed",
+              sortOrder: 1
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    expect(screen.getByTestId("assistant-in-progress")).toHaveTextContent("Working");
+  });
+
+  it("shows the working indicator between steps when the last action completed but the turn is still active", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "",
+        streamingTimeline: [
+          {
+            ...createToolAction({
+              id: "act_done",
+              messageId: "msg_assistant",
+              label: "Read documentation",
+              detail: "url=https://example.com",
+              resultSummary: "Loaded",
+              status: "completed"
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    expect(screen.getByTestId("assistant-in-progress")).toHaveTextContent("Working");
+  });
+
+  it("hides the tail in-progress indicator when a running action is the last block", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "",
+        streamingTimeline: [
+          {
+            ...createToolAction({
+              id: "act_run",
+              messageId: "msg_assistant",
+              label: "Searching the web",
+              detail: "query=Eidon",
+              resultSummary: "",
+              status: "running",
+              completedAt: null
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    expect(screen.queryByTestId("assistant-in-progress")).toBeNull();
+  });
+
+  it("does not show an in-progress indicator for completed assistant messages", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: createAssistantMessage()
+      })
+    );
+
+    expect(screen.queryByTestId("assistant-in-progress")).toBeNull();
+  });
+
   it("does not render a fork action for user messages", () => {
     render(
       React.createElement(MessageBubble as React.ComponentType<any>, {
