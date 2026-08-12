@@ -732,6 +732,7 @@ describe("lossless compaction", () => {
       {},
       undefined,
       false,
+      "balanced",
       controller.signal
     );
 
@@ -1575,7 +1576,7 @@ describe("buildPromptMessages with memories", () => {
     }
   });
 
-  it("does not include tool instructions when no memories exist", () => {
+  it("includes tool instructions even when no memories exist (cold-start)", () => {
     const result = buildPromptMessages({
       systemPrompt: "Be helpful.",
       activeMemoryNodes: [],
@@ -1598,7 +1599,44 @@ describe("buildPromptMessages with memories", () => {
 
     const systemContent = result[0].content as string;
     expect(systemContent).not.toContain("<memory>");
-    expect(systemContent).not.toContain("create_memory");
+    expect(systemContent).toContain("create_memory");
+    expect(systemContent).toContain("Proactively capture");
+  });
+
+  it("reflects the configured memory rigor in the guidance", () => {
+    const baseMessages = [
+      {
+        id: "1",
+        conversationId: "c1",
+        role: "user" as const,
+        content: "Hi",
+        status: "completed" as const,
+        estimatedTokens: 5,
+        thinkingContent: "",
+        systemKind: null,
+        compactedAt: null,
+        createdAt: new Date().toISOString()
+      }
+    ];
+
+    const low = buildPromptMessages({
+      systemPrompt: "Be helpful.",
+      activeMemoryNodes: [],
+      messages: baseMessages,
+      memoriesEnabled: true,
+      memoriesRigor: "low"
+    });
+    expect((low[0].content as string)).toContain("Only propose a memory when the user explicitly asks");
+    expect((low[0].content as string)).not.toContain("Proactively capture");
+
+    const high = buildPromptMessages({
+      systemPrompt: "Be helpful.",
+      activeMemoryNodes: [],
+      messages: baseMessages,
+      memoriesEnabled: true,
+      memoriesRigor: "high"
+    });
+    expect((high[0].content as string)).toContain("Capture broadly and proactively");
   });
 });
 

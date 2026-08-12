@@ -524,6 +524,7 @@ function migratePreferenceStorage(db: Database.Database) {
       conversation_retention TEXT NOT NULL DEFAULT 'forever',
       memories_enabled INTEGER NOT NULL DEFAULT 1,
       memories_max_count INTEGER NOT NULL DEFAULT 100,
+      memories_rigor TEXT NOT NULL DEFAULT 'balanced',
       mcp_timeout INTEGER NOT NULL DEFAULT 120000,
       max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
@@ -539,6 +540,7 @@ function migratePreferenceStorage(db: Database.Database) {
       conversation_retention TEXT NOT NULL DEFAULT 'forever',
       memories_enabled INTEGER NOT NULL DEFAULT 1,
       memories_max_count INTEGER NOT NULL DEFAULT 100,
+      memories_rigor TEXT NOT NULL DEFAULT 'balanced',
       mcp_timeout INTEGER NOT NULL DEFAULT 120000,
       max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
@@ -1811,6 +1813,13 @@ export function migrate(db: Database.Database) {
   const userPreferencesCols = db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>;
   if (!userPreferencesCols.some((column) => column.name === "confirm_external_links")) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN confirm_external_links INTEGER NOT NULL DEFAULT 1");
+  }
+
+  if (!globalPreferencesCols.some((column) => column.name === "memories_rigor")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN memories_rigor TEXT NOT NULL DEFAULT 'balanced'");
+  }
+  if (!userPreferencesCols.some((column) => column.name === "memories_rigor")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN memories_rigor TEXT NOT NULL DEFAULT 'balanced'");
   }
 }
 

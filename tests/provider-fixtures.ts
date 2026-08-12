@@ -116,6 +116,7 @@ export function createRuntimeAppSettings(
     conversationRetention: "forever",
     memoriesEnabled: true,
     memoriesMaxCount: 100,
+    memoriesRigor: "balanced",
     mcpTimeout: 120000,
     maxAssistantToolSteps: 25,
     confirmExternalLinks: true,

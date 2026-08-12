@@ -1,6 +1,7 @@
+import { buildCreateMemoryDescription } from "@/lib/memory-guidance";
 import { extractEnumHints } from "@/lib/tool-schema-helpers";
 import { getSkillResolvedName } from "./skill-runtime";
-import type { McpServer, McpTool, Skill, ToolDefinition, VisionMode } from "@/lib/types";
+import type { McpServer, McpTool, MemoryRigor, Skill, ToolDefinition, VisionMode } from "@/lib/types";
 
 export type ToolSet = {
   server: McpServer;
@@ -32,6 +33,7 @@ export function buildToolDefinitions(input: {
   skills: Skill[];
   loadedSkillIds: Set<string>;
   memoriesEnabled: boolean;
+  memoriesRigor?: MemoryRigor;
   webSearchEnabled?: boolean;
   imageGenerationProviderId?: string | null;
   imageGenerationToolEnabled?: boolean;
@@ -157,7 +159,7 @@ export function buildToolDefinitions(input: {
         type: "function",
         function: {
           name: "create_memory",
-          description: "Save a durable fact about the user for future conversations. Use conservatively — only for facts likely to recur (name, location, preferences, work details). Do not save transient task details.",
+          description: buildCreateMemoryDescription(input.memoriesRigor ?? "balanced"),
           parameters: {
             type: "object",
             properties: {

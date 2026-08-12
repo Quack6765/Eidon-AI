@@ -38,12 +38,20 @@ type IntegrationUpdate<ProviderId extends string> = {
 };
 
 export type GeneralSettingsBundle = {
-  preferences: Pick<
-    UserPreferences,
-    "conversationRetention" | "mcpTimeout" | "maxAssistantToolSteps" | "confirmExternalLinks"
+  preferences: Partial<
+    Pick<
+      UserPreferences,
+      | "conversationRetention"
+      | "mcpTimeout"
+      | "maxAssistantToolSteps"
+      | "confirmExternalLinks"
+      | "memoriesEnabled"
+      | "memoriesMaxCount"
+      | "memoriesRigor"
+    >
   >;
-  webSearch: IntegrationUpdate<WebSearchProviderId>;
-  speechTranscription: IntegrationUpdate<TranscriptionProviderId>;
+  webSearch?: IntegrationUpdate<WebSearchProviderId>;
+  speechTranscription?: IntegrationUpdate<TranscriptionProviderId>;
   imageGeneration?: IntegrationUpdate<ImageGenerationProviderId>;
   titleGeneration?: {
     titleGenerationMode: TitleGenerationMode;
@@ -64,6 +72,7 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
     conversationRetention: user.conversationRetention,
     memoriesEnabled: user.memoriesEnabled,
     memoriesMaxCount: user.memoriesMaxCount,
+    memoriesRigor: user.memoriesRigor,
     mcpTimeout: user.mcpTimeout,
     maxAssistantToolSteps: user.maxAssistantToolSteps,
     confirmExternalLinks: user.confirmExternalLinks,
@@ -182,6 +191,7 @@ export function getSanitizedSettings(userId?: string): PublicAppSettings & {
     conversationRetention: settings.conversationRetention,
     memoriesEnabled: settings.memoriesEnabled,
     memoriesMaxCount: settings.memoriesMaxCount,
+    memoriesRigor: settings.memoriesRigor,
     mcpTimeout: settings.mcpTimeout,
     maxAssistantToolSteps: settings.maxAssistantToolSteps,
     confirmExternalLinks: settings.confirmExternalLinks,
@@ -222,13 +232,11 @@ export function updateGeneralSettingsBundleForUser(
   input: GeneralSettingsBundle,
   canManageGlobalIntegrations: boolean
 ) {
-  const integrationUpdates = [
+  const integrationUpdates = ([
     ["web_search", input.webSearch],
     ["speech_transcription", input.speechTranscription],
-    ...(input.imageGeneration
-      ? [["image_generation", input.imageGeneration] as const]
-      : [])
-  ] as Array<readonly [IntegrationCapability, unknown]>;
+    ["image_generation", input.imageGeneration]
+  ] as Array<[IntegrationCapability, unknown]>).filter(([, update]) => update !== undefined);
   const hasGlobalIntegrationUpdate = integrationUpdates.some(
     ([capability]) => INTEGRATION_CAPABILITY_CATALOG[capability].scope === "global"
   );
@@ -257,6 +265,7 @@ export function updateProviderCatalog(input: unknown) {
     conversationRetention: current.conversationRetention,
     memoriesEnabled: current.memoriesEnabled,
     memoriesMaxCount: current.memoriesMaxCount,
+    memoriesRigor: current.memoriesRigor,
     mcpTimeout: current.mcpTimeout,
     ...(input && typeof input === "object" ? input : {})
   });

@@ -63,6 +63,7 @@ const settings: GeneralSectionSettings = {
   conversationRetention: "forever",
   memoriesEnabled: true,
   memoriesMaxCount: 100,
+  memoriesRigor: "balanced",
   mcpTimeout: 120_000,
   maxAssistantToolSteps: 25,
   confirmExternalLinks: true,

@@ -7,7 +7,18 @@ import {
   deleteMemory,
   getMemoryCount
 } from "@/lib/memories";
+import { normalizeMemoryRigor } from "@/lib/global-preferences";
 import { createLocalUser } from "@/lib/users";
+
+describe("normalizeMemoryRigor", () => {
+  it("returns the rigor for valid values and falls back to balanced otherwise", () => {
+    expect(normalizeMemoryRigor("low")).toBe("low");
+    expect(normalizeMemoryRigor("high")).toBe("high");
+    expect(normalizeMemoryRigor("balanced")).toBe("balanced");
+    expect(normalizeMemoryRigor("aggressive")).toBe("balanced");
+    expect(normalizeMemoryRigor(undefined)).toBe("balanced");
+  });
+});
 
 describe("memories", () => {
   describe("listMemories", () => {

@@ -14,6 +14,7 @@ import {
   getSettingsForUser,
   listProviderProfiles,
   updateGeneralSettingsBundleForUser,
+  updateGeneralSettingsForUser,
   updateProviderCatalog
 } from "@/lib/settings";
 import { createLocalUser } from "@/lib/users";
@@ -501,5 +502,18 @@ describe("settings domains", () => {
     });
     expect(JSON.stringify(updated)).not.toContain("google-secret");
     expect(getSettingsForUser(user.id).imageGeneration.credentials.apiKey).toBe("google-secret");
+  });
+
+  it("persists memory rigor as a user-scoped preference", async () => {
+    saveProfiles();
+    const user = await createLocalUser({ username: "rigor-user", password: "password-123", role: "user" });
+
+    expect(getSettingsForUser(user.id).memoriesRigor).toBe("balanced");
+
+    updateGeneralSettingsForUser(user.id, { memoriesRigor: "high" });
+    expect(getSettingsForUser(user.id).memoriesRigor).toBe("high");
+
+    updateGeneralSettingsForUser(user.id, { memoriesRigor: "low" });
+    expect(getSettingsForUser(user.id).memoriesRigor).toBe("low");
   });
 });

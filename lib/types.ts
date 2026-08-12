@@ -109,6 +109,7 @@ type AppSettingsCore = {
   conversationRetention: ConversationRetention;
   memoriesEnabled: boolean;
   memoriesMaxCount: number;
+  memoriesRigor: MemoryRigor;
   mcpTimeout: number;
   maxAssistantToolSteps: number;
   confirmExternalLinks: boolean;
@@ -307,6 +308,8 @@ export type Persona = {
 };
 
 export type MemoryCategory = "personal" | "preference" | "work" | "location" | "other";
+
+export type MemoryRigor = "low" | "balanced" | "high";
 
 export type MemoryProposalOperation = "create" | "update" | "delete";
 export type MemoryProposalState = "pending" | "approved" | "dismissed" | "superseded";

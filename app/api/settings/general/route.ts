@@ -12,13 +12,16 @@ import { updateGeneralSettingsBundleForUser } from "@/lib/settings";
 
 const inputSchema = z.object({
   preferences: z.object({
-    conversationRetention: z.enum(["forever", "90d", "30d", "7d"]),
-    mcpTimeout: z.number().int().min(10_000).max(600_000),
-    maxAssistantToolSteps: z.number().int().min(1).max(1000),
-    confirmExternalLinks: z.boolean()
+    conversationRetention: z.enum(["forever", "90d", "30d", "7d"]).optional(),
+    mcpTimeout: z.number().int().min(10_000).max(600_000).optional(),
+    maxAssistantToolSteps: z.number().int().min(1).max(1000).optional(),
+    confirmExternalLinks: z.boolean().optional(),
+    memoriesEnabled: z.boolean().optional(),
+    memoriesMaxCount: z.number().int().min(1).max(500).optional(),
+    memoriesRigor: z.enum(["low", "balanced", "high"]).optional()
   }),
-  webSearch: webSearchIntegrationUpdateSchema,
-  speechTranscription: speechTranscriptionIntegrationUpdateSchema,
+  webSearch: webSearchIntegrationUpdateSchema.optional(),
+  speechTranscription: speechTranscriptionIntegrationUpdateSchema.optional(),
   imageGeneration: imageGenerationIntegrationUpdateSchema.optional(),
   titleGeneration: z.object({
     titleGenerationMode: z.enum(["same", "specific", "local"]),

@@ -1,5 +1,6 @@
 import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
 import { listMemories } from "@/lib/memories";
+import { buildMemorySystemGuidance } from "@/lib/memory-guidance";
 import { getDefaultRuntimeProviderProfile, getRuntimeProviderProfile, getSettings, getSettingsForUser } from "@/lib/settings";
 import {
   bumpConversation,
@@ -30,6 +31,7 @@ import type {
   EnsureCompactedContextResult,
   MessageAction,
   MemoryNode,
+  MemoryRigor,
   Message,
   PromptMessage,
   RuntimeProviderProfile,
@@ -245,6 +247,7 @@ export function buildPromptMessages(input: {
   maxAttachmentTextTokens?: number;
   memoriesEnabled?: boolean;
   memoryUserId?: string;
+  memoriesRigor?: MemoryRigor;
 }): PromptMessage[] {
   const remainingAttachmentTextTokens = {
     value: input.maxAttachmentTextTokens ?? Number.POSITIVE_INFINITY
@@ -264,10 +267,8 @@ export function buildPromptMessages(input: {
         memories.map((m) => `${m.id}: [${m.category}] ${m.content}`).join("\n") +
         "\n</memory>"
       );
-      systemParts.push(
-        "You have access to memory tools (create_memory, update_memory, delete_memory) to propose memory changes for inline review. These tools do not apply changes immediately: each call creates a pending proposal the user can approve or dismiss. Use them conservatively — only for durable, recurring facts (name, location, preferences, work details). Do not save transient details about the current task. Before proposing a new memory, check if a similar one already exists and update it instead. The user can review and manage all memory proposals and memories in their settings."
-      );
     }
+    systemParts.push(buildMemorySystemGuidance(input.memoriesRigor ?? "balanced"));
   }
 
   if (input.activeMemoryNodes.length) {
@@ -358,7 +359,8 @@ function computeFirstPassContext(
   personaContent: string | undefined,
   freshTailCount: number,
   activeMemoryNodes: MemoryNode[],
-  memoriesEnabled: boolean
+  memoriesEnabled: boolean,
+  memoriesRigor: MemoryRigor = "balanced"
 ): { promptMessages: PromptMessage[]; contextTokens: number; compactionLimit: number } {
   const conversationOwnerId = getConversationOwnerId(conversationId);
   const compactionLimit = computeCompactionLimit(settings);
@@ -376,6 +378,7 @@ function computeFirstPassContext(
     activeMemoryNodes,
     maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
     memoriesEnabled,
+    memoriesRigor,
     memoryUserId: conversationOwnerId ?? undefined
   });
 
@@ -388,6 +391,7 @@ export async function ensureCompactedContext(
   hooks: CompactionLifecycleHooks = {},
   personaId?: string,
   memoriesEnabled: boolean = false,
+  memoriesRigor: MemoryRigor = "balanced",
   abortSignal?: AbortSignal
 ): Promise<EnsureCompactedContextResult> {
   throwIfCompactionStopped(abortSignal);
@@ -429,6 +433,7 @@ export async function ensureCompactedContext(
         activeMemoryNodes,
         maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
         memoriesEnabled,
+        memoriesRigor,
         memoryUserId: conversationOwnerId ?? undefined
       });
 
@@ -446,7 +451,8 @@ export async function ensureCompactedContext(
         personaContent,
         effectiveFreshTail,
         activeMemoryNodes,
-        memoriesEnabled
+        memoriesEnabled,
+        memoriesRigor
       );
 
       if (promptTokens <= compactionLimit) {
@@ -548,7 +554,8 @@ export function estimateContextUsage(
   conversationId: string,
   settings: RuntimeProviderProfile,
   personaId?: string,
-  memoriesEnabled: boolean = false
+  memoriesEnabled: boolean = false,
+  memoriesRigor: MemoryRigor = "balanced"
 ): { contextTokens: number; compactionLimit: number } {
   const conversationOwnerId = getConversationOwnerId(conversationId);
   const persona = personaId ? getPersona(personaId, conversationOwnerId ?? undefined) : null;
@@ -561,7 +568,8 @@ export function estimateContextUsage(
     personaContent,
     settings.freshTailCount,
     activeMemoryNodes,
-    memoriesEnabled
+    memoriesEnabled,
+    memoriesRigor
   );
 
   return { contextTokens, compactionLimit };
@@ -590,7 +598,8 @@ export function getConversationContextUsage(
     conversationId,
     settings,
     undefined,
-    appSettings.memoriesEnabled
+    appSettings.memoriesEnabled,
+    appSettings.memoriesRigor
   );
 
   return { contextTokens: hasContentMessages ? contextTokens : null, compactionLimit };

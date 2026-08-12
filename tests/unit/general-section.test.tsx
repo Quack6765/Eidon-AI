@@ -55,6 +55,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
     conversationRetention: "forever",
     memoriesEnabled: false,
     memoriesMaxCount: 3,
+    memoriesRigor: "balanced",
     mcpTimeout: 120_000,
     maxAssistantToolSteps: 25,
     confirmExternalLinks: true,
