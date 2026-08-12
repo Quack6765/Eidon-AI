@@ -28,6 +28,7 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
     skills: context.skills,
     loadedSkillIds: context.loadedSkillIds,
     memoriesEnabled: context.memoriesEnabled,
+    memoriesRigor: context.appSettings?.memoriesRigor,
     webSearchEnabled: Boolean(
       context.appSettings && context.appSettings.webSearch.providerId !== "disabled"
     ),

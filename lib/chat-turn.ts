@@ -325,7 +325,7 @@ async function startAssistantTurn(
           event: { type: "compaction_end" }
         });
       }
-    }, personaId, appSettings.memoriesEnabled, control.abortController.signal);
+    }, personaId, appSettings.memoriesEnabled, appSettings.memoriesRigor, control.abortController.signal);
     control.throwIfStopped();
     let promptMessages = compacted.promptMessages;
     const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
@@ -351,6 +351,7 @@ async function startAssistantTurn(
       mcpToolSets,
       visionMcpServers,
       memoriesEnabled: appSettings.memoriesEnabled,
+      memoriesRigor: appSettings.memoriesRigor,
       memoryUserId: conversationOwnerId ?? undefined,
       mcpTimeout: appSettings.mcpTimeout,
       abortSignal: control.abortController.signal,

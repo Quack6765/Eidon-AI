@@ -13,6 +13,7 @@ import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultM
 import type {
   ChatStreamEvent,
   McpServer,
+  MemoryRigor,
   ProviderResponseItem,
   RuntimeProviderProfile,
   ProviderToolCall,
@@ -277,6 +278,7 @@ export async function resolveAssistantTurn(input: {
   mcpToolSets: ToolSet[];
   visionMcpServers?: McpServer[];
   memoriesEnabled?: boolean;
+  memoriesRigor?: MemoryRigor;
   memoryUserId?: string;
   mcpTimeout?: number;
   abortSignal?: AbortSignal;
@@ -384,6 +386,7 @@ export async function resolveAssistantTurn(input: {
       skills: turnSkills,
       loadedSkillIds,
       memoriesEnabled: input.memoriesEnabled ?? false,
+      memoriesRigor: input.memoriesRigor,
       webSearchEnabled: hasWebSearch,
       imageGenerationProviderId: input.appSettings?.imageGeneration.providerId,
       imageGenerationToolEnabled: !imageGenerationToolConsumed,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Brain, Search, Trash2 } from "lucide-react";
+import { Brain, Search, Trash2, CircleHelp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { SettingsAccordion } from "@/components/settings/settings-accordion";
@@ -10,8 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Toast } from "@/components/ui/toast";
 import { fieldLabel, inputLike, selectLike } from "@/lib/settings-styles";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToastState } from "@/hooks/use-toast-state";
-import type { AppSettings, MemoryCategory, UserMemory } from "@/lib/types";
+import type { AppSettings, MemoryCategory, MemoryRigor, UserMemory } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
@@ -24,6 +25,12 @@ const CATEGORIES: Array<{ value: MemoryCategory | "all"; label: string }> = [
   { value: "work", label: "Work" },
   { value: "location", label: "Location" },
   { value: "other", label: "Other" }
+];
+
+const RIGOR_OPTIONS: Array<{ value: MemoryRigor; label: string; description: string }> = [
+  { value: "low", label: "Low", description: "Only saves when you explicitly ask." },
+  { value: "balanced", label: "Balanced", description: "Proactively saves durable facts (name, location, role, preferences)." },
+  { value: "high", label: "High", description: "Captures broadly, including implied and stated personal context." }
 ];
 
 function formatRelativeTime(dateStr: string): string {
@@ -54,6 +61,7 @@ export function MemoriesSection() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const toast = useToastState();
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const fetchMemories = useCallback(async (params?: string) => {
     const url = params ? `/api/memories?${params}` : "/api/memories";
@@ -85,7 +93,7 @@ export function MemoriesSection() {
       const res = await fetch("/api/settings/general", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...settings, ...patch })
+        body: JSON.stringify({ preferences: patch })
       });
       if (!res.ok) {
         toast.showToast("error", "Failed to save settings.");
@@ -215,6 +223,43 @@ export function MemoriesSection() {
                     className="w-full text-sm"
                   />
                   <p className="mt-1.5 text-xs text-[var(--muted)]">Currently storing {memories.length}.</p>
+                </div>
+                <div>
+                  <div className="mb-1.5 flex items-center gap-1.5">
+                    <label className="text-[13px] font-medium text-[var(--muted)]">Memory proactiveness</label>
+                    <Popover open={helpOpen} onOpenChange={setHelpOpen}>
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label="What each proactiveness level does"
+                          onPointerEnter={(e) => { if (e.pointerType === "mouse") setHelpOpen(true); }}
+                          onPointerLeave={(e) => { if (e.pointerType === "mouse") setHelpOpen(false); }}
+                          className="text-sky-400 transition-colors hover:text-sky-300 focus:outline-none"
+                        >
+                          <CircleHelp className="h-3.5 w-3.5" />
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent align="start" sideOffset={6} className="max-w-[17rem]">
+                        <div className="space-y-1.5 py-0.5">
+                          {RIGOR_OPTIONS.map((opt) => (
+                            <div key={opt.value} className="leading-snug">
+                              <span className="font-semibold">{opt.label}</span>
+                              <span className="opacity-70">: {opt.description}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                  <select
+                    value={settings?.memoriesRigor ?? "balanced"}
+                    onChange={(e) => saveSettings({ memoriesRigor: e.target.value as MemoryRigor })}
+                    className={`${selectLike} text-sm`}
+                  >
+                    {RIGOR_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </SettingsAccordion>

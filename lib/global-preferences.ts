@@ -1,5 +1,9 @@
 import { getDb } from "@/lib/db";
-import type { ConversationRetention, TitleGenerationMode } from "@/lib/types";
+import type { ConversationRetention, MemoryRigor, TitleGenerationMode } from "@/lib/types";
+
+export function normalizeMemoryRigor(value: unknown): MemoryRigor {
+  return value === "low" || value === "high" ? value : "balanced";
+}
 
 export type GlobalPreferences = {
   defaultProviderProfileId: string | null;
@@ -7,6 +11,7 @@ export type GlobalPreferences = {
   conversationRetention: ConversationRetention;
   memoriesEnabled: boolean;
   memoriesMaxCount: number;
+  memoriesRigor: MemoryRigor;
   mcpTimeout: number;
   maxAssistantToolSteps: number;
   confirmExternalLinks: boolean;
@@ -21,6 +26,7 @@ type GlobalPreferencesRow = {
   conversation_retention: ConversationRetention;
   memories_enabled: number;
   memories_max_count: number;
+  memories_rigor: MemoryRigor;
   mcp_timeout: number;
   max_assistant_tool_steps: number;
   confirm_external_links: number;
@@ -36,6 +42,7 @@ function rowToPreferences(row: GlobalPreferencesRow): GlobalPreferences {
     conversationRetention: row.conversation_retention,
     memoriesEnabled: Boolean(row.memories_enabled),
     memoriesMaxCount: row.memories_max_count,
+    memoriesRigor: normalizeMemoryRigor(row.memories_rigor),
     mcpTimeout: row.mcp_timeout,
     maxAssistantToolSteps: row.max_assistant_tool_steps,
     confirmExternalLinks: Boolean(row.confirm_external_links),
@@ -48,7 +55,7 @@ function rowToPreferences(row: GlobalPreferencesRow): GlobalPreferences {
 export function getGlobalPreferences() {
   const row = getDb().prepare(`
     SELECT default_provider_profile_id, skills_enabled, conversation_retention,
-      memories_enabled, memories_max_count, mcp_timeout,
+      memories_enabled, memories_max_count, memories_rigor, mcp_timeout,
       max_assistant_tool_steps, confirm_external_links, title_generation_mode,
       title_generation_profile_id, updated_at
     FROM global_preferences
@@ -64,7 +71,7 @@ export function updateGlobalPreferences(input: Partial<GlobalPreferences>) {
     UPDATE global_preferences
     SET default_provider_profile_id = ?, skills_enabled = ?,
       conversation_retention = ?, memories_enabled = ?,
-      memories_max_count = ?, mcp_timeout = ?, max_assistant_tool_steps = ?,
+      memories_max_count = ?, memories_rigor = ?, mcp_timeout = ?, max_assistant_tool_steps = ?,
       confirm_external_links = ?, title_generation_mode = ?,
       title_generation_profile_id = ?, updated_at = ?
     WHERE id = 1
@@ -74,6 +81,7 @@ export function updateGlobalPreferences(input: Partial<GlobalPreferences>) {
     next.conversationRetention,
     next.memoriesEnabled ? 1 : 0,
     next.memoriesMaxCount,
+    normalizeMemoryRigor(next.memoriesRigor),
     next.mcpTimeout,
     next.maxAssistantToolSteps,
     next.confirmExternalLinks ? 1 : 0,
