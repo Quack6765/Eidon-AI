@@ -847,6 +847,116 @@ describe("providers section", () => {
     expect(screen.queryByText(/no MCP server is marked as a Vision MCP/i)).toBeNull();
   });
 
+  it("renders the provider vision mode option with a filtered vision provider dropdown", async () => {
+    const base = makeSettings().providerProfiles[0];
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [
+            {
+              ...base,
+              id: "profile_main",
+              name: "Main",
+              model: "glm-5.1",
+              visionMode: "provider",
+              visionProviderProfileId: "profile_vision"
+            },
+            {
+              ...base,
+              id: "profile_vision",
+              name: "Vision",
+              model: "gpt-4o"
+            },
+            {
+              ...base,
+              id: "profile_nonvision",
+              name: "Plain",
+              model: "glm-4.7"
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.getByRole("option", { name: "other provider" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Vision · gpt-4o" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Plain · glm-4.7" })).toBeNull();
+    expect(screen.queryByRole("option", { name: "Main · glm-5.1" })).toBeNull();
+
+    const visionProviderSelect = screen
+      .getAllByRole("combobox")
+      .find((element) => (element as HTMLSelectElement).value === "profile_vision");
+    expect(visionProviderSelect).toBeDefined();
+  });
+
+  it("shows amber warning when provider vision mode has no vision-capable other profile", async () => {
+    const base = makeSettings().providerProfiles[0];
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [
+            {
+              ...base,
+              id: "profile_main",
+              name: "Main",
+              model: "glm-5.1",
+              visionMode: "provider",
+              visionProviderProfileId: null
+            },
+            {
+              ...base,
+              id: "profile_nonvision",
+              name: "Plain",
+              model: "glm-4.7"
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.getByText(/No other profile has a vision-capable model/i)).toBeInTheDocument();
+  });
+
+  it("does not show amber warning when a vision-capable other profile exists", async () => {
+    const base = makeSettings().providerProfiles[0];
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [
+            {
+              ...base,
+              id: "profile_main",
+              name: "Main",
+              model: "glm-5.1",
+              visionMode: "provider",
+              visionProviderProfileId: "profile_vision"
+            },
+            {
+              ...base,
+              id: "profile_vision",
+              name: "Vision",
+              model: "gpt-4o"
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.queryByText(/No other profile has a vision-capable model/i)).toBeNull();
+  });
+
   it("persists the default profile when clicking Set Default", async () => {
     const fetchMock = vi.mocked(global.fetch);
     const settings = makeSettings({

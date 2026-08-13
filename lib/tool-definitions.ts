@@ -39,6 +39,7 @@ export function buildToolDefinitions(input: {
   imageGenerationToolEnabled?: boolean;
   restrictToGenerateImage?: boolean;
   effectiveVisionMode: VisionMode;
+  visionToolEnabled?: boolean;
 }): ToolDefinition[] {
   const imageTool =
     input.imageGenerationToolEnabled !== false &&
@@ -107,6 +108,32 @@ export function buildToolDefinitions(input: {
             skill_name: { type: "string", description: "Name of the skill to load" }
           },
           required: ["skill_name"]
+        }
+      }
+    });
+  }
+
+  if (input.visionToolEnabled) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "analyze_image",
+        description: "Analyze attached images using a vision-capable model. Use the absolute file paths listed in the system message and include an optional question about the images. Returns a text description from the vision model.",
+        parameters: {
+          type: "object",
+          properties: {
+            file_paths: {
+              type: "array",
+              items: { type: "string" },
+              maxItems: 10,
+              description: "Absolute file paths of the images to analyze (from the attachment list in the system message)"
+            },
+            question: {
+              type: "string",
+              description: "Optional question to answer about the images"
+            }
+          },
+          required: ["file_paths"]
         }
       }
     });

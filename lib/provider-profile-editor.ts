@@ -78,6 +78,7 @@ export function switchProviderProfileKind(
     compactionThreshold: profile.compactionThreshold,
     freshTailCount: profile.freshTailCount,
     visionMode: profile.visionMode,
+    visionProviderProfileId: profile.visionProviderProfileId,
     createdAt: profile.createdAt,
     updatedAt: profile.updatedAt
   };

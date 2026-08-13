@@ -1,3 +1,5 @@
+import { resolveAbsoluteImagePathPart } from "@/lib/attachments";
+import { streamProviderResponse } from "@/lib/provider";
 import { getMemory as getMemoryRecord, getMemoryCount } from "@/lib/memories";
 import {
   buildCreateMemoryProposal,
@@ -31,6 +33,7 @@ import type {
   RuntimeProviderProfile,
   ProviderToolCall,
   PromptMessage,
+  PromptImageContentPart,
   Skill
 } from "@/lib/types";
 
@@ -684,11 +687,136 @@ export async function executeDeleteMemory(
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
+const VISION_ANALYSIS_SYSTEM_PROMPT =
+  "You are a vision analysis sub-agent. Describe what is visible in the provided images precisely and answer the question about the images. Be thorough but concise. Never invent details that are not visible in the images.";
+
+export async function executeAnalyzeImage(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      visionProfile?: RuntimeProviderProfile;
+      abortSignal?: AbortSignal;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  let sortOrder = context.timelineSortOrder;
+
+  const rawPaths = args.file_paths;
+  if (!Array.isArray(rawPaths) || rawPaths.length === 0) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      "Error: file_paths must be a non-empty array of absolute image paths"
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+  if (rawPaths.length > 10) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      "Error: file_paths accepts at most 10 image paths"
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const question = typeof args.question === "string" ? args.question.trim() : "";
+
+  let imageParts: PromptImageContentPart[];
+  try {
+    imageParts = rawPaths.map((filePath) => resolveAbsoluteImagePathPart(String(filePath)));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Invalid image path";
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  if (!context.input.visionProfile) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      "Error: vision analysis is not configured for this conversation"
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const detail = question || `${imageParts.length} image${imageParts.length === 1 ? "" : "s"}`;
+  const handle = await context.input.onActionStart?.({
+    kind: "mcp_tool_call",
+    label: "Analyze image",
+    detail,
+    serverId: "integration_vision",
+    toolName: "analyze_image",
+    arguments: {
+      file_paths: rawPaths.map(String),
+      ...(question ? { question } : {})
+    }
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    const promptMessages: PromptMessage[] = [
+      { role: "system", content: VISION_ANALYSIS_SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: question || "Describe these images in detail." },
+          ...imageParts
+        ]
+      }
+    ];
+
+    const providerStream = streamProviderResponse({
+      settings: context.input.visionProfile,
+      promptMessages,
+      abortSignal: context.input.abortSignal
+    });
+
+    let answer = "";
+    while (true) {
+      const next = await providerStream.next();
+      if (next.done) {
+        answer = next.value.answer;
+        break;
+      }
+    }
+
+    throwIfAborted(context.input.abortSignal);
+    if (!answer.trim()) {
+      throw new Error("Vision analysis returned an empty response");
+    }
+
+    sortOrder += 1;
+    await context.input.onActionComplete?.(actionHandle, {
+      detail,
+      resultSummary: truncateText(answer, MAX_RUNTIME_TOOL_RESULT_CHARS)
+    });
+
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      truncateText(answer, MAX_RUNTIME_TOOL_RESULT_CHARS)
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  } catch (error) {
+    throwIfAborted(context.input.abortSignal);
+    const message = error instanceof Error ? error.message : "Vision analysis failed";
+    await context.input.onActionError?.(actionHandle, {
+      detail,
+      resultSummary: message
+    });
+    throw new Error(`Vision analysis failed: ${message}`);
+  }
+}
+
 export async function executeToolCall(
   toolCall: ProviderToolCall,
   context: {
     input: {
       settings?: RuntimeProviderProfile;
+      visionProfile?: RuntimeProviderProfile;
       skills: Skill[];
       mcpToolSets: ToolSet[];
       memoryUserId?: string;
@@ -750,6 +878,10 @@ export async function executeToolCall(
 
   if (name === "generate_image") {
     return executeImageGeneration(toolCallId, args, context);
+  }
+
+  if (name === "analyze_image") {
+    return executeAnalyzeImage(toolCallId, args, context);
   }
 
   if (name.startsWith("mcp_")) {

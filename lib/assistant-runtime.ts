@@ -1,7 +1,7 @@
 import { resolveAttachmentPath } from "@/lib/attachments";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
 import { streamProviderResponse } from "@/lib/provider";
-import { getProviderAdapter } from "@/lib/provider-adapters";
+import { getProviderAdapter, getProviderReadinessError } from "@/lib/provider-adapters";
 import { withStreamRetry } from "@/lib/provider-retry";
 import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
 import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
@@ -111,6 +111,21 @@ function buildVisionMcpDirective(
   ].join("\n");
 }
 
+function buildProviderVisionDirective(
+  attachments: Array<{ id: string; filename: string; absolutePath: string }>
+): string {
+  const attachmentList = attachments
+    .map((a) => `- ${a.filename} (path: ${a.absolutePath})`)
+    .join("\n");
+
+  return [
+    "This model cannot view images or videos directly. When the user provides images, call the analyze_image tool with the absolute file paths listed below and an optional question. A vision-capable model will analyze them and return a text description.",
+    "",
+    "User attachments in this conversation (use these absolute paths when calling analyze_image):",
+    attachmentList
+  ].join("\n");
+}
+
 function extractImageAttachments(promptMessages: PromptMessage[]): Array<{ id: string; filename: string; absolutePath: string }> {
   const attachments: Array<{ id: string; filename: string; absolutePath: string }> = [];
 
@@ -174,6 +189,9 @@ function getEffectiveVisionMode(
   if (settings.visionMode === "mcp") {
     return hasVisionServers ? "mcp" : "none";
   }
+  if (settings.visionMode === "provider") {
+    return settings.visionProviderProfileId ? "provider" : "none";
+  }
   return "none";
 }
 
@@ -199,6 +217,13 @@ function prepareProviderPromptMessages(input: {
     return mergeSystemMessage(
       providerPromptMessages,
       buildVisionMcpDirective(visionServers, imageAttachments)
+    );
+  }
+
+  if (effectiveVisionMode === "provider") {
+    return mergeSystemMessage(
+      providerPromptMessages,
+      buildProviderVisionDirective(imageAttachments)
     );
   }
 
@@ -272,6 +297,7 @@ async function forceDirectAnswerAfterToolLoop(input: {
 
 export async function resolveAssistantTurn(input: {
   settings: RuntimeProviderProfile;
+  visionProfile?: RuntimeProviderProfile;
   promptMessages: PromptMessage[];
   skills: Skill[];
   mcpServers?: McpServer[];
@@ -313,6 +339,21 @@ export async function resolveAssistantTurn(input: {
 
   const visionMcpServers = input.visionMcpServers ?? [];
   const effectiveVisionMode = getEffectiveVisionMode(input.settings, visionMcpServers.length > 0);
+
+  if (
+    effectiveVisionMode === "provider" &&
+    extractImageAttachments(promptMessages).length > 0
+  ) {
+    if (!input.visionProfile) {
+      throw new Error(
+        "Vision provider profile is not available. Select a vision provider profile in Settings, or switch this profile's vision mode."
+      );
+    }
+    const visionReadinessError = getProviderReadinessError(input.visionProfile);
+    if (visionReadinessError) {
+      throw new Error(visionReadinessError);
+    }
+  }
 
   const turnSkills = filterSkillsForTurn(input.skills, promptMessages);
   const toolRuntimeInput = {
@@ -391,7 +432,11 @@ export async function resolveAssistantTurn(input: {
       imageGenerationProviderId: input.appSettings?.imageGeneration.providerId,
       imageGenerationToolEnabled: !imageGenerationToolConsumed,
       restrictToGenerateImage,
-      effectiveVisionMode
+      effectiveVisionMode,
+      visionToolEnabled:
+        effectiveVisionMode === "provider" &&
+        input.visionProfile !== undefined &&
+        !getProviderReadinessError(input.visionProfile)
     });
 
     const providerPromptMessages = appendTrailingGuidance(
@@ -411,6 +456,7 @@ export async function resolveAssistantTurn(input: {
         abortSignal: input.abortSignal,
         runtimeToolContext: {
           settings: input.settings,
+          visionProfile: input.visionProfile,
           appSettings: input.appSettings,
           conversationId: input.conversationId,
           assistantMessageId: input.assistantMessageId,

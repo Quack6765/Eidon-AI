@@ -176,6 +176,7 @@ function migrateProviderStorage(db: Database.Database) {
           merged_min_node_count INTEGER NOT NULL,
           merged_target_tokens INTEGER NOT NULL,
           vision_mode TEXT NOT NULL,
+          vision_provider_profile_id TEXT,
           provider_preset_id TEXT,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL
@@ -211,14 +212,14 @@ function migrateProviderStorage(db: Database.Database) {
           reasoning_summary_enabled, model_context_limit, compaction_threshold,
           fresh_tail_count, tokenizer_model, safety_margin_tokens,
           leaf_source_token_limit, leaf_min_message_count, merged_min_node_count,
-          merged_target_tokens, vision_mode, provider_preset_id, created_at, updated_at
+          merged_target_tokens, vision_mode, vision_provider_profile_id, provider_preset_id, created_at, updated_at
         ) VALUES (
           @id, @name, @providerKind, @providerConfigJson, @model, @systemPrompt,
           @temperature, @maxOutputTokens, @reasoningEffort,
           @reasoningSummaryEnabled, @modelContextLimit, @compactionThreshold,
           @freshTailCount, @tokenizerModel, @safetyMarginTokens,
           @leafSourceTokenLimit, @leafMinMessageCount, @mergedMinNodeCount,
-          @mergedTargetTokens, @visionMode, @providerPresetId, @createdAt, @updatedAt
+          @mergedTargetTokens, @visionMode, @visionProviderProfileId, @providerPresetId, @createdAt, @updatedAt
         )
       `);
       const insertConnection = db.prepare(`
@@ -282,6 +283,7 @@ function migrateProviderStorage(db: Database.Database) {
           mergedMinNodeCount: row.merged_min_node_count ?? 4,
           mergedTargetTokens: row.merged_target_tokens ?? 1600,
           visionMode: row.vision_mode ?? "native",
+          visionProviderProfileId: null,
           providerPresetId: row.provider_preset_id ?? null,
           createdAt,
           updatedAt
@@ -872,6 +874,7 @@ export function migrate(db: Database.Database) {
       merged_target_tokens INTEGER DEFAULT 1600,
       vision_mode TEXT NOT NULL DEFAULT 'native',
       vision_mcp_server_id TEXT,
+      vision_provider_profile_id TEXT,
       provider_kind TEXT NOT NULL DEFAULT 'openai_compatible',
       github_user_access_token_encrypted TEXT NOT NULL DEFAULT '',
       github_refresh_token_encrypted TEXT NOT NULL DEFAULT '',
@@ -1505,6 +1508,11 @@ export function migrate(db: Database.Database) {
       db.exec(`ALTER TABLE provider_profiles ADD COLUMN ${colName} ${colDef}`);
     }
   }
+  }
+
+  const visionProviderCols = db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>;
+  if (!visionProviderCols.some((column) => column.name === "vision_provider_profile_id")) {
+    db.exec("ALTER TABLE provider_profiles ADD COLUMN vision_provider_profile_id TEXT");
   }
 
   migrateCompactionEventsTable(db);

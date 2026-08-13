@@ -3,7 +3,7 @@ export type ApiMode = "responses" | "chat_completions";
 export type ReasoningParameterMode = "standard" | "mirrored";
 export type ProcessingMode = "standard" | "fast";
 export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
-export type VisionMode = "none" | "native" | "mcp";
+export type VisionMode = "none" | "native" | "mcp" | "provider";
 
 export type ProviderModelRequestRule = {
   modelPrefix: string;
@@ -365,6 +365,7 @@ export function createProviderProfileDraft(input?: {
     providerKind,
     ...DEFAULT_PROFILE_BEHAVIOR,
     ...providerValues,
+    visionProviderProfileId: null,
     processingMode: "processingMode" in providerValues
       ? providerValues.processingMode
       : "standard",

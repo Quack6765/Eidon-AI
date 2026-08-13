@@ -15,7 +15,7 @@ import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import { estimateMessageTokens } from "@/lib/tokenization";
-import type { AttachmentKind, MessageAttachment } from "@/lib/types";
+import type { AttachmentKind, MessageAttachment, PromptImageContentPart } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
 
 const IMAGE_EXTENSION_TO_MIME = new Map<string, string>([
@@ -791,6 +791,52 @@ export function resolveAttachmentPath(attachment: Pick<MessageAttachment, "relat
     throw new Error("Attachment path is not a regular managed file");
   }
   return absolutePath;
+}
+
+export function resolveAbsoluteImagePathPart(absolutePath: string): PromptImageContentPart {
+  const root = getAttachmentsRoot();
+  const requestedPath = path.resolve(absolutePath);
+
+  let realPath: string;
+  try {
+    realPath = fs.realpathSync(requestedPath);
+  } catch {
+    throw new Error(`Image path does not exist: ${absolutePath}`);
+  }
+
+  const relativeInsideRoot = path.relative(root, realPath);
+  if (
+    relativeInsideRoot === "" ||
+    relativeInsideRoot.startsWith("..") ||
+    path.isAbsolute(relativeInsideRoot)
+  ) {
+    throw new Error("Image path is outside attachment storage");
+  }
+
+  let stats;
+  try {
+    stats = fs.lstatSync(realPath);
+  } catch {
+    throw new Error(`Image path does not exist: ${absolutePath}`);
+  }
+  if (!stats.isFile() || stats.isSymbolicLink()) {
+    throw new Error("Image path is not a regular managed file");
+  }
+
+  const extension = getExtension(realPath);
+  const mimeType = IMAGE_EXTENSION_TO_MIME.get(extension);
+  if (!mimeType) {
+    throw new Error(`Unsupported image type: ${path.basename(realPath)}`);
+  }
+
+  const filename = path.basename(realPath);
+  return {
+    type: "image" as const,
+    attachmentId: filename.split("_").slice(0, 2).join("_"),
+    filename,
+    mimeType,
+    relativePath: relativeInsideRoot
+  };
 }
 
 export function readAttachmentBuffer(attachment: Pick<MessageAttachment, "relativePath">) {

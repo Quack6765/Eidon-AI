@@ -52,7 +52,8 @@ function buildProviderProfile(
     leafMinMessageCount: number;
     mergedMinNodeCount: number;
     mergedTargetTokens: number;
-    visionMode: "none" | "native" | "mcp";
+    visionMode: "none" | "native" | "mcp" | "provider";
+    visionProviderProfileId: string | null;
     providerPresetId: ProviderPresetId | null;
   }>
 ) {
@@ -98,6 +99,8 @@ function buildProviderProfile(
     mergedTargetTokens:
       overrides.mergedTargetTokens ?? defaults.mergedTargetTokens,
     visionMode: overrides.visionMode ?? defaults.visionMode,
+    visionProviderProfileId:
+      overrides.visionProviderProfileId ?? defaults.visionProviderProfileId,
     providerPresetId: overrides.providerPresetId ?? null
   };
 }
