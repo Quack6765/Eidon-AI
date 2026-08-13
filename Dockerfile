@@ -32,7 +32,8 @@ ENV AGENT_BROWSER_SOCKET_DIR=/app/data/runtime/agent-browser
 # Install uv for uvx (Python-based MCP servers)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-RUN apt-get update && apt-get install -y --no-install-recommends chromium \
+RUN apt-get update && apt-get install -y --no-install-recommends chromium python3 \
+    && ln -s /usr/bin/python3 /usr/local/bin/python \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g agent-browser \
     && mv /usr/local/bin/agent-browser /usr/local/bin/agent-browser-core \
