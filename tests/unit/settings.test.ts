@@ -232,6 +232,87 @@ describe("settings domains", () => {
       .toThrow("Output tokens plus the safety margin must be below the context limit");
   });
 
+  it("stores provider vision mode delegating to another vision-capable profile", () => {
+    const primary = apiKeyProfile({
+      model: "glm-5.1",
+      visionMode: "provider",
+      visionProviderProfileId: "profile_vision"
+    });
+    const vision = apiKeyProfile({
+      id: "profile_vision",
+      name: "Vision",
+      model: "gpt-4o",
+      visionMode: "native"
+    });
+
+    const saved = saveProfiles([primary, vision]);
+
+    expect(saved.providerProfiles[0].visionProviderProfileId).toBe("profile_vision");
+    expect(getRuntimeProviderProfile(primary.id)?.visionProviderProfileId).toBe("profile_vision");
+    expect(getRuntimeProviderProfile(vision.id)?.visionProviderProfileId).toBeNull();
+  });
+
+  it("accepts provider vision config from payloads without the new field", () => {
+    const { visionProviderProfileId: _omitted, ...legacyProfile } = apiKeyProfile();
+    const saved = saveProfiles([legacyProfile as unknown as ReturnType<typeof apiKeyProfile>]);
+    expect(saved.providerProfiles[0].visionProviderProfileId).toBeNull();
+  });
+
+  it("rejects provider vision mode without a referenced profile", () => {
+    const primary = apiKeyProfile({
+      visionMode: "provider",
+      visionProviderProfileId: null
+    });
+    expect(() => saveProfiles([primary])).toThrow(
+      "Vision provider profile is required when vision mode is provider"
+    );
+  });
+
+  it("rejects a vision provider reference to the same profile", () => {
+    const primary = apiKeyProfile({
+      model: "gpt-4o",
+      visionMode: "provider",
+      visionProviderProfileId: "profile_primary"
+    });
+    expect(() => saveProfiles([primary])).toThrow(
+      "Vision provider profile must reference a different profile"
+    );
+  });
+
+  it("rejects a vision provider reference to a model without image input", () => {
+    const primary = apiKeyProfile({
+      visionMode: "provider",
+      visionProviderProfileId: "profile_secondary"
+    });
+    const secondary = apiKeyProfile({
+      id: "profile_secondary",
+      name: "Secondary",
+      model: "glm-5.1"
+    });
+    expect(() => saveProfiles([primary, secondary])).toThrow(
+      "does not support image input"
+    );
+  });
+
+  it("normalizes dangling vision provider references when a profile is deleted", () => {
+    const primary = apiKeyProfile({
+      model: "glm-5.1",
+      visionMode: "provider",
+      visionProviderProfileId: "profile_vision"
+    });
+    const vision = apiKeyProfile({
+      id: "profile_vision",
+      name: "Vision",
+      model: "gpt-4o"
+    });
+    saveProfiles([primary, vision]);
+
+    saveProfiles([primary]);
+
+    expect(getRuntimeProviderProfile(primary.id)?.visionProviderProfileId).toBeNull();
+    expect(getRuntimeProviderProfile(primary.id)?.visionMode).toBe("none");
+  });
+
   it("keeps user preferences scoped while provider settings remain global", async () => {
     const profile = apiKeyProfile();
     saveProfiles([profile], { conversationRetention: "forever" });

@@ -11,6 +11,7 @@ import {
   type VisionMode
 } from "@/lib/provider-catalog";
 import {
+  getProviderApiMode,
   isProviderKind,
   toProviderProfileSummary,
   type ProviderConnectionMetadata,
@@ -18,6 +19,7 @@ import {
   type ProviderProfile,
   type RuntimeProviderProfile
 } from "@/lib/provider-profile";
+import { supportsImageInput } from "@/lib/model-capabilities";
 
 export const secretActionSchema = z.enum(["preserve", "replace", "clear"]);
 export type SecretAction = z.infer<typeof secretActionSchema>;
@@ -40,7 +42,8 @@ const commonProfileSchema = z.object({
   leafMinMessageCount: z.coerce.number().int().min(2).max(50),
   mergedMinNodeCount: z.coerce.number().int().min(2).max(20),
   mergedTargetTokens: z.coerce.number().int().min(128).max(16000),
-  visionMode: z.enum(["none", "native", "mcp"]),
+  visionMode: z.enum(["none", "native", "mcp", "provider"]),
+  visionProviderProfileId: z.string().min(1).nullable().default(null),
   providerPresetId: z.enum(
     PROVIDER_PRESETS.map((preset) => preset.id) as [
       ProviderPresetId,
@@ -115,6 +118,38 @@ export const providerCatalogInputSchema = z.object({
     }
     ids.add(profile.id);
     names.add(normalizedName);
+    if (profile.visionMode === "provider") {
+      if (!profile.visionProviderProfileId) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["providerProfiles", index, "visionProviderProfileId"],
+          message: "Vision provider profile is required when vision mode is provider"
+        });
+      } else if (profile.visionProviderProfileId === profile.id) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["providerProfiles", index, "visionProviderProfileId"],
+          message: "Vision provider profile must reference a different profile"
+        });
+      } else {
+        const target = value.providerProfiles.find(
+          (candidate) => candidate.id === profile.visionProviderProfileId
+        );
+        if (!target) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["providerProfiles", index, "visionProviderProfileId"],
+            message: "Vision provider profile must reference a profile saved in this catalog"
+          });
+        } else if (!supportsImageInput(target.model, getProviderApiMode(target))) {
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["providerProfiles", index, "visionProviderProfileId"],
+            message: `Vision provider profile model "${target.model}" does not support image input`
+          });
+        }
+      }
+    }
   });
   if (!ids.has(value.defaultProviderProfileId)) {
     context.addIssue({
@@ -148,6 +183,7 @@ type ProviderProfileRow = {
   merged_min_node_count: number;
   merged_target_tokens: number;
   vision_mode: string;
+  vision_provider_profile_id: string | null;
   provider_preset_id: string | null;
   created_at: string;
   updated_at: string;
@@ -162,7 +198,7 @@ const PROFILE_COLUMNS = `
   p.reasoning_summary_enabled, p.model_context_limit, p.compaction_threshold,
   p.fresh_tail_count, p.tokenizer_model, p.safety_margin_tokens,
   p.leaf_source_token_limit, p.leaf_min_message_count, p.merged_min_node_count,
-  p.merged_target_tokens, p.vision_mode, p.provider_preset_id,
+  p.merged_target_tokens, p.vision_mode, p.vision_provider_profile_id, p.provider_preset_id,
   p.created_at, p.updated_at,
   COALESCE(c.credentials_encrypted, '') AS credentials_encrypted,
   COALESCE(c.metadata_json, '{}') AS metadata_json,
@@ -213,6 +249,7 @@ function rowToRuntimeProfile(row: ProviderProfileRow): RuntimeProviderProfile {
     mergedMinNodeCount: row.merged_min_node_count,
     mergedTargetTokens: row.merged_target_tokens,
     visionMode: row.vision_mode as VisionMode,
+    visionProviderProfileId: row.vision_provider_profile_id ?? null,
     providerPresetId: row.provider_preset_id as ProviderPresetId | null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -433,14 +470,14 @@ function insertProfile(profile: ProviderProfile) {
       reasoning_summary_enabled, model_context_limit, compaction_threshold,
       fresh_tail_count, tokenizer_model, safety_margin_tokens,
       leaf_source_token_limit, leaf_min_message_count, merged_min_node_count,
-      merged_target_tokens, vision_mode, provider_preset_id, created_at, updated_at
+      merged_target_tokens, vision_mode, vision_provider_profile_id, provider_preset_id, created_at, updated_at
     ) VALUES (
       @id, @name, @providerKind, @providerConfigJson, @model, @systemPrompt,
       @temperature, @maxOutputTokens, @reasoningEffort,
       @reasoningSummaryEnabled, @modelContextLimit, @compactionThreshold,
       @freshTailCount, @tokenizerModel, @safetyMarginTokens,
       @leafSourceTokenLimit, @leafMinMessageCount, @mergedMinNodeCount,
-      @mergedTargetTokens, @visionMode, @providerPresetId, @createdAt, @updatedAt
+      @mergedTargetTokens, @visionMode, @visionProviderProfileId, @providerPresetId, @createdAt, @updatedAt
     )
     ON CONFLICT(id) DO UPDATE SET
       name = excluded.name,
@@ -462,6 +499,7 @@ function insertProfile(profile: ProviderProfile) {
       merged_min_node_count = excluded.merged_min_node_count,
       merged_target_tokens = excluded.merged_target_tokens,
       vision_mode = excluded.vision_mode,
+      vision_provider_profile_id = excluded.vision_provider_profile_id,
       provider_preset_id = excluded.provider_preset_id,
       updated_at = excluded.updated_at
   `).run({
@@ -471,8 +509,31 @@ function insertProfile(profile: ProviderProfile) {
   });
 }
 
+function normalizeRemovedVisionReferences(input: unknown) {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return input;
+  const catalog = input as Record<string, unknown>;
+  const rawProfiles = catalog.providerProfiles;
+  if (!Array.isArray(rawProfiles)) return input;
+  const incomingIds = new Set(
+    rawProfiles
+      .filter((profile): profile is Record<string, unknown> =>
+        typeof profile === "object" && profile !== null)
+      .map((profile) => profile.id)
+  );
+  const normalizedProfiles = rawProfiles.map((profile) => {
+    if (typeof profile !== "object" || profile === null) return profile;
+    const record = profile as Record<string, unknown>;
+    const reference = record.visionProviderProfileId;
+    if (typeof reference !== "string" || !reference || incomingIds.has(reference)) {
+      return profile;
+    }
+    return { ...record, visionProviderProfileId: null, visionMode: "none" };
+  });
+  return { ...catalog, providerProfiles: normalizedProfiles };
+}
+
 export function saveProviderCatalog(input: unknown) {
-  const parsed = providerCatalogInputSchema.parse(input);
+  const parsed = providerCatalogInputSchema.parse(normalizeRemovedVisionReferences(input));
   const current = new Map(listRuntimeProviderProfiles().map((profile) => [profile.id, profile]));
   const incomingIds = new Set(parsed.providerProfiles.map((profile) => profile.id));
   const removedIds = [...current.keys()].filter((id) => !incomingIds.has(id));

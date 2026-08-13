@@ -33,6 +33,7 @@ export type ProviderProfileCore = {
   mergedMinNodeCount: number;
   mergedTargetTokens: number;
   visionMode: VisionMode;
+  visionProviderProfileId: string | null;
   providerPresetId: ProviderPresetId | null;
   createdAt: string;
   updatedAt: string;
@@ -101,14 +102,18 @@ export type ProviderProfileSummary = ProviderProfile & {
   connection: ProviderConnectionSummary;
 };
 
-export function getProviderApiMode(profile: ProviderProfile): ApiMode {
+export function getProviderApiMode(profile: {
+  providerKind: ProviderKind;
+  model: string;
+  providerConfig: { apiBaseUrl?: string; apiMode?: ApiMode };
+}): ApiMode {
   if (profile.providerKind !== "openai_compatible") {
     return "chat_completions";
   }
   return resolveProviderRequestApiMode({
     providerKind: profile.providerKind,
-    apiBaseUrl: profile.providerConfig.apiBaseUrl,
-    apiMode: profile.providerConfig.apiMode,
+    apiBaseUrl: profile.providerConfig.apiBaseUrl ?? "",
+    apiMode: profile.providerConfig.apiMode ?? "responses",
     model: profile.model
   });
 }

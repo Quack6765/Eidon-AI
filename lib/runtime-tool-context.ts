@@ -10,6 +10,7 @@ import type {
 
 export type RuntimeToolContext = {
   settings?: RuntimeProviderProfile;
+  visionProfile?: RuntimeProviderProfile;
   appSettings?: RuntimeAppSettings;
   conversationId?: string;
   assistantMessageId?: string;

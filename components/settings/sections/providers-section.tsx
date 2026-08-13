@@ -46,6 +46,7 @@ import {
   getProviderProcessingMode,
   resolveProviderProfileCapabilities
 } from "@/lib/provider-profile";
+import { supportsImageInput } from "@/lib/model-capabilities";
 import type { AppSettings, McpServer, ProviderKind, ProviderPresetId, ProviderProfileSummary, ReasoningEffort, VisionMode } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -88,6 +89,7 @@ function buildDirtySnapshot(
     activeMergedMinNodeCount: profile?.mergedMinNodeCount,
     activeMergedTargetTokens: profile?.mergedTargetTokens,
     activeVisionMode: profile?.visionMode,
+    activeVisionProviderProfileId: profile?.visionProviderProfileId ?? null,
     defaultProviderProfileId,
     skillsEnabled
   };
@@ -163,6 +165,16 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
           p.name.trim().toLowerCase() === activeProviderProfile.name.trim().toLowerCase()
       )
     : false;
+  const visionCapableProfiles = useMemo(
+    () => activeProviderProfile
+      ? providerProfiles.filter(
+          (profile) =>
+            profile.id !== activeProviderProfile.id &&
+            supportsImageInput(profile.model, getProviderApiMode(profile))
+        )
+      : [],
+    [providerProfiles, activeProviderProfile]
+  );
   const activeProviderProfileId = activeProviderProfile?.id;
   const shouldDiscoverModels = Boolean(
     activeProviderProfile &&
@@ -282,7 +294,8 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       modelContextLimit: DEFAULT_PROFILE_BEHAVIOR.modelContextLimit,
       compactionThreshold: DEFAULT_PROFILE_BEHAVIOR.compactionThreshold,
       freshTailCount: DEFAULT_PROFILE_BEHAVIOR.freshTailCount,
-      visionMode: DEFAULT_PROFILE_BEHAVIOR.visionMode
+      visionMode: DEFAULT_PROFILE_BEHAVIOR.visionMode,
+      visionProviderProfileId: null
     };
 
     if (activeProviderEditor?.sampling) {
@@ -1120,8 +1133,36 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                         <option value="native">native</option>
                         <option value="none">none</option>
                         <option value="mcp">mcp</option>
+                        <option value="provider">other provider</option>
                       </select>
                     </div>
+                    {activeProviderProfile.visionMode === "provider" && (
+                      <div>
+                        <label className={fieldLabel}>Vision provider</label>
+                        <select
+                          value={activeProviderProfile.visionProviderProfileId ?? ""}
+                          onChange={(event) =>
+                            updateActiveProviderProfile({
+                              visionProviderProfileId: event.target.value || null
+                            })
+                          }
+                          className={`${selectLike} ${isFieldDirty("activeVisionProviderProfileId") ? "!border-amber-500/40" : ""}`}
+                        >
+                          <option value="">Select a profile…</option>
+                          {visionCapableProfiles.map((profile) => (
+                            <option key={profile.id} value={profile.id}>
+                              {profile.name} · {profile.model}
+                            </option>
+                          ))}
+                        </select>
+                        {visionCapableProfiles.length === 0 && (
+                          <p className="mt-1.5 text-xs text-amber-400">
+                            No other profile has a vision-capable model. Configure another
+                            profile with a vision model, or choose a different vision mode.
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {activeProviderProfile.visionMode === "mcp" &&
                       !mcpServers.some((server) => server.enabled && server.isVisionMcp) && (
                         <p className="mt-1.5 text-xs text-amber-400">

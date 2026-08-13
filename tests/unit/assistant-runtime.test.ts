@@ -28,6 +28,7 @@ const createAttachments = vi.fn();
 const bindAttachmentsToMessage = vi.fn();
 const deleteAttachmentById = vi.fn();
 const resolveAttachmentPath = vi.fn();
+const resolveAbsoluteImagePathPart = vi.fn();
 
 vi.mock("@/lib/provider", () => ({
   streamProviderResponse,
@@ -74,7 +75,8 @@ vi.mock("@/lib/attachments", () => ({
   createAttachments,
   bindAttachmentsToMessage,
   deleteAttachmentById,
-  resolveAttachmentPath
+  resolveAttachmentPath,
+  resolveAbsoluteImagePathPart
 }));
 
 function createProviderStream(
@@ -166,6 +168,14 @@ describe("assistant runtime", () => {
     deleteAttachmentById.mockReset();
     resolveAttachmentPath.mockReset();
     resolveAttachmentPath.mockImplementation(({ relativePath }: { relativePath: string }) => `/tmp/${relativePath}`);
+    resolveAbsoluteImagePathPart.mockReset();
+    resolveAbsoluteImagePathPart.mockImplementation((absolutePath: string) => ({
+      type: "image" as const,
+      attachmentId: "att_mock",
+      filename: absolutePath.split("/").pop() ?? "photo.png",
+      mimeType: "image/png",
+      relativePath: absolutePath.replace(/^\/tmp\//, "")
+    }));
     callProviderText.mockImplementation(({ prompt }: { prompt: string }) => {
       const latestUserLine = prompt.match(/Latest user request:\s*user:\s*([\s\S]*)$/)?.[1]?.trim() ?? "";
       return `\`\`\`json
@@ -2746,5 +2756,356 @@ Run browser commands.`
     })).rejects.toBeInstanceOf(ChatTurnStoppedError);
 
     expect(callMcpTool).not.toHaveBeenCalled();
+  });
+
+  describe("provider vision mode", () => {
+    function imageMessage(): PromptMessage {
+      return {
+        role: "user",
+        content: [
+          { type: "text", text: "Describe this image." },
+          {
+            type: "image",
+            attachmentId: "att_photo",
+            filename: "att_photo_photo.png",
+            mimeType: "image/png",
+            relativePath: "conv_vision/att_photo_photo.png"
+          }
+        ]
+      };
+    }
+
+    function providerVisionSettings(): RuntimeProviderProfile {
+      return {
+        ...createSettings(),
+        visionMode: "provider",
+        visionProviderProfileId: "profile_vision"
+      };
+    }
+
+    function visionProfile(overrides: Partial<RuntimeProviderProfile> = {}): RuntimeProviderProfile {
+      return createRuntimeProviderProfile({
+        id: "profile_vision",
+        name: "Vision profile",
+        model: "gpt-4o",
+        credentials: { apiKey: "sk-vision" },
+        ...overrides
+      });
+    }
+
+    it("injects the analyze_image tool only in provider mode", async () => {
+      streamProviderResponse.mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Analyzed." }], {
+          answer: "Analyzed.", thinking: "", usage: { inputTokens: 4, outputTokens: 1 }
+        })
+      );
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: providerVisionSettings(),
+        visionProfile: visionProfile(),
+        promptMessages: [imageMessage()],
+        skills: [],
+        mcpToolSets: []
+      });
+
+      const toolNames = (streamProviderResponse.mock.calls.at(-1)?.[0].tools ?? [])
+        .map((tool: { function: { name: string } }) => tool.function.name);
+      expect(toolNames).toContain("analyze_image");
+    });
+
+    it("does not inject analyze_image in native or none modes", async () => {
+      streamProviderResponse.mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done", thinking: "", usage: { inputTokens: 1, outputTokens: 1 }
+        })
+      );
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: { ...createSettings(), visionMode: "native" as const },
+        promptMessages: [imageMessage()],
+        skills: [],
+        mcpToolSets: []
+      });
+
+      const toolNames = (streamProviderResponse.mock.calls.at(-1)?.[0].tools ?? [])
+        .map((tool: { function: { name: string } }) => tool.function.name);
+      expect(toolNames).not.toContain("analyze_image");
+    });
+
+    it("replaces images with placeholders and lists attachment paths in provider mode", async () => {
+      streamProviderResponse.mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done", thinking: "", usage: { inputTokens: 1, outputTokens: 1 }
+        })
+      );
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await resolveAssistantTurn({
+        settings: providerVisionSettings(),
+        visionProfile: visionProfile(),
+        promptMessages: [imageMessage()],
+        skills: [],
+        mcpToolSets: []
+      });
+
+      const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
+      expect(firstCall.promptMessages[0].content).toContain("analyze_image");
+      expect(firstCall.promptMessages[0].content).toContain(
+        "att_photo_photo.png (path: /tmp/conv_vision/att_photo_photo.png)"
+      );
+      expect(firstCall.promptMessages[1]).toEqual({
+        role: "user",
+        content: [
+          { type: "text", text: "Describe this image." },
+          { type: "text", text: "Attached image: att_photo_photo.png" }
+        ]
+      });
+    });
+
+    it("throws when the vision profile is missing and the turn contains images", async () => {
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await expect(resolveAssistantTurn({
+        settings: providerVisionSettings(),
+        promptMessages: [imageMessage()],
+        skills: [],
+        mcpToolSets: []
+      })).rejects.toThrow("Vision provider profile is not available");
+    });
+
+    it("throws when the vision profile is not ready and the turn contains images", async () => {
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await expect(resolveAssistantTurn({
+        settings: providerVisionSettings(),
+        visionProfile: visionProfile({ credentials: {} }),
+        promptMessages: [imageMessage()],
+        skills: [],
+        mcpToolSets: []
+      })).rejects.toThrow("Set an API key in settings before starting a chat");
+    });
+
+    it("allows text-only turns when the vision profile is missing", async () => {
+      streamProviderResponse.mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Text only." }], {
+          answer: "Text only.", thinking: "", usage: { inputTokens: 1, outputTokens: 1 }
+        })
+      );
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: providerVisionSettings(),
+        promptMessages: [{ role: "user", content: "Hello" }],
+        skills: [],
+        mcpToolSets: []
+      });
+
+      expect(result.answer).toBe("Text only.");
+    });
+
+    it("returns the vision model answer as a tool result", async () => {
+      let providerCallCount = 0;
+      streamProviderResponse.mockImplementation((input: { settings?: { id?: string }; promptMessages?: PromptMessage[]; tools?: unknown }) => {
+        providerCallCount += 1;
+
+        if (providerCallCount === 1) {
+          return createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{
+              id: "call_analyze",
+              name: "analyze_image",
+              arguments: JSON.stringify({
+                file_paths: ["/tmp/conv_vision/att_photo_photo.png"],
+                question: "What color is the car?"
+              })
+            }],
+            usage: { inputTokens: 12 }
+          });
+        }
+
+        if (providerCallCount === 2) {
+          expect(input.settings?.id).toBe("profile_vision");
+          expect(input.tools).toBeUndefined();
+          const systemContent = String(input.promptMessages?.[0]?.content ?? "");
+          expect(systemContent).toContain("vision analysis sub-agent");
+          return createProviderStream([{ type: "answer_delta", text: "The car is red." }], {
+            answer: "The car is red.",
+            thinking: "",
+            usage: { outputTokens: 5 }
+          });
+        }
+
+        return createProviderStream([{ type: "answer_delta", text: "The vision model says the car is red." }], {
+          answer: "The vision model says the car is red.",
+          thinking: "",
+          usage: { outputTokens: 8 }
+        });
+      });
+
+      const started: Array<{ kind: string; label: string; serverId?: string | null; toolName?: string | null }> = [];
+      const completed: Array<{ handle?: string; resultSummary?: string }> = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: providerVisionSettings(),
+        visionProfile: visionProfile(),
+        promptMessages: [imageMessage()],
+        skills: [],
+        mcpToolSets: [],
+        onActionStart: (action) => { started.push(action); return "act_vision"; },
+        onActionComplete: (handle, patch) => { completed.push({ handle, resultSummary: patch.resultSummary }); }
+      });
+
+      expect(result.answer).toBe("The vision model says the car is red.");
+      expect(started).toEqual([
+        expect.objectContaining({
+          kind: "mcp_tool_call",
+          label: "Analyze image",
+          serverId: "integration_vision",
+          toolName: "analyze_image"
+        })
+      ]);
+      expect(completed).toEqual([
+        expect.objectContaining({ handle: "act_vision", resultSummary: "The car is red." })
+      ]);
+
+      const finalCall = streamProviderResponse.mock.calls.at(-1)?.[0];
+      const toolMessage = (finalCall.promptMessages as PromptMessage[]).find(
+        (message) => message.role === "tool" && message.toolCallId === "call_analyze"
+      );
+      expect(toolMessage?.content).toBe("The car is red.");
+    });
+
+    it("fails the turn when the vision provider call fails", async () => {
+      let providerCallCount = 0;
+      streamProviderResponse.mockImplementation(() => {
+        providerCallCount += 1;
+
+        if (providerCallCount === 1) {
+          return createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{
+              id: "call_analyze_fail",
+              name: "analyze_image",
+              arguments: JSON.stringify({ file_paths: ["/tmp/conv_vision/att_photo_photo.png"] })
+            }],
+            usage: { inputTokens: 12 }
+          });
+        }
+
+        throw new Error("Bad API key");
+      });
+
+      const errors: Array<{ handle?: string; resultSummary?: string }> = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      await expect(resolveAssistantTurn({
+        settings: providerVisionSettings(),
+        visionProfile: visionProfile(),
+        promptMessages: [imageMessage()],
+        skills: [],
+        mcpToolSets: [],
+        onActionStart: () => "act_vision_fail",
+        onActionError: (handle, patch) => { errors.push({ handle, resultSummary: patch.resultSummary }); }
+      })).rejects.toThrow("Vision analysis failed: Bad API key");
+
+      expect(errors).toEqual([
+        expect.objectContaining({ handle: "act_vision_fail", resultSummary: "Bad API key" })
+      ]);
+    });
+
+    it("returns an error tool result for invalid image paths so the model can recover", async () => {
+      resolveAbsoluteImagePathPart.mockImplementation(() => {
+        throw new Error("Image path is outside attachment storage");
+      });
+
+      let providerCallCount = 0;
+      streamProviderResponse.mockImplementation(() => {
+        providerCallCount += 1;
+
+        if (providerCallCount === 1) {
+          return createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{
+              id: "call_analyze_bad",
+              name: "analyze_image",
+              arguments: JSON.stringify({ file_paths: ["/etc/passwd"] })
+            }],
+            usage: { inputTokens: 12 }
+          });
+        }
+
+        return createProviderStream([{ type: "answer_delta", text: "Recovered." }], {
+          answer: "Recovered.",
+          thinking: "",
+          usage: { outputTokens: 2 }
+        });
+      });
+
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: providerVisionSettings(),
+        visionProfile: visionProfile(),
+        promptMessages: [imageMessage()],
+        skills: [],
+        mcpToolSets: []
+      });
+
+      expect(result.answer).toBe("Recovered.");
+      const finalCall = streamProviderResponse.mock.calls.at(-1)?.[0];
+      const toolMessage = (finalCall.promptMessages as PromptMessage[]).find(
+        (message) => message.role === "tool" && message.toolCallId === "call_analyze_bad"
+      );
+      expect(toolMessage?.content).toContain("outside attachment storage");
+    });
+
+    it("returns an error tool result for empty file_paths", async () => {
+      let providerCallCount = 0;
+      streamProviderResponse.mockImplementation(() => {
+        providerCallCount += 1;
+
+        if (providerCallCount === 1) {
+          return createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{
+              id: "call_analyze_empty",
+              name: "analyze_image",
+              arguments: JSON.stringify({ file_paths: [] })
+            }],
+            usage: { inputTokens: 8 }
+          });
+        }
+
+        return createProviderStream([{ type: "answer_delta", text: "Fixed the call." }], {
+          answer: "Fixed the call.",
+          thinking: "",
+          usage: { outputTokens: 2 }
+        });
+      });
+
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: providerVisionSettings(),
+        visionProfile: visionProfile(),
+        promptMessages: [imageMessage()],
+        skills: [],
+        mcpToolSets: []
+      });
+
+      expect(result.answer).toBe("Fixed the call.");
+      const finalCall = streamProviderResponse.mock.calls.at(-1)?.[0];
+      const toolMessage = (finalCall.promptMessages as PromptMessage[]).find(
+        (message) => message.role === "tool" && message.toolCallId === "call_analyze_empty"
+      );
+      expect(toolMessage?.content).toContain("non-empty array");
+    });
   });
 });

@@ -456,6 +456,45 @@ describe("db", () => {
     expect(db.prepare("PRAGMA table_info(user_settings)").all()).toEqual([]);
   });
 
+  it("adds the vision provider profile column to existing modern databases", async () => {
+    const legacyDb = openLegacyDatabase();
+    legacyDb.exec(`
+      ALTER TABLE provider_profiles ADD COLUMN provider_config_json TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE provider_profiles ADD COLUMN provider_kind TEXT NOT NULL DEFAULT 'openai_compatible';
+      ALTER TABLE provider_profiles ADD COLUMN vision_mode TEXT NOT NULL DEFAULT 'native';
+      ALTER TABLE provider_profiles ADD COLUMN vision_mcp_server_id TEXT;
+      ALTER TABLE provider_profiles ADD COLUMN provider_preset_id TEXT;
+      CREATE TABLE provider_profile_connections (
+        profile_id TEXT PRIMARY KEY,
+        credentials_encrypted TEXT NOT NULL DEFAULT '',
+        metadata_json TEXT NOT NULL DEFAULT '{}',
+        oauth_nonce TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+      CREATE TABLE provider_connection_flows (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        profile_id TEXT NOT NULL,
+        provider_kind TEXT NOT NULL,
+        state_json TEXT NOT NULL DEFAULT '{}',
+        expires_at TEXT NOT NULL,
+        consumed_at TEXT,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+    legacyDb.close();
+
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+
+    const profileColumns = (
+      db.prepare("PRAGMA table_info(provider_profiles)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    expect(profileColumns).toContain("vision_provider_profile_id");
+  });
+
   it("migrates legacy schemas and backfills defaults", async () => {
     prepareLegacyDatabase();
 
@@ -562,7 +601,9 @@ describe("db", () => {
     expect(providerProfileColumns).toEqual(expect.arrayContaining([
       "provider_kind",
       "provider_config_json",
-      "provider_preset_id"
+      "provider_preset_id",
+      "vision_mode",
+      "vision_provider_profile_id"
     ]));
     expect(providerProfileColumns).not.toContain("api_key_encrypted");
     expect(connectionColumns).toEqual(expect.arrayContaining([

@@ -9,7 +9,8 @@ import {
   deleteAttachmentById,
   getAttachment,
   getAttachmentDataUrl,
-  importAttachmentFromLocalFile
+  importAttachmentFromLocalFile,
+  resolveAbsoluteImagePathPart
 } from "@/lib/attachments";
 import { MAX_ATTACHMENT_BYTES } from "@/lib/constants";
 import { createConversation, createMessage } from "@/lib/conversations";
@@ -53,6 +54,62 @@ describe("attachment helpers", () => {
     expect(
       fs.existsSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath))
     ).toBe(true);
+  });
+
+  it("resolves absolute image paths inside attachment storage", async () => {
+    const conversation = createConversation();
+    const [attachment] = await createAttachments(conversation.id, [
+      {
+        filename: "photo.png",
+        mimeType: "image/png",
+        bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47])
+      }
+    ]);
+
+    const absolutePath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      attachment.relativePath
+    );
+    const part = resolveAbsoluteImagePathPart(absolutePath);
+
+    expect(part.type).toBe("image");
+    expect(part.mimeType).toBe("image/png");
+    expect(part.filename).toBe(`${attachment.id}_${attachment.filename}`);
+    expect(part.relativePath).toBe(attachment.relativePath);
+    expect(part.attachmentId).toBe(attachment.id);
+
+    const outsidePath = path.resolve(process.env.EIDON_DATA_DIR!, "outside.png");
+    fs.writeFileSync(outsidePath, "png-bytes");
+    expect(() => resolveAbsoluteImagePathPart(outsidePath)).toThrow("outside attachment storage");
+    expect(() =>
+      resolveAbsoluteImagePathPart(
+        path.resolve(absolutePath, "..", "..", "..", "outside.png")
+      )
+    ).toThrow("outside attachment storage");
+    fs.unlinkSync(outsidePath);
+  });
+
+  it("rejects non-image and missing files for image analysis", async () => {
+    const conversation = createConversation();
+    const [attachment] = await createAttachments(conversation.id, [
+      { filename: "notes.md", mimeType: "text/markdown", bytes: Buffer.from("hello") }
+    ]);
+
+    const textPath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      attachment.relativePath
+    );
+    expect(() => resolveAbsoluteImagePathPart(textPath)).toThrow("Unsupported image type");
+
+    const missingPath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      conversation.id,
+      "missing.png"
+    );
+    expect(() => resolveAbsoluteImagePathPart(missingPath)).toThrow("does not exist");
   });
 
   it("fsyncs a temporary file before atomic publication and syncs its directory and root", async () => {

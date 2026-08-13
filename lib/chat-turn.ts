@@ -343,8 +343,13 @@ async function startAssistantTurn(
 
     const visionMcpServers = mcpServers.filter((server) => server.enabled && server.isVisionMcp);
 
+    const visionProfile = settings.visionProviderProfileId
+      ? getRuntimeProviderProfile(settings.visionProviderProfileId)
+      : null;
+
     const providerResult = await resolveAssistantTurn({
       settings,
+      visionProfile: visionProfile ?? undefined,
       promptMessages,
       skills,
       mcpServers,
