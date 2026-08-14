@@ -30,12 +30,16 @@ export function buildAttachmentResponse(
 
   try {
     const buffer = readAttachmentBuffer(attachment);
+    const isImage = attachment.kind === "image";
+    const disposition = download || !isImage ? "attachment" : "inline";
 
     return new Response(buffer, {
       headers: {
-        "Content-Type": attachment.mimeType,
+        "Content-Type": isImage ? attachment.mimeType : "application/octet-stream",
         "Content-Length": String(buffer.length),
-        "Content-Disposition": `${download ? "attachment" : "inline"}; filename="${attachment.filename}"`
+        "Content-Disposition": `${disposition}; filename="${attachment.filename}"`,
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, no-store"
       }
     });
   } catch {
