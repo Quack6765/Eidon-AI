@@ -424,6 +424,37 @@ export type MessageTimelineItem =
       timelineKind: "action";
     } & MessageAction);
 
+export type PublicConversationSummary = Pick<
+  Conversation,
+  "id" | "title" | "createdAt" | "updatedAt"
+>;
+
+export type PublicMessageAttachment = Pick<
+  MessageAttachment,
+  "id" | "filename" | "mimeType" | "kind" | "byteSize" | "createdAt"
+>;
+
+export type PublicMessageTextSegment = Pick<
+  MessageTextSegment,
+  "id" | "content" | "sortOrder" | "createdAt"
+>;
+
+export type PublicMessage = Pick<
+  Message,
+  "id" | "role" | "content" | "status" | "createdAt"
+> & {
+  thinkingContent?: Message["thinkingContent"];
+  actions?: Message["actions"];
+  timeline?: Message["timeline"];
+  textSegments?: PublicMessageTextSegment[];
+  attachments?: PublicMessageAttachment[];
+};
+
+export type PublicConversationView = {
+  conversation: PublicConversationSummary;
+  messages: PublicMessage[];
+};
+
 export type MemoryNode = {
   id: string;
   conversationId: string;

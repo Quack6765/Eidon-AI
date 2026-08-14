@@ -4,7 +4,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { MessageBubble } from "@/components/message-bubble";
-import type { Message, MessageAction, MessageTimelineItem } from "@/lib/types";
+import type { Message, MessageAction, MessageAttachment, MessageTimelineItem } from "@/lib/types";
 
 const originalFetch = global.fetch;
 const OriginalImage = global.Image;
@@ -1654,50 +1654,48 @@ describe("message bubble", () => {
   });
 
   it("renders user attachments alongside the message body", () => {
-    render(
-      React.createElement(MessageBubble, {
-        message: {
-          id: "msg_user",
+    const message: Message = {
+      id: "msg_user",
+      conversationId: "conv_test",
+      role: "user",
+      content: "See attached",
+      thinkingContent: "",
+      status: "completed",
+      estimatedTokens: 0,
+      systemKind: null,
+      compactedAt: null,
+      createdAt: new Date().toISOString(),
+      attachments: ([
+        {
+          id: "att_image",
           conversationId: "conv_test",
-          role: "user",
-          content: "See attached",
-          thinkingContent: "",
-          status: "completed",
-          estimatedTokens: 0,
-          systemKind: null,
-          compactedAt: null,
-          createdAt: new Date().toISOString(),
-          attachments: [
-            {
-              id: "att_image",
-              conversationId: "conv_test",
-              messageId: "msg_user",
-              filename: "photo.png",
-              mimeType: "image/png",
-              byteSize: 10,
-              sha256: "hash",
-              relativePath: "conv_test/att_image_photo.png",
-              kind: "image",
-              extractedText: "",
-              createdAt: new Date().toISOString()
-            },
-            {
-              id: "att_text",
-              conversationId: "conv_test",
-              messageId: "msg_user",
-              filename: "notes.txt",
-              mimeType: "text/plain",
-              byteSize: 10,
-              sha256: "hash2",
-              relativePath: "conv_test/att_text_notes.txt",
-              kind: "text",
-              extractedText: "hello",
-              createdAt: new Date().toISOString()
-            }
-          ]
+          messageId: "msg_user",
+          filename: "photo.png",
+          mimeType: "image/png",
+          byteSize: 10,
+          sha256: "hash",
+          relativePath: "conv_test/att_image_photo.png",
+          kind: "image",
+          extractedText: "",
+          createdAt: new Date().toISOString()
+        },
+        {
+          id: "att_text",
+          conversationId: "conv_test",
+          messageId: "msg_user",
+          filename: "notes.txt",
+          mimeType: "text/plain",
+          byteSize: 10,
+          sha256: "hash2",
+          relativePath: "conv_test/att_text_notes.txt",
+          kind: "text",
+          extractedText: "hello",
+          createdAt: new Date().toISOString()
         }
-      })
-    );
+      ] as MessageAttachment[])
+    };
+
+    render(React.createElement(MessageBubble, { message }));
 
     expect(screen.getByRole("button", { name: "Preview photo.png" })).toBeInTheDocument();
     expect(screen.getByText("notes.txt")).toBeInTheDocument();
@@ -1715,7 +1713,7 @@ describe("message bubble", () => {
             "",
             "The real attachment preview should render below."
           ].join("\n"),
-          attachments: [
+          attachments: ([
             {
               id: "att_image",
               conversationId: "conv_test",
@@ -1729,7 +1727,7 @@ describe("message bubble", () => {
               extractedText: "",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );
@@ -1746,7 +1744,7 @@ describe("message bubble", () => {
         message: {
           ...createAssistantMessage(),
           content: "I've attached the generated image and notes below.",
-          attachments: [
+          attachments: ([
             {
               id: "att_image",
               conversationId: "conv_test",
@@ -1773,7 +1771,7 @@ describe("message bubble", () => {
               extractedText: "hello",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );
@@ -1800,7 +1798,7 @@ describe("message bubble", () => {
         message: {
           ...createAssistantMessage(),
           content: "Here is the generated image.",
-          attachments: [
+          attachments: ([
             {
               id: "att_image",
               conversationId: "conv_test",
@@ -1814,7 +1812,7 @@ describe("message bubble", () => {
               extractedText: "",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );
@@ -1842,7 +1840,7 @@ describe("message bubble", () => {
         message: {
           ...createUserMessage(),
           content: "See attached",
-          attachments: [
+          attachments: ([
             {
               id: "att_image",
               conversationId: "conv_test",
@@ -1856,7 +1854,7 @@ describe("message bubble", () => {
               extractedText: "",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );
@@ -1893,7 +1891,7 @@ describe("message bubble", () => {
         message: {
           ...createUserMessage(),
           content: "See attached",
-          attachments: [
+          attachments: ([
             {
               id: "att_text",
               conversationId: "conv_test",
@@ -1907,7 +1905,7 @@ describe("message bubble", () => {
               extractedText: "hello",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );
@@ -1941,7 +1939,7 @@ describe("message bubble", () => {
         message: {
           ...createUserMessage(),
           content: "See attached",
-          attachments: [
+          attachments: ([
             {
               id: "att_text",
               conversationId: "conv_test",
@@ -1955,7 +1953,7 @@ describe("message bubble", () => {
               extractedText: "",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );
@@ -1989,7 +1987,7 @@ describe("message bubble", () => {
         message: {
           ...createUserMessage(),
           content: "See attached",
-          attachments: [
+          attachments: ([
             {
               id: "att_image",
               conversationId: "conv_test",
@@ -2003,7 +2001,7 @@ describe("message bubble", () => {
               extractedText: "",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );
@@ -2024,7 +2022,7 @@ describe("message bubble", () => {
         message: {
           ...createUserMessage(),
           content: "See attached",
-          attachments: [
+          attachments: ([
             {
               id: "att_image",
               conversationId: "conv_test",
@@ -2038,7 +2036,7 @@ describe("message bubble", () => {
               extractedText: "",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );
@@ -2067,7 +2065,7 @@ describe("message bubble", () => {
         message: {
           ...createUserMessage(),
           content: "See attached",
-          attachments: [
+          attachments: ([
             {
               id: "att_binary",
               conversationId: "conv_test",
@@ -2081,7 +2079,7 @@ describe("message bubble", () => {
               extractedText: "",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );
@@ -2106,7 +2104,7 @@ describe("message bubble", () => {
         message: {
           ...createUserMessage(),
           content: "See attached",
-          attachments: [
+          attachments: ([
             {
               id: "att_text",
               conversationId: "conv_test",
@@ -2120,7 +2118,7 @@ describe("message bubble", () => {
               extractedText: "seeded preview content",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );
@@ -2144,7 +2142,7 @@ describe("message bubble", () => {
         message: {
           ...createUserMessage(),
           content: "See attached",
-          attachments: [
+          attachments: ([
             {
               id: "att_text",
               conversationId: "conv_test",
@@ -2158,7 +2156,7 @@ describe("message bubble", () => {
               extractedText: "hello from extracted text",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );
@@ -2200,7 +2198,7 @@ describe("message bubble", () => {
         message: {
           ...createUserMessage(),
           content: "See attached",
-          attachments: [
+          attachments: ([
             {
               id: "att_first",
               conversationId: "conv_test",
@@ -2227,7 +2225,7 @@ describe("message bubble", () => {
               extractedText: "second",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );
@@ -2273,7 +2271,7 @@ describe("message bubble", () => {
         message: {
           ...createUserMessage(),
           content: "See attached",
-          attachments: [
+          attachments: ([
             {
               id: "att_image",
               conversationId: "conv_test",
@@ -2287,7 +2285,7 @@ describe("message bubble", () => {
               extractedText: "",
               createdAt: new Date().toISOString()
             }
-          ]
+          ] as MessageAttachment[])
         }
       })
     );

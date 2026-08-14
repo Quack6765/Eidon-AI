@@ -6,8 +6,8 @@ import type { StreamBuffer, StreamBufferSnapshot } from "@/lib/stream-buffer";
 import type {
   MemoryCategory,
   Message,
-  MessageAttachment,
-  MessageTimelineItem
+  MessageTimelineItem,
+  PublicMessageAttachment
 } from "@/lib/types";
 
 const INACTIVE_SNAPSHOT: StreamBufferSnapshot = Object.freeze({
@@ -50,7 +50,7 @@ function StreamingMessageImpl({
   compactionInProgress: boolean;
   thinkingDuration?: number;
   confirmExternalLinks: boolean;
-  onPreviewAttachment?: (attachment: MessageAttachment) => void;
+  onPreviewAttachment?: (attachment: PublicMessageAttachment) => void;
   onUpdateUserMessage?: (messageId: string, content: string) => Promise<void>;
   onApproveMemoryProposal?: (
     actionId: string,

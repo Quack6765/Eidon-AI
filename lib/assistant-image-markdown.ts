@@ -24,15 +24,19 @@ function getPosixDirname(target: string) {
   return normalizedTarget.slice(0, lastSlashIndex);
 }
 
-function sanitizeProseSegment(content: string, imageAttachments: MessageAttachment[], textAttachments: MessageAttachment[]) {
+type MarkdownTargetAttachment = Pick<MessageAttachment, "filename" | "kind"> & {
+  relativePath?: string;
+};
+
+function sanitizeProseSegment(content: string, imageAttachments: MarkdownTargetAttachment[], textAttachments: MarkdownTargetAttachment[]) {
   const matches = findMarkdownTargets(content);
   if (matches.length === 0) {
     return { content, changed: false };
   }
 
-  const buildLocalTargetSet = (attachments: MessageAttachment[]) =>
+  const buildLocalTargetSet = (attachments: MarkdownTargetAttachment[]) =>
     new Set(attachments.flatMap((attachment) => [attachment.filename, attachment.relativePath]));
-  const matchesTmpSourceTarget = (target: string, attachments: MessageAttachment[]) =>
+  const matchesTmpSourceTarget = (target: string, attachments: MarkdownTargetAttachment[]) =>
     target.startsWith("/") &&
     getPosixDirname(target) === "/tmp" &&
     attachments.some((attachment) => attachment.filename === getPosixBasename(target));
@@ -81,7 +85,7 @@ function sanitizeProseSegment(content: string, imageAttachments: MessageAttachme
 
 export function stripAttachmentStyleImageMarkdown(
   content: string,
-  attachments: MessageAttachment[] = []
+  attachments: MarkdownTargetAttachment[] = []
 ) {
   if (!content || !content.includes("[")) {
     return content;

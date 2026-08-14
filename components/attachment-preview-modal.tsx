@@ -3,11 +3,15 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Download, FileText, X } from "lucide-react";
 
-import type { MessageAttachment } from "@/lib/types";
+import type { MessageAttachment, PublicMessageAttachment } from "@/lib/types";
 
 export type AttachmentUrlOptions = {
   format?: "text";
   download?: boolean;
+};
+
+type PreviewableAttachment = PublicMessageAttachment & {
+  extractedText?: MessageAttachment["extractedText"];
 };
 
 export type AttachmentUrlBuilder = (
@@ -23,7 +27,7 @@ export type AttachmentPreviewState =
   | { kind: "unsupported" };
 
 type AttachmentPreviewModalProps = {
-  attachment: MessageAttachment;
+  attachment: PreviewableAttachment;
   state: AttachmentPreviewState;
   onClose: () => void;
   onRetry?: () => void;
@@ -73,7 +77,7 @@ export function useAttachmentUrlBuilder() {
 
 export function useAttachmentPreviewController() {
   const buildAttachmentUrl = useAttachmentUrlBuilder();
-  const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
+  const [previewAttachment, setPreviewAttachment] = useState<PreviewableAttachment | null>(null);
   const [previewState, setPreviewState] = useState<AttachmentPreviewState>({
     kind: "unsupported"
   });
@@ -103,10 +107,10 @@ export function useAttachmentPreviewController() {
   }, []);
 
   const openAttachmentPreview = useCallback(
-    async (attachment: MessageAttachment) => {
+    async (attachment: PreviewableAttachment) => {
       const requestToken = previewRequestTokenRef.current + 1;
       const seededText =
-        attachment.kind === "text" && attachment.extractedText.length > 0
+        attachment.kind === "text" && attachment.extractedText && attachment.extractedText.length > 0
           ? attachment.extractedText
           : null;
 

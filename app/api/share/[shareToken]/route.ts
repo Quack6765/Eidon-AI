@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { getSharedConversationSnapshot } from "@/lib/conversations";
 import { badRequest, ok } from "@/lib/http";
+import { toSharedConversationView } from "@/lib/shared-conversation-view";
 
 const paramsSchema = z.object({
   shareToken: z.string().min(16)
@@ -22,5 +23,5 @@ export async function GET(
     return badRequest("Shared conversation not found", 404);
   }
 
-  return ok(snapshot);
+  return ok(toSharedConversationView(snapshot));
 }
