@@ -2,16 +2,17 @@ import { z } from "zod";
 
 import { createAttachments } from "@/lib/attachments";
 import { requireUser } from "@/lib/auth";
-import { MAX_ATTACHMENTS_PER_UPLOAD } from "@/lib/constants";
+import { RequestBodyTooLargeError, readRequestBodyWithLimit } from "@/lib/bounded-request";
+import { MAX_ATTACHMENTS_PER_UPLOAD, MAX_UPLOAD_REQUEST_BYTES } from "@/lib/constants";
 import { getConversation } from "@/lib/conversations";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, ok, payloadTooLarge } from "@/lib/http";
 
 const formSchema = z.object({
   conversationId: z.string().min(1)
 });
 
 async function parseFormData(request: Request): Promise<FormData> {
-  const body = await request.arrayBuffer();
+  const body = await readRequestBodyWithLimit(request, MAX_UPLOAD_REQUEST_BYTES);
   return new Response(body, { headers: request.headers }).formData();
 }
 
@@ -26,7 +27,8 @@ export async function POST(request: Request) {
 
   try {
     formData = await parseFormData(request);
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error.message);
     return badRequest("Invalid attachment upload");
   }
 

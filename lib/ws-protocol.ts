@@ -1,3 +1,4 @@
+import { MAX_ATTACHMENT_IDS_PER_MESSAGE, MAX_CHAT_MESSAGE_CHARS } from "@/lib/constants";
 import type {
   ChatStreamEvent,
   Message,
@@ -46,8 +47,6 @@ export function serializeServerMessage(msg: ServerMessage): string {
 }
 
 const MAX_CLIENT_IDENTIFIER_CHARS = 512;
-const MAX_CLIENT_CONTENT_CHARS = 64 * 1024;
-const MAX_CLIENT_ATTACHMENT_IDS = 100;
 
 function parseIdentifier(value: unknown) {
   return typeof value === "string" && value.trim().length > 0 && value.length <= MAX_CLIENT_IDENTIFIER_CHARS
@@ -56,7 +55,7 @@ function parseIdentifier(value: unknown) {
 }
 
 function parseContent(value: unknown) {
-  return typeof value === "string" && value.length <= MAX_CLIENT_CONTENT_CHARS
+  return typeof value === "string" && value.length <= MAX_CHAT_MESSAGE_CHARS
     ? value
     : null;
 }
@@ -88,7 +87,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const personaId = parsed.personaId;
       const hasValidAttachmentIds = attachmentIds === undefined || (
         Array.isArray(attachmentIds) &&
-        attachmentIds.length <= MAX_CLIENT_ATTACHMENT_IDS &&
+        attachmentIds.length <= MAX_ATTACHMENT_IDS_PER_MESSAGE &&
         attachmentIds.every((attachmentId) => Boolean(parseIdentifier(attachmentId)))
       );
       if (
@@ -119,7 +118,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const queuedMessageIds = parsed.queuedMessageIds;
       if (
         !Array.isArray(queuedMessageIds) ||
-        queuedMessageIds.length > MAX_CLIENT_ATTACHMENT_IDS ||
+        queuedMessageIds.length > MAX_ATTACHMENT_IDS_PER_MESSAGE ||
         queuedMessageIds.some((id) => !parseIdentifier(id)) ||
         new Set(queuedMessageIds).size !== queuedMessageIds.length
       ) {

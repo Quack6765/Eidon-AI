@@ -17,6 +17,10 @@ export function notFoundResponse(message = "Not found") {
   return badRequest(message, 404);
 }
 
+export function payloadTooLarge(message: string) {
+  return badRequest(message, 413);
+}
+
 export async function parseRouteParams<T>(
   context: { params: Promise<Record<string, string | string[]>> },
   schema: ZodType<T>,
