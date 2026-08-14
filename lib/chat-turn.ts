@@ -285,7 +285,7 @@ async function startAssistantTurn(
     setConversationActive(conversation.id, true);
     manager.broadcastAll(
       { type: "conversation_activity", conversationId, isActive: true },
-      conversationOwnerId ?? undefined
+      conversationOwnerId ?? null
     );
     started = true;
 
@@ -606,7 +606,7 @@ async function startAssistantTurn(
       manager.setActive(conversationId, false);
       manager.broadcastAll(
         { type: "conversation_activity", conversationId, isActive: false },
-        conversationOwnerId ?? undefined
+        conversationOwnerId ?? null
       );
       globalEmitter.emit("status", conversationId, "completed");
     }

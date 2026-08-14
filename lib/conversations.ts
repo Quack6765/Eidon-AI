@@ -1830,7 +1830,7 @@ export async function generateConversationTitleFromFirstUserMessage(
             type: "conversation_title_updated",
             conversationId,
             title: DEFAULT_ATTACHMENT_ONLY_CONVERSATION_TITLE
-          }, conversationOwnerId ?? undefined);
+          }, conversationOwnerId ?? null);
         } catch { /* WS server may not be running */ }
       }
 
@@ -1850,7 +1850,7 @@ export async function generateConversationTitleFromFirstUserMessage(
         type: "conversation_title_updated",
         conversationId,
         title
-      }, conversationOwnerId ?? undefined);
+      }, conversationOwnerId ?? null);
     } catch (err) {
       console.error("[title-generation] Broadcast failed:", err);
     }

@@ -112,10 +112,10 @@ export function createConversationManager() {
     connectionKinds.delete(ws);
   }
 
-  function broadcastAll(event: ServerMessage, userId?: string | null) {
+  function broadcastAll(event: ServerMessage, userId: string | null) {
     for (const ws of connectedSockets) {
       const socketUserId = connectionUsers.get(ws);
-      if (!socketUserId || (userId !== undefined && socketUserId !== userId)) {
+      if (!userId || !socketUserId || socketUserId !== userId) {
         continue;
       }
 

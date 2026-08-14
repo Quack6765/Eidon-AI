@@ -95,6 +95,46 @@ describe("conversation-manager", () => {
     expect(otherSent).toHaveLength(0);
   });
 
+  it("delivers to nobody when broadcastAll has a null userId", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const manager = createConversationManager();
+    const { ws: socketA, sent: sentA } = createMockWs();
+    const { ws: socketB, sent: sentB } = createMockWs();
+
+    expect(manager.addConnection(socketA, "user-a")).toBe(true);
+    expect(manager.addConnection(socketB, "user-b")).toBe(true);
+    manager.broadcastAll(
+      { type: "conversation_activity", conversationId: "conv-1", isActive: true },
+      null
+    );
+
+    expect(sentA).toHaveLength(0);
+    expect(sentB).toHaveLength(0);
+  });
+
+  it("delivers broadcastAll only to sockets of the target user across multiple connections", async () => {
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const manager = createConversationManager();
+    const { ws: ownerSocketA, sent: ownerSentA } = createMockWs();
+    const { ws: ownerSocketB, sent: ownerSentB } = createMockWs();
+    const { ws: otherSocketA, sent: otherSentA } = createMockWs();
+    const { ws: otherSocketB, sent: otherSentB } = createMockWs();
+
+    manager.addConnection(ownerSocketA, "user-owner");
+    manager.addConnection(ownerSocketB, "user-owner", "mobile");
+    manager.addConnection(otherSocketA, "user-other");
+    manager.addConnection(otherSocketB, "user-other", "mobile");
+    manager.broadcastAll(
+      { type: "conversation_activity", conversationId: "conv-1", isActive: true },
+      "user-owner"
+    );
+
+    expect(ownerSentA).toHaveLength(1);
+    expect(ownerSentB).toHaveLength(1);
+    expect(otherSentA).toHaveLength(0);
+    expect(otherSentB).toHaveLength(0);
+  });
+
   it("sanitizes room and global broadcasts only for mobile connections", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const manager = createConversationManager();
