@@ -71,7 +71,7 @@ describe("attachment helpers", () => {
       "attachments",
       attachment.relativePath
     );
-    const part = resolveAbsoluteImagePathPart(absolutePath);
+    const part = resolveAbsoluteImagePathPart(absolutePath, { conversationId: conversation.id });
 
     expect(part.type).toBe("image");
     expect(part.mimeType).toBe("image/png");
@@ -81,13 +81,52 @@ describe("attachment helpers", () => {
 
     const outsidePath = path.resolve(process.env.EIDON_DATA_DIR!, "outside.png");
     fs.writeFileSync(outsidePath, "png-bytes");
-    expect(() => resolveAbsoluteImagePathPart(outsidePath)).toThrow("outside attachment storage");
+    expect(() =>
+      resolveAbsoluteImagePathPart(outsidePath, { conversationId: conversation.id })
+    ).toThrow("outside attachment storage");
     expect(() =>
       resolveAbsoluteImagePathPart(
-        path.resolve(absolutePath, "..", "..", "..", "outside.png")
+        path.resolve(absolutePath, "..", "..", "..", "outside.png"),
+        { conversationId: conversation.id }
       )
     ).toThrow("outside attachment storage");
     fs.unlinkSync(outsidePath);
+  });
+
+  it("rejects image paths that belong to a different conversation", async () => {
+    const conversation = createConversation();
+    const otherConversation = createConversation();
+    const [attachment] = await createAttachments(conversation.id, [
+      {
+        filename: "photo.png",
+        mimeType: "image/png",
+        bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47])
+      }
+    ]);
+    const [otherAttachment] = await createAttachments(otherConversation.id, [
+      {
+        filename: "secret.png",
+        mimeType: "image/png",
+        bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47])
+      }
+    ]);
+
+    const absolutePath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      attachment.relativePath
+    );
+    const otherAbsolutePath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      otherAttachment.relativePath
+    );
+
+    const part = resolveAbsoluteImagePathPart(absolutePath, { conversationId: conversation.id });
+    expect(part.relativePath).toBe(attachment.relativePath);
+    expect(() =>
+      resolveAbsoluteImagePathPart(otherAbsolutePath, { conversationId: conversation.id })
+    ).toThrow("Image path belongs to a different conversation");
   });
 
   it("rejects non-image and missing files for image analysis", async () => {
@@ -101,7 +140,9 @@ describe("attachment helpers", () => {
       "attachments",
       attachment.relativePath
     );
-    expect(() => resolveAbsoluteImagePathPart(textPath)).toThrow("Unsupported image type");
+    expect(() =>
+      resolveAbsoluteImagePathPart(textPath, { conversationId: conversation.id })
+    ).toThrow("Unsupported image type");
 
     const missingPath = path.resolve(
       process.env.EIDON_DATA_DIR!,
@@ -109,7 +150,9 @@ describe("attachment helpers", () => {
       conversation.id,
       "missing.png"
     );
-    expect(() => resolveAbsoluteImagePathPart(missingPath)).toThrow("does not exist");
+    expect(() =>
+      resolveAbsoluteImagePathPart(missingPath, { conversationId: conversation.id })
+    ).toThrow("does not exist");
   });
 
   it("fsyncs a temporary file before atomic publication and syncs its directory and root", async () => {

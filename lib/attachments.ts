@@ -793,7 +793,10 @@ export function resolveAttachmentPath(attachment: Pick<MessageAttachment, "relat
   return absolutePath;
 }
 
-export function resolveAbsoluteImagePathPart(absolutePath: string): PromptImageContentPart {
+export function resolveAbsoluteImagePathPart(
+  absolutePath: string,
+  scope: { conversationId: string }
+): PromptImageContentPart {
   const root = getAttachmentsRoot();
   const requestedPath = path.resolve(absolutePath);
 
@@ -811,6 +814,10 @@ export function resolveAbsoluteImagePathPart(absolutePath: string): PromptImageC
     path.isAbsolute(relativeInsideRoot)
   ) {
     throw new Error("Image path is outside attachment storage");
+  }
+
+  if (relativeInsideRoot.split(path.sep)[0] !== scope.conversationId) {
+    throw new Error("Image path belongs to a different conversation");
   }
 
   let stats;
