@@ -465,10 +465,22 @@ export function createAutomationScheduler(dependencies: SchedulerDependencies = 
 
     running = (async () => {
       const nowIsoString = now().toISOString();
-      ensureNextRunAt(timeZone, nowIsoString);
+
+      try {
+        ensureNextRunAt(timeZone, nowIsoString);
+      } catch (error) {
+        console.error("Failed to refresh automation next-run schedules", error);
+      }
 
       for (const automation of listDueAutomations(nowIsoString)) {
-        processDueAutomation(automation, nowIsoString, timeZone);
+        try {
+          processDueAutomation(automation, nowIsoString, timeZone);
+        } catch (error) {
+          console.error(
+            `Failed to process due automation ${automation.id} (${automation.name})`,
+            error
+          );
+        }
       }
 
       if (waitForExecutions) {

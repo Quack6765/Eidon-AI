@@ -13,6 +13,7 @@ import {
 } from "@/lib/automations";
 import { createConversationManager } from "@/lib/conversation-manager";
 import { getConversation } from "@/lib/conversations";
+import { getDb } from "@/lib/db";
 import { createPersona } from "@/lib/personas";
 import { createLocalUser } from "@/lib/users";
 import type { ChatTurnResult } from "@/lib/chat-turn";
@@ -329,6 +330,146 @@ describe("automation scheduler", () => {
     expect(getAutomation(daily.id)?.nextRunAt).toBe("2026-03-09T13:05:00.000Z");
     expect(getAutomation(weekly.id)?.nextRunAt).toBe("2026-03-09T13:30:00.000Z");
     expect(startChatTurn).toHaveBeenCalledTimes(2);
+  });
+
+  it("continues processing remaining due automations when one schedule advancement throws", async () => {
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+
+    const startChatTurn = vi.fn().mockResolvedValue({ status: "completed" });
+    const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+    const scheduler = createAutomationScheduler({
+      now: () => new Date("2026-04-10T10:40:00.000Z"),
+      timeZone: "UTC",
+      manager: createConversationManager(),
+      startChatTurn
+    });
+
+    const broken = createAutomation({
+      name: "Broken interval",
+      prompt: "Never advances",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 15,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+    updateAutomation(broken.id, { nextRunAt: "2026-04-10T09:50:00.000Z" });
+    getDb()
+      .prepare("UPDATE automations SET interval_minutes = NULL WHERE id = ?")
+      .run(broken.id);
+
+    const healthy = createAutomation({
+      name: "Healthy interval",
+      prompt: "Still runs",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 15,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+    updateAutomation(healthy.id, { nextRunAt: "2026-04-10T10:00:00.000Z" });
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      await scheduler.runOnce();
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        `Failed to process due automation ${broken.id} (${broken.name})`,
+        expect.any(Error)
+      );
+      expect(startChatTurn).toHaveBeenCalledTimes(1);
+      expect(listAutomationRuns(broken.id)).toHaveLength(0);
+      expect(listAutomationRuns(healthy.id).map((run) => ({
+        scheduledFor: run.scheduledFor,
+        status: run.status
+      }))).toEqual([
+        { scheduledFor: "2026-04-10T10:30:00.000Z", status: "completed" },
+        { scheduledFor: "2026-04-10T10:15:00.000Z", status: "missed" },
+        { scheduledFor: "2026-04-10T10:00:00.000Z", status: "missed" }
+      ]);
+      expect(getAutomation(healthy.id)?.nextRunAt).toBe("2026-04-10T10:45:00.000Z");
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("still processes due automations when refreshing next-run schedules throws", async () => {
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
+      defaultProviderProfileId: "profile_scheduler",
+      skillsEnabled: false,
+      providerProfiles: [createProviderProfile()]
+    });
+
+    const startChatTurn = vi.fn().mockResolvedValue({ status: "completed" });
+    const { createAutomationScheduler } = await import("@/lib/automation-scheduler");
+    const scheduler = createAutomationScheduler({
+      now: () => new Date("2026-04-10T10:40:00.000Z"),
+      timeZone: "UTC",
+      manager: createConversationManager(),
+      startChatTurn
+    });
+
+    const broken = createAutomation({
+      name: "Broken weekly",
+      prompt: "Never recomputes",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "calendar",
+      intervalMinutes: null,
+      calendarFrequency: "weekly",
+      timeOfDay: "09:30",
+      daysOfWeek: [1]
+    });
+    updateAutomation(broken.id, { nextRunAt: "2026-04-13T09:30:00.000Z" });
+    getDb()
+      .prepare("UPDATE automations SET days_of_week = '[]' WHERE id = ?")
+      .run(broken.id);
+
+    const healthy = createAutomation({
+      name: "Healthy interval",
+      prompt: "Still runs",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 15,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+    updateAutomation(healthy.id, { nextRunAt: "2026-04-10T10:00:00.000Z" });
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      await scheduler.runOnce();
+
+      expect(errorSpy).toHaveBeenCalledWith(
+        "Failed to refresh automation next-run schedules",
+        expect.any(Error)
+      );
+      expect(startChatTurn).toHaveBeenCalledTimes(1);
+      expect(getAutomation(broken.id)?.nextRunAt).toBe("2026-04-13T09:30:00.000Z");
+      expect(listAutomationRuns(broken.id)).toHaveLength(0);
+      expect(
+        listAutomationRuns(healthy.id).some(
+          (run) => run.status === "completed" && run.scheduledFor === "2026-04-10T10:30:00.000Z"
+        )
+      ).toBe(true);
+      expect(getAutomation(healthy.id)?.nextRunAt).toBe("2026-04-10T10:45:00.000Z");
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it("executes triggered runs by creating an automation conversation and updating the run", async () => {
