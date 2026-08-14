@@ -1,3 +1,5 @@
+import { fileURLToPath } from "node:url";
+
 import type { McpServer } from "@/lib/types";
 
 const clientInstances: MockClient[] = [];
@@ -602,4 +604,46 @@ describe("MCP client", () => {
     expect(result.stderr?.length).toBeLessThanOrEqual(MAX_MCP_RESULT_CHARS);
     expect(result.stderr).toContain("...[truncated]");
   });
+
+  it("drains chatty stdio server stderr so persistent tool calls complete", async () => {
+    vi.doUnmock("@modelcontextprotocol/sdk/client/index.js");
+    vi.doUnmock("@modelcontextprotocol/sdk/client/stdio.js");
+    vi.doUnmock("@modelcontextprotocol/sdk/client/streamableHttp.js");
+
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      const { callMcpTool, disconnectMcpServer } = await import("@/lib/mcp-client");
+      const server = createStdioServer();
+      server.command = process.execPath;
+      server.args = [
+        fileURLToPath(new URL("../fixtures/fake-mcp-stdio-server.mjs", import.meta.url))
+      ];
+
+      const result = await callMcpTool(server, "spam_stderr", {}, 15_000);
+
+      expect(result.isError ?? false).toBe(false);
+      expect(result.content[0]?.text).toBe("stderr drained");
+
+      await disconnectMcpServer(server);
+      await vi.waitFor(() => {
+        expect(
+          consoleError.mock.calls.some(
+            ([message]) => typeof message === "string" && message.startsWith("[mcp-stderr stdio Server]")
+          )
+        ).toBe(true);
+      });
+    } finally {
+      consoleError.mockRestore();
+      vi.doMock("@modelcontextprotocol/sdk/client/index.js", () => ({
+        Client: MockClient
+      }));
+      vi.doMock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
+        StdioClientTransport: MockStdioTransport
+      }));
+      vi.doMock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
+        StreamableHTTPClientTransport: MockStreamableHTTPTransport
+      }));
+    }
+  }, 30_000);
 });

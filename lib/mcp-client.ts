@@ -15,6 +15,7 @@ export const MAX_MCP_RESULT_CHARS = MAX_RUNTIME_TOOL_RESULT_CHARS;
 export const MAX_MCP_DISCOVERED_TOOLS = 100;
 const MAX_MCP_TOOL_SCHEMA_CHARS = 32_000;
 export const MAX_MCP_TRANSPORT_MESSAGE_BYTES = 4 * 1024 * 1024;
+const MAX_MCP_STDERR_TAIL_CHARS = 8_192;
 
 export class BoundedMcpStdioReadBuffer {
   private buffer: Buffer | undefined;
@@ -207,6 +208,41 @@ function createClient() {
   );
 }
 
+function drainTransportStderr(transport: StdioClientTransport | StreamableHTTPClientTransport, serverName: string) {
+  if (!(transport instanceof StdioClientTransport)) {
+    return;
+  }
+
+  const stderr = transport.stderr;
+  if (!stderr) {
+    return;
+  }
+
+  let tail = "";
+  let closed = false;
+
+  stderr.on("data", (chunk: Buffer) => {
+    if (closed) {
+      return;
+    }
+    tail = (tail + chunk.toString()).slice(-MAX_MCP_STDERR_TAIL_CHARS);
+  });
+  stderr.on("error", (error: Error) => {
+    if (!closed) {
+      console.error(`[mcp-stderr ${serverName}] stream error: ${error.message}`);
+    }
+  });
+  stderr.on("close", () => {
+    if (closed) {
+      return;
+    }
+    closed = true;
+    if (tail.trim()) {
+      console.error(`[mcp-stderr ${serverName}] ${tail.trim()}`);
+    }
+  });
+}
+
 async function createConnectedClient(server: TestableMcpServer, abortSignal?: AbortSignal) {
   const transport = createTransport(server);
   const client = createClient();
@@ -233,6 +269,7 @@ async function createConnectedClient(server: TestableMcpServer, abortSignal?: Ab
     await closeTransport(transport);
     throw error;
   }
+  drainTransportStderr(transport, server.name);
   return { key: getServerKey(server), client, transport };
 }
 
