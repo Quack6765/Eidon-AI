@@ -83,7 +83,8 @@ describe("reliability route hardening", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           username: "admin-renamed",
-          password: "new-secret-123"
+          password: "new-secret-123",
+          currentPassword: "changeme123"
         })
       })
     );

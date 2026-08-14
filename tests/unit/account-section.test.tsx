@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { AccountSection } from "@/components/settings/sections/account-section";
 
@@ -25,7 +25,30 @@ function buildUser(
   };
 }
 
+function renderLocalUser() {
+  return render(
+    <AccountSection
+      user={buildUser({
+        id: "user_member",
+        username: "member",
+        role: "user",
+        authSource: "local",
+        passwordManagedBy: "local"
+      })}
+    />
+  );
+}
+
 describe("account section", () => {
+  beforeEach(() => {
+    global.fetch = vi.fn(async () => {
+      return {
+        ok: true,
+        json: async () => ({ success: true })
+      } as Response;
+    }) as typeof fetch;
+  });
+
   it("disables credential editing for env-managed users", () => {
     render(<AccountSection user={buildUser()} />);
 
@@ -36,20 +59,45 @@ describe("account section", () => {
   });
 
   it("shows password editing controls for local users", () => {
-    render(
-      <AccountSection
-        user={buildUser({
-          id: "user_member",
-          username: "member",
-          role: "user",
-          authSource: "local",
-          passwordManagedBy: "local"
-        })}
-      />
-    );
+    renderLocalUser();
 
     expect(screen.getByText("New password")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
+  });
+
+  it("requires the current password for local users", () => {
+    renderLocalUser();
+
+    const currentPassword = screen.getByLabelText("Current password");
+    expect(currentPassword).toHaveAttribute("type", "password");
+    expect(currentPassword).toBeRequired();
+    expect(screen.queryByText("Current password")).toBeInTheDocument();
+  });
+
+  it("submits the current password with account changes", async () => {
+    renderLocalUser();
+
+    fireEvent.change(screen.getByLabelText("Current password"), {
+      target: { value: "current-secret-123" }
+    });
+    fireEvent.change(screen.getByPlaceholderText("Enter a new password"), {
+      target: { value: "new-secret-456" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/auth/account",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({
+            username: "member",
+            password: "new-secret-456",
+            currentPassword: "current-secret-123"
+          })
+        })
+      );
+    });
   });
 });

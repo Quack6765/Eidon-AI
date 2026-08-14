@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  authenticateUser,
   clearSessionCookie,
   getSessionPayload,
   requireUser,
@@ -11,7 +12,8 @@ import { badRequest, ok } from "@/lib/http";
 
 const schema = z.object({
   username: z.string().min(3).max(32),
-  password: z.string().min(8).optional().or(z.literal(""))
+  password: z.string().min(8).optional().or(z.literal("")),
+  currentPassword: z.string().min(1)
 });
 
 export async function PUT(request: Request) {
@@ -20,6 +22,12 @@ export async function PUT(request: Request) {
 
   if (!body.success) {
     return badRequest("Invalid account payload");
+  }
+
+  const verifiedUser = await authenticateUser(user.username, body.data.currentPassword);
+
+  if (!verifiedUser) {
+    return badRequest("Current password is incorrect", 401);
   }
 
   try {
