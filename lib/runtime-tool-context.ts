@@ -20,7 +20,7 @@ export type RuntimeToolContext = {
   loadedSkillIds: Set<string>;
   memoriesEnabled: boolean;
   effectiveVisionMode: VisionMode;
-  memoryUserId?: string;
+  memoryUserId?: string | null;
   imageGenerationToolEnabled?: boolean;
   restrictToGenerateImage?: boolean;
   imageGenerationActionHandle?: string;

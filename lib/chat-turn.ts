@@ -357,7 +357,7 @@ async function startAssistantTurn(
       visionMcpServers,
       memoriesEnabled: appSettings.memoriesEnabled,
       memoriesRigor: appSettings.memoriesRigor,
-      memoryUserId: conversationOwnerId ?? undefined,
+      memoryUserId: conversationOwnerId,
       mcpTimeout: appSettings.mcpTimeout,
       abortSignal: control.abortController.signal,
       enableStreamRetry: true,

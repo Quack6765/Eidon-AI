@@ -246,7 +246,7 @@ export function buildPromptMessages(input: {
   userInput?: string;
   maxAttachmentTextTokens?: number;
   memoriesEnabled?: boolean;
-  memoryUserId?: string;
+  memoryUserId?: string | null;
   memoriesRigor?: MemoryRigor;
 }): PromptMessage[] {
   const remainingAttachmentTextTokens = {
@@ -260,7 +260,7 @@ export function buildPromptMessages(input: {
   }
 
   if (input.memoriesEnabled) {
-    const memories = listMemories(input.memoryUserId);
+    const memories = input.memoryUserId ? listMemories(input.memoryUserId) : [];
     if (memories.length > 0) {
       systemParts.push(
         "<memory>\n" +
@@ -379,7 +379,7 @@ function computeFirstPassContext(
     maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
     memoriesEnabled,
     memoriesRigor,
-    memoryUserId: conversationOwnerId ?? undefined
+    memoryUserId: conversationOwnerId
   });
 
   return { promptMessages, contextTokens: estimatePromptTokens(promptMessages), compactionLimit };
@@ -434,7 +434,7 @@ export async function ensureCompactedContext(
         maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
         memoriesEnabled,
         memoriesRigor,
-        memoryUserId: conversationOwnerId ?? undefined
+        memoryUserId: conversationOwnerId
       });
 
     while (true) {

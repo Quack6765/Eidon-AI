@@ -53,7 +53,7 @@ export function listMemories(
   return rows.map(rowToMemory);
 }
 
-export function getMemory(memoryId: string, userId?: string): UserMemory | null {
+export function getMemory(memoryId: string, userId?: string | null): UserMemory | null {
   const row = (userId
     ? getDb()
         .prepare(
@@ -126,7 +126,7 @@ export function deleteMemory(memoryId: string, userId?: string): void {
   getDb().prepare("DELETE FROM user_memories WHERE id = ?").run(memoryId);
 }
 
-export function getMemoryCount(userId?: string): number {
+export function getMemoryCount(userId?: string | null): number {
   const row = (userId
     ? getDb().prepare("SELECT COUNT(*) as count FROM user_memories WHERE user_id = ?").get(userId)
     : getDb().prepare("SELECT COUNT(*) as count FROM user_memories").get()) as { count: number };

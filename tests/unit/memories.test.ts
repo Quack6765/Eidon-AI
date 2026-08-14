@@ -8,6 +8,7 @@ import {
   getMemoryCount
 } from "@/lib/memories";
 import { normalizeMemoryRigor } from "@/lib/global-preferences";
+import { buildPromptMessages } from "@/lib/compaction";
 import { createLocalUser } from "@/lib/users";
 
 describe("normalizeMemoryRigor", () => {
@@ -162,5 +163,76 @@ describe("memories", () => {
 
     expect(listMemories(userA.id).map((memory) => memory.content)).toEqual(["Admin memory"]);
     expect(listMemories(userB.id).map((memory) => memory.content)).toEqual(["Member memory"]);
+  });
+});
+
+describe("memory injection scoping", () => {
+  function promptInput(memoryUserId?: string | null) {
+    return {
+      systemPrompt: "Be helpful.",
+      activeMemoryNodes: [],
+      messages: [
+        {
+          id: "1",
+          conversationId: "c1",
+          role: "user" as const,
+          content: "Hi",
+          status: "completed" as const,
+          estimatedTokens: 5,
+          thinkingContent: "",
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        }
+      ],
+      memoriesEnabled: true,
+      memoryUserId
+    };
+  }
+
+  it("injects zero memories when the conversation owner is null or undefined and multiple users have memories", async () => {
+    const userA = await createLocalUser({
+      username: "memory-injection-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "memory-injection-b",
+      password: "Password123!",
+      role: "user"
+    });
+
+    createMemory("User A secret fact", "personal", userA.id);
+    createMemory("User B secret fact", "personal", userB.id);
+
+    for (const result of [buildPromptMessages(promptInput(null)), buildPromptMessages(promptInput())]) {
+      const systemContent = result[0].content as string;
+      expect(systemContent).not.toContain("<memory>");
+      expect(systemContent).not.toContain("User A secret fact");
+      expect(systemContent).not.toContain("User B secret fact");
+    }
+  });
+
+  it("injects only the owner's memories for an owned conversation", async () => {
+    const userA = await createLocalUser({
+      username: "memory-injection-owner",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "memory-injection-other",
+      password: "Password123!",
+      role: "user"
+    });
+
+    createMemory("Owner memory", "work", userA.id);
+    createMemory("Other user memory", "personal", userB.id);
+
+    const result = buildPromptMessages(promptInput(userA.id));
+
+    const systemContent = result[0].content as string;
+    expect(systemContent).toContain("<memory>");
+    expect(systemContent).toContain("Owner memory");
+    expect(systemContent).not.toContain("Other user memory");
   });
 });
