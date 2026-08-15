@@ -16,6 +16,7 @@ import { getDb } from "@/lib/db";
 import { createConversation, createMessage, createMessageAction, listMessages } from "@/lib/conversations";
 import { getDefaultRuntimeProviderProfile, updateProviderCatalog } from "@/lib/settings";
 import { createMemory, deleteMemory } from "@/lib/memories";
+import { createLocalUser } from "@/lib/users";
 import type { Message, MessageAction, PromptMessage } from "@/lib/types";
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
 
@@ -1513,36 +1514,143 @@ describe("buildPromptMessages with persona", () => {
 });
 
 describe("buildPromptMessages with memories", () => {
-  it("includes memory block and tool instructions when memoriesEnabled and memories exist", () => {
-    const mem = createMemory("User lives in Montreal", "location");
-    try {
-      const result = buildPromptMessages({
-        systemPrompt: "Be helpful.",
-        activeMemoryNodes: [],
-        messages: [
-          {
-            id: "1",
-            conversationId: "c1",
-            role: "user",
-            content: "Hi",
-            status: "completed",
-            estimatedTokens: 5,
-            thinkingContent: "",
-            systemKind: null,
-            compactedAt: null,
-            createdAt: new Date().toISOString()
-          }
-        ],
-        memoriesEnabled: true
-      });
+  async function seedTwoUsersWithMemories() {
+    const userA = await createLocalUser({
+      username: "compaction-owner-a",
+      password: "Password123!",
+      role: "user"
+    });
+    const userB = await createLocalUser({
+      username: "compaction-owner-b",
+      password: "Password123!",
+      role: "user"
+    });
 
-      const systemContent = result[0].content as string;
-      expect(systemContent).toContain("<memory>");
-      expect(systemContent).toContain("User lives in Montreal");
-      expect(systemContent).toContain("create_memory");
-    } finally {
-      deleteMemory(mem.id);
-    }
+    createMemory("User A lives in Montreal", "location", userA.id);
+    createMemory("User B prefers TypeScript", "preference", userB.id);
+
+    return { userA, userB };
+  }
+
+  function memoryPromptInput(memoryUserId?: string | null) {
+    return {
+      systemPrompt: "Be helpful.",
+      activeMemoryNodes: [],
+      messages: [
+        {
+          id: "1",
+          conversationId: "c1",
+          role: "user" as const,
+          content: "Hi",
+          status: "completed" as const,
+          estimatedTokens: 5,
+          thinkingContent: "",
+          systemKind: null,
+          compactedAt: null,
+          createdAt: new Date().toISOString()
+        }
+      ],
+      memoriesEnabled: true,
+      memoryUserId
+    };
+  }
+
+  it("includes only the owner's memory block and tool instructions when memoriesEnabled", async () => {
+    const { userA } = await seedTwoUsersWithMemories();
+
+    const result = buildPromptMessages(memoryPromptInput(userA.id));
+
+    const systemContent = result[0].content as string;
+    expect(systemContent).toContain("<memory>");
+    expect(systemContent).toContain("User A lives in Montreal");
+    expect(systemContent).not.toContain("User B prefers TypeScript");
+    expect(systemContent).toContain("create_memory");
+  });
+
+  it("injects zero memories when memoryUserId is null and multiple users have memories", async () => {
+    await seedTwoUsersWithMemories();
+
+    const result = buildPromptMessages(memoryPromptInput(null));
+
+    const systemContent = result[0].content as string;
+    expect(systemContent).not.toContain("<memory>");
+    expect(systemContent).not.toContain("User A lives in Montreal");
+    expect(systemContent).not.toContain("User B prefers TypeScript");
+  });
+
+  it("injects zero memories when memoryUserId is undefined and multiple users have memories", async () => {
+    await seedTwoUsersWithMemories();
+
+    const result = buildPromptMessages(memoryPromptInput());
+
+    const systemContent = result[0].content as string;
+    expect(systemContent).not.toContain("<memory>");
+    expect(systemContent).not.toContain("User A lives in Montreal");
+    expect(systemContent).not.toContain("User B prefers TypeScript");
+  });
+
+  function seedConversationProfile() {
+    updateProviderCatalog({
+      defaultProviderProfileId: "profile_default",
+      skillsEnabled: true,
+      providerProfiles: [
+        createProviderProfileInput({
+          id: "profile_default",
+          name: "Default"
+        })
+      ]
+    });
+  }
+
+  it("injects zero memories for a null-owner conversation even when multiple users have memories", async () => {
+    seedConversationProfile();
+    await seedTwoUsersWithMemories();
+
+    const conversation = createConversation();
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Hi"
+    });
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultRuntimeProviderProfile()!,
+      {},
+      undefined,
+      true
+    );
+
+    const systemContent = result.promptMessages.find((message) => message.role === "system")!.content as string;
+    expect(systemContent).not.toContain("<memory>");
+    expect(systemContent).not.toContain("User A lives in Montreal");
+    expect(systemContent).not.toContain("User B prefers TypeScript");
+    expect(systemContent).toContain("create_memory");
+  });
+
+  it("injects only the owner's memories for an owned conversation", async () => {
+    seedConversationProfile();
+    const { userA } = await seedTwoUsersWithMemories();
+
+    const conversation = createConversation("Owned", null, undefined, userA.id);
+    createMessage({
+      conversationId: conversation.id,
+      role: "user",
+      content: "Hi"
+    });
+
+    const result = await ensureCompactedContext(
+      conversation.id,
+      getDefaultRuntimeProviderProfile()!,
+      {},
+      undefined,
+      true
+    );
+
+    const systemContent = result.promptMessages.find((message) => message.role === "system")!.content as string;
+    expect(systemContent).toContain("<memory>");
+    expect(systemContent).toContain("User A lives in Montreal");
+    expect(systemContent).not.toContain("User B prefers TypeScript");
   });
 
   it("does not include memory block when memoriesEnabled is false", () => {

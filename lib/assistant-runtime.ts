@@ -305,7 +305,7 @@ export async function resolveAssistantTurn(input: {
   visionMcpServers?: McpServer[];
   memoriesEnabled?: boolean;
   memoriesRigor?: MemoryRigor;
-  memoryUserId?: string;
+  memoryUserId?: string | null;
   mcpTimeout?: number;
   abortSignal?: AbortSignal;
   enableStreamRetry?: boolean;

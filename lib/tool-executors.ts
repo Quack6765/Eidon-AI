@@ -533,7 +533,7 @@ export async function executeShellCommand(
 }
 
 type MemoryToolExecutionContext = {
-  memoryUserId?: string;
+  memoryUserId?: string | null;
   input: {
     abortSignal?: AbortSignal;
     onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
@@ -819,7 +819,7 @@ export async function executeToolCall(
       visionProfile?: RuntimeProviderProfile;
       skills: Skill[];
       mcpToolSets: ToolSet[];
-      memoryUserId?: string;
+      memoryUserId?: string | null;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -836,7 +836,7 @@ export async function executeToolCall(
     successfulReadOnlyToolResults: Map<string, SuccessfulReadOnlyToolResult>;
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
-    memoryUserId?: string;
+    memoryUserId?: string | null;
   }
 ): Promise<{
   nextSortOrder: number;
