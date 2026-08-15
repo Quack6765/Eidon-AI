@@ -7,7 +7,7 @@ import {
   restartAssistantTurnAfterMutation
 } from "@/lib/chat-turn";
 import {
-  deleteAssistantMessageAndChildren,
+  deleteAssistantMessagesAndChildren,
   getMessage,
   listMessages
 } from "@/lib/conversations";
@@ -33,6 +33,12 @@ export async function POST(
     return badRequest("Only user messages can be regenerated", 400);
   }
 
+  const allMessages = listMessages(message.conversationId);
+  const lastUserMessage = [...allMessages].reverse().find((m) => m.role === "user");
+  if (!lastUserMessage || lastUserMessage.id !== message.id) {
+    return badRequest("Only the latest user message can be regenerated", 409);
+  }
+
   const turn = prepareMessageManipulationTurn({
     conversationId: message.conversationId,
     userId: user.id,
@@ -46,17 +52,17 @@ export async function POST(
     turn,
     logTag: "message-regenerate-route",
     mutate: () => {
-    const allMessages = listMessages(message.conversationId);
-    const targetIndex = allMessages.findIndex((m) => m.id === message.id);
+      const targetIndex = allMessages.findIndex((m) => m.id === message.id);
+      const trailingAssistantIds = allMessages
+        .slice(targetIndex + 1)
+        .filter((m) => m.role === "assistant")
+        .map((m) => m.id);
 
-    let rewritten = turn.snapshot;
-    for (let i = targetIndex + 1; i < allMessages.length; i++) {
-      if (allMessages[i].role === "assistant") {
-        rewritten = deleteAssistantMessageAndChildren(allMessages[i].id, user.id);
-        break;
+      if (trailingAssistantIds.length === 0) {
+        return turn.snapshot;
       }
-    }
-    return rewritten;
+
+      return deleteAssistantMessagesAndChildren(trailingAssistantIds, user.id);
     }
   });
   return ok(rewritten);

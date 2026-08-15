@@ -1448,33 +1448,55 @@ export function deleteAssistantMessageAndChildren(
   messageId: string,
   userId?: string
 ) {
+  return deleteAssistantMessagesAndChildren([messageId], userId);
+}
+
+export function deleteAssistantMessagesAndChildren(
+  messageIds: string[],
+  userId?: string
+) {
+  if (messageIds.length === 0) {
+    throw new Error("No messages to delete");
+  }
+
   const db = getDb();
   const deletedAttachmentPaths = new Set<string>();
   const transaction = db.transaction(() => {
-    const message = getMessage(messageId, userId);
+    const messages = messageIds.map((messageId) => {
+      const message = getMessage(messageId, userId);
 
-    if (!message) {
-      throw new Error("Message not found");
-    }
+      if (!message) {
+        throw new Error("Message not found");
+      }
 
-    if (message.role !== "assistant") {
-      throw new Error("Only assistant messages can be retried");
-    }
+      if (message.role !== "assistant") {
+        throw new Error("Only assistant messages can be retried");
+      }
 
-    const conversation = getConversation(message.conversationId, userId);
+      return message;
+    });
+
+    const conversation = getConversation(messages[0].conversationId, userId);
 
     if (!conversation) {
       throw new Error("Conversation not found");
     }
 
-    listAttachmentsForMessageIds([message.id]).forEach((attachment) => {
+    listAttachmentsForMessageIds(messages.map((message) => message.id)).forEach((attachment) => {
       deletedAttachmentPaths.add(attachment.relativePath);
     });
 
-    db.prepare("DELETE FROM message_actions WHERE message_id = ?").run(message.id);
-    db.prepare("DELETE FROM message_text_segments WHERE message_id = ?").run(message.id);
-    db.prepare("DELETE FROM message_attachments WHERE message_id = ?").run(message.id);
-    db.prepare("DELETE FROM messages WHERE id = ?").run(message.id);
+    const deleteActions = db.prepare("DELETE FROM message_actions WHERE message_id = ?");
+    const deleteSegments = db.prepare("DELETE FROM message_text_segments WHERE message_id = ?");
+    const deleteAttachments = db.prepare("DELETE FROM message_attachments WHERE message_id = ?");
+    const deleteMessage = db.prepare("DELETE FROM messages WHERE id = ?");
+
+    for (const message of messages) {
+      deleteActions.run(message.id);
+      deleteSegments.run(message.id);
+      deleteAttachments.run(message.id);
+      deleteMessage.run(message.id);
+    }
 
     setConversationActive(conversation.id, false);
 
