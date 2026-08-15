@@ -2,14 +2,25 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
+import { RequestBodyTooLargeError, readRequestBodyWithLimit } from "@/lib/bounded-request";
 import { runAssistantTurn } from "@/lib/chat-turn";
+import { MAX_ATTACHMENT_IDS_PER_MESSAGE, MAX_CHAT_MESSAGE_CHARS, MAX_CHAT_REQUEST_BYTES } from "@/lib/constants";
 import { getConversation } from "@/lib/conversations";
-import { badRequest, parseRouteParams } from "@/lib/http";
+import { badRequest, parseRouteParams, payloadTooLarge } from "@/lib/http";
 import { encodeSseEvent, encodeSseFlushMarker, encodeSsePrelude } from "@/lib/sse";
 
 const bodySchema = z.object({
-  message: z.string(),
-  attachmentIds: z.array(z.string().min(1)).default([])
+  message: z.string().max(
+    MAX_CHAT_MESSAGE_CHARS,
+    `Message exceeds the maximum length of ${MAX_CHAT_MESSAGE_CHARS} characters`
+  ),
+  attachmentIds: z
+    .array(z.string().min(1))
+    .max(
+      MAX_ATTACHMENT_IDS_PER_MESSAGE,
+      `A maximum of ${MAX_ATTACHMENT_IDS_PER_MESSAGE} attachments may be sent per message`
+    )
+    .default([])
 }).refine(
   (value) => value.message.trim().length > 0 || value.attachmentIds.length > 0,
   "Chat message or attachment is required"
@@ -24,8 +35,20 @@ export async function POST(
   if (!user) return badRequest("Authentication required", 401);
   const params = await parseRouteParams(context, paramsSchema, "conversation id");
   if (params instanceof NextResponse) return params;
-  const payload = bodySchema.safeParse(await request.json().catch(() => null));
-  if (!payload.success) return badRequest("Invalid chat payload");
+  let parsedBody: unknown;
+  try {
+    parsedBody = JSON.parse(
+      Buffer.from(await readRequestBodyWithLimit(request, MAX_CHAT_REQUEST_BYTES)).toString("utf8")
+    );
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) return payloadTooLarge(error.message);
+    return badRequest("Invalid chat payload");
+  }
+  const payload = bodySchema.safeParse(parsedBody);
+  if (!payload.success) {
+    const limitIssue = payload.error.issues.find((issue) => issue.code === "too_big");
+    return badRequest(limitIssue ? limitIssue.message : "Invalid chat payload");
+  }
   const conversation = getConversation(params.conversationId, user.id);
   if (!conversation) return badRequest("Conversation not found", 404);
 

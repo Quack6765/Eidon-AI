@@ -34,4 +34,16 @@ describe("token estimator", () => {
     ]);
     expect(tokens).toBeGreaterThan(0);
   });
+
+  it("keeps estimation cost bounded for long runs of repeated characters", () => {
+    const tokenizer = createTokenizer("gpt-tokenizer");
+    const degenerate = "-".repeat(150_000);
+
+    const startedAt = Date.now();
+    const tokens = tokenizer.estimateTextTokens(degenerate);
+    const elapsedMs = Date.now() - startedAt;
+
+    expect(tokens).toBeGreaterThan(0);
+    expect(elapsedMs).toBeLessThan(2_000);
+  });
 });

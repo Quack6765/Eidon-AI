@@ -58,6 +58,8 @@ import {
   updateQueuedMessage
 } from "@/lib/conversations";
 import { requestStop } from "@/lib/chat-turn-control";
+import { RequestBodyTooLargeError, readRequestBodyWithLimit } from "@/lib/bounded-request";
+import { MAX_CHAT_MESSAGE_CHARS, MAX_CHAT_REQUEST_BYTES } from "@/lib/constants";
 import {
   isSecureMobileRequest,
   mobileApiError,
@@ -143,6 +145,18 @@ function broadcastQueue(conversationId: string) {
   });
 }
 
+async function readJsonBody(request: Request): Promise<{ payload: unknown; error?: Response }> {
+  try {
+    const body = await readRequestBodyWithLimit(request, MAX_CHAT_REQUEST_BYTES);
+    return { payload: JSON.parse(Buffer.from(body).toString("utf8")) };
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return { payload: null, error: Response.json({ error: error.message }, { status: 413 }) };
+    }
+    return { payload: null };
+  }
+}
+
 async function handleQueueRoute(request: Request, path: string[], userId: string) {
   if (path.length < 3 || (path[2] !== "stop" && path[2] !== "queue")) {
     return null;
@@ -163,11 +177,13 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
       return Response.json({ queuedMessages: listQueuedMessages(conversationId) });
     }
     if (request.method === "POST") {
-      const body = await request.json().catch(() => null) as { content?: unknown; mode?: unknown } | null;
+      const { payload, error: bodyError } = await readJsonBody(request);
+      if (bodyError) return bodyError;
+      const body = payload as { content?: unknown; mode?: unknown } | null;
       if (
         typeof body?.content !== "string" ||
         !body.content.trim() ||
-        body.content.length > 64 * 1024 ||
+        body.content.length > MAX_CHAT_MESSAGE_CHARS ||
         (body.mode !== undefined && body.mode !== "chat" && body.mode !== "image")
       ) {
         return Response.json({ error: "Invalid queued message payload" }, { status: 400 });
@@ -183,7 +199,9 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
   }
 
   if (path.length === 4 && path[2] === "queue" && path[3] === "order" && request.method === "PUT") {
-    const body = await request.json().catch(() => null) as { queuedMessageIds?: unknown } | null;
+    const { payload, error: bodyError } = await readJsonBody(request);
+    if (bodyError) return bodyError;
+    const body = payload as { queuedMessageIds?: unknown } | null;
     if (
       !Array.isArray(body?.queuedMessageIds) ||
       !body.queuedMessageIds.every((id) => typeof id === "string" && id.length > 0) ||
@@ -198,8 +216,10 @@ async function handleQueueRoute(request: Request, path: string[], userId: string
   const queuedMessageId = path[3];
   if (path.length === 4 && path[2] === "queue") {
     if (request.method === "PATCH") {
-      const body = await request.json().catch(() => null) as { content?: unknown } | null;
-      if (typeof body?.content !== "string" || !body.content.trim() || body.content.length > 64 * 1024) {
+      const { payload, error: bodyError } = await readJsonBody(request);
+      if (bodyError) return bodyError;
+      const body = payload as { content?: unknown } | null;
+      if (typeof body?.content !== "string" || !body.content.trim() || body.content.length > MAX_CHAT_MESSAGE_CHARS) {
         return Response.json({ error: "Invalid queued message payload" }, { status: 400 });
       }
       const queuedMessage = updateQueuedMessage({ conversationId, queuedMessageId, content: body.content });
