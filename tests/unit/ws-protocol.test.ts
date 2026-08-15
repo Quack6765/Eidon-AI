@@ -17,6 +17,19 @@ describe("ws-protocol", () => {
     expect(parsed).toEqual(msg);
   });
 
+  it("accepts message content up to the shared limit and rejects anything longer", async () => {
+    const { parseClientMessage } = await import("@/lib/ws-protocol");
+    const { MAX_CHAT_MESSAGE_CHARS } = await import("@/lib/constants");
+    const base = { type: "message" as const, conversationId: "conv-1" };
+
+    expect(
+      parseClientMessage(JSON.stringify({ ...base, content: "a".repeat(MAX_CHAT_MESSAGE_CHARS) }))
+    ).toEqual({ ...base, content: "a".repeat(MAX_CHAT_MESSAGE_CHARS) });
+    expect(
+      parseClientMessage(JSON.stringify({ ...base, content: "a".repeat(MAX_CHAT_MESSAGE_CHARS + 1) }))
+    ).toBeNull();
+  });
+
   it("serializes and parses queue client messages", async () => {
     const { serializeClientMessage, parseClientMessage } = await import("@/lib/ws-protocol");
     const message = { type: "queue_message", conversationId: "conv-1", content: "Queued follow-up" } as const;

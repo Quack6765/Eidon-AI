@@ -427,6 +427,42 @@ describe("Mobile API v1 REST adapter", () => {
     expect(listBody.data.queuedMessages).toHaveLength(1);
   });
 
+  it("bounds queued message content and request body size on the queue bridge", async () => {
+    const member = await createLocalUser({
+      username: "queue-limit-member",
+      password: "QueueLimitPassword123!",
+      role: "user"
+    });
+    const session = await createMobileSession(member.id, "Queue limit device");
+    const conversation = createConversation("Queue limit conversation", null, {}, member.id);
+    const queuePath = ["conversations", conversation.id, "queue"];
+    const { MAX_CHAT_MESSAGE_CHARS } = await import("@/lib/constants");
+
+    const oversizeContent = await mobilePost(
+      request(queuePath, session.token, {
+        method: "POST",
+        body: { content: "a".repeat(MAX_CHAT_MESSAGE_CHARS + 1) }
+      }),
+      context(queuePath)
+    );
+    expect(oversizeContent.status).toBe(400);
+    await expect(oversizeContent.json()).resolves.toEqual({
+      error: expect.objectContaining({ message: "Invalid queued message payload" })
+    });
+
+    const oversizeBody = await mobilePost(
+      request(queuePath, session.token, {
+        method: "POST",
+        body: { content: "hello", padding: "a".repeat(2 * 1024 * 1024) }
+      }),
+      context(queuePath)
+    );
+    expect(oversizeBody.status).toBe(413);
+    await expect(oversizeBody.json()).resolves.toEqual({
+      error: expect.objectContaining({ message: "Request body exceeds the 1 MB limit" })
+    });
+  });
+
   it("returns stable errors for invalid payloads, unsupported methods, and unknown operations", async () => {
     const user = await createLocalUser({
       username: "errors-member",

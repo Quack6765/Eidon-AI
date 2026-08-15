@@ -154,8 +154,33 @@ describe("request body limit routes", () => {
 
     expect(response.status).toBe(413);
     await expect(response.json()).resolves.toEqual({
-      error: "Request body exceeds 1048576 bytes"
+      error: "Request body exceeds the 1 MB limit"
     });
+  });
+
+  it("accepts a maximum-size chat message end to end", async () => {
+    const { conversation } = await createRouteUserWithConversation(
+      "chat-body-limit-max-user",
+      "Chat body limit max"
+    );
+
+    const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+    const response = await POST(
+      new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "a".repeat(MAX_CHAT_MESSAGE_CHARS), attachmentIds: [] })
+      }),
+      { params: Promise.resolve({ conversationId: conversation.id }) }
+    );
+
+    expect(response.status).toBe(200);
+    await response.text();
+
+    const { listVisibleMessages } = await import("@/lib/conversations");
+    const messages = listVisibleMessages(conversation.id);
+    expect(messages.find((message) => message.role === "user")?.content).toHaveLength(MAX_CHAT_MESSAGE_CHARS);
+    expect(messages.find((message) => message.role === "assistant")?.status).toBe("completed");
   });
 
   it("accepts a small valid chat request end to end", async () => {
@@ -203,7 +228,7 @@ describe("request body limit routes", () => {
 
     expect(response.status).toBe(413);
     await expect(response.json()).resolves.toEqual({
-      error: "Request body exceeds 104857600 bytes"
+      error: "Request body exceeds the 100 MB limit"
     });
   });
 
@@ -234,7 +259,7 @@ describe("request body limit routes", () => {
 
     expect(response.status).toBe(413);
     await expect(response.json()).resolves.toEqual({
-      error: "Request body exceeds 104857600 bytes"
+      error: "Request body exceeds the 100 MB limit"
     });
   });
 

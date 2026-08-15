@@ -97,7 +97,7 @@ app.prepare().then(async () => {
 
   const wss = new WebSocketServer({
     noServer: true,
-    maxPayload: 128 * 1024,
+    maxPayload: 1024 * 1024,
     perMessageDeflate: false
   });
   const {

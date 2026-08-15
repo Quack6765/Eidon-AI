@@ -1,6 +1,12 @@
+function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 && bytes % (1024 * 1024) === 0) return `${bytes / (1024 * 1024)} MB`;
+  if (bytes >= 1024 && bytes % 1024 === 0) return `${bytes / 1024} KB`;
+  return `${bytes} bytes`;
+}
+
 export class RequestBodyTooLargeError extends Error {
   constructor(maxBytes: number) {
-    super(`Request body exceeds ${maxBytes} bytes`);
+    super(`Request body exceeds the ${formatBytes(maxBytes)} limit`);
     this.name = "RequestBodyTooLargeError";
   }
 }
