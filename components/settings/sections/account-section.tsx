@@ -26,7 +26,8 @@ export function AccountSection({ user }: { user: AuthUser }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         username: String(formData.get("username") ?? ""),
-        password: String(formData.get("password") ?? "")
+        password: String(formData.get("password") ?? ""),
+        currentPassword: String(formData.get("currentPassword") ?? "")
       })
     });
     const result = (await response.json()) as { error?: string };
@@ -69,6 +70,18 @@ export function AccountSection({ user }: { user: AuthUser }) {
               <div>
                 <label className={fieldLabel}>Username</label>
                 <Input name="username" defaultValue={user.username} />
+              </div>
+              <div>
+                <label htmlFor="account-current-password" className={fieldLabel}>
+                  Current password
+                </label>
+                <Input
+                  id="account-current-password"
+                  name="currentPassword"
+                  type="password"
+                  placeholder="Enter your current password"
+                  required
+                />
               </div>
               <div>
                 <label className={fieldLabel}>New password</label>
