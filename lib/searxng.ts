@@ -63,6 +63,10 @@ async function readJsonResponse(response: Response) {
 
 export async function searchSearxng(input: SearxngSearchInput) {
   const baseUrl = normalizeBaseUrl(input.baseUrl);
+  const parsedBaseUrl = new URL(baseUrl);
+  if (parsedBaseUrl.protocol !== "http:" && parsedBaseUrl.protocol !== "https:") {
+    throw new Error("SearXNG base URL must use http or https.");
+  }
   const url = new URL(`${baseUrl}/search`);
   url.searchParams.set("q", input.query);
   url.searchParams.set("format", "json");

@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
-import { badRequest, ok } from "@/lib/http";
+import { badRequest, forbidden, ok } from "@/lib/http";
 import {
   imageGenerationIntegrationUpdateSchema,
   speechTranscriptionIntegrationUpdateSchema,
@@ -9,6 +9,8 @@ import {
 } from "@/lib/integration-settings";
 import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
 import { updateGeneralSettingsBundleForUser } from "@/lib/settings";
+import { isPublicHttpUrl } from "@/lib/public-http-url";
+import { getWebSearchEndpointUrl } from "@/lib/web-search-catalog";
 
 const inputSchema = z.object({
   preferences: z.object({
@@ -34,6 +36,14 @@ export async function PUT(request: Request) {
   const body = inputSchema.safeParse(await request.json().catch(() => null));
   if (!body.success) {
     return badRequest(body.error.issues.map((issue) => issue.message).join("; "));
+  }
+  const webSearchEndpointUrl = getWebSearchEndpointUrl(body.data.webSearch);
+  if (
+    webSearchEndpointUrl !== null
+    && user.role !== "admin"
+    && !(await isPublicHttpUrl(webSearchEndpointUrl))
+  ) {
+    return forbidden("Only admins can point web search at private network addresses.");
   }
   try {
     const settings = updateGeneralSettingsBundleForUser(

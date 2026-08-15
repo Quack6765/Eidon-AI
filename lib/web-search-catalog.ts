@@ -11,16 +11,37 @@ const credentialFields = {
   credentialAction: z.enum(["preserve", "replace", "clear"]).default("preserve")
 };
 
+export const searxngBaseUrlSchema = z.string().url().refine((value) => {
+  try {
+    const url = new URL(value);
+    return (url.protocol === "http:" || url.protocol === "https:")
+      && url.username === ""
+      && url.password === ""
+      && url.hash === "";
+  } catch {
+    return false;
+  }
+}, "SearXNG base URL must be an http(s) URL without credentials or fragments.");
+
 export const webSearchIntegrationUpdateSchema = z.discriminatedUnion("providerId", [
   z.object({ providerId: z.literal("disabled"), configuration: z.object({}).strict(), ...credentialFields }).strict(),
   z.object({ providerId: z.literal("exa"), configuration: z.object({}).strict(), ...credentialFields }).strict(),
   z.object({ providerId: z.literal("tavily"), configuration: z.object({}).strict(), ...credentialFields }).strict(),
   z.object({
     providerId: z.literal("searxng"),
-    configuration: z.object({ baseUrl: z.string().url() }).strict(),
+    configuration: z.object({ baseUrl: searxngBaseUrlSchema }).strict(),
     ...credentialFields
   }).strict()
 ]);
+
+export type WebSearchIntegrationUpdate = z.infer<typeof webSearchIntegrationUpdateSchema>;
+
+export function getWebSearchEndpointUrl(
+  update: WebSearchIntegrationUpdate | undefined
+): string | null {
+  if (update?.providerId !== "searxng") return null;
+  return update.configuration.baseUrl;
+}
 
 export const WEB_SEARCH_PROVIDER_CATALOG = {
   disabled: {
