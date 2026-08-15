@@ -9,7 +9,8 @@ import {
 } from "@/lib/integration-settings";
 import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
 import { updateGeneralSettingsBundleForUser } from "@/lib/settings";
-import { getWebSearchEndpointUrl, isPublicHttpUrl } from "@/lib/web-search-catalog";
+import { isPublicHttpUrl } from "@/lib/public-http-url";
+import { getWebSearchEndpointUrl } from "@/lib/web-search-catalog";
 
 const inputSchema = z.object({
   preferences: z.object({

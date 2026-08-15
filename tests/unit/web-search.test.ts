@@ -3,7 +3,9 @@ import {
   searchWeb
 } from "@/lib/web-search";
 import {
-  isPublicHttpUrl,
+  isPublicHttpUrl
+} from "@/lib/public-http-url";
+import {
   webSearchIntegrationUpdateSchema
 } from "@/lib/web-search-catalog";
 import { createRuntimeAppSettings } from "@/tests/provider-fixtures";
