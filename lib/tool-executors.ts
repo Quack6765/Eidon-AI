@@ -700,6 +700,7 @@ export async function executeAnalyzeImage(
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      conversationId?: string;
     };
     timelineSortOrder: number;
     promptMessages: PromptMessage[];
@@ -724,11 +725,22 @@ export async function executeAnalyzeImage(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
+  const conversationId = context.input.conversationId;
+  if (!conversationId) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      "Error: conversation context is required for image analysis"
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
   const question = typeof args.question === "string" ? args.question.trim() : "";
 
   let imageParts: PromptImageContentPart[];
   try {
-    imageParts = rawPaths.map((filePath) => resolveAbsoluteImagePathPart(String(filePath)));
+    imageParts = rawPaths.map((filePath) =>
+      resolveAbsoluteImagePathPart(String(filePath), { conversationId })
+    );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Invalid image path";
     const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);

@@ -2952,6 +2952,7 @@ Run browser commands.`
       const result = await resolveAssistantTurn({
         settings: providerVisionSettings(),
         visionProfile: visionProfile(),
+        conversationId: "conv_vision",
         promptMessages: [imageMessage()],
         skills: [],
         mcpToolSets: [],
@@ -3006,6 +3007,7 @@ Run browser commands.`
       await expect(resolveAssistantTurn({
         settings: providerVisionSettings(),
         visionProfile: visionProfile(),
+        conversationId: "conv_vision",
         promptMessages: [imageMessage()],
         skills: [],
         mcpToolSets: [],
@@ -3052,6 +3054,7 @@ Run browser commands.`
       const result = await resolveAssistantTurn({
         settings: providerVisionSettings(),
         visionProfile: visionProfile(),
+        conversationId: "conv_vision",
         promptMessages: [imageMessage()],
         skills: [],
         mcpToolSets: []
@@ -3063,6 +3066,118 @@ Run browser commands.`
         (message) => message.role === "tool" && message.toolCallId === "call_analyze_bad"
       );
       expect(toolMessage?.content).toContain("outside attachment storage");
+    });
+
+    it("returns an error tool result without a vision call for paths from another conversation", async () => {
+      resolveAbsoluteImagePathPart.mockImplementation(
+        (absolutePath: string, scope?: { conversationId: string }) => {
+          if (!scope?.conversationId || !absolutePath.startsWith(`/tmp/${scope.conversationId}/`)) {
+            throw new Error("Image path belongs to a different conversation");
+          }
+          return {
+            type: "image" as const,
+            attachmentId: "att_photo",
+            filename: "att_photo_photo.png",
+            mimeType: "image/png",
+            relativePath: absolutePath.replace(/^\/tmp\//, "")
+          };
+        }
+      );
+
+      let providerCallCount = 0;
+      streamProviderResponse.mockImplementation(() => {
+        providerCallCount += 1;
+
+        if (providerCallCount === 1) {
+          return createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{
+              id: "call_analyze_cross",
+              name: "analyze_image",
+              arguments: JSON.stringify({ file_paths: ["/tmp/conv_other/att_secret_secret.png"] })
+            }],
+            usage: { inputTokens: 12 }
+          });
+        }
+
+        return createProviderStream([{ type: "answer_delta", text: "Recovered." }], {
+          answer: "Recovered.",
+          thinking: "",
+          usage: { outputTokens: 2 }
+        });
+      });
+
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: providerVisionSettings(),
+        visionProfile: visionProfile(),
+        conversationId: "conv_vision",
+        promptMessages: [imageMessage()],
+        skills: [],
+        mcpToolSets: []
+      });
+
+      expect(result.answer).toBe("Recovered.");
+      expect(streamProviderResponse).toHaveBeenCalledTimes(2);
+      expect(
+        streamProviderResponse.mock.calls.some(([call]) => call?.settings?.id === "profile_vision")
+      ).toBe(false);
+      expect(resolveAbsoluteImagePathPart).toHaveBeenCalledWith(
+        "/tmp/conv_other/att_secret_secret.png",
+        { conversationId: "conv_vision" }
+      );
+      const finalCall = streamProviderResponse.mock.calls.at(-1)?.[0];
+      const toolMessage = (finalCall.promptMessages as PromptMessage[]).find(
+        (message) => message.role === "tool" && message.toolCallId === "call_analyze_cross"
+      );
+      expect(toolMessage?.content).toContain("belongs to a different conversation");
+    });
+
+    it("returns an error tool result when conversation context is missing", async () => {
+      let providerCallCount = 0;
+      streamProviderResponse.mockImplementation(() => {
+        providerCallCount += 1;
+
+        if (providerCallCount === 1) {
+          return createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{
+              id: "call_analyze_no_context",
+              name: "analyze_image",
+              arguments: JSON.stringify({ file_paths: ["/tmp/conv_vision/att_photo_photo.png"] })
+            }],
+            usage: { inputTokens: 12 }
+          });
+        }
+
+        return createProviderStream([{ type: "answer_delta", text: "Recovered." }], {
+          answer: "Recovered.",
+          thinking: "",
+          usage: { outputTokens: 2 }
+        });
+      });
+
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: providerVisionSettings(),
+        visionProfile: visionProfile(),
+        promptMessages: [imageMessage()],
+        skills: [],
+        mcpToolSets: []
+      });
+
+      expect(result.answer).toBe("Recovered.");
+      expect(streamProviderResponse).toHaveBeenCalledTimes(2);
+      expect(resolveAbsoluteImagePathPart).not.toHaveBeenCalled();
+      const finalCall = streamProviderResponse.mock.calls.at(-1)?.[0];
+      const toolMessage = (finalCall.promptMessages as PromptMessage[]).find(
+        (message) => message.role === "tool" && message.toolCallId === "call_analyze_no_context"
+      );
+      expect(toolMessage?.content).toContain("conversation context is required");
     });
 
     it("returns an error tool result for empty file_paths", async () => {
@@ -3095,6 +3210,7 @@ Run browser commands.`
       const result = await resolveAssistantTurn({
         settings: providerVisionSettings(),
         visionProfile: visionProfile(),
+        conversationId: "conv_vision",
         promptMessages: [imageMessage()],
         skills: [],
         mcpToolSets: []
