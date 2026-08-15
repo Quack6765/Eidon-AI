@@ -210,7 +210,69 @@ describe("attachment preview route", () => {
     await expect(response.text()).resolves.toContain("Attachment cannot be previewed as text");
   });
 
-  it("keeps the default response path as raw attachment bytes", async () => {
+  it("serves html attachments as opaque downloads with nosniff", async () => {
+    const user = await createLocalUser({
+      username: "attachment-html-response-user",
+      password: "Password123!",
+      role: "user"
+    });
+    const conversation = createConversation("Html attachment response", null, undefined, user.id);
+    const [attachment] = await createAttachments(conversation.id, [
+      {
+        filename: "page.html",
+        mimeType: "text/html",
+        bytes: Buffer.from("<html><script>alert(1)</script></html>", "utf8")
+      }
+    ]);
+
+    requireUserMock.mockResolvedValue(user);
+
+    const { GET } = await import("@/app/api/attachments/[attachmentId]/route");
+    const response = await GET(
+      new Request(`http://localhost/api/attachments/${attachment.id}`),
+      { params: Promise.resolve({ attachmentId: attachment.id }) }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("application/octet-stream");
+    expect(response.headers.get("Content-Disposition")).toBe('attachment; filename="page.html"');
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    await expect(response.text()).resolves.toBe("<html><script>alert(1)</script></html>");
+  });
+
+  it("serves image attachments inline with their stored image content type", async () => {
+    const user = await createLocalUser({
+      username: "attachment-image-inline-user",
+      password: "Password123!",
+      role: "user"
+    });
+    const conversation = createConversation("Image attachment inline response", null, undefined, user.id);
+    const [attachment] = await createAttachments(conversation.id, [
+      {
+        filename: "photo.png",
+        mimeType: "image/png",
+        bytes: Buffer.from("png-binary", "utf8")
+      }
+    ]);
+
+    requireUserMock.mockResolvedValue(user);
+
+    const { GET } = await import("@/app/api/attachments/[attachmentId]/route");
+    const response = await GET(
+      new Request(`http://localhost/api/attachments/${attachment.id}`),
+      { params: Promise.resolve({ attachmentId: attachment.id }) }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/png");
+    expect(response.headers.get("Content-Disposition")).toBe('inline; filename="photo.png"');
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    await expect(response.text()).resolves.toBe("png-binary");
+  });
+
+  it("keeps the default response path as raw attachment bytes for text kinds", async () => {
     const user = await createLocalUser({
       username: "attachment-raw-response-user",
       password: "Password123!",
@@ -234,8 +296,9 @@ describe("attachment preview route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toBe("text/markdown");
-    expect(response.headers.get("Content-Disposition")).toBe('inline; filename="notes.md"');
+    expect(response.headers.get("Content-Type")).toBe("application/octet-stream");
+    expect(response.headers.get("Content-Disposition")).toBe('attachment; filename="notes.md"');
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     await expect(response.text()).resolves.toBe("# Notes\nRaw body");
   });
 
@@ -263,9 +326,40 @@ describe("attachment preview route", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("Content-Type")).toBe("text/markdown");
+    expect(response.headers.get("Content-Type")).toBe("application/octet-stream");
     expect(response.headers.get("Content-Disposition")).toBe('attachment; filename="notes.md"');
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     await expect(response.text()).resolves.toBe("# Notes\nDownload body");
+  });
+
+  it("keeps download requests for image attachments on their stored image content type", async () => {
+    const user = await createLocalUser({
+      username: "attachment-image-download-user",
+      password: "Password123!",
+      role: "user"
+    });
+    const conversation = createConversation("Image attachment download response", null, undefined, user.id);
+    const [attachment] = await createAttachments(conversation.id, [
+      {
+        filename: "photo.png",
+        mimeType: "image/png",
+        bytes: Buffer.from("png-binary", "utf8")
+      }
+    ]);
+
+    requireUserMock.mockResolvedValue(user);
+
+    const { GET } = await import("@/app/api/attachments/[attachmentId]/route");
+    const response = await GET(
+      new Request(`http://localhost/api/attachments/${attachment.id}?download=1`),
+      { params: Promise.resolve({ attachmentId: attachment.id }) }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toBe("image/png");
+    expect(response.headers.get("Content-Disposition")).toBe('attachment; filename="photo.png"');
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    await expect(response.text()).resolves.toBe("png-binary");
   });
 
   it("requires authentication for text preview access", async () => {
