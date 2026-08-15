@@ -2,7 +2,7 @@
 
 import React from "react";
 import { FileText } from "lucide-react";
-import type { MessageAttachment } from "@/lib/types";
+import type { PublicMessageAttachment } from "@/lib/types";
 import { useAttachmentUrlBuilder } from "@/components/attachment-preview-modal";
 
 export function AttachmentTile({
@@ -10,9 +10,9 @@ export function AttachmentTile({
   compact = false,
   onPreview
 }: {
-  attachment: MessageAttachment;
+  attachment: PublicMessageAttachment;
   compact?: boolean;
-  onPreview: (attachment: MessageAttachment) => void;
+  onPreview: (attachment: PublicMessageAttachment) => void;
 }) {
   const buildAttachmentUrl = useAttachmentUrlBuilder();
 
@@ -60,9 +60,9 @@ export function MessageAttachments({
   compact = false,
   onPreview
 }: {
-  attachments: MessageAttachment[];
+  attachments: PublicMessageAttachment[];
   compact?: boolean;
-  onPreview: (attachment: MessageAttachment) => void;
+  onPreview: (attachment: PublicMessageAttachment) => void;
 }) {
   if (!attachments.length) {
     return null;
@@ -105,8 +105,8 @@ export function AssistantInlineImageAttachments({
   attachments,
   onPreview
 }: {
-  attachments: MessageAttachment[];
-  onPreview: (attachment: MessageAttachment) => void;
+  attachments: PublicMessageAttachment[];
+  onPreview: (attachment: PublicMessageAttachment) => void;
 }) {
   const buildAttachmentUrl = useAttachmentUrlBuilder();
 

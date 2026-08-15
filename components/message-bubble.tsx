@@ -26,10 +26,10 @@ import {
 } from "@/components/message-attachments";
 import type {
   MemoryCategory,
-  Message as MessageType,
   MessageAction as MessageActionType,
-  MessageAttachment,
-  MessageTimelineItem
+  MessageTimelineItem,
+  PublicMessage,
+  PublicMessageAttachment
 } from "@/lib/types";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import { Textarea } from "@/components/ui/textarea";
@@ -335,7 +335,7 @@ function MessageBubbleImpl({
   onPreviewAttachment,
   readOnly = false
 }: {
-  message: MessageType;
+  message: PublicMessage;
   streamingTimeline?: MessageTimelineItem[];
   streamingThinking?: string;
   streamingAnswer?: string;
@@ -358,7 +358,7 @@ function MessageBubbleImpl({
   isRetrying?: boolean;
   onRegenerateUserMessage?: (messageId: string) => void;
   isRegenerating?: boolean;
-  onPreviewAttachment?: (attachment: MessageAttachment) => void;
+  onPreviewAttachment?: (attachment: PublicMessageAttachment) => void;
   readOnly?: boolean;
 }) {
   const [thinkingOpenItems, setThinkingOpenItems] = useState<Record<string, boolean>>({});
@@ -399,7 +399,7 @@ function MessageBubbleImpl({
 
   const derived = useMemo(() => {
     const rawContent = streamingAnswer ?? message.content;
-    const rawThinking = streamingThinking ?? message.thinkingContent;
+    const rawThinking = streamingThinking ?? message.thinkingContent ?? "";
     const actions = message.actions ?? [];
     const liveTimeline =
       streamingTimeline !== undefined && streamingAnswer !== undefined

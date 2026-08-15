@@ -12,6 +12,7 @@ import {
   getSharedConversationSnapshot
 } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
+import { toSharedConversationView } from "@/lib/shared-conversation-view";
 import { createLocalUser } from "@/lib/users";
 
 describe("conversation sharing", () => {
@@ -59,7 +60,7 @@ describe("conversation sharing", () => {
     expect(snapshot?.queuedMessages).toEqual([]);
   });
 
-  it("keeps attachments, thinking, tool actions, and timeline items in public snapshots", async () => {
+  it("keeps attachments, thinking, tool actions, and timeline items in internal snapshots and strips them from the public view", async () => {
     const user = await createLocalUser({
       username: "share-full-transcript-owner",
       password: "Password123!",
@@ -138,6 +139,52 @@ describe("conversation sharing", () => {
         ]
       })
     );
+
+    const view = toSharedConversationView(snapshot!);
+    expect(view.conversation).toEqual({
+      id: conversation.id,
+      title: "Full public transcript",
+      createdAt: expect.any(String),
+      updatedAt: expect.any(String)
+    });
+    const viewUserMessage = view.messages.find((message) => message.id === userMessage.id);
+    expect(viewUserMessage?.attachments).toEqual([
+      {
+        id: attachment.id,
+        filename: "receipt.txt",
+        mimeType: "text/plain",
+        kind: "text",
+        byteSize: expect.any(Number),
+        createdAt: expect.any(String)
+      }
+    ]);
+    expect(view.messages.find((message) => message.id === assistantMessage.id)).toEqual({
+      id: assistantMessage.id,
+      role: "assistant",
+      content: "I checked the file.",
+      status: expect.any(String),
+      createdAt: expect.any(String),
+      textSegments: [
+        expect.objectContaining({ content: "I checked " }),
+        expect.objectContaining({ content: "the file." })
+      ],
+      attachments: []
+    });
+
+    const serializedView = JSON.stringify(view);
+    expect(serializedView).not.toContain("queuedMessages");
+    expect(serializedView).not.toContain("thinkingContent");
+    expect(serializedView).not.toContain("Need to inspect the uploaded text.");
+    expect(serializedView).not.toContain("actions");
+    expect(serializedView).not.toContain("resultSummary");
+    expect(serializedView).not.toContain("Read public attachment");
+    expect(serializedView).not.toContain("timeline");
+    expect(serializedView).not.toContain("relativePath");
+    expect(serializedView).not.toContain("sha256");
+    expect(serializedView).not.toContain("extractedText");
+    expect(serializedView).not.toContain("public attachment");
+    expect(serializedView).not.toContain("messageId");
+    expect(serializedView).not.toContain("conversationId");
   });
 
   it("invalidates the public link when sharing is disabled and rotates on re-enable", async () => {

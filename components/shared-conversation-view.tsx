@@ -16,7 +16,11 @@ import {
 import { MessageBubble } from "@/components/message-bubble";
 import { Message as AiMessage } from "@/components/ai-elements/message";
 import { Wordmark } from "@/components/ui/wordmark";
-import type { Conversation, Message, MessageAttachment } from "@/lib/types";
+import type {
+  MessageAttachment,
+  PublicConversationSummary,
+  PublicMessage
+} from "@/lib/types";
 
 function buildSharedAttachmentUrl(
   shareToken: string,
@@ -43,8 +47,8 @@ export function SharedConversationView({
   messages,
   shareToken
 }: {
-  conversation: Conversation;
-  messages: Message[];
+  conversation: PublicConversationSummary;
+  messages: PublicMessage[];
   shareToken: string;
 }) {
   const buildAttachmentUrl = useCallback(
@@ -64,8 +68,8 @@ function SharedConversationTranscript({
   conversation,
   messages
 }: {
-  conversation: Conversation;
-  messages: Message[];
+  conversation: PublicConversationSummary;
+  messages: PublicMessage[];
 }) {
   const previewController = useAttachmentPreviewController();
 
