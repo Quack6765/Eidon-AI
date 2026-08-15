@@ -103,6 +103,17 @@ describe("searxng search", () => {
     ).rejects.toThrow("SearXNG search failed with status 403.");
   });
 
+  it("rejects non-http base URLs before issuing any request", async () => {
+    await expect(
+      searchSearxng({ baseUrl: "file:///etc/passwd", query: "secrets" })
+    ).rejects.toThrow("SearXNG base URL must use http or https.");
+    await expect(
+      searchSearxng({ baseUrl: "ftp://files.example.com", query: "secrets" })
+    ).rejects.toThrow("SearXNG base URL must use http or https.");
+
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
   it("passes cancellation through to fetch and rejects oversized responses", async () => {
     const controller = new AbortController();
     vi.mocked(global.fetch).mockResolvedValueOnce(
