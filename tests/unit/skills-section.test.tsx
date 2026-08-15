@@ -169,6 +169,6 @@ describe("skills section", () => {
     expect(screen.getByDisplayValue("Normalized description")).toBeInTheDocument();
     expect(screen.getByText("Normalized instructions")).toBeInTheDocument();
     expect(screen.queryByText("Unsaved changes")).toBeNull();
-    expect(getUnsavedChangesGuard()).toBeNull();
+    await waitFor(() => expect(getUnsavedChangesGuard()).toBeNull());
   });
 });
