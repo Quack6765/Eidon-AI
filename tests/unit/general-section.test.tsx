@@ -393,6 +393,61 @@ describe("general section", () => {
     expect(screen.queryByLabelText("SearXNG base URL")).toBeNull();
   });
 
+  it("shows default pipeline controls and hides them when search is disabled", () => {
+    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Web search/ }));
+    expect(screen.getByLabelText("Search pipeline mode")).toHaveValue("auto");
+    expect(screen.getByLabelText("Max parallel queries")).toHaveValue("4");
+
+    fireEvent.change(screen.getByLabelText("Web search engine"), {
+      target: { value: "disabled" }
+    });
+    expect(screen.queryByLabelText("Search pipeline mode")).toBeNull();
+    expect(screen.queryByLabelText("Max parallel queries")).toBeNull();
+  });
+
+  it("saves the selected pipeline configuration", async () => {
+    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Web search/ }));
+    fireEvent.change(screen.getByLabelText("Search pipeline mode"), {
+      target: { value: "always" }
+    });
+    fireEvent.change(screen.getByLabelText("Max parallel queries"), {
+      target: { value: "2" }
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
+    expect(body.webSearch).toMatchObject({
+      providerId: "exa",
+      configuration: { pipeline: { mode: "always", maxQueries: 2 } }
+    });
+  });
+
+  it("preserves the pipeline selection while switching engines", () => {
+    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Web search/ }));
+    fireEvent.change(screen.getByLabelText("Search pipeline mode"), {
+      target: { value: "off" }
+    });
+    expect(screen.queryByLabelText("Max parallel queries")).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Web search engine"), {
+      target: { value: "tavily" }
+    });
+    expect(screen.getByLabelText("Search pipeline mode")).toHaveValue("off");
+
+    fireEvent.change(screen.getByLabelText("Search pipeline mode"), {
+      target: { value: "auto" }
+    });
+    expect(screen.getByLabelText("Max parallel queries")).toHaveValue("4");
+  });
+
   it("preserves search values while switching engines and hides engine-specific fields when disabled", () => {
     render(React.createElement(GeneralSection, { settings: makeSettings() }));
 

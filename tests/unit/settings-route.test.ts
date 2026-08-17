@@ -190,7 +190,10 @@ describe("settings route", () => {
       settings: expect.objectContaining({
         webSearch: expect.objectContaining({
           providerId: "searxng",
-          configuration: { baseUrl: "https://search.example.com" },
+          configuration: {
+            baseUrl: "https://search.example.com",
+            pipeline: { mode: "auto", maxQueries: 4 }
+          },
           configured: true,
           scope: "user"
         })
@@ -226,7 +229,10 @@ describe("settings route", () => {
       settings: expect.objectContaining({
         webSearch: expect.objectContaining({
           providerId: "searxng",
-          configuration: { baseUrl: "http://192.168.1.10:8888" },
+          configuration: {
+            baseUrl: "http://192.168.1.10:8888",
+            pipeline: { mode: "auto", maxQueries: 4 }
+          },
           configured: true
         })
       })

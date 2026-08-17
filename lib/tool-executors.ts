@@ -11,7 +11,11 @@ import { getSettings } from "@/lib/settings";
 import { executeLocalShellCommand, getShellCommandLabel, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
-import { searchWeb } from "@/lib/web-search";
+import { getWebSearchPipeline } from "@/lib/web-search-catalog";
+import {
+  getPipelineUserContext,
+  runWebSearchPipeline
+} from "@/lib/web-search-pipeline";
 import { throwIfChatTurnAborted as throwIfAborted } from "@/lib/chat-turn-control";
 import { MAX_RUNTIME_TOOL_RESULT_CHARS, truncateText } from "@/lib/bounded-text";
 import {
@@ -83,8 +87,11 @@ export async function executeWebSearch(
   args: Record<string, unknown>,
   context: {
     input: {
+      settings?: RuntimeProviderProfile;
       appSettings?: RuntimeAppSettings;
       mcpTimeout?: number;
+      conversationId?: string;
+      assistantMessageId?: string;
       abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -97,6 +104,12 @@ export async function executeWebSearch(
   throwIfAborted(context.input.abortSignal);
   let sortOrder = context.timelineSortOrder;
   const query = String(args.query ?? "").trim();
+  const queries = Array.isArray(args.queries)
+    ? args.queries
+        .filter((item): item is string => typeof item === "string")
+        .map((item) => item.trim())
+        .filter(Boolean)
+    : [];
   const maxResults =
     typeof args.max_results === "number" && Number.isFinite(args.max_results)
       ? Math.max(1, Math.min(10, Math.round(args.max_results)))
@@ -107,51 +120,73 @@ export async function executeWebSearch(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  if (!query) {
+  if (!query && !queries.length) {
     const resultMsg = buildToolResultMessage(toolCallId, "Error: query is required");
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
+  const pipeline = getWebSearchPipeline(context.input.appSettings.webSearch.configuration);
+  const detail = truncateText(
+    queries.length ? queries.join("; ") : query,
+    300
+  );
+
   const handle = await context.input.onActionStart?.({
     kind: "mcp_tool_call",
     label: "Web search",
-    detail: query,
+    detail,
     serverId: "integration_web_search",
     toolName: "web_search",
     arguments: {
-      query,
+      ...(query ? { query } : {}),
+      ...(queries.length ? { queries } : {}),
       ...(maxResults !== undefined ? { max_results: maxResults } : {})
     }
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
   try {
-    const resultSummary = await searchWeb({
-      settings: context.input.appSettings,
+    const result = await runWebSearchPipeline({
       query,
+      queries,
+      mode: pipeline.mode,
+      maxQueries: pipeline.maxQueries ?? 4,
       maxResults,
+      settings: context.input.appSettings,
+      providerProfile: context.input.settings,
+      userContext: getPipelineUserContext(context.promptMessages),
+      mcpTimeout: context.input.mcpTimeout,
       abortSignal: context.input.abortSignal,
-      timeout: context.input.mcpTimeout
+      assistantMessageId: context.input.assistantMessageId,
+      conversationId: context.input.conversationId
     });
     throwIfAborted(context.input.abortSignal);
 
     sortOrder += 1;
     await context.input.onActionComplete?.(actionHandle, {
-      detail: query,
-      resultSummary
+      detail,
+      resultSummary: result.resultSummary
     });
 
-    const resultMsg = buildToolResultMessage(toolCallId, resultSummary);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    const resultMsg = buildToolResultMessage(toolCallId, result.resultSummary);
+    return {
+      nextSortOrder: sortOrder,
+      promptMessages: [...context.promptMessages, resultMsg],
+      toolSucceeded: !result.resultSummary.startsWith("Error:")
+    };
   } catch (error) {
     throwIfAborted(context.input.abortSignal);
     const message = error instanceof Error ? error.message : "Web search failed";
     await context.input.onActionError?.(actionHandle, {
-      detail: query,
+      detail,
       resultSummary: message
     });
     const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
-    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+    return {
+      nextSortOrder: sortOrder,
+      promptMessages: [...context.promptMessages, resultMsg],
+      toolSucceeded: false
+    };
   }
 }
 

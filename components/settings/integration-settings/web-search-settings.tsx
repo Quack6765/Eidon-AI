@@ -9,11 +9,19 @@ import {
 import { fieldLabel, inputLike, selectLike } from "@/lib/settings-styles";
 import type { AppSettings } from "@/lib/types";
 import {
+  DEFAULT_WEB_SEARCH_PIPELINE,
   WEB_SEARCH_PROVIDER_CATALOG,
+  type WebSearchPipelineMode,
   type WebSearchProviderId
 } from "@/lib/web-search-catalog";
 
 type Draft = IntegrationDraft<AppSettings["webSearch"]>;
+
+const PIPELINE_MODE_LABELS: Record<WebSearchPipelineMode, string> = {
+  auto: "Auto — decompose complex queries",
+  always: "Always fan out",
+  off: "Off — single search"
+};
 
 export function WebSearchSettings({
   draft,
@@ -35,9 +43,24 @@ export function WebSearchSettings({
       draft,
       persisted,
       providerId,
-      providerId === "searxng" ? { baseUrl: "" } : {}
+      {
+        ...(providerId === "searxng" ? { baseUrl: "" } : {}),
+        pipeline: draft.configuration.pipeline ?? { ...DEFAULT_WEB_SEARCH_PIPELINE }
+      }
     ));
   }
+
+  function updatePipeline(patch: Partial<NonNullable<Draft["configuration"]["pipeline"]>>) {
+    onChange({
+      ...draft,
+      configuration: {
+        ...draft.configuration,
+        pipeline: { ...(draft.configuration.pipeline ?? DEFAULT_WEB_SEARCH_PIPELINE), ...patch }
+      }
+    });
+  }
+
+  const pipeline = draft.configuration.pipeline ?? DEFAULT_WEB_SEARCH_PIPELINE;
 
   return (
     <div className="space-y-3">
@@ -100,11 +123,53 @@ export function WebSearchSettings({
             placeholder="https://search.example.com"
             onChange={(event) => onChange({
               ...draft,
-              configuration: { baseUrl: event.target.value }
+              configuration: { ...draft.configuration, baseUrl: event.target.value }
             })}
             className={`${inputLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
           />
         </div>
+      ) : null}
+
+      {draft.providerId !== "disabled" ? (
+        <>
+          <div>
+            <label htmlFor="web-search-pipeline-mode" className={fieldLabel}>Search pipeline</label>
+            <p className="mb-2 text-xs text-[var(--muted)]">
+              Complex questions are decomposed into parallel sub-queries whose results are merged.
+            </p>
+            <select
+              id="web-search-pipeline-mode"
+              aria-label="Search pipeline mode"
+              value={pipeline.mode}
+              onChange={(event) => updatePipeline({ mode: event.target.value as WebSearchPipelineMode })}
+              className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
+            >
+              {(Object.keys(PIPELINE_MODE_LABELS) as WebSearchPipelineMode[]).map((mode) => (
+                <option key={mode} value={mode}>{PIPELINE_MODE_LABELS[mode]}</option>
+              ))}
+            </select>
+          </div>
+
+          {pipeline.mode !== "off" ? (
+            <div>
+              <label htmlFor="web-search-max-queries" className={fieldLabel}>Max parallel queries</label>
+              <p className="mb-2 text-xs text-[var(--muted)]">
+                Upper bound on sub-queries fanned out per search.
+              </p>
+              <select
+                id="web-search-max-queries"
+                aria-label="Max parallel queries"
+                value={pipeline.maxQueries ?? DEFAULT_WEB_SEARCH_PIPELINE.maxQueries}
+                onChange={(event) => updatePipeline({ maxQueries: Number(event.target.value) })}
+                className={`${selectLike} w-full sm:w-[10rem] ${dirty ? "!border-amber-500/40" : ""}`}
+              >
+                {[1, 2, 3, 4, 5].map((count) => (
+                  <option key={count} value={count}>{count}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+        </>
       ) : null}
     </div>
   );
