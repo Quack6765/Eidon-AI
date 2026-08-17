@@ -497,7 +497,8 @@ ${JSON.stringify({
     expect(searchSearxng).toHaveBeenCalledWith({
       baseUrl: "https://search.example.com",
       query: "Eidon",
-      maxResults: undefined
+      maxResults: undefined,
+      abortSignal: expect.any(AbortSignal)
     });
     expect(started).toEqual([
       expect.objectContaining({
@@ -563,6 +564,290 @@ ${JSON.stringify({
       })
     ]);
     expect(result.answer).toBe("Final answer");
+  });
+
+  it("exposes the parallel queries tool schema while the pipeline is active", async () => {
+    const { buildToolDefinitions } = await import("@/lib/tool-definitions");
+
+    const tools = buildToolDefinitions({
+      mcpToolSets: [],
+      skills: [],
+      loadedSkillIds: new Set(),
+      memoriesEnabled: false,
+      webSearchEnabled: true,
+      webSearchPipelineMode: "auto",
+      effectiveVisionMode: "provider"
+    });
+    const webSearchTool = tools.find((tool) => tool.function.name === "web_search")!;
+
+    expect(webSearchTool.function.description).toContain("parallel");
+    expect(webSearchTool.function.parameters).toMatchObject({
+      properties: {
+        query: { type: "string" },
+        queries: { type: "array", items: { type: "string" } }
+      }
+    });
+    expect(webSearchTool.function.parameters).not.toHaveProperty("required");
+  });
+
+  it("keeps the legacy tool schema when the pipeline is off", async () => {
+    const { buildToolDefinitions } = await import("@/lib/tool-definitions");
+
+    const tools = buildToolDefinitions({
+      mcpToolSets: [],
+      skills: [],
+      loadedSkillIds: new Set(),
+      memoriesEnabled: false,
+      webSearchEnabled: true,
+      webSearchPipelineMode: "off",
+      effectiveVisionMode: "provider"
+    });
+    const webSearchTool = tools.find((tool) => tool.function.name === "web_search")!;
+
+    expect(webSearchTool.function.parameters).toMatchObject({
+      properties: { query: { type: "string" } },
+      required: ["query"]
+    });
+    expect((webSearchTool.function.parameters!.properties as Record<string, unknown>)).not.toHaveProperty("queries");
+  });
+
+  it("fans a single web search out into parallel sub-queries via the planner", async () => {
+    callProviderText.mockResolvedValueOnce(
+      '{"action":"fan_out","subqueries":["vision pro price","vision pro review 2026"]}'
+    );
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "web_search", arguments: JSON.stringify({ query: "vision pro" }) }],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Synthesized answer" }], {
+          answer: "Synthesized answer",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+    searchSearxng.mockResolvedValue("SearXNG result text");
+
+    const started: Array<{ label: string; detail?: string }> = [];
+    const completed: Array<{ handle?: string; resultSummary?: string }> = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "What about the vision pro?" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings({
+        webSearch: {
+          providerId: "searxng",
+          configuration: { baseUrl: "https://search.example.com" }
+        }
+      }),
+      onEvent: () => {},
+      onActionStart: (action) => {
+        started.push(action);
+        return "act_web_search";
+      },
+      onActionComplete: (handle, patch) => {
+        completed.push({ handle, resultSummary: patch.resultSummary });
+      }
+    });
+
+    expect(callProviderText).toHaveBeenCalledWith(expect.objectContaining({
+      purpose: "web_search_planning"
+    }));
+    const searchedQueries = searchSearxng.mock.calls.map((call) => call[0].query);
+    expect(searchedQueries).toEqual(["vision pro price", "vision pro review 2026"]);
+    expect(started).toHaveLength(1);
+    expect(completed).toHaveLength(1);
+    expect(completed[0].resultSummary).toContain("Parallel web search results (2 queries: 2 succeeded, 0 failed)");
+    expect(result.answer).toBe("Synthesized answer");
+  });
+
+  it("executes same-step web search calls concurrently", async () => {
+    const started: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    searchSearxng.mockImplementation(async ({ query }: { query: string }) => {
+      started.push(query);
+      await gate;
+      return `result ${query}`;
+    });
+
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [
+            { id: "call_1", name: "web_search", arguments: JSON.stringify({ query: "alpha query" }) },
+            { id: "call_2", name: "web_search", arguments: JSON.stringify({ query: "beta query" }) }
+          ],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const runPromise = resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "search two things" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings({
+        webSearch: {
+          providerId: "searxng",
+          configuration: { baseUrl: "https://search.example.com" }
+        }
+      }),
+      onEvent: () => {},
+      onActionStart: () => "act_ws"
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(started).toEqual(["alpha query", "beta query"]);
+
+    release();
+    const result = await runPromise;
+    expect(result.answer).toBe("Done");
+
+    const followUpMessages = streamProviderResponse.mock.calls[1][0].promptMessages as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const toolResults = followUpMessages.filter((message) => message.role === "tool");
+    expect(toolResults.map((message) => message.content)).toEqual([
+      "result alpha query",
+      "result beta query"
+    ]);
+  });
+
+  it("keeps mixed steps sequential and appends results in call order", async () => {
+    searchSearxng.mockResolvedValue("SearXNG result text");
+    localShellMocks.executeLocalShellCommand.mockResolvedValue({
+      stdout: "ok",
+      stderr: "",
+      exitCode: 0,
+      timedOut: false,
+      isError: false
+    });
+    localShellMocks.summarizeShellResult.mockReturnValue("shell ok");
+
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [
+            { id: "call_1", name: "web_search", arguments: JSON.stringify({ query: "mixed search" }) },
+            {
+              id: "call_2",
+              name: "execute_shell_command",
+              arguments: JSON.stringify({ command: "echo hi" })
+            }
+          ],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done" }], {
+          answer: "Done",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "search and run a command" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings({
+        webSearch: {
+          providerId: "searxng",
+          configuration: { baseUrl: "https://search.example.com" }
+        }
+      }),
+      onEvent: () => {},
+      onActionStart: () => "act_mixed"
+    });
+
+    expect(result.answer).toBe("Done");
+
+    const followUpMessages = streamProviderResponse.mock.calls[1][0].promptMessages as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const toolResults = followUpMessages.filter((message) => message.role === "tool");
+    expect(toolResults).toHaveLength(2);
+    expect(toolResults[0].content).toBe("SearXNG result text");
+    expect(String(toolResults[1].content)).toContain("shell ok");
+  });
+
+  it("tells the model to answer now after a successful web search", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "web_search", arguments: JSON.stringify({ query: "breaking news" }) }],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Here is the news." }], {
+          answer: "Here is the news.",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+    searchSearxng.mockResolvedValue("SearXNG result text");
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "news?" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings({
+        webSearch: {
+          providerId: "searxng",
+          configuration: { baseUrl: "https://search.example.com" }
+        }
+      }),
+      onEvent: () => {},
+      onActionStart: () => "act_ws"
+    });
+
+    expect(result.answer).toBe("Here is the news.");
+    const followUpMessages = streamProviderResponse.mock.calls[1][0].promptMessages as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const directiveMessage = followUpMessages.find(
+      (message) =>
+        message.role === "system" &&
+        typeof message.content === "string" &&
+        message.content.includes("Answer the user now by synthesizing the results above")
+    );
+    expect(directiveMessage).toBeDefined();
   });
 
   it("executes unrestricted shell commands via native function calling", async () => {

@@ -33,7 +33,8 @@ import type {
 import type {
   ProviderStreamInput,
   ProviderStreamResult,
-  ProviderTextInput
+  ProviderTextInput,
+  ProviderTextPurpose
 } from "@/lib/provider-adapters/types";
 
 function normalizeReasoningEffort(
@@ -141,9 +142,11 @@ function buildRequestParameters(settings: ProviderProfile) {
   };
 }
 
+const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning"]);
+
 export async function callOpenAiCompatibleText(input: ProviderTextInput) {
   const { settings } = input;
-  const profile = input.purpose === "title"
+  const profile = LOW_EFFORT_PURPOSES.has(input.purpose)
     ? {
         ...settings,
         reasoningEffort: (settings.reasoningEffort === "none" ? "none" : "low") as ReasoningEffort,

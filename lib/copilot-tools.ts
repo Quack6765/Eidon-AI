@@ -1,6 +1,7 @@
 import type { Tool } from "@github/copilot-sdk";
 
 import { throwIfChatTurnAborted } from "@/lib/chat-turn-control";
+import { getWebSearchPipeline } from "@/lib/web-search-catalog";
 import {
   buildToolDefinitions
 } from "@/lib/tool-definitions";
@@ -32,6 +33,9 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
     webSearchEnabled: Boolean(
       context.appSettings && context.appSettings.webSearch.providerId !== "disabled"
     ),
+    webSearchPipelineMode: context.appSettings
+      ? getWebSearchPipeline(context.appSettings.webSearch.configuration).mode
+      : undefined,
     imageGenerationProviderId: context.appSettings?.imageGeneration.providerId,
     imageGenerationToolEnabled: context.imageGenerationToolEnabled,
     restrictToGenerateImage: context.restrictToGenerateImage,

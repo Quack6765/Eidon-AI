@@ -8,7 +8,12 @@ const { requireUserMock } = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/provider", () => ({
-  streamProviderResponse: vi.fn()
+  streamProviderResponse: vi.fn(),
+  callProviderText: vi.fn()
+}));
+
+vi.mock("@/lib/searxng", () => ({
+  searchSearxng: vi.fn().mockResolvedValue("SearXNG parallel result")
 }));
 
 vi.mock("@/lib/auth", () => ({
@@ -308,6 +313,102 @@ describe("chat-turn", () => {
     await startChatTurn(manager, conv.id, "Hi", []);
 
     expect(mockedGatherAllMcpTools).not.toHaveBeenCalled();
+  });
+
+  it("persists one umbrella action for a fanned-out web search", async () => {
+    const { streamProviderResponse, callProviderText } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const mockedCallProviderText = vi.mocked(callProviderText);
+    const { searchSearxng } = await import("@/lib/searxng");
+    const mockedSearchSearxng = vi.mocked(searchSearxng);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { updateIntegrationSetting } = await import("@/lib/integration-settings");
+    const { createLocalUser: createFanoutUser } = await import("@/lib/users");
+
+    const user = await createFanoutUser({
+      username: "web-search-fanout-owner",
+      password: "changeme123",
+      role: "user"
+    });
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+    updateIntegrationSetting({
+      capability: "web_search",
+      providerId: "searxng",
+      configuration: {
+        baseUrl: "https://search.example.com",
+        pipeline: { mode: "always", maxQueries: 2 }
+      },
+      credentialAction: "preserve"
+    }, user.id);
+
+    const conv = (await import("@/lib/conversations")).createConversation(
+      undefined,
+      undefined,
+      { providerProfileId: null },
+      user.id
+    );
+
+    mockedCallProviderText.mockResolvedValueOnce(
+      '{"action":"fan_out","subqueries":["acme revenue","acme products"]}'
+    );
+    mockedStreamProviderResponse
+      .mockReturnValueOnce(
+        (async function* () {
+          return {
+            answer: "",
+            thinking: "",
+            toolCalls: [
+              {
+                id: "call_1",
+                name: "web_search",
+                arguments: JSON.stringify({ query: "acme performance" })
+              }
+            ],
+            usage: { inputTokens: 5 }
+          };
+        })()
+      )
+      .mockReturnValueOnce(
+        (async function* () {
+          yield { type: "answer_delta", text: "Synthesized." };
+          return {
+            answer: "Synthesized.",
+            thinking: "",
+            usage: { inputTokens: 5, outputTokens: 2 }
+          };
+        })()
+      );
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, conv.id, "How is acme doing?", []);
+
+    expect(mockedSearchSearxng.mock.calls.map((call) => call[0].query)).toEqual([
+      "acme revenue",
+      "acme products"
+    ]);
+
+    const { listVisibleMessages } = await import("@/lib/conversations");
+    const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+    const searchActions = (assistant?.actions ?? []).filter(
+      (action) => action.kind === "mcp_tool_call" && action.toolName === "web_search"
+    );
+
+    expect(searchActions).toHaveLength(1);
+    expect(searchActions[0]).toEqual(
+      expect.objectContaining({
+        label: "Web search",
+        status: "completed",
+        resultSummary: expect.stringContaining("Parallel web search results (2 queries: 2 succeeded, 0 failed)")
+      })
+    );
   });
 
   it("persists a partial assistant message as stopped when the turn is cancelled", async () => {

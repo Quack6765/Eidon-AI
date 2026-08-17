@@ -26,7 +26,8 @@ import type {
 import type {
   ProviderStreamInput,
   ProviderStreamResult,
-  ProviderTextInput
+  ProviderTextInput,
+  ProviderTextPurpose
 } from "@/lib/provider-adapters/types";
 
 export const githubCopilotConnectionFlows = {
@@ -35,8 +36,10 @@ export const githubCopilotConnectionFlows = {
   cancel: cancelGithubProviderConnectionFlow
 };
 
+const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning"]);
+
 export async function callGithubCopilotText(input: ProviderTextInput) {
-  const settings = input.purpose === "title"
+  const settings = LOW_EFFORT_PURPOSES.has(input.purpose)
     ? {
         ...input.settings,
         reasoningEffort: (input.settings.reasoningEffort === "none" ? "none" : "low") as ReasoningEffort,

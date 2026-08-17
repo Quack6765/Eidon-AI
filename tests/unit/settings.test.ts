@@ -476,6 +476,47 @@ describe("settings domains", () => {
     });
   });
 
+  it("persists web search pipeline configuration through the settings bundle", async () => {
+    saveProfiles();
+    const user = await createLocalUser({
+      username: "web-search-pipeline-user",
+      password: "password-123",
+      role: "user"
+    });
+
+    updateGeneralSettingsBundleForUser(user.id, {
+      preferences: {
+        conversationRetention: "forever",
+        mcpTimeout: 120000,
+        maxAssistantToolSteps: 25,
+        confirmExternalLinks: true
+      },
+      webSearch: {
+        providerId: "exa",
+        configuration: { pipeline: { mode: "always", maxQueries: 3 } },
+        credentialAction: "preserve"
+      },
+      speechTranscription: {
+        providerId: "browser",
+        configuration: { language: "auto" },
+        credentialAction: "clear"
+      }
+    }, false);
+
+    expect(getSettingsForUser(user.id).webSearch).toMatchObject({
+      providerId: "exa",
+      configuration: { pipeline: { mode: "always", maxQueries: 3 } }
+    });
+
+    getDb().prepare(`
+      UPDATE integration_settings SET configuration_json = ?
+      WHERE capability = 'web_search' AND user_id = ?
+    `).run(JSON.stringify({ pipeline: { mode: "nonsense", maxQueries: 42 } }), user.id);
+    expect(getSettingsForUser(user.id).webSearch.configuration).toEqual({
+      pipeline: { mode: "auto", maxQueries: 5 }
+    });
+  });
+
   it("normalizes AssemblyAI configuration and isolates credentials when providers change", async () => {
     saveProfiles();
     const user = await createLocalUser({

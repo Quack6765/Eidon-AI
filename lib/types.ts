@@ -10,7 +10,7 @@ import type {
   ImageGenerationModelId,
   ImageGenerationProviderId
 } from "@/lib/image-generation/catalog";
-import type { WebSearchProviderId } from "@/lib/web-search-catalog";
+import type { WebSearchConfiguration, WebSearchProviderId } from "@/lib/web-search-catalog";
 import type {
   IntegrationSelection,
   RuntimeIntegrationSelection
@@ -119,7 +119,7 @@ type AppSettingsCore = {
 };
 
 export type AppSettings = AppSettingsCore & {
-  webSearch: IntegrationSelection<WebSearchProviderId, { baseUrl?: string }>;
+  webSearch: IntegrationSelection<WebSearchProviderId, WebSearchConfiguration>;
   imageGeneration: IntegrationSelection<ImageGenerationProviderId, { model?: ImageGenerationModelId }>;
   speechTranscription: IntegrationSelection<TranscriptionProviderId, {
     language: SttLanguage | ExternalSttLanguage;
@@ -128,10 +128,7 @@ export type AppSettings = AppSettingsCore & {
 };
 
 export type RuntimeAppSettings = AppSettingsCore & {
-  webSearch: RuntimeIntegrationSelection<
-    WebSearchProviderId,
-    { baseUrl?: string }
-  >;
+  webSearch: RuntimeIntegrationSelection<WebSearchProviderId, WebSearchConfiguration>;
   imageGeneration: RuntimeIntegrationSelection<
     ImageGenerationProviderId,
     { model?: ImageGenerationModelId }

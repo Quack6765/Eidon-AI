@@ -1,6 +1,7 @@
 import { buildCreateMemoryDescription } from "@/lib/memory-guidance";
 import { extractEnumHints } from "@/lib/tool-schema-helpers";
 import { getSkillResolvedName } from "./skill-runtime";
+import type { WebSearchPipelineMode } from "@/lib/web-search-catalog";
 import type { McpServer, McpTool, MemoryRigor, Skill, ToolDefinition, VisionMode } from "@/lib/types";
 
 export type ToolSet = {
@@ -35,6 +36,7 @@ export function buildToolDefinitions(input: {
   memoriesEnabled: boolean;
   memoriesRigor?: MemoryRigor;
   webSearchEnabled?: boolean;
+  webSearchPipelineMode?: WebSearchPipelineMode;
   imageGenerationProviderId?: string | null;
   imageGenerationToolEnabled?: boolean;
   restrictToGenerateImage?: boolean;
@@ -156,22 +158,43 @@ export function buildToolDefinitions(input: {
   });
 
   if (input.webSearchEnabled) {
+    const parallelSearch = (input.webSearchPipelineMode ?? "auto") !== "off";
     tools.push({
       type: "function",
       function: {
         name: "web_search",
-        description: "Search the web using the configured provider. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently.",
-        parameters: {
-          type: "object",
-          properties: {
-            query: { type: "string", description: "Search query" },
-            max_results: {
-              type: "number",
-              description: "Maximum number of results to return (default 5, max 10)"
+        description: parallelSearch
+          ? "Search the web using the configured provider. Pass multiple distinct queries in `queries` when the question has several facets or complementary phrasings — they run in parallel and their results are merged. A single complex query is automatically decomposed into parallel sub-queries. Provide every facet query needed to answer in this single call — one comprehensive call is much faster for the user than multiple sequential search rounds. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently."
+          : "Search the web using the configured provider. Only use this tool for recent events, time-sensitive information, or topics you are uncertain about. Prefer your own knowledge when you can answer confidently.",
+        parameters: parallelSearch
+          ? {
+              type: "object",
+              properties: {
+                query: { type: "string", description: "Single search query" },
+                queries: {
+                  type: "array",
+                  items: { type: "string" },
+                  minItems: 1,
+                  maxItems: 5,
+                  description: "Multiple distinct search queries to run in parallel; each should target a different facet of the question"
+                },
+                max_results: {
+                  type: "number",
+                  description: "Maximum number of results to return per query (default 5, max 10)"
+                }
+              }
             }
-          },
-          required: ["query"]
-        }
+          : {
+              type: "object",
+              properties: {
+                query: { type: "string", description: "Search query" },
+                max_results: {
+                  type: "number",
+                  description: "Maximum number of results to return (default 5, max 10)"
+                }
+              },
+              required: ["query"]
+            }
       }
     });
   }

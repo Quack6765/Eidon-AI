@@ -10,7 +10,12 @@ import type {
   ToolDefinition
 } from "@/lib/types";
 
-export type ProviderTextPurpose = "compaction" | "test" | "title" | "image_instruction";
+export type ProviderTextPurpose =
+  | "compaction"
+  | "test"
+  | "title"
+  | "image_instruction"
+  | "web_search_planning";
 
 export type ProviderTextInput = {
   settings: RuntimeProviderProfile;

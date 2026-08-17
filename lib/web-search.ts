@@ -4,7 +4,7 @@ import {
   getWebSearchReadinessError as getCatalogReadinessError,
   type WebSearchProviderId
 } from "@/lib/web-search-catalog";
-import type { McpServer, RuntimeAppSettings } from "@/lib/types";
+import type { McpServer, McpTool, RuntimeAppSettings } from "@/lib/types";
 
 type WebSearchInput = {
   query: string;
@@ -39,6 +39,37 @@ function mcpServer(url: string): McpServer {
   };
 }
 
+const WEB_SEARCH_DISCOVERY_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type DiscoveryCacheEntry =
+  | { tools: McpTool[]; promise?: undefined; expiresAt: number }
+  | { tools?: undefined; promise: Promise<McpTool[]>; expiresAt: number };
+
+const discoveryCache = new Map<string, DiscoveryCacheEntry>();
+
+export function clearWebSearchDiscoveryCache() {
+  discoveryCache.clear();
+}
+
+async function discoverSearchToolsCached(server: McpServer, abortSignal?: AbortSignal): Promise<McpTool[]> {
+  const key = server.url;
+  const cached = discoveryCache.get(key);
+  if (cached?.tools) return cached.tools;
+  if (cached?.promise) return cached.promise;
+
+  const promise = discoverMcpTools(server, abortSignal)
+    .then((tools) => {
+      discoveryCache.set(key, { tools, expiresAt: Date.now() + WEB_SEARCH_DISCOVERY_CACHE_TTL_MS });
+      return tools;
+    })
+    .catch((error) => {
+      discoveryCache.delete(key);
+      throw error;
+    });
+  discoveryCache.set(key, { promise, expiresAt: Number.MAX_SAFE_INTEGER });
+  return promise;
+}
+
 async function callSearchMcp(input: {
   server: McpServer;
   preferredToolNames: string[];
@@ -46,11 +77,14 @@ async function callSearchMcp(input: {
   timeout?: number;
   abortSignal?: AbortSignal;
 }) {
-  const tools = await discoverMcpTools(input.server, input.abortSignal);
+  const tools = await discoverSearchToolsCached(input.server, input.abortSignal);
   const tool = input.preferredToolNames
     .map((name) => tools.find((candidate) => candidate.name === name))
     .find(Boolean);
-  if (!tool) throw new Error("The configured search provider did not expose its search tool");
+  if (!tool) {
+    discoveryCache.delete(input.server.url);
+    throw new Error("The configured search provider did not expose its search tool");
+  }
   const result = await callMcpTool(
     input.server,
     tool.name,

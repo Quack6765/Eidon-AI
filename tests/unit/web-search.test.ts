@@ -1,4 +1,5 @@
 import {
+  clearWebSearchDiscoveryCache,
   getWebSearchReadinessError,
   searchWeb
 } from "@/lib/web-search";
@@ -6,6 +7,7 @@ import {
   isPublicHttpUrl
 } from "@/lib/public-http-url";
 import {
+  normalizeWebSearchSelection,
   webSearchIntegrationUpdateSchema
 } from "@/lib/web-search-catalog";
 import { createRuntimeAppSettings } from "@/tests/provider-fixtures";
@@ -41,6 +43,7 @@ vi.mock("@/lib/searxng", () => ({
 describe("web search providers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearWebSearchDiscoveryCache();
     discoverMcpToolsMock.mockResolvedValue([{ name: "web_search", inputSchema: {} }]);
     callMcpToolMock.mockResolvedValue({ isError: false });
     getToolResultTextMock.mockReturnValue("search result");
@@ -154,6 +157,33 @@ describe("web search providers", () => {
     getToolResultTextMock.mockReturnValueOnce("provider failed");
     await expect(searchWeb({ query: "query", settings })).rejects.toThrow("provider failed");
   });
+
+  it("caches MCP tool discovery across searches on the same server", async () => {
+    const settings = createRuntimeAppSettings({ webSearch: { providerId: "exa" } });
+
+    await searchWeb({ query: "first", settings });
+    await searchWeb({ query: "second", settings });
+
+    expect(discoverMcpToolsMock).toHaveBeenCalledTimes(1);
+    expect(callMcpToolMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-discovers after a rejected discovery or a failed tool lookup", async () => {
+    const settings = createRuntimeAppSettings({ webSearch: { providerId: "exa" } });
+
+    discoverMcpToolsMock.mockRejectedValueOnce(new Error("boom"));
+    await expect(searchWeb({ query: "first", settings })).rejects.toThrow("boom");
+    await searchWeb({ query: "second", settings });
+    expect(discoverMcpToolsMock).toHaveBeenCalledTimes(2);
+
+    clearWebSearchDiscoveryCache();
+    discoverMcpToolsMock.mockResolvedValueOnce([{ name: "unrelated", inputSchema: {} }]);
+    await expect(searchWeb({ query: "third", settings })).rejects.toThrow(
+      "did not expose its search tool"
+    );
+    await searchWeb({ query: "fourth", settings });
+    expect(discoverMcpToolsMock).toHaveBeenCalledTimes(4);
+  });
 });
 
 describe("searxng base URL safety", () => {
@@ -236,5 +266,74 @@ describe("searxng base URL safety", () => {
       });
       expect(result.success).toBe(false);
     }
+  });
+});
+
+describe("web search pipeline configuration", () => {
+  it("accepts pipeline configuration on every provider branch", () => {
+    for (const providerId of ["disabled", "exa", "tavily"] as const) {
+      const parsed = webSearchIntegrationUpdateSchema.parse({
+        providerId,
+        configuration: { pipeline: { mode: "always", maxQueries: 3 } }
+      });
+      expect(parsed).toMatchObject({
+        providerId,
+        configuration: { pipeline: { mode: "always", maxQueries: 3 } }
+      });
+    }
+
+    const searxng = webSearchIntegrationUpdateSchema.parse({
+      providerId: "searxng",
+      configuration: {
+        baseUrl: "https://search.example.com",
+        pipeline: { mode: "off" }
+      }
+    });
+    expect(searxng).toMatchObject({
+      providerId: "searxng",
+      configuration: { baseUrl: "https://search.example.com", pipeline: { mode: "off" } }
+    });
+  });
+
+  it("rejects invalid pipeline modes and out-of-range query caps", () => {
+    expect(webSearchIntegrationUpdateSchema.safeParse({
+      providerId: "exa",
+      configuration: { pipeline: { mode: "sometimes" } }
+    }).success).toBe(false);
+    expect(webSearchIntegrationUpdateSchema.safeParse({
+      providerId: "exa",
+      configuration: { pipeline: { mode: "auto", maxQueries: 9 } }
+    }).success).toBe(false);
+  });
+
+  it("normalizes pipeline configuration and clamps maxQueries", () => {
+    expect(normalizeWebSearchSelection("exa", {
+      pipeline: { mode: "always", maxQueries: 99 }
+    })).toEqual({
+      providerId: "exa",
+      configuration: { pipeline: { mode: "always", maxQueries: 5 } }
+    });
+
+    expect(normalizeWebSearchSelection("searxng", {
+      baseUrl: "https://search.example.com",
+      pipeline: { mode: "off", maxQueries: 0 }
+    })).toEqual({
+      providerId: "searxng",
+      configuration: {
+        baseUrl: "https://search.example.com",
+        pipeline: { mode: "off", maxQueries: 1 }
+      }
+    });
+  });
+
+  it("defaults the pipeline to auto when unconfigured or invalid", () => {
+    expect(normalizeWebSearchSelection("exa", {})).toEqual({
+      providerId: "exa",
+      configuration: { pipeline: { mode: "auto", maxQueries: 4 } }
+    });
+    expect(normalizeWebSearchSelection("tavily", { pipeline: "nonsense" })).toEqual({
+      providerId: "tavily",
+      configuration: { pipeline: { mode: "auto", maxQueries: 4 } }
+    });
   });
 });
