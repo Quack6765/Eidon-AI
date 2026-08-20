@@ -437,24 +437,12 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     memoriesMaxCount: 120,
     mcpTimeout: 120_000
   });
-  updateIntegrationSetting({
-    capability: "web_search",
-    providerId: "exa",
-    configuration: {},
-    credentialAction: "clear"
-  }, localAdmin.id);
 
   updateGeneralSettingsForUser(member.id, {
     conversationRetention: "30d",
     memoriesEnabled: true,
     memoriesMaxCount: 60
   });
-  updateIntegrationSetting({
-    capability: "web_search",
-    providerId: "disabled",
-    configuration: {},
-    credentialAction: "clear"
-  }, member.id);
 
   const personas = README_DEMO_FIXTURES.personas.map((persona) =>
     createPersona(persona, envSuperAdmin.id)

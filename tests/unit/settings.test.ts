@@ -325,16 +325,6 @@ describe("settings domains", () => {
         mcpTimeout: 45000,
         maxAssistantToolSteps: 12,
         confirmExternalLinks: true
-      },
-      webSearch: {
-        providerId: "disabled",
-        configuration: {},
-        credentialAction: "clear"
-      },
-      speechTranscription: {
-        providerId: "browser",
-        configuration: { language: "en" },
-        credentialAction: "clear"
       }
     }, false);
 
@@ -360,16 +350,6 @@ describe("settings domains", () => {
         mcpTimeout: 120000,
         maxAssistantToolSteps: 25,
         confirmExternalLinks: false
-      },
-      webSearch: {
-        providerId: "disabled",
-        configuration: {},
-        credentialAction: "clear"
-      },
-      speechTranscription: {
-        providerId: "browser",
-        configuration: { language: "en" },
-        credentialAction: "clear"
       }
     }, false);
 
@@ -378,60 +358,68 @@ describe("settings domains", () => {
     expect(getSanitizedSettings(first.id).confirmExternalLinks).toBe(false);
   });
 
-  it("stores capability settings with user fallback and no public credentials", async () => {
+  it("manages global capability settings for admins and inherits them for members", async () => {
     saveProfiles();
-    const user = await createLocalUser({ username: "integration-user", password: "password-123", role: "user" });
-
-    updateGeneralSettingsBundleForUser(user.id, {
+    const admin = await createLocalUser({ username: "integration-admin", password: "password-123", role: "admin" });
+    const member = await createLocalUser({ username: "integration-member", password: "password-123", role: "user" });
+    const input = {
       preferences: {
-        conversationRetention: "30d",
+        conversationRetention: "30d" as const,
         mcpTimeout: 60000,
         maxAssistantToolSteps: 20,
         confirmExternalLinks: true
       },
       webSearch: {
-        providerId: "tavily",
+        providerId: "tavily" as const,
         configuration: {},
         credential: "tvly-secret",
-        credentialAction: "replace"
+        credentialAction: "replace" as const
       },
       speechTranscription: {
-        providerId: "elevenlabs",
+        providerId: "elevenlabs" as const,
         configuration: { language: "eng" },
         credential: "eleven-secret",
-        credentialAction: "replace"
+        credentialAction: "replace" as const
       }
-    }, false);
+    };
 
-    const publicSettings = getSanitizedSettings(user.id);
-    const runtime = getSettingsForUser(user.id);
+    expect(() => updateGeneralSettingsBundleForUser(member.id, input, false))
+      .toThrow("Only admins can update global settings");
+
+    updateGeneralSettingsBundleForUser(admin.id, input, true);
+
+    const memberSettings = getSanitizedSettings(member.id);
+    const memberRuntime = getSettingsForUser(member.id);
     const rows = getDb().prepare(`
       SELECT capability, credentials_encrypted
-      FROM integration_settings WHERE user_id = ? ORDER BY capability
-    `).all(user.id) as Array<{ capability: string; credentials_encrypted: string }>;
+      FROM integration_settings WHERE user_id IS NULL ORDER BY capability
+    `).all() as Array<{ capability: string; credentials_encrypted: string }>;
 
-    expect(publicSettings.webSearch).toMatchObject({
+    expect(memberSettings.webSearch).toMatchObject({
       providerId: "tavily",
       configured: true,
       credentialStored: true,
-      scope: "user"
+      scope: "global"
     });
-    expect(publicSettings.speechTranscription).toMatchObject({
+    expect(memberSettings.speechTranscription).toMatchObject({
       providerId: "elevenlabs",
       configured: true,
       credentialStored: true,
-      scope: "user"
+      scope: "global"
     });
-    expect(JSON.stringify(publicSettings)).not.toContain("tvly-secret");
-    expect(JSON.stringify(publicSettings)).not.toContain("eleven-secret");
-    expect(runtime.webSearch.credentials.apiKey).toBe("tvly-secret");
-    expect(runtime.speechTranscription.credentials.apiKey).toBe("eleven-secret");
+    expect(JSON.stringify(memberSettings)).not.toContain("tvly-secret");
+    expect(JSON.stringify(memberSettings)).not.toContain("eleven-secret");
+    expect(memberRuntime.webSearch.credentials.apiKey).toBe("tvly-secret");
+    expect(memberRuntime.speechTranscription.credentials.apiKey).toBe("eleven-secret");
     expect(rows.every((row) => !row.credentials_encrypted.includes("secret"))).toBe(true);
+    expect(
+      getDb().prepare("SELECT COUNT(*) AS count FROM integration_settings WHERE user_id IS NOT NULL").get()
+    ).toEqual({ count: 0 });
   });
 
   it("clears integration credentials when the selected provider changes", async () => {
     saveProfiles();
-    const user = await createLocalUser({ username: "credential-user", password: "password-123", role: "user" });
+    const user = await createLocalUser({ username: "credential-admin", password: "password-123", role: "admin" });
     const preferences = {
       conversationRetention: "forever" as const,
       mcpTimeout: 120000,
@@ -452,7 +440,7 @@ describe("settings domains", () => {
         configuration: { language: "auto" },
         credentialAction: "clear"
       }
-    }, false);
+    }, true);
     updateGeneralSettingsBundleForUser(user.id, {
       preferences,
       webSearch: {
@@ -465,7 +453,7 @@ describe("settings domains", () => {
         configuration: { language: "auto" },
         credentialAction: "preserve"
       }
-    }, false);
+    }, true);
 
     expect(getSettingsForUser(user.id)).toMatchObject({
       webSearch: {
@@ -479,9 +467,9 @@ describe("settings domains", () => {
   it("persists web search pipeline configuration through the settings bundle", async () => {
     saveProfiles();
     const user = await createLocalUser({
-      username: "web-search-pipeline-user",
+      username: "web-search-pipeline-admin",
       password: "password-123",
-      role: "user"
+      role: "admin"
     });
 
     updateGeneralSettingsBundleForUser(user.id, {
@@ -501,7 +489,7 @@ describe("settings domains", () => {
         configuration: { language: "auto" },
         credentialAction: "clear"
       }
-    }, false);
+    }, true);
 
     expect(getSettingsForUser(user.id).webSearch).toMatchObject({
       providerId: "exa",
@@ -510,8 +498,8 @@ describe("settings domains", () => {
 
     getDb().prepare(`
       UPDATE integration_settings SET configuration_json = ?
-      WHERE capability = 'web_search' AND user_id = ?
-    `).run(JSON.stringify({ pipeline: { mode: "nonsense", maxQueries: 42 } }), user.id);
+      WHERE capability = 'web_search' AND user_id IS NULL
+    `).run(JSON.stringify({ pipeline: { mode: "nonsense", maxQueries: 42 } }));
     expect(getSettingsForUser(user.id).webSearch.configuration).toEqual({
       pipeline: { mode: "auto", maxQueries: 5 }
     });
@@ -520,9 +508,9 @@ describe("settings domains", () => {
   it("normalizes AssemblyAI configuration and isolates credentials when providers change", async () => {
     saveProfiles();
     const user = await createLocalUser({
-      username: "assembly-credential-user",
+      username: "assembly-credential-admin",
       password: "password-123",
-      role: "user"
+      role: "admin"
     });
     const preferences = {
       conversationRetention: "forever" as const,
@@ -544,7 +532,7 @@ describe("settings domains", () => {
         credential: "assembly-secret",
         credentialAction: "replace"
       }
-    }, false);
+    }, true);
     expect(getSettingsForUser(user.id).speechTranscription).toMatchObject({
       providerId: "assemblyai",
       configuration: { model: "universal-3-5-pro", language: "auto" },
@@ -553,8 +541,8 @@ describe("settings domains", () => {
 
     getDb().prepare(`
       UPDATE integration_settings SET configuration_json = ?
-      WHERE capability = 'speech_transcription' AND user_id = ?
-    `).run(JSON.stringify({ model: "unsupported", language: "sw" }), user.id);
+      WHERE capability = 'speech_transcription' AND user_id IS NULL
+    `).run(JSON.stringify({ model: "unsupported", language: "sw" }));
     expect(getSettingsForUser(user.id).speechTranscription).toMatchObject({
       providerId: "assemblyai",
       configuration: { model: "universal-3-5-pro", language: "auto" },
@@ -573,7 +561,7 @@ describe("settings domains", () => {
         configuration: { language: "eng" },
         credentialAction: "preserve"
       }
-    }, false);
+    }, true);
     expect(getSettingsForUser(user.id).speechTranscription).toMatchObject({
       providerId: "elevenlabs",
       credentials: {}
@@ -616,6 +604,14 @@ describe("settings domains", () => {
       .toThrow("Only admins can update global settings");
 
     const updated = updateGeneralSettingsBundleForUser(user.id, input, true);
+    expect(updated.webSearch).toMatchObject({
+      providerId: "exa",
+      scope: "global"
+    });
+    expect(updated.speechTranscription).toMatchObject({
+      providerId: "canary",
+      scope: "global"
+    });
     expect(updated.imageGeneration).toMatchObject({
       providerId: "google_nano_banana",
       configured: true,
@@ -624,6 +620,16 @@ describe("settings domains", () => {
     });
     expect(JSON.stringify(updated)).not.toContain("google-secret");
     expect(getSettingsForUser(user.id).imageGeneration.credentials.apiKey).toBe("google-secret");
+
+    const member = await createLocalUser({ username: "inheritance-member", password: "password-123", role: "user" });
+    expect(getSanitizedSettings(member.id)).toMatchObject({
+      webSearch: { providerId: "exa", scope: "global" },
+      speechTranscription: { providerId: "canary", scope: "global" },
+      imageGeneration: { providerId: "google_nano_banana", credentialStored: true, scope: "global" }
+    });
+    expect(
+      getDb().prepare("SELECT COUNT(*) AS count FROM integration_settings WHERE user_id IS NOT NULL").get()
+    ).toEqual({ count: 0 });
   });
 
   it("persists memory rigor as a user-scoped preference", async () => {

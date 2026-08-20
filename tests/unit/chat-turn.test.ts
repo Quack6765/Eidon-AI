@@ -293,7 +293,7 @@ describe("chat-turn", () => {
       configuration: {},
       credential: "tvly-user-key",
       credentialAction: "replace"
-    }, user.id);
+    });
 
     const conv = (await import("@/lib/conversations")).createConversation(
       undefined,
@@ -347,7 +347,7 @@ describe("chat-turn", () => {
         pipeline: { mode: "always", maxQueries: 2 }
       },
       credentialAction: "preserve"
-    }, user.id);
+    });
 
     const conv = (await import("@/lib/conversations")).createConversation(
       undefined,

@@ -760,6 +760,100 @@ describe("db", () => {
     db.close();
   });
 
+  it("promotes the oldest admin's integration settings to global and removes user rows", async () => {
+    const { migrate } = await import("@/lib/db-migrations");
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    migrate(db);
+
+    const now = new Date().toISOString();
+    const insertUser = db.prepare(`
+      INSERT INTO users (id, username, role, auth_source, created_at, updated_at)
+      VALUES (?, ?, ?, 'env', ?, ?)
+    `);
+    insertUser.run("admin_old", "admin-old", "admin", "2026-01-01T00:00:00.000Z", now);
+    insertUser.run("admin_new", "admin-new", "admin", "2026-02-01T00:00:00.000Z", now);
+    insertUser.run("member", "member", "user", "2026-03-01T00:00:00.000Z", now);
+
+    const insertIntegration = db.prepare(`
+      INSERT INTO integration_settings (
+        capability, user_id, provider_id, configuration_json,
+        credentials_encrypted, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertIntegration.run("web_search", "admin_new", "tavily", "{}", "", now, now);
+    insertIntegration.run("web_search", "member", "exa", "{}", "", now, now);
+    insertIntegration.run(
+      "web_search", "admin_old", "searxng",
+      JSON.stringify({ baseUrl: "https://search.example.com" }),
+      "encrypted-admin-old", now, now
+    );
+    insertIntegration.run(
+      "speech_transcription", "member", "elevenlabs",
+      JSON.stringify({ language: "eng" }), "encrypted-member", now, now
+    );
+    insertIntegration.run("speech_transcription", "admin_old", "canary", "{}", "", now, now);
+
+    migrate(db);
+
+    const globalRows = () => db.prepare(`
+      SELECT capability, provider_id, credentials_encrypted
+      FROM integration_settings WHERE user_id IS NULL ORDER BY capability
+    `).all();
+    expect(globalRows()).toEqual([
+      { capability: "image_generation", provider_id: "disabled", credentials_encrypted: "" },
+      { capability: "speech_transcription", provider_id: "canary", credentials_encrypted: "" },
+      { capability: "web_search", provider_id: "searxng", credentials_encrypted: "encrypted-admin-old" }
+    ]);
+    expect(
+      db.prepare("SELECT COUNT(*) AS count FROM integration_settings WHERE user_id IS NOT NULL").get()
+    ).toEqual({ count: 0 });
+
+    migrate(db);
+    expect(globalRows()).toEqual([
+      { capability: "image_generation", provider_id: "disabled", credentials_encrypted: "" },
+      { capability: "speech_transcription", provider_id: "canary", credentials_encrypted: "" },
+      { capability: "web_search", provider_id: "searxng", credentials_encrypted: "encrypted-admin-old" }
+    ]);
+    db.close();
+  });
+
+  it("removes per-user integration rows without promotion when no admin rows exist", async () => {
+    const { migrate } = await import("@/lib/db-migrations");
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    migrate(db);
+
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO users (id, username, role, auth_source, created_at, updated_at)
+      VALUES ('member', 'member', 'user', 'env', ?, ?)
+    `).run(now, now);
+    const insertIntegration = db.prepare(`
+      INSERT INTO integration_settings (
+        capability, user_id, provider_id, configuration_json,
+        credentials_encrypted, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertIntegration.run("web_search", "member", "tavily", "{}", "encrypted-member", now, now);
+    insertIntegration.run("speech_transcription", "member", "elevenlabs", "{}", "encrypted-member", now, now);
+
+    migrate(db);
+
+    expect(db.prepare(`
+      SELECT capability, provider_id, credentials_encrypted
+      FROM integration_settings WHERE user_id IS NULL ORDER BY capability
+    `).all()).toEqual([
+      { capability: "image_generation", provider_id: "disabled", credentials_encrypted: "" },
+      { capability: "speech_transcription", provider_id: "browser", credentials_encrypted: "" },
+      { capability: "web_search", provider_id: "exa", credentials_encrypted: "" }
+    ]);
+    expect(
+      db.prepare("SELECT COUNT(*) AS count FROM integration_settings WHERE user_id IS NOT NULL").get()
+    ).toEqual({ count: 0 });
+    db.close();
+  });
+
   it("reconciles interrupted state only during explicit guarded runtime bootstrap", async () => {
     const dbModule = await import("@/lib/db");
     const conversations = await import("@/lib/conversations");

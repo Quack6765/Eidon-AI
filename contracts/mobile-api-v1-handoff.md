@@ -4,7 +4,7 @@ The mobile v1 contract is replaced in place by this release. The server and nati
 
 Provider profiles now expose a discriminated `providerConfig` and a generic `connection` summary. Credentials are write-only and are changed through `/providers/{profileId}/connection`. OAuth-capable providers use `/providers/{profileId}/connection/flows`, while model discovery uses `/providers/{profileId}/models`. The registered GitHub browser callback remains provider-specific because it is an external OAuth callback.
 
-Settings now expose `webSearch`, `imageGeneration`, and `speechTranscription` selections with `providerId`, typed configuration, configured state, and scope. Every credential update uses `preserve`, `replace`, or `clear`.
+Settings now expose `webSearch`, `imageGeneration`, and `speechTranscription` selections with `providerId`, typed configuration, configured state, and scope. Every credential update uses `preserve`, `replace`, or `clear`. All three integrations are admin-managed with `global` scope: non-admin `PUT /settings/general` requests that include them are rejected with 403.
 
 Server-backed transcription now uses `/speech/transcription/prepare` and `/speech/transcription/transcribe`. The selected transcription provider determines preparation, sample-rate validation, upload limits, and response details.
 

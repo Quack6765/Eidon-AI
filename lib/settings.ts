@@ -3,7 +3,6 @@ import { getGlobalPreferences, updateGlobalPreferences } from "@/lib/global-pref
 import {
   getIntegrationSetting,
   getRuntimeIntegrationSetting,
-  INTEGRATION_CAPABILITY_CATALOG,
   updateIntegrationSetting,
   type IntegrationCapability,
   type CredentialAction
@@ -62,9 +61,9 @@ export type GeneralSettingsBundle = {
 function runtimeSettings(userId?: string): RuntimeAppSettings {
   const global = getGlobalPreferences();
   const user = userId ? getUserPreferences(userId, global) : global;
-  const webSearch = getRuntimeIntegrationSetting("web_search", userId);
+  const webSearch = getRuntimeIntegrationSetting("web_search");
   const imageGeneration = getRuntimeIntegrationSetting("image_generation");
-  const speechTranscription = getRuntimeIntegrationSetting("speech_transcription", userId);
+  const speechTranscription = getRuntimeIntegrationSetting("speech_transcription");
 
   return {
     defaultProviderProfileId: global.defaultProviderProfileId,
@@ -170,10 +169,10 @@ export function getDefaultRuntimeProviderProfile() {
   return getStoredDefaultRuntimeProviderProfile();
 }
 
-function publicIntegrationSettings(userId?: string) {
-  const webSearch = getIntegrationSetting("web_search", userId);
+function publicIntegrationSettings() {
+  const webSearch = getIntegrationSetting("web_search");
   const imageGeneration = getIntegrationSetting("image_generation");
-  const speechTranscription = getIntegrationSetting("speech_transcription", userId);
+  const speechTranscription = getIntegrationSetting("speech_transcription");
   if (!webSearch || !imageGeneration || !speechTranscription) {
     throw new Error("Integration settings are not initialized");
   }
@@ -184,7 +183,7 @@ export function getSanitizedSettings(userId?: string): PublicAppSettings & {
   providerProfiles: ProviderProfileSummary[];
 } {
   const settings = runtimeSettings(userId);
-  const integrations = publicIntegrationSettings(userId);
+  const integrations = publicIntegrationSettings();
   return {
     defaultProviderProfileId: settings.defaultProviderProfileId,
     skillsEnabled: settings.skillsEnabled,
@@ -237,10 +236,7 @@ export function updateGeneralSettingsBundleForUser(
     ["speech_transcription", input.speechTranscription],
     ["image_generation", input.imageGeneration]
   ] as Array<[IntegrationCapability, unknown]>).filter(([, update]) => update !== undefined);
-  const hasGlobalIntegrationUpdate = integrationUpdates.some(
-    ([capability]) => INTEGRATION_CAPABILITY_CATALOG[capability].scope === "global"
-  );
-  if (!canManageGlobalIntegrations && (hasGlobalIntegrationUpdate || input.titleGeneration)) {
+  if (!canManageGlobalIntegrations && (integrationUpdates.length > 0 || input.titleGeneration)) {
     throw new Error("Only admins can update global settings");
   }
   const transaction = getDb().transaction(() => {
@@ -249,7 +245,7 @@ export function updateGeneralSettingsBundleForUser(
       updateIntegrationSetting({
         capability,
         ...(update as Record<string, unknown>)
-      }, userId);
+      });
     }
     if (input.titleGeneration) updateTitleGenerationSettings(input.titleGeneration);
   });

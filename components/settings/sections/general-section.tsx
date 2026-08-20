@@ -126,7 +126,7 @@ export function GeneralSection({
   }
 
   function getValidationError() {
-    if (draft.webSearch.providerId !== "disabled") {
+    if (canManageGlobalIntegrations && draft.webSearch.providerId !== "disabled") {
       const error = getWebSearchReadinessError({
         ...draft.webSearch,
         credentials: draftCredentials(draft.webSearch)
@@ -144,10 +144,12 @@ export function GeneralSection({
         if (error) return error;
       }
     }
-    return getTranscriptionReadinessError({
-      ...draft.speechTranscription,
-      credentials: draftCredentials(draft.speechTranscription)
-    });
+    return canManageGlobalIntegrations
+      ? getTranscriptionReadinessError({
+          ...draft.speechTranscription,
+          credentials: draftCredentials(draft.speechTranscription)
+        })
+      : null;
   }
 
   async function save(): Promise<boolean> {
@@ -165,10 +167,10 @@ export function GeneralSection({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           preferences: draft.preferences,
-          webSearch: buildIntegrationUpdate(draft.webSearch),
-          speechTranscription: buildIntegrationUpdate(draft.speechTranscription),
           ...(canManageGlobalIntegrations
             ? {
+                webSearch: buildIntegrationUpdate(draft.webSearch),
+                speechTranscription: buildIntegrationUpdate(draft.speechTranscription),
                 imageGeneration: buildIntegrationUpdate(draft.imageGeneration),
                 titleGeneration: {
                   titleGenerationMode: draft.titleGeneration.titleGenerationMode,
@@ -286,6 +288,7 @@ export function GeneralSection({
       <SpeechTranscriptionSettings
         draft={draft.speechTranscription}
         persisted={persistedDraft.current.speechTranscription}
+        canManage={canManageGlobalIntegrations}
         dirty={isFieldDirty("speechTranscription")}
         onChange={(value) => updateDraft("speechTranscription", value)}
       />
@@ -294,6 +297,7 @@ export function GeneralSection({
       <WebSearchSettings
         draft={draft.webSearch}
         persisted={persistedDraft.current.webSearch}
+        canManage={canManageGlobalIntegrations}
         dirty={isFieldDirty("webSearch")}
         onChange={(value) => updateDraft("webSearch", value)}
       />

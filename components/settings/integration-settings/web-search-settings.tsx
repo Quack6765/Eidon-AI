@@ -26,11 +26,13 @@ const PIPELINE_MODE_LABELS: Record<WebSearchPipelineMode, string> = {
 export function WebSearchSettings({
   draft,
   persisted,
+  canManage,
   dirty,
   onChange
 }: {
   draft: Draft;
   persisted: Draft;
+  canManage: boolean;
   dirty: boolean;
   onChange(draft: Draft): void;
 }) {
@@ -66,13 +68,16 @@ export function WebSearchSettings({
     <div className="space-y-3">
       <div>
         <label htmlFor="web-search-provider" className={fieldLabel}>Web search engine</label>
-        <p className="mb-2 text-xs text-[var(--muted)]">Choose which web search engine is available to the agent.</p>
+        <p className="mb-2 text-xs text-[var(--muted)]">
+          {canManage ? "Choose which web search engine is available to the agent." : "Only admins can change web search settings."}
+        </p>
         <select
           id="web-search-provider"
           aria-label="Web search engine"
           value={draft.providerId}
+          disabled={!canManage}
           onChange={(event) => selectProvider(event.target.value as WebSearchProviderId)}
-          className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
+          className={`${selectLike} w-full sm:w-[22rem] ${!canManage ? "opacity-60" : ""} ${dirty ? "!border-amber-500/40" : ""}`}
         >
           {Object.entries(WEB_SEARCH_PROVIDER_CATALOG).map(([id, provider]) => (
             <option key={id} value={id}>{provider.label}</option>
@@ -80,7 +85,7 @@ export function WebSearchSettings({
         </select>
       </div>
 
-      {draft.providerId === "exa" ? (
+      {canManage && draft.providerId === "exa" ? (
         <div className="space-y-3">
           <div className="flex items-start gap-2.5 rounded-xl border border-sky-400/15 bg-sky-400/8 px-4 py-3 text-sm text-sky-200">
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-sky-400" />
@@ -99,7 +104,7 @@ export function WebSearchSettings({
         </div>
       ) : null}
 
-      {draft.providerId === "tavily" ? (
+      {canManage && draft.providerId === "tavily" ? (
         <CredentialField
           id="web-search-credential"
           label="Tavily API key"
@@ -121,11 +126,12 @@ export function WebSearchSettings({
             autoComplete="off"
             value={draft.configuration.baseUrl ?? ""}
             placeholder="https://search.example.com"
+            disabled={!canManage}
             onChange={(event) => onChange({
               ...draft,
               configuration: { ...draft.configuration, baseUrl: event.target.value }
             })}
-            className={`${inputLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
+            className={`${inputLike} w-full sm:w-[22rem] ${!canManage ? "opacity-60" : ""} ${dirty ? "!border-amber-500/40" : ""}`}
           />
         </div>
       ) : null}
@@ -141,8 +147,9 @@ export function WebSearchSettings({
               id="web-search-pipeline-mode"
               aria-label="Search pipeline mode"
               value={pipeline.mode}
+              disabled={!canManage}
               onChange={(event) => updatePipeline({ mode: event.target.value as WebSearchPipelineMode })}
-              className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
+              className={`${selectLike} w-full sm:w-[22rem] ${!canManage ? "opacity-60" : ""} ${dirty ? "!border-amber-500/40" : ""}`}
             >
               {(Object.keys(PIPELINE_MODE_LABELS) as WebSearchPipelineMode[]).map((mode) => (
                 <option key={mode} value={mode}>{PIPELINE_MODE_LABELS[mode]}</option>
@@ -160,8 +167,9 @@ export function WebSearchSettings({
                 id="web-search-max-queries"
                 aria-label="Max parallel queries"
                 value={pipeline.maxQueries ?? DEFAULT_WEB_SEARCH_PIPELINE.maxQueries}
+                disabled={!canManage}
                 onChange={(event) => updatePipeline({ maxQueries: Number(event.target.value) })}
-                className={`${selectLike} w-full sm:w-[10rem] ${dirty ? "!border-amber-500/40" : ""}`}
+                className={`${selectLike} w-full sm:w-[10rem] ${!canManage ? "opacity-60" : ""} ${dirty ? "!border-amber-500/40" : ""}`}
               >
                 {[1, 2, 3, 4, 5].map((count) => (
                   <option key={count} value={count}>{count}</option>
