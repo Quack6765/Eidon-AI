@@ -93,13 +93,6 @@ export const webSearchIntegrationUpdateSchema = z.discriminatedUnion("providerId
 
 export type WebSearchIntegrationUpdate = z.infer<typeof webSearchIntegrationUpdateSchema>;
 
-export function getWebSearchEndpointUrl(
-  update: WebSearchIntegrationUpdate | undefined
-): string | null {
-  if (update?.providerId !== "searxng") return null;
-  return update.configuration.baseUrl;
-}
-
 export const WEB_SEARCH_PROVIDER_CATALOG = {
   disabled: {
     label: "Disabled",

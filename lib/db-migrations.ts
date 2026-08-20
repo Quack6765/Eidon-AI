@@ -456,6 +456,48 @@ function migrateIntegrationSettings(db: Database.Database) {
   for (const row of users) seedUserCapabilities(row, row.user_id);
 }
 
+function consolidateGlobalIntegrationSettings(db: Database.Database) {
+  const update = db.prepare(`
+    UPDATE integration_settings
+    SET provider_id = ?, configuration_json = ?, credentials_encrypted = ?, updated_at = ?
+    WHERE capability = ? AND user_id IS NULL
+  `);
+  const deleteUserRows = db.prepare(`
+    DELETE FROM integration_settings
+    WHERE capability = ? AND user_id IS NOT NULL
+  `);
+  const oldestAdminRow = db.prepare(`
+    SELECT integration_settings.provider_id, integration_settings.configuration_json,
+      integration_settings.credentials_encrypted
+    FROM integration_settings
+    JOIN users ON users.id = integration_settings.user_id
+    WHERE integration_settings.capability = ? AND users.role = 'admin'
+    ORDER BY users.created_at, integration_settings.created_at
+    LIMIT 1
+  `);
+  const timestamp = new Date().toISOString();
+  const transaction = db.transaction(() => {
+    for (const capability of ["web_search", "speech_transcription"]) {
+      const adminRow = oldestAdminRow.get(capability) as {
+        provider_id: string;
+        configuration_json: string;
+        credentials_encrypted: string;
+      } | undefined;
+      if (adminRow) {
+        update.run(
+          adminRow.provider_id,
+          adminRow.configuration_json,
+          adminRow.credentials_encrypted,
+          timestamp,
+          capability
+        );
+      }
+      deleteUserRows.run(capability);
+    }
+  });
+  transaction();
+}
+
 function normalizeIntegrationSettingsStorage(db: Database.Database) {
   if (!tableExists(db, "integration_settings")) return;
   const rows = db.prepare(`
@@ -1813,6 +1855,7 @@ export function migrate(db: Database.Database) {
     migratePreferenceStorage(db);
   }
   normalizeIntegrationSettingsStorage(db);
+  consolidateGlobalIntegrationSettings(db);
 
   const globalPreferencesCols = db.prepare("PRAGMA table_info(global_preferences)").all() as Array<{ name: string }>;
   if (!globalPreferencesCols.some((column) => column.name === "confirm_external_links")) {

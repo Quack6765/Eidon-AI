@@ -74,7 +74,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
         : searchProvider === "tavily"
           ? overrides.hasTavilyApiKey ?? false
           : false,
-      scope: "user"
+      scope: "global"
     },
     speechTranscription: !overrides.sttEngine && overrides.speechTranscription ? overrides.speechTranscription : {
       providerId: speechProvider,
@@ -89,7 +89,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
       credentialStored: speechProvider === "elevenlabs"
         ? overrides.hasExternalSttApiKey ?? false
         : false,
-      scope: "user"
+      scope: "global"
     },
     imageGeneration: !overrides.imageGenerationBackend && overrides.imageGeneration ? overrides.imageGeneration : {
       providerId: imageProvider,
@@ -196,7 +196,7 @@ describe("general section", () => {
       json: async () => ({ settings })
     } as Response);
 
-    render(React.createElement(GeneralSection, { settings }));
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
 
     fireEvent.change(screen.getByDisplayValue("Browser"), { target: { value: "embedded" } });
     fireEvent.change(screen.getByDisplayValue("English"), { target: { value: "es" } });
@@ -223,7 +223,7 @@ describe("general section", () => {
       json: async () => ({ settings })
     } as Response);
 
-    render(React.createElement(GeneralSection, { settings }));
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
 
     expect(screen.getByDisplayValue("Auto-detect")).toBeInTheDocument();
     fireEvent.change(screen.getByDisplayValue("Browser"), { target: { value: "embedded" } });
@@ -234,7 +234,7 @@ describe("general section", () => {
   });
 
   it("reveals ElevenLabs provider credentials after External is selected", () => {
-    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+    render(React.createElement(GeneralSection, { settings: makeSettings(), canManageGlobalIntegrations: true }));
 
     expect(screen.queryByLabelText("Speech-to-text provider")).toBeNull();
     expect(screen.queryByLabelText("ElevenLabs API key")).toBeNull();
@@ -267,7 +267,7 @@ describe("general section", () => {
       })
     } as Response);
 
-    render(React.createElement(GeneralSection, { settings }));
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
     fireEvent.change(screen.getByLabelText("Speech engine"), {
       target: { value: "external" }
     });
@@ -295,7 +295,7 @@ describe("general section", () => {
   });
 
   it("shows AssemblyAI model-specific languages and resets unsupported selections", () => {
-    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+    render(React.createElement(GeneralSection, { settings: makeSettings(), canManageGlobalIntegrations: true }));
 
     fireEvent.change(screen.getByLabelText("Speech engine"), {
       target: { value: "external" }
@@ -346,7 +346,7 @@ describe("general section", () => {
       json: async () => ({ settings })
     } as Response);
 
-    render(React.createElement(GeneralSection, { settings }));
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
     fireEvent.change(screen.getByLabelText("Speech engine"), {
       target: { value: "external" }
     });
@@ -380,7 +380,7 @@ describe("general section", () => {
   });
 
   it("shows Exa by default with an optional API key note", () => {
-    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+    render(React.createElement(GeneralSection, { settings: makeSettings(), canManageGlobalIntegrations: true }));
 
     fireEvent.click(screen.getByRole("button", { name: /Web search/ }));
     expect(screen.getByRole("heading", { name: "Web search" })).toBeInTheDocument();
@@ -394,7 +394,7 @@ describe("general section", () => {
   });
 
   it("shows default pipeline controls and hides them when search is disabled", () => {
-    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+    render(React.createElement(GeneralSection, { settings: makeSettings(), canManageGlobalIntegrations: true }));
 
     fireEvent.click(screen.getByRole("button", { name: /Web search/ }));
     expect(screen.getByLabelText("Search pipeline mode")).toHaveValue("auto");
@@ -408,7 +408,7 @@ describe("general section", () => {
   });
 
   it("saves the selected pipeline configuration", async () => {
-    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+    render(React.createElement(GeneralSection, { settings: makeSettings(), canManageGlobalIntegrations: true }));
 
     fireEvent.click(screen.getByRole("button", { name: /Web search/ }));
     fireEvent.change(screen.getByLabelText("Search pipeline mode"), {
@@ -429,7 +429,7 @@ describe("general section", () => {
   });
 
   it("preserves the pipeline selection while switching engines", () => {
-    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+    render(React.createElement(GeneralSection, { settings: makeSettings(), canManageGlobalIntegrations: true }));
 
     fireEvent.click(screen.getByRole("button", { name: /Web search/ }));
     fireEvent.change(screen.getByLabelText("Search pipeline mode"), {
@@ -449,7 +449,7 @@ describe("general section", () => {
   });
 
   it("preserves search values while switching engines and hides engine-specific fields when disabled", () => {
-    render(React.createElement(GeneralSection, { settings: makeSettings() }));
+    render(React.createElement(GeneralSection, { settings: makeSettings(), canManageGlobalIntegrations: true }));
 
     fireEvent.change(screen.getByLabelText("Exa API key"), {
       target: { value: "exa-local-key" }
@@ -495,7 +495,8 @@ describe("general section", () => {
       React.createElement(GeneralSection, {
         settings: makeSettings({
           webSearchEngine: "tavily"
-        })
+        }),
+        canManageGlobalIntegrations: true
       })
     );
 
@@ -510,7 +511,8 @@ describe("general section", () => {
       React.createElement(GeneralSection, {
         settings: makeSettings({
           webSearchEngine: "searxng"
-        })
+        }),
+        canManageGlobalIntegrations: true
       })
     );
 
@@ -525,7 +527,8 @@ describe("general section", () => {
       React.createElement(GeneralSection, {
         settings: makeSettings({
           webSearchEngine: "searxng"
-        })
+        }),
+        canManageGlobalIntegrations: true
       })
     );
 
@@ -548,7 +551,7 @@ describe("general section", () => {
       json: async () => ({ settings })
     } as Response);
 
-    render(React.createElement(GeneralSection, { settings }));
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
 
     fireEvent.change(screen.getByDisplayValue("Forever"), { target: { value: "30d" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -569,7 +572,8 @@ describe("general section", () => {
         settings: makeSettings({
           webSearchEngine: "exa",
           hasExaApiKey: true
-        })
+        }),
+        canManageGlobalIntegrations: true
       })
     );
 
@@ -581,7 +585,8 @@ describe("general section", () => {
         settings: makeSettings({
           webSearchEngine: "tavily",
           hasTavilyApiKey: true
-        })
+        }),
+        canManageGlobalIntegrations: true
       })
     );
 
@@ -598,7 +603,7 @@ describe("general section", () => {
       json: async () => ({ settings })
     } as Response);
 
-    render(React.createElement(GeneralSection, { settings }));
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
 
     const exaInput = screen.getByLabelText("Exa API key");
     fireEvent.change(exaInput, { target: { value: "temporary-value" } });
@@ -622,7 +627,7 @@ describe("general section", () => {
       json: async () => ({ settings })
     } as Response);
 
-    render(React.createElement(GeneralSection, { settings }));
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
 
     const tavilyInput = screen.getByLabelText("Tavily API key");
     fireEvent.change(tavilyInput, { target: { value: "temporary-value" } });
@@ -764,7 +769,7 @@ describe("general section", () => {
         })
       })
     } as Response);
-    render(React.createElement(GeneralSection, { settings }));
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
 
     fireEvent.change(screen.getByLabelText("SearXNG base URL"), {
       target: { value: "https://search.example.com///" }
@@ -817,5 +822,74 @@ describe("general section", () => {
     expect(screen.getByText("Only admins can change image generation settings.")).toBeInTheDocument();
     expect(screen.getByLabelText("Image generation backend")).toBeDisabled();
     expect(screen.queryByRole("option", { name: "ComfyUI" })).toBeNull();
+  });
+
+  it("renders web search settings as read-only for non-admin users", () => {
+    render(
+      React.createElement(GeneralSection, {
+        settings: makeSettings({
+          webSearchEngine: "searxng",
+          searxngBaseUrl: "https://search.example.com"
+        }),
+        canManageGlobalIntegrations: false
+      })
+    );
+
+    expect(screen.getByText("Only admins can change web search settings.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Web search engine")).toBeDisabled();
+    expect(screen.getByLabelText("SearXNG base URL")).toBeDisabled();
+    expect(screen.getByLabelText("Search pipeline mode")).toBeDisabled();
+    expect(screen.getByLabelText("Max parallel queries")).toBeDisabled();
+  });
+
+  it("renders speech-to-text settings as read-only for non-admin users", () => {
+    render(
+      React.createElement(GeneralSection, {
+        settings: makeSettings({ sttEngine: "external", hasExternalSttApiKey: true }),
+        canManageGlobalIntegrations: false
+      })
+    );
+
+    expect(screen.getByText("Only admins can change speech-to-text settings.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Speech engine")).toBeDisabled();
+    expect(screen.getByLabelText("Speech-to-text provider")).toBeDisabled();
+    expect(screen.getByLabelText("ElevenLabs transcription language")).toBeDisabled();
+    expect(screen.queryByLabelText("ElevenLabs API key")).toBeNull();
+  });
+
+  it("omits web search and speech settings from the save payload for non-admin users", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    fireEvent.change(screen.getByDisplayValue("Forever"), { target: { value: "30d" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
+    expect(body).toHaveProperty("preferences");
+    expect(body).not.toHaveProperty("webSearch");
+    expect(body).not.toHaveProperty("speechTranscription");
+    expect(body).not.toHaveProperty("imageGeneration");
+    expect(body).not.toHaveProperty("titleGeneration");
+  });
+
+  it("lets non-admins save preferences even when admin-managed integrations are unconfigured", async () => {
+    const settings = makeSettings({ webSearchEngine: "tavily" });
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText("Tavily API key is required.")).toBeNull();
   });
 });

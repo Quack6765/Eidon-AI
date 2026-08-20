@@ -9,7 +9,6 @@ import {
 } from "@/lib/image-generation/catalog";
 import type {
   CredentialAction,
-  IntegrationScope,
   IntegrationSelection,
   RuntimeIntegrationSelection
 } from "@/lib/integration-types";
@@ -24,18 +23,14 @@ import {
   webSearchIntegrationUpdateSchema
 } from "@/lib/web-search-catalog";
 
-export const INTEGRATION_CAPABILITY_CATALOG = {
-  web_search: { scope: "user" },
-  image_generation: { scope: "global" },
-  speech_transcription: { scope: "user" }
-} as const satisfies Record<string, { scope: IntegrationScope }>;
+export const INTEGRATION_CAPABILITIES = [
+  "web_search",
+  "image_generation",
+  "speech_transcription"
+] as const;
 
-export const INTEGRATION_CAPABILITIES = Object.keys(
-  INTEGRATION_CAPABILITY_CATALOG
-) as Array<IntegrationCapability>;
-
-export type IntegrationCapability = keyof typeof INTEGRATION_CAPABILITY_CATALOG;
-export type { CredentialAction, IntegrationScope, IntegrationSelection, RuntimeIntegrationSelection };
+export type IntegrationCapability = (typeof INTEGRATION_CAPABILITIES)[number];
+export type { CredentialAction, IntegrationSelection, RuntimeIntegrationSelection };
 
 const integrationUpdateSchemas = {
   web_search: webSearchIntegrationUpdateSchema,
@@ -44,10 +39,7 @@ const integrationUpdateSchemas = {
 };
 
 export const integrationSettingInputSchema = z.object({
-  capability: z.enum(INTEGRATION_CAPABILITIES as [
-    IntegrationCapability,
-    ...IntegrationCapability[]
-  ])
+  capability: z.enum(INTEGRATION_CAPABILITIES)
 }).passthrough().transform((input, context) => {
   const { capability, ...setting } = input;
   const result = integrationUpdateSchemas[capability].safeParse(setting);
@@ -88,65 +80,45 @@ function decryptCredentials(value: string) {
   }
 }
 
-function getExactRow(capability: IntegrationCapability, userId: string | null) {
-  const statement = userId
-    ? "SELECT * FROM integration_settings WHERE capability = ? AND user_id = ?"
-    : "SELECT * FROM integration_settings WHERE capability = ? AND user_id IS NULL";
-  return getDb().prepare(statement).get(...(userId ? [capability, userId] : [capability])) as
-    IntegrationRow | undefined;
-}
-
-function resolveRow(capability: IntegrationCapability, userId?: string) {
-  const scopedUserId = INTEGRATION_CAPABILITY_CATALOG[capability].scope === "user"
-    ? userId
-    : undefined;
-  return (scopedUserId ? getExactRow(capability, scopedUserId) : undefined) ??
-    getExactRow(capability, null);
+function getGlobalRow(capability: IntegrationCapability) {
+  return getDb()
+    .prepare("SELECT * FROM integration_settings WHERE capability = ? AND user_id IS NULL")
+    .get(capability) as IntegrationRow | undefined;
 }
 
 function rowToRuntimeSelection(row: IntegrationRow): RuntimeIntegrationSelection<string, Record<string, unknown>> {
   const decryptedCredentials = decryptCredentials(row.credentials_encrypted);
   const rawConfiguration = parseObject(row.configuration_json);
-  const scope = row.user_id ? "user" as const : "global" as const;
   if (row.capability === "web_search") {
     const normalized = normalizeWebSearchSelection(row.provider_id, rawConfiguration);
     const credentials = normalized.providerId === row.provider_id ? decryptedCredentials : {};
-    return { ...normalized, configured: isWebSearchConfigured({ ...normalized, credentials }), credentialStored: Boolean(credentials.apiKey), scope, credentials };
+    return { ...normalized, configured: isWebSearchConfigured({ ...normalized, credentials }), credentialStored: Boolean(credentials.apiKey), scope: "global" as const, credentials };
   }
   if (row.capability === "image_generation") {
     const normalized = normalizeImageGenerationSelection(row.provider_id, rawConfiguration);
     const credentials = normalized.providerId === row.provider_id ? decryptedCredentials : {};
-    return { ...normalized, configured: isImageGenerationConfigured({ ...normalized, credentials }), credentialStored: Boolean(credentials.apiKey), scope, credentials };
+    return { ...normalized, configured: isImageGenerationConfigured({ ...normalized, credentials }), credentialStored: Boolean(credentials.apiKey), scope: "global" as const, credentials };
   }
   const normalized = normalizeTranscriptionSelection(row.provider_id, rawConfiguration);
   const credentials = normalized.providerId === row.provider_id ? decryptedCredentials : {};
-  return { ...normalized, configured: isTranscriptionConfigured({ ...normalized, credentials }), credentialStored: Boolean(credentials.apiKey), scope, credentials };
+  return { ...normalized, configured: isTranscriptionConfigured({ ...normalized, credentials }), credentialStored: Boolean(credentials.apiKey), scope: "global" as const, credentials };
 }
 
-export function getRuntimeIntegrationSetting(
-  capability: IntegrationCapability,
-  userId?: string
-) {
-  const row = resolveRow(capability, userId);
+export function getRuntimeIntegrationSetting(capability: IntegrationCapability) {
+  const row = getGlobalRow(capability);
   return row ? rowToRuntimeSelection(row) : null;
 }
 
-export function getIntegrationSetting(
-  capability: IntegrationCapability,
-  userId?: string
-) {
-  const runtime = getRuntimeIntegrationSetting(capability, userId);
+export function getIntegrationSetting(capability: IntegrationCapability) {
+  const runtime = getRuntimeIntegrationSetting(capability);
   if (!runtime) return null;
   const { credentials: _credentials, ...selection } = runtime;
   return selection;
 }
 
-export function updateIntegrationSetting(input: unknown, userId?: string) {
+export function updateIntegrationSetting(input: unknown) {
   const parsed = integrationSettingInputSchema.parse(input);
-  const scopedUserId = INTEGRATION_CAPABILITY_CATALOG[parsed.capability].scope === "user"
-    ? userId
-    : undefined;
-  const current = getRuntimeIntegrationSetting(parsed.capability, scopedUserId);
+  const current = getRuntimeIntegrationSetting(parsed.capability);
   if (parsed.credentialAction === "replace" && !parsed.credential?.trim()) {
     throw new Error("A credential is required when replacing the stored credential");
   }
@@ -163,30 +135,27 @@ export function updateIntegrationSetting(input: unknown, userId?: string) {
     ? encryptValue(JSON.stringify(credentials))
     : "";
   const timestamp = new Date().toISOString();
-  const existing = getExactRow(parsed.capability, scopedUserId ?? null);
+  const existing = getGlobalRow(parsed.capability);
   if (existing) {
-    const statement = scopedUserId
-      ? `UPDATE integration_settings SET provider_id = ?, configuration_json = ?,
-          credentials_encrypted = ?, updated_at = ? WHERE capability = ? AND user_id = ?`
-      : `UPDATE integration_settings SET provider_id = ?, configuration_json = ?,
-          credentials_encrypted = ?, updated_at = ? WHERE capability = ? AND user_id IS NULL`;
-    getDb().prepare(statement).run(
+    getDb().prepare(`
+      UPDATE integration_settings SET provider_id = ?, configuration_json = ?,
+        credentials_encrypted = ?, updated_at = ?
+      WHERE capability = ? AND user_id IS NULL
+    `).run(
       parsed.providerId,
       JSON.stringify(parsed.configuration),
       encrypted,
       timestamp,
-      parsed.capability,
-      ...(scopedUserId ? [scopedUserId] : [])
+      parsed.capability
     );
   } else {
     getDb().prepare(`
       INSERT INTO integration_settings (
         capability, user_id, provider_id, configuration_json,
         credentials_encrypted, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, NULL, ?, ?, ?, ?, ?)
     `).run(
       parsed.capability,
-      scopedUserId ?? null,
       parsed.providerId,
       JSON.stringify(parsed.configuration),
       encrypted,
@@ -194,7 +163,7 @@ export function updateIntegrationSetting(input: unknown, userId?: string) {
       timestamp
     );
   }
-  return getIntegrationSetting(parsed.capability, scopedUserId);
+  return getIntegrationSetting(parsed.capability);
 }
 
 export {

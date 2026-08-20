@@ -33,11 +33,13 @@ const LOCAL_LANGUAGE_OPTIONS = [
 export function SpeechTranscriptionSettings({
   draft,
   persisted,
+  canManage,
   dirty,
   onChange
 }: {
   draft: Draft;
   persisted: Draft;
+  canManage: boolean;
   dirty: boolean;
   onChange(draft: Draft): void;
 }) {
@@ -128,13 +130,16 @@ export function SpeechTranscriptionSettings({
     <div className="space-y-3">
       <div>
         <label htmlFor="speech-transcription-engine" className={fieldLabel}>Speech engine</label>
-        <p className="mb-2 text-xs text-[var(--muted)]">Choose where composer dictation is transcribed.</p>
+        <p className="mb-2 text-xs text-[var(--muted)]">
+          {canManage ? "Choose where composer dictation is transcribed." : "Only admins can change speech-to-text settings."}
+        </p>
         <select
           id="speech-transcription-engine"
           aria-label="Speech engine"
           value={descriptor.engine}
+          disabled={!canManage}
           onChange={(event) => selectEngine(event.target.value as SttEngine)}
-          className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
+          className={`${selectLike} w-full sm:w-[22rem] ${!canManage ? "opacity-60" : ""} ${dirty ? "!border-amber-500/40" : ""}`}
         >
           <option value="browser">Browser</option>
           <option value="embedded">Embedded</option>
@@ -149,8 +154,9 @@ export function SpeechTranscriptionSettings({
             id="speech-transcription-provider"
             aria-label="Speech-to-text provider"
             value={draft.providerId}
+            disabled={!canManage}
             onChange={(event) => selectProvider(event.target.value as TranscriptionProviderId)}
-            className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
+            className={`${selectLike} w-full sm:w-[22rem] ${!canManage ? "opacity-60" : ""} ${dirty ? "!border-amber-500/40" : ""}`}
           >
             {Object.entries(EXTERNAL_STT_PROVIDERS).map(([id, provider]) => (
               <option key={id} value={id}>{provider.label} · {provider.modelLabel}</option>
@@ -166,8 +172,9 @@ export function SpeechTranscriptionSettings({
             id="speech-transcription-model"
             aria-label={`${externalProvider.label} transcription model`}
             value={draft.configuration.model ?? externalProvider.defaultModel}
+            disabled={!canManage}
             onChange={(event) => selectModel(event.target.value as ExternalSttModel)}
-            className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
+            className={`${selectLike} w-full sm:w-[22rem] ${!canManage ? "opacity-60" : ""} ${dirty ? "!border-amber-500/40" : ""}`}
           >
             {externalProvider.modelOptions.map((model) => (
               <option key={model.value} value={model.value}>{model.label}</option>
@@ -176,7 +183,7 @@ export function SpeechTranscriptionSettings({
         </div>
       ) : null}
 
-      {descriptor.requiresCredential ? (
+      {canManage && descriptor.requiresCredential ? (
         <CredentialField
           id="speech-transcription-credential"
           label={`${descriptor.label} API key`}
@@ -203,6 +210,7 @@ export function SpeechTranscriptionSettings({
                   <input
                     type="checkbox"
                     checked={selectedLanguages.includes(language.value)}
+                    disabled={!canManage}
                     onChange={() => toggleLanguage(language.value)}
                     className="h-4 w-4 accent-[var(--accent)]"
                   />
@@ -226,6 +234,7 @@ export function SpeechTranscriptionSettings({
               ? `${externalProvider.label} transcription language`
               : "Default transcription language"}
             value={draft.configuration.language}
+            disabled={!canManage}
             onChange={(event) => onChange({
               ...draft,
               configuration: {
@@ -233,7 +242,7 @@ export function SpeechTranscriptionSettings({
                 language: event.target.value as ExternalSttLanguage
               }
             })}
-            className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
+            className={`${selectLike} w-full sm:w-[22rem] ${!canManage ? "opacity-60" : ""} ${dirty ? "!border-amber-500/40" : ""}`}
           >
             {languageOptions.map((language) => (
               <option key={language.value} value={language.value}>{language.label}</option>
