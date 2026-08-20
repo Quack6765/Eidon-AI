@@ -7,6 +7,7 @@ import type {
   TranscriptionProviderId
 } from "@/lib/speech/transcription-catalog";
 import type {
+  ImageGenerationConfiguration,
   ImageGenerationModelId,
   ImageGenerationProviderId
 } from "@/lib/image-generation/catalog";
@@ -120,7 +121,7 @@ type AppSettingsCore = {
 
 export type AppSettings = AppSettingsCore & {
   webSearch: IntegrationSelection<WebSearchProviderId, WebSearchConfiguration>;
-  imageGeneration: IntegrationSelection<ImageGenerationProviderId, { model?: ImageGenerationModelId }>;
+  imageGeneration: IntegrationSelection<ImageGenerationProviderId, ImageGenerationConfiguration>;
   speechTranscription: IntegrationSelection<TranscriptionProviderId, {
     language: SttLanguage | ExternalSttLanguage;
     model?: ExternalSttModel;
@@ -131,7 +132,7 @@ export type RuntimeAppSettings = AppSettingsCore & {
   webSearch: RuntimeIntegrationSelection<WebSearchProviderId, WebSearchConfiguration>;
   imageGeneration: RuntimeIntegrationSelection<
     ImageGenerationProviderId,
-    { model?: ImageGenerationModelId }
+    ImageGenerationConfiguration
   >;
   speechTranscription: RuntimeIntegrationSelection<
     TranscriptionProviderId,

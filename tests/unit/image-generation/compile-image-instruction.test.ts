@@ -108,12 +108,36 @@ describe("compileImageInstruction", () => {
     });
 
     expect(instruction).toEqual({
+      mode: "generate",
       imagePrompt: "cinematic Seoul skyline at dusk",
       negativePrompt: "",
       assistantText: "Here is a first pass.",
       aspectRatio: "1:1",
       count: 1
     });
+  });
+
+  it("keeps edit mode when the compiler flags a modification request", async () => {
+    callProviderText.mockResolvedValue(`
+\`\`\`json
+{"mode":"edit","imagePrompt":"change the hat color to red","assistantText":"Updated the hat.","count":1}
+\`\`\`
+`);
+
+    const instruction = await compileImageInstruction({
+      settings: profile,
+      promptMessages: [
+        { role: "user", content: "generate a cat wearing a hat" },
+        { role: "assistant", content: "Successfully generated 1 image." },
+        { role: "user", content: "change the hat to red" }
+      ],
+      callProviderText
+    });
+
+    expect(instruction.mode).toBe("edit");
+    expect(instruction.imagePrompt).toBe("change the hat color to red");
+    const prompt = callProviderText.mock.calls[0][0].prompt;
+    expect(prompt).toContain('mode: "generate" | "edit"');
   });
 
   it("throws when the provider returns non-json output", async () => {

@@ -1,18 +1,31 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import type { ImageGenerationModelId } from "@/lib/image-generation/catalog";
-import type { CompiledImageInstruction, GenerateImageResult } from "./types";
+import type {
+  CompiledImageInstruction,
+  GenerateImageResult,
+  ImageGenerationReferenceImage
+} from "./types";
 import { renameGeneratedImages } from "./generated-filenames";
 
 export async function generateGoogleNanoBananaImages(input: {
   apiKey: string;
   model: ImageGenerationModelId;
   instruction: CompiledImageInstruction;
+  inputImages?: ImageGenerationReferenceImage[];
   abortSignal?: AbortSignal;
 }): Promise<GenerateImageResult> {
   const ai = new GoogleGenAI({ apiKey: input.apiKey });
+  const contents = input.inputImages?.length
+    ? [
+        ...input.inputImages.map((image) => ({
+          inlineData: { mimeType: image.mimeType, data: image.bytes.toString("base64") }
+        })),
+        { text: input.instruction.imagePrompt }
+      ]
+    : input.instruction.imagePrompt;
   const request = {
     model: input.model,
-    contents: input.instruction.imagePrompt,
+    contents,
     config: {
       responseModalities: [Modality.IMAGE],
       abortSignal: input.abortSignal

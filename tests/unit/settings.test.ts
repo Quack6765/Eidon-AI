@@ -626,6 +626,30 @@ describe("settings domains", () => {
     expect(getSettingsForUser(user.id).imageGeneration.credentials.apiKey).toBe("google-secret");
   });
 
+  it("persists an OpenAI GPT Image image generation selection with model and quality", async () => {
+    saveProfiles();
+    const user = await createLocalUser({ username: "openai-image-admin", password: "password-123", role: "admin" });
+    const updated = updateGeneralSettingsBundleForUser(user.id, {
+      preferences: {},
+      imageGeneration: {
+        providerId: "openai_gpt_image" as const,
+        configuration: { model: "gpt-image-2" as const, quality: "high" as const },
+        credential: "openai-secret",
+        credentialAction: "replace" as const
+      }
+    }, true);
+
+    expect(updated.imageGeneration).toMatchObject({
+      providerId: "openai_gpt_image",
+      configuration: { model: "gpt-image-2", quality: "high" },
+      configured: true,
+      credentialStored: true,
+      scope: "global"
+    });
+    expect(JSON.stringify(updated)).not.toContain("openai-secret");
+    expect(getSettingsForUser(user.id).imageGeneration.credentials.apiKey).toBe("openai-secret");
+  });
+
   it("persists memory rigor as a user-scoped preference", async () => {
     saveProfiles();
     const user = await createLocalUser({ username: "rigor-user", password: "password-123", role: "user" });
