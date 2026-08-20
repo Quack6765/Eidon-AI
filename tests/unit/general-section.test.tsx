@@ -29,10 +29,12 @@ type GeneralSettingsOverrides = Partial<GeneralSectionSettings> & {
   searxngBaseUrl?: string;
   imageGenerationBackend?: ImageGenerationProviderId;
   googleNanoBananaModel?: ImageGenerationModelId;
+  openAiGptImageQuality?: "auto" | "low" | "medium" | "high";
   hasExaApiKey?: boolean;
   hasTavilyApiKey?: boolean;
   hasExternalSttApiKey?: boolean;
   hasGoogleNanoBananaApiKey?: boolean;
+  hasOpenAiGptImageApiKey?: boolean;
 };
 
 vi.mock("next/navigation", () => ({
@@ -95,13 +97,19 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
       providerId: imageProvider,
       configuration: imageProvider === "google_nano_banana"
         ? { model: overrides.googleNanoBananaModel ?? "gemini-3.1-flash-image-preview" }
-        : {},
+        : imageProvider === "openai_gpt_image"
+          ? { model: "gpt-image-2", quality: overrides.openAiGptImageQuality ?? "auto" }
+          : {},
       configured: imageProvider === "google_nano_banana"
         ? overrides.hasGoogleNanoBananaApiKey ?? false
-        : true,
+        : imageProvider === "openai_gpt_image"
+          ? overrides.hasOpenAiGptImageApiKey ?? false
+          : true,
       credentialStored: imageProvider === "google_nano_banana"
         ? overrides.hasGoogleNanoBananaApiKey ?? false
-        : false,
+        : imageProvider === "openai_gpt_image"
+          ? overrides.hasOpenAiGptImageApiKey ?? false
+          : false,
       scope: "global"
     },
     updatedAt: new Date().toISOString(),
@@ -723,6 +731,45 @@ describe("general section", () => {
     expect(screen.queryByText("Unsaved changes")).toBeNull();
     expect(screen.getByRole("button", { name: "Clear stored key" })).toBeInTheDocument();
     expect(screen.getByLabelText("Google Nano Banana API key")).toHaveAttribute("placeholder", "••••••••");
+  });
+
+  it("renders OpenAI GPT Image backend with model and quality selects and saves the selection", async () => {
+    const settings = makeSettings({
+      imageGenerationBackend: "openai_gpt_image",
+      openAiGptImageQuality: "medium",
+      hasOpenAiGptImageApiKey: true
+    });
+
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ settings })
+      } as Response);
+
+    render(
+      React.createElement(GeneralSection, {
+        settings,
+        canManageGlobalIntegrations: true
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Image generation/ }));
+    expect(screen.getByLabelText("Image generation backend")).toHaveValue("openai_gpt_image");
+    expect(screen.getByLabelText("Image generation model")).toHaveValue("gpt-image-2");
+    expect(screen.getByLabelText("Image generation quality")).toHaveValue("medium");
+    expect(screen.getByLabelText("OpenAI GPT Image API key")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Image generation quality"), { target: { value: "low" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
+    expect(body.imageGeneration).toEqual({
+      providerId: "openai_gpt_image",
+      configuration: { model: "gpt-image-2", quality: "low" },
+      credentialAction: "preserve"
+    });
   });
 
   it("discards to the latest successful save instead of the initial props", async () => {

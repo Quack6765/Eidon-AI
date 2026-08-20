@@ -240,6 +240,7 @@ export async function executeImageGeneration(
 
     const { compileImageInstruction } = await import("@/lib/image-generation/compile-image-instruction");
     const { generateImages } = await import("@/lib/image-generation/provider");
+    const { resolveEditInputImages } = await import("@/lib/image-generation/edit-inputs");
     const { createAttachments } = await import("@/lib/attachments");
     const { bindAttachmentsToMessage } = await import("@/lib/attachments");
     const instruction = await compileImageInstruction({
@@ -249,9 +250,18 @@ export async function executeImageGeneration(
     });
     throwIfAborted(context.input.abortSignal);
 
+    const inputImages = instruction.mode === "edit"
+      ? resolveEditInputImages(context.promptMessages, conversationId)
+      : undefined;
+    throwIfAborted(context.input.abortSignal);
+    if (instruction.mode === "edit" && (!inputImages || !inputImages.length)) {
+      throw new Error("No reference image was available to edit");
+    }
+
     const backendResult = await generateImages({
       settings: appSettings,
       instruction,
+      inputImages,
       abortSignal: context.input.abortSignal
     });
     throwIfAborted(context.input.abortSignal);
@@ -273,7 +283,8 @@ export async function executeImageGeneration(
       attachments.map((a) => a.id)
     );
 
-    const resultSummary = `Generated ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}: ${attachments.map((a) => a.filename).join(", ")}`;
+    const editedImageCount = inputImages?.length ?? 0;
+    const resultSummary = `${editedImageCount ? "Edited" : "Generated"} ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}: ${attachments.map((a) => a.filename).join(", ")}`;
 
     sortOrder += 1;
     await context.input.onActionComplete?.(actionHandle, {
@@ -284,7 +295,7 @@ export async function executeImageGeneration(
 
     const resultMsg = buildToolResultMessage(
       toolCallId,
-      `Successfully generated ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}. ${resultSummary}`
+      `Successfully ${editedImageCount ? "edited" : "generated"} ${backendResult.images.length} image${backendResult.images.length === 1 ? "" : "s"}. ${resultSummary}`
     );
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: true };
   } catch (error) {

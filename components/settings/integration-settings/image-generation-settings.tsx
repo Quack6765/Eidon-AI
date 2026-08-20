@@ -4,11 +4,13 @@ import {
   type IntegrationDraft
 } from "@/components/settings/integration-settings/general-settings-draft";
 import {
-  DEFAULT_IMAGE_GENERATION_MODEL,
-  IMAGE_GENERATION_MODEL_OPTIONS,
+  getDefaultImageGenerationConfiguration,
+  getImageGenerationModelOptions,
   IMAGE_GENERATION_PROVIDER_CATALOG,
+  OPENAI_GPT_IMAGE_QUALITY_OPTIONS,
   type ImageGenerationModelId,
-  type ImageGenerationProviderId
+  type ImageGenerationProviderId,
+  type OpenAiGptImageQuality
 } from "@/lib/image-generation/catalog";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import type { AppSettings } from "@/lib/types";
@@ -28,14 +30,15 @@ export function ImageGenerationSettings({
   dirty: boolean;
   onChange(draft: Draft): void;
 }) {
+  const defaultConfiguration = getDefaultImageGenerationConfiguration(draft.providerId);
+  const modelOptions = getImageGenerationModelOptions(draft.providerId);
+
   function selectProvider(providerId: ImageGenerationProviderId) {
     onChange(selectIntegrationProvider<AppSettings["imageGeneration"]>(
       draft,
       persisted,
       providerId,
-      providerId === "google_nano_banana"
-        ? { model: DEFAULT_IMAGE_GENERATION_MODEL }
-        : {}
+      getDefaultImageGenerationConfiguration(providerId)
     ));
   }
 
@@ -60,25 +63,50 @@ export function ImageGenerationSettings({
         </select>
       </div>
 
-      {canManage && draft.providerId === "google_nano_banana" ? (
+      {canManage && draft.providerId !== "disabled" ? (
         <>
           <div>
             <label htmlFor="image-generation-model" className={fieldLabel}>Model</label>
             <select
               id="image-generation-model"
               aria-label="Image generation model"
-              value={draft.configuration.model ?? DEFAULT_IMAGE_GENERATION_MODEL}
+              value={draft.configuration.model ?? defaultConfiguration.model}
               onChange={(event) => onChange({
                 ...draft,
-                configuration: { model: event.target.value as ImageGenerationModelId }
+                configuration: { ...draft.configuration, model: event.target.value as ImageGenerationModelId }
               })}
               className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
             >
-              {IMAGE_GENERATION_MODEL_OPTIONS.map((model) => (
+              {modelOptions.map((model) => (
                 <option key={model.value} value={model.value}>{model.label}</option>
               ))}
             </select>
           </div>
+          {draft.providerId === "openai_gpt_image" ? (
+            <div>
+              <label htmlFor="image-generation-quality" className={fieldLabel}>Quality</label>
+              <p className="mb-2 text-xs text-[var(--muted)]">
+                Higher quality costs more per image. Auto lets the model decide based on the prompt.
+              </p>
+              <select
+                id="image-generation-quality"
+                aria-label="Image generation quality"
+                value={draft.configuration.quality ?? defaultConfiguration.quality ?? "auto"}
+                onChange={(event) => onChange({
+                  ...draft,
+                  configuration: {
+                    ...draft.configuration,
+                    quality: event.target.value as OpenAiGptImageQuality
+                  }
+                })}
+                className={`${selectLike} w-full sm:w-[22rem] ${dirty ? "!border-amber-500/40" : ""}`}
+              >
+                {OPENAI_GPT_IMAGE_QUALITY_OPTIONS.map((quality) => (
+                  <option key={quality.value} value={quality.value}>{quality.label}</option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <CredentialField
             id="image-generation-credential"
             label={`${IMAGE_GENERATION_PROVIDER_CATALOG[draft.providerId].label} API key`}

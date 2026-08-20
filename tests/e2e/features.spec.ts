@@ -479,17 +479,26 @@ async function configureMockProvider(
 async function updateImageGenerationSettings(
   page: import("@playwright/test").Page,
   overrides: Partial<{
-    imageGenerationBackend: "disabled" | "google_nano_banana";
+    imageGenerationBackend: "disabled" | "google_nano_banana" | "openai_gpt_image";
     googleNanoBananaModel: string;
     googleNanoBananaApiKey: string;
   }>
 ) {
-  const response = await page.request.put("/api/settings/image-generation", {
+  const backend = overrides.imageGenerationBackend ?? "disabled";
+  const configuration = backend === "google_nano_banana"
+    ? { model: overrides.googleNanoBananaModel ?? "gemini-3.1-flash-image-preview" }
+    : backend === "openai_gpt_image"
+      ? { model: "gpt-image-2", quality: "auto" }
+      : {};
+  const credential = overrides.googleNanoBananaApiKey?.trim();
+  const response = await page.request.put("/api/settings/general", {
     data: {
-      imageGenerationBackend: "disabled",
-      googleNanoBananaModel: "gemini-3.1-flash-image-preview",
-      googleNanoBananaApiKey: "",
-      ...overrides
+      imageGeneration: {
+        providerId: backend,
+        configuration,
+        ...(credential ? { credential } : {}),
+        credentialAction: credential ? "replace" : "clear"
+      }
     }
   });
 

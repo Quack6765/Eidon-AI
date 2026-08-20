@@ -5,6 +5,7 @@ import type { CompiledImageInstruction } from "./types";
 import { referencesEarlierImagePromptContext } from "./follow-up-context";
 
 const compiledInstructionSchema = z.object({
+  mode: z.enum(["generate", "edit"]).default("generate"),
   imagePrompt: z.string().min(1),
   negativePrompt: z.string().default(""),
   assistantText: z.string().default(""),
@@ -85,7 +86,8 @@ function buildImageInstructionPrompt(messages: PromptMessage[]): string {
   const includePriorContext = referencesEarlierImagePromptContext(latestUserRequest);
 
   return `You are an image generation instruction compiler. Base the prompt and count on only the latest user image request by default. Use earlier image requests only when the latest request explicitly asks to modify or combine prior results. Produce a JSON object with these fields:
-- imagePrompt: string (required, the detailed image generation prompt)
+- mode: "generate" | "edit" (default: "generate"). Use "edit" whenever the latest user message attaches an image and the request asks to change, modify, recolor, restyle, annotate, remove, add, or combine elements of that image, and whenever it modifies images generated earlier in the conversation. Use "generate" only for unrelated new images.
+- imagePrompt: string (required, the detailed image generation prompt; for "edit" phrase it as a change instruction applied to the existing image, e.g. "color every key blue while keeping the exact layout, labels, and fonts" - never as a fresh scene description)
 - negativePrompt: string (optional, things to exclude)
 - assistantText: string (optional, brief message to show the user)
 - aspectRatio: "1:1" | "16:9" | "9:16" | "4:3" | "3:4" (default: "1:1")

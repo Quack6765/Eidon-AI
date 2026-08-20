@@ -1,4 +1,13 @@
+export type ImageGenerationMode = "generate" | "edit";
+
+export type ImageGenerationReferenceImage = {
+  bytes: Buffer;
+  mimeType: string;
+  filename: string;
+};
+
 export type CompiledImageInstruction = {
+  mode: ImageGenerationMode;
   imagePrompt: string;
   negativePrompt: string;
   assistantText: string;

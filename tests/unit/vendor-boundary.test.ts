@@ -17,6 +17,7 @@ const allowedVendorPaths = new Set([
   "lib/github-copilot.ts",
   "lib/image-generation/catalog.ts",
   "lib/image-generation/google-nano-banana.ts",
+  "lib/image-generation/openai-gpt-image.ts",
   "lib/image-generation/provider.ts",
   "lib/model-registry.ts",
   "lib/provider-catalog.ts",
