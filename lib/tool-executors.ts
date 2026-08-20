@@ -254,6 +254,9 @@ export async function executeImageGeneration(
       ? resolveEditInputImages(context.promptMessages, conversationId)
       : undefined;
     throwIfAborted(context.input.abortSignal);
+    if (instruction.mode === "edit" && (!inputImages || !inputImages.length)) {
+      throw new Error("No reference image was available to edit");
+    }
 
     const backendResult = await generateImages({
       settings: appSettings,

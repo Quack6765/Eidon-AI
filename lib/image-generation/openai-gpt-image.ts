@@ -26,6 +26,13 @@ function buildPrompt(instruction: CompiledImageInstruction) {
     : instruction.imagePrompt;
 }
 
+function buildEditPrompt(instruction: CompiledImageInstruction) {
+  const directive = `Apply this edit to the provided image, preserving its composition, layout, text, and style except for what the edit changes: ${instruction.imagePrompt}`;
+  return instruction.negativePrompt
+    ? `${directive}\n\nAvoid: ${instruction.negativePrompt}`
+    : directive;
+}
+
 export async function generateOpenAiGptImages(input: {
   apiKey: string;
   model?: string;
@@ -38,7 +45,7 @@ export async function generateOpenAiGptImages(input: {
   const response = input.inputImages?.length
     ? await client.images.edit({
         model: input.model ?? DEFAULT_OPENAI_GPT_IMAGE_MODEL,
-        prompt: buildPrompt(input.instruction),
+        prompt: buildEditPrompt(input.instruction),
         image: await Promise.all(input.inputImages.map((image) =>
           toFile(new Uint8Array(image.bytes), image.filename, { type: image.mimeType })
         )),

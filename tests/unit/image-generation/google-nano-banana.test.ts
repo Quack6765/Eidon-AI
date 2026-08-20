@@ -102,7 +102,9 @@ describe("generateGoogleNanoBananaImages", () => {
             data: Buffer.from("reference-bytes").toString("base64")
           }
         },
-        { text: "change the hat color to red" }
+        {
+          text: "Apply this edit to the provided image, preserving its composition, layout, text, and style except for what the edit changes: change the hat color to red"
+        }
       ],
       config: { responseModalities: ["IMAGE"], abortSignal: undefined }
     });

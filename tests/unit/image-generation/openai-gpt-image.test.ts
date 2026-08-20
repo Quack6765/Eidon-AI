@@ -139,7 +139,7 @@ describe("generateOpenAiGptImages", () => {
     expect(editMock).toHaveBeenCalledWith(
       expect.objectContaining({
         model: "gpt-image-2",
-        prompt: "change the hat color to red",
+        prompt: "Apply this edit to the provided image, preserving its composition, layout, text, and style except for what the edit changes: change the hat color to red",
         n: 2,
         quality: "high"
       }),

@@ -15,12 +15,15 @@ export async function generateGoogleNanoBananaImages(input: {
   abortSignal?: AbortSignal;
 }): Promise<GenerateImageResult> {
   const ai = new GoogleGenAI({ apiKey: input.apiKey });
+  const editDirective = input.inputImages?.length
+    ? `Apply this edit to the provided image, preserving its composition, layout, text, and style except for what the edit changes: ${input.instruction.imagePrompt}`
+    : input.instruction.imagePrompt;
   const contents = input.inputImages?.length
     ? [
         ...input.inputImages.map((image) => ({
           inlineData: { mimeType: image.mimeType, data: image.bytes.toString("base64") }
         })),
-        { text: input.instruction.imagePrompt }
+        { text: editDirective }
       ]
     : input.instruction.imagePrompt;
   const request = {
