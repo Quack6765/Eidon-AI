@@ -861,11 +861,193 @@ describe("ws-handler", () => {
     expect(sent[1]).toMatchObject({ type: "snapshot", conversationId: "conv-mobile" });
     expect(JSON.stringify(sent[1])).not.toContain("relativePath");
     expect(JSON.stringify(sent[1])).not.toContain("extractedText");
+    const mobileSnapshot = sent[1] as {
+      messages: Array<Record<string, unknown>>;
+      actions: Array<{ messageId: string }>;
+      segments: Array<{ messageId: string }>;
+    };
+    expect(mobileSnapshot.messages).toHaveLength(1);
+    expect(mobileSnapshot.messages[0]).not.toHaveProperty("timeline");
+    expect(mobileSnapshot.messages[0]).not.toHaveProperty("actions");
+    expect(mobileSnapshot.messages[0]).not.toHaveProperty("textSegments");
+    expect(mobileSnapshot.actions).toEqual([
+      expect.objectContaining({ id: "action-1", messageId: "message-1" })
+    ]);
+    expect(mobileSnapshot.segments).toEqual([
+      expect.objectContaining({ id: "segment-1", messageId: "message-1" })
+    ]);
     sent.forEach((message) => assertWebSocketMessage("ServerMessage", message));
     assertWebSocketMessage("ClientMessage", {
       type: "request_snapshot",
       conversationId: "conv-mobile"
     });
+    vi.doUnmock("@/lib/ws-singleton");
+  });
+
+  it("truncates oversized mobile snapshots to the newest messages instead of dropping the socket", async () => {
+    const { verifyMobileSessionToken } = await import("@/lib/auth");
+    vi.mocked(verifyMobileSessionToken).mockResolvedValue({
+      sessionId: "mobile-session-1",
+      userId: "mobile-user-1"
+    });
+    const { getConversationSnapshot, listActiveConversations } = await import("@/lib/conversations");
+    vi.mocked(listActiveConversations).mockReturnValue([]);
+    const largeContent = "x".repeat(80 * 1024);
+    const oversizedMessages = Array.from({ length: 40 }, (_, index) => ({
+      id: `message-${index}`,
+      conversationId: "conv-big",
+      role: index % 2 === 0 ? "user" : "assistant",
+      content: largeContent,
+      thinkingContent: "",
+      status: "completed",
+      estimatedTokens: 1,
+      systemKind: null,
+      compactedAt: null,
+      createdAt: `2026-01-01T00:00:${String(index).padStart(2, "0")}.000Z`,
+      textSegments: [{
+        id: `segment-${index}`,
+        messageId: `message-${index}`,
+        content: largeContent,
+        sortOrder: 0,
+        createdAt: `2026-01-01T00:00:${String(index).padStart(2, "0")}.000Z`
+      }],
+      timeline: [{
+        id: `segment-${index}`,
+        timelineKind: "text",
+        sortOrder: 0,
+        createdAt: `2026-01-01T00:00:${String(index).padStart(2, "0")}.000Z`,
+        content: largeContent
+      }]
+    }));
+    vi.mocked(getConversationSnapshot).mockReturnValue({
+      conversation: { id: "conv-big" },
+      messages: oversizedMessages,
+      queuedMessages: [{
+        id: "queued-1",
+        conversationId: "conv-big",
+        content: "Queued follow-up",
+        status: "pending",
+        sortOrder: 0,
+        failureMessage: null,
+        mode: "chat",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        processingStartedAt: null
+      }]
+    } as never);
+
+    const mockMgr = {
+      addConnection: vi.fn().mockReturnValue(true),
+      removeConnection: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      disconnect: vi.fn(),
+      broadcast: vi.fn(),
+      broadcastAll: vi.fn(),
+      hasSubscribers: vi.fn(),
+      setActive: vi.fn(),
+      isActive: vi.fn(),
+      getActiveConversationIds: vi.fn()
+    };
+    vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const sent: string[] = [];
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      bufferedAmount: 0,
+      send: vi.fn((data: string) => sent.push(data)),
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((data: string) => handler(data));
+      })
+    } as unknown as WebSocket;
+
+    await handleConnection(ws, "mobile-bearer", { authMode: "mobile" });
+    messageHandlers[0]?.(JSON.stringify({ type: "subscribe", conversationId: "conv-big" }));
+
+    expect(mockMgr.subscribe).toHaveBeenCalledWith("conv-big", ws);
+    expect(ws.close).not.toHaveBeenCalled();
+    const snapshot = JSON.parse(sent[1]);
+    expect(snapshot.type).toBe("snapshot");
+    expect(snapshot.messages.length).toBeGreaterThan(0);
+    expect(snapshot.messages.length).toBeLessThan(40);
+    expect(snapshot.messages.at(-1).id).toBe("message-39");
+    expect(snapshot.messages[0].id).not.toBe("message-0");
+    expect(snapshot.queuedMessages).toEqual([
+      expect.objectContaining({ id: "queued-1", conversationId: "conv-big" })
+    ]);
+    expect(snapshot.segments.every((segment: { messageId: string }) =>
+      snapshot.messages.some((message: { id: string }) => message.id === segment.messageId)
+    )).toBe(true);
+    expect(Buffer.byteLength(sent[1])).toBeLessThanOrEqual(768 * 1024);
+    assertWebSocketMessage("ServerMessage", snapshot);
+    vi.doUnmock("@/lib/ws-singleton");
+  });
+
+  it("keeps browser snapshots full-fidelity with nested collections and timeline", async () => {
+    const { verifySessionToken } = await import("@/lib/auth");
+    (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });
+    const { getConversationSnapshot, listActiveConversations } = await import("@/lib/conversations");
+    vi.mocked(listActiveConversations).mockReturnValue([]);
+    vi.mocked(getConversationSnapshot).mockReturnValue({
+      conversation: { id: "conv-browser" },
+      messages: [{
+        id: "message-1",
+        conversationId: "conv-browser",
+        role: "user",
+        content: "hello",
+        thinkingContent: "",
+        status: "completed",
+        estimatedTokens: 1,
+        systemKind: null,
+        compactedAt: null,
+        createdAt: "2026-01-01T00:00:00.000Z",
+        actions: [{ id: "action-1", messageId: "message-1" }],
+        textSegments: [{ id: "segment-1", messageId: "message-1", content: "hello", sortOrder: 0, createdAt: "2026-01-01T00:00:00.000Z" }],
+        timeline: [{ id: "segment-1", timelineKind: "text", sortOrder: 0, createdAt: "2026-01-01T00:00:00.000Z", content: "hello" }]
+      }],
+      queuedMessages: []
+    } as never);
+
+    const mockMgr = {
+      addConnection: vi.fn().mockReturnValue(true),
+      removeConnection: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      disconnect: vi.fn(),
+      broadcast: vi.fn(),
+      broadcastAll: vi.fn(),
+      hasSubscribers: vi.fn(),
+      setActive: vi.fn(),
+      isActive: vi.fn(),
+      getActiveConversationIds: vi.fn()
+    };
+    vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const sent: string[] = [];
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      bufferedAmount: 0,
+      send: vi.fn((data: string) => sent.push(data)),
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((data: string) => handler(data));
+      })
+    } as unknown as WebSocket;
+
+    await handleConnection(ws, "session=valid-token");
+    messageHandlers[0]?.(JSON.stringify({ type: "subscribe", conversationId: "conv-browser" }));
+
+    const snapshot = JSON.parse(sent[1]);
+    expect(snapshot.type).toBe("snapshot");
+    expect(snapshot.messages[0].timeline).toBeDefined();
+    expect(snapshot.messages[0].actions).toEqual([{ id: "action-1", messageId: "message-1" }]);
+    expect(snapshot.messages[0].textSegments).toBeDefined();
+    expect(snapshot.actions).toEqual([{ id: "action-1", messageId: "message-1" }]);
     vi.doUnmock("@/lib/ws-singleton");
   });
 

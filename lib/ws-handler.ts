@@ -20,6 +20,7 @@ import { isPasswordLoginEnabled } from "@/lib/env";
 import { requestStop } from "@/lib/chat-turn-control";
 import { parseClientMessage, serializeServerMessage } from "@/lib/ws-protocol";
 import type { ClientMessage } from "@/lib/ws-protocol";
+import type { Message, QueuedMessage } from "@/lib/types";
 import { initializeMcpServers, shutdownAllProcesses } from "@/lib/mcp-client";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
@@ -35,6 +36,71 @@ import {
 } from "@/lib/ws-upgrade-router";
 
 const MAX_WS_ERROR_MESSAGE_CHARS = 1_000;
+
+/**
+ * Single-frame byte budget for mobile `snapshot` payloads. The generic send
+ * guard closes a socket whenever a queued frame would exceed
+ * `MAX_WS_BUFFERED_BYTES` (1 MiB), which native clients cannot tolerate: the
+ * subscription snapshot for a long conversation used to exceed that budget,
+ * so every `subscribe` killed the connection and mobile clients reconnected
+ * forever. Browser connections are exempt (their payloads stay full-fidelity)
+ * because desktop WebSocket consumers have no incoming-frame cap.
+ */
+const MAX_MOBILE_SNAPSHOT_BYTES = 768 * 1024;
+
+function buildSnapshotMessage(
+  conversationId: string,
+  messages: Message[],
+  queuedMessages: QueuedMessage[],
+  versioned: boolean
+): Parameters<typeof serializeServerMessage>[0] {
+  if (!versioned) {
+    return {
+      type: "snapshot",
+      conversationId,
+      messages,
+      actions: messages.flatMap(message => message.actions ?? []),
+      segments: messages.flatMap(message => message.textSegments ?? []),
+      queuedMessages
+    };
+  }
+
+  // Native clients rebuild each message's actions and text segments from the
+  // flattened collections and never read `timeline`, so the per-message
+  // duplicates are dropped to keep the frame small. If the conversation still
+  // exceeds the budget, the oldest messages are omitted — mobile clients load
+  // full history over REST — so the socket stays subscribed and live streaming
+  // keeps working instead of the server closing the connection.
+  let retained = messages.map(({ timeline: _timeline, actions: _actions, textSegments: _textSegments, ...rest }) => rest);
+  let actions = messages.flatMap(message => message.actions ?? []);
+  let segments = messages.flatMap(message => message.textSegments ?? []);
+
+  const serializedSize = () => Buffer.byteLength(serializeServerMessage({
+    type: "snapshot",
+    conversationId,
+    messages: retained,
+    actions,
+    segments,
+    queuedMessages
+  } as Parameters<typeof serializeServerMessage>[0]));
+
+  while (retained.length > 0 && serializedSize() > MAX_MOBILE_SNAPSHOT_BYTES) {
+    const removedIds = new Set(
+      retained.splice(0, Math.max(1, Math.ceil(retained.length / 8))).map(message => message.id)
+    );
+    actions = actions.filter(action => !removedIds.has(action.messageId));
+    segments = segments.filter(segment => !removedIds.has(segment.messageId));
+  }
+
+  return {
+    type: "snapshot",
+    conversationId,
+    messages: retained,
+    actions,
+    segments,
+    queuedMessages
+  };
+}
 
 export {
   bootstrapRuntimeState,
@@ -292,14 +358,12 @@ function handleMessage(
         currentSubscription.add(msg.conversationId);
         mgr.subscribe(msg.conversationId, ws);
       }
-      sendServerMessage(ws, {
-        type: "snapshot",
-        conversationId: msg.conversationId,
-        messages: snapshot.messages,
-        actions: snapshot.messages.flatMap(m => m.actions ?? []),
-        segments: snapshot.messages.flatMap(m => m.textSegments ?? []),
-        queuedMessages: snapshot.queuedMessages
-      }, versioned);
+      sendServerMessage(ws, buildSnapshotMessage(
+        msg.conversationId,
+        snapshot.messages,
+        snapshot.queuedMessages,
+        versioned
+      ), versioned);
       break;
     }
     case "unsubscribe": {
