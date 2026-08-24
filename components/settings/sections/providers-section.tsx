@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Copy,
   Plus,
@@ -96,6 +97,7 @@ function buildDirtySnapshot(
 }
 
 export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
+  const router = useRouter();
   const toast = useToastState();
   const [testResult, setTestResult] = useState<{ text: string; isSuccess: boolean } | null>(null);
   const [isTesting, setIsTesting] = useState(false);
@@ -385,6 +387,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
           savedSkillsEnabled
         )
       );
+      router.refresh();
 
       toast.showToast("success", "Provider deleted.");
     } else {
@@ -438,6 +441,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         );
       }
       setMobileDetailVisible(true);
+      router.refresh();
       toast.showToast("success", "Provider duplicated");
     } catch {
       toast.showToast("error", "Unable to duplicate provider");
@@ -509,6 +513,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
         persistedSkills
       )
     );
+    router.refresh();
 
     return true;
   }

@@ -8,9 +8,11 @@ import { toProviderProfileSummary } from "@/lib/provider-profile";
 import type { AppSettings, ProviderProfileSummary } from "@/lib/types";
 import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
+const { routerRefreshMock } = vi.hoisted(() => ({ routerRefreshMock: vi.fn() }));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
-    refresh: vi.fn()
+    refresh: routerRefreshMock
   })
 }));
 
@@ -172,6 +174,7 @@ function makeSettings(overrides: SettingsOverrides = {}): SettingsFixture {
 
 describe("providers section", () => {
   beforeEach(() => {
+    routerRefreshMock.mockClear();
     global.fetch = vi.fn((input) => {
       const url = String(input);
 
@@ -481,6 +484,53 @@ describe("providers section", () => {
       credential: "",
       credentialAction: "clear"
     });
+  });
+
+  it("refreshes cached route data after a successful provider save", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockImplementation((input, init) => {
+      if (String(input) === "/api/mcp-servers") {
+        return Promise.resolve({ ok: true, json: async () => ({ servers: [] }) } as Response);
+      }
+      if (String(input) === "/api/settings/providers" && init?.method === "PUT") {
+        return Promise.resolve({ ok: true, json: async () => ({ settings }) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+    });
+    render(React.createElement(ProvidersSection, { settings }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers"));
+
+    fireEvent.change(screen.getByDisplayValue("gpt-test"), {
+      target: { value: "gpt-new-model" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(routerRefreshMock).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not refresh cached route data when the provider save fails", async () => {
+    vi.mocked(global.fetch).mockImplementation((input, init) => {
+      if (String(input) === "/api/mcp-servers") {
+        return Promise.resolve({ ok: true, json: async () => ({ servers: [] }) } as Response);
+      }
+      if (String(input) === "/api/settings/providers" && init?.method === "PUT") {
+        return Promise.resolve({
+          ok: false,
+          json: async () => ({ error: "boom" })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+    });
+    render(React.createElement(ProvidersSection, { settings: makeSettings() }));
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers"));
+
+    fireEvent.change(screen.getByDisplayValue("gpt-test"), {
+      target: { value: "gpt-new-model" }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("boom")).toBeInTheDocument();
+    expect(routerRefreshMock).not.toHaveBeenCalled();
   });
 
   it("keeps a rejected provider save in the editor", async () => {
