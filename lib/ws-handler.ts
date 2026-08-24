@@ -36,16 +36,6 @@ import {
 } from "@/lib/ws-upgrade-router";
 
 const MAX_WS_ERROR_MESSAGE_CHARS = 1_000;
-
-/**
- * Single-frame byte budget for mobile `snapshot` payloads. The generic send
- * guard closes a socket whenever a queued frame would exceed
- * `MAX_WS_BUFFERED_BYTES` (1 MiB), which native clients cannot tolerate: the
- * subscription snapshot for a long conversation used to exceed that budget,
- * so every `subscribe` killed the connection and mobile clients reconnected
- * forever. Browser connections are exempt (their payloads stay full-fidelity)
- * because desktop WebSocket consumers have no incoming-frame cap.
- */
 const MAX_MOBILE_SNAPSHOT_BYTES = 768 * 1024;
 
 function buildSnapshotMessage(
@@ -65,12 +55,6 @@ function buildSnapshotMessage(
     };
   }
 
-  // Native clients rebuild each message's actions and text segments from the
-  // flattened collections and never read `timeline`, so the per-message
-  // duplicates are dropped to keep the frame small. If the conversation still
-  // exceeds the budget, the oldest messages are omitted — mobile clients load
-  // full history over REST — so the socket stays subscribed and live streaming
-  // keeps working instead of the server closing the connection.
   let retained = messages.map(({ timeline: _timeline, actions: _actions, textSegments: _textSegments, ...rest }) => rest);
   let actions = messages.flatMap(message => message.actions ?? []);
   let segments = messages.flatMap(message => message.textSegments ?? []);
