@@ -572,6 +572,7 @@ function migratePreferenceStorage(db: Database.Database) {
       mcp_timeout INTEGER NOT NULL DEFAULT 120000,
       max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
+      tool_call_display TEXT NOT NULL DEFAULT 'pills',
       title_generation_mode TEXT NOT NULL DEFAULT 'same',
       title_generation_profile_id TEXT,
       created_at TEXT NOT NULL,
@@ -588,6 +589,7 @@ function migratePreferenceStorage(db: Database.Database) {
       mcp_timeout INTEGER NOT NULL DEFAULT 120000,
       max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
+      tool_call_display TEXT NOT NULL DEFAULT 'pills',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -1871,6 +1873,13 @@ export function migrate(db: Database.Database) {
   }
   if (!userPreferencesCols.some((column) => column.name === "memories_rigor")) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN memories_rigor TEXT NOT NULL DEFAULT 'balanced'");
+  }
+
+  if (!globalPreferencesCols.some((column) => column.name === "tool_call_display")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN tool_call_display TEXT NOT NULL DEFAULT 'pills'");
+  }
+  if (!userPreferencesCols.some((column) => column.name === "tool_call_display")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN tool_call_display TEXT NOT NULL DEFAULT 'pills'");
   }
 }
 

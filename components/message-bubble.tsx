@@ -29,7 +29,8 @@ import type {
   MessageAction as MessageActionType,
   MessageTimelineItem,
   PublicMessage,
-  PublicMessageAttachment
+  PublicMessageAttachment,
+  ToolCallDisplayMode
 } from "@/lib/types";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import { Textarea } from "@/components/ui/textarea";
@@ -151,6 +152,21 @@ export function InProgressIndicator() {
   );
 }
 
+export function StatusLine({ label }: { label: string }) {
+  return (
+    <div
+      className="status-line"
+      data-testid="assistant-status-line"
+      role="status"
+      aria-live="polite"
+    >
+      <span className="status-line__label" data-testid="assistant-status-line-label">
+        {label}
+      </span>
+    </div>
+  );
+}
+
 function CollapsibleActionRow({
   action,
   isOpen,
@@ -263,6 +279,12 @@ function getActionSignature(action: Pick<MessageActionType, "kind" | "label" | "
   return [action.kind, action.label, action.detail, action.toolName ?? ""].join("\u0000");
 }
 
+function isRunningActionBlock(
+  item: AssistantBlock
+): item is Extract<MessageTimelineItem, { timelineKind: "action" }> {
+  return item.timelineKind === "action" && item.status === "running";
+}
+
 function clampStreamingTimeline(
   timeline: MessageTimelineItem[],
   display: string
@@ -322,6 +344,7 @@ function MessageBubbleImpl({
   thinkingDuration,
   hasThinking = false,
   confirmExternalLinks = true,
+  toolCallDisplay = "pills",
   onUpdateUserMessage,
   isUpdating = false,
   onForkAssistantMessage,
@@ -345,6 +368,7 @@ function MessageBubbleImpl({
   thinkingDuration?: number;
   hasThinking?: boolean;
   confirmExternalLinks?: boolean;
+  toolCallDisplay?: ToolCallDisplayMode;
   onUpdateUserMessage?: (messageId: string, content: string) => Promise<void>;
   onApproveMemoryProposal?: (
     actionId: string,
@@ -371,6 +395,7 @@ function MessageBubbleImpl({
   const copyResetHandle = useRef<number | null>(null);
   const previewController = useAttachmentPreviewController();
   const linkSafety = useLinkSafety(confirmExternalLinks);
+  const useStatusLine = toolCallDisplay === "status_line";
   const userPlugins = useStreamdownPlugins(
     message.role === "user" ? streamingAnswer ?? message.content : ""
   );
@@ -576,6 +601,10 @@ function MessageBubbleImpl({
     status: "running" | "completed" | "error" | "stopped";
     duration?: number;
   }) {
+    if (useStatusLine) {
+      return null;
+    }
+
     const isOpen = thinkingOpenItems[id] ?? false;
     const isRunning = status === "running";
     const statusIcon = isRunning
@@ -635,6 +664,10 @@ function MessageBubbleImpl({
   }
 
   function renderAssistantActionItem(item: Extract<MessageTimelineItem, { timelineKind: "action" }>) {
+    if (useStatusLine && !isMemoryProposalAction(item)) {
+      return null;
+    }
+
     return (
       <div key={item.id} data-testid="assistant-actions-shell">
         {isMemoryProposalAction(item) ? (
@@ -664,6 +697,7 @@ function MessageBubbleImpl({
     lastRenderableAssistantTextId === null;
   const hasTimelineThinking = assistantBlocks.some((item) => item.timelineKind === "thinking");
   const showThinkingShell =
+    !useStatusLine &&
     !hasTimelineThinking &&
     !awaitingFirstToken &&
     (thinkingInProgress || hasThinking || Boolean(thinkingContent));
@@ -707,6 +741,36 @@ function MessageBubbleImpl({
     !lastBlockIsRunningThinking &&
     !lastBlockIsStreamingText &&
     !(showThinkingShell && thinkingInProgress);
+  const betweenSteps =
+    isAssistantStreaming &&
+    !awaitingFirstToken &&
+    message.status !== "error" &&
+    message.status !== "stopped" &&
+    !lastBlockIsStreamingText &&
+    !(showThinkingShell && thinkingInProgress);
+  const showStatusLine =
+    useStatusLine &&
+    isAssistantStreaming &&
+    message.status !== "error" &&
+    message.status !== "stopped" &&
+    !compactionInProgress &&
+    !lastBlockIsStreamingText &&
+    (lastBlockIsRunningAction || lastBlockIsRunningThinking || thinkingInProgress || betweenSteps);
+  const statusLineRunningAction = useStatusLine
+    ? assistantBlocks.slice().reverse().find(isRunningActionBlock)
+    : undefined;
+  const statusLineWebSearchQuery = statusLineRunningAction?.toolName === "web_search"
+    ? (typeof statusLineRunningAction.arguments?.query === "string"
+        ? statusLineRunningAction.arguments.query.trim()
+        : "") || statusLineRunningAction.detail.trim()
+    : "";
+  const statusLineLabel = statusLineRunningAction
+    ? statusLineWebSearchQuery
+      ? `${statusLineRunningAction.label}: ${statusLineWebSearchQuery}`
+      : statusLineRunningAction.label
+    : lastBlockIsRunningThinking || thinkingInProgress
+      ? "Thinking…"
+      : "Working…";
 
   function setCopyFeedback(nextState: "copied" | "error") {
     setCopyState(nextState);
@@ -895,6 +959,8 @@ function MessageBubbleImpl({
             {awaitingFirstToken ? (
               compactionInProgress ? (
                 <CompactionIndicator />
+              ) : useStatusLine ? (
+                <StatusLine label="Working…" />
               ) : (
                 <InProgressIndicator />
               )
@@ -943,6 +1009,9 @@ function MessageBubbleImpl({
               <div className="group flex w-full min-w-0 flex-col items-start">
                 <MessageContent className="w-full">
                   <div ref={contentRef} className="flex flex-col gap-3">
+                    {showStatusLine ? (
+                      <StatusLine label={statusLineLabel} />
+                    ) : null}
                     {assistantBlocks.map((item) => {
                       if (item.timelineKind === "thinking") {
                         return renderThinkingShell({
@@ -1008,7 +1077,7 @@ function MessageBubbleImpl({
                         <span>Stopped</span>
                       </div>
                     ) : null}
-                    {showInProgressTail ? (
+                    {!useStatusLine && showInProgressTail ? (
                       <InProgressIndicator />
                     ) : null}
                     {assistantFileAttachments.length ? (
@@ -1054,6 +1123,8 @@ function MessageBubbleImpl({
                   </div>
                 ) : null}
               </div>
+            ) : showStatusLine ? (
+              <StatusLine label={statusLineLabel} />
             ) : null}
           </div>
         </div>

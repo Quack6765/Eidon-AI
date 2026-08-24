@@ -321,7 +321,8 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
         credentialStored: false,
         scope: "global"
       },
-      confirmExternalLinks: true
+      confirmExternalLinks: true,
+      toolCallDisplay: "pills"
     },
     providerProfiles: [
       toProviderProfileSummary(createRuntimeProviderProfile({
@@ -1288,7 +1289,8 @@ describe("chat view", () => {
               credentialStored: false,
               scope: "global"
             },
-            confirmExternalLinks: true
+            confirmExternalLinks: true,
+            toolCallDisplay: "pills"
           }
         })
       })

@@ -7,7 +7,8 @@ import type {
   MemoryCategory,
   Message,
   MessageTimelineItem,
-  PublicMessageAttachment
+  PublicMessageAttachment,
+  ToolCallDisplayMode
 } from "@/lib/types";
 
 const INACTIVE_SNAPSHOT: StreamBufferSnapshot = Object.freeze({
@@ -30,6 +31,7 @@ function StreamingMessageImpl({
   compactionInProgress,
   thinkingDuration,
   confirmExternalLinks,
+  toolCallDisplay,
   onPreviewAttachment,
   onUpdateUserMessage,
   onApproveMemoryProposal,
@@ -50,6 +52,7 @@ function StreamingMessageImpl({
   compactionInProgress: boolean;
   thinkingDuration?: number;
   confirmExternalLinks: boolean;
+  toolCallDisplay: ToolCallDisplayMode;
   onPreviewAttachment?: (attachment: PublicMessageAttachment) => void;
   onUpdateUserMessage?: (messageId: string, content: string) => Promise<void>;
   onApproveMemoryProposal?: (
@@ -93,6 +96,7 @@ function StreamingMessageImpl({
       }
       thinkingDuration={active ? thinkingDuration : undefined}
       confirmExternalLinks={confirmExternalLinks}
+      toolCallDisplay={toolCallDisplay}
       hasThinking={active && Boolean(snapshot.thinkingTarget)}
       onPreviewAttachment={onPreviewAttachment}
       onUpdateUserMessage={onUpdateUserMessage}

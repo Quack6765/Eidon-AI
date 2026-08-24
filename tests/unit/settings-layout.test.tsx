@@ -67,6 +67,7 @@ const settings: GeneralSectionSettings = {
   mcpTimeout: 120_000,
   maxAssistantToolSteps: 25,
   confirmExternalLinks: true,
+  toolCallDisplay: "pills",
   speechTranscription: {
     providerId: "browser",
     configuration: { language: "en" },

@@ -25,7 +25,7 @@ import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import { getImageGenerationReadinessError } from "@/lib/image-generation/catalog";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import { getTranscriptionReadinessError } from "@/lib/speech/transcription-catalog";
-import type { AppSettings, ConversationRetention } from "@/lib/types";
+import type { AppSettings, ConversationRetention, ToolCallDisplayMode } from "@/lib/types";
 import { getWebSearchReadinessError } from "@/lib/web-search-catalog";
 
 type GeneralSectionSettings = AppSettings & {
@@ -247,6 +247,22 @@ export function GeneralSection({
             <span className="text-xs leading-5 text-[var(--muted)]">When on, tapping a link shows a confirmation. When off, links open immediately.</span>
           </span>
         </label>
+        <div className="space-y-1.5">
+          <label htmlFor="tool-call-display" className={fieldLabel}>Tool activity display</label>
+          <p className="text-xs leading-5 text-[var(--muted)]">Status line hides tool pills and shows a single animated status while the assistant works.</p>
+          <select
+            id="tool-call-display"
+            value={draft.preferences.toolCallDisplay}
+            onChange={(event) => updateDraft("preferences", {
+              ...draft.preferences,
+              toolCallDisplay: event.target.value as ToolCallDisplayMode
+            })}
+            className={`${selectLike} mt-2 sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
+          >
+            <option value="pills">Show tool pills</option>
+            <option value="status_line">Status line (hide tool pills)</option>
+          </select>
+        </div>
       </div>
     ),
     "agent-limits": (

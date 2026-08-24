@@ -16,6 +16,7 @@ const inputSchema = z.object({
     mcpTimeout: z.number().int().min(10_000).max(600_000).optional(),
     maxAssistantToolSteps: z.number().int().min(1).max(1000).optional(),
     confirmExternalLinks: z.boolean().optional(),
+    toolCallDisplay: z.enum(["pills", "status_line"]).optional(),
     memoriesEnabled: z.boolean().optional(),
     memoriesMaxCount: z.number().int().min(1).max(500).optional(),
     memoriesRigor: z.enum(["low", "balanced", "high"]).optional()
