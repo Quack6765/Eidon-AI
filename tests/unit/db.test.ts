@@ -334,6 +334,26 @@ describe("db", () => {
     vi.resetModules();
   });
 
+  it("adds the tool call display column to preference tables", async () => {
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+
+    const globalColumns = (
+      db.prepare("PRAGMA table_info(global_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const userColumns = (
+      db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+
+    expect(globalColumns).toEqual(expect.arrayContaining(["tool_call_display"]));
+    expect(userColumns).toEqual(expect.arrayContaining(["tool_call_display"]));
+
+    const globalDefault = db
+      .prepare("SELECT tool_call_display FROM global_preferences WHERE id = 1")
+      .get() as { tool_call_display: string };
+    expect(globalDefault.tool_call_display).toBe("pills");
+  });
+
   it("adds memory proposal columns to message_actions", async () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();

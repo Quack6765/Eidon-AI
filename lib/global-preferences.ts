@@ -1,8 +1,17 @@
 import { getDb } from "@/lib/db";
-import type { ConversationRetention, MemoryRigor, TitleGenerationMode } from "@/lib/types";
+import type {
+  ConversationRetention,
+  MemoryRigor,
+  TitleGenerationMode,
+  ToolCallDisplayMode
+} from "@/lib/types";
 
 export function normalizeMemoryRigor(value: unknown): MemoryRigor {
   return value === "low" || value === "high" ? value : "balanced";
+}
+
+export function normalizeToolCallDisplayMode(value: unknown): ToolCallDisplayMode {
+  return value === "status_line" ? value : "pills";
 }
 
 export type GlobalPreferences = {
@@ -15,6 +24,7 @@ export type GlobalPreferences = {
   mcpTimeout: number;
   maxAssistantToolSteps: number;
   confirmExternalLinks: boolean;
+  toolCallDisplay: ToolCallDisplayMode;
   titleGenerationMode: TitleGenerationMode;
   titleGenerationProfileId: string | null;
   updatedAt: string;
@@ -30,6 +40,7 @@ type GlobalPreferencesRow = {
   mcp_timeout: number;
   max_assistant_tool_steps: number;
   confirm_external_links: number;
+  tool_call_display: ToolCallDisplayMode;
   title_generation_mode: TitleGenerationMode;
   title_generation_profile_id: string | null;
   updated_at: string;
@@ -46,6 +57,7 @@ function rowToPreferences(row: GlobalPreferencesRow): GlobalPreferences {
     mcpTimeout: row.mcp_timeout,
     maxAssistantToolSteps: row.max_assistant_tool_steps,
     confirmExternalLinks: Boolean(row.confirm_external_links),
+    toolCallDisplay: normalizeToolCallDisplayMode(row.tool_call_display),
     titleGenerationMode: row.title_generation_mode,
     titleGenerationProfileId: row.title_generation_profile_id,
     updatedAt: row.updated_at
@@ -56,8 +68,8 @@ export function getGlobalPreferences() {
   const row = getDb().prepare(`
     SELECT default_provider_profile_id, skills_enabled, conversation_retention,
       memories_enabled, memories_max_count, memories_rigor, mcp_timeout,
-      max_assistant_tool_steps, confirm_external_links, title_generation_mode,
-      title_generation_profile_id, updated_at
+      max_assistant_tool_steps, confirm_external_links, tool_call_display,
+      title_generation_mode, title_generation_profile_id, updated_at
     FROM global_preferences
     WHERE id = 1
   `).get() as GlobalPreferencesRow;
@@ -72,7 +84,7 @@ export function updateGlobalPreferences(input: Partial<GlobalPreferences>) {
     SET default_provider_profile_id = ?, skills_enabled = ?,
       conversation_retention = ?, memories_enabled = ?,
       memories_max_count = ?, memories_rigor = ?, mcp_timeout = ?, max_assistant_tool_steps = ?,
-      confirm_external_links = ?, title_generation_mode = ?,
+      confirm_external_links = ?, tool_call_display = ?, title_generation_mode = ?,
       title_generation_profile_id = ?, updated_at = ?
     WHERE id = 1
   `).run(
@@ -85,6 +97,7 @@ export function updateGlobalPreferences(input: Partial<GlobalPreferences>) {
     next.mcpTimeout,
     next.maxAssistantToolSteps,
     next.confirmExternalLinks ? 1 : 0,
+    normalizeToolCallDisplayMode(next.toolCallDisplay),
     next.titleGenerationMode,
     next.titleGenerationProfileId,
     next.updatedAt

@@ -358,6 +358,24 @@ describe("settings domains", () => {
     expect(getSanitizedSettings(first.id).confirmExternalLinks).toBe(false);
   });
 
+  it("defaults toolCallDisplay to pills and keeps it user-scoped", async () => {
+    saveProfiles();
+    const first = await createLocalUser({ username: "tool-display-first", password: "password-123", role: "user" });
+    const second = await createLocalUser({ username: "tool-display-second", password: "password-123", role: "user" });
+
+    expect(getSettingsForUser(first.id).toolCallDisplay).toBe("pills");
+
+    updateGeneralSettingsBundleForUser(first.id, {
+      preferences: {
+        toolCallDisplay: "status_line"
+      }
+    }, false);
+
+    expect(getSettingsForUser(first.id).toolCallDisplay).toBe("status_line");
+    expect(getSettingsForUser(second.id).toolCallDisplay).toBe("pills");
+    expect(getSanitizedSettings(first.id).toolCallDisplay).toBe("status_line");
+  });
+
   it("manages global capability settings for admins and inherits them for members", async () => {
     saveProfiles();
     const admin = await createLocalUser({ username: "integration-admin", password: "password-123", role: "admin" });

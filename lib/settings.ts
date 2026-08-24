@@ -44,6 +44,7 @@ export type GeneralSettingsBundle = {
       | "mcpTimeout"
       | "maxAssistantToolSteps"
       | "confirmExternalLinks"
+      | "toolCallDisplay"
       | "memoriesEnabled"
       | "memoriesMaxCount"
       | "memoriesRigor"
@@ -75,6 +76,7 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
     mcpTimeout: user.mcpTimeout,
     maxAssistantToolSteps: user.maxAssistantToolSteps,
     confirmExternalLinks: user.confirmExternalLinks,
+    toolCallDisplay: user.toolCallDisplay,
     titleGenerationMode: global.titleGenerationMode,
     titleGenerationProfileId: global.titleGenerationProfileId,
     webSearch: webSearch
@@ -194,6 +196,7 @@ export function getSanitizedSettings(userId?: string): PublicAppSettings & {
     mcpTimeout: settings.mcpTimeout,
     maxAssistantToolSteps: settings.maxAssistantToolSteps,
     confirmExternalLinks: settings.confirmExternalLinks,
+    toolCallDisplay: settings.toolCallDisplay,
     titleGenerationMode: settings.titleGenerationMode,
     titleGenerationProfileId: settings.titleGenerationProfileId,
     updatedAt: settings.updatedAt,

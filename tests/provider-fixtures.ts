@@ -120,6 +120,7 @@ export function createRuntimeAppSettings(
     mcpTimeout: 120000,
     maxAssistantToolSteps: 25,
     confirmExternalLinks: true,
+    toolCallDisplay: "pills",
     titleGenerationMode: "same",
     titleGenerationProfileId: null,
     webSearch: {

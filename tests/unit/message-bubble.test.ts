@@ -1604,6 +1604,216 @@ describe("message bubble", () => {
     expect(screen.queryByTestId("assistant-in-progress")).toBeNull();
   });
 
+  it("shows a status line instead of running pills in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            ...createToolAction({
+              id: "act_run",
+              messageId: "msg_assistant",
+              label: "Searching the web",
+              detail: "query=Eidon",
+              resultSummary: "",
+              status: "running",
+              completedAt: null
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    expect(statusLine).toHaveTextContent("Searching the web");
+    expect(screen.queryByTestId("assistant-actions-shell")).toBeNull();
+    expect(screen.queryByTestId("assistant-in-progress")).toBeNull();
+  });
+
+  it("includes the web search query in the status line label", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            ...createToolAction({
+              id: "act_search",
+              messageId: "msg_assistant",
+              toolName: "web_search",
+              label: "Web search",
+              detail: "",
+              arguments: { query: "Eidon docs" },
+              resultSummary: "",
+              status: "running",
+              completedAt: null
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("Web search: Eidon docs");
+  });
+
+  it("shows a thinking status line and hides the thinking shell in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingThinking: "Reasoning about the request",
+        thinkingInProgress: true,
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("Thinking");
+    expect(screen.queryByTestId("assistant-thinking-shell")).toBeNull();
+  });
+
+  it("shows a thinking status line for running timeline thinking in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          { ...createThinkingItem({ status: "running", completedAt: null }) }
+        ]
+      })
+    );
+
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("Thinking");
+    expect(screen.queryByTestId("assistant-thinking-shell")).toBeNull();
+  });
+
+  it("shows a working status line while awaiting the first token in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        awaitingFirstToken: true,
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("Working");
+    expect(screen.queryByTestId("assistant-in-progress")).toBeNull();
+  });
+
+  it("shows a working status line between steps in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            ...createToolAction({
+              id: "act_done",
+              messageId: "msg_assistant",
+              label: "Read documentation",
+              detail: "url=https://example.com",
+              resultSummary: "Loaded",
+              status: "completed"
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("Working");
+    expect(screen.queryByTestId("assistant-actions-shell")).toBeNull();
+  });
+
+  it("hides the status line while answer text is streaming in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "So far" },
+        streamingAnswer: "So far",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          { id: "txt_1", timelineKind: "text", sortOrder: 0, createdAt: new Date().toISOString(), content: "So far" }
+        ]
+      })
+    );
+
+    expect(screen.queryByTestId("assistant-status-line")).toBeNull();
+  });
+
+  it("renders a clean transcript for completed turns in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          timeline: [
+            createThinkingItem(),
+            {
+              ...createToolAction({
+                id: "act_done",
+                messageId: "msg_assistant",
+                label: "Web search",
+                detail: "query=Eidon",
+                resultSummary: "Found results"
+              }),
+              timelineKind: "action"
+            },
+            { id: "txt_1", timelineKind: "text", sortOrder: 2, createdAt: new Date().toISOString(), content: "Final answer" }
+          ]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    expect(screen.getByTestId("assistant-message-content")).toHaveTextContent("Final answer");
+    expect(screen.queryByTestId("assistant-status-line")).toBeNull();
+    expect(screen.queryByTestId("assistant-actions-shell")).toBeNull();
+    expect(screen.queryByTestId("assistant-thinking-shell")).toBeNull();
+  });
+
+  it("still renders memory proposal cards in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: createMemoryProposalMessage(),
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    expect(screen.getByText("Save memory")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+
+  it("renders running action pills in the default pills mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "",
+        toolCallDisplay: "pills",
+        streamingTimeline: [
+          {
+            ...createToolAction({
+              id: "act_run",
+              messageId: "msg_assistant",
+              label: "Searching the web",
+              detail: "query=Eidon",
+              resultSummary: "",
+              status: "running",
+              completedAt: null
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    expect(screen.getByTestId("assistant-actions-shell")).toHaveTextContent("Searching the web");
+    expect(screen.queryByTestId("assistant-status-line")).toBeNull();
+  });
+
   it("does not render a fork action for user messages", () => {
     render(
       React.createElement(MessageBubble as React.ComponentType<any>, {

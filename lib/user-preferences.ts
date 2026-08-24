@@ -1,6 +1,10 @@
 import { getDb } from "@/lib/db";
-import { normalizeMemoryRigor, type GlobalPreferences } from "@/lib/global-preferences";
-import type { ConversationRetention, MemoryRigor } from "@/lib/types";
+import {
+  normalizeMemoryRigor,
+  normalizeToolCallDisplayMode,
+  type GlobalPreferences
+} from "@/lib/global-preferences";
+import type { ConversationRetention, MemoryRigor, ToolCallDisplayMode } from "@/lib/types";
 
 export type UserPreferences = {
   conversationRetention: ConversationRetention;
@@ -10,6 +14,7 @@ export type UserPreferences = {
   mcpTimeout: number;
   maxAssistantToolSteps: number;
   confirmExternalLinks: boolean;
+  toolCallDisplay: ToolCallDisplayMode;
   updatedAt: string;
 };
 
@@ -21,6 +26,7 @@ type UserPreferencesRow = {
   mcp_timeout: number;
   max_assistant_tool_steps: number;
   confirm_external_links: number;
+  tool_call_display: ToolCallDisplayMode;
   updated_at: string;
 };
 
@@ -29,8 +35,9 @@ function ensureUserPreferences(userId: string, defaults: GlobalPreferences) {
   getDb().prepare(`
     INSERT OR IGNORE INTO user_preferences (
       user_id, conversation_retention, memories_enabled, memories_max_count,
-      memories_rigor, mcp_timeout, max_assistant_tool_steps, confirm_external_links, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      memories_rigor, mcp_timeout, max_assistant_tool_steps, confirm_external_links,
+      tool_call_display, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     userId,
     defaults.conversationRetention,
@@ -40,6 +47,7 @@ function ensureUserPreferences(userId: string, defaults: GlobalPreferences) {
     defaults.mcpTimeout,
     defaults.maxAssistantToolSteps,
     defaults.confirmExternalLinks ? 1 : 0,
+    normalizeToolCallDisplayMode(defaults.toolCallDisplay),
     timestamp,
     timestamp
   );
@@ -49,7 +57,8 @@ export function getUserPreferences(userId: string, defaults: GlobalPreferences) 
   ensureUserPreferences(userId, defaults);
   const row = getDb().prepare(`
     SELECT conversation_retention, memories_enabled, memories_max_count,
-      memories_rigor, mcp_timeout, max_assistant_tool_steps, confirm_external_links, updated_at
+      memories_rigor, mcp_timeout, max_assistant_tool_steps, confirm_external_links,
+      tool_call_display, updated_at
     FROM user_preferences
     WHERE user_id = ?
   `).get(userId) as UserPreferencesRow;
@@ -61,6 +70,7 @@ export function getUserPreferences(userId: string, defaults: GlobalPreferences) 
     mcpTimeout: row.mcp_timeout,
     maxAssistantToolSteps: row.max_assistant_tool_steps,
     confirmExternalLinks: Boolean(row.confirm_external_links),
+    toolCallDisplay: normalizeToolCallDisplayMode(row.tool_call_display),
     updatedAt: row.updated_at
   } satisfies UserPreferences;
 }
@@ -76,7 +86,7 @@ export function updateUserPreferences(
     UPDATE user_preferences
     SET conversation_retention = ?, memories_enabled = ?,
       memories_max_count = ?, memories_rigor = ?, mcp_timeout = ?, max_assistant_tool_steps = ?,
-      confirm_external_links = ?, updated_at = ?
+      confirm_external_links = ?, tool_call_display = ?, updated_at = ?
     WHERE user_id = ?
   `).run(
     next.conversationRetention,
@@ -86,6 +96,7 @@ export function updateUserPreferences(
     next.mcpTimeout,
     next.maxAssistantToolSteps,
     next.confirmExternalLinks ? 1 : 0,
+    normalizeToolCallDisplayMode(next.toolCallDisplay),
     next.updatedAt,
     userId
   );

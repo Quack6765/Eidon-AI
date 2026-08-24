@@ -104,6 +104,8 @@ export type SystemMessageKind = "compaction_notice";
 
 export type TitleGenerationMode = "same" | "specific" | "local";
 
+export type ToolCallDisplayMode = "pills" | "status_line";
+
 type AppSettingsCore = {
   defaultProviderProfileId: string | null;
   skillsEnabled: boolean;
@@ -114,6 +116,7 @@ type AppSettingsCore = {
   mcpTimeout: number;
   maxAssistantToolSteps: number;
   confirmExternalLinks: boolean;
+  toolCallDisplay: ToolCallDisplayMode;
   titleGenerationMode: TitleGenerationMode;
   titleGenerationProfileId: string | null;
   updatedAt: string;
