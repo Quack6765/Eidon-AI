@@ -3461,6 +3461,75 @@ describe("chat view", () => {
     getBoundingClientRectSpy.mockRestore();
   });
 
+  it("pins the user message even when the server persists it before the anchor frame", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          messages: [
+            createMessage({ id: "msg_user_first", role: "user", content: "First question" }),
+            createMessage({ id: "msg_assistant_first", content: "First answer" })
+          ]
+        })
+      })
+    );
+    const textarea = screen.getByRole("textbox");
+    const conversationContent = getScrollContainer()!;
+    Object.defineProperty(conversationContent, "clientHeight", {
+      configurable: true,
+      value: 640
+    });
+    Object.defineProperty(conversationContent, "scrollTop", {
+      configurable: true,
+      writable: true,
+      value: 500
+    });
+    const getBoundingClientRectSpy = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(function(this: Element) {
+        if (this === conversationContent) {
+          return { top: 80 } as DOMRect;
+        }
+        if (
+          this instanceof HTMLElement &&
+          this.hasAttribute("data-message-id") &&
+          this.textContent?.includes("Race question")
+        ) {
+          return { top: 200 } as DOMRect;
+        }
+        return { top: 0 } as DOMRect;
+      });
+    const scrollToSpy = vi.spyOn(conversationContent, "scrollTo");
+
+    fireEvent.change(textarea, { target: { value: "Race question" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "user_message_persisted",
+        conversationId: "conv_1",
+        message: createMessage({
+          id: "msg_user_server",
+          role: "user",
+          content: "Race question"
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(document.querySelector('[data-message-id="msg_user_server"]')).not.toBeNull();
+    });
+    expect(document.querySelector('[data-message-id^="local_"]')).toBeNull();
+
+    await flushAnimationFrame();
+    await flushAnimationFrame();
+
+    expect(scrollToSpy).toHaveBeenCalledWith({ top: 608, behavior: "smooth" });
+    expect(conversationContent.firstElementChild).toHaveStyle({ minHeight: "1248px" });
+    expect(stickToBottomMock.targetScrollTop?.()).toBe(608);
+    scrollToSpy.mockRestore();
+    getBoundingClientRectSpy.mockRestore();
+  });
+
   it("anchors the user message instantly when reduced motion is preferred", async () => {
     const originalMatchMedia = window.matchMedia;
     Object.defineProperty(window, "matchMedia", {

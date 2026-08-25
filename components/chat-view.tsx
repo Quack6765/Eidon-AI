@@ -531,14 +531,18 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
   }, [composerAreaHeight]);
 
   useEffect(() => {
-    if (!pendingAnchorMessageIdRef.current) return;
-    const messageId = pendingAnchorMessageIdRef.current;
-    const exists = visibleMessages.some((m) => m.id === messageId);
+    const anchorMessageId = pendingAnchorMessageIdRef.current;
+    if (!anchorMessageId) return;
+    const exists = visibleMessages.some((m) => m.id === anchorMessageId);
     if (!exists) return;
 
-    pendingAnchorMessageIdRef.current = null;
     requestAnimationFrame(() => {
-      const targetEl = document.querySelector(`[data-message-id="${messageId}"]`);
+      const messageId = pendingAnchorMessageIdRef.current;
+      if (!messageId) return;
+      pendingAnchorMessageIdRef.current = null;
+      const targetEl =
+        document.querySelector(`[data-message-id="${messageId}"]`) ??
+        document.querySelector(`[data-message-id="${anchorMessageId}"]`);
       const content = contentEndRef.current?.parentElement;
       const scroller = contentEndRef.current?.closest(".conversation-scroller");
       const behavior =
