@@ -256,6 +256,27 @@ describe("message bubble", () => {
     expect(screen.queryByText(/query=MCP/)).toBeNull();
   });
 
+  it("defers the memory proposal card until the assistant turn stops streaming", () => {
+    const { rerender } = render(
+      React.createElement(MessageBubble, {
+        message: createMemoryProposalMessage({ status: "streaming" })
+      })
+    );
+
+    expect(screen.getByText("I can remember that.")).toBeInTheDocument();
+    expect(screen.queryByText("Save memory")).toBeNull();
+
+    rerender(
+      React.createElement(MessageBubble, {
+        message: createMemoryProposalMessage()
+      })
+    );
+
+    expect(screen.getByText("I can remember that.")).toBeInTheDocument();
+    expect(screen.getByText("Save memory")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+
   it("renders pending update proposals with before and after details", () => {
     render(
       React.createElement(MessageBubble, {

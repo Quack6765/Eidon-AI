@@ -690,26 +690,34 @@ function MessageBubbleImpl({
   }
 
   function renderAssistantActionItem(item: Extract<MessageTimelineItem, { timelineKind: "action" }>) {
-    if (useStatusLine && !isMemoryProposalAction(item)) {
-      return null;
-    }
+    if (isMemoryProposalAction(item)) {
+      if (isAssistantStreaming) {
+        return null;
+      }
 
-    return (
-      <div key={item.id} data-testid="assistant-actions-shell">
-        {isMemoryProposalAction(item) ? (
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
           <MemoryProposalCard
             action={item}
             onApprove={onApproveMemoryProposal}
             onDismiss={onDismissMemoryProposal}
             readOnly={readOnly}
           />
-        ) : (
-          <CollapsibleActionRow
-            action={item}
-            isOpen={toolOpenItems[item.id] ?? false}
-            onToggle={() => toggleToolItem(item.id)}
-          />
-        )}
+        </div>
+      );
+    }
+
+    if (useStatusLine) {
+      return null;
+    }
+
+    return (
+      <div key={item.id} data-testid="assistant-actions-shell">
+        <CollapsibleActionRow
+          action={item}
+          isOpen={toolOpenItems[item.id] ?? false}
+          onToggle={() => toggleToolItem(item.id)}
+        />
       </div>
     );
   }
