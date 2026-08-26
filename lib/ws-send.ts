@@ -7,8 +7,11 @@ export function sendWebSocketData(ws: WebSocket, data: string) {
     return false;
   }
 
-  const queuedBytes = (ws.bufferedAmount ?? 0) + Buffer.byteLength(data, "utf8");
-  if (queuedBytes > MAX_WS_BUFFERED_BYTES) {
+  const backlogBytes = ws.bufferedAmount ?? 0;
+  if (backlogBytes > MAX_WS_BUFFERED_BYTES) {
+    console.warn(
+      `[ws-send] closing slow WebSocket client: ${backlogBytes} bytes still queued before a ${Buffer.byteLength(data, "utf8")}-byte send`
+    );
     ws.close(1013, "WebSocket client is too slow");
     return false;
   }

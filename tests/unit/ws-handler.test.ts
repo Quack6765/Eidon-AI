@@ -265,6 +265,69 @@ describe("ws-handler", () => {
     vi.doUnmock("@/lib/ws-singleton");
   });
 
+  it("processes a subscribe that arrives while authentication is still pending", async () => {
+    let resolveSession!: (value: { sessionId: string; userId: string }) => void;
+    const pendingSession = new Promise<{ sessionId: string; userId: string }>((resolve) => {
+      resolveSession = resolve;
+    });
+    const { verifySessionToken } = await import("@/lib/auth");
+    (verifySessionToken as ReturnType<typeof vi.fn>).mockReturnValue(pendingSession);
+    const { getConversationSnapshot, listActiveConversations, listQueuedMessages } = await import("@/lib/conversations");
+    (listActiveConversations as ReturnType<typeof vi.fn>).mockReturnValue([]);
+    (listQueuedMessages as ReturnType<typeof vi.fn>).mockReturnValue([]);
+    (getConversationSnapshot as ReturnType<typeof vi.fn>).mockReturnValue({
+      messages: [],
+      queuedMessages: []
+    });
+
+    const mockMgr = {
+      addConnection: vi.fn().mockReturnValue(true),
+      removeConnection: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      disconnect: vi.fn(),
+      broadcast: vi.fn(),
+      broadcastAll: vi.fn(),
+      hasSubscribers: vi.fn(),
+      setActive: vi.fn(),
+      isActive: vi.fn(),
+      getActiveConversationIds: vi.fn()
+    };
+    vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const sent: string[] = [];
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      bufferedAmount: 0,
+      send: vi.fn((data: string) => sent.push(data)),
+      close: vi.fn(),
+      terminate: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((data: string) => handler(data));
+      })
+    } as unknown as WebSocket;
+
+    try {
+      const connection = handleConnection(ws, "valid-token");
+      await Promise.resolve();
+
+      messageHandlers[0]?.(JSON.stringify({ type: "subscribe", conversationId: "conv-1" }));
+      expect(mockMgr.subscribe).not.toHaveBeenCalled();
+
+      resolveSession({ sessionId: "session-1", userId: "user-1" });
+      await connection;
+
+      expect(mockMgr.subscribe).toHaveBeenCalledWith("conv-1", ws);
+      const types = sent.map((raw) => JSON.parse(raw).type);
+      expect(types).toContain("ready");
+      expect(types).toContain("snapshot");
+    } finally {
+      vi.doUnmock("@/lib/ws-singleton");
+    }
+  });
+
   it("scopes login-disabled sockets to the bootstrap user", async () => {
     const previous = process.env.EIDON_PASSWORD_LOGIN_ENABLED;
     process.env.EIDON_PASSWORD_LOGIN_ENABLED = "false";
