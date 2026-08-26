@@ -102,11 +102,6 @@ html.ios-pwa .app-shell {
   scrollbar-gutter: auto !important;
 }
 
-.message-row {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 160px;
-}
-
 ::selection {
   background: rgba(139, 92, 246, 0.35);
   color: white;

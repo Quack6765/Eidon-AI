@@ -5067,35 +5067,6 @@ describe("chat view", () => {
     expect(screen.queryByRole("button", { name: /Show earlier messages/ })).toBeNull();
   }, 15000);
 
-  it("applies the content-visibility row class to settled rows but not the streaming row", async () => {
-    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
-
-    const textarea = screen.getByRole("textbox");
-    fireEvent.change(textarea, { target: { value: "hello" } });
-    fireEvent.keyDown(textarea, { key: "Enter" });
-
-    await waitFor(() => {
-      expect(screen.getByText("hello")).toBeInTheDocument();
-    });
-
-    act(() => {
-      wsMock.onMessage!({
-        type: "delta",
-        conversationId: "conv_1",
-        event: { type: "message_start", messageId: "msg_assistant" }
-      });
-    });
-
-    const streamingRow = document.querySelector('[data-message-id="msg_assistant"]');
-    expect(streamingRow).not.toBeNull();
-    expect(streamingRow!.classList.contains("message-row")).toBe(false);
-
-    for (const row of document.querySelectorAll("[data-message-id]")) {
-      if (row === streamingRow) continue;
-      expect(row.classList.contains("message-row")).toBe(true);
-    }
-  });
-
   it("auto-loads earlier messages when the top sentinel comes into view", async () => {
     type ObserverInstance = {
       callback: IntersectionObserverCallback;
@@ -5155,6 +5126,16 @@ describe("chat view", () => {
       });
       expect(container.querySelectorAll("[data-message-id]")).toHaveLength(60);
 
+      act(() => {
+        observer!.callback(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+      });
+      expect(container.querySelectorAll("[data-message-id]")).toHaveLength(60);
+
+      fireEvent.scroll(getScrollContainer()!);
+
       const scrollIntoViewSpy = vi.spyOn(Element.prototype, "scrollIntoView");
 
       await act(async () => {
@@ -5188,4 +5169,59 @@ describe("chat view", () => {
 
     expect(screen.queryByTestId("earlier-messages-sentinel")).toBeNull();
   });
+
+  it("streams the assistant answer in a long conversation with status line mode", async () => {
+    const base = createPayload();
+    const payload = createPayload({
+      messages: Array.from({ length: 170 }, (_, index) =>
+        createMessage({
+          id: `msg_long_${index}`,
+          role: index % 2 === 0 ? "user" : "assistant",
+          content: `Long message ${index}`
+        })
+      ),
+      settings: { ...base.settings, toolCallDisplay: "status_line" }
+    });
+
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "follow-up question" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("follow-up question")).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant_long" }
+      });
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "answer_delta", text: "Here is the streamed reply " }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Here is the streamed/)).toBeInTheDocument();
+    }, { timeout: 4000 });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "done", messageId: "msg_assistant_long" }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Here is the streamed reply/)).toBeInTheDocument();
+    }, { timeout: 4000 });
+  }, 20000);
 });
