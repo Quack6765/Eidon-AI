@@ -332,7 +332,6 @@ export function ChatComposer({
   const isSpeechActive = speechPhase === "listening" || speechPhase === "transcribing";
   const speechLevelWidth = Math.max(8, Math.round(speechLevel * 100));
   const speechControlsDisabled = !mounted || isSending || isUploadingAttachments || isSpeechActive;
-  const showBusyQueueHint = showStopButton;
   const showQueueAndStop = showStopButton && canQueueDraft;
   const primaryActionStops = showStopButton && !canQueueDraft;
   const hideIdleSubmitOnMobile =
@@ -870,16 +869,6 @@ export function ChatComposer({
           )}
         </AnimatePresence>
       </div>
-
-      {showBusyQueueHint ? (
-        <motion.div
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="hidden px-4 pb-2 pt-2 text-[11px] font-medium text-white/45 md:block"
-        >
-          Agent working - send still queues
-        </motion.div>
-      ) : null}
 
       {showVisionWarning ? (
         <motion.div 
