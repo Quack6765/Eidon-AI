@@ -592,20 +592,32 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
     const sentinel = earlierMessagesSentinelRef.current;
     if (!sentinel) return;
     const scroller = contentEndRef.current?.closest(".conversation-scroller");
+    const root = scroller instanceof HTMLElement ? scroller : null;
+    let hasScrolled = false;
+    const markScrolled = () => {
+      hasScrolled = true;
+    };
+    root?.addEventListener("scroll", markScrolled, { once: true, passive: true });
     const observer = new IntersectionObserver(
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
         if (expandAnchorMessageIdRef.current !== null) return;
+        if (!hasScrolled) return;
+        const rootTop = root?.getBoundingClientRect().top ?? 0;
+        if (sentinel.getBoundingClientRect().bottom < rootTop - 600) return;
         expandAnchorMessageIdRef.current = firstVisibleMessageIdRef.current;
         setVisibleMessageLimit((current) => current + VISIBLE_MESSAGE_INCREMENT);
       },
       {
-        root: scroller instanceof HTMLElement ? scroller : null,
+        root,
         rootMargin: "600px 0px 0px 0px"
       }
     );
     observer.observe(sentinel);
-    return () => observer.disconnect();
+    return () => {
+      root?.removeEventListener("scroll", markScrolled);
+      observer.disconnect();
+    };
   }, [hasHiddenMessages]);
 
   useEffect(() => {
@@ -1996,14 +2008,7 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
               <div
                 key={renderKeyByMessageIdRef.current.get(message.id) ?? message.id}
                 data-message-id={message.id}
-                className={
-                  [
-                    isStreamingMessage ? null : "message-row",
-                    shouldAnimate ? "animate-slide-up" : null
-                  ]
-                    .filter(Boolean)
-                    .join(" ") || undefined
-                }
+                className={shouldAnimate ? "animate-slide-up" : undefined}
                 style={shouldAnimate ? { animationFillMode: "forwards" } : undefined}
               >
                 <StreamingMessage
