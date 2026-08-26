@@ -4,6 +4,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 import { MessageBubble } from "@/components/message-bubble";
+import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import type { Message, MessageAction, MessageAttachment, MessageTimelineItem } from "@/lib/types";
 
 const originalFetch = global.fetch;
@@ -1453,6 +1454,75 @@ describe("message bubble", () => {
 
     await waitFor(() => {
       expect(writeText).toHaveBeenCalled();
+    });
+  });
+
+  it("copies text with attachment image markdown stripped across timeline segments", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true
+    });
+    vi.stubGlobal("ClipboardItem", undefined);
+
+    const attachments = [
+      {
+        id: "att_chart",
+        filename: "chart.png",
+        mimeType: "image/png",
+        kind: "image" as const,
+        byteSize: 1024,
+        createdAt: new Date().toISOString()
+      }
+    ];
+    const firstSegment = "Look: ![chart](chart.png) first.";
+    const secondSegment = "And again ![chart](chart.png) done.";
+    const fullContent = `${firstSegment}${secondSegment}`;
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: fullContent,
+          attachments,
+          timeline: [
+            {
+              id: "txt_strip_1",
+              timelineKind: "text",
+              sortOrder: 0,
+              createdAt: new Date().toISOString(),
+              content: firstSegment
+            },
+            {
+              ...createToolAction({
+                id: "act_between",
+                messageId: "msg_assistant",
+                label: "Search docs",
+                detail: "query=MCP",
+                resultSummary: "Found MCP documentation",
+                sortOrder: 1
+              }),
+              timelineKind: "action"
+            },
+            {
+              id: "txt_strip_2",
+              timelineKind: "text",
+              sortOrder: 2,
+              createdAt: new Date().toISOString(),
+              content: secondSegment
+            }
+          ]
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith(
+        stripAttachmentStyleImageMarkdown(fullContent, attachments)
+      );
     });
   });
 

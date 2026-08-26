@@ -100,11 +100,13 @@ const AssistantMarkdown = React.memo(
     content,
     isAnimating = false,
     showCaret = false,
+    isStatic = false,
     linkSafety
   }: {
     content: string;
     isAnimating?: boolean;
     showCaret?: boolean;
+    isStatic?: boolean;
     linkSafety: ReturnType<typeof useLinkSafety>;
   }) {
     const plugins = useStreamdownPlugins(content);
@@ -115,6 +117,7 @@ const AssistantMarkdown = React.memo(
       <MarkdownErrorBoundary fallback={fallback} resetKey={content}>
         <Streamdown
           plugins={plugins}
+          mode={isStatic ? "static" : "streaming"}
           isAnimating={isAnimating}
           caret={showCaret ? "block" : undefined}
           linkSafety={linkSafety}
@@ -128,6 +131,7 @@ const AssistantMarkdown = React.memo(
     previous.content === next.content &&
     previous.isAnimating === next.isAnimating &&
     previous.showCaret === next.showCaret &&
+    previous.isStatic === next.isStatic &&
     previous.linkSafety === next.linkSafety
 );
 
@@ -393,6 +397,10 @@ function MessageBubbleImpl({
   const contentRef = useRef<HTMLDivElement | null>(null);
   const editRef = useRef<HTMLTextAreaElement | null>(null);
   const copyResetHandle = useRef<number | null>(null);
+  const stripCacheRef = useRef<{
+    key: string;
+    byBlockId: Map<string, { source: string; rendered: string }>;
+  } | null>(null);
   const previewController = useAttachmentPreviewController();
   const linkSafety = useLinkSafety(confirmExternalLinks);
   const useStatusLine = toolCallDisplay === "status_line";
@@ -537,27 +545,45 @@ function MessageBubbleImpl({
       )
       .map((item) => item.content)
       .join("");
-    const renderedAssistantText =
-      message.role === "assistant"
-        ? stripAttachmentStyleImageMarkdown(assistantText, message.attachments ?? [])
-        : assistantText;
     const renderedAssistantBlockContentById = new Map<string, string>();
     let lastRenderableAssistantTextId: string | null = null;
+    let renderedAssistantText = assistantText;
 
     if (message.role === "assistant") {
+      const attachments = message.attachments ?? [];
+      const cacheKey = `${message.id} ${attachments.map((attachment) => attachment.id).join(",")}`;
+
+      if (stripCacheRef.current?.key !== cacheKey) {
+        stripCacheRef.current = { key: cacheKey, byBlockId: new Map() };
+      }
+
+      const stripCache = stripCacheRef.current.byBlockId;
+      const renderedParts: string[] = [];
+
       assistantBlocks.forEach((item) => {
         if (item.timelineKind !== "text") {
           return;
         }
 
-        const renderedContent = stripAttachmentStyleImageMarkdown(item.content, message.attachments ?? []);
+        const cached = stripCache.get(item.id);
+        const renderedContent =
+          cached && cached.source === item.content
+            ? cached.rendered
+            : stripAttachmentStyleImageMarkdown(item.content, attachments);
+
+        if (cached?.source !== item.content) {
+          stripCache.set(item.id, { source: item.content, rendered: renderedContent });
+        }
 
         renderedAssistantBlockContentById.set(item.id, renderedContent);
+        renderedParts.push(renderedContent);
 
         if (renderedContent) {
           lastRenderableAssistantTextId = item.id;
         }
       });
+
+      renderedAssistantText = renderedParts.join("");
     }
 
     return {
@@ -1046,6 +1072,7 @@ function MessageBubbleImpl({
                               content={renderedContent}
                               isAnimating={isStreamingTailBlock}
                               showCaret={isStreamingTailBlock}
+                              isStatic={!isStreamingTailBlock && message.status === "completed"}
                               linkSafety={linkSafety}
                             />
                           </div>

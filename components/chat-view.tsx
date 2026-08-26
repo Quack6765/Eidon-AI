@@ -231,6 +231,8 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
 
   const pendingAnchorMessageIdRef = useRef<string | null>(null);
   const expandAnchorMessageIdRef = useRef<string | null>(null);
+  const earlierMessagesSentinelRef = useRef<HTMLDivElement | null>(null);
+  const firstVisibleMessageIdRef = useRef<string | null>(null);
   const bootstrapPayloadRef = useRef<{
     message: string;
     attachments: MessageAttachment[];
@@ -301,6 +303,7 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
     () => (hiddenMessageCount > 0 ? renderableMessages.slice(hiddenMessageCount) : renderableMessages),
     [renderableMessages, hiddenMessageCount]
   );
+  firstVisibleMessageIdRef.current = visibleMessages[0]?.id ?? null;
   const hasPendingLocalSubmission = pendingLocalSubmissionsRef.current.length > 0;
   const lastUserMsgIndex = useMemo(() => {
     for (let i = visibleMessages.length - 1; i >= 0; i--) {
@@ -581,6 +584,29 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
         ?.scrollIntoView({ block: "start", behavior: "auto" });
     });
   }, [visibleMessages]);
+
+  const hasHiddenMessages = hiddenMessageCount > 0;
+
+  useEffect(() => {
+    if (!hasHiddenMessages || typeof IntersectionObserver === "undefined") return;
+    const sentinel = earlierMessagesSentinelRef.current;
+    if (!sentinel) return;
+    const scroller = contentEndRef.current?.closest(".conversation-scroller");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        if (expandAnchorMessageIdRef.current !== null) return;
+        expandAnchorMessageIdRef.current = firstVisibleMessageIdRef.current;
+        setVisibleMessageLimit((current) => current + VISIBLE_MESSAGE_INCREMENT);
+      },
+      {
+        root: scroller instanceof HTMLElement ? scroller : null,
+        rootMargin: "600px 0px 0px 0px"
+      }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasHiddenMessages]);
 
   useEffect(() => {
     if (!shouldAutofocusTextInput()) {
@@ -1931,6 +1957,14 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
           className="gap-2.5 px-2 pt-4 md:gap-4 md:px-8"
         >
           {hiddenMessageCount > 0 ? (
+            <div
+              ref={earlierMessagesSentinelRef}
+              aria-hidden
+              data-testid="earlier-messages-sentinel"
+              className="h-px w-full"
+            />
+          ) : null}
+          {hiddenMessageCount > 0 ? (
             <button
               type="button"
               onClick={() => {
@@ -1962,7 +1996,14 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
               <div
                 key={renderKeyByMessageIdRef.current.get(message.id) ?? message.id}
                 data-message-id={message.id}
-                className={shouldAnimate ? "animate-slide-up" : undefined}
+                className={
+                  [
+                    isStreamingMessage ? null : "message-row",
+                    shouldAnimate ? "animate-slide-up" : null
+                  ]
+                    .filter(Boolean)
+                    .join(" ") || undefined
+                }
                 style={shouldAnimate ? { animationFillMode: "forwards" } : undefined}
               >
                 <StreamingMessage
@@ -1970,9 +2011,9 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
                   buffer={streamBuffer}
                   message={message}
                   timeline={isStreamingMessage ? streamTimeline : EMPTY_TIMELINE}
-                  hasReceivedFirstToken={hasReceivedFirstToken}
-                  compactionInProgress={compactionInProgress}
-                  thinkingDuration={thinkingDuration}
+                  hasReceivedFirstToken={isStreamingMessage ? hasReceivedFirstToken : false}
+                  compactionInProgress={isStreamingMessage ? compactionInProgress : false}
+                  thinkingDuration={isStreamingMessage ? thinkingDuration : undefined}
                   confirmExternalLinks={payload.settings.confirmExternalLinks}
                   toolCallDisplay={payload.settings.toolCallDisplay}
                   onPreviewAttachment={onPreviewAttachmentStable}

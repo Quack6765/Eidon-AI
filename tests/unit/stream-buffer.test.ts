@@ -373,6 +373,70 @@ describe("createStreamBuffer", () => {
     expect(buffer.getSnapshot().answerDisplay).toBe("second turn ");
   });
 
+  it("throttles notifications for very long content while still catching up", () => {
+    const scheduler = createManualScheduler();
+    const buffer = createStreamBuffer({ ...scheduler, ...PACING });
+    let notifications = 0;
+    buffer.subscribe(() => {
+      notifications += 1;
+    });
+    buffer.appendAnswer(`${"word ".repeat(4000)}end`);
+
+    notifications = 0;
+    for (let i = 0; i < 6; i += 1) scheduler.advance(16);
+    expect(notifications).toBe(2);
+
+    const before = buffer.getSnapshot().answerDisplay.length;
+    scheduler.advance(48);
+    expect(buffer.getSnapshot().answerDisplay.length).toBeGreaterThan(before);
+  });
+
+  it("does not throttle short content", () => {
+    const scheduler = createManualScheduler();
+    const buffer = createStreamBuffer({
+      ...scheduler,
+      ...PACING,
+      baseCharsPerSecond: 1000
+    });
+    let notifications = 0;
+    buffer.subscribe(() => {
+      notifications += 1;
+    });
+    buffer.appendAnswer("word ".repeat(12));
+
+    notifications = 0;
+    for (let i = 0; i < 3; i += 1) scheduler.advance(16);
+    expect(notifications).toBe(3);
+  });
+
+  it("does not throttle the finalize drain and still settles", () => {
+    const scheduler = createManualScheduler();
+    const buffer = createStreamBuffer({ ...scheduler, ...PACING });
+    let notifications = 0;
+    let drained = false;
+    buffer.subscribe(() => {
+      notifications += 1;
+    });
+    buffer.appendAnswer(`${"word ".repeat(4000)}end`);
+    buffer.whenDrained(() => {
+      drained = true;
+    });
+    buffer.finalize();
+
+    notifications = 0;
+    for (let i = 0; i < 6; i += 1) scheduler.advance(16);
+    expect(notifications).toBe(6);
+
+    let frames = 0;
+    while (!buffer.getSnapshot().isSettled && frames < 200) {
+      scheduler.advance(16);
+      frames += 1;
+    }
+    expect(buffer.getSnapshot().isSettled).toBe(true);
+    expect(buffer.getSnapshot().answerDisplay.endsWith("end")).toBe(true);
+    expect(drained).toBe(true);
+  });
+
   it("unsubscribe stops notifications", () => {
     const scheduler = createManualScheduler();
     const buffer = createStreamBuffer({ ...scheduler, ...PACING });
