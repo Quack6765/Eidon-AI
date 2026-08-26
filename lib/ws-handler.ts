@@ -37,6 +37,7 @@ import {
 
 const MAX_WS_ERROR_MESSAGE_CHARS = 1_000;
 const MAX_MOBILE_SNAPSHOT_BYTES = 768 * 1024;
+const MAX_PRE_SETUP_MESSAGES = 64;
 
 function buildSnapshotMessage(
   conversationId: string,
@@ -194,6 +195,22 @@ export async function handleConnection(
   let mgr: ConversationManager | null = null;
   const currentSubscription = new Set<string>();
 
+  let dispatchIncoming: ((raw: WebSocket.RawData) => void) | null = null;
+  const preSetupMessages: WebSocket.RawData[] = [];
+  ws.on("message", (raw: WebSocket.RawData) => {
+    if (dispatchIncoming) {
+      dispatchIncoming(raw);
+      return;
+    }
+
+    if (preSetupMessages.length >= MAX_PRE_SETUP_MESSAGES) {
+      closeAfterMessageFailure(ws);
+      return;
+    }
+
+    preSetupMessages.push(raw);
+  });
+
   ws.on("close", () => {
     closed = true;
     if (!mgr) {
@@ -276,7 +293,7 @@ export async function handleConnection(
     }))
   }, versioned);
 
-  ws.on("message", (raw: WebSocket.RawData) => {
+  dispatchIncoming = (raw: WebSocket.RawData) => {
     try {
       const msg = parseClientMessage(raw.toString());
       if (!msg) return;
@@ -286,7 +303,11 @@ export async function handleConnection(
     } catch (error) {
       handleMessageFailure(ws, error, versioned);
     }
-  });
+  };
+
+  for (const raw of preSetupMessages.splice(0)) {
+    dispatchIncoming(raw);
+  }
 }
 
 function handleMessageFailure(ws: WebSocket, error: unknown, versioned = false) {

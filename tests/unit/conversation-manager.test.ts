@@ -226,18 +226,18 @@ describe("conversation-manager", () => {
     expect(ws.close).toHaveBeenCalledWith(1013, "WebSocket client is too slow");
   });
 
-  it("includes the pending payload bytes in the backpressure limit", async () => {
+  it("delivers a single payload larger than the backlog limit when the client keeps up", async () => {
     const { sendWebSocketData, MAX_WS_BUFFERED_BYTES } = await import("@/lib/ws-send");
     const ws = {
       readyState: 1,
-      bufferedAmount: MAX_WS_BUFFERED_BYTES - 3,
+      bufferedAmount: 0,
       send: vi.fn(),
       close: vi.fn()
     } as unknown as WebSocket;
 
-    expect(sendWebSocketData(ws, "four")).toBe(false);
-    expect(ws.send).not.toHaveBeenCalled();
-    expect(ws.close).toHaveBeenCalledWith(1013, "WebSocket client is too slow");
+    expect(sendWebSocketData(ws, "x".repeat(MAX_WS_BUFFERED_BYTES + 1))).toBe(true);
+    expect(ws.send).toHaveBeenCalled();
+    expect(ws.close).not.toHaveBeenCalled();
   });
 
   it("enforces a process-wide manager connection cap", async () => {
