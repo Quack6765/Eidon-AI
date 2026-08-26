@@ -35,6 +35,20 @@ const DEFAULT_FINALIZE_DRAIN_WINDOW_MS = 175;
 const DEFAULT_MAX_WORD_HOLD_CHARS = 24;
 const DEFAULT_MAX_WORD_HOLD_MS = 350;
 const CARRY_CAP_FACTOR = 2;
+const LONG_CONTENT_NOTIFY_TIERS = [
+  { chars: 16000, intervalMs: 48 },
+  { chars: 48000, intervalMs: 112 }
+];
+
+function notifyIntervalFor(length: number) {
+  let interval = 0;
+  for (const tier of LONG_CONTENT_NOTIFY_TIERS) {
+    if (length >= tier.chars) {
+      interval = tier.intervalMs;
+    }
+  }
+  return interval;
+}
 
 const EMPTY_SNAPSHOT: StreamBufferSnapshot = Object.freeze({
   answerTarget: "",
@@ -202,6 +216,17 @@ export function createStreamBuffer(options: StreamBufferOptions = {}): StreamBuf
   function tick() {
     frameHandle = null;
     const current = now();
+
+    if (!finalized) {
+      const interval = notifyIntervalFor(
+        snapshot.answerTarget.length + snapshot.thinkingTarget.length
+      );
+      if (interval > 0 && current - lastTick < interval) {
+        scheduleTick();
+        return;
+      }
+    }
+
     const elapsed = Math.max(current - lastTick, 1);
     lastTick = current;
     const nextAnswer = advance("answer", snapshot.answerDisplay, snapshot.answerTarget, elapsed, current);

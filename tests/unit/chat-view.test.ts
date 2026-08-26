@@ -5068,4 +5068,126 @@ describe("chat view", () => {
     expect(container.querySelectorAll("[data-message-id]")).toHaveLength(170);
     expect(screen.queryByRole("button", { name: /Show earlier messages/ })).toBeNull();
   }, 15000);
+
+  it("applies the content-visibility row class to settled rows but not the streaming row", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "hello" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText("hello")).toBeInTheDocument();
+    });
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: { type: "message_start", messageId: "msg_assistant" }
+      });
+    });
+
+    const streamingRow = document.querySelector('[data-message-id="msg_assistant"]');
+    expect(streamingRow).not.toBeNull();
+    expect(streamingRow!.classList.contains("message-row")).toBe(false);
+
+    for (const row of document.querySelectorAll("[data-message-id]")) {
+      if (row === streamingRow) continue;
+      expect(row.classList.contains("message-row")).toBe(true);
+    }
+  });
+
+  it("auto-loads earlier messages when the top sentinel comes into view", async () => {
+    type ObserverInstance = {
+      callback: IntersectionObserverCallback;
+      elements: Element[];
+    };
+    const instances: ObserverInstance[] = [];
+    const originalObserver = window.IntersectionObserver;
+    class MockIntersectionObserver {
+      private instance: ObserverInstance;
+      constructor(callback: IntersectionObserverCallback) {
+        this.instance = { callback, elements: [] };
+        instances.push(this.instance);
+      }
+      observe(element: Element) {
+        this.instance.elements.push(element);
+      }
+      unobserve() {}
+      disconnect() {}
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+    }
+    Object.defineProperty(window, "IntersectionObserver", {
+      configurable: true,
+      writable: true,
+      value: MockIntersectionObserver
+    });
+
+    try {
+      const payload = createPayload({
+        messages: Array.from({ length: 170 }, (_, index) =>
+          createMessage({
+            id: `msg_auto_${index}`,
+            role: index % 2 === 0 ? "user" : "assistant",
+            content: `Auto message ${index}`
+          })
+        )
+      });
+
+      const { container } = renderWithProvider(React.createElement(ChatView, { payload }));
+
+      await waitFor(() => {
+        expect(screen.getByText("Test conversation")).toBeInTheDocument();
+      });
+
+      expect(container.querySelectorAll("[data-message-id]")).toHaveLength(60);
+
+      const sentinel = screen.getByTestId("earlier-messages-sentinel");
+      const observer = instances.find((instance) => instance.elements.includes(sentinel));
+      expect(observer).toBeDefined();
+
+      act(() => {
+        observer!.callback(
+          [{ isIntersecting: false } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+      });
+      expect(container.querySelectorAll("[data-message-id]")).toHaveLength(60);
+
+      const scrollIntoViewSpy = vi.spyOn(Element.prototype, "scrollIntoView");
+
+      await act(async () => {
+        observer!.callback(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          {} as IntersectionObserver
+        );
+      });
+      await flushAnimationFrame();
+
+      expect(container.querySelectorAll("[data-message-id]")).toHaveLength(160);
+      expect(screen.getByRole("button", { name: "Show earlier messages (10)" })).toBeInTheDocument();
+      expect(scrollIntoViewSpy).toHaveBeenCalledWith({ block: "start", behavior: "auto" });
+
+      scrollIntoViewSpy.mockRestore();
+    } finally {
+      Object.defineProperty(window, "IntersectionObserver", {
+        configurable: true,
+        writable: true,
+        value: originalObserver
+      });
+    }
+  }, 15000);
+
+  it("does not render an auto-load sentinel when all messages are visible", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId("earlier-messages-sentinel")).toBeNull();
+  });
 });
