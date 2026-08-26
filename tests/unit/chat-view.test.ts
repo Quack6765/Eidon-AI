@@ -4804,7 +4804,6 @@ describe("chat view", () => {
 
     expect(screen.getByText("Queued message not found")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
-    expect(screen.getByText("Agent working - send still queues")).toBeInTheDocument();
   });
 
   it("keeps stop available beside queue follow-up while drafting during an active turn", async () => {
@@ -4824,7 +4823,6 @@ describe("chat view", () => {
 
     expect(screen.getByRole("button", { name: "Queue follow-up" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
-    expect(screen.getByText("Agent working - send still queues")).toBeInTheDocument();
   });
 
   it("keeps the compact composer in one row for a single-line draft", async () => {

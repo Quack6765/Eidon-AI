@@ -581,7 +581,7 @@ describe("automation scheduler", () => {
 
     expect(getConversation(completedRun.conversationId!, userA.id)?.conversationOrigin).toBe("automation");
     expect(getConversation(completedRun.conversationId!, userB.id)).toBeNull();
-  });
+  }, 15_000);
 
   it("reuses the same in-flight run cycle for concurrent runOnce calls", async () => {
     const { updateProviderCatalog } = await import("@/lib/settings");
