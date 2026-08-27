@@ -20,7 +20,7 @@ import type {
 type HomeViewProps = {
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string | null;
-  settings: Pick<AppSettings, "speechTranscription">;
+  settings: Pick<AppSettings, "speechTranscription" | "speechCleanupEnabled">;
 };
 
 export function HomeView({
@@ -44,6 +44,7 @@ export function HomeView({
   const onEntranceAnimEnd = useCallback(() => setEntranceAnimDone(true), []);
   const { speechSnapshot, onStartSpeech, onStopSpeech } = useComposerSpeech({
     selection: settings.speechTranscription,
+    cleanupEnabled: settings.speechCleanupEnabled,
     setDraft: setInput,
     clearError: () => setError("")
   });
@@ -167,6 +168,7 @@ export function HomeView({
     if (
       speechSnapshot.phase === "listening" ||
       speechSnapshot.phase === "transcribing" ||
+      speechSnapshot.phase === "cleaning" ||
       (!value && pendingAttachments.length === 0) ||
       isSubmitting ||
       isUploadingAttachments

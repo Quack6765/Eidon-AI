@@ -1,11 +1,14 @@
-import { Info } from "lucide-react";
+import { Info, RotateCcw } from "lucide-react";
 
 import { CredentialField } from "@/components/settings/integration-settings/credential-field";
 import {
   selectIntegrationProvider,
+  type GeneralSettingsDraft,
   type IntegrationDraft
 } from "@/components/settings/integration-settings/general-settings-draft";
+import { Button } from "@/components/ui/button";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
+import { DEFAULT_SPEECH_CLEANUP_PROMPT } from "@/lib/speech/cleanup-prompt";
 import {
   EXTERNAL_STT_PROVIDERS,
   getExternalSttLanguageOptions,
@@ -22,6 +25,9 @@ import {
 import type { AppSettings } from "@/lib/types";
 
 type Draft = IntegrationDraft<AppSettings["speechTranscription"]>;
+type CleanupDraft = GeneralSettingsDraft["speechCleanup"];
+
+type CleanupProviderSummary = { id: string; name: string; model: string };
 
 const LOCAL_LANGUAGE_OPTIONS = [
   { value: "auto", label: "Auto-detect" },
@@ -35,13 +41,21 @@ export function SpeechTranscriptionSettings({
   persisted,
   canManage,
   dirty,
-  onChange
+  onChange,
+  cleanup,
+  cleanupDirty,
+  providerProfiles,
+  onCleanupChange
 }: {
   draft: Draft;
   persisted: Draft;
   canManage: boolean;
   dirty: boolean;
   onChange(draft: Draft): void;
+  cleanup: CleanupDraft;
+  cleanupDirty: boolean;
+  providerProfiles: CleanupProviderSummary[];
+  onCleanupChange(cleanup: CleanupDraft): void;
 }) {
   const descriptor = TRANSCRIPTION_PROVIDER_CATALOG[draft.providerId];
   const externalProvider = descriptor.engine === "external"
@@ -124,6 +138,16 @@ export function SpeechTranscriptionSettings({
       (typeof TRANSCRIPTION_PROVIDER_CATALOG)[TranscriptionProviderId]
     ]>).find(([, provider]) => provider.engine === engine)?.[0];
     if (providerId) selectProvider(providerId);
+  }
+
+  function toggleCleanup(enabled: boolean) {
+    onCleanupChange({
+      ...cleanup,
+      enabled,
+      profileId: enabled && !cleanup.profileId
+        ? providerProfiles[0]?.id ?? null
+        : cleanup.profileId
+    });
   }
 
   return (
@@ -264,6 +288,75 @@ export function SpeechTranscriptionSettings({
           </p>
         </div>
       ) : null}
+
+      <div className="border-t border-white/6 pt-5">
+        <label htmlFor="speech-cleanup-enabled" className="flex max-w-2xl cursor-pointer items-center gap-3 rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--text)]">
+          <input
+            id="speech-cleanup-enabled"
+            type="checkbox"
+            checked={cleanup.enabled}
+            disabled={!canManage}
+            onChange={(event) => toggleCleanup(event.target.checked)}
+          />
+          <span className="flex flex-col gap-1">
+            <span className="font-medium">AI post-cleanup</span>
+            <span className="text-xs leading-5 text-[var(--muted)]">
+              Send each transcript through the selected AI provider to remove filler words, apply punctuation, and format text before it lands in the composer.
+            </span>
+          </span>
+        </label>
+
+        {cleanup.enabled ? (
+          <div className="mt-4 space-y-4">
+            <div>
+              <label htmlFor="speech-cleanup-provider" className={fieldLabel}>Cleanup provider</label>
+              {providerProfiles.length ? (
+                <select
+                  id="speech-cleanup-provider"
+                  aria-label="AI post-cleanup provider profile"
+                  value={cleanup.profileId ?? ""}
+                  disabled={!canManage}
+                  onChange={(event) => onCleanupChange({ ...cleanup, profileId: event.target.value || null })}
+                  className={`${selectLike} w-full sm:w-[22rem] ${!canManage ? "opacity-60" : ""} ${cleanupDirty ? "!border-amber-500/40" : ""}`}
+                >
+                  {providerProfiles.map((profile) => (
+                    <option key={profile.id} value={profile.id}>{profile.name} ({profile.model})</option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-xs leading-5 text-[var(--muted)]">Create a provider profile first.</p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="speech-cleanup-prompt" className={fieldLabel}>Cleanup instructions</label>
+              <p className="mb-2 text-xs leading-5 text-[var(--muted)]">
+                System prompt sent with every transcript.
+              </p>
+              <textarea
+                id="speech-cleanup-prompt"
+                value={cleanup.prompt}
+                disabled={!canManage}
+                maxLength={20000}
+                rows={12}
+                onChange={(event) => onCleanupChange({ ...cleanup, prompt: event.target.value })}
+                className={`${selectLike} w-full resize-y font-mono text-xs leading-5 ${!canManage ? "opacity-60" : ""} ${cleanupDirty ? "!border-amber-500/40" : ""}`}
+              />
+              {canManage ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="mt-2 h-8 gap-1.5 px-3 text-xs"
+                  onClick={() => onCleanupChange({ ...cleanup, prompt: DEFAULT_SPEECH_CLEANUP_PROMPT })}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  Restore default prompt
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

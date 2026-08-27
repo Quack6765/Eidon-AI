@@ -1,4 +1,5 @@
 import type { CredentialAction } from "@/lib/integration-types";
+import { DEFAULT_SPEECH_CLEANUP_PROMPT } from "@/lib/speech/cleanup-prompt";
 import type { AppSettings, ConversationRetention } from "@/lib/types";
 
 export type IntegrationDraft<Selection extends {
@@ -26,6 +27,11 @@ export type GeneralSettingsDraft = {
   titleGeneration: {
     titleGenerationMode: AppSettings["titleGenerationMode"];
     titleGenerationProfileId: string | null;
+  };
+  speechCleanup: {
+    enabled: boolean;
+    profileId: string | null;
+    prompt: string;
   };
 };
 
@@ -58,6 +64,11 @@ export function createGeneralSettingsDraft(settings: AppSettings): GeneralSettin
     titleGeneration: {
       titleGenerationMode: settings.titleGenerationMode,
       titleGenerationProfileId: settings.titleGenerationProfileId
+    },
+    speechCleanup: {
+      enabled: settings.speechCleanupEnabled,
+      profileId: settings.speechCleanupProfileId,
+      prompt: settings.speechCleanupPrompt || DEFAULT_SPEECH_CLEANUP_PROMPT
     }
   };
 }

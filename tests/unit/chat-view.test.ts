@@ -321,6 +321,7 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
         credentialStored: false,
         scope: "global"
       },
+      speechCleanupEnabled: false,
       confirmExternalLinks: true,
       toolCallDisplay: "pills"
     },
@@ -1259,6 +1260,65 @@ describe("chat view", () => {
     expect(wsMock.send).not.toHaveBeenCalled();
   });
 
+  it("cleans dictation before inserting it and blocks submit while cleaning", async () => {
+    let resolveCleanup: ((response: Response) => void) | undefined;
+    const cleanupDeferred = new Promise<Response>((resolve) => {
+      resolveCleanup = resolve;
+    });
+    vi.mocked(global.fetch).mockImplementation((url) =>
+      String(url) === "/api/speech/transcription/cleanup"
+        ? cleanupDeferred
+        : Promise.resolve({ ok: true, json: async () => ({ personas: [] }) } as Response)
+    );
+
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          settings: {
+            speechTranscription: {
+              providerId: "browser",
+              configuration: { language: "en" },
+              configured: true,
+              credentialStored: false,
+              scope: "global"
+            },
+            speechCleanupEnabled: true,
+            confirmExternalLinks: true,
+            toolCallDisplay: "pills"
+          }
+        })
+      })
+    );
+
+    const textarea = screen.getByRole("textbox");
+    fireEvent.change(textarea, { target: { value: "Existing draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start voice input" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Stop voice input" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop voice input" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Cleaning…")).toBeInTheDocument();
+    });
+
+    fireEvent.keyDown(textarea, { key: "Enter" });
+    expect(wsMock.send).not.toHaveBeenCalled();
+    expect(textarea).toHaveValue("Existing draft");
+
+    resolveCleanup!({
+      ok: true,
+      json: async () => ({ text: "Mock cleaned transcript." })
+    } as Response);
+
+    await waitFor(() => {
+      expect(textarea).toHaveValue("Existing draft\nMock cleaned transcript.");
+    });
+    expect(wsMock.send).not.toHaveBeenCalled();
+  });
+
   it("does not submit when Enter is pressed during active voice input", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
@@ -1289,6 +1349,7 @@ describe("chat view", () => {
               credentialStored: false,
               scope: "global"
             },
+            speechCleanupEnabled: false,
             confirmExternalLinks: true,
             toolCallDisplay: "pills"
           }

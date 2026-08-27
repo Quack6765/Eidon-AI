@@ -91,6 +91,9 @@ const settings: GeneralSectionSettings = {
   },
   titleGenerationMode: "same",
   titleGenerationProfileId: null,
+  speechCleanupEnabled: false,
+  speechCleanupProfileId: null,
+  speechCleanupPrompt: "",
   providerProfiles: [
     { id: "profile_default", name: "Default", model: "gpt-test" }
   ],

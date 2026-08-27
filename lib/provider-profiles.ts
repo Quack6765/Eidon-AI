@@ -600,6 +600,12 @@ export function saveProviderCatalog(input: unknown) {
           titleGenerationProfileId: null
         });
       }
+      if (preferences.speechCleanupProfileId && removedIds.includes(preferences.speechCleanupProfileId)) {
+        updateGlobalPreferences({
+          speechCleanupEnabled: false,
+          speechCleanupProfileId: null
+        });
+      }
       getDb().prepare(`DELETE FROM provider_profiles WHERE id IN (${placeholders})`).run(...removedIds);
     }
 

@@ -57,6 +57,11 @@ export type GeneralSettingsBundle = {
     titleGenerationMode: TitleGenerationMode;
     titleGenerationProfileId: string | null;
   };
+  speechCleanup?: {
+    enabled: boolean;
+    profileId: string | null;
+    prompt: string;
+  };
 };
 
 function runtimeSettings(userId?: string): RuntimeAppSettings {
@@ -79,6 +84,9 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
     toolCallDisplay: user.toolCallDisplay,
     titleGenerationMode: global.titleGenerationMode,
     titleGenerationProfileId: global.titleGenerationProfileId,
+    speechCleanupEnabled: global.speechCleanupEnabled,
+    speechCleanupProfileId: global.speechCleanupProfileId,
+    speechCleanupPrompt: global.speechCleanupPrompt,
     webSearch: webSearch
       ? {
           ...webSearch,
@@ -199,6 +207,9 @@ export function getSanitizedSettings(userId?: string): PublicAppSettings & {
     toolCallDisplay: settings.toolCallDisplay,
     titleGenerationMode: settings.titleGenerationMode,
     titleGenerationProfileId: settings.titleGenerationProfileId,
+    speechCleanupEnabled: settings.speechCleanupEnabled,
+    speechCleanupProfileId: settings.speechCleanupProfileId,
+    speechCleanupPrompt: settings.speechCleanupPrompt,
     updatedAt: settings.updatedAt,
     webSearch: integrations.webSearch as PublicAppSettings["webSearch"],
     imageGeneration: integrations.imageGeneration as PublicAppSettings["imageGeneration"],
@@ -229,6 +240,21 @@ export function updateTitleGenerationSettings(input: {
   });
 }
 
+export function updateSpeechCleanupSettings(input: {
+  enabled: boolean;
+  profileId: string | null;
+  prompt: string;
+}) {
+  const current = getGlobalPreferences();
+  return updateGlobalPreferences({
+    speechCleanupEnabled: input.enabled,
+    speechCleanupProfileId: input.enabled
+      ? input.profileId ?? current.speechCleanupProfileId
+      : current.speechCleanupProfileId,
+    speechCleanupPrompt: input.prompt
+  });
+}
+
 export function updateGeneralSettingsBundleForUser(
   userId: string,
   input: GeneralSettingsBundle,
@@ -239,7 +265,10 @@ export function updateGeneralSettingsBundleForUser(
     ["speech_transcription", input.speechTranscription],
     ["image_generation", input.imageGeneration]
   ] as Array<[IntegrationCapability, unknown]>).filter(([, update]) => update !== undefined);
-  if (!canManageGlobalIntegrations && (integrationUpdates.length > 0 || input.titleGeneration)) {
+  if (
+    !canManageGlobalIntegrations &&
+    (integrationUpdates.length > 0 || input.titleGeneration || input.speechCleanup)
+  ) {
     throw new Error("Only admins can update global settings");
   }
   const transaction = getDb().transaction(() => {
@@ -251,6 +280,7 @@ export function updateGeneralSettingsBundleForUser(
       });
     }
     if (input.titleGeneration) updateTitleGenerationSettings(input.titleGeneration);
+    if (input.speechCleanup) updateSpeechCleanupSettings(input.speechCleanup);
   });
   transaction();
   return getSanitizedSettings(userId);

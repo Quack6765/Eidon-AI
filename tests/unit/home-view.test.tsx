@@ -215,7 +215,8 @@ describe("home view", () => {
             configured: true,
             credentialStored: false,
             scope: "global"
-          }
+          },
+          speechCleanupEnabled: false
         }
       })
     );
@@ -270,7 +271,8 @@ describe("home view", () => {
             configured: true,
             credentialStored: false,
             scope: "global"
-          }
+          },
+          speechCleanupEnabled: false
         }
       })
     );
@@ -292,7 +294,8 @@ describe("home view", () => {
             configured: true,
             credentialStored: false,
             scope: "global"
-          }
+          },
+          speechCleanupEnabled: false
         }
       })
     );
@@ -312,7 +315,8 @@ describe("home view", () => {
             configured: true,
             credentialStored: false,
             scope: "global"
-          }
+          },
+          speechCleanupEnabled: false
         }
       })
     );
@@ -334,6 +338,105 @@ describe("home view", () => {
     });
 
     expect(push).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalledWith(
+      "/api/speech/transcription/cleanup",
+      expect.anything()
+    );
+  });
+
+  it("cleans dictation through the cleanup endpoint when enabled", async () => {
+    vi.mocked(global.fetch)
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ text: "Home cleaned transcript." })
+      } as Response);
+
+    render(
+      React.createElement(HomeView, {
+        providerProfiles: [createProviderProfile()],
+        defaultProviderProfileId: "profile_default",
+        settings: {
+          speechTranscription: {
+            providerId: "browser",
+            configuration: { language: "en" },
+            configured: true,
+            credentialStored: false,
+            scope: "global"
+          },
+          speechCleanupEnabled: true
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Start voice input" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Stop voice input" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop voice input" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox")).toHaveValue("Home cleaned transcript.");
+    });
+
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/speech/transcription/cleanup",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ transcript: "home transcript" })
+      })
+    );
+  });
+
+  it("falls back to the raw transcript when cleanup fails", async () => {
+    vi.mocked(global.fetch)
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: "AI post-cleanup is disabled." })
+      } as Response);
+
+    render(
+      React.createElement(HomeView, {
+        providerProfiles: [createProviderProfile()],
+        defaultProviderProfileId: "profile_default",
+        settings: {
+          speechTranscription: {
+            providerId: "browser",
+            configuration: { language: "en" },
+            configured: true,
+            credentialStored: false,
+            scope: "global"
+          },
+          speechCleanupEnabled: true
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Start voice input" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Stop voice input" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop voice input" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("textbox")).toHaveValue("home transcript");
+    });
+    expect(
+      await screen.findByText("AI cleanup failed — inserted raw transcript.")
+    ).toBeInTheDocument();
   });
 });
 import { toProviderProfileSummary } from "@/lib/provider-profile";

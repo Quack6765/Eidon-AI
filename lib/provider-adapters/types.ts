@@ -15,7 +15,8 @@ export type ProviderTextPurpose =
   | "test"
   | "title"
   | "image_instruction"
-  | "web_search_planning";
+  | "web_search_planning"
+  | "speech_cleanup";
 
 export type ProviderTextInput = {
   settings: RuntimeProviderProfile;

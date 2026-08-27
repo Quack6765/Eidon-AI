@@ -27,6 +27,11 @@ const inputSchema = z.object({
   titleGeneration: z.object({
     titleGenerationMode: z.enum(["same", "specific", "local"]),
     titleGenerationProfileId: z.string().nullable()
+  }).optional(),
+  speechCleanup: z.object({
+    enabled: z.boolean(),
+    profileId: z.string().nullable(),
+    prompt: z.string().min(1).max(20_000)
   }).optional()
 });
 

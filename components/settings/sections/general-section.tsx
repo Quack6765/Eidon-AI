@@ -126,6 +126,17 @@ export function GeneralSection({
   }
 
   function getValidationError() {
+    if (canManageGlobalIntegrations && draft.speechCleanup.enabled) {
+      if (!settings.providerProfiles.length) {
+        return "Create a provider profile before enabling AI post-cleanup.";
+      }
+      if (!draft.speechCleanup.profileId) {
+        return "Select a provider profile for AI post-cleanup.";
+      }
+      if (!draft.speechCleanup.prompt.trim()) {
+        return "AI post-cleanup prompt cannot be empty.";
+      }
+    }
     if (canManageGlobalIntegrations && draft.webSearch.providerId !== "disabled") {
       const error = getWebSearchReadinessError({
         ...draft.webSearch,
@@ -178,6 +189,11 @@ export function GeneralSection({
                     draft.titleGeneration.titleGenerationMode === "specific"
                       ? draft.titleGeneration.titleGenerationProfileId
                       : null
+                },
+                speechCleanup: {
+                  enabled: draft.speechCleanup.enabled,
+                  profileId: draft.speechCleanup.profileId,
+                  prompt: draft.speechCleanup.prompt
                 }
               }
             : {})
@@ -307,6 +323,10 @@ export function GeneralSection({
         canManage={canManageGlobalIntegrations}
         dirty={isFieldDirty("speechTranscription")}
         onChange={(value) => updateDraft("speechTranscription", value)}
+        cleanup={draft.speechCleanup}
+        cleanupDirty={isFieldDirty("speechCleanup")}
+        providerProfiles={settings.providerProfiles}
+        onCleanupChange={(value) => updateDraft("speechCleanup", value)}
       />
     ),
     "web-search": (

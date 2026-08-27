@@ -15,9 +15,10 @@ type UseSpeechInputOptions = {
   engine: SttEngine;
   initialLanguage: SttLanguage;
   resetKey?: string;
+  cleanup?: (transcript: string) => Promise<string>;
 };
 
-export function useSpeechInput({ engine, initialLanguage, resetKey }: UseSpeechInputOptions) {
+export function useSpeechInput({ engine, initialLanguage, resetKey, cleanup }: UseSpeechInputOptions) {
   const [speechSnapshot, setSpeechSnapshot] = useState<SpeechSessionSnapshot>(() => ({
     phase: "idle",
     engine,
@@ -80,7 +81,8 @@ export function useSpeechInput({ engine, initialLanguage, resetKey }: UseSpeechI
       speechAudioSessionRef.current ||
       speechSnapshot.phase === "requesting-permission" ||
       speechSnapshot.phase === "listening" ||
-      speechSnapshot.phase === "transcribing"
+      speechSnapshot.phase === "transcribing" ||
+      speechSnapshot.phase === "cleaning"
     ) {
       return;
     }
@@ -167,12 +169,13 @@ export function useSpeechInput({ engine, initialLanguage, resetKey }: UseSpeechI
       return "";
     }
 
+    let transcript = "";
     try {
       const stopPromise = controller.stop();
       syncSpeechSnapshot(controller);
       const result = await stopPromise;
       syncSpeechSnapshot(controller);
-      return result.transcript;
+      transcript = result.transcript;
     } catch (caughtError) {
       syncSpeechSnapshot(controller);
       setSpeechSnapshot((current) => ({
@@ -183,7 +186,29 @@ export function useSpeechInput({ engine, initialLanguage, resetKey }: UseSpeechI
     } finally {
       disposeSpeechSession();
     }
-  }, [disposeSpeechSession, syncSpeechSnapshot]);
+
+    if (!cleanup || !transcript.trim()) {
+      return transcript;
+    }
+
+    setSpeechSnapshot((current) => ({ ...current, phase: "cleaning" }));
+    try {
+      return await cleanup(transcript);
+    } catch {
+      setSpeechSnapshot((current) => ({
+        ...current,
+        phase: "idle",
+        error: "AI cleanup failed — inserted raw transcript."
+      }));
+      return transcript;
+    } finally {
+      setSpeechSnapshot((current) =>
+        current.phase === "cleaning"
+          ? { ...current, phase: "idle", level: 0 }
+          : current
+      );
+    }
+  }, [cleanup, disposeSpeechSession, syncSpeechSnapshot]);
 
   return {
     speechSnapshot,

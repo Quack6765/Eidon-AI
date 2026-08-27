@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 
 import { SpeechTranscriptionSettings } from "@/components/settings/integration-settings/speech-transcription-settings";
 import { WebSearchSettings } from "@/components/settings/integration-settings/web-search-settings";
@@ -25,6 +25,12 @@ type SpeechDraft = {
 };
 
 const noop = () => undefined;
+
+const cleanupDraft = {
+  enabled: false,
+  profileId: null as string | null,
+  prompt: "Keep it clean."
+};
 
 describe("web search settings component", () => {
   it("disables every control and hides credentials for non-admins", () => {
@@ -123,7 +129,11 @@ describe("speech transcription settings component", () => {
       persisted: externalDraft,
       canManage: false,
       dirty: false,
-      onChange: noop
+      onChange: noop,
+      cleanup: cleanupDraft,
+      cleanupDirty: false,
+      providerProfiles: [],
+      onCleanupChange: noop
     }));
 
     expect(screen.getByText("Only admins can change speech-to-text settings.")).toBeInTheDocument();
@@ -131,21 +141,54 @@ describe("speech transcription settings component", () => {
     expect(screen.getByLabelText("Speech-to-text provider")).toBeDisabled();
     expect(screen.getByLabelText("ElevenLabs transcription language")).toBeDisabled();
     expect(screen.queryByLabelText("ElevenLabs API key")).toBeNull();
+    expect(screen.getByRole("checkbox", { name: /AI post-cleanup/ })).toBeDisabled();
   });
 
   it("keeps controls enabled and shows credentials for admins", () => {
-    render(React.createElement(SpeechTranscriptionSettings, {
-      draft: externalDraft,
-      persisted: externalDraft,
-      canManage: true,
-      dirty: false,
-      onChange: noop
-    }));
+    function StatefulSpeechSettings() {
+      const [cleanup, setCleanup] = React.useState({ ...cleanupDraft });
+      return React.createElement(SpeechTranscriptionSettings, {
+        draft: externalDraft,
+        persisted: externalDraft,
+        canManage: true,
+        dirty: false,
+        onChange: noop,
+        cleanup,
+        cleanupDirty: false,
+        providerProfiles: [{ id: "profile_a", name: "Anthropic", model: "claude-sonnet-4-5" }],
+        onCleanupChange: setCleanup
+      });
+    }
+
+    render(React.createElement(StatefulSpeechSettings));
 
     expect(screen.getByText("Choose where composer dictation is transcribed.")).toBeInTheDocument();
     expect(screen.getByLabelText("Speech engine")).toBeEnabled();
     expect(screen.getByLabelText("Speech-to-text provider")).toBeEnabled();
     expect(screen.getByLabelText("ElevenLabs transcription language")).toBeEnabled();
     expect(screen.getByLabelText("ElevenLabs API key")).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /AI post-cleanup/ }));
+    expect(screen.getByLabelText("Cleanup provider")).toHaveValue("profile_a");
+    expect(screen.getByLabelText("Cleanup provider")).toBeEnabled();
+    expect(screen.getByLabelText("Cleanup instructions")).toBeEnabled();
+    expect(screen.getByRole("button", { name: /Restore default prompt/ })).toBeEnabled();
+  });
+
+  it("hints when AI post-cleanup is enabled without provider profiles", () => {
+    render(React.createElement(SpeechTranscriptionSettings, {
+      draft: externalDraft,
+      persisted: externalDraft,
+      canManage: true,
+      dirty: false,
+      onChange: noop,
+      cleanup: { ...cleanupDraft, enabled: true },
+      cleanupDirty: false,
+      providerProfiles: [],
+      onCleanupChange: noop
+    }));
+
+    expect(screen.getByText("Create a provider profile first.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Cleanup provider")).toBeNull();
   });
 });

@@ -196,6 +196,7 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
 
   const { speechSnapshot, onStartSpeech, onStopSpeech } = useComposerSpeech({
     selection: payload.settings.speechTranscription,
+    cleanupEnabled: payload.settings.speechCleanupEnabled,
     setDraft: setInput,
     clearError: () => setError(""),
     resetKey: payload.conversation.id
@@ -1754,6 +1755,7 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
     if (
       speechSnapshot.phase === "listening" ||
       speechSnapshot.phase === "transcribing" ||
+      speechSnapshot.phase === "cleaning" ||
       isUploadingAttachments ||
       updatingMessageId !== null
     ) {
