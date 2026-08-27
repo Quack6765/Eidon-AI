@@ -4,6 +4,7 @@ import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { GeneralSection } from "@/components/settings/sections/general-section";
+import { DEFAULT_SPEECH_CLEANUP_PROMPT } from "@/lib/speech/cleanup-prompt";
 import type {
   AppSettings,
   ConversationRetention,
@@ -117,13 +118,17 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
     providerProfiles: [],
     titleGenerationMode: "same",
     titleGenerationProfileId: null,
+    speechCleanupEnabled: false,
+    speechCleanupProfileId: null,
+    speechCleanupPrompt: "",
     ...Object.fromEntries(Object.entries(overrides).filter(([key]) => [
       "defaultProviderProfileId", "skillsEnabled", "conversationRetention",
       "memoriesEnabled", "memoriesMaxCount", "mcpTimeout", "maxAssistantToolSteps",
       "confirmExternalLinks",
       "toolCallDisplay",
       "titleGenerationMode", "titleGenerationProfileId", "providerProfiles", "updatedAt",
-      "webSearch", "speechTranscription", "imageGeneration"
+      "webSearch", "speechTranscription", "imageGeneration",
+      "speechCleanupEnabled", "speechCleanupProfileId", "speechCleanupPrompt"
     ].includes(key)))
   };
 }
@@ -246,6 +251,112 @@ describe("general section", () => {
       configuration: { language: "es" },
       credentialAction: "clear"
     });
+  });
+
+  it("enables AI post-cleanup with the first provider profile and saves the prompt", async () => {
+    const settings = makeSettings({
+      providerProfiles: [
+        { id: "profile_a", name: "Anthropic", model: "claude-sonnet-4-5" },
+        { id: "profile_b", name: "OpenAI", model: "gpt-5.2" }
+      ]
+    });
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
+
+    const toggle = screen.getByRole("checkbox", { name: /AI post-cleanup/ });
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+
+    expect(screen.getByLabelText("Cleanup provider")).toHaveValue("profile_a");
+    const prompt = screen.getByLabelText("Cleanup instructions") as HTMLTextAreaElement;
+    expect(prompt.value).toBe(DEFAULT_SPEECH_CLEANUP_PROMPT);
+    fireEvent.change(prompt, { target: { value: "Custom cleanup instructions." } });
+    fireEvent.change(screen.getByLabelText("Cleanup provider"), { target: { value: "profile_b" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(global.fetch).toHaveBeenCalledTimes(1));
+    const body = JSON.parse(String(vi.mocked(global.fetch).mock.calls[0][1]?.body));
+    expect(body.speechCleanup).toMatchObject({
+      enabled: true,
+      profileId: "profile_b",
+      prompt: "Custom cleanup instructions."
+    });
+  });
+
+  it("restores the default cleanup prompt from the speech section", () => {
+    const settings = makeSettings({
+      providerProfiles: [{ id: "profile_a", name: "Anthropic", model: "claude-sonnet-4-5" }],
+      speechCleanupEnabled: true,
+      speechCleanupProfileId: "profile_a",
+      speechCleanupPrompt: "Short prompt."
+    });
+
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Restore default prompt/ }));
+    expect(screen.getByLabelText("Cleanup instructions")).toHaveValue(
+      DEFAULT_SPEECH_CLEANUP_PROMPT
+    );
+  });
+
+  it("blocks enabling AI post-cleanup before provider profiles exist", async () => {
+    render(React.createElement(GeneralSection, { settings: makeSettings(), canManageGlobalIntegrations: true }));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /AI post-cleanup/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("Create a provider profile before enabling AI post-cleanup.")
+    ).toBeInTheDocument();
+  });
+
+  it("requires a cleanup provider selection and non-empty prompt", async () => {
+    const settings = makeSettings({
+      providerProfiles: [{ id: "profile_a", name: "Anthropic", model: "claude-sonnet-4-5" }],
+      speechCleanupEnabled: true,
+      speechCleanupProfileId: null,
+      speechCleanupPrompt: "Keep it clean."
+    });
+
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("Select a provider profile for AI post-cleanup.")
+    ).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Cleanup provider"), { target: { value: "profile_a" } });
+    fireEvent.change(screen.getByLabelText("Cleanup instructions"), { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(
+      await screen.findByText("AI post-cleanup prompt cannot be empty.")
+    ).toBeInTheDocument();
+  });
+
+  it("locks AI post-cleanup controls for non-admins", () => {
+    const settings = makeSettings({
+      providerProfiles: [{ id: "profile_a", name: "Anthropic", model: "claude-sonnet-4-5" }],
+      speechCleanupEnabled: true,
+      speechCleanupProfileId: "profile_a",
+      speechCleanupPrompt: "Keep it clean."
+    });
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    expect(screen.getByRole("checkbox", { name: /AI post-cleanup/ })).toBeDisabled();
+    expect(screen.getByLabelText("Cleanup provider")).toBeDisabled();
+    expect(screen.getByLabelText("Cleanup instructions")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: /Restore default prompt/ })).toBeNull();
   });
 
   it("defaults browser dictation to auto-detect and hides auto-detect for embedded mode", async () => {

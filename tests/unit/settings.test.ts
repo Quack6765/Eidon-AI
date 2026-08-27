@@ -615,6 +615,11 @@ describe("settings domains", () => {
       titleGeneration: {
         titleGenerationMode: "same" as const,
         titleGenerationProfileId: null
+      },
+      speechCleanup: {
+        enabled: true,
+        profileId: "profile_1",
+        prompt: "Clean it up."
       }
     };
 
@@ -636,6 +641,9 @@ describe("settings domains", () => {
       credentialStored: true,
       scope: "global"
     });
+    expect(updated.speechCleanupEnabled).toBe(true);
+    expect(updated.speechCleanupProfileId).toBe("profile_1");
+    expect(updated.speechCleanupPrompt).toBe("Clean it up.");
     expect(JSON.stringify(updated)).not.toContain("google-secret");
     expect(getSettingsForUser(user.id).imageGeneration.credentials.apiKey).toBe("google-secret");
 

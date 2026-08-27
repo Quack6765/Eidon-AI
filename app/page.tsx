@@ -25,7 +25,8 @@ export default async function HomePage() {
         providerProfiles={settings.providerProfiles}
         defaultProviderProfileId={settings.defaultProviderProfileId}
         settings={{
-          speechTranscription: settings.speechTranscription
+          speechTranscription: settings.speechTranscription,
+          speechCleanupEnabled: settings.speechCleanupEnabled
         }}
       />
     </Shell>

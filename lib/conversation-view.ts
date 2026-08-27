@@ -13,7 +13,10 @@ export type ConversationViewPayload = {
   conversation: Conversation;
   messages: Message[];
   queuedMessages: QueuedMessage[];
-  settings: Pick<AppSettings, "speechTranscription" | "confirmExternalLinks" | "toolCallDisplay">;
+  settings: Pick<
+    AppSettings,
+    "speechTranscription" | "speechCleanupEnabled" | "confirmExternalLinks" | "toolCallDisplay"
+  >;
   providerProfiles: ProviderProfileSummary[];
   defaultProviderProfileId: string | null;
   contextTokens: number | null;
@@ -42,6 +45,7 @@ export function buildConversationViewPayload(
     queuedMessages: listQueuedMessages(conversation.id),
     settings: {
       speechTranscription: settings.speechTranscription,
+      speechCleanupEnabled: settings.speechCleanupEnabled,
       confirmExternalLinks: settings.confirmExternalLinks,
       toolCallDisplay: settings.toolCallDisplay
     },

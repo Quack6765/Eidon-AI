@@ -187,6 +187,49 @@ describe("settings route", () => {
     });
   });
 
+  it("persists AI post-cleanup settings for admins and rejects members", async () => {
+    const admin = await createLocalUser({
+      username: "speech-cleanup-admin",
+      password: "Password123!",
+      role: "admin"
+    });
+    requireUserMock.mockResolvedValue(admin);
+
+    const { PUT } = await import("@/app/api/settings/general/route");
+    const makeRequest = (speechCleanup: unknown) => new Request("http://localhost/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ preferences: {}, speechCleanup })
+    });
+
+    const blankPrompt = await PUT(makeRequest({ enabled: true, profileId: "profile_1", prompt: "" }));
+    expect(blankPrompt.status).toBe(400);
+
+    const valid = await PUT(makeRequest({ enabled: true, profileId: "profile_1", prompt: "Clean it up." }));
+    expect(valid.status).toBe(200);
+    await expect(valid.json()).resolves.toEqual(
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          speechCleanupEnabled: true,
+          speechCleanupProfileId: "profile_1",
+          speechCleanupPrompt: "Clean it up."
+        })
+      })
+    );
+
+    const member = await createLocalUser({
+      username: "speech-cleanup-member",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(member);
+    const forbidden = await PUT(makeRequest({ enabled: false, profileId: null, prompt: "x" }));
+    expect(forbidden.status).toBe(403);
+    await expect(forbidden.json()).resolves.toEqual({
+      error: "Only admins can update global settings"
+    });
+  });
+
   it("lets admins point SearXNG at any network address, including private ones", async () => {
     const admin = await createLocalUser({
       username: "searxng-admin-user",

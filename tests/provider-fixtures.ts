@@ -123,6 +123,9 @@ export function createRuntimeAppSettings(
     toolCallDisplay: "pills",
     titleGenerationMode: "same",
     titleGenerationProfileId: null,
+    speechCleanupEnabled: false,
+    speechCleanupProfileId: null,
+    speechCleanupPrompt: "",
     webSearch: {
       providerId: "disabled",
       configuration: {},

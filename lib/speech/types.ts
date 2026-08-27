@@ -28,6 +28,7 @@ export type SpeechPhase =
   | "requesting-permission"
   | "listening"
   | "transcribing"
+  | "cleaning"
   | "error"
   | "unsupported";
 

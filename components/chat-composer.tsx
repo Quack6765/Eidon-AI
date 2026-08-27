@@ -326,10 +326,12 @@ export function ChatComposer({
     isUploadingAttachments ||
     speechPhase === "listening" ||
     speechPhase === "transcribing" ||
+    speechPhase === "cleaning" ||
     (!showStopButton && !canQueueDraft && !canImmediateDraft) ||
     (!queueingEnabled && isSending);
   const showContextUsage = hasMessages && usedTokens !== null;
-  const isSpeechActive = speechPhase === "listening" || speechPhase === "transcribing";
+  const isSpeechActive =
+    speechPhase === "listening" || speechPhase === "transcribing" || speechPhase === "cleaning";
   const speechLevelWidth = Math.max(8, Math.round(speechLevel * 100));
   const speechControlsDisabled = !mounted || isSending || isUploadingAttachments || isSpeechActive;
   const showQueueAndStop = showStopButton && canQueueDraft;
@@ -697,7 +699,7 @@ export function ChatComposer({
                 transition={{ duration: 0.16 }}
                 className="flex items-center justify-end gap-2"
               >
-                {speechPhase === "transcribing" ? (
+                {speechPhase === "transcribing" || speechPhase === "cleaning" ? (
                   <div
                     role="status"
                     aria-live="polite"
@@ -705,7 +707,7 @@ export function ChatComposer({
                     className="flex h-9 items-center gap-2 rounded-full border border-violet-400/20 bg-violet-400/10 px-3 text-[11px] font-medium text-violet-100 md:h-8"
                   >
                     <LoaderCircle aria-hidden="true" className="h-3.5 w-3.5 animate-spin text-violet-300" />
-                    <span>Transcribing…</span>
+                    <span>{speechPhase === "cleaning" ? "Cleaning…" : "Transcribing…"}</span>
                   </div>
                 ) : (
                   <>

@@ -119,6 +119,9 @@ type AppSettingsCore = {
   toolCallDisplay: ToolCallDisplayMode;
   titleGenerationMode: TitleGenerationMode;
   titleGenerationProfileId: string | null;
+  speechCleanupEnabled: boolean;
+  speechCleanupProfileId: string | null;
+  speechCleanupPrompt: string;
   updatedAt: string;
 };
 

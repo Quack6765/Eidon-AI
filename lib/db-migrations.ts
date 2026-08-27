@@ -575,6 +575,9 @@ function migratePreferenceStorage(db: Database.Database) {
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
       title_generation_mode TEXT NOT NULL DEFAULT 'same',
       title_generation_profile_id TEXT,
+      speech_cleanup_enabled INTEGER NOT NULL DEFAULT 0,
+      speech_cleanup_profile_id TEXT,
+      speech_cleanup_prompt TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL,
@@ -1880,6 +1883,16 @@ export function migrate(db: Database.Database) {
   }
   if (!userPreferencesCols.some((column) => column.name === "tool_call_display")) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN tool_call_display TEXT NOT NULL DEFAULT 'pills'");
+  }
+
+  if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_enabled")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN speech_cleanup_enabled INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_profile_id")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN speech_cleanup_profile_id TEXT");
+  }
+  if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_prompt")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN speech_cleanup_prompt TEXT NOT NULL DEFAULT ''");
   }
 }
 

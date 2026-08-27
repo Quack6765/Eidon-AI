@@ -150,6 +150,7 @@ describe("Mobile API v1 contracts", () => {
       "/attachments/{attachmentId}",
       "/speech/transcription/prepare",
       "/speech/transcription/transcribe",
+      "/speech/transcription/cleanup",
       "/automations/{automationId}/runs",
       "/automation-runs/{runId}",
       "/messages/{messageId}/edit-restart",
@@ -173,6 +174,10 @@ describe("Mobile API v1 contracts", () => {
       parameters: [{ $ref: "#/components/parameters/speechAudioSampleRate" }],
       requestBody: { $ref: "#/components/requestBodies/RecordedSpeechAudio" },
       responses: { "200": { $ref: "#/components/responses/SpeechTranscription" } }
+    });
+    expect(contract.paths["/speech/transcription/cleanup"].post).toMatchObject({
+      requestBody: { $ref: "#/components/requestBodies/SpeechCleanup" },
+      responses: { "200": { $ref: "#/components/responses/SpeechCleanup" } }
     });
     expect(contract.components.requestBodies.RecordedSpeechAudio).toMatchObject({
       required: true,
@@ -207,8 +212,8 @@ describe("Mobile API v1 contracts", () => {
     expect(universal35Languages.enum).not.toContain("sw");
     expect(universal2Languages.enum).toContain("sw");
     expect(universal2Languages.enum).toHaveLength(103);
-    expect(compileOpenApiJsonRequestBodies()).toBe(35);
-    expect(compileOpenApiJsonResponses()).toBe(87);
+    expect(compileOpenApiJsonRequestBodies()).toBe(36);
+    expect(compileOpenApiJsonResponses()).toBe(88);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {

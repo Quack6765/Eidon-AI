@@ -40,6 +40,7 @@ import * as settingsTestRoute from "@/app/api/settings/test/route";
 import * as titleGenerationSettingsRoute from "@/app/api/settings/title-generation/route";
 import * as skillRoute from "@/app/api/skills/[skillId]/route";
 import * as skillsRoute from "@/app/api/skills/route";
+import * as speechCleanupRoute from "@/app/api/speech/transcription/cleanup/route";
 import * as speechPrepareRoute from "@/app/api/speech/transcription/prepare/route";
 import * as speechTranscribeRoute from "@/app/api/speech/transcription/transcribe/route";
 import * as userRoute from "@/app/api/users/[userId]/route";
@@ -117,7 +118,8 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["providers", ":profileId", "connection", "flows", ":flowId"], module: providerConnectionFlowRoute },
   { pattern: ["providers", ":profileId", "models"], module: providerModelsRoute },
   { pattern: ["speech", "transcription", "prepare"], module: speechPrepareRoute },
-  { pattern: ["speech", "transcription", "transcribe"], module: speechTranscribeRoute }
+  { pattern: ["speech", "transcription", "transcribe"], module: speechTranscribeRoute },
+  { pattern: ["speech", "transcription", "cleanup"], module: speechCleanupRoute }
 ];
 
 function matchPattern(pattern: string[], path: string[]) {

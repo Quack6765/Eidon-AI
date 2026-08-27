@@ -15,7 +15,7 @@ import type {
   ProviderTextPurpose
 } from "@/lib/provider-adapters/types";
 
-const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning"]);
+const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning", "speech_cleanup"]);
 
 export async function callAnthropicAdapterText(input: ProviderTextInput) {
   const settings = LOW_EFFORT_PURPOSES.has(input.purpose)
