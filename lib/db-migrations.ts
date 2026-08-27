@@ -949,6 +949,7 @@ export function migrate(db: Database.Database) {
       user_id TEXT,
       folder_id TEXT,
       provider_profile_id TEXT,
+      reasoning_effort TEXT,
       tool_execution_mode TEXT NOT NULL DEFAULT 'read_only',
       share_token TEXT UNIQUE,
       share_enabled INTEGER NOT NULL DEFAULT 0,
@@ -1239,6 +1240,9 @@ export function migrate(db: Database.Database) {
   if (!automationConversationCols.some((col) => col.name === "is_temporary")) {
     db.exec("ALTER TABLE conversations ADD COLUMN is_temporary INTEGER NOT NULL DEFAULT 0");
     db.exec("DELETE FROM conversations WHERE is_temporary = 1");
+  }
+  if (!automationConversationCols.some((col) => col.name === "reasoning_effort")) {
+    db.exec("ALTER TABLE conversations ADD COLUMN reasoning_effort TEXT");
   }
 
   const messageActionCols = db.prepare("PRAGMA table_info(message_actions)").all() as Array<{ name: string }>;

@@ -3,6 +3,13 @@ export type ApiMode = "responses" | "chat_completions";
 export type ReasoningParameterMode = "standard" | "mirrored";
 export type ProcessingMode = "standard" | "fast";
 export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export const REASONING_EFFORTS = ["none", "low", "medium", "high", "xhigh", "max"] as const;
+
+export function isReasoningEffort(value: unknown): value is ReasoningEffort {
+  return typeof value === "string" && (REASONING_EFFORTS as readonly string[]).includes(value);
+}
+
 export type VisionMode = "none" | "native" | "mcp" | "provider";
 
 export type ProviderModelRequestRule = {

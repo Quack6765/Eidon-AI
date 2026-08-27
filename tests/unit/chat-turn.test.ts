@@ -132,6 +132,54 @@ describe("chat-turn", () => {
     expect(messages[1].status).toBe("completed");
   });
 
+  it("applies the conversation reasoning effort override at turn start", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+
+    const manager = createConversationManager();
+
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const { createConversation } = await import("@/lib/conversations");
+    const pinnedConversation = createConversation(undefined, undefined, {
+      providerProfileId: profileId,
+      reasoningEffort: "high"
+    });
+    const unsupportedConversation = createConversation(undefined, undefined, {
+      providerProfileId: profileId,
+      reasoningEffort: "max"
+    });
+    const inheritConversation = createConversation(undefined, undefined, {
+      providerProfileId: profileId
+    });
+
+    mockedStreamProviderResponse.mockImplementation(() =>
+      (async function* () {
+        yield { type: "answer_delta", text: "ok" };
+        return { answer: "ok", thinking: "", usage: { outputTokens: 1 } };
+      })()
+    );
+
+    const callsBefore = mockedStreamProviderResponse.mock.calls.length;
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    await startChatTurn(manager, pinnedConversation.id, "Hi", []);
+    await startChatTurn(manager, unsupportedConversation.id, "Hi", []);
+    await startChatTurn(manager, inheritConversation.id, "Hi", []);
+
+    const efforts = mockedStreamProviderResponse.mock.calls
+      .slice(callsBefore)
+      .map((call) => call[0].settings.reasoningEffort);
+
+    expect(efforts).toEqual(["high", "medium", "medium"]);
+  });
+
   it("marks the assistant message as error on provider failure", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);

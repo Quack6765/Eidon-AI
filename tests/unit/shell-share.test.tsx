@@ -34,6 +34,7 @@ const conversation: Conversation = {
   titleGenerationStatus: "completed",
   folderId: null,
   providerProfileId: null,
+  reasoningEffort: null,
   automationId: null,
   automationRunId: null,
   conversationOrigin: "manual",

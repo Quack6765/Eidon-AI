@@ -61,7 +61,8 @@ import type {
   MessageAttachment,
   MessageTimelineItem,
   QueuedMessage,
-  ProviderProfileSummary
+  ProviderProfileSummary,
+  ReasoningEffort
 } from "@/lib/types";
 
 const INITIAL_VISIBLE_MESSAGE_COUNT = 60;
@@ -171,6 +172,9 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
       payload.providerProfiles,
       payload.defaultProviderProfileId
     )
+  );
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(
+    payload.conversation.reasoningEffort
   );
   const personas = usePersonas();
   const [personaId, setPersonaId] = useState<string | null>(null);
@@ -478,6 +482,10 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
       )
     );
   }, [payload.conversation.providerProfileId, payload.defaultProviderProfileId, payload.providerProfiles]);
+
+  useEffect(() => {
+    setReasoningEffort(payload.conversation.reasoningEffort);
+  }, [payload.conversation.id, payload.conversation.reasoningEffort]);
 
   useEffect(() => {
     contentEndRef.current?.parentElement?.style.removeProperty("min-height");
@@ -1731,6 +1739,38 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
     }
   }
 
+  async function updateReasoningEffort(nextReasoningEffort: ReasoningEffort) {
+    const previousReasoningEffort = reasoningEffort;
+    setError("");
+    setReasoningEffort(nextReasoningEffort);
+
+    try {
+      const response = await fetch(`/api/conversations/${payload.conversation.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ reasoningEffort: nextReasoningEffort })
+      });
+
+      if (!response.ok) {
+        let message = "Unable to update reasoning effort";
+
+        try {
+          const failure = (await response.json()) as { error?: string };
+          message = failure.error ?? message;
+        } catch {}
+
+        throw new Error(message);
+      }
+    } catch (caughtError) {
+      setReasoningEffort(previousReasoningEffort);
+      setError(
+        caughtError instanceof Error ? caughtError.message : "Unable to update reasoning effort"
+      );
+    }
+  }
+
   function dismissComposerKeyboardOnTouch() {
     if (shouldAutofocusTextInput()) {
       return;
@@ -2078,6 +2118,8 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
             providerProfiles={payload.providerProfiles}
             providerProfileId={providerProfileId}
             onProviderProfileChange={updateProviderProfile}
+            reasoningEffort={reasoningEffort}
+            onReasoningEffortChange={updateReasoningEffort}
             personas={personas}
             personaId={personaId}
             onPersonaChange={setPersonaId}

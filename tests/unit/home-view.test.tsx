@@ -254,6 +254,73 @@ describe("home view", () => {
     expect(screen.queryByText("Help me brainstorm ideas")).toBeNull();
   });
 
+  it("carries the selected reasoning effort into the draft conversation", async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          conversation: {
+            id: "conv_effort"
+          }
+        })
+      } as Response);
+
+    render(
+      React.createElement(HomeView, {
+        providerProfiles: [createProviderProfile()],
+        defaultProviderProfileId: "profile_default",
+        settings: {
+          speechTranscription: {
+            providerId: "browser",
+            configuration: { language: "en" },
+            configured: true,
+            credentialStored: false,
+            scope: "global"
+          },
+          speechCleanupEnabled: false
+        }
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reasoning effort" }));
+    fireEvent.click(screen.getByText("High"));
+
+    fireEvent.change(
+      screen.getByRole("textbox"),
+      {
+        target: {
+          value: "Start this thread with more effort"
+        }
+      }
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/conversations",
+        expect.objectContaining({
+          method: "POST"
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(push).toHaveBeenCalledWith("/chat/conv_effort");
+    });
+
+    const createCall = vi.mocked(global.fetch).mock.calls.find(
+      (call) => call[0] === "/api/conversations"
+    );
+    expect(JSON.parse(String(createCall?.[1]?.body))).toMatchObject({
+      reasoningEffort: "high"
+    });
+  });
+
   it("does not autofocus the composer on touch devices", () => {
     Object.defineProperty(navigator, "maxTouchPoints", {
       configurable: true,

@@ -12,7 +12,8 @@ import {
   renameConversation,
   setConversationActive,
   setConversationTemporary,
-  updateConversationProviderProfile
+  updateConversationProviderProfile,
+  updateConversationReasoningEffort
 } from "@/lib/conversations";
 import { getConversationDebugStats } from "@/lib/compaction";
 import { getFolder } from "@/lib/folders";
@@ -82,6 +83,7 @@ const updateSchema = z
   .object({
     folderId: z.string().nullable().optional(),
     providerProfileId: z.string().min(1).optional(),
+    reasoningEffort: z.enum(["none", "low", "medium", "high", "xhigh", "max"]).nullable().optional(),
     isActive: z.boolean().optional(),
     isTemporary: z.boolean().optional(),
     title: z.string().min(1).max(200).optional()
@@ -90,6 +92,7 @@ const updateSchema = z
     (value) =>
       value.folderId !== undefined ||
       value.providerProfileId !== undefined ||
+      value.reasoningEffort !== undefined ||
       value.isActive !== undefined ||
       value.isTemporary !== undefined ||
       value.title !== undefined,
@@ -132,6 +135,10 @@ export async function PATCH(
     }
 
     updateConversationProviderProfile(conversation.id, providerProfile.id, user.id);
+  }
+
+  if (body.data.reasoningEffort !== undefined) {
+    updateConversationReasoningEffort(conversation.id, body.data.reasoningEffort, user.id);
   }
 
   if (body.data.isActive !== undefined) {

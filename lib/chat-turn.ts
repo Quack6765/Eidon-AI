@@ -26,6 +26,7 @@ import { badRequest } from "@/lib/http";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/db";
 import { getConversationManager } from "@/lib/ws-singleton";
+import { resolveConversationReasoningEffort } from "@/lib/provider-profile";
 import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compaction";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
@@ -163,10 +164,19 @@ export function getAssistantTurnStartPreflight(conversationId: string) {
     };
   }
 
-  const settings =
+  const profileSettings =
     (conversation.providerProfileId
       ? getRuntimeProviderProfile(conversation.providerProfileId)
       : null) ?? getDefaultRuntimeProviderProfile();
+  const settings = profileSettings
+    ? {
+        ...profileSettings,
+        reasoningEffort: resolveConversationReasoningEffort(
+          conversation.reasoningEffort,
+          profileSettings
+        )
+      }
+    : null;
   const conversationOwnerId = getConversationOwnerId(conversationId);
   const appSettings = conversationOwnerId ? getSettingsForUser(conversationOwnerId) : getSettings();
 

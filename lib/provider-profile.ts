@@ -160,6 +160,16 @@ export function resolveProviderProfileCapabilities(
   };
 }
 
+export function resolveConversationReasoningEffort(
+  stored: ReasoningEffort | null,
+  profile: ProviderProfile
+): ReasoningEffort {
+  if (stored && resolveProviderProfileCapabilities(profile).reasoningEfforts.includes(stored)) {
+    return stored;
+  }
+  return profile.reasoningEffort;
+}
+
 export function getProviderConnectionSummary(
   profile: RuntimeProviderProfile
 ): ProviderConnectionSummary {

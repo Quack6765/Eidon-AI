@@ -364,6 +364,17 @@ describe("db", () => {
     );
   });
 
+  it("adds the reasoning effort column to conversations", async () => {
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+    const columns = db.prepare("PRAGMA table_info(conversations)").all() as Array<{ name: string }>;
+
+    expect(columns.map((column) => column.name)).toContain("reasoning_effort");
+    expect(
+      db.prepare("SELECT reasoning_effort FROM conversations LIMIT 1").all()
+    ).toEqual([]);
+  });
+
   it("adds multi-user tables and owner columns", async () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();
@@ -578,6 +589,7 @@ describe("db", () => {
         "folder_id",
         "sort_order",
         "provider_profile_id",
+        "reasoning_effort",
         "title_generation_status",
         "tool_execution_mode",
         "automation_id",
