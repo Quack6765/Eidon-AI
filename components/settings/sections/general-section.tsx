@@ -249,7 +249,7 @@ export function GeneralSection({
         </label>
         <div className="space-y-1.5">
           <label htmlFor="tool-call-display" className={fieldLabel}>Tool activity display</label>
-          <p className="text-xs leading-5 text-[var(--muted)]">Status line hides tool pills and shows a single animated status while the assistant works.</p>
+          <p className="text-xs leading-5 text-[var(--muted)]">Show a pill for each tool as it runs, or collapse all activity into one animated status line.</p>
           <select
             id="tool-call-display"
             value={draft.preferences.toolCallDisplay}
@@ -259,8 +259,8 @@ export function GeneralSection({
             })}
             className={`${selectLike} mt-2 sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
           >
-            <option value="pills">Show tool pills</option>
-            <option value="status_line">Status line (hide tool pills)</option>
+            <option value="pills">Tool pills</option>
+            <option value="status_line">Single status line</option>
           </select>
         </div>
       </div>
