@@ -12,6 +12,7 @@ import {
   Eye,
   EyeOff,
   FileText,
+  Gauge,
   LoaderCircle,
   Mic,
   Paperclip,
@@ -24,6 +25,8 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import { ContextGauge } from "@/components/context-gauge";
 import { Textarea } from "@/components/ui/textarea";
+import type { ReasoningEffort } from "@/lib/provider-catalog";
+import { resolveProviderProfileCapabilities } from "@/lib/provider-profile";
 import type { SpeechPhase } from "@/lib/speech/types";
 import { cn } from "@/lib/utils";
 import { useAutoResize } from "@/lib/use-auto-resize";
@@ -49,6 +52,8 @@ type ChatComposerProps = {
   personas: Array<{ id: string; name: string }>;
   personaId: string | null;
   onPersonaChange: (personaId: string | null) => void | Promise<void>;
+  reasoningEffort: ReasoningEffort | null;
+  onReasoningEffortChange: (effort: ReasoningEffort) => void | Promise<void>;
   textareaRef?: React.Ref<HTMLTextAreaElement>;
   className?: string;
   usedTokens: number | null;
@@ -76,19 +81,21 @@ function CustomDropdown<T extends { id: string; name: string }>({
   onSelect,
   icon: Icon,
   placeholder,
+  ariaLabel,
   disabled,
   accentColor = "cyan",
   mutedWhenEmpty = false,
   allowDeselect = false,
   onOpenChange
 }: {
-  items: T[];
+  items: Array<T & { badge?: string }>;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   icon: React.ElementType;
   placeholder?: string;
+  ariaLabel?: string;
   disabled?: boolean;
-  accentColor?: "cyan" | "violet";
+  accentColor?: "cyan" | "violet" | "emerald";
   mutedWhenEmpty?: boolean;
   allowDeselect?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -124,7 +131,8 @@ function CustomDropdown<T extends { id: string; name: string }>({
 
   const accentClasses = {
     cyan: isOpen ? "text-cyan-400 bg-cyan-400/10" : "text-cyan-400/70 hover:text-cyan-400",
-    violet: isOpen ? "text-violet-400 bg-violet-400/10" : "text-violet-400/70 hover:text-violet-400"
+    violet: isOpen ? "text-violet-400 bg-violet-400/10" : "text-violet-400/70 hover:text-violet-400",
+    emerald: isOpen ? "text-emerald-400 bg-emerald-400/10" : "text-emerald-400/70 hover:text-emerald-400"
   };
 
   const mutedClasses = noItems
@@ -136,6 +144,7 @@ function CustomDropdown<T extends { id: string; name: string }>({
       <button
         type="button"
         disabled={isDisabled}
+        aria-label={ariaLabel}
         onClick={() => { if (!isDisabled) updateOpen(!isOpen); }}
         className={cn(
           "flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-all duration-200",
@@ -168,7 +177,7 @@ function CustomDropdown<T extends { id: string; name: string }>({
             initial={{ opacity: 0, y: 10, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 10, scale: 0.95 }}
-            className="absolute bottom-full left-0 z-50 mb-2 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/95 p-1.5 shadow-2xl backdrop-blur-md"
+            className="absolute bottom-full left-0 z-50 mb-2 overflow-hidden rounded-2xl border border-white/10 bg-zinc-900 p-1.5 shadow-2xl"
           >
             <div className="max-h-[300px] overflow-y-auto scrollbar-thin">
               {placeholder && (
@@ -218,6 +227,11 @@ function CustomDropdown<T extends { id: string; name: string }>({
                         {(item as any).model}
                       </span>
                     )}
+                    {item.badge ? (
+                      <span className="ml-auto shrink-0 rounded-full border border-white/10 bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-white/45">
+                        {item.badge}
+                      </span>
+                    ) : null}
                   </div>
                 </button>
               ))}
@@ -227,6 +241,13 @@ function CustomDropdown<T extends { id: string; name: string }>({
       </AnimatePresence>
     </div>
   );
+}
+
+function formatReasoningEffortLabel(effort: ReasoningEffort): string {
+  if (effort === "none") {
+    return "Disabled";
+  }
+  return effort.charAt(0).toUpperCase() + effort.slice(1);
 }
 
 export function ChatComposer({
@@ -245,6 +266,8 @@ export function ChatComposer({
   personas,
   personaId,
   onPersonaChange,
+  reasoningEffort,
+  onReasoningEffortChange,
   textareaRef,
   className,
   usedTokens,
@@ -277,7 +300,7 @@ export function ChatComposer({
   const isExpanded = layoutStacked || textareaWraps;
   const isMobile = useIsMobile();
   const [toolbarOverflow, setToolbarOverflow] = useState<"hidden" | "visible">("visible");
-  const [mobilePanel, setMobilePanel] = useState<"closed" | "tools" | "models" | "personas">("closed");
+  const [mobilePanel, setMobilePanel] = useState<"closed" | "tools" | "models" | "personas" | "efforts">("closed");
   const mobileMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -351,6 +374,20 @@ export function ChatComposer({
   }));
   const selectedModel = displayModels.find((model) => model.id === providerProfileId) ?? null;
   const selectedPersona = personas.find((persona) => persona.id === personaId) ?? null;
+  const selectedProviderProfile = providerProfiles.find((profile) => profile.id === providerProfileId) ?? null;
+  const reasoningEffortOptions = selectedProviderProfile
+    ? resolveProviderProfileCapabilities(selectedProviderProfile).reasoningEfforts
+    : [];
+  const providerDefaultEffort = selectedProviderProfile?.reasoningEffort ?? null;
+  const effectiveReasoningEffort =
+    reasoningEffort && reasoningEffortOptions.includes(reasoningEffort)
+      ? reasoningEffort
+      : providerDefaultEffort;
+  const effortItems = reasoningEffortOptions.map((effort) => ({
+    id: effort,
+    name: formatReasoningEffortLabel(effort),
+    badge: effort === providerDefaultEffort ? "Default" : undefined
+  }));
 
   return (
     <div className="group/composer relative">
@@ -544,6 +581,22 @@ export function ChatComposer({
                         <ChevronRight className="h-4 w-4 text-white/30" />
                       </button>
 
+                      <button
+                        type="button"
+                        disabled={!mounted || isSending || reasoningEffortOptions.length === 0}
+                        onClick={() => setMobilePanel("efforts")}
+                        className="flex min-h-14 w-full items-center gap-3 rounded-xl px-3 text-left transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Gauge className="h-4.5 w-4.5 shrink-0 text-emerald-400/75" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[11px] font-medium text-white/55">Effort</span>
+                          <span className="block truncate text-sm font-medium text-white/90">
+                            {effectiveReasoningEffort ? formatReasoningEffortLabel(effectiveReasoningEffort) : "Default provider effort"}
+                          </span>
+                        </span>
+                        <ChevronRight className="h-4 w-4 text-white/30" />
+                      </button>
+
                       {showContextUsage ? (
                         <div className="flex min-h-11 items-center gap-3 px-3">
                           <span className="flex-1 text-sm font-medium text-white/70">Context usage</span>
@@ -632,6 +685,43 @@ export function ChatComposer({
                           >
                             <span className="flex-1 truncate font-medium">{persona.name}</span>
                             {persona.id === personaId ? <Check className="h-4 w-4 text-violet-400" /> : null}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {mobilePanel === "efforts" ? (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setMobilePanel("tools")}
+                        className="flex min-h-11 w-full items-center gap-2 rounded-xl px-3 text-sm font-semibold text-white/85 transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Effort
+                      </button>
+                      <div className="max-h-[min(300px,40vh)] overflow-y-auto scrollbar-thin">
+                        {reasoningEffortOptions.map((effort) => (
+                          <button
+                            key={effort}
+                            type="button"
+                            onClick={() => {
+                              void onReasoningEffortChange(effort);
+                              setMobilePanel("closed");
+                            }}
+                            className={cn(
+                              "flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20",
+                              effort === effectiveReasoningEffort ? "bg-emerald-400/[0.08] text-white/90" : "text-white/65"
+                            )}
+                          >
+                            <span className="flex-1 truncate font-medium">{formatReasoningEffortLabel(effort)}</span>
+                            {effort === providerDefaultEffort ? (
+                              <span className="rounded-full border border-white/10 bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-white/45">
+                                Default
+                              </span>
+                            ) : null}
+                            {effort === effectiveReasoningEffort ? <Check className="h-4 w-4 text-emerald-400" /> : null}
                           </button>
                         ))}
                       </div>
@@ -853,6 +943,16 @@ export function ChatComposer({
                     disabled={!mounted || isSending}
                     mutedWhenEmpty
                     allowDeselect
+                  />
+
+                  <CustomDropdown
+                    items={effortItems}
+                    selectedId={effectiveReasoningEffort}
+                    onSelect={(id) => id && void onReasoningEffortChange(id as ReasoningEffort)}
+                    icon={Gauge}
+                    accentColor="emerald"
+                    ariaLabel="Reasoning effort"
+                    disabled={!mounted || isSending || reasoningEffortOptions.length === 0}
                   />
                 </div>
 

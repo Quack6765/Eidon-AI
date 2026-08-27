@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import React from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 
 import { ChatComposer } from "@/components/chat-composer";
 import { toProviderProfileSummary } from "@/lib/provider-profile";
@@ -102,6 +102,8 @@ function renderComposer(overrides: Partial<React.ComponentProps<typeof ChatCompo
     personas: [],
     personaId: null,
     onPersonaChange: vi.fn(),
+    reasoningEffort: null,
+    onReasoningEffortChange: vi.fn(),
     textareaRef,
     usedTokens: null,
     modelContextLimit: 128000,
@@ -337,6 +339,109 @@ describe("ChatComposer responsive controls", () => {
     expect(screen.getByRole("button", { name: "Stop response" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Queue follow-up" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Start voice input" })).toBeNull();
+  });
+});
+
+describe("ChatComposer reasoning effort selector", () => {
+  const providerProfile = toProviderProfileSummary(createRuntimeProviderProfile({
+    id: "profile_effort",
+    name: "Daily model",
+    model: "gpt-5-mini"
+  }));
+
+  it("lists the provider's effort options with the default badged and the effective level highlighted", async () => {
+    installMatchMedia(false);
+    const onReasoningEffortChange = vi.fn();
+
+    renderComposer({
+      providerProfiles: [providerProfile],
+      providerProfileId: providerProfile.id,
+      reasoningEffort: "high",
+      onReasoningEffortChange
+    });
+
+    const trigger = screen.getByRole("button", { name: "Reasoning effort" });
+    expect(trigger).toHaveTextContent("High");
+
+    fireEvent.click(trigger);
+
+    const popover = document.querySelector("div.absolute.bottom-full") as HTMLElement;
+    const optionLabels = within(popover)
+      .getAllByText(/^(Disabled|Low|Medium|High|Xhigh)$/)
+      .map((option) => option.textContent);
+    expect(optionLabels).toEqual(["Disabled", "Low", "Medium", "High", "Xhigh"]);
+
+    const mediumRow = within(popover).getByText("Medium").closest("button")!;
+    expect(mediumRow).toHaveTextContent("Default");
+
+    const highRow = within(popover).getByText("High").closest("button")!;
+    expect(highRow).toHaveClass("bg-white/10");
+
+    fireEvent.click(within(popover).getByText("Xhigh"));
+
+    expect(onReasoningEffortChange).toHaveBeenCalledWith("xhigh");
+  });
+
+  it("shows the provider default as selected when no conversation effort is stored", async () => {
+    installMatchMedia(false);
+
+    renderComposer({
+      providerProfiles: [providerProfile],
+      providerProfileId: providerProfile.id,
+      reasoningEffort: null
+    });
+
+    const effortButton = screen.getByRole("button", { name: "Reasoning effort" });
+    expect(effortButton).toHaveTextContent("Medium");
+  });
+
+  it("falls back to the provider default when the stored effort is unsupported", () => {
+    installMatchMedia(false);
+
+    renderComposer({
+      providerProfiles: [providerProfile],
+      providerProfileId: providerProfile.id,
+      reasoningEffort: "max"
+    });
+
+    expect(screen.getByRole("button", { name: "Reasoning effort" })).toHaveTextContent("Medium");
+  });
+
+  it("keeps the effort control disabled without a provider profile", () => {
+    installMatchMedia(false);
+
+    renderComposer({ providerProfiles: [], providerProfileId: "" });
+
+    expect(screen.getByRole("button", { name: "Reasoning effort" })).toBeDisabled();
+  });
+
+  it("offers effort selection from the mobile tools sheet", async () => {
+    installMatchMedia(true);
+    const onReasoningEffortChange = vi.fn();
+
+    renderComposer({
+      compactOnMobile: true,
+      providerProfiles: [providerProfile],
+      providerProfileId: providerProfile.id,
+      reasoningEffort: "low",
+      onReasoningEffortChange
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open composer tools" }));
+
+    const effortRow = screen.getByRole("button", { name: /Effort/ });
+    expect(effortRow).toHaveTextContent("Low");
+
+    fireEvent.click(effortRow);
+
+    expect(screen.getByRole("button", { name: /^Effort$/ })).toBeInTheDocument();
+    const highRow = screen.getByText("High").closest("button")!;
+    expect(highRow).not.toHaveTextContent("Default");
+    expect(screen.getByText("Medium").closest("button")).toHaveTextContent("Default");
+
+    fireEvent.click(screen.getByText("High"));
+
+    expect(onReasoningEffortChange).toHaveBeenCalledWith("high");
   });
 });
 

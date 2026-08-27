@@ -39,8 +39,10 @@ import type {
   MessageStatus,
   MemoryProposalPayload,
   MemoryProposalState,
+  ReasoningEffort,
   SystemMessageKind
 } from "@/lib/types";
+import { isReasoningEffort } from "@/lib/provider-catalog";
 import { nowIso } from "@/lib/utils";
 
 export {
@@ -66,6 +68,7 @@ type ConversationRow = {
   title_generation_status: ConversationTitleGenerationStatus;
   folder_id: string | null;
   provider_profile_id: string | null;
+  reasoning_effort: string | null;
   automation_id: string | null;
   automation_run_id: string | null;
   conversation_origin: "manual" | "automation";
@@ -101,6 +104,7 @@ function rowToConversation(row: ConversationRow): Conversation {
     titleGenerationStatus: row.title_generation_status,
     folderId: row.folder_id,
     providerProfileId: row.provider_profile_id,
+    reasoningEffort: isReasoningEffort(row.reasoning_effort) ? row.reasoning_effort : null,
     automationId: row.automation_id,
     automationRunId: row.automation_run_id,
     conversationOrigin: row.conversation_origin,
@@ -121,6 +125,7 @@ function selectConversationColumns(activityTimestamp: string) {
             c.title_generation_status,
             c.folder_id,
             c.provider_profile_id,
+            c.reasoning_effort,
             c.automation_id,
             c.automation_run_id,
             c.conversation_origin,
@@ -420,6 +425,7 @@ export function createConversation(
   folderId?: string | null,
   options?: {
     providerProfileId?: string | null;
+    reasoningEffort?: ReasoningEffort | null;
     origin?: ConversationOrigin;
     automationId?: string | null;
     automationRunId?: string | null;
@@ -445,6 +451,7 @@ export function createConversation(
     titleGenerationStatus: (trimmedTitle ? "completed" : "pending") as ConversationTitleGenerationStatus,
     folderId: folderId ?? null,
     providerProfileId: options?.providerProfileId ?? settings.defaultProviderProfileId,
+    reasoningEffort: options?.reasoningEffort ?? null,
     automationId: options?.automationId ?? null,
     automationRunId: options?.automationRunId ?? null,
     conversationOrigin: options?.origin ?? MANUAL_CONVERSATION_ORIGIN,
@@ -467,6 +474,7 @@ export function createConversation(
         user_id,
         folder_id,
         provider_profile_id,
+        reasoning_effort,
         automation_id,
         automation_run_id,
         conversation_origin,
@@ -478,7 +486,7 @@ export function createConversation(
         updated_at,
         is_active,
         is_temporary
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       conversation.id,
@@ -487,6 +495,7 @@ export function createConversation(
       userId ?? null,
       conversation.folderId,
       conversation.providerProfileId,
+      conversation.reasoningEffort,
       conversation.automationId,
       conversation.automationRunId,
       conversation.conversationOrigin,
@@ -1137,7 +1146,8 @@ export function forkConversationFromMessage(messageId: string, userId?: string) 
       `Fork ${sourceConversation.title}`,
       sourceConversation.folderId,
       {
-        providerProfileId: sourceConversation.providerProfileId ?? undefined
+        providerProfileId: sourceConversation.providerProfileId ?? undefined,
+        reasoningEffort: sourceConversation.reasoningEffort ?? undefined
       },
       sourceConversationOwnerId ?? userId
     );
@@ -1926,6 +1936,32 @@ export function updateConversationProviderProfile(
        WHERE id = ?`
     )
     .run(providerProfileId, timestamp, conversationId);
+}
+
+export function updateConversationReasoningEffort(
+  conversationId: string,
+  reasoningEffort: ReasoningEffort | null,
+  userId?: string
+) {
+  const timestamp = nowIso();
+  if (userId) {
+    getDb()
+      .prepare(
+        `UPDATE conversations
+         SET reasoning_effort = ?, updated_at = ?
+         WHERE id = ? AND user_id = ?`
+      )
+      .run(reasoningEffort, timestamp, conversationId, userId);
+    return;
+  }
+
+  getDb()
+    .prepare(
+      `UPDATE conversations
+       SET reasoning_effort = ?, updated_at = ?
+       WHERE id = ?`
+    )
+    .run(reasoningEffort, timestamp, conversationId);
 }
 
 export function reorderConversations(

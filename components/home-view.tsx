@@ -14,7 +14,8 @@ import { cn, shouldAutofocusTextInput } from "@/lib/utils";
 import type {
   AppSettings,
   Conversation,
-  ProviderProfileSummary
+  ProviderProfileSummary,
+  ReasoningEffort
 } from "@/lib/types";
 
 type HomeViewProps = {
@@ -39,6 +40,7 @@ export function HomeView({
   const [personaId, setPersonaId] = useState<string | null>(null);
   const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
   const [isTemporary, setIsTemporary] = useState(false);
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [entranceAnimDone, setEntranceAnimDone] = useState(false);
   const onEntranceAnimEnd = useCallback(() => setEntranceAnimDone(true), []);
@@ -98,6 +100,7 @@ export function HomeView({
       },
       body: JSON.stringify({
         providerProfileId,
+        ...(reasoningEffort ? { reasoningEffort } : {}),
         isTemporary
       })
     });
@@ -120,6 +123,7 @@ export function HomeView({
 
   async function syncDraftConversation(updates: {
     providerProfileId?: string;
+    reasoningEffort?: ReasoningEffort;
   }) {
     if (!draftConversationId) {
       return;
@@ -154,6 +158,23 @@ export function HomeView({
       await syncDraftConversation({ providerProfileId: nextProviderProfileId });
     } catch (caughtError) {
       setProviderProfileId(previousProviderProfileId);
+      setError(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to update conversation settings"
+      );
+    }
+  }
+
+  async function handleReasoningEffortChange(nextReasoningEffort: ReasoningEffort) {
+    const previousReasoningEffort = reasoningEffort;
+    setError("");
+    setReasoningEffort(nextReasoningEffort);
+
+    try {
+      await syncDraftConversation({ reasoningEffort: nextReasoningEffort });
+    } catch (caughtError) {
+      setReasoningEffort(previousReasoningEffort);
       setError(
         caughtError instanceof Error
           ? caughtError.message
@@ -238,6 +259,8 @@ export function HomeView({
             providerProfiles={providerProfiles}
             providerProfileId={providerProfileId}
             onProviderProfileChange={handleProviderProfileChange}
+            reasoningEffort={reasoningEffort}
+            onReasoningEffortChange={handleReasoningEffortChange}
             personas={personas}
             personaId={personaId}
             onPersonaChange={setPersonaId}

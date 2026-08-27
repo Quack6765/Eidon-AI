@@ -30,6 +30,7 @@ import {
   markMessagesCompacted,
   updateMessage,
   updateConversationProviderProfile,
+  updateConversationReasoningEffort,
   getConversationSnapshot,
   updateMessageAction
 } from "@/lib/conversations";
@@ -1810,6 +1811,34 @@ describe("conversation helpers", () => {
     });
 
     expect(getConversation(conversation.id)?.providerProfileId).toBe(nextProfileId);
+  });
+
+  it("creates, updates, and clears per-conversation reasoning effort", async () => {
+    const conversation = createConversation("Effort pinned", null, {
+      reasoningEffort: "high"
+    });
+
+    expect(conversation.reasoningEffort).toBe("high");
+    expect(getConversation(conversation.id)?.reasoningEffort).toBe("high");
+
+    updateConversationReasoningEffort(conversation.id, "low");
+    expect(getConversation(conversation.id)?.reasoningEffort).toBe("low");
+
+    updateConversationReasoningEffort(conversation.id, null);
+    expect(getConversation(conversation.id)?.reasoningEffort).toBeNull();
+
+    const withoutEffort = createConversation();
+    expect(withoutEffort.reasoningEffort).toBeNull();
+  });
+
+  it("reads invalid stored reasoning effort values back as null", async () => {
+    const conversation = createConversation();
+
+    getDb()
+      .prepare("UPDATE conversations SET reasoning_effort = ? WHERE id = ?")
+      .run("turbo", conversation.id);
+
+    expect(getConversation(conversation.id)?.reasoningEffort).toBeNull();
   });
 
   it("deletes conversation attachment records and files together",  async () => {

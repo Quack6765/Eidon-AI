@@ -55,6 +55,7 @@ function createConversation(): Conversation {
     titleGenerationStatus: "completed",
     folderId: null,
     providerProfileId: "profile_default",
+    reasoningEffort: null,
     automationId: null,
     automationRunId: null,
     conversationOrigin: "manual",

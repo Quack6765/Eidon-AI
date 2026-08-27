@@ -299,6 +299,7 @@ function createPayload(overrides: Partial<ChatViewPayload> = {}): ChatViewPayloa
       titleGenerationStatus: "completed" as const,
       folderId: null,
       providerProfileId: "profile_default",
+      reasoningEffort: null,
       automationId: null,
       automationRunId: null,
       conversationOrigin: "manual",
@@ -5229,6 +5230,34 @@ describe("chat view", () => {
     });
 
     expect(screen.queryByTestId("earlier-messages-sentinel")).toBeNull();
+  });
+
+  it("initializes the effort selector from the conversation payload", () => {
+    const base = createPayload();
+    const payload = createPayload({
+      conversation: { ...base.conversation, reasoningEffort: "high" }
+    });
+
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    expect(screen.getByRole("button", { name: "Reasoning effort" })).toHaveTextContent("High");
+  });
+
+  it("persists effort changes to the conversation via PATCH", async () => {
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Reasoning effort" }));
+    fireEvent.click(screen.getByText("Xhigh"));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/conversations/conv_1",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ reasoningEffort: "xhigh" })
+        })
+      );
+    });
   });
 
   it("streams the assistant answer in a long conversation with status line mode", async () => {

@@ -37,6 +37,7 @@ const createSchema = z.object({
   title: z.string().optional(),
   folderId: z.string().nullable().optional(),
   providerProfileId: z.string().min(1).optional(),
+  reasoningEffort: z.enum(["none", "low", "medium", "high", "xhigh", "max"]).optional(),
   isTemporary: z.boolean().optional()
 });
 
@@ -66,6 +67,7 @@ export async function POST(request: Request) {
 
   const conversation = createConversation(title, folderId, {
     providerProfileId,
+    reasoningEffort: body.success ? body.data.reasoningEffort : undefined,
     isTemporary: body.success ? body.data.isTemporary : undefined
   }, user.id);
 

@@ -152,6 +152,7 @@ export type Conversation = {
   titleGenerationStatus: ConversationTitleGenerationStatus;
   folderId: string | null;
   providerProfileId: string | null;
+  reasoningEffort: ReasoningEffort | null;
   automationId: string | null;
   automationRunId: string | null;
   conversationOrigin: ConversationOrigin;
