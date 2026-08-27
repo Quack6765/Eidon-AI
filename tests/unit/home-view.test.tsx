@@ -280,7 +280,8 @@ describe("home view", () => {
             configured: true,
             credentialStored: false,
             scope: "global"
-          }
+          },
+          speechCleanupEnabled: false
         }
       })
     );
