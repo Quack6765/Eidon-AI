@@ -187,7 +187,7 @@ export function FolderItem({
       <DropdownPortal anchorRef={triggerRef} open={folderMenuOpen}>
         <div
           ref={menuRef}
-          className="w-48 rounded-2xl border border-white/5 bg-[#121214] p-2 shadow-2xl backdrop-blur-xl animate-fade-in relative"
+          className="w-full rounded-2xl border border-white/5 bg-[#121214] p-2 shadow-2xl backdrop-blur-xl animate-fade-in relative"
         >
           <button
             onClick={() => setFolderMenuOpen(false)}
