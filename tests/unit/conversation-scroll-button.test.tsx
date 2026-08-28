@@ -188,7 +188,7 @@ describe("ConversationScrollButton", () => {
     render(React.createElement(ConversationScrollButton));
 
     const button = screen.getByRole("button", { name: "Scroll to latest messages" });
-    expect(button.className).toContain("bottom-[calc(var(--composer-height,80px)+12px)]");
+    expect(button.className).toContain("bottom-[var(--composer-height,80px)]");
     expect(screen.getByText("Latest")).toHaveClass("hidden", "md:inline");
   });
 });
