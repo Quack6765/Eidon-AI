@@ -39,21 +39,21 @@ export function DropdownPortal({
 }) {
   const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  React.useLayoutEffect(() => {
-    if (!open || !anchorRef.current) return;
+  const computeCoords = () => {
+    if (!anchorRef.current) return;
     const rect = anchorRef.current.getBoundingClientRect();
-    setCoords({ top: rect.bottom + 4, left: rect.right - 224, width: 224 });
+    setCoords({ top: rect.bottom + 4, left: Math.max(8, rect.right - 224), width: 224 });
+  };
+
+  React.useLayoutEffect(() => {
+    if (!open) return;
+    computeCoords();
   }, [anchorRef, open]);
 
   useEffect(() => {
     if (!open) return;
-    function handleScroll() {
-      if (!anchorRef.current) return;
-      const rect = anchorRef.current.getBoundingClientRect();
-      setCoords({ top: rect.bottom + 4, left: rect.right - 224, width: 224 });
-    }
-    window.addEventListener("scroll", handleScroll, true);
-    return () => window.removeEventListener("scroll", handleScroll, true);
+    window.addEventListener("scroll", computeCoords, true);
+    return () => window.removeEventListener("scroll", computeCoords, true);
   }, [anchorRef, open]);
 
   if (!open || !coords || typeof document === "undefined") return null;
