@@ -21,10 +21,6 @@ jobs:
       pull-requests: read
 
     steps:
-      - name: Debounce rapid dev pushes
-        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
-        run: sleep 300
-
       - uses: actions/checkout@v4
 
       - name: Lowercase repository name
