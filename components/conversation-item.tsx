@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, type MouseEvent as ReactMouseEvent } from "react";
+import React, { useState, useRef, useEffect, useCallback, type MouseEvent as ReactMouseEvent } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -39,22 +39,22 @@ export function DropdownPortal({
 }) {
   const [coords, setCoords] = useState<{ top: number; left: number; width: number } | null>(null);
 
-  const computeCoords = () => {
+  const computeCoords = useCallback(() => {
     if (!anchorRef.current) return;
     const rect = anchorRef.current.getBoundingClientRect();
     setCoords({ top: rect.bottom + 4, left: Math.max(8, rect.right - 224), width: 224 });
-  };
+  }, [anchorRef]);
 
   React.useLayoutEffect(() => {
     if (!open) return;
     computeCoords();
-  }, [anchorRef, open]);
+  }, [computeCoords, open]);
 
   useEffect(() => {
     if (!open) return;
     window.addEventListener("scroll", computeCoords, true);
     return () => window.removeEventListener("scroll", computeCoords, true);
-  }, [anchorRef, open]);
+  }, [computeCoords, open]);
 
   if (!open || !coords || typeof document === "undefined") return null;
 
