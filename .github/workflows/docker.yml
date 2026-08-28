@@ -2,9 +2,15 @@ name: Docker Build
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, dev]
+  push:
+    branches: [dev]
   release:
     types: [published]
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -15,10 +21,18 @@ jobs:
       pull-requests: read
 
     steps:
+      - name: Debounce rapid dev pushes
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        run: sleep 300
+
       - uses: actions/checkout@v4
 
       - name: Lowercase repository name
         run: echo "REPO_LOWERCASE=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set dev build version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        run: echo "DEV_VERSION=dev-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
       - name: Detect deployment-sensitive changes
         id: changes
@@ -74,6 +88,25 @@ jobs:
           contracts/mobile-api-v1.openapi.json
           contracts/mobile-api-v1.websocket.schema.json
           --clobber
+
+      - name: Build full production image (dev)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            NEXT_PUBLIC_APP_VERSION=${{ env.DEV_VERSION }}
+          tags: |
+            ghcr.io/${{ env.REPO_LOWERCASE }}:dev
+            ghcr.io/${{ env.REPO_LOWERCASE }}:${{ env.DEV_VERSION }}
+          cache-from: |
+            type=gha
+            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:main
+            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:dev
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:dev,mode=max
 
       - name: Build full production image (pull request)
         if: github.event_name == 'pull_request' && steps.changes.outputs.deployment == 'true'

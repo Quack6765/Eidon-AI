@@ -164,6 +164,46 @@ docker compose up -d
 
 Eidon does not ship with a provider API key. The deployment is ready first; you bring the model access you want to use.
 
+### 5. Optional: run the dev channel
+
+Two image channels are published from GitHub:
+
+| Channel | Image tags | Published when |
+| --- | --- | --- |
+| Stable | `:latest`, `:<release version>` | A GitHub release is cut from `main` |
+| Dev | `:dev`, `:dev-<commit sha>` | Every push to the `dev` branch |
+
+To test changes before they are released, merge them into `dev`. Then run the dev image alongside your stable instance with its own data volume and port (save as `docker-compose.dev.yml`):
+
+```yaml
+services:
+  eidon-dev:
+    image: ghcr.io/quack6765/eidon-ai:dev
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      EIDON_PASSWORD_LOGIN_ENABLED: "true"
+      EIDON_ADMIN_USERNAME: "admin"
+      EIDON_ADMIN_PASSWORD: "${EIDON_ADMIN_PASSWORD}"
+      EIDON_SESSION_SECRET: "${EIDON_SESSION_SECRET}"
+      EIDON_ENCRYPTION_SECRET: "${EIDON_ENCRYPTION_SECRET}"
+    volumes:
+      - eidon-dev-data:/app/data
+
+volumes:
+  eidon-dev-data:
+```
+
+The `:dev` tag is mutable and always points at the latest `dev` build, so pull before restarting:
+
+```bash
+docker compose -f docker-compose.dev.yml pull
+docker compose -f docker-compose.dev.yml up -d
+```
+
+The in-app version shows `dev-<commit sha>`, so you can confirm exactly which build you are testing. Once a dev build checks out, merge `dev` into `main` and cut a GitHub release. Your stable instance keeps running `:latest` and only changes when you pull after a release.
+
 ## Why the Docker Image Is Different
 
 The production image is meant to be useful on its own, not just a way to serve the UI.
