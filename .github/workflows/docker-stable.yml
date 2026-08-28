@@ -1,10 +1,14 @@
-name: Docker Build
+name: Docker Stable
 
 on:
   pull_request:
     branches: [main]
   release:
     types: [published]
+
+concurrency:
+  group: docker-stable-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -29,7 +33,8 @@ jobs:
             deployment:
               - 'Dockerfile'
               - '.dockerignore'
-              - '.github/workflows/docker.yml'
+              - '.github/workflows/docker-stable.yml'
+              - '.github/workflows/docker-dev.yml'
               - '.github/workflows/test.yml'
               - 'package.json'
               - 'package-lock.json'

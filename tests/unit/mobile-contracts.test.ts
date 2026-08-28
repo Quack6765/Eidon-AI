@@ -300,8 +300,8 @@ describe("Mobile API v1 contracts", () => {
       path.join(process.cwd(), ".github/workflows/test.yml"),
       "utf8"
     );
-    const dockerWorkflow = fs.readFileSync(
-      path.join(process.cwd(), ".github/workflows/docker.yml"),
+    const dockerStableWorkflow = fs.readFileSync(
+      path.join(process.cwd(), ".github/workflows/docker-stable.yml"),
       "utf8"
     );
 
@@ -310,8 +310,8 @@ describe("Mobile API v1 contracts", () => {
       "contracts/mobile-api-v1.websocket.schema.json"
     ]) {
       expect(testWorkflow).toContain(contractPath);
-      expect(dockerWorkflow).toContain(contractPath);
+      expect(dockerStableWorkflow).toContain(contractPath);
     }
-    expect(dockerWorkflow).toContain("gh release upload");
+    expect(dockerStableWorkflow).toContain("gh release upload");
   });
 });
