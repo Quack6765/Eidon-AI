@@ -5,6 +5,7 @@ import { APP_NAME } from "@/lib/constants";
 import { ServiceWorkerRegistration } from "@/components/service-worker-registration";
 
 import "streamdown/styles.css";
+import "katex/dist/katex.min.css";
 import "@/app/globals.css";
 import { cn } from "@/lib/utils";
 

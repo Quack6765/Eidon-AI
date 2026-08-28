@@ -13,6 +13,14 @@ export function normalizeLineBreaks(text: string) {
     .replace(/\\r/g, "\n");
 }
 
+export function normalizeRealLineBreaks(text: string) {
+  if (!text.includes("\r")) {
+    return text;
+  }
+
+  return text.replace(/\r\n?/g, "\n");
+}
+
 export function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat("en", {
     month: "short",

@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Copy, GitFork, LoaderCircle, Pencil, RefreshCw, Square, X } from "lucide-react";
 import { Streamdown } from "streamdown";
+import { math } from "@streamdown/math";
 import { MarkdownErrorBoundary } from "@/components/markdown-error-boundary";
 import {
   AttachmentPreviewModal,
@@ -32,7 +33,7 @@ import type {
   PublicMessageAttachment,
   ToolCallDisplayMode
 } from "@/lib/types";
-import { normalizeLineBreaks } from "@/lib/text-utils";
+import { normalizeRealLineBreaks } from "@/lib/text-utils";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Message,
@@ -109,7 +110,8 @@ const AssistantMarkdown = React.memo(
     isStatic?: boolean;
     linkSafety: ReturnType<typeof useLinkSafety>;
   }) {
-    const plugins = useStreamdownPlugins(content);
+    const sharedPlugins = useStreamdownPlugins(content);
+    const plugins = useMemo(() => ({ math, ...sharedPlugins }), [sharedPlugins]);
     const fallback = (
       <pre className="whitespace-pre-wrap break-words text-sm">{content}</pre>
     );
@@ -404,8 +406,12 @@ function MessageBubbleImpl({
   const previewController = useAttachmentPreviewController();
   const linkSafety = useLinkSafety(confirmExternalLinks);
   const useStatusLine = toolCallDisplay === "status_line";
-  const userPlugins = useStreamdownPlugins(
+  const sharedUserPlugins = useStreamdownPlugins(
     message.role === "user" ? streamingAnswer ?? message.content : ""
+  );
+  const userPlugins = useMemo(
+    () => ({ math, ...sharedUserPlugins }),
+    [sharedUserPlugins]
   );
 
   useEffect(() => {
@@ -438,7 +444,7 @@ function MessageBubbleImpl({
       streamingTimeline !== undefined && streamingAnswer !== undefined
         ? clampStreamingTimeline(streamingTimeline, streamingAnswer)
         : streamingTimeline ?? message.timeline;
-    const contentForComparison = normalizeLineBreaks(rawContent);
+    const contentForComparison = normalizeRealLineBreaks(rawContent);
     const timeline = liveTimeline ?? actions.map((action) => ({
       ...action,
       timelineKind: "action" as const
@@ -513,7 +519,7 @@ function MessageBubbleImpl({
       )
       .map((item) => item.content)
       .join("");
-    const normalizedConsumedText = normalizeLineBreaks(consumedText);
+    const normalizedConsumedText = normalizeRealLineBreaks(consumedText);
 
     if (
       contentForComparison &&
