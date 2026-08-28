@@ -267,7 +267,7 @@ docker compose -f docker-compose.dev.yml pull
 docker compose -f docker-compose.dev.yml up -d
 ```
 
-The in-app version shows `dev-<commit sha>`, so you can confirm exactly which build you are testing. Once a dev build checks out, merge `dev` into `main` and cut a GitHub release. Your stable instance keeps running `:latest` and only changes when you pull after a release.
+The in-app version shows `dev-<commit sha>`, so you can confirm exactly which build you are testing.
 
 ## Local Development
 
