@@ -431,6 +431,67 @@ describe("runWebSearchPipeline", () => {
 
     expect(result.resultSummary.length).toBeLessThanOrEqual(32_000);
   });
+
+  it("bounds a never-settling direct search with mcpTimeout and rejects with a timeout error", async () => {
+    searchWebMock.mockImplementation(() => new Promise<string>(() => {}));
+    const startedAt = Date.now();
+
+    await expect(runWebSearchPipeline({
+      query: "stuck search",
+      mode: "auto",
+      maxQueries: 4,
+      settings: makeSettings(),
+      mcpTimeout: 2_000
+    })).rejects.toThrow("Web search timed out after 2 seconds");
+
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+  }, 15_000);
+
+  it("bounds every never-settling fan-out sub-search with mcpTimeout", async () => {
+    searchWebMock.mockImplementation(() => new Promise<string>(() => {}));
+
+    await expect(runWebSearchPipeline({
+      queries: ["stuck one", "stuck two"],
+      mode: "always",
+      maxQueries: 4,
+      settings: makeSettings(),
+      mcpTimeout: 500
+    })).rejects.toThrow(/All 2 web searches failed: .*Web search timed out after 1 seconds/);
+  }, 15_000);
+
+  it("cancels a never-settling search promptly when the turn aborts", async () => {
+    searchWebMock.mockImplementation(() => new Promise<string>(() => {}));
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new ChatTurnStoppedError()), 50);
+    const startedAt = Date.now();
+
+    await expect(runWebSearchPipeline({
+      query: "stuck search",
+      mode: "auto",
+      maxQueries: 4,
+      settings: makeSettings(),
+      mcpTimeout: 60_000,
+      abortSignal: controller.signal
+    })).rejects.toThrow(ChatTurnStoppedError);
+
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+  });
+
+  it("bounds a never-settling planning call and falls back to a direct search", async () => {
+    callProviderTextMock.mockImplementation(() => new Promise<string>(() => {}));
+    searchWebMock.mockResolvedValue("provider text");
+
+    const result = await runWebSearchPipeline({
+      query: "planning hangs",
+      mode: "auto",
+      maxQueries: 4,
+      settings: makeSettings(),
+      providerProfile: createRuntimeProviderProfile()
+    });
+
+    expect(result.strategy).toBe("direct");
+    expect(result.resultSummary).toBe("provider text");
+  }, 25_000);
 });
 
 describe("cross-call duplicate query cache", () => {

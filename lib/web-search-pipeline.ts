@@ -249,6 +249,22 @@ export function buildPlanningPrompt(input: {
   return lines.join("\n");
 }
 
+function withAbortGuard<T>(promise: Promise<T>, signal: AbortSignal | undefined, createError: () => Error): Promise<T> {
+  if (!signal) return promise;
+  promise.catch(() => undefined);
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) => {
+      const abort = () => reject(createError());
+      if (signal.aborted) {
+        abort();
+        return;
+      }
+      signal.addEventListener("abort", abort, { once: true });
+    })
+  ]);
+}
+
 export async function planWebSearch(input: {
   providerProfile?: RuntimeProviderProfile;
   query: string;
@@ -260,17 +276,22 @@ export async function planWebSearch(input: {
   if (!input.providerProfile) return { action: "direct" };
   try {
     const timeoutSignal = AbortSignal.timeout(WEB_SEARCH_PLANNING_TIMEOUT_MS);
-    const text = await callProviderText({
-      settings: input.providerProfile,
-      prompt: buildPlanningPrompt({
-        query: input.query,
-        userContext: input.userContext,
-        forceFanOut: input.forceFanOut,
-        maxQueries: input.maxQueries
+    const planningSignal = combinedAbortSignal([input.abortSignal, timeoutSignal]);
+    const text = await withAbortGuard(
+      callProviderText({
+        settings: input.providerProfile,
+        prompt: buildPlanningPrompt({
+          query: input.query,
+          userContext: input.userContext,
+          forceFanOut: input.forceFanOut,
+          maxQueries: input.maxQueries
+        }),
+        purpose: "web_search_planning",
+        abortSignal: planningSignal
       }),
-      purpose: "web_search_planning",
-      abortSignal: combinedAbortSignal([input.abortSignal, timeoutSignal])
-    });
+      planningSignal,
+      () => new Error(`Web search planning timed out after ${Math.round(WEB_SEARCH_PLANNING_TIMEOUT_MS / 1000)} seconds`)
+    );
     return parsePlanningResponse(text) ?? { action: "direct" };
   } catch {
     throwIfChatTurnAborted(input.abortSignal);
@@ -297,13 +318,22 @@ async function runSearchWithTimeout(input: {
     input.abortSignal,
     AbortSignal.timeout(input.timeoutMs)
   ]);
-  return searchWeb({
-    settings: input.settings,
-    query: input.query,
-    maxResults: input.maxResults,
-    abortSignal: perSearchSignal,
-    timeout: input.timeoutMs
-  });
+  return withAbortGuard(
+    searchWeb({
+      settings: input.settings,
+      query: input.query,
+      maxResults: input.maxResults,
+      abortSignal: perSearchSignal,
+      timeout: input.timeoutMs
+    }),
+    perSearchSignal,
+    () =>
+      input.abortSignal?.aborted
+        ? input.abortSignal.reason instanceof Error
+          ? input.abortSignal.reason
+          : new Error("Web search aborted")
+        : new Error(`Web search timed out after ${Math.round(input.timeoutMs / 1000)} seconds`)
+  );
 }
 
 const MAX_CONCURRENT_SEARCHES = 4;

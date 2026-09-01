@@ -566,6 +566,58 @@ ${JSON.stringify({
     expect(result.answer).toBe("Final answer");
   });
 
+  it("recovers the turn with an error tool result when a Tavily search never settles", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_1",
+            name: "web_search",
+            arguments: JSON.stringify({ query: "latest AI" })
+          }],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Answer without search" }], {
+          answer: "Answer without search",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+    discoverMcpTools.mockResolvedValue([{ name: "tavily_search" }]);
+    callMcpTool.mockImplementation(() => new Promise(() => {}));
+
+    const errored: Array<{ handle?: string; resultSummary?: string }> = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find AI news" }],
+      skills: [],
+      mcpToolSets: [],
+      mcpTimeout: 500,
+      appSettings: createAppSettings({
+        webSearch: {
+          providerId: "tavily",
+          credentials: { apiKey: "tavily-test-key" }
+        }
+      }),
+      onEvent: () => {},
+      onActionStart: () => "act_tool",
+      onActionError: (handle, patch) => {
+        errored.push({ handle, resultSummary: patch.resultSummary });
+      }
+    });
+
+    expect(errored).toEqual([
+      { handle: "act_tool", resultSummary: expect.stringMatching(/Web search timed out after \d+ seconds/) }
+    ]);
+    expect(result.answer).toBe("Answer without search");
+  }, 15_000);
+
   it("exposes the parallel queries tool schema while the pipeline is active", async () => {
     const { buildToolDefinitions } = await import("@/lib/tool-definitions");
 
