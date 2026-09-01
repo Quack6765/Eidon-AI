@@ -69,7 +69,7 @@ export function MessageAttachments({
   }
 
   const images = attachments.filter((attachment) => attachment.kind === "image");
-  const files = attachments.filter((attachment) => attachment.kind === "text");
+  const files = attachments.filter((attachment) => attachment.kind !== "image");
 
   return (
     <div className="space-y-2.5">

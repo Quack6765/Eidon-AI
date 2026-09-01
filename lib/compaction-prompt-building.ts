@@ -1,4 +1,5 @@
 import { buildCompactionSummaryPromptBody } from "@/lib/compaction-summary";
+import { resolveAttachmentPath } from "@/lib/attachments";
 import { callProviderText } from "@/lib/provider";
 import { estimateTextTokens } from "@/lib/tokenization";
 import type { Message, MessageAttachment, PromptContentPart, PromptMessage, RuntimeProviderProfile } from "@/lib/types";
@@ -88,6 +89,23 @@ export function buildTextAttachmentPart(
   };
 }
 
+export function buildFileAttachmentPart(attachment: MessageAttachment): PromptContentPart {
+  const description = `${attachment.mimeType}, ${attachment.byteSize} bytes`;
+
+  let absolutePath: string | null = null;
+  try {
+    absolutePath = resolveAttachmentPath({ relativePath: attachment.relativePath });
+  } catch {
+    absolutePath = null;
+  }
+
+  const storedAt = absolutePath ? ` stored at: ${absolutePath}` : "";
+  return {
+    type: "text",
+    text: `Attached file: ${attachment.filename} (${description})${storedAt} — binary content is not inlined; inspect or process it with execute_shell_command or other tools when useful.`
+  };
+}
+
 export function buildUserPromptContent(
   message: Pick<Message, "content" | "attachments">,
   remainingAttachmentTextTokens: { value: number },
@@ -129,6 +147,11 @@ export function buildUserPromptContent(
         mimeType: attachment.mimeType,
         relativePath: attachment.relativePath
       });
+      return;
+    }
+
+    if (attachment.kind === "file") {
+      parts.push(buildFileAttachmentPart(attachment));
       return;
     }
 

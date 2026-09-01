@@ -1,3 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
+
+import { createAttachments } from "@/lib/attachments";
+import { createConversation } from "@/lib/conversations";
 import {
   createLocalUser,
   deleteManagedUser,
@@ -114,5 +119,33 @@ describe("users", () => {
     await expect(verifyPassword("updated-password-123", updated!.passwordHash!)).resolves.toBe(true);
     expect(deleteManagedUser(created.id)).toBe(true);
     expect(getUserById(created.id)).toBeNull();
+  });
+
+  it("removes attachment files from disk when deleting a managed user", async () => {
+    const created = await createLocalUser({
+      username: "dave",
+      password: "initial-password-123",
+      role: "user"
+    });
+    const conversation = createConversation("Daves files", null, undefined, created.id);
+    const [attachment] = await createAttachments(conversation.id, [
+      { filename: "archive.zip", mimeType: "application/zip", bytes: Buffer.from("zip") }
+    ]);
+    const absolutePath = path.resolve(
+      process.env.EIDON_DATA_DIR!,
+      "attachments",
+      attachment.relativePath
+    );
+    expect(fs.existsSync(absolutePath)).toBe(true);
+
+    expect(deleteManagedUser(created.id)).toBe(true);
+
+    expect(getUserById(created.id)).toBeNull();
+    expect(
+      getDb()
+        .prepare("SELECT COUNT(*) AS count FROM message_attachments")
+        .get()
+    ).toEqual({ count: 0 });
+    expect(fs.existsSync(absolutePath)).toBe(false);
   });
 });

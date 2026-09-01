@@ -42,6 +42,7 @@ function buildGptTokenizer(): Tokenizer {
     estimateAttachmentTokens: (attachments) =>
       attachments.reduce((total, a) => {
         if (a.kind === "image") return total + encode(`[Image attachment: ${a.filename}]`).length;
+        if (a.kind === "file") return total + encode(`[File attachment: ${a.filename}]`).length;
         return total + encodeTokenCount(`Attached file: ${a.filename}\n${a.extractedText}`);
       }, 0),
     estimateMessageTokens: (m) => {
@@ -69,6 +70,7 @@ function buildOffTokenizer(): Tokenizer {
     estimateAttachmentTokens: (attachments) =>
       attachments.reduce((total, a) => {
         if (a.kind === "image") return total + charCountTokens(`[Image attachment: ${a.filename}]`);
+        if (a.kind === "file") return total + charCountTokens(`[File attachment: ${a.filename}]`);
         return total + charCountTokens(`Attached file: ${a.filename}\n${a.extractedText}`);
       }, 0),
     estimateMessageTokens: (m) =>

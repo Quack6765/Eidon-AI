@@ -495,18 +495,33 @@ describe("attachment helpers", () => {
     }
   });
 
-  it("rejects unsupported file types", async () => {
+  it("stores unknown file types as file-kind attachments without extraction", async () => {
     const conversation = createConversation();
+    const zipBytes = Buffer.from("zip", "utf8");
 
-    await expect(
-      createAttachments(conversation.id, [
-        {
-          filename: "archive.zip",
-          mimeType: "application/zip",
-          bytes: Buffer.from("zip", "utf8")
-        }
-      ])
-    ).rejects.toThrow("Unsupported attachment type: archive.zip");
+    const [attachment, noExtensionAttachment] = await createAttachments(conversation.id, [
+      {
+        filename: "archive.zip",
+        mimeType: "application/zip",
+        bytes: zipBytes
+      },
+      {
+        filename: "payload",
+        mimeType: "",
+        bytes: Buffer.from("mystery", "utf8")
+      }
+    ]);
+
+    expect(attachment.kind).toBe("file");
+    expect(attachment.mimeType).toBe("application/zip");
+    expect(attachment.extractedText).toBe("");
+    expect(
+      fs.readFileSync(path.resolve(process.env.EIDON_DATA_DIR!, "attachments", attachment.relativePath))
+    ).toEqual(zipBytes);
+
+    expect(noExtensionAttachment.kind).toBe("file");
+    expect(noExtensionAttachment.mimeType).toBe("application/octet-stream");
+    expect(noExtensionAttachment.extractedText).toBe("");
   });
 
   it("imports a local text file into managed attachment storage", async () => {
@@ -624,7 +639,7 @@ describe("attachment helpers", () => {
     }
   });
 
-  it("rejects unsupported local file types", async () => {
+  it("imports a local binary file as a file-kind attachment", async () => {
     const conversation = createConversation();
     const sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), "eidon-attachment-import-"));
     const sourcePath = path.join(sourceDir, "archive.zip");
@@ -632,9 +647,13 @@ describe("attachment helpers", () => {
     try {
       fs.writeFileSync(sourcePath, Buffer.from("zip", "utf8"));
 
-      await expect(importAttachmentFromLocalFile(conversation.id, sourcePath)).rejects.toThrow(
-        "Unsupported attachment type: archive.zip"
-      );
+      const attachment = await importAttachmentFromLocalFile(conversation.id, sourcePath);
+
+      expect(attachment.filename).toBe("archive.zip");
+      expect(attachment.kind).toBe("file");
+      expect(attachment.mimeType).toBe("application/octet-stream");
+      expect(attachment.extractedText).toBe("");
+      expect(getAttachment(attachment.id)?.kind).toBe("file");
     } finally {
       fs.rmSync(sourceDir, { recursive: true, force: true });
     }

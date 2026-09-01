@@ -92,7 +92,7 @@ export function stripAttachmentStyleImageMarkdown(
   }
 
   const imageAttachments = attachments.filter((attachment) => attachment.kind === "image");
-  const textAttachments = attachments.filter((attachment) => attachment.kind === "text");
+  const textAttachments = attachments.filter((attachment) => attachment.kind !== "image");
 
   const sanitized = sanitizeProseSegment(content, imageAttachments, textAttachments);
 

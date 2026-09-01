@@ -165,7 +165,10 @@ function normalizeAttachmentKind(filename: string, mimeType: string): {
     };
   }
 
-  throw new Error(`Unsupported attachment type: ${filename}`);
+  return {
+    kind: "file",
+    mimeType: normalizedMimeType || "application/octet-stream"
+  };
 }
 
 async function extractText(bytes: Buffer, filename: string) {

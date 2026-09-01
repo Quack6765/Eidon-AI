@@ -730,7 +730,7 @@ function MessageBubbleImpl({
 
   const assistantAttachments = message.role === "assistant" ? message.attachments ?? [] : [];
   const assistantImageAttachments = assistantAttachments.filter((attachment) => attachment.kind === "image");
-  const assistantFileAttachments = assistantAttachments.filter((attachment) => attachment.kind === "text");
+  const assistantFileAttachments = assistantAttachments.filter((attachment) => attachment.kind !== "image");
   const showStandaloneAssistantImageBubble =
     message.role === "assistant" &&
     assistantImageAttachments.length > 0 &&
