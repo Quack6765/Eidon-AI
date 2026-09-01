@@ -286,9 +286,19 @@ export async function getConnectedClient(server: McpServer, abortSignal?: AbortS
   return connection;
 }
 
+const MCP_TERMINATE_SESSION_TIMEOUT_MS = 5_000;
+const closedTransports = new WeakSet<StdioClientTransport | StreamableHTTPClientTransport>();
+
 async function closeTransport(transport: StdioClientTransport | StreamableHTTPClientTransport) {
+  if (closedTransports.has(transport)) {
+    return;
+  }
+  closedTransports.add(transport);
   if (transport instanceof StreamableHTTPClientTransport && transport.sessionId) {
-    await transport.terminateSession().catch(() => undefined);
+    await Promise.race([
+      transport.terminateSession().catch(() => undefined),
+      new Promise<void>((resolve) => setTimeout(resolve, MCP_TERMINATE_SESSION_TIMEOUT_MS))
+    ]);
   }
 
   await transport.close().catch(() => undefined);

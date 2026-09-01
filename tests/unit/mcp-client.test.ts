@@ -1,3 +1,5 @@
+import http from "node:http";
+import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 
 import type { McpServer } from "@/lib/types";
@@ -646,4 +648,98 @@ describe("MCP client", () => {
       }));
     }
   }, 30_000);
+
+  it("settles hanging HTTP tool calls on timeout and abort without wedging the event loop", async () => {
+    vi.doUnmock("@modelcontextprotocol/sdk/client/index.js");
+    vi.doUnmock("@modelcontextprotocol/sdk/client/stdio.js");
+    vi.doUnmock("@modelcontextprotocol/sdk/client/streamableHttp.js");
+
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const openResponses = new Set<http.ServerResponse>();
+    const mcpServer = http.createServer((req, res) => {
+      openResponses.add(res);
+      res.on("close", () => openResponses.delete(res));
+      if (req.method === "GET") {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write(": keepalive\n\n");
+        return;
+      }
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        let body: { id?: number; method?: string } = {};
+        try {
+          body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+        } catch {
+          res.writeHead(400);
+          res.end();
+          return;
+        }
+        if (body.method === "initialize") {
+          res.writeHead(200, {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "session_hanging_test"
+          });
+          res.write(
+            `event: message\ndata: ${JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id,
+              result: {
+                protocolVersion: "2025-03-26",
+                capabilities: { tools: {} },
+                serverInfo: { name: "hanging-mcp", version: "1.0.0" }
+              }
+            })}\n\n`
+          );
+          res.end();
+          return;
+        }
+        if (body.method === "tools/call") {
+          res.writeHead(200, { "content-type": "text/event-stream" });
+          res.write(": keepalive\n\n");
+          return;
+        }
+        res.writeHead(202);
+        res.end();
+      });
+    });
+
+    try {
+      await new Promise<void>((resolve) => mcpServer.listen(0, "127.0.0.1", resolve));
+      const baseUrl = `http://127.0.0.1:${(mcpServer.address() as AddressInfo).port}/mcp`;
+      const makeServer = (): McpServer => ({
+        ...createHttpServer(),
+        id: `hanging_${Math.random().toString(36).slice(2)}`,
+        url: baseUrl
+      });
+      const { callMcpTool, disconnectMcpServer } = await import("@/lib/mcp-client");
+
+      const timedOut = await callMcpTool(makeServer(), "tavily_search", { query: "x" }, 800);
+      expect(timedOut.isError).toBe(true);
+      expect(timedOut.content[0]?.text).toContain("Request timed out");
+
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 300);
+      const abortServer = makeServer();
+      await expect(
+        callMcpTool(abortServer, "tavily_search", { query: "x" }, 60_000, controller.signal)
+      ).rejects.toThrow(/abort/i);
+
+      await disconnectMcpServer(abortServer);
+    } finally {
+      consoleError.mockRestore();
+      for (const res of openResponses) res.destroy();
+      mcpServer.closeAllConnections?.();
+      await new Promise<void>((resolve) => mcpServer.close(() => resolve()));
+      vi.doMock("@modelcontextprotocol/sdk/client/index.js", () => ({
+        Client: MockClient
+      }));
+      vi.doMock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
+        StdioClientTransport: MockStdioTransport
+      }));
+      vi.doMock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
+        StreamableHTTPClientTransport: MockStreamableHTTPTransport
+      }));
+    }
+  }, 20_000);
 });
