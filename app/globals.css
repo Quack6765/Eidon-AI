@@ -75,6 +75,7 @@
 html {
   background: var(--background);
   color: var(--text);
+  overscroll-behavior: none;
 }
 
 body {
