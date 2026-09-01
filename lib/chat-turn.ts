@@ -433,7 +433,9 @@ async function startAssistantTurn(
           proposalPayload: action.proposalPayload,
           sortOrder: timelineSortOrder++
         });
-        runningActionHandles.add(persisted.id);
+        if (persisted.status === "running") {
+          runningActionHandles.add(persisted.id);
+        }
         manager.broadcast(conversationId, {
           type: "delta",
           conversationId,
@@ -482,6 +484,13 @@ async function startAssistantTurn(
     });
 
     await flushAnswerBuffer();
+
+    for (const handle of runningActionHandles) {
+      updateMessageAction(handle, {
+        status: "stopped",
+        completedAt: new Date().toISOString()
+      });
+    }
 
     updateMessage(assistantMessageId, {
       content: await contentPersistence?.finalize(providerResult.answer) ?? "",

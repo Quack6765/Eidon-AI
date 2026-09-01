@@ -275,6 +275,63 @@ describe("chat-turn", () => {
     }
   });
 
+  it("marks still-running actions as stopped when the turn completes successfully", async () => {
+    const resolveAssistantTurn = vi.fn().mockImplementation(async (input: {
+      onActionStart?: (action: {
+        kind: "image_generation";
+        label: string;
+        detail?: string;
+      }) => Promise<string | void> | string | void;
+    }) => {
+      await input.onActionStart?.({
+        kind: "image_generation",
+        label: "Generate image",
+        detail: "Generate an image of a red square"
+      });
+      return { answer: "Here is some advice.", thinking: "", usage: { outputTokens: 4 } };
+    });
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn
+    }));
+    try {
+      const { createConversationManager } = await import("@/lib/conversation-manager");
+      const { updateProviderCatalog } = await import("@/lib/settings");
+
+      const manager = createConversationManager();
+
+      const { profileId, profile } = setupProviderProfile();
+      updateProviderCatalog({
+        defaultProviderProfileId: profileId,
+        skillsEnabled: false,
+        providerProfiles: [profile]
+      });
+
+      const conv = (await import("@/lib/conversations")).createConversation(
+        undefined,
+        undefined,
+        { providerProfileId: null }
+      );
+
+      const { startChatTurn } = await import("@/lib/chat-turn");
+      const result = await startChatTurn(manager, conv.id, "Generate an image of a red square", []);
+
+      expect(result).toEqual({ status: "completed" });
+
+      const { listVisibleMessages } = await import("@/lib/conversations");
+      const assistantMsg = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+      expect(assistantMsg?.status).toBe("completed");
+      expect(assistantMsg?.actions).toEqual([
+        expect.objectContaining({
+          label: "Generate image",
+          status: "stopped"
+        })
+      ]);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+      vi.resetModules();
+    }
+  });
+
   it("does nothing if conversation not found", async () => {
     const { createConversationManager } = await import("@/lib/conversation-manager");
     const manager = createConversationManager();
