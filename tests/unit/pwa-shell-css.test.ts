@@ -21,6 +21,7 @@ function expectRuleDeclaration(selector: string, declaration: string) {
 
 describe("PWA shell CSS", () => {
   it("locks the iOS PWA document while preserving scroll containment rules", () => {
+    expectRuleDeclaration("html", "overscroll-behavior: none;");
     expectRuleDeclaration("html.ios-pwa", "overflow: hidden;");
     expectRuleDeclaration("html.ios-pwa body", "overflow: hidden;");
     expectRuleDeclaration("body", "overscroll-behavior: none;");

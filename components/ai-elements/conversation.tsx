@@ -6,7 +6,7 @@ import { cn, isScrolledToBottom } from "@/lib/utils";
 import type { UIMessage } from "ai";
 import { ArrowDownIcon, DownloadIcon } from "lucide-react";
 import type { ComponentProps } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom";
 
 export type ConversationProps = ComponentProps<typeof StickToBottom>;
@@ -33,7 +33,10 @@ export const ConversationContent = ({
   scrollerRef,
   ...props
 }: ConversationContentProps) => (
-  <div ref={scrollerRef as React.RefCallback<HTMLDivElement>} className="h-full overflow-hidden">
+  <div
+    ref={scrollerRef as React.RefCallback<HTMLDivElement>}
+    className="relative h-full overflow-hidden"
+  >
     <StickToBottom.Content
       scrollClassName={cn(
         "conversation-scroller overscroll-y-contain no-scrollbar",
@@ -42,6 +45,7 @@ export const ConversationContent = ({
       className={cn("flex w-full flex-col", className)}
       {...props}
     />
+    <ConversationScrollbar />
   </div>
 );
 
@@ -151,6 +155,390 @@ export const ConversationScrollButton = ({
         <span className="hidden md:inline">Latest</span>
       </Button>
     )
+  );
+};
+
+export type ConversationScrollbarProps = ComponentProps<"div">;
+
+const SCROLLBAR_THUMB_MIN_HEIGHT_PX = 28;
+const SCROLLBAR_HIDE_DELAY_MS = 1000;
+const SCROLLBAR_HOLD_DELAY_MS = 150;
+const SCROLLBAR_TOUCH_SLOP_PX = 10;
+
+const isTouchPointerType = (pointerType: string): boolean =>
+  pointerType === "touch" || pointerType === "pen";
+
+export const ConversationScrollbar = ({
+  className,
+  ...props
+}: ConversationScrollbarProps) => {
+  const { contentRef, scrollRef } = useStickToBottomContext();
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const hideTimerRef = useRef<number | null>(null);
+  const dragStateRef = useRef<{ startY: number; startScrollTop: number } | null>(null);
+  const isDraggingRef = useRef(false);
+  const isHoveringRef = useRef(false);
+  const holdTimerRef = useRef<number | null>(null);
+  const touchGestureRef = useRef<{
+    pointerId: number;
+    scrubbing: boolean;
+    startY: number;
+  } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [scrubbing, setScrubbing] = useState(false);
+  const [isVisible, setIsVisible] = useState(false);
+  const [geometry, setGeometry] = useState({ overflowing: false, thumbHeight: 0, thumbTop: 0 });
+
+  const updateGeometry = useCallback(() => {
+    const scroller = scrollRef.current;
+    const track = trackRef.current;
+    if (!scroller || !track) return;
+    const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+    const overflowing = maxScroll > 1;
+    const trackHeight = track.clientHeight;
+    let thumbHeight = 0;
+    let thumbTop = 0;
+    if (overflowing) {
+      thumbHeight = Math.min(
+        trackHeight,
+        Math.max(
+          SCROLLBAR_THUMB_MIN_HEIGHT_PX,
+          (scroller.clientHeight / Math.max(scroller.scrollHeight, 1)) * trackHeight
+        )
+      );
+      const range = Math.max(trackHeight - thumbHeight, 0);
+      thumbTop = Math.min(Math.max((scroller.scrollTop / maxScroll) * range, 0), range);
+    }
+    setGeometry((current) =>
+      current.overflowing === overflowing &&
+      current.thumbHeight === thumbHeight &&
+      current.thumbTop === thumbTop
+        ? current
+        : { overflowing, thumbHeight, thumbTop }
+    );
+  }, [scrollRef]);
+
+  const reveal = useCallback(() => {
+    if (hideTimerRef.current !== null) {
+      window.clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = null;
+    }
+    setIsVisible(true);
+    if (
+      isDraggingRef.current ||
+      touchGestureRef.current?.scrubbing ||
+      isHoveringRef.current
+    )
+      return;
+    hideTimerRef.current = window.setTimeout(() => {
+      hideTimerRef.current = null;
+      setIsVisible(false);
+    }, SCROLLBAR_HIDE_DELAY_MS);
+  }, []);
+
+  useEffect(() => {
+    const scrollElement = scrollRef.current;
+    const contentElement = contentRef.current;
+    if (!scrollElement || !contentElement) return;
+
+    const handleScroll = () => {
+      updateGeometry();
+      reveal();
+    };
+
+    updateGeometry();
+    scrollElement.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("resize", updateGeometry);
+    window.addEventListener(IOS_PWA_CONVERSATION_VIEWPORT_EVENT, updateGeometry);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateGeometry);
+    observer?.observe(contentElement);
+
+    return () => {
+      observer?.disconnect();
+      scrollElement.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("resize", updateGeometry);
+      window.removeEventListener(IOS_PWA_CONVERSATION_VIEWPORT_EVENT, updateGeometry);
+      if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+      if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
+    };
+  }, [contentRef, scrollRef, reveal, updateGeometry]);
+
+  const clearHoldTimer = () => {
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+  };
+
+  const jumpToCenter = (clientY: number) => {
+    const scroller = scrollRef.current;
+    const track = trackRef.current;
+    if (!scroller || !track) return;
+    const rect = track.getBoundingClientRect();
+    if (rect.height <= 0) return;
+    const clickRatio = Math.min(Math.max((clientY - rect.top) / rect.height, 0), 1);
+    const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+    scroller.scrollTop = Math.min(
+      Math.max(clickRatio * maxScroll - scroller.clientHeight / 2, 0),
+      Math.max(maxScroll, 0)
+    );
+  };
+
+  const scrubToClientY = (clientY: number) => {
+    const scroller = scrollRef.current;
+    const track = trackRef.current;
+    if (!scroller || !track) return;
+    const rect = track.getBoundingClientRect();
+    const range = track.clientHeight - geometry.thumbHeight;
+    const maxScroll = scroller.scrollHeight - scroller.clientHeight;
+    if (rect.height <= 0 || range <= 0 || maxScroll <= 0) return;
+    const thumbTop = Math.min(
+      Math.max(clientY - rect.top - geometry.thumbHeight / 2, 0),
+      range
+    );
+    scroller.scrollTop = (thumbTop / range) * maxScroll;
+  };
+
+  const enterScrubMode = (gesture: {
+    pointerId: number;
+    startY: number;
+  }) => {
+    const track = trackRef.current;
+    if (track) {
+      try {
+        track.setPointerCapture(gesture.pointerId);
+      } catch {
+        touchGestureRef.current = null;
+        return;
+      }
+    }
+    touchGestureRef.current = {
+      ...gesture,
+      scrubbing: true
+    };
+    setScrubbing(true);
+    reveal();
+    scrubToClientY(gesture.startY);
+  };
+
+  const exitScrubMode = (pointerId: number) => {
+    const gesture = touchGestureRef.current;
+    if (!gesture || !gesture.scrubbing || gesture.pointerId !== pointerId) return;
+    const track = trackRef.current;
+    if (track?.hasPointerCapture(pointerId)) {
+      track.releasePointerCapture(pointerId);
+    }
+    touchGestureRef.current = null;
+    setScrubbing(false);
+    reveal();
+  };
+
+  const handleThumbPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (isTouchPointerType(event.pointerType)) return;
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    dragStateRef.current = { startY: event.clientY, startScrollTop: scroller.scrollTop };
+    isDraggingRef.current = true;
+    setDragging(true);
+    reveal();
+  };
+
+  const handleThumbPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const scroller = scrollRef.current;
+    const dragState = dragStateRef.current;
+    if (!scroller || !dragState || !isDraggingRef.current) return;
+    scroller.scrollTop =
+      dragState.startScrollTop +
+      (event.clientY - dragState.startY) * (scroller.scrollHeight / scroller.clientHeight);
+  };
+
+  const handleThumbPointerEnd = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    dragStateRef.current = null;
+    isDraggingRef.current = false;
+    setDragging(false);
+    reveal();
+  };
+
+  const handleTrackPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    const scroller = scrollRef.current;
+    const track = trackRef.current;
+    if (!scroller || !track) return;
+    event.preventDefault();
+    if (isTouchPointerType(event.pointerType)) {
+      if (touchGestureRef.current?.scrubbing) return;
+      clearHoldTimer();
+      touchGestureRef.current = {
+        pointerId: event.pointerId,
+        scrubbing: false,
+        startY: event.clientY
+      };
+      reveal();
+      holdTimerRef.current = window.setTimeout(() => {
+        holdTimerRef.current = null;
+        const gesture = touchGestureRef.current;
+        if (!gesture || gesture.scrubbing) return;
+        enterScrubMode(gesture);
+      }, SCROLLBAR_HOLD_DELAY_MS);
+      return;
+    }
+    jumpToCenter(event.clientY);
+  };
+
+  const handleTrackPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = touchGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (gesture.scrubbing) {
+      scrubToClientY(event.clientY);
+      return;
+    }
+    if (Math.abs(event.clientY - gesture.startY) >= SCROLLBAR_TOUCH_SLOP_PX) {
+      clearHoldTimer();
+      enterScrubMode({ pointerId: gesture.pointerId, startY: event.clientY });
+    }
+  };
+
+  const handleTrackPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = touchGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (gesture.scrubbing) {
+      exitScrubMode(event.pointerId);
+      return;
+    }
+    clearHoldTimer();
+    touchGestureRef.current = null;
+    jumpToCenter(event.clientY);
+  };
+
+  const handleTrackPointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    const gesture = touchGestureRef.current;
+    if (!gesture || gesture.pointerId !== event.pointerId) return;
+    if (gesture.scrubbing) {
+      exitScrubMode(event.pointerId);
+      return;
+    }
+    clearHoldTimer();
+    touchGestureRef.current = null;
+  };
+
+  const handleTrackPointerEnter = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (isTouchPointerType(event.pointerType)) return;
+    isHoveringRef.current = true;
+    reveal();
+  };
+
+  const handleTrackPointerLeave = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (isTouchPointerType(event.pointerType)) return;
+    isHoveringRef.current = false;
+    reveal();
+  };
+
+  const handleTrackContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
+    event.preventDefault();
+  };
+
+  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    const scroller = scrollRef.current;
+    if (scroller) scroller.scrollTop += event.deltaY;
+  };
+
+  const scrubHandlersRef = useRef({
+    exit: (_pointerId: number) => {},
+    scrub: (_clientY: number) => {}
+  });
+
+  useEffect(() => {
+    scrubHandlersRef.current = {
+      exit: exitScrubMode,
+      scrub: scrubToClientY
+    };
+  });
+
+  useEffect(() => {
+    if (!scrubbing) return;
+    const handleUp = (event: PointerEvent) => {
+      scrubHandlersRef.current.exit(event.pointerId);
+    };
+    const handleMove = (event: PointerEvent) => {
+      if (touchGestureRef.current?.pointerId !== event.pointerId) return;
+      scrubHandlersRef.current.scrub(event.clientY);
+    };
+    window.addEventListener("pointerup", handleUp, true);
+    window.addEventListener("pointercancel", handleUp, true);
+    window.addEventListener("pointermove", handleMove, true);
+    return () => {
+      window.removeEventListener("pointerup", handleUp, true);
+      window.removeEventListener("pointercancel", handleUp, true);
+      window.removeEventListener("pointermove", handleMove, true);
+    };
+  }, [scrubbing]);
+
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const preventTouchDefault = (event: TouchEvent) => {
+      event.preventDefault();
+    };
+    track.addEventListener("touchstart", preventTouchDefault, { passive: false });
+    track.addEventListener("touchmove", preventTouchDefault, { passive: false });
+    return () => {
+      track.removeEventListener("touchstart", preventTouchDefault);
+      track.removeEventListener("touchmove", preventTouchDefault);
+    };
+  }, []);
+
+  const shown = isVisible && geometry.overflowing;
+
+  return (
+    <div
+      ref={trackRef}
+      aria-hidden
+      className={cn(
+        "group absolute top-0 right-0 bottom-[var(--composer-height,0px)] z-10 touch-none [-webkit-touch-callout:none] select-none [-webkit-user-select:none] cursor-default transition-[width,opacity] pointer-coarse:w-11",
+        scrubbing ? "w-7 duration-150" : "w-4 duration-300",
+        shown
+          ? "opacity-100"
+          : geometry.overflowing
+            ? "pointer-fine:opacity-0"
+            : "opacity-0 pointer-events-none",
+        className
+      )}
+      onContextMenu={handleTrackContextMenu}
+      onPointerCancel={handleTrackPointerCancel}
+      onPointerDown={handleTrackPointerDown}
+      onPointerEnter={handleTrackPointerEnter}
+      onPointerLeave={handleTrackPointerLeave}
+      onPointerMove={handleTrackPointerMove}
+      onPointerUp={handleTrackPointerUp}
+      onWheel={handleWheel}
+      {...props}
+    >
+      <div
+        className={cn(
+          "absolute right-1 rounded-full bg-[var(--accent)] transition-[width,opacity,box-shadow] duration-300",
+          scrubbing
+            ? "w-3 shadow-[0_0_12px_var(--accent-glow)] duration-150"
+            : dragging
+              ? "w-1.5 shadow-[0_0_8px_var(--accent-glow)]"
+              : "w-1 group-hover:w-1.5 group-hover:shadow-[0_0_8px_var(--accent-glow)]"
+        )}
+        onPointerCancel={handleThumbPointerEnd}
+        onPointerDown={handleThumbPointerDown}
+        onPointerMove={handleThumbPointerMove}
+        onPointerUp={handleThumbPointerEnd}
+        style={{
+          height: `${geometry.thumbHeight}px`,
+          top: `${geometry.thumbTop}px`,
+          touchAction: "none"
+        }}
+      />
+    </div>
   );
 };
 
