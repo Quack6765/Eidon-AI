@@ -93,6 +93,33 @@ describe("stripAttachmentStyleImageMarkdown", () => {
     expect(stripAttachmentStyleImageMarkdown(content, [createTextAttachment(), createImageAttachment()])).toBe(content);
   });
 
+  it("removes local markdown links that reference file-kind attachments", () => {
+    const fileAttachment = createTextAttachment({
+      id: "att_file",
+      filename: "archive.zip",
+      mimeType: "application/zip",
+      relativePath: "conv_test/att_file_archive.zip",
+      kind: "file"
+    });
+    const content = [
+      "I saved the archive for you.",
+      "",
+      "[Download the archive](archive.zip)",
+      "",
+      "The real attachment chip should render below."
+    ].join("\n");
+
+    expect(stripAttachmentStyleImageMarkdown(content, [fileAttachment])).toBe(
+      [
+        "I saved the archive for you.",
+        "",
+        "",
+        "",
+        "The real attachment chip should render below."
+      ].join("\n")
+    );
+  });
+
   it("removes assistant-authored data image markdown from rendered prose even when attachments are empty", () => {
     const content = [
       "I've generated an image for you.",

@@ -537,7 +537,7 @@ async function mockAttachmentUpload(
     id: string;
     filename: string;
     mimeType: string;
-    kind: "image" | "text";
+    kind: "image" | "text" | "file";
   }>
 ) {
   await page.route("**/api/attachments", async (route) => {
@@ -1385,6 +1385,58 @@ test.describe("Feature: Chat attachments", () => {
     await expect(page.getByRole("link", { name: "Download attachment" })).toHaveAttribute(
       "href",
       /\/api\/attachments\/att_notes\?download=1$/
+    );
+  });
+
+  test("attaches a binary file, renders its chip, and offers download without preview", async ({ page }) => {
+    await signIn(page);
+    await mockChatResponse(page);
+    await mockAttachmentUpload(page, [
+      {
+        id: "att_archive",
+        filename: "archive.zip",
+        mimeType: "application/zip",
+        kind: "file"
+      }
+    ]);
+
+    await createNewChat(page);
+    await expect(page).toHaveURL(/\/chat\//, { timeout: 10000 });
+
+    const chooserPromise = page.waitForEvent("filechooser");
+    const uploadResponsePromise = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/attachments") && response.request().method() === "POST"
+    );
+    await page.getByRole("button", { name: "Attach files" }).click();
+    const chooser = await chooserPromise;
+    await chooser.setFiles({
+      name: "archive.zip",
+      mimeType: "application/zip",
+      buffer: Buffer.from("zip")
+    });
+    await uploadResponsePromise;
+
+    await expect(page.getByRole("button", { name: "Remove archive.zip" })).toBeVisible({
+      timeout: 5000
+    });
+
+    await page.getByRole("textbox").fill("What is in this archive?");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(page.getByRole("button", { name: "Preview archive.zip" }).last()).toBeVisible({
+      timeout: 1000
+    });
+    await page.waitForTimeout(250);
+    await expect(page.getByRole("button", { name: "Preview archive.zip" }).last()).toBeVisible({
+      timeout: 10000
+    });
+
+    await page.getByRole("button", { name: "Preview archive.zip" }).last().click();
+    await expect(page.getByRole("dialog", { name: "Attachment preview" })).toBeVisible();
+    await expect(page.getByText("Preview unavailable for this attachment type.")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Download attachment" })).toHaveAttribute(
+      "href",
+      /\/api\/attachments\/att_archive\?download=1$/
     );
   });
 

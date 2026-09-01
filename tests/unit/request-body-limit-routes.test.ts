@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { MAX_ATTACHMENT_IDS_PER_MESSAGE, MAX_CHAT_MESSAGE_CHARS } from "@/lib/constants";
+import { MAX_ATTACHMENT_IDS_PER_MESSAGE, MAX_CHAT_MESSAGE_CHARS, MAX_UPLOAD_REQUEST_BYTES } from "@/lib/constants";
 import { createConversation } from "@/lib/conversations";
 import { createLocalUser } from "@/lib/users";
 import { createProviderProfileInput } from "@/tests/provider-fixtures";
@@ -220,7 +220,7 @@ describe("request body limit routes", () => {
         method: "POST",
         headers: {
           "content-type": "multipart/form-data",
-          "content-length": String(100 * 1024 * 1024 + 1)
+          "content-length": String(MAX_UPLOAD_REQUEST_BYTES + 1)
         },
         body: "declared-large-upload"
       })
@@ -228,17 +228,19 @@ describe("request body limit routes", () => {
 
     expect(response.status).toBe(413);
     await expect(response.json()).resolves.toEqual({
-      error: "Request body exceeds the 100 MB limit"
+      error: `Request body exceeds the ${Math.floor(MAX_UPLOAD_REQUEST_BYTES / (1024 * 1024))} MB limit`
     });
   });
 
   it("rejects chunked uploads exceeding the upload cap without a content length", async () => {
     await createRouteUser("upload-body-limit-stream-user");
-    const chunk = new Uint8Array(16 * 1024 * 1024);
+    const chunkSize = 16 * 1024 * 1024;
+    const chunkCount = Math.ceil((MAX_UPLOAD_REQUEST_BYTES + chunkSize) / chunkSize);
+    const chunk = new Uint8Array(chunkSize);
     let enqueued = 0;
     const body = new ReadableStream<Uint8Array>({
       pull(controller) {
-        if (enqueued >= 7) {
+        if (enqueued >= chunkCount) {
           controller.close();
           return;
         }
@@ -259,7 +261,7 @@ describe("request body limit routes", () => {
 
     expect(response.status).toBe(413);
     await expect(response.json()).resolves.toEqual({
-      error: "Request body exceeds the 100 MB limit"
+      error: `Request body exceeds the ${Math.floor(MAX_UPLOAD_REQUEST_BYTES / (1024 * 1024))} MB limit`
     });
   });
 

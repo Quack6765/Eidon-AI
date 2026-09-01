@@ -1,5 +1,6 @@
 import argon2 from "argon2";
 
+import { deleteAttachmentFiles } from "@/lib/attachments";
 import { getDb } from "@/lib/db";
 import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
@@ -263,6 +264,20 @@ export function deleteManagedUser(userId: string) {
     throw new Error("Env-managed users cannot be deleted by the manager");
   }
 
+  const relativePaths = (
+    getDb()
+      .prepare(
+        `SELECT a.relative_path
+         FROM message_attachments a
+         JOIN conversations c ON c.id = a.conversation_id
+         WHERE c.user_id = ?`
+      )
+      .all(userId) as { relative_path: string }[]
+  ).map((row) => row.relative_path);
+
   const result = getDb().prepare("DELETE FROM users WHERE id = ?").run(userId);
+  if (result.changes > 0) {
+    deleteAttachmentFiles(relativePaths);
+  }
   return result.changes > 0;
 }

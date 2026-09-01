@@ -35,6 +35,30 @@ describe("token estimator", () => {
     expect(tokens).toBeGreaterThan(0);
   });
 
+  it("estimates tokens for file-kind attachments without extracted text", () => {
+    const gptTokenizer = createTokenizer("gpt-tokenizer");
+    const offTokenizer = createTokenizer("off");
+    const attachment = {
+      id: "a2",
+      conversationId: "c1",
+      messageId: null,
+      kind: "file" as const,
+      filename: "archive.zip",
+      mimeType: "application/zip",
+      byteSize: 2048,
+      sha256: "hash",
+      relativePath: "c1/a2_archive.zip",
+      extractedText: "ignored-long-extracted-text-that-should-not-count",
+      createdAt: ""
+    };
+
+    expect(gptTokenizer.estimateAttachmentTokens([attachment])).toBeGreaterThan(0);
+    expect(offTokenizer.estimateAttachmentTokens([attachment])).toBeGreaterThan(0);
+    expect(offTokenizer.estimateAttachmentTokens([attachment])).toBe(
+      Math.ceil("[File attachment: archive.zip]".length / 4)
+    );
+  });
+
   it("keeps estimation cost bounded for long runs of repeated characters", () => {
     const tokenizer = createTokenizer("gpt-tokenizer");
     const degenerate = "-".repeat(150_000);

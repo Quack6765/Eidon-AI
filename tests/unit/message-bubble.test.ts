@@ -2394,6 +2394,49 @@ describe("message bubble", () => {
     });
   });
 
+  it("renders file-kind attachment chips with the unsupported preview fallback", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 415
+    } as Response);
+
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createUserMessage(),
+          content: "See attached",
+          attachments: ([
+            {
+              id: "att_zip",
+              conversationId: "conv_test",
+              messageId: "msg_user",
+              filename: "bundle.zip",
+              mimeType: "application/zip",
+              byteSize: 2048,
+              sha256: "hash-zip",
+              relativePath: "conv_test/att_zip_bundle.zip",
+              kind: "file",
+              extractedText: "",
+              createdAt: new Date().toISOString()
+            }
+          ] as MessageAttachment[])
+        }
+      })
+    );
+
+    const chip = screen.getByRole("button", { name: "Preview bundle.zip" });
+    expect(chip).toBeInTheDocument();
+    expect(screen.getByText("application/zip")).toBeInTheDocument();
+
+    fireEvent.click(chip);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("Preview unavailable for this attachment type.")
+      ).toBeInTheDocument();
+    });
+  });
+
   it("keeps seeded extracted text visible when the refresh route responds with unsupported", async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,

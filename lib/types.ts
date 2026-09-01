@@ -96,7 +96,7 @@ export type MessageActionStatus = "running" | "pending" | "completed" | "error" 
 
 export type MessageThinkingStatus = "running" | "completed" | "error" | "stopped";
 
-export type AttachmentKind = "image" | "text";
+export type AttachmentKind = "image" | "text" | "file";
 
 export type MemoryNodeType = "leaf_summary" | "merged_summary";
 
