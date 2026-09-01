@@ -1341,6 +1341,76 @@ ${JSON.stringify({
     expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
   });
 
+  it("stops forcing generate_image after one retry and accepts the model's text answer instead of looping", async () => {
+    let providerCallCount = 0;
+    const emittedEvents: ChatStreamEvent[] = [];
+    streamProviderResponse.mockImplementation(() => {
+      providerCallCount += 1;
+      return createProviderStream(
+        [{ type: "answer_delta", text: "Here is some advice instead." }],
+        { answer: "Here is some advice instead.", thinking: "", usage: { outputTokens: 4 } }
+      );
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Generate an image of a red square" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image",
+      onEvent: (event) => emittedEvents.push(event)
+    });
+
+    expect(providerCallCount).toBe(2);
+    expect(result.answer).toBe("Here is some advice instead.");
+    expect(emittedEvents.filter((event) => event.type === "answer_reset")).toHaveLength(1);
+  });
+
+  it("does not force generate_image again after a failed generation attempt and accepts the failure explanation", async () => {
+    let providerCallCount = 0;
+    streamProviderResponse.mockImplementation(() => {
+      providerCallCount += 1;
+      if (providerCallCount === 1) {
+        return createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{
+            id: "call_image_fail",
+            name: "generate_image",
+            arguments: JSON.stringify({ prompt: "a red square" })
+          }],
+          usage: { inputTokens: 6 }
+        });
+      }
+      return createProviderStream(
+        [{ type: "answer_delta", text: "Sorry, image generation is unavailable right now." }],
+        { answer: "Sorry, image generation is unavailable right now.", thinking: "", usage: { outputTokens: 4 } }
+      );
+    });
+
+    generateGoogleNanoBananaImages.mockRejectedValue(new Error("backend failed"));
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Generate an image of a red square" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      conversationId: "conv_image",
+      assistantMessageId: "msg_assistant_image"
+    });
+
+    expect(providerCallCount).toBe(2);
+    expect(result.answer).toBe("Sorry, image generation is unavailable right now.");
+    expect(generateGoogleNanoBananaImages).toHaveBeenCalledTimes(1);
+  });
+
   it("requires generate_image for another-one follow-up requests instead of accepting a hallucinated success message", async () => {
     let providerCallCount = 0;
     streamProviderResponse.mockImplementation(({ tools, promptMessages }: {
@@ -2375,6 +2445,57 @@ Run browser commands.`
       })
     );
     expect(result.answer).toBe("Connected");
+  });
+
+  it("fails with a clear error after one empty-answer retry instead of exhausting the step budget", async () => {
+    let providerCallCount = 0;
+    streamProviderResponse.mockImplementation(() => {
+      providerCallCount += 1;
+      return createProviderStream([], {
+        answer: "",
+        thinking: "reasoning only",
+        usage: { inputTokens: 5, reasoningTokens: 4 }
+      });
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    await expect(
+      resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Say hello" }],
+        skills: [],
+        mcpToolSets: [],
+        appSettings: createAppSettings()
+      })
+    ).rejects.toThrow("Provider returned an empty response");
+
+    expect(providerCallCount).toBe(2);
+  });
+
+  it("accepts a narrated memory answer after one retry instead of looping", async () => {
+    let providerCallCount = 0;
+    streamProviderResponse.mockImplementation(() => {
+      providerCallCount += 1;
+      return createProviderStream(
+        [{ type: "answer_delta", text: "I will remember that for later." }],
+        { answer: "I will remember that for later.", thinking: "", usage: { outputTokens: 4 } }
+      );
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Hi, my name is Charles." }],
+      skills: [],
+      mcpToolSets: [],
+      memoriesEnabled: true,
+      appSettings: createAppSettings()
+    });
+
+    expect(providerCallCount).toBe(2);
+    expect(result.answer).toBe("I will remember that for later.");
   });
 
   it("streams thinking and answer deltas before the provider finishes", async () => {

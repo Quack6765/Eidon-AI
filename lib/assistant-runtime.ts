@@ -385,6 +385,10 @@ export async function resolveAssistantTurn(input: {
   }
 
   let imageGenerationToolConsumed = false;
+  let imageGenerationToolAttempted = false;
+  let imageGenerationIntentRetries = 0;
+  let memoryIntentRetries = 0;
+  let emptyAnswerRetries = 0;
   let visibleImageActionStarted = false;
   let visibleImageActionHandle: string | undefined;
 
@@ -433,6 +437,8 @@ export async function resolveAssistantTurn(input: {
 
     const restrictToGenerateImage =
       !imageGenerationToolConsumed &&
+      !imageGenerationToolAttempted &&
+      imageGenerationIntentRetries === 0 &&
       hasImageGeneration &&
       hasUnfulfilledImageGenerationIntent(promptMessages);
 
@@ -542,30 +548,40 @@ export async function resolveAssistantTurn(input: {
     if (!toolCalls.length) {
       if (
         !imageGenerationToolConsumed &&
+        !imageGenerationToolAttempted &&
+        imageGenerationIntentRetries < 1 &&
         hasImageGeneration &&
         hasUnfulfilledImageGenerationIntent(promptMessages)
       ) {
+        imageGenerationIntentRetries += 1;
         input.onEvent?.({ type: "answer_reset" });
         promptMessages = mergeSystemMessage(promptMessages, IMAGE_TOOL_REQUIRED_DIRECTIVE);
         continue;
       }
 
       if ((input.memoriesEnabled ?? false) && hasUnfulfilledMemoryIntent(answer)) {
-        input.onEvent?.({ type: "answer_reset" });
-        promptMessages = mergeSystemMessage(
-          promptMessages,
-          "Do not say that you saved, stored, remembered, updated, or deleted a memory unless you actually call the corresponding memory tool in that same response. If a memory proposal is warranted, call the memory tool now. Otherwise, answer normally without mentioning memory-saving."
-        );
-        continue;
+        if (memoryIntentRetries < 1) {
+          memoryIntentRetries += 1;
+          input.onEvent?.({ type: "answer_reset" });
+          promptMessages = mergeSystemMessage(
+            promptMessages,
+            "Do not say that you saved, stored, remembered, updated, or deleted a memory unless you actually call the corresponding memory tool in that same response. If a memory proposal is warranted, call the memory tool now. Otherwise, answer normally without mentioning memory-saving."
+          );
+          continue;
+        }
       }
 
       if (!answer.trim()) {
-        input.onEvent?.({ type: "answer_reset" });
-        promptMessages = mergeSystemMessage(
-          promptMessages,
-          "Your previous response was empty. Answer the user directly. Do not emit an empty response."
-        );
-        continue;
+        if (emptyAnswerRetries < 1) {
+          emptyAnswerRetries += 1;
+          input.onEvent?.({ type: "answer_reset" });
+          promptMessages = mergeSystemMessage(
+            promptMessages,
+            "Your previous response was empty. Answer the user directly. Do not emit an empty response."
+          );
+          continue;
+        }
+        throw new Error("Provider returned an empty response");
       }
       await commitAnswerSegment(answer);
       return { answer, thinking, usage };
@@ -675,6 +691,7 @@ export async function resolveAssistantTurn(input: {
           }
 
           imageGenerationToolAttemptedThisStep = true;
+          imageGenerationToolAttempted = true;
         }
 
         const result = await runToolCall(toolCall, timelineSortOrder);
