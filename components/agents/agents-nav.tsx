@@ -134,11 +134,9 @@ export function AgentsNav({
                 <BotAvatar seed={bot.avatarSeed} size={24} className="rounded-lg" />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm">{bot.name}</div>
-                  {bot.isChief || bot.status !== "idle" ? (
+                  {bot.status === "queued" ? (
                     <div className="truncate text-[11px] text-[#71717a]">
-                      {bot.isChief ? "Chief of staff" : ""}
-                      {bot.isChief && bot.status !== "idle" ? " · " : ""}
-                      {bot.status !== "idle" ? botStatusLabel(bot.status) : ""}
+                      {botStatusLabel(bot.status)}
                     </div>
                   ) : null}
                 </div>

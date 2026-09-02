@@ -121,6 +121,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
     speechCleanupEnabled: false,
     speechCleanupProfileId: null,
     speechCleanupPrompt: "",
+    botSystemPrompt: "",
     ...Object.fromEntries(Object.entries(overrides).filter(([key]) => [
       "defaultProviderProfileId", "skillsEnabled", "conversationRetention",
       "memoriesEnabled", "memoriesMaxCount", "mcpTimeout", "maxAssistantToolSteps",
@@ -128,7 +129,8 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
       "toolCallDisplay",
       "titleGenerationMode", "titleGenerationProfileId", "providerProfiles", "updatedAt",
       "webSearch", "speechTranscription", "imageGeneration",
-      "speechCleanupEnabled", "speechCleanupProfileId", "speechCleanupPrompt"
+      "speechCleanupEnabled", "speechCleanupProfileId", "speechCleanupPrompt",
+      "botSystemPrompt"
     ].includes(key)))
   };
 }
@@ -341,6 +343,58 @@ describe("general section", () => {
     expect(
       await screen.findByText("AI post-cleanup prompt cannot be empty.")
     ).toBeInTheDocument();
+  });
+
+  it("edits and resets the bot base system prompt from the Bots section", async () => {
+    const settings = makeSettings({ botSystemPrompt: "Custom team base." });
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Bots/ }));
+
+    expect(screen.getByText("Custom team base.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reset to default" }));
+    expect(screen.getByText("No custom base prompt — using the default")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    const body = JSON.parse(String(putCall[1]?.body));
+    expect(body.botPrompt).toEqual({ prompt: "" });
+  });
+
+  it("locks the bot base prompt for non-admins", async () => {
+    const settings = makeSettings({ botSystemPrompt: "Admin only." });
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Bots/ }));
+
+    expect(screen.getByText("Only admins can change the bot base prompt.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reset to default" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    const body = JSON.parse(String(putCall[1]?.body));
+    expect(body).not.toHaveProperty("botPrompt");
   });
 
   it("locks AI post-cleanup controls for non-admins", () => {

@@ -94,6 +94,7 @@ const settings: GeneralSectionSettings = {
   speechCleanupEnabled: false,
   speechCleanupProfileId: null,
   speechCleanupPrompt: "",
+  botSystemPrompt: "",
   providerProfiles: [
     { id: "profile_default", name: "Default", model: "gpt-test" }
   ],

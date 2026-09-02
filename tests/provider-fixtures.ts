@@ -126,6 +126,7 @@ export function createRuntimeAppSettings(
     speechCleanupEnabled: false,
     speechCleanupProfileId: null,
     speechCleanupPrompt: "",
+    botSystemPrompt: "",
     webSearch: {
       providerId: "disabled",
       configuration: {},

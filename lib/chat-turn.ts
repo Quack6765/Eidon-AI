@@ -39,7 +39,7 @@ import {
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
 import { nowIso } from "@/lib/utils";
-import { buildBotSystemPrompt, buildChiefRoster, getBotByConversationId } from "@/lib/bots";
+import { buildBotSystemPrompt, buildBotRoster, getBotByConversationId } from "@/lib/bots";
 import {
   broadcastBotRunUpdate,
   createBotRunRecord,
@@ -266,11 +266,11 @@ async function startAssistantTurn(
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
   const bot = getBotByConversationId(conversation.id);
-  const botSystemPrompt = bot ? buildBotSystemPrompt(bot) : undefined;
+  const botSystemPrompt = bot ? buildBotSystemPrompt(bot, appSettings.botSystemPrompt) : undefined;
   const botTeam = bot
     ? {
         isChief: bot.isChief,
-        roster: bot.isChief ? buildChiefRoster(bot.userId ?? undefined) : []
+        roster: buildBotRoster(bot.userId ?? undefined, bot.id)
       }
     : undefined;
   let assistantMessageId: string | null = null;

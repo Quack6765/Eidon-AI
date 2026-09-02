@@ -33,6 +33,9 @@ export type GeneralSettingsDraft = {
     profileId: string | null;
     prompt: string;
   };
+  botPrompt: {
+    prompt: string;
+  };
 };
 
 function createIntegrationDraft<Selection extends {
@@ -69,6 +72,9 @@ export function createGeneralSettingsDraft(settings: AppSettings): GeneralSettin
       enabled: settings.speechCleanupEnabled,
       profileId: settings.speechCleanupProfileId,
       prompt: settings.speechCleanupPrompt || DEFAULT_SPEECH_CLEANUP_PROMPT
+    },
+    botPrompt: {
+      prompt: settings.botSystemPrompt
     }
   };
 }

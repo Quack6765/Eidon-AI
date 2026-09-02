@@ -547,7 +547,7 @@ describe("delegation event lines", () => {
     expect(line).toHaveTextContent("Messaged Ghost Bot");
   });
 
-  it("renders delegated bot replies as a centered line with plain content, not a user bubble", async () => {
+  it("renders delegated bot replies as an arrival indicator without the message content", async () => {
     const { container } = render(
       React.createElement(MessageBubble, {
         message: {
@@ -560,7 +560,7 @@ describe("delegation event lines", () => {
 
     const wake = screen.getByTestId("delegation-wake-message");
     expect(wake).toHaveTextContent("Message from Research Bot");
-    expect(wake).toHaveTextContent("Here is the relayed answer with bold text.");
+    expect(wake).not.toHaveTextContent("Here is the relayed answer");
     await waitFor(() => {
       expect(wake.querySelector("[data-inline-avatar]")).not.toBeNull();
     });
@@ -569,7 +569,7 @@ describe("delegation event lines", () => {
     expect(screen.queryByRole("button", { name: "Copy message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Regenerate response" })).toBeNull();
     expect(container.querySelector(".rounded-2xl")).toBeNull();
-    expect(wake.querySelector(".markdown-body")).not.toBeNull();
+    expect(wake.querySelector(".markdown-body")).toBeNull();
   });
 
   it("keeps normal user messages as bubbles when the marker pattern does not match", () => {

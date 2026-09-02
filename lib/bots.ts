@@ -6,7 +6,10 @@ import { createConversation, deleteConversation, getConversation, renameConversa
 import { getConversationManager } from "@/lib/ws-singleton";
 import { nowIso } from "@/lib/utils";
 import { ensureBotWorkspace, removeBotBrowserSession, removeBotWorkspace } from "@/lib/bot-sandbox";
+import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
 import type { Bot, BotStatus, BotSummary } from "@/lib/types";
+
+export { DEFAULT_BOT_BASE_SYSTEM_PROMPT };
 
 export const MAX_BOTS_PER_USER = 25;
 export const CHIEF_BOT_NAME = "Chief of Staff";
@@ -87,36 +90,64 @@ export function resolveBotByNameOrId(reference: string, userId?: string): Bot | 
   return getBot(trimmed, userId) ?? findBotByName(trimmed, userId);
 }
 
-export function buildDefaultWorkerSystemPrompt(input: {
-  name: string;
-  title: string;
-  description: string;
-}) {
+export type BotRosterEntry = { name: string; title: string; description: string; isChief: boolean };
+
+function rosterLine(entry: BotRosterEntry) {
+  return `- ${entry.name}${entry.isChief ? " — chief of staff" : ""}${entry.title ? ` (${entry.title})` : ""}${entry.description ? `: ${entry.description}` : ""}`;
+}
+
+export function buildBotRoster(userId?: string, excludeBotId?: string): BotRosterEntry[] {
+  return listBots(userId)
+    .filter((bot) => bot.id !== excludeBotId)
+    .map((bot) => ({ name: bot.name, title: bot.title, description: bot.description, isChief: bot.isChief }));
+}
+
+function buildWorkerIdentityBlock(bot: Bot) {
+  if (bot.systemPrompt.trim()) return bot.systemPrompt.trim();
   return [
-    `You are ${input.name}${input.title ? `, ${input.title}` : ""}, a specialist bot on the user's team.`,
-    input.description ? `Your role: ${input.description}` : null,
-    "You have your own dedicated browser session and file workspace — use them for all browsing and file work instead of shared state.",
-    "Facts about the user come from the shared account memory, which is read-only for you — your memory tools write to your own private memory pool.",
-    "Complete tasks fully and autonomously, then report results concisely."
+    `You are ${bot.name}${bot.title ? `, ${bot.title}` : ""}, a specialist bot on the user's team.`,
+    bot.description ? `Your role: ${bot.description}` : null
   ]
     .filter(Boolean)
     .join("\n");
 }
 
-function buildChiefSystemPrompt(roster: Array<Pick<Bot, "name" | "title" | "description">>) {
+function buildWorkerCommunicationBlock(bot: Bot) {
+  const roster = buildBotRoster(bot.userId ?? undefined, bot.id);
   const rosterLines = roster.length
-    ? ["Your team of specialist bots:", ...roster.map((bot) => `- ${bot.name}${bot.title ? ` (${bot.title})` : ""}${bot.description ? `: ${bot.description}` : ""}`)]
-    : ["You currently have no specialist bots. When a lane of recurring work emerges, create a focused bot for it with create_bot."];
+    ? ["Your team — every member can be reached with message_bot:", ...roster.map(rosterLine)]
+    : ["You currently have no other bots on your team. If a teammate is needed, tell the user to ask the chief of staff."];
+
+  return [
+    "Communicating with other bots:",
+    "- Send a message to any other bot on the team, including the chief of staff, with message_bot. It returns immediately — the other bot works on it in the background and its reply arrives in your conversation as a new message.",
+    "- When another bot messages you, answer normally in your regular response — your answer is delivered back to the sender automatically. Do not use message_bot to reply to a message; use it only to start a new exchange with another bot.",
+    "- Only the chief of staff can create or edit bots. If a job needs a new teammate or a changed role, message the chief of staff directly.",
+    "",
+    ...rosterLines
+  ].join("\n");
+}
+
+function buildChiefPolicyBlock(bot: Bot) {
+  const roster = buildBotRoster(bot.userId ?? undefined, bot.id);
+  const rosterLines = roster.length
+    ? ["Your team of specialist bots:", ...roster.map(rosterLine)]
+    : ["You currently have no specialist bots. When a lane of recurring work emerges, propose creating a focused bot for it — with the user's confirmation."];
 
   return [
     `You are ${CHIEF_BOT_NAME}, the user's primary assistant coordinating a team of specialist bots.`,
     "",
     "How you work:",
     "- Answer directly for quick questions and small tasks you can handle yourself.",
-    "- Delegate substantive or recurring work to the specialist bot that owns that area using delegate_task. It returns immediately: after sending, tell the user right away what you asked and that you will let them know once you have the answer, then continue with other work. The bot's reply arrives here as a new message — relay it when it lands.",
-    "- If no existing bot fits a job that deserves a long-lived owner, create one with create_bot, then delegate to it.",
+    "- Delegate substantive or recurring work to the specialist bot that owns that area using message_bot. It returns immediately: after sending, tell the user right away what you asked and that you will let them know once you have the answer, then continue with other work. The bot's reply arrives here as a new message — report it to the user directly in this conversation when it lands.",
+    "- Never use message_bot to acknowledge, confirm, or send a bot's reply back to it. Your answers in this conversation are for the user; bots already receive their instructions and their own replies. Only call message_bot to give a bot new instructions or ask it a new question.",
     "- When a bot's responsibilities change, update it with update_bot (rename it, or revise its title, description, or system prompt) instead of creating a duplicate.",
-    "- Never delegate to yourself, and do not create a bot for work that only happens once and is trivial for you to do.",
+    "- Never message yourself.",
+    "",
+    "Creating a new bot is a significant, lasting decision — bias against it:",
+    "- Propose a new bot only when all of these hold: the work is recurring (it will be needed multiple times), it deserves its own focused context and workspace (handling it yourself would clutter your own conversation), and no existing bot can own it.",
+    "- Handle one-off tasks yourself, however large, and never propose a bot for work that will happen once or that is trivial for you.",
+    "- Before calling create_bot, always propose the new bot to the user first — its name, title, what it would own, and why it meets this bar — and wait for their explicit confirmation in this conversation. If the user declines or is unsure, do not create it.",
     "",
     ...rosterLines,
     "",
@@ -124,18 +155,12 @@ function buildChiefSystemPrompt(roster: Array<Pick<Bot, "name" | "title" | "desc
   ].join("\n");
 }
 
-export function buildBotSystemPrompt(bot: Bot) {
-  if (!bot.isChief) {
-    return bot.systemPrompt || buildDefaultWorkerSystemPrompt(bot);
+export function buildBotSystemPrompt(bot: Bot, basePrompt?: string) {
+  const base = basePrompt?.trim() || DEFAULT_BOT_BASE_SYSTEM_PROMPT;
+  if (bot.isChief) {
+    return [base, buildChiefPolicyBlock(bot)].join("\n\n");
   }
-  const roster = listBots(bot.userId ?? undefined).filter((candidate) => !candidate.isChief);
-  return buildChiefSystemPrompt(roster);
-}
-
-export function buildChiefRoster(userId?: string) {
-  return listBots(userId)
-    .filter((bot) => !bot.isChief)
-    .map((bot) => ({ name: bot.name, title: bot.title, description: bot.description }));
+  return [base, buildWorkerIdentityBlock(bot), buildWorkerCommunicationBlock(bot)].join("\n\n");
 }
 
 function countBots(userId?: string) {
@@ -251,9 +276,7 @@ export function createBot(
       name,
       title,
       description,
-      systemPrompt:
-        input.systemPrompt?.trim() ||
-        buildDefaultWorkerSystemPrompt({ name, title, description }),
+      systemPrompt: input.systemPrompt?.trim() || "",
       isChief,
       homeConversationId: conversation.id
     });

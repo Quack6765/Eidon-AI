@@ -15,7 +15,7 @@ describe("bots", () => {
     expect(bot.id).toBeTruthy();
     expect(bot.isChief).toBe(false);
     expect(bot.avatarSeed).toBeTruthy();
-    expect(bot.systemPrompt).toContain("Inbox Bot");
+    expect(bot.systemPrompt).toBe("");
 
     const conversation = getConversation(bot.homeConversationId, user.id);
     expect(conversation).not.toBeNull();
@@ -78,6 +78,55 @@ describe("bots", () => {
     expect(rosterPrompt).toContain("Researcher");
     expect(rosterPrompt).toContain("Web research");
     expect(rosterPrompt).toContain("Finds sources.");
+  });
+
+  it("composes worker prompts from the base, identity, and communication context", async () => {
+    const user = await createLocalUser({ username: "botprompt", password: "password-123", role: "user" as const });
+    const { buildBotSystemPrompt, DEFAULT_BOT_BASE_SYSTEM_PROMPT } = await import("@/lib/bots");
+    ensureChiefBot(user.id);
+    const worker = createBot(
+      { name: "Researcher", title: "Web research", description: "Finds sources." },
+      user.id
+    );
+
+    const prompt = buildBotSystemPrompt(worker);
+    expect(prompt.startsWith(DEFAULT_BOT_BASE_SYSTEM_PROMPT)).toBe(true);
+    expect(prompt).toContain("You are Researcher, Web research");
+    expect(prompt).toContain("Your role: Finds sources.");
+    expect(prompt).toContain("message_bot");
+    expect(prompt).toContain("Chief of Staff");
+    expect(prompt).toContain("delivered back to the sender automatically");
+
+    const customBase = buildBotSystemPrompt(worker, "Custom base line.");
+    expect(customBase.startsWith("Custom base line.")).toBe(true);
+    expect(customBase).not.toContain(DEFAULT_BOT_BASE_SYSTEM_PROMPT);
+
+    const specialist = createBot({ name: "Curator", systemPrompt: "You curate art." }, user.id);
+    const curated = buildBotSystemPrompt(specialist);
+    expect(curated.startsWith(DEFAULT_BOT_BASE_SYSTEM_PROMPT)).toBe(true);
+    expect(curated).toContain("You curate art.");
+    expect(curated).toContain("message_bot");
+    expect(curated).toContain("Only the chief of staff can create or edit bots");
+  });
+
+  it("builds the chief prompt with a cautious creation policy requiring confirmation", async () => {
+    const user = await createLocalUser({ username: "chiefpolicy", password: "password-123", role: "user" as const });
+    const { buildBotSystemPrompt } = await import("@/lib/bots");
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Researcher" }, user.id);
+
+    const chiefPrompt = buildBotSystemPrompt(chief);
+    expect(chiefPrompt).toContain("bias against it");
+    expect(chiefPrompt).toContain("recurring");
+    expect(chiefPrompt).toContain("wait for their explicit confirmation");
+    expect(chiefPrompt).toContain("message_bot");
+    expect(chiefPrompt).toContain("Researcher");
+    expect(chiefPrompt).toContain("Never use message_bot to acknowledge");
+    expect(chiefPrompt).toContain("report it to the user directly");
+
+    const workerPrompt = buildBotSystemPrompt(worker);
+    expect(workerPrompt).not.toContain("wait for their explicit confirmation");
+    expect(workerPrompt).not.toContain("update_bot");
   });
 
   it("deleting a bot disables its automations and removes its thread", async () => {

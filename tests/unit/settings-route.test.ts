@@ -230,6 +230,54 @@ describe("settings route", () => {
     });
   });
 
+  it("persists the bot base prompt for admins and rejects members", async () => {
+    const admin = await createLocalUser({
+      username: "bot-prompt-admin",
+      password: "Password123!",
+      role: "admin"
+    });
+    requireUserMock.mockResolvedValue(admin);
+
+    const { PUT } = await import("@/app/api/settings/general/route");
+    const makeRequest = (botPrompt: unknown) => new Request("http://localhost/api/settings", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ preferences: {}, botPrompt })
+    });
+
+    const valid = await PUT(makeRequest({ prompt: "Lead the team precisely." }));
+    expect(valid.status).toBe(200);
+    await expect(valid.json()).resolves.toEqual(
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          botSystemPrompt: "Lead the team precisely."
+        })
+      })
+    );
+
+    const blank = await PUT(makeRequest({ prompt: "" }));
+    expect(blank.status).toBe(200);
+    await expect(blank.json()).resolves.toEqual(
+      expect.objectContaining({
+        settings: expect.objectContaining({
+          botSystemPrompt: ""
+        })
+      })
+    );
+
+    const member = await createLocalUser({
+      username: "bot-prompt-member",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(member);
+    const forbidden = await PUT(makeRequest({ prompt: "x" }));
+    expect(forbidden.status).toBe(403);
+    await expect(forbidden.json()).resolves.toEqual({
+      error: "Only admins can update global settings"
+    });
+  });
+
   it("lets admins point SearXNG at any network address, including private ones", async () => {
     const admin = await createLocalUser({
       username: "searxng-admin-user",

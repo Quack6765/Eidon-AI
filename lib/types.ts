@@ -90,7 +90,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "create_bot" | "update_bot";
+export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot";
 
 export type MessageActionStatus = "running" | "pending" | "completed" | "error" | "stopped";
 
@@ -122,6 +122,7 @@ type AppSettingsCore = {
   speechCleanupEnabled: boolean;
   speechCleanupProfileId: string | null;
   speechCleanupPrompt: string;
+  botSystemPrompt: string;
   updatedAt: string;
 };
 

@@ -162,6 +162,7 @@ export function BotFormModal({
         </div>
         <div>
           <label className={fieldLabel}>System prompt</label>
+          <p className="mb-2 text-xs leading-5 text-[var(--muted)]">Defines the bot&apos;s role and specialty. Its environment and team-communication context are added automatically.</p>
           <Textarea
             aria-label="System prompt"
             value={values.systemPrompt}
