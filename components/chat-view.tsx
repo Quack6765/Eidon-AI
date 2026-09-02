@@ -97,8 +97,18 @@ function StickToBottomBridge({
   return null;
 }
 
-export function ChatView({ payload }: { payload: ConversationViewPayload }) {
+export function ChatView({
+  payload,
+  retainEmptyConversation = false,
+  hideConversationHeader = false
+}: {
+  payload: ConversationViewPayload;
+  retainEmptyConversation?: boolean;
+  hideConversationHeader?: boolean;
+}) {
   const router = useRouter();
+  const retainEmptyConversationRef = useRef(retainEmptyConversation);
+  retainEmptyConversationRef.current = retainEmptyConversation;
   const { getTokenUsage, setTokenUsage } = useContextTokens();
   const { canShare, openShareModal } = useShareConversation();
   const previewController = useAttachmentPreviewController();
@@ -1264,6 +1274,10 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
         return;
       }
 
+      if (retainEmptyConversationRef.current) {
+        return;
+      }
+
       if (window.location.pathname === `/chat/${payload.conversation.id}`) {
         return;
       }
@@ -1961,42 +1975,44 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
         {...fileDropProps}
       >
       {isDraggingFiles ? <FileDropOverlay /> : null}
-      <div className="border-b border-white/4 px-4 py-3.5 md:px-6">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0">
-            <div className="font-medium text-[var(--text)] truncate text-sm">{conversationTitle}</div>
-          </div>
-          <div className="hidden md:flex items-center gap-1">
-            {canShare ? (
+      {hideConversationHeader ? null : (
+        <div className="border-b border-white/4 px-4 py-3.5 md:px-6">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0">
+              <div className="font-medium text-[var(--text)] truncate text-sm">{conversationTitle}</div>
+            </div>
+            <div className="hidden md:flex items-center gap-1">
+              {canShare ? (
+                <button
+                  type="button"
+                  className="h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/6 bg-white/[0.02] text-white/40 transition-colors duration-150 hover:border-white/10 hover:bg-white/[0.05] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 flex"
+                  onClick={openShareModal}
+                  aria-label="Share conversation"
+                  title="Share conversation"
+                >
+                  <Share2 className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
               <button
                 type="button"
-                className="h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/6 bg-white/[0.02] text-white/40 transition-colors duration-150 hover:border-white/10 hover:bg-white/[0.05] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 flex"
-                onClick={openShareModal}
-                aria-label="Share conversation"
-                title="Share conversation"
+                className="h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-200 hover:opacity-90 hover:scale-[0.98] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 flex"
+                onClick={async () => {
+                  try {
+                    await deleteConversationIfStillEmpty(payload.conversation.id);
+                    const res = await fetch("/api/conversations", { method: "POST" });
+                    const data = (await res.json()) as { conversation: Conversation };
+                    router.push(`/chat/${data.conversation.id}`);
+                  } catch {}
+                }}
+                aria-label="New chat"
+                title="New chat"
               >
-                <Share2 className="h-3.5 w-3.5" />
+                <Plus className="h-3.5 w-3.5" />
               </button>
-            ) : null}
-            <button
-              type="button"
-              className="h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-200 hover:opacity-90 hover:scale-[0.98] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 flex"
-              onClick={async () => {
-                try {
-                  await deleteConversationIfStillEmpty(payload.conversation.id);
-                  const res = await fetch("/api/conversations", { method: "POST" });
-                  const data = (await res.json()) as { conversation: Conversation };
-                  router.push(`/chat/${data.conversation.id}`);
-                } catch {}
-              }}
-              aria-label="New chat"
-              title="New chat"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div
         className="relative flex min-h-0 flex-1 flex-col"

@@ -22,6 +22,13 @@ import { createConversation } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getPersona } from "@/lib/personas";
 import { getProviderProfile } from "@/lib/settings";
+import { getBot } from "@/lib/bots";
+import {
+  broadcastBotRunUpdate,
+  createBotRunRecord,
+  updateBotRunStatus
+} from "@/lib/bot-runs";
+import type { BotRun } from "@/lib/types";
 import type { StartChatTurn } from "@/lib/chat-turn";
 import { startChatTurn } from "@/lib/chat-turn";
 import { requestStop } from "@/lib/chat-turn-control";
@@ -113,6 +120,7 @@ async function executeAutomationRun(
     Pick<SchedulerDependencies, "now" | "manager" | "startChatTurn" | "runTimeoutMs">
   >
 ): Promise<AutomationExecutionOutcome | void> {
+  const botRunState: { runId: string | null } = { runId: null };
   try {
     const run = getAutomationRun(runId);
     if (!run || run.status !== "queued") {
@@ -149,22 +157,54 @@ async function executeAutomationRun(
       return;
     }
 
-    const setupTransaction = getDb().transaction(() => {
+    const bot = automation.botId
+      ? getBot(automation.botId, automationOwnerId ?? undefined)
+      : null;
+    if (automation.botId && !bot) {
+      updateAutomationRunStatus(runId, {
+        status: "failed",
+        errorMessage: "Bot not found",
+        finishedAt: dependencies.now().toISOString()
+      });
+      return;
+    }
+
+    const setupTransaction = getDb().transaction((): { id: string } | null => {
       const startedAt = dependencies.now().toISOString();
       if (!claimAutomationRun(run.id, startedAt)) {
         return null;
       }
 
-      const conversation = createConversation(automation.name, null, {
-        providerProfileId: automation.providerProfileId,
-        origin: "automation",
-        automationId: automation.id,
-        automationRunId: run.id
-      }, automationOwnerId ?? undefined);
-      attachConversationToRun(run.id, conversation.id);
-      return conversation;
+      let conversationId: string;
+      if (bot) {
+        const botRun = createBotRunRecord({
+          botId: bot.id,
+          conversationId: bot.homeConversationId,
+          triggerSource: "routine"
+        });
+        botRunState.runId = botRun.id;
+        conversationId = bot.homeConversationId;
+      } else {
+        const conversation = createConversation(automation.name, null, {
+          providerProfileId: automation.providerProfileId,
+          origin: "automation",
+          automationId: automation.id,
+          automationRunId: run.id
+        }, automationOwnerId ?? undefined);
+        conversationId = conversation.id;
+      }
+      attachConversationToRun(run.id, conversationId);
+      return { id: conversationId };
     });
     const conversation = setupTransaction.immediate();
+
+    if (botRunState.runId) {
+      const runningBotRun = updateBotRunStatus(botRunState.runId, {
+        status: "running",
+        startedAt: dependencies.now().toISOString()
+      });
+      if (runningBotRun) broadcastBotRunUpdate(runningBotRun);
+    }
 
     if (!conversation) {
       const current = getAutomationRun(run.id);
@@ -184,7 +224,8 @@ async function executeAutomationRun(
       conversation.id,
       automation.prompt,
       [],
-      automation.personaId ?? undefined
+      automation.personaId ?? undefined,
+      bot ? { botRun: { record: false } } : undefined
     );
     const deadline = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
@@ -202,6 +243,14 @@ async function executeAutomationRun(
     }
 
     const completedAt = dependencies.now().toISOString();
+    if (botRunState.runId) {
+      const finishedBotRun = updateBotRunStatus(botRunState.runId, {
+        status: result?.status === "completed" ? "completed" : result?.status === "stopped" ? "stopped" : "failed",
+        finishedAt: completedAt,
+        errorMessage: result?.status === "failed" ? result.errorMessage ?? "Automation run failed" : null
+      });
+      if (finishedBotRun) broadcastBotRunUpdate(finishedBotRun);
+    }
     if (result?.status === "failed") {
       updateAutomationRunStatus(run.id, {
         status: "failed",
@@ -224,6 +273,14 @@ async function executeAutomationRun(
       finishedAt: completedAt
     });
   } catch (error) {
+    if (botRunState.runId) {
+      const failedBotRun = updateBotRunStatus(botRunState.runId, {
+        status: "failed",
+        finishedAt: dependencies.now().toISOString(),
+        errorMessage: error instanceof Error ? error.message : "Automation run failed"
+      });
+      if (failedBotRun) broadcastBotRunUpdate(failedBotRun);
+    }
     const current = getAutomationRun(runId);
     if (current?.status === "queued" || current?.status === "running") {
       updateAutomationRunStatus(runId, {

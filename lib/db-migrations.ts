@@ -1131,6 +1131,36 @@ export function migrate(db: Database.Database) {
       FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
     );
+    CREATE TABLE IF NOT EXISTS bots (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      name TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      avatar_seed TEXT NOT NULL,
+      system_prompt TEXT NOT NULL,
+      is_chief INTEGER NOT NULL DEFAULT 0,
+      home_conversation_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (home_conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS bot_runs (
+      id TEXT PRIMARY KEY,
+      bot_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      trigger_source TEXT NOT NULL,
+      status TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      parent_message_id TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL
+    );
   `);
 
   if (needsLegacySettingsMigration) {
@@ -1270,10 +1300,16 @@ export function migrate(db: Database.Database) {
   if (!memoryCols.some((col) => col.name === "user_id")) {
     db.exec("ALTER TABLE user_memories ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
   }
+  if (!memoryCols.some((col) => col.name === "bot_id")) {
+    db.exec("ALTER TABLE user_memories ADD COLUMN bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE");
+  }
 
   const automationCols = db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>;
   if (!automationCols.some((col) => col.name === "user_id")) {
     db.exec("ALTER TABLE automations ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
+  }
+  if (!automationCols.some((col) => col.name === "bot_id")) {
+    db.exec("ALTER TABLE automations ADD COLUMN bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL");
   }
 
   db.exec(`

@@ -42,6 +42,7 @@ export function buildToolDefinitions(input: {
   restrictToGenerateImage?: boolean;
   effectiveVisionMode: VisionMode;
   visionToolEnabled?: boolean;
+  chiefRoster?: Array<{ name: string; title: string; description: string }>;
 }): ToolDefinition[] {
   const imageTool =
     input.imageGenerationToolEnabled !== false &&
@@ -156,6 +157,88 @@ export function buildToolDefinitions(input: {
       }
     }
   });
+
+  if (input.chiefRoster) {
+    const rosterSummary = input.chiefRoster.length
+      ? input.chiefRoster
+          .map((bot) => `- ${bot.name}${bot.title ? ` (${bot.title})` : ""}${bot.description ? `: ${bot.description}` : ""}`)
+          .join("\n")
+      : "(no specialist bots yet — use create_bot to add one when a job deserves a long-lived owner)";
+
+    tools.push({
+      type: "function",
+      function: {
+        name: "delegate_task",
+        description:
+          "Send a task to a specialist bot on the team. Returns immediately — the bot runs the task in the background in its own conversation with its own browser session and workspace, and its reply arrives here as a new message when it finishes. After sending, tell the user right away what you asked and that you will report back once you have the answer, then continue with anything else. Current roster:\n" +
+          rosterSummary,
+        parameters: {
+          type: "object",
+          properties: {
+            bot: {
+              type: "string",
+              description: "Name or id of an existing specialist bot (not yourself)"
+            },
+            task_prompt: {
+              type: "string",
+              description: "Complete, self-contained instructions for the bot to execute"
+            }
+          },
+          required: ["bot", "task_prompt"]
+        }
+      }
+    });
+
+    tools.push({
+      type: "function",
+      function: {
+        name: "create_bot",
+        description:
+          "Create a new specialist bot when a job deserves a long-lived owner and no existing bot fits. After creation, delegate tasks to it with delegate_task.",
+        parameters: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Short unique name for the bot" },
+            title: { type: "string", description: "One-line job title (optional)" },
+            description: {
+              type: "string",
+              description: "What this bot owns and how it should work (optional)"
+            }
+          },
+          required: ["name"]
+        }
+      }
+    });
+
+    tools.push({
+      type: "function",
+      function: {
+        name: "update_bot",
+        description:
+          "Update an existing specialist bot when its responsibilities change: rename it, or revise its title, description, or system prompt. Prefer this over creating a duplicate bot.",
+        parameters: {
+          type: "object",
+          properties: {
+            bot: {
+              type: "string",
+              description: "Name or id of the specialist bot to update (not yourself)"
+            },
+            name: { type: "string", description: "New unique name for the bot (optional)" },
+            title: { type: "string", description: "New one-line job title (optional)" },
+            description: {
+              type: "string",
+              description: "New description of what this bot owns (optional)"
+            },
+            system_prompt: {
+              type: "string",
+              description: "New base system prompt shaping how the bot works (optional)"
+            }
+          },
+          required: ["bot"]
+        }
+      }
+    });
+  }
 
   if (input.webSearchEnabled) {
     const parallelSearch = (input.webSearchPipelineMode ?? "auto") !== "off";

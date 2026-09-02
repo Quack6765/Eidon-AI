@@ -1,5 +1,7 @@
 import { MAX_ATTACHMENT_IDS_PER_MESSAGE, MAX_CHAT_MESSAGE_CHARS } from "@/lib/constants";
 import type {
+  BotRun,
+  BotSummary,
   ChatStreamEvent,
   Message,
   MessageAction,
@@ -36,7 +38,10 @@ export type ServerMessage =
   | { type: "conversation_deleted"; conversationId: string }
   | { type: "conversation_updated"; conversation: { id: string; title: string; folderId: string | null; updatedAt: string; isActive: boolean } }
   | { type: "conversation_activity"; conversationId: string; isActive: boolean }
-  | { type: "conversation_title_updated"; conversationId: string; title: string };
+  | { type: "conversation_title_updated"; conversationId: string; title: string }
+  | { type: "bot_updated"; bot: BotSummary }
+  | { type: "bot_deleted"; botId: string }
+  | { type: "bot_run_updated"; run: BotRun };
 
 export function serializeClientMessage(msg: ClientMessage): string {
   return JSON.stringify(msg);

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type PropsWithChildren } from "re
 import { usePathname, useRouter } from "next/navigation";
 import { ArrowLeft, Check, Copy, Link2, Menu, PanelLeftClose, PanelLeftOpen, Plus, Share2, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { AgentsNav } from "@/components/agents/agents-nav";
 import { AutomationsNav } from "@/components/automations/automations-nav";
 import { Sidebar } from "@/components/sidebar";
 import { SettingsNav } from "@/components/settings/settings-nav";
@@ -15,7 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Wordmark } from "@/components/ui/wordmark";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { ContextTokensProvider } from "@/lib/context-tokens-context";
-import type { AuthUser, Automation, Conversation, ConversationListPage, Folder } from "@/lib/types";
+import type { AuthUser, Automation, BotSummary, Conversation, ConversationListPage, Folder } from "@/lib/types";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { consumeHomeSubmitSidebarAutoHide } from "@/lib/chat-bootstrap";
 import { useGlobalWebSocket } from "@/lib/ws-client";
@@ -38,6 +39,7 @@ export function Shell({
   conversationPage,
   folders,
   automations,
+  bots,
   currentConversation,
   children
 }: PropsWithChildren<{
@@ -46,6 +48,7 @@ export function Shell({
   conversationPage: ConversationListPage;
   folders?: Folder[];
   automations?: Automation[];
+  bots?: BotSummary[];
   currentConversation?: Conversation;
 }>) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -60,6 +63,7 @@ export function Shell({
   const hasAppliedDesktopDefaultRef = useRef(false);
   const prevIsSettingsPageRef = useRef(false);
   const prevIsAutomationsPageRef = useRef(false);
+  const prevIsAgentsPageRef = useRef(false);
 
   const pathname = usePathname();
   const router = useRouter();
@@ -81,6 +85,7 @@ export function Shell({
   }, [activeConversationId, conversationPage.conversations, currentConversation]);
   const isSettingsPage = pathname.startsWith("/settings");
   const isAutomationsPage = pathname.startsWith("/automations");
+  const isAgentsPage = pathname.startsWith("/agents");
   const isDesktopSidebarOpen = isSettingsPage || isSidebarOpen;
   const mobileMenuLabel = isSettingsPage ? "Open settings menu" : "Open menu";
   const settingsPageTitle = isSettingsPage
@@ -293,6 +298,15 @@ export function Shell({
       return;
     }
 
+    if (isAgentsPage) {
+      if (pathname === "/agents") {
+        hasAppliedDesktopDefaultRef.current = true;
+        sessionStorage.removeItem("eidon:sidebar:user-closed");
+        setIsSidebarOpen(true);
+      }
+      return;
+    }
+
     if (shouldAutoHideActiveConversation) {
       hasAppliedDesktopDefaultRef.current = true;
       sessionStorage.removeItem("eidon:sidebar:user-closed");
@@ -312,7 +326,7 @@ export function Shell({
     } else if (userClosed) {
       setIsSidebarOpen(false);
     }
-  }, [activeConversationId, isAutomationsPage, isSettingsPage, pathname]);
+  }, [activeConversationId, isAgentsPage, isAutomationsPage, isSettingsPage, pathname]);
 
   useEffect(() => {
     if (isSettingsPage && !prevIsSettingsPageRef.current && typeof window !== "undefined" && window.innerWidth < 768) {
@@ -323,9 +337,14 @@ export function Shell({
       sessionStorage.removeItem("eidon:sidebar:user-closed");
       setIsSidebarOpen(true);
     }
+    if (isAgentsPage && pathname === "/agents" && !prevIsAgentsPageRef.current && typeof window !== "undefined" && window.innerWidth < 768) {
+      sessionStorage.removeItem("eidon:sidebar:user-closed");
+      setIsSidebarOpen(true);
+    }
     prevIsSettingsPageRef.current = isSettingsPage;
     prevIsAutomationsPageRef.current = isAutomationsPage;
-  }, [isSettingsPage, isAutomationsPage, pathname]);
+    prevIsAgentsPageRef.current = isAgentsPage;
+  }, [isSettingsPage, isAutomationsPage, isAgentsPage, pathname]);
 
   return (
     <div className="app-shell flex h-[100dvh] w-full bg-[var(--background)] overflow-hidden">
@@ -358,6 +377,8 @@ export function Shell({
             passwordLoginEnabled={passwordLoginEnabled}
             onCloseAction={() => { sessionStorage.setItem("eidon:sidebar:user-closed", "true"); setIsSidebarOpen(false); }}
           />
+        ) : isAgentsPage ? (
+          <AgentsNav bots={bots ?? []} onCloseAction={() => { sessionStorage.setItem("eidon:sidebar:user-closed", "true"); setIsSidebarOpen(false); }} />
         ) : isAutomationsPage ? (
           <AutomationsNav automations={automations ?? []} onCloseAction={() => { sessionStorage.setItem("eidon:sidebar:user-closed", "true"); setIsSidebarOpen(false); }} />
         ) : (
@@ -369,8 +390,10 @@ export function Shell({
         <button
           type="button"
           onClick={() => setIsSidebarOpen((prev) => { if (prev) sessionStorage.setItem("eidon:sidebar:user-closed", "true"); else sessionStorage.removeItem("eidon:sidebar:user-closed"); return !prev; })}
-          className={`group/sidebar-toggle hidden md:flex fixed top-[72px] z-[80] h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-[var(--background)]/95 text-white/45 shadow-[0_2px_8px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-[left,background-color,border-color,color] duration-200 ease-out hover:border-white/18 hover:bg-[#171717] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 ${
-            isSidebarOpen ? "left-[262px]" : "left-3"
+          className={`group/sidebar-toggle hidden md:flex fixed z-[80] h-9 w-9 items-center justify-center rounded-lg border border-white/10 bg-[var(--background)]/95 text-white/45 shadow-[0_2px_8px_rgba(0,0,0,0.18)] backdrop-blur-sm transition-[left,top,background-color,border-color,color] duration-200 ease-out hover:border-white/18 hover:bg-[#171717] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 ${
+            isAgentsPage && pathname !== "/agents"
+              ? `top-[68px] ${isSidebarOpen ? "left-[262px]" : "left-6"}`
+              : `top-[72px] ${isSidebarOpen ? "left-[262px]" : "left-3"}`
           }`}
           aria-label={sidebarToggleLabel}
           aria-pressed={isSidebarOpen}
@@ -427,7 +450,7 @@ export function Shell({
             <Wordmark className="text-lg" />
           )}
 
-          {(isAutomationsPage || isSettingsPage) ? (
+          {(isAutomationsPage || isSettingsPage || isAgentsPage) ? (
             <div className="flex h-9 w-9 items-center justify-end">
               {shareConversation ? (
                 <button

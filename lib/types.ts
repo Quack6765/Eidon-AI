@@ -76,7 +76,7 @@ export type AutomationRunStatus =
 
 export type AutomationTriggerSource = "schedule" | "manual_run" | "manual_retry";
 
-export type ConversationOrigin = "manual" | "automation";
+export type ConversationOrigin = "manual" | "automation" | "bot";
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -90,7 +90,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory" | "image_generation";
+export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "create_bot" | "update_bot";
 
 export type MessageActionStatus = "running" | "pending" | "completed" | "error" | "stopped";
 
@@ -146,6 +146,53 @@ export type RuntimeAppSettings = AppSettingsCore & {
   >;
 };
 
+export type BotRunTriggerSource = "dm" | "delegated" | "routine";
+
+export type BotRunStatus = "queued" | "running" | "completed" | "failed" | "stopped";
+
+export type Bot = {
+  id: string;
+  userId: string | null;
+  name: string;
+  title: string;
+  description: string;
+  avatarSeed: string;
+  systemPrompt: string;
+  isChief: boolean;
+  homeConversationId: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BotRun = {
+  id: string;
+  botId: string;
+  conversationId: string;
+  triggerSource: BotRunTriggerSource;
+  status: BotRunStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
+  parentMessageId: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+};
+
+export type BotStatus = "idle" | "queued" | "running";
+
+export type BotSummary = {
+  id: string;
+  name: string;
+  title: string;
+  description: string;
+  avatarSeed: string;
+  isChief: boolean;
+  homeConversationId: string;
+  status: BotStatus;
+  lastRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Conversation = {
   id: string;
   title: string;
@@ -176,6 +223,7 @@ export type Automation = {
   prompt: string;
   providerProfileId: string;
   personaId: string | null;
+  botId: string | null;
   scheduleKind: AutomationScheduleKind;
   intervalMinutes: number | null;
   calendarFrequency: AutomationCalendarFrequency | null;
@@ -322,6 +370,7 @@ export type MemoryProposalState = "pending" | "approved" | "dismissed" | "supers
 export type MemoryProposalPayload = {
   operation: MemoryProposalOperation;
   targetMemoryId: string | null;
+  botId?: string | null;
   currentMemory?: {
     id: string;
     content: string;

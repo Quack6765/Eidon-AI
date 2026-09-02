@@ -85,6 +85,7 @@ function resolveShellPath() {
 export async function executeLocalShellCommand(input: {
   command: string;
   cwd?: string;
+  env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   abortSignal?: AbortSignal;
 }) {
@@ -98,7 +99,7 @@ export async function executeLocalShellCommand(input: {
   return await new Promise<ShellExecutionResult>((resolve, reject) => {
     const child = spawn(resolveShellPath(), ["-lc", command], {
       cwd: input.cwd ?? process.cwd(),
-      env: process.env,
+      env: input.env ?? process.env,
       detached: process.platform !== "win32"
     });
 

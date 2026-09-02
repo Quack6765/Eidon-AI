@@ -18,6 +18,7 @@ type AutomationRow = {
   prompt: string;
   provider_profile_id: string;
   persona_id: string | null;
+  bot_id: string | null;
   schedule_kind: AutomationScheduleKind;
   interval_minutes: number | null;
   calendar_frequency: AutomationCalendarFrequency | null;
@@ -59,6 +60,7 @@ type CreateAutomationInput = {
   prompt: string;
   providerProfileId: string;
   personaId: string | null;
+  botId?: string | null;
   scheduleKind: AutomationScheduleKind;
   intervalMinutes: number | null;
   calendarFrequency: AutomationCalendarFrequency | null;
@@ -201,6 +203,7 @@ function rowToAutomation(row: AutomationRow): Automation {
     prompt: row.prompt,
     providerProfileId: row.provider_profile_id,
     personaId: row.persona_id,
+    botId: row.bot_id,
     scheduleKind: row.schedule_kind,
     intervalMinutes: row.interval_minutes,
     calendarFrequency: row.calendar_frequency,
@@ -336,6 +339,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
     prompt: input.prompt,
     providerProfileId: input.providerProfileId,
     personaId: input.personaId,
+    botId: input.botId ?? null,
     scheduleKind: input.scheduleKind,
     intervalMinutes: input.intervalMinutes,
     calendarFrequency: input.calendarFrequency,
@@ -372,6 +376,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
         prompt,
         provider_profile_id,
         persona_id,
+        bot_id,
         schedule_kind,
         interval_minutes,
         calendar_frequency,
@@ -385,7 +390,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
         last_status,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       automation.id,
@@ -394,6 +399,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
       automation.prompt,
       automation.providerProfileId,
       automation.personaId,
+      automation.botId,
       automation.scheduleKind,
       automation.intervalMinutes,
       automation.calendarFrequency,
@@ -619,6 +625,7 @@ export function listAutomations(userId?: string): Automation[] {
             prompt,
             provider_profile_id,
             persona_id,
+            bot_id,
             schedule_kind,
             interval_minutes,
             calendar_frequency,
@@ -645,6 +652,7 @@ export function listAutomations(userId?: string): Automation[] {
             prompt,
             provider_profile_id,
             persona_id,
+            bot_id,
             schedule_kind,
             interval_minutes,
             calendar_frequency,
@@ -676,6 +684,7 @@ export function getAutomation(id: string, userId?: string) {
             prompt,
             provider_profile_id,
             persona_id,
+            bot_id,
             schedule_kind,
             interval_minutes,
             calendar_frequency,
@@ -701,6 +710,7 @@ export function getAutomation(id: string, userId?: string) {
             prompt,
             provider_profile_id,
             persona_id,
+            bot_id,
             schedule_kind,
             interval_minutes,
             calendar_frequency,
@@ -768,6 +778,7 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
              prompt = ?,
              provider_profile_id = ?,
              persona_id = ?,
+             bot_id = ?,
              schedule_kind = ?,
              interval_minutes = ?,
              calendar_frequency = ?,
@@ -787,6 +798,7 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
         next.prompt,
         next.providerProfileId,
         next.personaId,
+        next.botId,
         next.scheduleKind,
         next.intervalMinutes,
         next.calendarFrequency,
@@ -810,6 +822,7 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
              prompt = ?,
              provider_profile_id = ?,
              persona_id = ?,
+             bot_id = ?,
              schedule_kind = ?,
              interval_minutes = ?,
              calendar_frequency = ?,
@@ -829,6 +842,7 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
         next.prompt,
         next.providerProfileId,
         next.personaId,
+        next.botId,
         next.scheduleKind,
         next.intervalMinutes,
         next.calendarFrequency,

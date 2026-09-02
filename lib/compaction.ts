@@ -1,5 +1,5 @@
 import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
-import { listMemories } from "@/lib/memories";
+import { listMemoriesForPrompt } from "@/lib/memories";
 import { buildMemorySystemGuidance } from "@/lib/memory-guidance";
 import { getDefaultRuntimeProviderProfile, getRuntimeProviderProfile, getSettings, getSettingsForUser } from "@/lib/settings";
 import {
@@ -247,6 +247,7 @@ export function buildPromptMessages(input: {
   maxAttachmentTextTokens?: number;
   memoriesEnabled?: boolean;
   memoryUserId?: string | null;
+  memoryBotId?: string | null;
   memoriesRigor?: MemoryRigor;
 }): PromptMessage[] {
   const remainingAttachmentTextTokens = {
@@ -260,7 +261,9 @@ export function buildPromptMessages(input: {
   }
 
   if (input.memoriesEnabled) {
-    const memories = input.memoryUserId ? listMemories(input.memoryUserId) : [];
+    const memories = input.memoryUserId
+      ? listMemoriesForPrompt(input.memoryUserId, input.memoryBotId ? { botId: input.memoryBotId } : undefined)
+      : [];
     if (memories.length > 0) {
       systemParts.push(
         "<memory>\n" +
@@ -360,7 +363,8 @@ function computeFirstPassContext(
   freshTailCount: number,
   activeMemoryNodes: MemoryNode[],
   memoriesEnabled: boolean,
-  memoriesRigor: MemoryRigor = "balanced"
+  memoriesRigor: MemoryRigor = "balanced",
+  memoryBotId?: string | null
 ): { promptMessages: PromptMessage[]; contextTokens: number; compactionLimit: number } {
   const conversationOwnerId = getConversationOwnerId(conversationId);
   const compactionLimit = computeCompactionLimit(settings);
@@ -379,7 +383,8 @@ function computeFirstPassContext(
     maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
     memoriesEnabled,
     memoriesRigor,
-    memoryUserId: conversationOwnerId
+    memoryUserId: conversationOwnerId,
+    memoryBotId
   });
 
   return { promptMessages, contextTokens: estimatePromptTokens(promptMessages), compactionLimit };
@@ -392,7 +397,9 @@ export async function ensureCompactedContext(
   personaId?: string,
   memoriesEnabled: boolean = false,
   memoriesRigor: MemoryRigor = "balanced",
-  abortSignal?: AbortSignal
+  abortSignal?: AbortSignal,
+  personaContentOverride?: string | null,
+  memoryBotId?: string | null
 ): Promise<EnsureCompactedContextResult> {
   throwIfCompactionStopped(abortSignal);
   const conversation = getConversation(conversationId);
@@ -403,7 +410,10 @@ export async function ensureCompactedContext(
 
   const conversationOwnerId = getConversationOwnerId(conversationId);
   const persona = personaId ? getPersona(personaId, conversationOwnerId ?? undefined) : null;
-  const personaContent = persona?.content;
+  const personaContent =
+    personaContentOverride !== undefined && personaContentOverride !== null
+      ? personaContentOverride
+      : persona?.content;
 
   const compactionLimit = computeCompactionLimit(settings);
 
@@ -434,7 +444,8 @@ export async function ensureCompactedContext(
         maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
         memoriesEnabled,
         memoriesRigor,
-        memoryUserId: conversationOwnerId
+        memoryUserId: conversationOwnerId,
+        memoryBotId
       });
 
     while (true) {
@@ -452,7 +463,8 @@ export async function ensureCompactedContext(
         effectiveFreshTail,
         activeMemoryNodes,
         memoriesEnabled,
-        memoriesRigor
+        memoriesRigor,
+        memoryBotId
       );
 
       if (promptTokens <= compactionLimit) {

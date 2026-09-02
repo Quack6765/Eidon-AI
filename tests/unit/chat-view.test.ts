@@ -636,6 +636,19 @@ describe("chat view", () => {
     expect(openShareModal).toHaveBeenCalledTimes(1);
   });
 
+  it("hides the conversation header when hideConversationHeader is set", () => {
+    renderWithShareProvider(
+      React.createElement(ChatView, {
+        payload: createPayload(),
+        hideConversationHeader: true
+      })
+    );
+
+    expect(screen.queryByRole("button", { name: "Share conversation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New chat" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("chat-view-root")).toBeInTheDocument();
+  });
+
   it("uploads an attachment from the file input and removes it from the pending list", async () => {
     const attachment = createAttachment();
     vi.mocked(global.fetch)

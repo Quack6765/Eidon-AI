@@ -5,12 +5,14 @@ import { createAutomation, listAutomations } from "@/lib/automations";
 import { badRequest, ok } from "@/lib/http";
 import { getPersona } from "@/lib/personas";
 import { getProviderProfile } from "@/lib/settings";
+import { getBot } from "@/lib/bots";
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(100),
   prompt: z.string().trim().min(1),
   providerProfileId: z.string().min(1),
   personaId: z.string().min(1).nullable().default(null),
+  botId: z.string().min(1).nullable().default(null),
   scheduleKind: z.enum(["interval", "calendar"]),
   intervalMinutes: z.number().int().nullable(),
   calendarFrequency: z.enum(["daily", "weekly"]).nullable(),
@@ -38,6 +40,10 @@ export async function POST(request: Request) {
 
   if (body.data.personaId && !getPersona(body.data.personaId, user.id)) {
     return badRequest("Persona not found", 404);
+  }
+
+  if (body.data.botId && !getBot(body.data.botId, user.id)) {
+    return badRequest("Bot not found", 404);
   }
 
   try {

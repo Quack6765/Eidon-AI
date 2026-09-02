@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Brain, Check, ChevronDown, ChevronRight, Copy, GitFork, LoaderCircle, Pencil, RefreshCw, Square, X } from "lucide-react";
+import { Bot as BotIcon, Brain, Check, ChevronDown, ChevronRight, Copy, Forward, GitFork, LoaderCircle, PenLine, Pencil, RefreshCw, Square, X } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { math } from "@streamdown/math";
 import { MarkdownErrorBoundary } from "@/components/markdown-error-boundary";
@@ -25,6 +25,8 @@ import {
   MessageAttachments,
   AssistantInlineImageAttachments
 } from "@/components/message-attachments";
+import { BotAvatar } from "@/components/agents/bot-avatar";
+import { useBotAvatarSeed } from "@/hooks/use-bot-avatar-seeds";
 import type {
   MemoryCategory,
   MessageAction as MessageActionType,
@@ -42,6 +44,27 @@ import {
 } from "@/components/ai-elements/message";
 
 const COPY_RESET_DELAY_MS = 1600;
+const DELEGATION_WAKE_PATTERN = /^\[Message from (.+)\]$/;
+const DELEGATE_LABEL_PATTERN = /^Messaged\s+(.+)$/;
+
+export function parseDelegationWakeMessage(content: string): { botName: string; content: string } | null {
+  if (!content.startsWith("[Message from ")) {
+    return null;
+  }
+
+  const newlineIndex = content.indexOf("\n");
+  const firstLine = (newlineIndex === -1 ? content : content.slice(0, newlineIndex)).trim();
+  const match = DELEGATION_WAKE_PATTERN.exec(firstLine);
+
+  if (!match || !match[1].trim()) {
+    return null;
+  }
+
+  return {
+    botName: match[1].trim(),
+    content: newlineIndex === -1 ? "" : content.slice(newlineIndex + 1)
+  };
+}
 
 
 function getAnsiForegroundClassName(foregroundColor: ReturnType<typeof parseAnsiText>[number]["foregroundColor"]) {
@@ -173,6 +196,89 @@ export function StatusLine({ label }: { label: string }) {
   );
 }
 
+function DelegateBotGlyph({ botName }: { botName: string }) {
+  const seed = useBotAvatarSeed(botName);
+
+  if (!seed) {
+    return <BotIcon className="ml-2 mr-2.5 h-3 w-3 shrink-0 text-white/40" aria-hidden="true" />;
+  }
+
+  return <BotAvatar inline seed={seed} size={14} className="ml-2 mr-2.5" />;
+}
+
+function DelegateActionLine({
+  action,
+  isOpen,
+  onToggle
+}: {
+  action: Extract<MessageTimelineItem, { timelineKind: "action" }>;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
+  const isFailed = action.status === "error" || action.status === "stopped";
+  const canExpand = action.status === "completed" && Boolean(action.resultSummary);
+  const botName =
+    DELEGATE_LABEL_PATTERN.exec(action.label)?.[1] ??
+    (typeof action.arguments?.bot === "string" ? action.arguments.bot.trim() : "");
+  const line = (
+    <span
+      className={`flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-4 ${
+        isFailed ? "text-red-300/70" : "text-white/40"
+      }`}
+    >
+      {action.status === "error" ? (
+        <X className="h-3 w-3 shrink-0 text-red-400" aria-hidden="true" />
+      ) : action.status === "stopped" ? (
+        <Square className="h-3 w-3 shrink-0 fill-current text-red-400" aria-hidden="true" />
+      ) : null}
+      <span className="min-w-0 truncate">
+        {botName ? (
+          <>
+            {"Messaged "}
+            <DelegateBotGlyph botName={botName} />
+            <span className={isFailed ? undefined : "text-white/60"}>{botName}</span>
+          </>
+        ) : (
+          action.label
+        )}
+      </span>
+      {canExpand ? (
+        isOpen ? (
+          <ChevronDown className="h-3 w-3 shrink-0 text-white/30" aria-hidden="true" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0 text-white/30" aria-hidden="true" />
+        )
+      ) : null}
+    </span>
+  );
+
+  return (
+    <div
+      className="flex w-full min-w-0 flex-col items-center gap-1"
+      data-testid="delegate-action-line"
+      data-action-status={action.status}
+    >
+      {canExpand ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={isOpen}
+          className="flex max-w-full min-w-0 items-center justify-center rounded transition hover:opacity-80"
+        >
+          {line}
+        </button>
+      ) : (
+        line
+      )}
+      {canExpand && isOpen && action.resultSummary ? (
+        <div className="max-w-full px-6 text-center text-[11px] break-words whitespace-pre-wrap font-mono">
+          <AnsiText text={action.resultSummary} defaultTextClassName="text-white/35" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function CollapsibleActionRow({
   action,
   isOpen,
@@ -183,6 +289,13 @@ function CollapsibleActionRow({
   onToggle: () => void;
 }) {
   const isMemoryAction = action.kind === "create_memory" || action.kind === "update_memory" || action.kind === "delete_memory";
+  const kindIcon = action.kind === "delegate_task" ? (
+    <Forward className="h-3 w-3 shrink-0 text-sky-300" aria-hidden="true" />
+  ) : action.kind === "create_bot" ? (
+    <BotIcon className="h-3 w-3 shrink-0 text-violet-400" aria-hidden="true" />
+  ) : action.kind === "update_bot" ? (
+    <PenLine className="h-3 w-3 shrink-0 text-amber-300" aria-hidden="true" />
+  ) : null;
   const argumentQuery = typeof action.arguments?.query === "string"
     ? action.arguments.query.trim()
     : "";
@@ -196,6 +309,9 @@ function CollapsibleActionRow({
         action.status === "running" ? "text-white/55" : "text-white/85"
       }`}
     >
+      {kindIcon ? (
+        <span className="mr-1 inline-flex translate-y-px align-middle">{kindIcon}</span>
+      ) : null}
       {action.label}
       {webSearchQuery ? (
         <>
@@ -610,6 +726,7 @@ function MessageBubbleImpl({
     renderedAssistantBlockContentById,
     lastRenderableAssistantTextId
   } = derived;
+  const delegationWake = message.role === "user" ? parseDelegationWakeMessage(content) : null;
 
   function toggleToolItem(id: string) {
     setToolOpenItems((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -713,6 +830,17 @@ function MessageBubbleImpl({
       );
     }
 
+    if (item.kind === "delegate_task") {
+      return (
+        <DelegateActionLine
+          key={item.id}
+          action={item}
+          isOpen={toolOpenItems[item.id] ?? false}
+          onToggle={() => toggleToolItem(item.id)}
+        />
+      );
+    }
+
     if (useStatusLine) {
       return null;
     }
@@ -766,6 +894,8 @@ function MessageBubbleImpl({
   const lastAssistantBlock = assistantBlocks[assistantBlocks.length - 1];
   const lastBlockIsRunningAction =
     lastAssistantBlock?.timelineKind === "action" && lastAssistantBlock.status === "running";
+  const lastBlockIsRunningDelegate =
+    lastBlockIsRunningAction && lastAssistantBlock.kind === "delegate_task";
   const lastBlockIsRunningThinking =
     lastAssistantBlock?.timelineKind === "thinking" && lastAssistantBlock.status === "running";
   const lastBlockIsStreamingText =
@@ -787,6 +917,7 @@ function MessageBubbleImpl({
     message.status !== "error" &&
     message.status !== "stopped" &&
     !lastBlockIsStreamingText &&
+    !lastBlockIsRunningDelegate &&
     !(showThinkingShell && thinkingInProgress);
   const showStatusLine =
     useStatusLine &&
@@ -795,9 +926,16 @@ function MessageBubbleImpl({
     message.status !== "stopped" &&
     !compactionInProgress &&
     !lastBlockIsStreamingText &&
+    !lastBlockIsRunningDelegate &&
     (lastBlockIsRunningAction || lastBlockIsRunningThinking || thinkingInProgress || betweenSteps);
   const statusLineRunningAction = useStatusLine
-    ? assistantBlocks.slice().reverse().find(isRunningActionBlock)
+    ? assistantBlocks
+        .slice()
+        .reverse()
+        .find(
+          (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
+            isRunningActionBlock(item) && item.kind !== "delegate_task"
+        )
     : undefined;
   const statusLineWebSearchQuery = statusLineRunningAction?.toolName === "web_search"
     ? (typeof statusLineRunningAction.arguments?.query === "string"
@@ -880,6 +1018,36 @@ function MessageBubbleImpl({
   }
 
   if (message.role === "user") {
+    if (delegationWake && !isEditing) {
+      return (
+        <Message from="user" data-message-id={message.id}>
+          <div
+            className="flex w-full min-w-0 flex-col items-stretch gap-2"
+            data-testid="delegation-wake-message"
+          >
+            <div className="flex w-full min-w-0 justify-center">
+              <span className="flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-4 text-white/40">
+                <span className="min-w-0 truncate">
+                  {"Message from "}
+                  <DelegateBotGlyph botName={delegationWake.botName} />
+                  <span className="text-white/60">{delegationWake.botName}</span>
+                </span>
+              </span>
+            </div>
+            {delegationWake.content ? (
+              <div className="w-full max-w-full rounded-lg border border-white/6 bg-white/[0.015] px-4 py-3 text-[14.5px] text-[var(--text)]">
+                <div ref={contentRef} className="markdown-body">
+                  <Streamdown mode="static" plugins={userPlugins} linkSafety={linkSafety}>
+                    {delegationWake.content.replace(/\n/g, "  \n")}
+                  </Streamdown>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </Message>
+      );
+    }
+
     return (
       <>
         <Message from="user" data-message-id={message.id}>

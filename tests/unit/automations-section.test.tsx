@@ -34,6 +34,8 @@ type FetchState = {
   malformedAutomationReload?: boolean;
   postCount?: number;
   patchCount?: number;
+  bots?: Array<{ id: string; name: string; avatarSeed: string; isChief: boolean }>;
+  lastPostBody?: Record<string, unknown>;
 };
 
 function fetchState() {
@@ -87,12 +89,20 @@ describe("automations section", () => {
         } as Response;
       }
 
+      if (url === "/api/bots" && method === "GET") {
+        return {
+          ok: true,
+          json: async () => ({ bots: fetchState().bots ?? [], runs: [], limits: { maxBots: 20 } })
+        } as Response;
+      }
+
       if (url === "/api/automations" && method === "POST") {
         if (fetchState().rejectSave) {
           throw new Error("network down");
         }
         fetchState().postSaved = true;
         fetchState().postCount = (fetchState().postCount ?? 0) + 1;
+        fetchState().lastPostBody = JSON.parse(String(init?.body ?? "{}"));
         return {
           ok: true,
           json: async () => ({ automation: buildAutomation() })
@@ -216,5 +226,50 @@ describe("automations section", () => {
     });
 
     expect(screen.queryByRole("link", { name: "Open automations workspace" })).toBeNull();
+  });
+
+  it("hides the persona picker and wires botId through when a bot is selected", async () => {
+    fetchState().bots = [
+      {
+        id: "bot_chief",
+        name: "Chief of Staff",
+        avatarSeed: "seed_chief",
+        isChief: true
+      },
+      {
+        id: "bot_inbox",
+        name: "Inbox Bot",
+        avatarSeed: "seed_inbox",
+        isChief: false
+      }
+    ];
+
+    render(React.createElement(AutomationsSection));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add automation" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+
+    const botSelect = screen.getByLabelText("Run as bot");
+    expect(within(botSelect).getByRole("option", { name: "No bot (regular automation)" })).toBeInTheDocument();
+    expect(within(botSelect).getByRole("option", { name: "Chief of Staff (chief)" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Persona")).toBeInTheDocument();
+
+    fireEvent.change(botSelect, { target: { value: "bot_inbox" } });
+    expect(screen.queryByLabelText("Persona")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Inbox sweep" } });
+    fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Triage the inbox" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Automation saved.")).toBeInTheDocument();
+    });
+
+    expect(fetchState().lastPostBody).toMatchObject({
+      botId: "bot_inbox",
+      personaId: null
+    });
   });
 });

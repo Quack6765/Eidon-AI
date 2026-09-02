@@ -10,6 +10,7 @@ export function ProfileCard({
   title,
   subtitle,
   badges,
+  meta,
   rightSlot,
 }: {
   isActive: boolean;
@@ -18,6 +19,7 @@ export function ProfileCard({
   title: string;
   subtitle?: string;
   badges?: Array<{ variant: BadgeVariant; label: string }>;
+  meta?: ReactNode;
   rightSlot?: ReactNode;
 }) {
   return (
@@ -72,6 +74,7 @@ export function ProfileCard({
           {subtitle}
         </p>
       ) : null}
+      {meta ? <div className="mt-1.5 pl-4">{meta}</div> : null}
     </button>
   );
 }

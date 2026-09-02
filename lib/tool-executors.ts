@@ -26,6 +26,10 @@ import {
 import { getLatestUserPromptContent } from "./prompt-analysis";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
+import { executeDelegateTask, executeCreateBotTool, executeUpdateBotTool } from "./bot-delegation";
+import { getBotByConversationId } from "./bots";
+import type { MemoryScope } from "@/lib/memories";
+import { resolveBotSandbox } from "./bot-sandbox";
 import type {
   McpServer,
   McpTool,
@@ -508,6 +512,7 @@ export async function executeShellCommand(
   args: Record<string, unknown>,
   context: {
     input: {
+      conversationId?: string;
       abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -536,11 +541,17 @@ export async function executeShellCommand(
   const actionHandle = typeof handle === "string" ? handle : undefined;
   const screenshotCandidate = prepareScreenshotArtifact(command);
 
+  const bot = context.input.conversationId
+    ? getBotByConversationId(context.input.conversationId)
+    : null;
+  const sandbox = bot ? resolveBotSandbox(bot) : null;
+
   try {
     const result = await executeLocalShellCommand({
       command,
       timeoutMs,
-      abortSignal: context.input.abortSignal
+      abortSignal: context.input.abortSignal,
+      ...(sandbox ? { cwd: sandbox.cwd, env: { ...process.env, ...sandbox.env } } : {})
     });
     throwIfAborted(context.input.abortSignal);
     const resultSummary = summarizeShellResult(result);
@@ -578,9 +589,16 @@ export async function executeShellCommand(
   }
 }
 
+function resolveMemoryScope(conversationId?: string): MemoryScope | undefined {
+  if (!conversationId) return undefined;
+  const bot = getBotByConversationId(conversationId);
+  return bot ? { botId: bot.id } : undefined;
+}
+
 type MemoryToolExecutionContext = {
   memoryUserId?: string | null;
   input: {
+    conversationId?: string;
     abortSignal?: AbortSignal;
     onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
     onActionComplete?: (
@@ -611,9 +629,14 @@ export async function executeCreateMemory(
   }
 
   const normalizedCategory = normalizeMemoryCategory(args.category);
-  const proposalPayload = buildCreateMemoryProposal({ content, category: normalizedCategory });
+  const memoryScope = resolveMemoryScope(context.input.conversationId);
+  const proposalPayload = buildCreateMemoryProposal({
+    content,
+    category: normalizedCategory,
+    botId: memoryScope?.botId ?? null
+  });
   const maxCount = getSettings().memoriesMaxCount ?? 100;
-  const currentCount = getMemoryCount(context.memoryUserId);
+  const currentCount = getMemoryCount(context.memoryUserId, memoryScope);
   throwIfAborted(context.input.abortSignal);
 
   if (currentCount >= maxCount) {
@@ -657,17 +680,22 @@ export async function executeUpdateMemory(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const existing = getMemoryRecord(id, context.memoryUserId);
+  const memoryScope = resolveMemoryScope(context.input.conversationId);
+  const existing = getMemoryRecord(id, context.memoryUserId, memoryScope);
   throwIfAborted(context.input.abortSignal);
   if (!existing) {
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: Memory ${id} not found`);
+    const notFoundMsg = memoryScope
+      ? `Error: Memory ${id} not found in your bot memory pool. Main account memories are read-only for bots; if this fact lives there, save an updated copy to your own memory instead.`
+      : `Error: Memory ${id} not found`;
+    const resultMsg = buildToolResultMessage(toolCallId, notFoundMsg);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
   const proposalPayload = buildUpdateMemoryProposal({
     memory: existing,
     content,
-    category
+    category,
+    botId: memoryScope?.botId ?? null
   });
 
   throwIfAborted(context.input.abortSignal);
@@ -707,10 +735,14 @@ export async function executeDeleteMemory(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const existing = getMemoryRecord(id, context.memoryUserId);
+  const memoryScope = resolveMemoryScope(context.input.conversationId);
+  const existing = getMemoryRecord(id, context.memoryUserId, memoryScope);
   throwIfAborted(context.input.abortSignal);
   if (!existing) {
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: Memory ${id} not found`);
+    const notFoundMsg = memoryScope
+      ? `Error: Memory ${id} not found in your bot memory pool. Main account memories are read-only for bots.`
+      : `Error: Memory ${id} not found`;
+    const resultMsg = buildToolResultMessage(toolCallId, notFoundMsg);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
@@ -722,7 +754,7 @@ export async function executeDeleteMemory(
     detail: existing.content,
     arguments: { id },
     proposalState: "pending",
-    proposalPayload: buildDeleteMemoryProposal(existing)
+    proposalPayload: buildDeleteMemoryProposal(existing, memoryScope?.botId ?? null)
   });
   throwIfAborted(context.input.abortSignal);
 
@@ -916,6 +948,18 @@ export async function executeToolCall(
 
   if (name === "execute_shell_command") {
     return executeShellCommand(toolCallId, args, context);
+  }
+
+  if (name === "delegate_task") {
+    return executeDelegateTask(toolCallId, args, context);
+  }
+
+  if (name === "create_bot") {
+    return executeCreateBotTool(toolCallId, args, context);
+  }
+
+  if (name === "update_bot") {
+    return executeUpdateBotTool(toolCallId, args, context);
   }
 
   if (name === "create_memory") {
