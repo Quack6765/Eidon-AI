@@ -199,6 +199,41 @@
         { "type": "object", "additionalProperties": false, "required": ["type", "message"], "properties": { "type": { "const": "error" }, "message": { "type": "string" } } }
       ]
     },
+    "BotSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "title", "description", "avatarSeed", "isChief", "homeConversationId", "status", "lastRunAt", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/OpaqueId" },
+        "name": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "avatarSeed": { "type": "string" },
+        "isChief": { "type": "boolean" },
+        "homeConversationId": { "$ref": "#/$defs/OpaqueId" },
+        "status": { "type": "string", "enum": ["idle", "queued", "running"] },
+        "lastRunAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "createdAt": { "$ref": "#/$defs/Timestamp" },
+        "updatedAt": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
+    "BotRun": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "botId", "conversationId", "triggerSource", "status", "startedAt", "finishedAt", "parentMessageId", "errorMessage", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/OpaqueId" },
+        "botId": { "$ref": "#/$defs/OpaqueId" },
+        "conversationId": { "$ref": "#/$defs/OpaqueId" },
+        "triggerSource": { "type": "string", "enum": ["dm", "delegated", "routine"] },
+        "status": { "type": "string", "enum": ["queued", "running", "completed", "failed", "stopped"] },
+        "startedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "finishedAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
+        "parentMessageId": { "type": ["string", "null"] },
+        "errorMessage": { "type": ["string", "null"] },
+        "createdAt": { "$ref": "#/$defs/Timestamp" }
+      }
+    },
     "ClientMessage": {
       "oneOf": [
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId"], "properties": { "type": { "enum": ["subscribe", "request_snapshot", "unsubscribe", "stop"] }, "conversationId": { "$ref": "#/$defs/OpaqueId" } } },
@@ -220,7 +255,10 @@
         { "type": "object", "additionalProperties": false, "required": ["type", "conversation"], "properties": { "type": { "enum": ["conversation_created", "conversation_updated"] }, "conversation": { "$ref": "#/$defs/Conversation" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId"], "properties": { "type": { "const": "conversation_deleted" }, "conversationId": { "$ref": "#/$defs/OpaqueId" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "isActive"], "properties": { "type": { "const": "conversation_activity" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "isActive": { "type": "boolean" } } },
-        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "title"], "properties": { "type": { "const": "conversation_title_updated" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "title": { "type": "string" } } }
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "title"], "properties": { "type": { "const": "conversation_title_updated" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "title": { "type": "string" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "bot"], "properties": { "type": { "const": "bot_updated" }, "bot": { "$ref": "#/$defs/BotSummary" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "botId"], "properties": { "type": { "const": "bot_deleted" }, "botId": { "$ref": "#/$defs/OpaqueId" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "run"], "properties": { "type": { "const": "bot_run_updated" }, "run": { "$ref": "#/$defs/BotRun" } } }
       ]
     }
   }

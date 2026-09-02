@@ -573,6 +573,7 @@ function migratePreferenceStorage(db: Database.Database) {
       max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
+      default_view TEXT NOT NULL DEFAULT 'chat',
       title_generation_mode TEXT NOT NULL DEFAULT 'same',
       title_generation_profile_id TEXT,
       speech_cleanup_enabled INTEGER NOT NULL DEFAULT 0,
@@ -593,6 +594,7 @@ function migratePreferenceStorage(db: Database.Database) {
       max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
+      default_view TEXT NOT NULL DEFAULT 'chat',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -1160,6 +1162,11 @@ export function migrate(db: Database.Database) {
       FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
       FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS bot_avatars (
+      seed TEXT PRIMARY KEY,
+      svg TEXT NOT NULL,
+      created_at TEXT NOT NULL
     );
   `);
 
@@ -1923,6 +1930,13 @@ export function migrate(db: Database.Database) {
   }
   if (!userPreferencesCols.some((column) => column.name === "tool_call_display")) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN tool_call_display TEXT NOT NULL DEFAULT 'pills'");
+  }
+
+  if (!globalPreferencesCols.some((column) => column.name === "default_view")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN default_view TEXT NOT NULL DEFAULT 'chat'");
+  }
+  if (!userPreferencesCols.some((column) => column.name === "default_view")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN default_view TEXT NOT NULL DEFAULT 'chat'");
   }
 
   if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_enabled")) {

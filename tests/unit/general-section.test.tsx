@@ -64,6 +64,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
     maxAssistantToolSteps: 25,
     confirmExternalLinks: true,
     toolCallDisplay: "pills",
+    defaultView: "chat",
     webSearch: !overrides.webSearchEngine && overrides.webSearch ? overrides.webSearch : {
       providerId: searchProvider,
       configuration: searchProvider === "searxng"
@@ -127,6 +128,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
       "memoriesEnabled", "memoriesMaxCount", "mcpTimeout", "maxAssistantToolSteps",
       "confirmExternalLinks",
       "toolCallDisplay",
+      "defaultView",
       "titleGenerationMode", "titleGenerationProfileId", "providerProfiles", "updatedAt",
       "webSearch", "speechTranscription", "imageGeneration",
       "speechCleanupEnabled", "speechCleanupProfileId", "speechCleanupPrompt", "semanticRecallEnabled"
@@ -201,7 +203,7 @@ describe("general section", () => {
     expect(body.preferences.confirmExternalLinks).toBe(false);
   });
 
-  it("saves the tool activity display preference from the Conversation section", async () => {
+  it("saves the tool activity display preference from the Display section", async () => {
     const settings = makeSettings();
     vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: true,
@@ -225,6 +227,32 @@ describe("general section", () => {
     const putCall = vi.mocked(global.fetch).mock.calls[0];
     const body = JSON.parse(String(putCall[1]?.body));
     expect(body.preferences.toolCallDisplay).toBe("status_line");
+  });
+
+  it("saves the default view preference from the Display section", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    const select = screen.getByLabelText("Default main view");
+    expect(select).toHaveValue("chat");
+
+    fireEvent.change(select, { target: { value: "agents" } });
+    expect(select).toHaveValue("agents");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    const body = JSON.parse(String(putCall[1]?.body));
+    expect(body.preferences.defaultView).toBe("agents");
   });
 
   it("saves speech engine and default language through the general settings endpoint", async () => {

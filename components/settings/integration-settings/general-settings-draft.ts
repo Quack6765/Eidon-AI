@@ -23,6 +23,7 @@ export type GeneralSettingsDraft = {
     memoriesEnabled: boolean;
     memoriesMaxCount: number;
     memoriesRigor: MemoryRigor;
+    defaultView: AppSettings["defaultView"];
   };
   webSearch: IntegrationDraft<AppSettings["webSearch"]>;
   imageGeneration: IntegrationDraft<AppSettings["imageGeneration"]>;
@@ -65,7 +66,8 @@ export function createGeneralSettingsDraft(settings: AppSettings): GeneralSettin
       toolCallDisplay: settings.toolCallDisplay,
       memoriesEnabled: settings.memoriesEnabled,
       memoriesMaxCount: settings.memoriesMaxCount,
-      memoriesRigor: settings.memoriesRigor
+      memoriesRigor: settings.memoriesRigor,
+      defaultView: settings.defaultView
     },
     webSearch: createIntegrationDraft(settings.webSearch),
     imageGeneration: createIntegrationDraft(settings.imageGeneration),

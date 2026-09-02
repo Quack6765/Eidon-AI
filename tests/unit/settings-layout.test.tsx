@@ -69,6 +69,7 @@ const settings: GeneralSectionSettings = {
   maxAssistantToolSteps: 25,
   confirmExternalLinks: true,
   toolCallDisplay: "pills",
+  defaultView: "chat",
   speechTranscription: {
     providerId: "browser",
     configuration: { language: "en" },

@@ -1,34 +1,15 @@
-import { HomeView } from "@/components/home-view";
-import { Shell } from "@/components/shell";
+import { ChatHomePage } from "@/components/chat-home-page";
 import { requireUser } from "@/lib/auth";
-import { listConversationsPage } from "@/lib/conversations";
-import { isPasswordLoginEnabled } from "@/lib/env";
-import { listFolders } from "@/lib/folders";
 import { getSanitizedSettings } from "@/lib/settings";
+import { redirect } from "next/navigation";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
   const user = await requireUser();
-  const conversationPage = listConversationsPage({ userId: user.id });
-  const folders = listFolders(user.id);
   const settings = getSanitizedSettings(user.id);
-
-  return (
-    <Shell
-      currentUser={user}
-      passwordLoginEnabled={isPasswordLoginEnabled()}
-      conversationPage={conversationPage}
-      folders={folders}
-    >
-      <HomeView
-        providerProfiles={settings.providerProfiles}
-        defaultProviderProfileId={settings.defaultProviderProfileId}
-        settings={{
-          speechTranscription: settings.speechTranscription,
-          speechCleanupEnabled: settings.speechCleanupEnabled
-        }}
-      />
-    </Shell>
-  );
+  if (settings.defaultView !== "chat") {
+    redirect(settings.defaultView === "agents" ? "/agents" : "/automations");
+  }
+  return <ChatHomePage />;
 }
