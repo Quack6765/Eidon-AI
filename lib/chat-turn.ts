@@ -39,7 +39,7 @@ import {
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
 import { nowIso } from "@/lib/utils";
-import { buildBotSystemPrompt, buildBotRoster, getBotByConversationId } from "@/lib/bots";
+import { buildBotSystemPrompt, buildBotRoster, getBotByConversationId, toBotSummary } from "@/lib/bots";
 import {
   broadcastBotRunUpdate,
   createBotRunRecord,
@@ -273,6 +273,12 @@ async function startAssistantTurn(
         roster: buildBotRoster(bot.userId ?? undefined, bot.id)
       }
     : undefined;
+  const broadcastBotStatus = () => {
+    if (!bot) return;
+    const botOwnerUserId = bot.userId ?? conversationOwnerId ?? null;
+    if (!botOwnerUserId) return;
+    manager.broadcastAll({ type: "bot_updated", bot: toBotSummary(bot) }, botOwnerUserId);
+  };
   let assistantMessageId: string | null = null;
   let contentPersistence: ReturnType<typeof createAssistantContentPersistenceTracker> | null = null;
   let started = false;
@@ -314,6 +320,7 @@ async function startAssistantTurn(
       { type: "conversation_activity", conversationId, isActive: true },
       conversationOwnerId ?? null
     );
+    broadcastBotStatus();
     started = true;
 
     async function flushAnswerBuffer() {
@@ -645,6 +652,7 @@ async function startAssistantTurn(
         { type: "conversation_activity", conversationId, isActive: false },
         conversationOwnerId ?? null
       );
+      broadcastBotStatus();
       globalEmitter.emit("status", conversationId, "completed");
     }
     void import("@/lib/queued-chat-dispatcher")

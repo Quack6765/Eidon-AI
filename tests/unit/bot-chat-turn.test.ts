@@ -169,6 +169,15 @@ describe("bot chat turns", () => {
     const { startChatTurn } = await import("@/lib/chat-turn");
     const { listMessages, listVisibleMessages } = await import("@/lib/conversations");
     const manager = createConversationManager();
+    const sentEvents: Array<{ type: string; bot?: { id: string; status: string } }> = [];
+    const socket = {
+      readyState: 1,
+      send: (data: string) => {
+        sentEvents.push(JSON.parse(data));
+      },
+      close: vi.fn()
+    } as unknown as import("ws").WebSocket;
+    manager.addConnection(socket, user.id);
 
     const result = await startChatTurn(
       manager,
@@ -185,5 +194,11 @@ describe("bot chat turns", () => {
     expect(
       listVisibleMessages(chief.homeConversationId).map((message) => message.role)
     ).toEqual(["user", "assistant"]);
+
+    const chiefUpdates = sentEvents.filter(
+      (event) => event.type === "bot_updated" && event.bot?.id === chief.id
+    );
+    expect(chiefUpdates.some((event) => event.bot?.status === "running")).toBe(true);
+    expect(chiefUpdates.at(-1)?.bot?.status).toBe("idle");
   });
 });
