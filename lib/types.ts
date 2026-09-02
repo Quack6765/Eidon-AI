@@ -90,7 +90,7 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "create_bot" | "update_bot";
+export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "create_bot" | "update_bot" | "create_automation";
 
 export type MessageActionStatus = "running" | "pending" | "completed" | "error" | "stopped";
 
@@ -233,6 +233,7 @@ export type Automation = {
   calendarFrequency: AutomationCalendarFrequency | null;
   timeOfDay: string | null;
   daysOfWeek: number[];
+  continuePreviousConversation: boolean;
   enabled: boolean;
   nextRunAt: string | null;
   lastScheduledFor: string | null;
@@ -386,6 +387,22 @@ export type MemoryProposalPayload = {
   };
 };
 
+export type AutomationProposalPayload = {
+  name: string;
+  prompt: string;
+  scheduleKind: AutomationScheduleKind;
+  intervalMinutes: number | null;
+  calendarFrequency: AutomationCalendarFrequency | null;
+  timeOfDay: string | null;
+  daysOfWeek: number[];
+  providerProfileId: string;
+  personaId: string | null;
+  continuePreviousConversation: boolean;
+  automationId?: string | null;
+};
+
+export type ProposalPayload = MemoryProposalPayload | AutomationProposalPayload;
+
 export type UserMemory = {
   id: string;
   content: string;
@@ -448,7 +465,7 @@ export type MessageAction = {
   startedAt: string;
   completedAt: string | null;
   proposalState: MemoryProposalState | null;
-  proposalPayload: MemoryProposalPayload | null;
+  proposalPayload: ProposalPayload | null;
   proposalUpdatedAt: string | null;
 };
 

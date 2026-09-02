@@ -11,7 +11,7 @@ import { supportsImageInput } from "@/lib/model-capabilities";
 import { getProviderApiMode } from "@/lib/provider-profile";
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
 import { type ToolSet, buildToolDefinitions, mcpToolFunctionName } from "./tool-definitions";
-import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isMemoryProposalToolCall, executeToolCall } from "./tool-executors";
+import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isProposalToolCall, executeToolCall } from "./tool-executors";
 import type {
   ChatStreamEvent,
   McpServer,
@@ -27,7 +27,7 @@ import type {
 export type { ToolSet } from "./tool-definitions";
 export type { RuntimeAction, SuccessfulReadOnlyToolResult } from "./tool-executors";
 export { mcpToolFunctionName, buildToolDefinitions } from "./tool-definitions";
-export { buildToolResultMessage, isMemoryProposalToolCall, executeToolCall } from "./tool-executors";
+export { buildToolResultMessage, isProposalToolCall, executeToolCall } from "./tool-executors";
 export { getLatestUserPromptContent, getLatestUserPromptIndex, shouldAddInlineAttachmentDirective, hasRecentAssistantImageContext, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
 
 type Usage = {
@@ -594,11 +594,11 @@ export async function resolveAssistantTurn(input: {
       return { answer, thinking, usage };
     }
 
-    const isMemoryProposalFinalStep =
+    const isProposalFinalStep =
       Boolean(answer.trim()) &&
-      toolCalls.every((toolCall) => isMemoryProposalToolCall(toolCall.name));
+      toolCalls.every((toolCall) => isProposalToolCall(toolCall.name));
 
-    if (isMemoryProposalFinalStep) {
+    if (isProposalFinalStep) {
       await commitAnswerSegment(answer);
     } else {
       input.onEvent?.({ type: "answer_reset" });
@@ -724,7 +724,7 @@ export async function resolveAssistantTurn(input: {
       }
     }
 
-    if (isMemoryProposalFinalStep) {
+    if (isProposalFinalStep) {
       return { answer, thinking, usage };
     }
   }
