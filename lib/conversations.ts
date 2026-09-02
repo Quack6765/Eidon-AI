@@ -40,6 +40,7 @@ import type {
   MessageStatus,
   MemoryProposalPayload,
   MemoryProposalState,
+  ProposalPayload,
   ReasoningEffort,
   SystemMessageKind
 } from "@/lib/types";
@@ -192,6 +193,24 @@ function rowToMessage(row: {
   };
 }
 
+function parseProposalPayloadJson(
+  rawPayload: string,
+  kind: MessageActionKind
+): ProposalPayload | null {
+  try {
+    const parsed = JSON.parse(rawPayload) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    if (kind === "create_automation") {
+      return parsed as ProposalPayload;
+    }
+    return parsed as MemoryProposalPayload;
+  } catch {
+    return null;
+  }
+}
+
 function rowToMessageAction(row: {
   id: string;
   message_id: string;
@@ -228,7 +247,10 @@ function rowToMessageAction(row: {
     completedAt: row.completed_at,
     proposalState: row.proposal_state,
     proposalPayload: row.proposal_payload_json
-      ? (JSON.parse(row.proposal_payload_json) as MemoryProposalPayload)
+      ? parseProposalPayloadJson(
+          row.proposal_payload_json,
+          row.kind as MessageActionKind
+        )
       : null,
     proposalUpdatedAt: row.proposal_updated_at
   };
@@ -1572,7 +1594,7 @@ export function createMessageAction(input: {
   resultSummary?: string;
   sortOrder?: number;
   proposalState?: MemoryProposalState | null;
-  proposalPayload?: MemoryProposalPayload | null;
+  proposalPayload?: ProposalPayload | null;
   proposalUpdatedAt?: string | null;
 }) {
   const timestamp = nowIso();
@@ -1683,7 +1705,7 @@ export function updateMessageAction(
     resultSummary?: string;
     completedAt?: string | null;
     proposalState?: MemoryProposalState | null;
-    proposalPayload?: MemoryProposalPayload | null;
+    proposalPayload?: ProposalPayload | null;
     proposalUpdatedAt?: string | null;
   }
 ) {
@@ -1759,6 +1781,14 @@ export function updateMessageAction(
     );
 
   return listMessageActionsForMessageIds([current.message_id]).find((action) => action.id === actionId) ?? null;
+}
+
+export function getMessageActionKind(actionId: string): MessageActionKind | null {
+  const row = getDb()
+    .prepare("SELECT kind FROM message_actions WHERE id = ?")
+    .get(actionId) as { kind: MessageActionKind } | undefined;
+
+  return row?.kind ?? null;
 }
 
 export function markMessagesCompacted(messageIds: string[]) {

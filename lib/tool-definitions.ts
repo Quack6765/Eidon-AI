@@ -1,4 +1,5 @@
 import { buildCreateMemoryDescription } from "@/lib/memory-guidance";
+import { buildCreateAutomationDescription } from "@/lib/automation-guidance";
 import { extractEnumHints } from "@/lib/tool-schema-helpers";
 import { getSkillResolvedName } from "./skill-runtime";
 import type { WebSearchPipelineMode } from "@/lib/web-search-catalog";
@@ -155,6 +156,54 @@ export function buildToolDefinitions(input: {
           timeout_ms: { type: "number", description: "Timeout in milliseconds (default 30000)" }
         },
         required: ["command"]
+      }
+    }
+  });
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "create_automation",
+      description: buildCreateAutomationDescription(),
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Short name for the automation (max 100 chars)" },
+          prompt: {
+            type: "string",
+            description:
+              "Complete, self-contained instructions the scheduled run will execute. Supports the variables {{date}} (run date), {{run_number}} (1-based ordinal of this run), and {{last_result}} (result of the previous run, empty on the first run)."
+          },
+          schedule_kind: {
+            type: "string",
+            enum: ["interval", "calendar"],
+            description: "interval = every N minutes; calendar = daily or weekly at a local time"
+          },
+          interval_minutes: {
+            type: "number",
+            description: "Minutes between runs for interval schedules (minimum 5)"
+          },
+          calendar_frequency: {
+            type: "string",
+            enum: ["daily", "weekly"],
+            description: "Calendar frequency (required for calendar schedules)"
+          },
+          time_of_day: {
+            type: "string",
+            description: "Run time in HH:MM 24h local format (required for calendar schedules)"
+          },
+          days_of_week: {
+            type: "array",
+            items: { type: "number" },
+            description: "Weekdays for weekly schedules, 0=Sunday through 6=Saturday"
+          },
+          continue_previous_conversation: {
+            type: "boolean",
+            description:
+              "true = each run continues the previous run's conversation so briefs build on prior results; false (default) = each run starts a fresh conversation"
+          }
+        },
+        required: ["name", "prompt", "schedule_kind"]
       }
     }
   });

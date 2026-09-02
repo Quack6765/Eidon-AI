@@ -1109,6 +1109,7 @@ export function migrate(db: Database.Database) {
       calendar_frequency TEXT,
       time_of_day TEXT,
       days_of_week TEXT NOT NULL DEFAULT '[]',
+      continue_previous_conversation INTEGER NOT NULL DEFAULT 0,
       enabled INTEGER NOT NULL DEFAULT 1,
       next_run_at TEXT,
       last_scheduled_for TEXT,
@@ -1317,6 +1318,11 @@ export function migrate(db: Database.Database) {
   }
   if (!automationCols.some((col) => col.name === "bot_id")) {
     db.exec("ALTER TABLE automations ADD COLUMN bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL");
+  }
+  if (!automationCols.some((col) => col.name === "continue_previous_conversation")) {
+    db.exec(
+      "ALTER TABLE automations ADD COLUMN continue_previous_conversation INTEGER NOT NULL DEFAULT 0"
+    );
   }
 
   db.exec(`

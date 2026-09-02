@@ -8,6 +8,8 @@ import {
   buildUpdateMemoryProposal,
   normalizeMemoryCategory
 } from "@/lib/memory-proposals";
+import { assertValidSchedule } from "@/lib/automations";
+import { describeSchedule } from "@/lib/automation-display";
 import { getSettings } from "@/lib/settings";
 import { executeLocalShellCommand, getShellCommandLabel, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
@@ -32,12 +34,14 @@ import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
 import { resolveBotSandbox } from "./bot-sandbox";
 import type {
+  AutomationCalendarFrequency,
+  AutomationScheduleKind,
   McpServer,
   McpTool,
   MessageActionStatus,
-  MemoryProposalPayload,
   MemoryProposalState,
   MessageActionKind,
+  ProposalPayload,
   RuntimeAppSettings,
   RuntimeProviderProfile,
   ProviderToolCall,
@@ -56,7 +60,7 @@ type RuntimeAction = {
   toolName?: string | null;
   arguments?: Record<string, unknown> | null;
   proposalState?: MemoryProposalState | null;
-  proposalPayload?: MemoryProposalPayload | null;
+  proposalPayload?: ProposalPayload | null;
 };
 
 type SuccessfulReadOnlyToolResult = {
@@ -73,8 +77,13 @@ export function buildToolResultMessage(toolCallId: string, content: string): Pro
   };
 }
 
-export function isMemoryProposalToolCall(name: string) {
-  return name === "create_memory" || name === "update_memory" || name === "delete_memory";
+export function isProposalToolCall(name: string) {
+  return (
+    name === "create_memory" ||
+    name === "update_memory" ||
+    name === "delete_memory" ||
+    name === "create_automation"
+  );
 }
 
 function buildShellResultForPrompt(input: { command: string; resultSummary: string; isError: boolean }) {
@@ -766,6 +775,112 @@ export async function executeDeleteMemory(
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
 
+type AutomationToolExecutionContext = {
+  input: {
+    settings?: RuntimeProviderProfile;
+    conversationId?: string;
+    abortSignal?: AbortSignal;
+    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+  };
+  timelineSortOrder: number;
+  promptMessages: PromptMessage[];
+};
+
+function parseAutomationScheduleArgs(args: Record<string, unknown>): {
+  scheduleKind: AutomationScheduleKind;
+  intervalMinutes: number | null;
+  calendarFrequency: AutomationCalendarFrequency | null;
+  timeOfDay: string | null;
+  daysOfWeek: number[];
+} {
+  const scheduleKind: AutomationScheduleKind = args.schedule_kind === "calendar" ? "calendar" : "interval";
+  const intervalMinutes =
+    typeof args.interval_minutes === "number" && Number.isFinite(args.interval_minutes)
+      ? Math.round(args.interval_minutes)
+      : null;
+  const calendarFrequency: AutomationCalendarFrequency | null =
+    args.calendar_frequency === "weekly" ? "weekly" : args.calendar_frequency === "daily" ? "daily" : null;
+  const timeOfDay = typeof args.time_of_day === "string" && args.time_of_day.trim() ? args.time_of_day.trim() : null;
+  const daysOfWeek = Array.isArray(args.days_of_week)
+    ? args.days_of_week.filter((day): day is number => Number.isInteger(day) && day >= 0 && day <= 6)
+    : [];
+
+  return { scheduleKind, intervalMinutes, calendarFrequency, timeOfDay, daysOfWeek };
+}
+
+export async function executeCreateAutomationProposal(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: AutomationToolExecutionContext
+) {
+  throwIfAborted(context.input.abortSignal);
+  const sortOrder = context.timelineSortOrder;
+  const name = String(args.name ?? "").trim().slice(0, 100);
+  const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
+  const continuePreviousConversation = args.continue_previous_conversation === true;
+
+  if (!name) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: name is required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  if (!prompt) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: prompt is required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const schedule = parseAutomationScheduleArgs(args);
+
+  try {
+    assertValidSchedule(schedule);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Invalid automation schedule";
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const providerProfileId = context.input.settings?.id ?? "";
+  if (!providerProfileId) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      "Error: no provider profile is configured for this conversation"
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const proposalPayload = {
+    name,
+    prompt,
+    scheduleKind: schedule.scheduleKind,
+    intervalMinutes: schedule.intervalMinutes,
+    calendarFrequency: schedule.calendarFrequency,
+    timeOfDay: schedule.timeOfDay,
+    daysOfWeek: schedule.daysOfWeek,
+    providerProfileId,
+    personaId: null,
+    continuePreviousConversation
+  };
+  const scheduleSummary = describeSchedule(proposalPayload);
+
+  throwIfAborted(context.input.abortSignal);
+  await context.input.onActionStart?.({
+    kind: "create_automation",
+    status: "pending",
+    label: "Automation proposal",
+    detail: `${name} — ${scheduleSummary}`,
+    arguments: { name, prompt, ...schedule, continue_previous_conversation: continuePreviousConversation },
+    proposalState: "pending",
+    proposalPayload
+  });
+  throwIfAborted(context.input.abortSignal);
+
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    `Automation proposal created and awaiting user approval: "${name}" (${scheduleSummary}). Nothing is scheduled until the user approves it on the proposal card. Tell the user you have proposed the automation and that they can review and approve it.`
+  );
+  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
+}
+
 const VISION_ANALYSIS_SYSTEM_PROMPT =
   "You are a vision analysis sub-agent. Describe what is visible in the provided images precisely and answer the question about the images. Be thorough but concise. Never invent details that are not visible in the images.";
 
@@ -1056,6 +1171,10 @@ export async function executeToolCall(
 
   if (name === "delete_memory") {
     return executeDeleteMemory(toolCallId, args, context);
+  }
+
+  if (name === "create_automation") {
+    return executeCreateAutomationProposal(toolCallId, args, context);
   }
 
   if (name === "web_search") {

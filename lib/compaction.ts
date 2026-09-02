@@ -2,6 +2,7 @@ import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
 import { listMemoriesForPrompt } from "@/lib/memories";
 import { selectMemoriesForPrompt } from "@/lib/memory-recall";
 import { buildMemorySystemGuidance } from "@/lib/memory-guidance";
+import { buildAutomationProposalGuidance } from "@/lib/automation-guidance";
 import { getDefaultRuntimeProviderProfile, getRuntimeProviderProfile, getSettings, getSettingsForUser } from "@/lib/settings";
 import {
   bumpConversation,
@@ -276,6 +277,8 @@ export function buildPromptMessages(input: {
     }
     systemParts.push(buildMemorySystemGuidance(input.memoriesRigor ?? "balanced"));
   }
+
+  systemParts.push(buildAutomationProposalGuidance());
 
   if (input.activeMemoryNodes.length) {
     systemParts.push(

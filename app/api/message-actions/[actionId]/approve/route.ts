@@ -4,6 +4,10 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
 import { approveMemoryProposal } from "@/lib/memory-proposals";
+import {
+  approveAutomationProposal
+} from "@/lib/automation-proposals";
+import { getMessageActionKind } from "@/lib/conversations";
 
 const paramsSchema = z.object({
   actionId: z.string().min(1)
@@ -11,7 +15,15 @@ const paramsSchema = z.object({
 
 const bodySchema = z.object({
   content: z.string().trim().min(1).max(1000).optional(),
-  category: z.enum(["personal", "preference", "work", "location", "other"]).optional()
+  category: z.enum(["personal", "preference", "work", "location", "other"]).optional(),
+  name: z.string().trim().min(1).max(100).optional(),
+  prompt: z.string().trim().min(1).optional(),
+  scheduleKind: z.enum(["interval", "calendar"]).optional(),
+  intervalMinutes: z.number().int().nullable().optional(),
+  calendarFrequency: z.enum(["daily", "weekly"]).nullable().optional(),
+  timeOfDay: z.string().nullable().optional(),
+  daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
+  continuePreviousConversation: z.boolean().optional()
 });
 
 async function parseApprovalBody(request: Request) {
@@ -47,9 +59,14 @@ export async function POST(
   if (!body.success) return badRequest("Invalid approval overrides");
 
   try {
+    if (getMessageActionKind(params.actionId) === "create_automation") {
+      const { action, automation } = approveAutomationProposal(params.actionId, body.data, user.id);
+      return ok({ action, automation });
+    }
+
     const action = approveMemoryProposal(params.actionId, body.data, user.id);
     return ok({ action });
   } catch (error) {
-    return badRequest(error instanceof Error ? error.message : "Unable to approve memory proposal");
+    return badRequest(error instanceof Error ? error.message : "Unable to approve proposal");
   }
 }

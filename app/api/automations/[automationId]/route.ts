@@ -23,6 +23,7 @@ const updateSchema = z.object({
   calendarFrequency: z.enum(["daily", "weekly"]).nullable().optional(),
   timeOfDay: z.string().nullable().optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
+  continuePreviousConversation: z.boolean().optional(),
   enabled: z.boolean().optional()
 }).refine(
   (value) => Object.keys(value).length > 0,
