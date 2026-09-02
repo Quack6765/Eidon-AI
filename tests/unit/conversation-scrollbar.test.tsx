@@ -142,7 +142,9 @@ describe("ConversationScrollbar", () => {
     const { track, thumb } = renderScrollbar();
 
     expect(thumb.style.height).toBe("0px");
-    fireEvent.scroll(stickContextMock.scrollRef.current as HTMLElement);
+    const scroller = stickContextMock.scrollRef.current as HTMLElement;
+    fireEvent.wheel(scroller, { deltaY: 24 });
+    fireEvent.scroll(scroller);
 
     expect(thumb.style.height).toBe("64px");
     expect(thumb.style.top).toBe("96px");
@@ -156,14 +158,19 @@ describe("ConversationScrollbar", () => {
     expect(thumb.style.top).toBe("114px");
   });
 
-  it("reveals on scroll, auto-hides after idle, and stays visible while dragging", () => {
+  it("reveals on user scroll, auto-hides after idle, and stays visible while dragging", () => {
     vi.useFakeTimers();
     scrollMetrics = { scrollTop: 0, scrollHeight: 600, clientHeight: 100 };
     const { track, thumb } = renderScrollbar();
+    const scroller = stickContextMock.scrollRef.current as HTMLElement;
 
     expect(track.className).toContain("opacity-0");
 
-    fireEvent.scroll(stickContextMock.scrollRef.current as HTMLElement);
+    fireEvent.scroll(scroller);
+    expect(track.className).toContain("pointer-fine:opacity-0");
+
+    fireEvent.wheel(scroller, { deltaY: 24 });
+    fireEvent.scroll(scroller);
     expect(track.className).toContain("opacity-100");
 
     act(() => {
@@ -376,12 +383,14 @@ describe("ConversationScrollbar", () => {
     vi.useFakeTimers();
     scrollMetrics = { scrollTop: 0, scrollHeight: 600, clientHeight: 100 };
     const { track } = renderScrollbar();
+    const scroller = stickContextMock.scrollRef.current as HTMLElement;
 
     expect(track.className).toContain("pointer-fine:opacity-0");
     expect(track.className).not.toContain("pointer-fine:pointer-events-none");
     expect(track.className.split(" ")).not.toContain("pointer-events-none");
 
-    fireEvent.scroll(stickContextMock.scrollRef.current as HTMLElement);
+    fireEvent.wheel(scroller, { deltaY: 24 });
+    fireEvent.scroll(scroller);
     expect(track.className).toContain("opacity-100");
 
     act(() => {
@@ -422,11 +431,13 @@ describe("ConversationScrollbar", () => {
     vi.useFakeTimers();
     scrollMetrics = { scrollTop: 0, scrollHeight: 600, clientHeight: 100 };
     const { track } = renderScrollbar();
+    const scroller = stickContextMock.scrollRef.current as HTMLElement;
 
     fireEvent.pointerOver(track, { pointerType: "touch" });
     expect(track.className).toContain("pointer-fine:opacity-0");
 
-    fireEvent.scroll(stickContextMock.scrollRef.current as HTMLElement);
+    fireEvent.wheel(scroller, { deltaY: 24 });
+    fireEvent.scroll(scroller);
     expect(track.className).toContain("opacity-100");
 
     act(() => {
@@ -486,6 +497,83 @@ describe("ConversationScrollbar", () => {
       vi.advanceTimersByTime(2000);
     });
     expect(track.className).toContain("opacity-0");
+  });
+
+  it("stays hidden while tokens stream and only stick-to-bottom auto-scrolls fire", () => {
+    vi.useFakeTimers();
+    scrollMetrics = { scrollTop: 0, scrollHeight: 600, clientHeight: 100 };
+    const { track, thumb } = renderScrollbar();
+    const scroller = stickContextMock.scrollRef.current as HTMLElement;
+
+    for (let tick = 1; tick <= 5; tick += 1) {
+      scrollMetrics.scrollTop = tick * 12;
+      fireEvent.scroll(scroller);
+      act(() => {
+        vi.advanceTimersByTime(250);
+      });
+    }
+
+    expect(track.className).not.toContain("opacity-100");
+    expect(track.className).toContain("pointer-fine:opacity-0");
+    const expectedThumbHeight = Math.max(28, (100 / 600) * 256);
+    expect(thumb.style.height).toBe(`${expectedThumbHeight}px`);
+    expect(parseFloat(thumb.style.top)).toBeCloseTo((60 / 500) * (256 - expectedThumbHeight));
+  });
+
+  it("reveals on user wheel scrolling and stays hidden for later programmatic scrolls", () => {
+    vi.useFakeTimers();
+    scrollMetrics = { scrollTop: 0, scrollHeight: 600, clientHeight: 100 };
+    const { track } = renderScrollbar();
+    const scroller = stickContextMock.scrollRef.current as HTMLElement;
+
+    fireEvent.wheel(scroller, { deltaY: 40 });
+    fireEvent.scroll(scroller);
+    expect(track.className).toContain("opacity-100");
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(track.className).toContain("pointer-fine:opacity-0");
+
+    scrollMetrics.scrollTop = 300;
+    fireEvent.scroll(scroller);
+    expect(track.className).not.toContain("opacity-100");
+  });
+
+  it("reveals on touch scrolling", () => {
+    scrollMetrics = { scrollTop: 0, scrollHeight: 600, clientHeight: 100 };
+    const { track } = renderScrollbar();
+    const scroller = stickContextMock.scrollRef.current as HTMLElement;
+
+    fireEvent.touchMove(scroller);
+    fireEvent.scroll(scroller);
+    expect(track.className).toContain("opacity-100");
+  });
+
+  it("reveals on keyboard scrolling but ignores keys typed inside editable targets", () => {
+    scrollMetrics = { scrollTop: 0, scrollHeight: 600, clientHeight: 100 };
+    const { track } = renderScrollbar();
+    const scroller = stickContextMock.scrollRef.current as HTMLElement;
+    const editor = document.createElement("textarea");
+    scroller.append(editor);
+
+    fireEvent.keyDown(editor, { key: "ArrowDown" });
+    fireEvent.scroll(scroller);
+    expect(track.className).not.toContain("opacity-100");
+
+    fireEvent.keyDown(scroller, { key: "PageDown" });
+    fireEvent.scroll(scroller);
+    expect(track.className).toContain("opacity-100");
+  });
+
+  it("reveals the strip when forwarding wheel deltas over it", () => {
+    vi.useFakeTimers();
+    scrollMetrics = { scrollTop: 0, scrollHeight: 600, clientHeight: 100 };
+    const { track } = renderScrollbar();
+
+    fireEvent.wheel(track, { deltaY: 120 });
+    fireEvent.scroll(stickContextMock.scrollRef.current as HTMLElement);
+    expect(track.className).toContain("opacity-100");
   });
 
   it("cancels native touch defaults on the strip", () => {
