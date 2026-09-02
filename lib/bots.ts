@@ -6,6 +6,7 @@ import { createConversation, deleteConversation, getConversation, renameConversa
 import { getConversationManager } from "@/lib/ws-singleton";
 import { nowIso } from "@/lib/utils";
 import { ensureBotWorkspace, removeBotBrowserSession, removeBotWorkspace } from "@/lib/bot-sandbox";
+import { deleteBotAvatarSvg } from "@/lib/bot-avatar-store";
 import type { Bot, BotStatus, BotSummary } from "@/lib/types";
 
 export const MAX_BOTS_PER_USER = 25;
@@ -346,6 +347,7 @@ export function deleteBot(botId: string, userId?: string): boolean {
       .prepare("UPDATE automations SET enabled = 0, next_run_at = NULL, updated_at = ? WHERE bot_id = ?")
       .run(nowIso(), botId);
     getDb().prepare("DELETE FROM bots WHERE id = ?").run(botId);
+    deleteBotAvatarSvg(bot.avatarSeed);
   });
   transaction();
 
