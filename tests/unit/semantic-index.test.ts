@@ -342,3 +342,92 @@ describe("semantic index", () => {
     ]);
   });
 });
+
+describe("semantic index logging", () => {
+  beforeEach(() => {
+    resetFakeEmbeddingState();
+  });
+
+  it("logs backfill start, kind transitions, and completion without progress lines on a fast run", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const user = await createUser("log-backfill");
+      const memory = createMemory("montreal coffee", "other", user.id);
+      await vi.waitFor(() => expect(chunkRows("ref_id = ?", memory.id)).toHaveLength(1));
+      const conversation = createConversation("Logging chat", null, undefined, user.id);
+      createMessage({ conversationId: conversation.id, role: "user", content: "budget for paris" });
+      createMessage({ conversationId: conversation.id, role: "assistant", content: "the budget covers coffee" });
+
+      await runSemanticBackfill();
+
+      const lines = logSpy.mock.calls.map((call) => call.join(" "));
+      expect(lines).toContain("[semantic-index] Backfill started: ~3 sources to index (2 pending, 1 memories)");
+      expect(lines).toContain("[semantic-index] Indexing memories (1/4)...");
+      expect(lines).toContain("[semantic-index] Indexing messages (2/4)...");
+      expect(
+        lines.some((line) => line.startsWith("[semantic-index] Backfill complete: 2 sources indexed, 2 chunks written"))
+      ).toBe(true);
+      expect(lines.some((line) => line.startsWith("[semantic-index] Progress:"))).toBe(false);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("logs nothing to backfill when there are no sources", async () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await runSemanticBackfill();
+
+      const lines = logSpy.mock.calls.map((call) => call.join(" "));
+      expect(lines).toContain("[semantic-index] Index up to date - nothing to backfill");
+      expect(lines.some((line) => line.startsWith("[semantic-index] Backfill started:"))).toBe(false);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  it("emits throttled progress lines while indexing", async () => {
+    const user = await createUser("log-progress");
+    const conversation = createConversation("Progress chat", null, undefined, user.id);
+    for (let index = 0; index < 40; index += 1) {
+      createMessage({
+        conversationId: conversation.id,
+        role: "user",
+        content: `progress message ${index} about budget`
+      });
+    }
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    let clock = 1_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockImplementation(() => (clock += 6_000));
+    try {
+      await runSemanticBackfill();
+
+      const lines = logSpy.mock.calls.map((call) => call.join(" "));
+      const progressLines = lines.filter((line) => line.startsWith("[semantic-index] Progress:"));
+      expect(progressLines.length).toBeGreaterThanOrEqual(1);
+      expect(progressLines[0]).toBe("[semantic-index] Progress: 32/~40 sources, 32 chunks written (80%)");
+    } finally {
+      nowSpy.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
+  it("logs the cleared chunk count when a rebuild is requested", async () => {
+    const user = await createUser("log-rebuild");
+    createMemory("chess openings", "other", user.id);
+    await runSemanticBackfill();
+    expect(chunkRows()).toHaveLength(1);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      await rebuildSemanticIndex();
+
+      const lines = logSpy.mock.calls.map((call) => call.join(" "));
+      expect(lines).toContain("[semantic-index] Rebuild requested - clearing 1 chunks");
+      expect(lines.some((line) => line.startsWith("[semantic-index] Backfill complete:"))).toBe(true);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+});
