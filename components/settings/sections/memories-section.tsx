@@ -1,18 +1,15 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Brain, Search, Trash2, CircleHelp } from "lucide-react";
+import { Brain, Search, Trash2, Pin } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { SettingsAccordion } from "@/components/settings/settings-accordion";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Toast } from "@/components/ui/toast";
 import { fieldLabel, inputLike, selectLike } from "@/lib/settings-styles";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToastState } from "@/hooks/use-toast-state";
-import type { AppSettings, MemoryCategory, MemoryRigor, UserMemory } from "@/lib/types";
+import type { MemoryCategory, UserMemory } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
 import { ProfileCard } from "../profile-card";
@@ -25,12 +22,6 @@ const CATEGORIES: Array<{ value: MemoryCategory | "all"; label: string }> = [
   { value: "work", label: "Work" },
   { value: "location", label: "Location" },
   { value: "other", label: "Other" }
-];
-
-const RIGOR_OPTIONS: Array<{ value: MemoryRigor; label: string; description: string }> = [
-  { value: "low", label: "Low", description: "Only saves when you explicitly ask." },
-  { value: "balanced", label: "Balanced", description: "Proactively saves durable facts (name, location, role, preferences)." },
-  { value: "high", label: "High", description: "Captures broadly, including implied and stated personal context." }
 ];
 
 function formatRelativeTime(dateStr: string): string {
@@ -51,7 +42,6 @@ function formatRelativeTime(dateStr: string): string {
 
 export function MemoriesSection() {
   const [memories, setMemories] = useState<UserMemory[]>([]);
-  const [settings, setSettings] = useState<AppSettings | null>(null);
   const [filterCategory, setFilterCategory] = useState<MemoryCategory | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedMemoryId, setSelectedMemoryId] = useState<string | null>(null);
@@ -61,7 +51,6 @@ export function MemoriesSection() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const toast = useToastState();
-  const [helpOpen, setHelpOpen] = useState(false);
 
   const fetchMemories = useCallback(async (params?: string) => {
     const url = params ? `/api/memories?${params}` : "/api/memories";
@@ -70,42 +59,16 @@ export function MemoriesSection() {
     setMemories(data.memories);
   }, []);
 
-  const fetchSettings = useCallback(async () => {
-    const res = await fetch("/api/settings");
-    const data = (await res.json()) as { settings: AppSettings };
-    setSettings(data.settings);
-  }, []);
-
-  useEffect(() => {
-    fetchMemories();
-    fetchSettings();
-  }, [fetchMemories, fetchSettings]);
-
-  useEffect(() => {
+  const refreshMemories = useCallback(() => {
     const params = new URLSearchParams();
     if (filterCategory !== "all") params.set("category", filterCategory);
     if (searchQuery.trim()) params.set("search", searchQuery.trim());
-    fetchMemories(params.toString() || undefined);
+    return fetchMemories(params.toString() || undefined);
   }, [filterCategory, searchQuery, fetchMemories]);
 
-  async function saveSettings(patch: Partial<AppSettings>) {
-    try {
-      const res = await fetch("/api/settings/general", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ preferences: patch })
-      });
-      if (!res.ok) {
-        toast.showToast("error", "Failed to save settings.");
-        return;
-      }
-      const data = (await res.json()) as { settings: AppSettings };
-      setSettings(data.settings);
-      toast.showToast("success", "Settings saved.");
-    } catch {
-      toast.showToast("error", "Failed to save settings.");
-    }
-  }
+  useEffect(() => {
+    refreshMemories();
+  }, [refreshMemories]);
 
   async function saveMemory() {
     if (!selectedMemoryId || !editContent.trim()) return;
@@ -124,15 +87,31 @@ export function MemoriesSection() {
         return;
       }
 
-      const params = new URLSearchParams();
-      if (filterCategory !== "all") params.set("category", filterCategory);
-      if (searchQuery.trim()) params.set("search", searchQuery.trim());
-      await fetchMemories(params.toString() || undefined);
+      await refreshMemories();
       setSelectedMemoryId(null);
       setMobileDetailVisible(false);
       toast.showToast("success", "Memory saved.");
     } catch {
       toast.showToast("error", "Failed to save memory.");
+    }
+  }
+
+  async function togglePinned(memory: UserMemory) {
+    const pinned = !memory.pinned;
+    try {
+      const res = await fetch(`/api/memories/${memory.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned })
+      });
+      if (!res.ok) {
+        toast.showToast("error", pinned ? "Failed to pin memory." : "Failed to unpin memory.");
+        return;
+      }
+      await refreshMemories();
+      toast.showToast("success", pinned ? "Memory pinned." : "Memory unpinned.");
+    } catch {
+      toast.showToast("error", pinned ? "Failed to pin memory." : "Failed to unpin memory.");
     }
   }
 
@@ -171,7 +150,6 @@ export function MemoriesSection() {
 
   const selectedMemory = memories.find((m) => m.id === selectedMemoryId);
 
-
   return (
     <div className="flex min-h-0 w-full flex-1">
       <SettingsSplitPane
@@ -189,80 +167,6 @@ export function MemoriesSection() {
         }
         listPanel={
           <div className="space-y-3">
-            <SettingsAccordion
-              title="Memory preferences"
-              description="Automatic recall and storage limits"
-            >
-              <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-sm text-[var(--text)]">Enable memories</div>
-                    <div className="mt-0.5 text-xs leading-5 text-[var(--muted)]">Save and recall facts across conversations</div>
-                  </div>
-                  <label className="relative inline-flex shrink-0 cursor-pointer items-center">
-                    <input
-                      type="checkbox"
-                      checked={settings?.memoriesEnabled ?? true}
-                      onChange={(e) => saveSettings({ memoriesEnabled: e.target.checked })}
-                      className="peer sr-only"
-                    />
-                    <span className="h-6 w-11 rounded-full bg-white/10 transition-colors after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all peer-checked:bg-violet-500/60 peer-checked:after:translate-x-full" />
-                  </label>
-                </div>
-                <div>
-                  <label className={fieldLabel}>Maximum memories</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={500}
-                    value={settings?.memoriesMaxCount ?? 100}
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value, 10);
-                      if (val >= 1 && val <= 500) saveSettings({ memoriesMaxCount: val });
-                    }}
-                    className="w-full text-sm"
-                  />
-                  <p className="mt-1.5 text-xs text-[var(--muted)]">Currently storing {memories.length}.</p>
-                </div>
-                <div>
-                  <div className="mb-1.5 flex items-center gap-1.5">
-                    <label className="text-[13px] font-medium text-[var(--muted)]">Memory proactiveness</label>
-                    <Popover open={helpOpen} onOpenChange={setHelpOpen}>
-                      <PopoverTrigger asChild>
-                        <button
-                          type="button"
-                          aria-label="What each proactiveness level does"
-                          onPointerEnter={(e) => { if (e.pointerType === "mouse") setHelpOpen(true); }}
-                          onPointerLeave={(e) => { if (e.pointerType === "mouse") setHelpOpen(false); }}
-                          className="text-sky-400 transition-colors hover:text-sky-300 focus:outline-none"
-                        >
-                          <CircleHelp className="h-3.5 w-3.5" />
-                        </button>
-                      </PopoverTrigger>
-                      <PopoverContent align="start" sideOffset={6} className="max-w-[17rem]">
-                        <div className="space-y-1.5 py-0.5">
-                          {RIGOR_OPTIONS.map((opt) => (
-                            <div key={opt.value} className="leading-snug">
-                              <span className="font-semibold">{opt.label}</span>
-                              <span className="opacity-70">: {opt.description}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  </div>
-                  <select
-                    value={settings?.memoriesRigor ?? "balanced"}
-                    onChange={(e) => saveSettings({ memoriesRigor: e.target.value as MemoryRigor })}
-                    className={`${selectLike} text-sm`}
-                  >
-                    {RIGOR_OPTIONS.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </SettingsAccordion>
             <div className="flex gap-2">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
@@ -291,6 +195,7 @@ export function MemoriesSection() {
                 </button>
               ))}
             </div>
+            <p className="text-xs leading-5 text-[var(--muted)]">Pinned memories are always included in the prompt.</p>
             <div className="space-y-1.5">
               {memories.length === 0 ? (
                 <div className="flex flex-col items-center py-12 text-center">
@@ -303,14 +208,31 @@ export function MemoriesSection() {
                 </div>
               ) : (
                 memories.map((memory) => (
-                  <ProfileCard
-                    key={memory.id}
-                    isActive={memory.id === selectedMemoryId}
-                    onClick={() => handleSelectMemory(memory)}
-                    title={memory.content.length > 80 ? `${memory.content.slice(0, 80)}...` : memory.content}
-                    subtitle={formatRelativeTime(memory.updatedAt)}
-                    badges={[{ variant: "violet", label: memory.category }]}
-                  />
+                  <div key={memory.id} className="flex items-center gap-1.5">
+                    <div className="min-w-0 flex-1">
+                      <ProfileCard
+                        isActive={memory.id === selectedMemoryId}
+                        onClick={() => handleSelectMemory(memory)}
+                        title={memory.content.length > 80 ? `${memory.content.slice(0, 80)}...` : memory.content}
+                        subtitle={formatRelativeTime(memory.updatedAt)}
+                        badges={[
+                          { variant: "violet", label: memory.category },
+                          ...(memory.pinned ? [{ variant: "http" as const, label: "Pinned" }] : [])
+                        ]}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      aria-label={memory.pinned ? "Unpin memory" : "Pin memory"}
+                      aria-pressed={memory.pinned}
+                      onClick={() => togglePinned(memory)}
+                      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-white/[0.06] ${
+                        memory.pinned ? "text-sky-400 hover:text-sky-300" : "text-white/30 hover:text-[var(--text)]"
+                      }`}
+                    >
+                      <Pin className={`h-3.5 w-3.5 ${memory.pinned ? "fill-current" : ""}`} />
+                    </button>
+                  </div>
                 ))
               )}
             </div>

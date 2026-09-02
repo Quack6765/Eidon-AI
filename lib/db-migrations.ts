@@ -573,6 +573,7 @@ function migratePreferenceStorage(db: Database.Database) {
       max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
+      default_view TEXT NOT NULL DEFAULT 'chat',
       title_generation_mode TEXT NOT NULL DEFAULT 'same',
       title_generation_profile_id TEXT,
       speech_cleanup_enabled INTEGER NOT NULL DEFAULT 0,
@@ -594,6 +595,7 @@ function migratePreferenceStorage(db: Database.Database) {
       max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
+      default_view TEXT NOT NULL DEFAULT 'chat',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -899,6 +901,26 @@ export function migrate(db: Database.Database) {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (profile_id) REFERENCES provider_profiles(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS mcp_server_connections (
+      server_id TEXT NOT NULL PRIMARY KEY,
+      credentials_encrypted TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS mcp_oauth_flows (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      payload_encrypted TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS provider_profiles (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -1108,6 +1130,7 @@ export function migrate(db: Database.Database) {
       calendar_frequency TEXT,
       time_of_day TEXT,
       days_of_week TEXT NOT NULL DEFAULT '[]',
+      continue_previous_conversation INTEGER NOT NULL DEFAULT 0,
       enabled INTEGER NOT NULL DEFAULT 1,
       next_run_at TEXT,
       last_scheduled_for TEXT,
@@ -1161,6 +1184,11 @@ export function migrate(db: Database.Database) {
       FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
       FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS bot_avatars (
+      seed TEXT PRIMARY KEY,
+      svg TEXT NOT NULL,
+      created_at TEXT NOT NULL
     );
   `);
 
@@ -1311,6 +1339,11 @@ export function migrate(db: Database.Database) {
   }
   if (!automationCols.some((col) => col.name === "bot_id")) {
     db.exec("ALTER TABLE automations ADD COLUMN bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL");
+  }
+  if (!automationCols.some((col) => col.name === "continue_previous_conversation")) {
+    db.exec(
+      "ALTER TABLE automations ADD COLUMN continue_previous_conversation INTEGER NOT NULL DEFAULT 0"
+    );
   }
 
   db.exec(`
@@ -1628,6 +1661,8 @@ export function migrate(db: Database.Database) {
       ON auth_sessions(user_id, purpose, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_provider_connection_flows_user_created
       ON provider_connection_flows(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mcp_oauth_flows_server_created
+      ON mcp_oauth_flows(server_id, created_at DESC);
   `);
 
   const queuedMessagesCols = db.prepare("PRAGMA table_info(queued_messages)").all() as Array<{ name: string }>;
@@ -1926,6 +1961,13 @@ export function migrate(db: Database.Database) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN tool_call_display TEXT NOT NULL DEFAULT 'pills'");
   }
 
+  if (!globalPreferencesCols.some((column) => column.name === "default_view")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN default_view TEXT NOT NULL DEFAULT 'chat'");
+  }
+  if (!userPreferencesCols.some((column) => column.name === "default_view")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN default_view TEXT NOT NULL DEFAULT 'chat'");
+  }
+
   if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_enabled")) {
     db.exec("ALTER TABLE global_preferences ADD COLUMN speech_cleanup_enabled INTEGER NOT NULL DEFAULT 0");
   }
@@ -1938,6 +1980,51 @@ export function migrate(db: Database.Database) {
   if (!globalPreferencesCols.some((column) => column.name === "bot_system_prompt")) {
     db.exec("ALTER TABLE global_preferences ADD COLUMN bot_system_prompt TEXT NOT NULL DEFAULT ''");
   }
+
+  if (!globalPreferencesCols.some((column) => column.name === "semantic_recall_enabled")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN semantic_recall_enabled INTEGER NOT NULL DEFAULT 1");
+  }
+
+  const userMemoryCols = db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>;
+  if (!userMemoryCols.some((column) => column.name === "pinned")) {
+    db.exec("ALTER TABLE user_memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS semantic_chunks (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      ref_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      user_id TEXT,
+      conversation_id TEXT,
+      memory_id TEXT,
+      message_id TEXT,
+      memory_node_id TEXT,
+      attachment_id TEXT,
+      chunk_text TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      dim INTEGER NOT NULL,
+      embedding BLOB NOT NULL,
+      source_created_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (kind, ref_id, chunk_index),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY (memory_id) REFERENCES user_memories(id) ON DELETE CASCADE,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+      FOREIGN KEY (memory_node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,
+      FOREIGN KEY (attachment_id) REFERENCES message_attachments(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_user_kind ON semantic_chunks(user_id, kind);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_model ON semantic_chunks(model_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_conversation ON semantic_chunks(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_memory ON semantic_chunks(memory_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_message ON semantic_chunks(message_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_memory_node ON semantic_chunks(memory_node_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_attachment ON semantic_chunks(attachment_id);
+  `);
 }
 
 export function backfillVisionMcpServers(db: Database.Database) {

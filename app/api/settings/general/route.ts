@@ -8,6 +8,7 @@ import {
   webSearchIntegrationUpdateSchema
 } from "@/lib/integration-settings";
 import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
+import { startSemanticIndex, stopSemanticIndex } from "@/lib/semantic-index";
 import { updateGeneralSettingsBundleForUser } from "@/lib/settings";
 
 const inputSchema = z.object({
@@ -17,6 +18,7 @@ const inputSchema = z.object({
     maxAssistantToolSteps: z.number().int().min(1).max(1000).optional(),
     confirmExternalLinks: z.boolean().optional(),
     toolCallDisplay: z.enum(["pills", "status_line"]).optional(),
+    defaultView: z.enum(["chat", "agents", "automations"]).optional(),
     memoriesEnabled: z.boolean().optional(),
     memoriesMaxCount: z.number().int().min(1).max(500).optional(),
     memoriesRigor: z.enum(["low", "balanced", "high"]).optional()
@@ -35,6 +37,9 @@ const inputSchema = z.object({
   }).optional(),
   botPrompt: z.object({
     prompt: z.string().max(20_000)
+  }).optional(),
+  semanticRecall: z.object({
+    enabled: z.boolean()
   }).optional()
 });
 
@@ -54,6 +59,11 @@ export async function PUT(request: Request) {
       void initTitleModel().catch(() => undefined);
     } else if (body.data.titleGeneration) {
       disposeTitleModel();
+    }
+    if (body.data.semanticRecall?.enabled === true) {
+      void startSemanticIndex().catch(() => undefined);
+    } else if (body.data.semanticRecall) {
+      stopSemanticIndex();
     }
     return ok({ settings });
   } catch (error) {

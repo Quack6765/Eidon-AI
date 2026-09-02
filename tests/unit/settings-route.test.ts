@@ -158,6 +158,44 @@ describe("settings route", () => {
     );
   });
 
+  it("persists the default view preference and rejects unsupported values", async () => {
+    const user = await createLocalUser({
+      username: "default-view-route-user",
+      password: "Password123!",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { PUT } = await import("@/app/api/settings/general/route");
+
+    const invalid = await PUT(
+      new Request("http://localhost/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          preferences: { defaultView: "wiki" }
+        })
+      })
+    );
+    expect(invalid.status).toBe(400);
+
+    const valid = await PUT(
+      new Request("http://localhost/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          preferences: { defaultView: "agents" }
+        })
+      })
+    );
+    expect(valid.status).toBe(200);
+    await expect(valid.json()).resolves.toEqual(
+      expect.objectContaining({
+        settings: expect.objectContaining({ defaultView: "agents" })
+      })
+    );
+  });
+
   it("rejects non-admin integration updates with the global settings guard", async () => {
     const user = await createLocalUser({
       username: "integration-update-user",

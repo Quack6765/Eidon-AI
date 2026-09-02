@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Bot, Gauge, Image as ImageIcon, Mic2, Search, Type } from "lucide-react";
+import { Archive, Bot, Brain, Gauge, Image as ImageIcon, Mic2, Monitor, Search, Type } from "lucide-react";
 
 import {
   buildIntegrationUpdate,
@@ -13,6 +13,8 @@ import {
 import { DetailActionBar } from "@/components/settings/detail-action-bar";
 import { DetailHeader } from "@/components/settings/detail-header";
 import { ImageGenerationSettings } from "@/components/settings/integration-settings/image-generation-settings";
+import { MemoryPreferencesSettings } from "@/components/settings/integration-settings/memory-preferences-settings";
+import { SemanticRecallSettings } from "@/components/settings/integration-settings/semantic-recall-settings";
 import { SpeechTranscriptionSettings } from "@/components/settings/integration-settings/speech-transcription-settings";
 import { WebSearchSettings } from "@/components/settings/integration-settings/web-search-settings";
 import { SettingsMenuItem } from "@/components/settings/settings-menu-item";
@@ -27,7 +29,7 @@ import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
 import { getImageGenerationReadinessError } from "@/lib/image-generation/catalog";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import { getTranscriptionReadinessError } from "@/lib/speech/transcription-catalog";
-import type { AppSettings, ConversationRetention, ToolCallDisplayMode } from "@/lib/types";
+import type { AppSettings, ConversationRetention, DefaultView, ToolCallDisplayMode } from "@/lib/types";
 import { getWebSearchReadinessError } from "@/lib/web-search-catalog";
 
 type GeneralSectionSettings = AppSettings & {
@@ -35,6 +37,13 @@ type GeneralSectionSettings = AppSettings & {
 };
 
 const GENERAL_SECTIONS = [
+  {
+    id: "display",
+    label: "Display",
+    description: "Appearance and behavior",
+    detail: "Choose where Eidon opens and how tool activity is displayed.",
+    icon: Monitor
+  },
   {
     id: "conversation",
     label: "Conversation",
@@ -78,6 +87,13 @@ const GENERAL_SECTIONS = [
     icon: Type
   },
   {
+    id: "memory",
+    label: "Memory",
+    description: "Preferences and recall",
+    detail: "Choose how Eidon saves facts about you and how it recalls them in conversations.",
+    icon: Brain
+  },
+  {
     id: "bots",
     label: "Bots",
     description: "Team base prompt",
@@ -99,7 +115,7 @@ export function GeneralSection({
   const toast = useToastState();
   const initialDraft = createGeneralSettingsDraft(settings);
   const [draft, setDraft] = useState(initialDraft);
-  const [activeSection, setActiveSection] = useState<GeneralSectionId>("conversation");
+  const [activeSection, setActiveSection] = useState<GeneralSectionId>("display");
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
   const [isBotPromptOpen, setIsBotPromptOpen] = useState(false);
   const persistedDraft = useRef(initialDraft);
@@ -205,7 +221,10 @@ export function GeneralSection({
                   profileId: draft.speechCleanup.profileId,
                   prompt: draft.speechCleanup.prompt
                 },
-                botPrompt: { prompt: draft.botPrompt.prompt }
+                botPrompt: { prompt: draft.botPrompt.prompt },
+                semanticRecall: {
+                  enabled: draft.semanticRecall.enabled
+                }
               }
             : {})
         })
@@ -239,6 +258,43 @@ export function GeneralSection({
   const activeSectionDefinition = GENERAL_SECTIONS.find((section) => section.id === activeSection) ?? GENERAL_SECTIONS[0];
 
   const detailContent = {
+    "display": (
+      <div className="space-y-6">
+        <div className="space-y-1.5">
+          <label htmlFor="default-view" className={fieldLabel}>Default main view</label>
+          <p className="text-xs leading-5 text-[var(--muted)]">Applies when you open the app, sign in, or return to the home page.</p>
+          <select
+            id="default-view"
+            value={draft.preferences.defaultView}
+            onChange={(event) => updateDraft("preferences", {
+              ...draft.preferences,
+              defaultView: event.target.value as DefaultView
+            })}
+            className={`${selectLike} mt-2 sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
+          >
+            <option value="chat">Chat</option>
+            <option value="agents">Agents</option>
+            <option value="automations">Automations</option>
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="tool-call-display" className={fieldLabel}>Tool activity display</label>
+          <p className="text-xs leading-5 text-[var(--muted)]">Show a pill for each tool as it runs, or collapse all activity into one animated status line.</p>
+          <select
+            id="tool-call-display"
+            value={draft.preferences.toolCallDisplay}
+            onChange={(event) => updateDraft("preferences", {
+              ...draft.preferences,
+              toolCallDisplay: event.target.value as ToolCallDisplayMode
+            })}
+            className={`${selectLike} mt-2 sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
+          >
+            <option value="pills">Tool pills</option>
+            <option value="status_line">Single status line</option>
+          </select>
+        </div>
+      </div>
+    ),
     conversation: (
       <div className="space-y-6">
         <div className="space-y-1.5">
@@ -274,22 +330,6 @@ export function GeneralSection({
             <span className="text-xs leading-5 text-[var(--muted)]">When on, tapping a link shows a confirmation. When off, links open immediately.</span>
           </span>
         </label>
-        <div className="space-y-1.5">
-          <label htmlFor="tool-call-display" className={fieldLabel}>Tool activity display</label>
-          <p className="text-xs leading-5 text-[var(--muted)]">Show a pill for each tool as it runs, or collapse all activity into one animated status line.</p>
-          <select
-            id="tool-call-display"
-            value={draft.preferences.toolCallDisplay}
-            onChange={(event) => updateDraft("preferences", {
-              ...draft.preferences,
-              toolCallDisplay: event.target.value as ToolCallDisplayMode
-            })}
-            className={`${selectLike} mt-2 sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
-          >
-            <option value="pills">Tool pills</option>
-            <option value="status_line">Single status line</option>
-          </select>
-        </div>
       </div>
     ),
     "agent-limits": (
@@ -406,6 +446,24 @@ export function GeneralSection({
               </select>
             </div>
           ) : <p className="text-xs text-[var(--muted)]">Create a provider profile first.</p>
+        ) : null}
+      </div>
+    ),
+    memory: (
+      <div className="space-y-6">
+        <MemoryPreferencesSettings
+          preferences={draft.preferences}
+          dirty={preferencesDirty}
+          onChange={(patch) => updateDraft("preferences", { ...draft.preferences, ...patch })}
+        />
+        {activeSection === "memory" ? (
+          <SemanticRecallSettings
+            enabled={draft.semanticRecall.enabled}
+            persistedEnabled={persistedDraft.current.semanticRecall.enabled}
+            canManage={canManageGlobalIntegrations}
+            dirty={isFieldDirty("semanticRecall")}
+            onChange={(enabled) => updateDraft("semanticRecall", { enabled })}
+          />
         ) : null}
       </div>
     ),

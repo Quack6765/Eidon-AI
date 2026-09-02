@@ -28,6 +28,7 @@ import { getDb } from "@/lib/db";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { resolveConversationReasoningEffort } from "@/lib/provider-profile";
 import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compaction";
+import { queueConversationIndex } from "@/lib/semantic-index";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
@@ -528,6 +529,7 @@ async function startAssistantTurn(
     });
 
     deleteFailedAssistantMessages(conversation.id);
+    queueConversationIndex(conversation.id);
 
     const completedMessage = getMessage(assistantMessageId);
     manager.broadcast(conversationId, {
@@ -542,20 +544,20 @@ async function startAssistantTurn(
     });
     const contextUsage = getConversationContextUsage(conversationId);
     if (contextUsage) {
+      const contextUsageEvent: ChatStreamEvent = {
+        type: "context_usage",
+        contextTokens: contextUsage.contextTokens ?? 0,
+        compactionLimit: contextUsage.compactionLimit,
+        ...(compacted.memoriesUsed !== undefined
+          ? { memoriesUsed: compacted.memoriesUsed, memoriesTotal: compacted.memoriesTotal }
+          : {})
+      };
       manager.broadcast(conversationId, {
         type: "delta",
         conversationId,
-        event: {
-          type: "context_usage",
-          contextTokens: contextUsage.contextTokens ?? 0,
-          compactionLimit: contextUsage.compactionLimit
-        }
+        event: contextUsageEvent
       });
-      globalEmitter.emit("delta", conversationId, {
-        type: "context_usage",
-        contextTokens: contextUsage.contextTokens ?? 0,
-        compactionLimit: contextUsage.compactionLimit
-      });
+      globalEmitter.emit("delta", conversationId, contextUsageEvent);
     }
     return { status: "completed" };
   } catch (error) {

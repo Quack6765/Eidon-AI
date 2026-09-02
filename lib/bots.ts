@@ -7,6 +7,7 @@ import { getConversationManager } from "@/lib/ws-singleton";
 import { nowIso } from "@/lib/utils";
 import { ensureBotWorkspace, removeBotBrowserSession, removeBotWorkspace } from "@/lib/bot-sandbox";
 import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
+import { deleteBotAvatarSvg } from "@/lib/bot-avatar-store";
 import type { Bot, BotStatus, BotSummary } from "@/lib/types";
 
 export { DEFAULT_BOT_BASE_SYSTEM_PROMPT };
@@ -369,6 +370,7 @@ export function deleteBot(botId: string, userId?: string): boolean {
       .prepare("UPDATE automations SET enabled = 0, next_run_at = NULL, updated_at = ? WHERE bot_id = ?")
       .run(nowIso(), botId);
     getDb().prepare("DELETE FROM bots WHERE id = ?").run(botId);
+    deleteBotAvatarSvg(bot.avatarSeed);
   });
   transaction();
 

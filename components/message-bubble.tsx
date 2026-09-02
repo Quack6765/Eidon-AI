@@ -21,12 +21,19 @@ import {
   MemoryProposalCard
 } from "@/components/memory-proposal-card";
 import {
+  AutomationProposalCard,
+  isAutomationProposalAction
+} from "@/components/automation-proposal-card";
+import {
   AttachmentTile,
   MessageAttachments,
   AssistantInlineImageAttachments
 } from "@/components/message-attachments";
 import { BotAvatar } from "@/components/agents/bot-avatar";
 import { useBotAvatarSeed } from "@/hooks/use-bot-avatar-seeds";
+import type {
+  AutomationProposalOverrides
+} from "@/lib/automation-proposals";
 import type {
   MemoryCategory,
   MessageAction as MessageActionType,
@@ -481,6 +488,8 @@ function MessageBubbleImpl({
   isRegenerating = false,
   onApproveMemoryProposal,
   onDismissMemoryProposal,
+  onApproveAutomationProposal,
+  onDismissAutomationProposal,
   onPreviewAttachment,
   readOnly = false
 }: {
@@ -501,6 +510,8 @@ function MessageBubbleImpl({
     overrides?: { content?: string; category?: MemoryCategory }
   ) => Promise<void>;
   onDismissMemoryProposal?: (actionId: string) => Promise<void>;
+  onApproveAutomationProposal?: (actionId: string, overrides?: AutomationProposalOverrides) => Promise<void>;
+  onDismissAutomationProposal?: (actionId: string) => Promise<void>;
   isUpdating?: boolean;
   onForkAssistantMessage?: (messageId: string) => void;
   isForking?: boolean;
@@ -570,7 +581,7 @@ function MessageBubbleImpl({
       timelineKind: "action" as const
     }));
     const assistantBlocks: AssistantBlock[] = [];
-    const deferredMemoryProposalBlocks: Extract<MessageTimelineItem, { timelineKind: "action" }>[] = [];
+    const deferredProposalBlocks: Extract<MessageTimelineItem, { timelineKind: "action" }>[] = [];
     let bufferedText = "";
 
     function appendBufferedText() {
@@ -607,8 +618,8 @@ function MessageBubbleImpl({
       }
 
       if (item.timelineKind === "action") {
-        if (isMemoryProposalAction(item)) {
-          deferredMemoryProposalBlocks.push(item);
+        if (isMemoryProposalAction(item) || isAutomationProposalAction(item)) {
+          deferredProposalBlocks.push(item);
           return;
         }
 
@@ -655,9 +666,9 @@ function MessageBubbleImpl({
       });
     }
 
-    if (deferredMemoryProposalBlocks.length) {
+    if (deferredProposalBlocks.length) {
       assistantBlocks.push(
-        ...deferredMemoryProposalBlocks.map((item, index) => ({
+        ...deferredProposalBlocks.map((item, index) => ({
           ...item,
           sortOrder: assistantBlocks.length + index
         }))
@@ -817,6 +828,23 @@ function MessageBubbleImpl({
   }
 
   function renderAssistantActionItem(item: Extract<MessageTimelineItem, { timelineKind: "action" }>) {
+    if (isAutomationProposalAction(item)) {
+      if (isAssistantStreaming) {
+        return null;
+      }
+
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <AutomationProposalCard
+            action={item}
+            onApprove={onApproveAutomationProposal}
+            onDismiss={onDismissAutomationProposal}
+            readOnly={readOnly}
+          />
+        </div>
+      );
+    }
+
     if (isMemoryProposalAction(item)) {
       if (isAssistantStreaming) {
         return null;

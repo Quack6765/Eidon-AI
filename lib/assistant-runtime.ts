@@ -1,4 +1,5 @@
 import { resolveAttachmentPath } from "@/lib/attachments";
+import { isSemanticRecallAvailable } from "@/lib/semantic-index";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
 import { getWebSearchPipeline } from "@/lib/web-search-catalog";
 import { streamProviderResponse } from "@/lib/provider";
@@ -10,7 +11,7 @@ import { supportsImageInput } from "@/lib/model-capabilities";
 import { getProviderApiMode } from "@/lib/provider-profile";
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
 import { type ToolSet, buildToolDefinitions, mcpToolFunctionName } from "./tool-definitions";
-import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isMemoryProposalToolCall, executeToolCall } from "./tool-executors";
+import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isProposalToolCall, executeToolCall } from "./tool-executors";
 import type {
   ChatStreamEvent,
   McpServer,
@@ -26,7 +27,7 @@ import type {
 export type { ToolSet } from "./tool-definitions";
 export type { RuntimeAction, SuccessfulReadOnlyToolResult } from "./tool-executors";
 export { mcpToolFunctionName, buildToolDefinitions } from "./tool-definitions";
-export { buildToolResultMessage, isMemoryProposalToolCall, executeToolCall } from "./tool-executors";
+export { buildToolResultMessage, isProposalToolCall, executeToolCall } from "./tool-executors";
 export { getLatestUserPromptContent, getLatestUserPromptIndex, shouldAddInlineAttachmentDirective, hasRecentAssistantImageContext, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
 
 type Usage = {
@@ -50,13 +51,25 @@ const NON_NATIVE_VISION_DIRECTIVE =
 const MERMAID_DIAGRAM_DIRECTIVE =
   "When you need to present diagrams (flowcharts, sequence diagrams, class diagrams, state diagrams, ER diagrams, Gantt charts, pie charts, mind maps, or any other diagram type), use mermaid.js syntax inside a fenced code block with the `mermaid` language identifier. For example:\n\n```mermaid\ngraph TD\n    A[Start] --> B{Decision}\n    B -->|Yes| C[Success]\n    B -->|No| D[Try Again]\n```\n\nAlways prefer mermaid diagrams over ASCII art or text-based diagrams.";
 
-function buildCapabilitiesStableSegment(mcpServers: McpServer[], hasWebSearch: boolean, parallelWebSearch: boolean) {
+function buildCapabilitiesStableSegment(
+  mcpServers: McpServer[],
+  hasWebSearch: boolean,
+  parallelWebSearch: boolean,
+  authRequiredServerIds: Set<string> = new Set()
+) {
   const lines: string[] = [];
 
   if (mcpServers.length) {
-    lines.push("", "Configured MCP servers:");
+    lines.push(
+      "",
+      "Configured MCP servers (this is the complete, authoritative list — when the user asks about a specific MCP server, check this list before answering):"
+    );
     for (const server of mcpServers) {
-      lines.push(`- ${server.name}`);
+      lines.push(
+        authRequiredServerIds.has(server.id)
+          ? `- ${server.name} (requires authentication — its tools are NOT available this turn. If the user asks about this server or wants to use its tools, do not say the tools are missing for any other reason: tell them an administrator must reconnect it under Settings → MCP and its tools will be available after that)`
+          : `- ${server.name}`
+      );
     }
   }
 
@@ -412,7 +425,16 @@ export async function resolveAssistantTurn(input: {
   if (turnSkills.length || visibleMcpServers.length || input.mcpToolSets.length) {
     promptMessages = mergeSystemMessage(
       promptMessages,
-      buildCapabilitiesStableSegment(visibleMcpServers, hasWebSearch, parallelWebSearch)
+      buildCapabilitiesStableSegment(
+        visibleMcpServers,
+        hasWebSearch,
+        parallelWebSearch,
+        new Set(
+          input.mcpToolSets
+            .filter((toolSet) => toolSet.authRequired)
+            .map((toolSet) => toolSet.server.id)
+        )
+      )
     );
   }
   const dynamicSkillsGuidance = buildDynamicSkillsSegment(turnSkills);
@@ -472,7 +494,8 @@ export async function resolveAssistantTurn(input: {
         effectiveVisionMode === "provider" &&
         input.visionProfile !== undefined &&
         !getProviderReadinessError(input.visionProfile),
-      botTeam: input.botTeam
+      botTeam: input.botTeam,
+      semanticRecallAvailable: Boolean(input.memoryUserId) && isSemanticRecallAvailable()
     });
 
     const providerPromptMessages = appendTrailingGuidance(
@@ -592,11 +615,11 @@ export async function resolveAssistantTurn(input: {
       return { answer, thinking, usage };
     }
 
-    const isMemoryProposalFinalStep =
+    const isProposalFinalStep =
       Boolean(answer.trim()) &&
-      toolCalls.every((toolCall) => isMemoryProposalToolCall(toolCall.name));
+      toolCalls.every((toolCall) => isProposalToolCall(toolCall.name));
 
-    if (isMemoryProposalFinalStep) {
+    if (isProposalFinalStep) {
       await commitAnswerSegment(answer);
     } else {
       input.onEvent?.({ type: "answer_reset" });
@@ -722,7 +745,7 @@ export async function resolveAssistantTurn(input: {
       }
     }
 
-    if (isMemoryProposalFinalStep) {
+    if (isProposalFinalStep) {
       return { answer, thinking, usage };
     }
   }

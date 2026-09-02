@@ -1,6 +1,8 @@
 import { MAX_ATTACHMENT_TEXT_RATIO } from "@/lib/constants";
 import { listMemoriesForPrompt } from "@/lib/memories";
+import { selectMemoriesForPrompt } from "@/lib/memory-recall";
 import { buildMemorySystemGuidance } from "@/lib/memory-guidance";
+import { buildAutomationProposalGuidance } from "@/lib/automation-guidance";
 import { getDefaultRuntimeProviderProfile, getRuntimeProviderProfile, getSettings, getSettingsForUser } from "@/lib/settings";
 import {
   bumpConversation,
@@ -35,7 +37,8 @@ import type {
   Message,
   PromptMessage,
   RuntimeProviderProfile,
-  ProviderToolCall
+  ProviderToolCall,
+  UserMemory
 } from "@/lib/types";
 
 export { commitLeafCompaction, commitMergedCompaction, getActiveMemoryNodes, getRenderableMemoryNodes, insertCompactionEvent, insertMemoryNode, supersedeNodes, renderMemoryNode } from "./compaction-memory-nodes";
@@ -249,6 +252,7 @@ export function buildPromptMessages(input: {
   memoryUserId?: string | null;
   memoryBotId?: string | null;
   memoriesRigor?: MemoryRigor;
+  selectedMemories?: UserMemory[];
 }): PromptMessage[] {
   const remainingAttachmentTextTokens = {
     value: input.maxAttachmentTextTokens ?? Number.POSITIVE_INFINITY
@@ -261,9 +265,9 @@ export function buildPromptMessages(input: {
   }
 
   if (input.memoriesEnabled) {
-    const memories = input.memoryUserId
+    const memories = input.selectedMemories ?? (input.memoryUserId
       ? listMemoriesForPrompt(input.memoryUserId, input.memoryBotId ? { botId: input.memoryBotId } : undefined)
-      : [];
+      : []);
     if (memories.length > 0) {
       systemParts.push(
         "<memory>\n" +
@@ -273,6 +277,8 @@ export function buildPromptMessages(input: {
     }
     systemParts.push(buildMemorySystemGuidance(input.memoriesRigor ?? "balanced"));
   }
+
+  systemParts.push(buildAutomationProposalGuidance());
 
   if (input.activeMemoryNodes.length) {
     systemParts.push(
@@ -364,7 +370,8 @@ function computeFirstPassContext(
   activeMemoryNodes: MemoryNode[],
   memoriesEnabled: boolean,
   memoriesRigor: MemoryRigor = "balanced",
-  memoryBotId?: string | null
+  memoryBotId?: string | null,
+  selectedMemories?: UserMemory[]
 ): { promptMessages: PromptMessage[]; contextTokens: number; compactionLimit: number } {
   const conversationOwnerId = getConversationOwnerId(conversationId);
   const compactionLimit = computeCompactionLimit(settings);
@@ -384,7 +391,8 @@ function computeFirstPassContext(
     memoriesEnabled,
     memoriesRigor,
     memoryUserId: conversationOwnerId,
-    memoryBotId
+    memoryBotId,
+    selectedMemories
   });
 
   return { promptMessages, contextTokens: estimatePromptTokens(promptMessages), compactionLimit };
@@ -435,17 +443,35 @@ export async function ensureCompactedContext(
   };
 
   try {
-    const buildPrompt = (messages: Message[], activeMemoryNodes: MemoryNode[]) =>
+    const memorySelection = memoriesEnabled && conversationOwnerId
+      ? await selectMemoriesForPrompt(
+          conversationOwnerId,
+          memoryBotId ? { botId: memoryBotId } : undefined,
+          getLatestVisibleUserMessage(getVisibleConversationMessages(listMessages(conversationId)))?.content ?? ""
+        ).catch(() => null)
+      : null;
+    const selectedMemories = memorySelection?.selected;
+    const finish = (promptMessages: PromptMessage[], promptTokens: number): EnsureCompactedContextResult => ({
+      promptMessages,
+      promptTokens,
+      didCompact,
+      ...(memorySelection
+        ? { memoriesUsed: memorySelection.selected.length, memoriesTotal: memorySelection.total }
+        : {})
+    });
+
+    const buildPrompt = (messages: Message[], activeMemoryNodes: MemoryNode[], includeMemories = true) =>
       buildPromptMessages({
         systemPrompt: settings.systemPrompt,
         personaContent,
         messages,
         activeMemoryNodes,
         maxAttachmentTextTokens: Math.floor(settings.modelContextLimit * MAX_ATTACHMENT_TEXT_RATIO),
-        memoriesEnabled,
+        memoriesEnabled: memoriesEnabled && includeMemories,
         memoriesRigor,
         memoryUserId: conversationOwnerId,
-        memoryBotId
+        memoryBotId,
+        selectedMemories
       });
 
     while (true) {
@@ -464,15 +490,12 @@ export async function ensureCompactedContext(
         activeMemoryNodes,
         memoriesEnabled,
         memoriesRigor,
-        memoryBotId
+        memoryBotId,
+        selectedMemories
       );
 
       if (promptTokens <= compactionLimit) {
-        return {
-          promptMessages,
-          promptTokens,
-          didCompact
-        };
+        return finish(promptMessages, promptTokens);
       }
 
       const latestUserMessage = getLatestVisibleUserMessage(visibleMessages);
@@ -490,11 +513,7 @@ export async function ensureCompactedContext(
         const selectedPromptTokens = estimatePromptTokens(selectedPromptMessages);
 
         if (selectedPromptTokens <= compactionLimit) {
-          return {
-            promptMessages: selectedPromptMessages,
-            promptTokens: selectedPromptTokens,
-            didCompact
-          };
+          return finish(selectedPromptMessages, selectedPromptTokens);
         }
       }
 
@@ -536,20 +555,20 @@ export async function ensureCompactedContext(
         const fallbackPromptTokens = estimatePromptTokens(fallbackPromptMessages);
 
         if (fallbackPromptTokens <= compactionLimit) {
-          return {
-            promptMessages: fallbackPromptMessages,
-            promptTokens: fallbackPromptTokens,
-            didCompact
-          };
+          return finish(fallbackPromptMessages, fallbackPromptTokens);
         }
 
         const latestUserOnlyTokens = estimatePromptTokens(latestUserOnlyPrompt);
         if (latestUserOnlyTokens <= compactionLimit) {
-          return {
-            promptMessages: latestUserOnlyPrompt,
-            promptTokens: latestUserOnlyTokens,
-            didCompact
-          };
+          return finish(latestUserOnlyPrompt, latestUserOnlyTokens);
+        }
+
+        if (memoriesEnabled) {
+          const memorylessPrompt = buildPrompt(latestUserOnlyHistoryMessages, [], false);
+          const memorylessTokens = estimatePromptTokens(memorylessPrompt);
+          if (memorylessTokens <= compactionLimit) {
+            return finish(memorylessPrompt, memorylessTokens);
+          }
         }
       }
 

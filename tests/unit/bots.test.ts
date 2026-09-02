@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createLocalUser } from "@/lib/users";
 import { createBot, deleteBot, ensureChiefBot, getBot, getBotByConversationId, listBots } from "@/lib/bots";
@@ -195,6 +195,32 @@ describe("bots", () => {
     expect(updated).not.toBeNull();
     expect(updated?.enabled).toBe(false);
     expect(updated?.botId).toBeNull();
+  });
+
+  it("deletes the stored avatar when the bot is deleted", async () => {
+    const user = await createLocalUser({ username: "botavatar", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Avatar Bot" }, user.id);
+
+    const { ensureBotAvatarSvg } = await import("@/lib/bot-avatar-store");
+    const { getDb } = await import("@/lib/db");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      text: async () => "<svg>robot</svg>"
+    } as Response));
+
+    try {
+      await ensureBotAvatarSvg(bot.avatarSeed);
+      expect(
+        getDb().prepare("SELECT 1 FROM bot_avatars WHERE seed = ?").get(bot.avatarSeed)
+      ).toBeDefined();
+
+      expect(deleteBot(bot.id, user.id)).toBe(true);
+      expect(
+        getDb().prepare("SELECT 1 FROM bot_avatars WHERE seed = ?").get(bot.avatarSeed)
+      ).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("renaming a bot renames its home thread", async () => {

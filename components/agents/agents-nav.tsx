@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ArrowLeft, Bot } from "lucide-react";
+import { Bot } from "lucide-react";
 
 import { BotAvatar } from "@/components/agents/bot-avatar";
 import { BotStatusDot, botStatusLabel } from "@/components/agents/bot-status";
+import { SidebarFooterNav } from "@/components/sidebar-footer-nav";
 import { addGlobalWsListener } from "@/lib/ws-client";
 import type { BotSummary } from "@/lib/types";
 
@@ -76,23 +77,15 @@ export function AgentsNav({
     });
   }, []);
 
-  function handleBack() {
+  function handleNavigate(href: string) {
     onCloseAction();
-    router.push("/");
+    router.push(href);
   }
 
   return (
     <aside className="flex h-full flex-col bg-transparent text-gray-300">
-      <div className="flex flex-col px-4 py-6">
-        <div className="mb-8 flex items-center gap-3 px-2">
-          <button
-            type="button"
-            onClick={handleBack}
-            className="flex h-8 w-8 items-center justify-center rounded-xl bg-white/5 transition-all duration-300 hover:bg-white/10"
-            aria-label="Back to conversations"
-          >
-            <ArrowLeft className="h-4 w-4 text-white/60" />
-          </button>
+      <div className="flex min-h-0 flex-1 flex-col px-4 py-6">
+        <div className="mb-8 flex items-center px-2">
           <div className="min-w-0">
             <span className="block text-[20px] font-bold tracking-tight text-white/90">
               Agents
@@ -103,7 +96,7 @@ export function AgentsNav({
           </div>
         </div>
 
-        <div className="space-y-1 overflow-y-auto scrollbar-thin">
+        <div className="min-h-0 flex-1 space-y-1 overflow-y-auto scrollbar-thin">
           <Link
             href="/agents"
             onClick={onCloseAction}
@@ -144,6 +137,10 @@ export function AgentsNav({
               </Link>
             );
           })}
+        </div>
+
+        <div className="shrink-0 mt-auto bg-white/[0.02] -mx-4 px-4 border-t border-white/[0.12]">
+          <SidebarFooterNav currentView="agents" onNavigateAction={handleNavigate} />
         </div>
       </div>
     </aside>

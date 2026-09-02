@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireAdminResponse } from "@/lib/auth";
+import { getMcpOAuthConnectionSummary } from "@/lib/mcp-oauth";
 import {
   deleteMcpServer,
   getMcpServer,
@@ -70,7 +71,7 @@ export async function PATCH(
     getConnectedClient(updated).catch(() => {});
   }
 
-  return ok({ server: sanitizeMcpServer(updated) });
+  return ok({ server: sanitizeMcpServer(updated, getMcpOAuthConnectionSummary(updated.id)) });
 }
 
 export async function DELETE(

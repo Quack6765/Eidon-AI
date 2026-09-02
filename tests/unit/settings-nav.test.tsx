@@ -32,6 +32,7 @@ describe("settings nav", () => {
   beforeEach(() => {
     mockPathname = "/settings/general";
     mockPush.mockReset();
+    sessionStorage.clear();
     registerUnsavedChangesGuard(null);
   });
 
@@ -46,7 +47,7 @@ describe("settings nav", () => {
 
     expect(screen.getByText("Users")).toBeInTheDocument();
     expect(screen.getByText("Providers")).toBeInTheDocument();
-    expect(screen.getByText("MCP Servers")).toBeInTheDocument();
+    expect(screen.getByText("MCP")).toBeInTheDocument();
     expect(screen.getByText("Skills")).toBeInTheDocument();
     expect(screen.getByText("Personal")).toBeInTheDocument();
     expect(screen.getByText("Assistant")).toBeInTheDocument();
@@ -124,5 +125,35 @@ describe("settings nav", () => {
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(mockPush).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog", { name: "Unsaved changes" })).toBeInTheDocument();
+  });
+
+  it("returns to the view the user came from when clicking back", () => {
+    sessionStorage.setItem("eidon:settings:origin", "/agents");
+    render(
+      <SettingsNav
+        currentUser={buildUser()}
+        passwordLoginEnabled
+        onCloseAction={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/agents");
+    expect(sessionStorage.getItem("eidon:settings:origin")).toBeNull();
+  });
+
+  it("falls back to the home route when no origin is recorded", () => {
+    render(
+      <SettingsNav
+        currentUser={buildUser()}
+        passwordLoginEnabled
+        onCloseAction={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+    expect(mockPush).toHaveBeenCalledWith("/");
   });
 });

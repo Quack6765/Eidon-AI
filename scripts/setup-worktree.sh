@@ -6,21 +6,11 @@ REPO_ROOT="$(git -C "$WORKTREE_DIR" rev-parse --show-toplevel 2>/dev/null || ech
 
 find_main_worktree() {
     local wt_dir="$1"
-    local my_path="$2"
 
-    git -C "$wt_dir" worktree list --porcelain 2>/dev/null | while read -r line; do
-        if [[ "$line" == worktree* ]]; then
-            current_wt="${line#worktree }"
-        elif [[ "$line" == "branch refs/heads/main"* ]]; then
-            if [[ "$current_wt" != "$my_path" ]]; then
-                echo "$current_wt"
-                return
-            fi
-        fi
-    done
+    git -C "$wt_dir" worktree list --porcelain 2>/dev/null | head -n 1 | sed -n 's/^worktree //p'
 }
 
-MAIN_WT="$(find_main_worktree "$WORKTREE_DIR" "$REPO_ROOT")"
+MAIN_WT="$(find_main_worktree "$WORKTREE_DIR")"
 
 if [ -z "$MAIN_WT" ]; then
     echo "warning: could not find main worktree, falling back to REPO_ROOT=$REPO_ROOT"
@@ -41,7 +31,7 @@ copy_file_replace() {
 
     if [ ! -e "$src" ]; then
         echo "warning: $src does not exist, skipping"
-        return 1
+        return 0
     fi
 
     if [ -e "$dest" ]; then

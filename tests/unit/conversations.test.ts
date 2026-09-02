@@ -636,7 +636,7 @@ describe("conversation helpers", () => {
     });
 
     expect(created.proposalState).toBe("pending");
-    expect(created.proposalPayload?.operation).toBe("create");
+    expect(created.proposalPayload).toMatchObject({ operation: "create" });
     expect(getMessage(message.id)?.actions?.[0]?.proposalPayload).toEqual(created.proposalPayload);
     expect(listMessages(conversation.id)[0]?.actions?.[0]?.proposalPayload).toEqual(created.proposalPayload);
 

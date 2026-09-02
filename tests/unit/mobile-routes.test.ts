@@ -134,6 +134,116 @@ describe("Mobile API v1 REST adapter", () => {
     await expect(verifyMobileSessionToken(memberSession.token)).resolves.toBeNull();
   });
 
+  it("serves bot teammates and bot avatars through bearer-authenticated shared handlers", async () => {
+    const member = await createLocalUser({
+      username: "mobile-bot-member",
+      password: "MobileBotPassword123!",
+      role: "user"
+    });
+    const outsider = await createLocalUser({
+      username: "mobile-bot-outsider",
+      password: "MobileOutsiderPassword123!",
+      role: "user"
+    });
+    const memberSession = await createMobileSession(member.id, "Bot phone");
+    const outsiderSession = await createMobileSession(outsider.id, "Outsider phone");
+
+    const missingAuth = await mobileGet(
+      new Request("http://localhost/api/v1/bots"),
+      context(["bots"])
+    );
+    expect(missingAuth.status).toBe(401);
+
+    const roster = await mobileGet(request(["bots"], memberSession.token), context(["bots"]));
+    expect(roster.status).toBe(200);
+    await assertResponseContract("/bots", "get", roster);
+    const rosterBody = await roster.json() as {
+      data: {
+        bots: Array<{ id: string; isChief: boolean }>;
+        runs: unknown[];
+        limits: { maxBots: number };
+      };
+    };
+    expect(rosterBody.data.bots).toHaveLength(1);
+    expect(rosterBody.data.bots[0].isChief).toBe(true);
+    expect(rosterBody.data.limits.maxBots).toBeGreaterThan(0);
+    const chiefId = rosterBody.data.bots[0].id;
+
+    const created = await mobilePost(
+      request(["bots"], memberSession.token, {
+        method: "POST",
+        body: { name: "Researcher", title: "Research", description: "Finds things" }
+      }),
+      context(["bots"])
+    );
+    expect(created.status).toBe(201);
+    await assertResponseContract("/bots", "post", created);
+    const botId = ((await created.json()) as { data: { bot: { id: string } } }).data.bot.id;
+
+    const crossOwner = await mobileGet(
+      request(["bots", botId], outsiderSession.token),
+      context(["bots", botId])
+    );
+    expect(crossOwner.status).toBe(404);
+
+    const detail = await mobileGet(
+      request(["bots", botId], memberSession.token),
+      context(["bots", botId])
+    );
+    expect(detail.status).toBe(200);
+    await assertResponseContract("/bots/{botId}", "get", detail);
+
+    const patched = await mobilePatch(
+      request(["bots", botId], memberSession.token, {
+        method: "PATCH",
+        body: { title: "Deep research" }
+      }),
+      context(["bots", botId])
+    );
+    expect(patched.status).toBe(200);
+    await assertResponseContract("/bots/{botId}", "patch", patched);
+
+    const memories = await mobileGet(
+      request(["bots", botId, "memories"], memberSession.token),
+      context(["bots", botId, "memories"])
+    );
+    expect(memories.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/memories", "get", memories);
+    await expect(memories.json()).resolves.toMatchObject({ data: { memories: [] } });
+
+    const workspace = await mobileGet(
+      request(["bots", botId, "workspace"], memberSession.token),
+      context(["bots", botId, "workspace"])
+    );
+    expect(workspace.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/workspace", "get", workspace);
+
+    const chiefDelete = await mobileDelete(
+      request(["bots", chiefId], memberSession.token, { method: "DELETE" }),
+      context(["bots", chiefId])
+    );
+    expect(chiefDelete.status).toBe(400);
+
+    const deleted = await mobileDelete(
+      request(["bots", botId], memberSession.token, { method: "DELETE" }),
+      context(["bots", botId])
+    );
+    expect(deleted.status).toBe(200);
+    await assertResponseContract("/bots/{botId}", "delete", deleted);
+
+    const invalidAvatar = await mobileGet(
+      request(["avatars", "not_valid!!"], memberSession.token),
+      context(["avatars", "not_valid!!"])
+    );
+    expect(invalidAvatar.status).toBe(400);
+
+    const avatarNoAuth = await mobileGet(
+      new Request("http://localhost/api/v1/avatars/seed_x.svg"),
+      context(["avatars", "seed_x.svg"])
+    );
+    expect(avatarNoAuth.status).toBe(401);
+  });
+
   it("normalizes shared route responses and redacts provider secrets", async () => {
     const admin = await createLocalUser({
       username: "settings-admin",

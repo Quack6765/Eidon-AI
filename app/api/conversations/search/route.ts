@@ -1,5 +1,5 @@
 import { requireUser } from "@/lib/auth";
-import { searchConversations } from "@/lib/conversations";
+import { searchConversationsWithRecall } from "@/lib/conversations";
 import { badRequest, ok } from "@/lib/http";
 
 export async function GET(request: Request) {
@@ -11,5 +11,5 @@ export async function GET(request: Request) {
     return badRequest("Missing search query");
   }
 
-  return ok({ conversations: searchConversations(query, user.id) });
+  return ok({ conversations: await searchConversationsWithRecall(query, user.id) });
 }

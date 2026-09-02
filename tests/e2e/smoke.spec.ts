@@ -16,7 +16,7 @@ test("redirects to login, signs in, opens settings, and creates a chat", async (
   await page.getByRole("link", { name: "Open settings" }).click();
   await expect(page.getByText("Settings")).toBeVisible();
 
-  await page.getByRole("link", { name: "Back to chat" }).click();
+  await page.getByRole("button", { name: "Back" }).click();
   await page.waitForURL("http://localhost:3117/", { timeout: 15000 });
 
   const newChatButton = page.getByRole("button", { name: "New chat", exact: true });

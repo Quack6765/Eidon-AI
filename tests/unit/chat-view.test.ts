@@ -4978,6 +4978,28 @@ describe("chat view", () => {
     });
   });
 
+  it("shows memory usage in the gauge tooltip after a context_usage event carries memory counts", async () => {
+    const payload = createPayload({ messages: [createMessage({ id: "a1", role: "assistant", content: "Hi" })] });
+    payload.conversation.id = "conv_ctx_memories";
+    payload.compactionLimit = 12800;
+    renderWithProvider(React.createElement(ChatView, { payload }));
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_ctx_memories",
+        event: { type: "context_usage", contextTokens: 9600, compactionLimit: 12800, memoriesUsed: 3, memoriesTotal: 40 }
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByText("75%")).toBeInTheDocument();
+    });
+    fireEvent.mouseEnter(screen.getByRole("progressbar"));
+    expect(screen.getByText("3 of 40 memories used")).toBeInTheDocument();
+  });
+
   it("uses compactionLimit as the gauge denominator independent of modelContextLimit", async () => {
     const payload = createPayload({ messages: [createMessage({ id: "a1", role: "assistant", content: "Hi" })] });
     payload.conversation.id = "conv_ctx_denom";
