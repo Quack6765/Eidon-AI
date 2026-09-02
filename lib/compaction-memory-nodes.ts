@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
+import { deleteSemanticChunks, queueSemanticIndex } from "@/lib/semantic-index";
 import { estimateTextTokens } from "@/lib/tokenization";
 import type { MemoryNode } from "@/lib/types";
 
@@ -169,6 +170,7 @@ export function insertMemoryNode(input: {
       node.createdAt
     );
 
+  queueSemanticIndex("memory_node", node.id);
   return node;
 }
 
@@ -186,7 +188,9 @@ export function supersedeNodes(nodeIds: string[], parentNodeId: string) {
     );
   });
 
-  return transaction(nodeIds);
+  const changed = transaction(nodeIds);
+  deleteSemanticChunks("memory_node", nodeIds);
+  return changed;
 }
 
 export function commitLeafCompaction(input: {

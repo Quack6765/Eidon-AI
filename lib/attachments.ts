@@ -13,6 +13,7 @@ import { getDb } from "@/lib/db";
 import { syncDirectory } from "@/lib/durable-fs";
 import { env } from "@/lib/env";
 import { createId } from "@/lib/ids";
+import { queueSemanticIndex } from "@/lib/semantic-index";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import { estimateMessageTokens } from "@/lib/tokenization";
 import type { AttachmentKind, MessageAttachment, PromptImageContentPart } from "@/lib/types";
@@ -383,6 +384,9 @@ export function copyAttachmentsForConversationFork(input: {
       record.extractedText,
       record.createdAt
     ));
+    records.forEach((record) => {
+      if (record.extractedText) queueSemanticIndex("attachment", record.id);
+    });
     return publication;
   } catch (error) {
     rollbackAttachmentArtifactPublication(publication);
@@ -608,6 +612,9 @@ export async function createAttachments(conversationId: string, files: CreateAtt
     });
 
     transaction();
+    records.forEach((record) => {
+      if (record.extractedText) queueSemanticIndex("attachment", record.id);
+    });
 
     return records.map((record) => ({
       id: record.id,

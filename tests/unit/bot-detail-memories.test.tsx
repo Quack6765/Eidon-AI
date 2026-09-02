@@ -87,6 +87,7 @@ function buildMemory(overrides: Partial<UserMemory> = {}): UserMemory {
     id: "mem_1",
     content: "Prefers concise summaries",
     category: "preference",
+    pinned: false,
     createdAt: "2026-04-10T12:00:00.000Z",
     updatedAt: "2026-04-10T12:00:00.000Z",
     ...overrides

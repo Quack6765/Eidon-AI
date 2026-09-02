@@ -1,4 +1,5 @@
 import { resolveAbsoluteImagePathPart } from "@/lib/attachments";
+import { searchWorkspace } from "@/lib/semantic-index";
 import { streamProviderResponse } from "@/lib/provider";
 import { getMemory as getMemoryRecord, getMemoryCount } from "@/lib/memories";
 import {
@@ -901,6 +902,89 @@ export async function executeAnalyzeImage(
   }
 }
 
+export async function executeSearchWorkspace(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      memoryUserId?: string | null;
+      abortSignal?: AbortSignal;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+    memoryUserId?: string | null;
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  let sortOrder = context.timelineSortOrder;
+  const query = String(args.query ?? "").trim();
+  const requestedLimit = Number(args.limit);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(20, Math.max(1, Math.floor(requestedLimit))) : 8;
+  const userId = context.input.memoryUserId ?? context.memoryUserId ?? null;
+
+  if (!query) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: query is required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+  }
+  if (!userId) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: workspace search is only available in owned conversations");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+  }
+
+  const detail = query.length > 140 ? `${query.slice(0, 137)}...` : query;
+  const handle = await context.input.onActionStart?.({
+    kind: "mcp_tool_call",
+    serverId: "integration_search_workspace",
+    toolName: "search_workspace",
+    label: "Search workspace",
+    detail,
+    arguments: { query, limit }
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    const results = await searchWorkspace({ userId, query, limit });
+    throwIfAborted(context.input.abortSignal);
+    if (!results) {
+      throw new Error("Semantic index is unavailable");
+    }
+
+    const resultSummary = results.length
+      ? results
+          .map((result, index) => {
+            const ref =
+              result.kind === "memory"
+                ? `memory ${result.memoryId}`
+                : `conversation ${result.conversationId}`;
+            return `${index + 1}. [${result.kind}] ${result.title} (${result.date.slice(0, 10)}, ${ref}, score ${result.score})\n${result.snippet}`;
+          })
+          .join("\n\n")
+      : "No matching content found in the workspace.";
+
+    sortOrder += 1;
+    await context.input.onActionComplete?.(actionHandle, { detail, resultSummary });
+    const resultMsg = buildToolResultMessage(toolCallId, resultSummary);
+    return {
+      nextSortOrder: sortOrder,
+      promptMessages: [...context.promptMessages, resultMsg],
+      toolSucceeded: true
+    };
+  } catch (error) {
+    throwIfAborted(context.input.abortSignal);
+    const message = error instanceof Error ? error.message : "Workspace search failed";
+    await context.input.onActionError?.(actionHandle, { detail, resultSummary: message });
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
+    return {
+      nextSortOrder: sortOrder,
+      promptMessages: [...context.promptMessages, resultMsg],
+      toolSucceeded: false
+    };
+  }
+}
+
 export async function executeToolCall(
   toolCall: ProviderToolCall,
   context: {
@@ -976,6 +1060,10 @@ export async function executeToolCall(
 
   if (name === "web_search") {
     return executeWebSearch(toolCallId, args, context);
+  }
+
+  if (name === "search_workspace") {
+    return executeSearchWorkspace(toolCallId, args, context);
   }
 
   if (name === "generate_image") {

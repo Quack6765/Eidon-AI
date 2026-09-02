@@ -117,6 +117,7 @@ export function createRuntimeAppSettings(
     memoriesEnabled: true,
     memoriesMaxCount: 100,
     memoriesRigor: "balanced",
+    semanticRecallEnabled: false,
     mcpTimeout: 120000,
     maxAssistantToolSteps: 25,
     confirmExternalLinks: true,

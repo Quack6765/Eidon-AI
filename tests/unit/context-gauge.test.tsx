@@ -126,6 +126,24 @@ describe("ContextGauge", () => {
     expect(screen.queryByText(/50K used/)).not.toBeInTheDocument();
   });
 
+  it("shows the memory usage line in the tooltip when both counts are provided", () => {
+    render(<ContextGauge {...defaultProps} memoriesUsed={3} memoriesTotal={40} />);
+
+    fireEvent.mouseEnter(screen.getByRole("progressbar"));
+
+    expect(screen.getByText("3 of 40 memories used")).toBeInTheDocument();
+    expect(screen.getByText(/50K used/)).toBeInTheDocument();
+  });
+
+  it("omits the memory usage line when the counts are absent", () => {
+    render(<ContextGauge {...defaultProps} memoriesUsed={null} memoriesTotal={null} />);
+
+    fireEvent.mouseEnter(screen.getByRole("progressbar"));
+
+    expect(screen.queryByText(/memories used/)).toBeNull();
+    expect(screen.getByText(/50K used/)).toBeInTheDocument();
+  });
+
   it("does not render when usedTokens is null", () => {
     const { container } = render(
       <ContextGauge usedTokens={null} usableLimit={80000} maxLimit={100000} />

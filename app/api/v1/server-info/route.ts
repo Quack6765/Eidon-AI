@@ -8,6 +8,7 @@ import {
 } from "@/lib/constants";
 import { isPasswordLoginEnabled } from "@/lib/env";
 import { mobileApiSuccess } from "@/lib/mobile-api";
+import { isSemanticRecallAvailable } from "@/lib/semantic-index";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,8 @@ export async function GET() {
         administratorSettings: true,
         providerConnections: true,
         offlineMutations: false,
-        pushNotifications: false
+        pushNotifications: false,
+        semanticRecall: isSemanticRecallAvailable()
       },
       attachmentLimits: {
         maxCountPerUpload: MAX_ATTACHMENTS_PER_UPLOAD,

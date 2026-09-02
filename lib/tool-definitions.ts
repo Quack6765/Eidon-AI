@@ -43,6 +43,7 @@ export function buildToolDefinitions(input: {
   effectiveVisionMode: VisionMode;
   visionToolEnabled?: boolean;
   chiefRoster?: Array<{ name: string; title: string; description: string }>;
+  semanticRecallAvailable?: boolean;
 }): ToolDefinition[] {
   const imageTool =
     input.imageGenerationToolEnabled !== false &&
@@ -278,6 +279,25 @@ export function buildToolDefinitions(input: {
               },
               required: ["query"]
             }
+      }
+    });
+  }
+
+  if (input.semanticRecallAvailable) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "search_workspace",
+        description:
+          "Semantically search this user's own workspace: saved memories, past conversations (including automation transcripts), conversation summaries, and attached document text. Use it when the user refers to something discussed before, a past decision, or a document they shared, and the answer is not already in the current conversation. Read-only.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Natural-language description of what to find" },
+            limit: { type: "number", description: "Maximum number of results (default 8, max 20)" }
+          },
+          required: ["query"]
+        }
       }
     });
   }

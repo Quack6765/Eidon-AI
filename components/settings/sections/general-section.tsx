@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Gauge, Image as ImageIcon, Mic2, Monitor, Search, Type } from "lucide-react";
+import { Archive, Brain, Gauge, Image as ImageIcon, Mic2, Monitor, Search, Type } from "lucide-react";
 
 import {
   buildIntegrationUpdate,
@@ -13,6 +13,8 @@ import {
 import { DetailActionBar } from "@/components/settings/detail-action-bar";
 import { DetailHeader } from "@/components/settings/detail-header";
 import { ImageGenerationSettings } from "@/components/settings/integration-settings/image-generation-settings";
+import { MemoryPreferencesSettings } from "@/components/settings/integration-settings/memory-preferences-settings";
+import { SemanticRecallSettings } from "@/components/settings/integration-settings/semantic-recall-settings";
 import { SpeechTranscriptionSettings } from "@/components/settings/integration-settings/speech-transcription-settings";
 import { WebSearchSettings } from "@/components/settings/integration-settings/web-search-settings";
 import { SettingsMenuItem } from "@/components/settings/settings-menu-item";
@@ -81,6 +83,13 @@ const GENERAL_SECTIONS = [
     description: "Conversation naming",
     detail: "Choose which model creates concise titles for new conversations.",
     icon: Type
+  },
+  {
+    id: "memory",
+    label: "Memory",
+    description: "Preferences and recall",
+    detail: "Choose how Eidon saves facts about you and how it recalls them in conversations.",
+    icon: Brain
   }
 ] as const;
 
@@ -201,6 +210,9 @@ export function GeneralSection({
                   enabled: draft.speechCleanup.enabled,
                   profileId: draft.speechCleanup.profileId,
                   prompt: draft.speechCleanup.prompt
+                },
+                semanticRecall: {
+                  enabled: draft.semanticRecall.enabled
                 }
               }
             : {})
@@ -423,6 +435,24 @@ export function GeneralSection({
               </select>
             </div>
           ) : <p className="text-xs text-[var(--muted)]">Create a provider profile first.</p>
+        ) : null}
+      </div>
+    ),
+    memory: (
+      <div className="space-y-6">
+        <MemoryPreferencesSettings
+          preferences={draft.preferences}
+          dirty={preferencesDirty}
+          onChange={(patch) => updateDraft("preferences", { ...draft.preferences, ...patch })}
+        />
+        {activeSection === "memory" ? (
+          <SemanticRecallSettings
+            enabled={draft.semanticRecall.enabled}
+            persistedEnabled={persistedDraft.current.semanticRecall.enabled}
+            canManage={canManageGlobalIntegrations}
+            dirty={isFieldDirty("semanticRecall")}
+            onChange={(enabled) => updateDraft("semanticRecall", { enabled })}
+          />
         ) : null}
       </div>
     )

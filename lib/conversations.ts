@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { MIN_SEARCH_SCORE, embedQuery, scoreChunks } from "@/lib/semantic-index";
 
 import {
   copyAttachmentsForConversationFork,
@@ -2013,8 +2014,7 @@ export function searchConversations(query: string, userId?: string): Conversatio
          ON c.id = m.conversation_id
         AND m.content LIKE ?
         AND (m.role != 'system' OR m.system_kind IS NOT NULL)
-       WHERE ${userCondition}c.conversation_origin = ?
-          AND c.is_temporary = 0
+       WHERE ${userCondition}c.is_temporary = 0
           AND (
            c.title LIKE ?
            OR m.id IS NOT NULL
@@ -2024,7 +2024,6 @@ export function searchConversations(query: string, userId?: string): Conversatio
     .all(
       likeQuery,
       ...(userId ? [userId] : []),
-      MANUAL_CONVERSATION_ORIGIN,
       likeQuery
     ) as Array<ConversationRow & { matched_message_content: string | null }>;
 
@@ -2051,6 +2050,44 @@ export function searchConversations(query: string, userId?: string): Conversatio
           }
     );
   });
+
+  return results;
+}
+
+export async function searchConversationsWithRecall(
+  query: string,
+  userId: string
+): Promise<ConversationSearchResult[]> {
+  const lexical = searchConversations(query, userId);
+  const queryVector = await embedQuery(query).catch(() => null);
+  if (!queryVector) return lexical;
+
+  const chunks = scoreChunks({
+    userId,
+    kinds: ["message", "memory_node"],
+    queryVector,
+    limit: 40
+  });
+
+  const results: ConversationSearchResult[] = [];
+  const seen = new Set<string>();
+  for (const chunk of chunks) {
+    if (chunk.score < MIN_SEARCH_SCORE || !chunk.conversationId || seen.has(chunk.conversationId)) continue;
+    const conversation = getConversation(chunk.conversationId, userId);
+    if (!conversation || conversation.isTemporary) continue;
+    seen.add(chunk.conversationId);
+    const snippet = chunk.chunkText.replace(/\s+/g, " ").trim();
+    results.push({
+      ...conversation,
+      matchSnippet: snippet.length > 120 ? `${snippet.slice(0, 119)}…` : snippet
+    });
+  }
+
+  for (const conversation of lexical) {
+    if (seen.has(conversation.id)) continue;
+    seen.add(conversation.id);
+    results.push(conversation);
+  }
 
   return results;
 }

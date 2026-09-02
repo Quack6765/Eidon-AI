@@ -13,7 +13,8 @@ Object.assign(process.env, {
   EIDON_ADMIN_USERNAME: "admin",
   EIDON_ADMIN_PASSWORD: "changeme123",
   EIDON_SESSION_SECRET: "test-session-secret-which-is-long-enough",
-  EIDON_ENCRYPTION_SECRET: "test-encryption-secret-which-is-long-enough"
+  EIDON_ENCRYPTION_SECRET: "test-encryption-secret-which-is-long-enough",
+  EIDON_EMBEDDING_DISABLED: "1"
 });
 
 if (typeof window !== "undefined") {

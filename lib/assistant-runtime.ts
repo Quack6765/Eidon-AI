@@ -1,4 +1,5 @@
 import { resolveAttachmentPath } from "@/lib/attachments";
+import { isSemanticRecallAvailable } from "@/lib/semantic-index";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
 import { getWebSearchPipeline } from "@/lib/web-search-catalog";
 import { streamProviderResponse } from "@/lib/provider";
@@ -472,7 +473,8 @@ export async function resolveAssistantTurn(input: {
         effectiveVisionMode === "provider" &&
         input.visionProfile !== undefined &&
         !getProviderReadinessError(input.visionProfile),
-      chiefRoster: input.botTeam?.isChief ? input.botTeam.roster : undefined
+      chiefRoster: input.botTeam?.isChief ? input.botTeam.roster : undefined,
+      semanticRecallAvailable: Boolean(input.memoryUserId) && isSemanticRecallAvailable()
     });
 
     const providerPromptMessages = appendTrailingGuidance(

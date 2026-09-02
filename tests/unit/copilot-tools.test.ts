@@ -160,6 +160,7 @@ describe("buildCopilotTools", () => {
       id: "mem_1",
       content: "Current memory",
       category: "other",
+      pinned: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
@@ -910,6 +911,7 @@ describe("buildCopilotTools", () => {
       id: "mem_1",
       content: "Prefers light mode",
       category: "preference",
+      pinned: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });
@@ -980,6 +982,7 @@ describe("buildCopilotTools", () => {
       id: "mem_1",
       content: "Prefers dark mode",
       category: "preference",
+      pinned: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     });

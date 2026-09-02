@@ -63,6 +63,9 @@ export type GeneralSettingsBundle = {
     profileId: string | null;
     prompt: string;
   };
+  semanticRecall?: {
+    enabled: boolean;
+  };
 };
 
 function runtimeSettings(userId?: string): RuntimeAppSettings {
@@ -79,6 +82,7 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
     memoriesEnabled: user.memoriesEnabled,
     memoriesMaxCount: user.memoriesMaxCount,
     memoriesRigor: user.memoriesRigor,
+    semanticRecallEnabled: global.semanticRecallEnabled,
     mcpTimeout: user.mcpTimeout,
     maxAssistantToolSteps: user.maxAssistantToolSteps,
     confirmExternalLinks: user.confirmExternalLinks,
@@ -203,6 +207,7 @@ export function getSanitizedSettings(userId?: string): PublicAppSettings & {
     memoriesEnabled: settings.memoriesEnabled,
     memoriesMaxCount: settings.memoriesMaxCount,
     memoriesRigor: settings.memoriesRigor,
+    semanticRecallEnabled: settings.semanticRecallEnabled,
     mcpTimeout: settings.mcpTimeout,
     maxAssistantToolSteps: settings.maxAssistantToolSteps,
     confirmExternalLinks: settings.confirmExternalLinks,
@@ -270,7 +275,7 @@ export function updateGeneralSettingsBundleForUser(
   ] as Array<[IntegrationCapability, unknown]>).filter(([, update]) => update !== undefined);
   if (
     !canManageGlobalIntegrations &&
-    (integrationUpdates.length > 0 || input.titleGeneration || input.speechCleanup)
+    (integrationUpdates.length > 0 || input.titleGeneration || input.speechCleanup || input.semanticRecall)
   ) {
     throw new Error("Only admins can update global settings");
   }
@@ -284,6 +289,7 @@ export function updateGeneralSettingsBundleForUser(
     }
     if (input.titleGeneration) updateTitleGenerationSettings(input.titleGeneration);
     if (input.speechCleanup) updateSpeechCleanupSettings(input.speechCleanup);
+    if (input.semanticRecall) updateGlobalPreferences({ semanticRecallEnabled: input.semanticRecall.enabled });
   });
   transaction();
   return getSanitizedSettings(userId);

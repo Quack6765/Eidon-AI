@@ -134,6 +134,7 @@ export function ChatView({
   const [compactionInProgress, setCompactionInProgress] = useState(false);
   const [usedTokens, setUsedTokens] = useState<number | null>(() => payload.contextTokens);
   const [compactionLimit, setCompactionLimit] = useState<number>(payload.compactionLimit);
+  const [memoryUsage, setMemoryUsage] = useState<{ used: number; total: number } | null>(null);
   const [isConversationActive, setIsConversationActive] = useState(payload.conversation.isActive);
   const hasInitializedTokensRef = useRef(false);
 
@@ -735,6 +736,9 @@ export function ChatView({
     if (event.type === "context_usage") {
       setUsedTokens(event.contextTokens);
       setCompactionLimit(event.compactionLimit);
+      if (typeof event.memoriesUsed === "number" && typeof event.memoriesTotal === "number") {
+        setMemoryUsage({ used: event.memoriesUsed, total: event.memoriesTotal });
+      }
       setTokenUsage(payload.conversation.id, event.contextTokens);
       return;
     }
@@ -2142,6 +2146,8 @@ export function ChatView({
             textareaRef={inputRef}
             usedTokens={usedTokens}
             compactionLimit={compactionLimit}
+            memoriesUsed={memoryUsage?.used ?? null}
+            memoriesTotal={memoryUsage?.total ?? null}
             modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
             hasMessages={messages.length > 0}
             canStop={!!streamMessageId && !isStopPending && isConversationActive}
