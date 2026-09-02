@@ -175,6 +175,19 @@ app.prepare().then(async () => {
     } catch {}
   }
 
+  const { startSemanticIndex } = require("./ws-handler-compiled.cjs");
+  if (startSemanticIndex && getDb) {
+    try {
+      const db = getDb();
+      const row = db.prepare("SELECT semantic_recall_enabled FROM global_preferences WHERE id = 1").get();
+      if (row && row.semantic_recall_enabled === 1) {
+        startSemanticIndex().catch((err) => {
+          console.error("[semantic-index] Init failed:", err.message);
+        });
+      }
+    } catch {}
+  }
+
   // Initialize MCP server connections in the background
   const { initializeMcpServers } = require("./ws-handler-compiled.cjs");
   if (initializeMcpServers) {

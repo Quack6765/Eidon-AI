@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
+import { queueSemanticIndex } from "@/lib/semantic-index";
 import type { MemoryCategory, UserMemory } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
 
@@ -13,6 +14,7 @@ function rowToMemory(row: {
   id: string;
   content: string;
   category: string;
+  pinned: number;
   created_at: string;
   updated_at: string;
 }): UserMemory {
@@ -20,6 +22,7 @@ function rowToMemory(row: {
     id: row.id,
     content: row.content,
     category: row.category as MemoryCategory,
+    pinned: row.pinned === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -32,7 +35,7 @@ export function listMemories(
 ): UserMemory[] {
   const userId = typeof userIdOrFilter === "string" ? userIdOrFilter : undefined;
   const filter = typeof userIdOrFilter === "string" ? maybeFilter : userIdOrFilter;
-  let sql = `SELECT id, content, category, created_at, updated_at FROM user_memories`;
+  let sql = `SELECT id, content, category, pinned, created_at, updated_at FROM user_memories`;
   const conditions: string[] = userId ? ["user_id = ?"] : [];
   const params: unknown[] = userId ? [userId] : [];
 
@@ -55,7 +58,7 @@ export function listMemories(
     sql += ` WHERE ${conditions.join(" AND ")}`;
   }
 
-  sql += " ORDER BY updated_at DESC";
+  sql += " ORDER BY pinned DESC, updated_at DESC";
 
   const rows = params.length
     ? getDb().prepare(sql).all(...params) as Array<Parameters<typeof rowToMemory>[0]>
@@ -69,12 +72,12 @@ export function getMemory(memoryId: string, userId?: string | null, scope?: Memo
   const row = (userId
     ? getDb()
         .prepare(
-          `SELECT id, content, category, created_at, updated_at FROM user_memories WHERE id = ? AND user_id = ? AND ${scopes}`
+          `SELECT id, content, category, pinned, created_at, updated_at FROM user_memories WHERE id = ? AND user_id = ? AND ${scopes}`
         )
         .get(...(scope?.botId ? [memoryId, userId, scope.botId] : [memoryId, userId]))
     : getDb()
         .prepare(
-          `SELECT id, content, category, created_at, updated_at FROM user_memories WHERE id = ? AND ${scopes}`
+          `SELECT id, content, category, pinned, created_at, updated_at FROM user_memories WHERE id = ? AND ${scopes}`
         )
         .get(...(scope?.botId ? [memoryId, scope.botId] : [memoryId]))) as Parameters<typeof rowToMemory>[0] | undefined;
 
@@ -92,6 +95,7 @@ export function createMemory(
     id: createId("mem"),
     content: content.trim(),
     category,
+    pinned: false,
     createdAt: timestamp,
     updatedAt: timestamp
   };
@@ -110,12 +114,13 @@ export function createMemory(
       memory.updatedAt
     );
 
+  queueSemanticIndex("memory", memory.id);
   return memory;
 }
 
 export function updateMemory(
   memoryId: string,
-  input: { content?: string; category?: MemoryCategory },
+  input: { content?: string; category?: MemoryCategory; pinned?: boolean },
   userId?: string,
   scope?: MemoryScope
 ): UserMemory | null {
@@ -125,21 +130,25 @@ export function updateMemory(
   const timestamp = nowIso();
   const content = input.content?.trim() ?? current.content;
   const category = input.category ?? current.category;
+  const pinned = (input.pinned ?? current.pinned) ? 1 : 0;
 
   if (userId) {
     getDb()
       .prepare(
-        `UPDATE user_memories SET content = ?, category = ?, updated_at = ? WHERE id = ? AND user_id = ?`
+        `UPDATE user_memories SET content = ?, category = ?, pinned = ?, updated_at = ? WHERE id = ? AND user_id = ?`
       )
-      .run(content, category, timestamp, memoryId, userId);
+      .run(content, category, pinned, timestamp, memoryId, userId);
   } else {
     getDb()
       .prepare(
-        `UPDATE user_memories SET content = ?, category = ?, updated_at = ? WHERE id = ?`
+        `UPDATE user_memories SET content = ?, category = ?, pinned = ?, updated_at = ? WHERE id = ?`
       )
-      .run(content, category, timestamp, memoryId);
+      .run(content, category, pinned, timestamp, memoryId);
   }
 
+  if (content !== current.content) {
+    queueSemanticIndex("memory", memoryId);
+  }
   return getMemory(memoryId, userId, scope);
 }
 

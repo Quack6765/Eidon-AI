@@ -1934,6 +1934,51 @@ export function migrate(db: Database.Database) {
   if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_prompt")) {
     db.exec("ALTER TABLE global_preferences ADD COLUMN speech_cleanup_prompt TEXT NOT NULL DEFAULT ''");
   }
+
+  if (!globalPreferencesCols.some((column) => column.name === "semantic_recall_enabled")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN semantic_recall_enabled INTEGER NOT NULL DEFAULT 1");
+  }
+
+  const userMemoryCols = db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>;
+  if (!userMemoryCols.some((column) => column.name === "pinned")) {
+    db.exec("ALTER TABLE user_memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS semantic_chunks (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      ref_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      user_id TEXT,
+      conversation_id TEXT,
+      memory_id TEXT,
+      message_id TEXT,
+      memory_node_id TEXT,
+      attachment_id TEXT,
+      chunk_text TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      dim INTEGER NOT NULL,
+      embedding BLOB NOT NULL,
+      source_created_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (kind, ref_id, chunk_index),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY (memory_id) REFERENCES user_memories(id) ON DELETE CASCADE,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+      FOREIGN KEY (memory_node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,
+      FOREIGN KEY (attachment_id) REFERENCES message_attachments(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_user_kind ON semantic_chunks(user_id, kind);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_model ON semantic_chunks(model_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_conversation ON semantic_chunks(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_memory ON semantic_chunks(memory_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_message ON semantic_chunks(message_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_memory_node ON semantic_chunks(memory_node_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_attachment ON semantic_chunks(attachment_id);
+  `);
 }
 
 export function backfillVisionMcpServers(db: Database.Database) {

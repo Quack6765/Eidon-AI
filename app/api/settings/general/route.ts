@@ -8,6 +8,7 @@ import {
   webSearchIntegrationUpdateSchema
 } from "@/lib/integration-settings";
 import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
+import { startSemanticIndex, stopSemanticIndex } from "@/lib/semantic-index";
 import { updateGeneralSettingsBundleForUser } from "@/lib/settings";
 
 const inputSchema = z.object({
@@ -32,6 +33,9 @@ const inputSchema = z.object({
     enabled: z.boolean(),
     profileId: z.string().nullable(),
     prompt: z.string().min(1).max(20_000)
+  }).optional(),
+  semanticRecall: z.object({
+    enabled: z.boolean()
   }).optional()
 });
 
@@ -51,6 +55,11 @@ export async function PUT(request: Request) {
       void initTitleModel().catch(() => undefined);
     } else if (body.data.titleGeneration) {
       disposeTitleModel();
+    }
+    if (body.data.semanticRecall?.enabled === true) {
+      void startSemanticIndex().catch(() => undefined);
+    } else if (body.data.semanticRecall) {
+      stopSemanticIndex();
     }
     return ok({ settings });
   } catch (error) {

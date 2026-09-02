@@ -1,6 +1,6 @@
 import type { CredentialAction } from "@/lib/integration-types";
 import { DEFAULT_SPEECH_CLEANUP_PROMPT } from "@/lib/speech/cleanup-prompt";
-import type { AppSettings, ConversationRetention } from "@/lib/types";
+import type { AppSettings, ConversationRetention, MemoryRigor } from "@/lib/types";
 
 export type IntegrationDraft<Selection extends {
   providerId: string;
@@ -20,6 +20,9 @@ export type GeneralSettingsDraft = {
     maxAssistantToolSteps: number;
     confirmExternalLinks: boolean;
     toolCallDisplay: AppSettings["toolCallDisplay"];
+    memoriesEnabled: boolean;
+    memoriesMaxCount: number;
+    memoriesRigor: MemoryRigor;
   };
   webSearch: IntegrationDraft<AppSettings["webSearch"]>;
   imageGeneration: IntegrationDraft<AppSettings["imageGeneration"]>;
@@ -32,6 +35,9 @@ export type GeneralSettingsDraft = {
     enabled: boolean;
     profileId: string | null;
     prompt: string;
+  };
+  semanticRecall: {
+    enabled: boolean;
   };
 };
 
@@ -56,7 +62,10 @@ export function createGeneralSettingsDraft(settings: AppSettings): GeneralSettin
       mcpTimeout: settings.mcpTimeout,
       maxAssistantToolSteps: settings.maxAssistantToolSteps,
       confirmExternalLinks: settings.confirmExternalLinks,
-      toolCallDisplay: settings.toolCallDisplay
+      toolCallDisplay: settings.toolCallDisplay,
+      memoriesEnabled: settings.memoriesEnabled,
+      memoriesMaxCount: settings.memoriesMaxCount,
+      memoriesRigor: settings.memoriesRigor
     },
     webSearch: createIntegrationDraft(settings.webSearch),
     imageGeneration: createIntegrationDraft(settings.imageGeneration),
@@ -69,6 +78,9 @@ export function createGeneralSettingsDraft(settings: AppSettings): GeneralSettin
       enabled: settings.speechCleanupEnabled,
       profileId: settings.speechCleanupProfileId,
       prompt: settings.speechCleanupPrompt || DEFAULT_SPEECH_CLEANUP_PROMPT
+    },
+    semanticRecall: {
+      enabled: settings.semanticRecallEnabled
     }
   };
 }

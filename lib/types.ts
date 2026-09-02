@@ -113,6 +113,7 @@ type AppSettingsCore = {
   memoriesEnabled: boolean;
   memoriesMaxCount: number;
   memoriesRigor: MemoryRigor;
+  semanticRecallEnabled: boolean;
   mcpTimeout: number;
   maxAssistantToolSteps: number;
   confirmExternalLinks: boolean;
@@ -386,6 +387,7 @@ export type UserMemory = {
   id: string;
   content: string;
   category: MemoryCategory;
+  pinned: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -573,7 +575,13 @@ export type ChatStreamEvent =
       cacheReadTokens?: number;
       cacheCreationTokens?: number;
     }
-  | { type: "context_usage"; contextTokens: number; compactionLimit: number }
+  | {
+      type: "context_usage";
+      contextTokens: number;
+      compactionLimit: number;
+      memoriesUsed?: number;
+      memoriesTotal?: number;
+    }
   | { type: "stream_retry"; attempt: number }
   | { type: "done"; messageId: string; message?: Message }
   | { type: "error"; message: string };
@@ -582,6 +590,8 @@ export type EnsureCompactedContextResult = {
   promptMessages: PromptMessage[];
   promptTokens: number;
   didCompact: boolean;
+  memoriesUsed?: number;
+  memoriesTotal?: number;
 };
 
 export type PromptTextContentPart = {

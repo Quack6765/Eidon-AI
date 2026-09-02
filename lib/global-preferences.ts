@@ -21,6 +21,7 @@ export type GlobalPreferences = {
   memoriesEnabled: boolean;
   memoriesMaxCount: number;
   memoriesRigor: MemoryRigor;
+  semanticRecallEnabled: boolean;
   mcpTimeout: number;
   maxAssistantToolSteps: number;
   confirmExternalLinks: boolean;
@@ -40,6 +41,7 @@ type GlobalPreferencesRow = {
   memories_enabled: number;
   memories_max_count: number;
   memories_rigor: MemoryRigor;
+  semantic_recall_enabled: number;
   mcp_timeout: number;
   max_assistant_tool_steps: number;
   confirm_external_links: number;
@@ -60,6 +62,7 @@ function rowToPreferences(row: GlobalPreferencesRow): GlobalPreferences {
     memoriesEnabled: Boolean(row.memories_enabled),
     memoriesMaxCount: row.memories_max_count,
     memoriesRigor: normalizeMemoryRigor(row.memories_rigor),
+    semanticRecallEnabled: Boolean(row.semantic_recall_enabled),
     mcpTimeout: row.mcp_timeout,
     maxAssistantToolSteps: row.max_assistant_tool_steps,
     confirmExternalLinks: Boolean(row.confirm_external_links),
@@ -76,7 +79,7 @@ function rowToPreferences(row: GlobalPreferencesRow): GlobalPreferences {
 export function getGlobalPreferences() {
   const row = getDb().prepare(`
     SELECT default_provider_profile_id, skills_enabled, conversation_retention,
-      memories_enabled, memories_max_count, memories_rigor, mcp_timeout,
+      memories_enabled, memories_max_count, memories_rigor, semantic_recall_enabled, mcp_timeout,
       max_assistant_tool_steps, confirm_external_links, tool_call_display,
       title_generation_mode, title_generation_profile_id,
       speech_cleanup_enabled, speech_cleanup_profile_id, speech_cleanup_prompt,
@@ -94,8 +97,8 @@ export function updateGlobalPreferences(input: Partial<GlobalPreferences>) {
     UPDATE global_preferences
     SET default_provider_profile_id = ?, skills_enabled = ?,
       conversation_retention = ?, memories_enabled = ?,
-      memories_max_count = ?, memories_rigor = ?, mcp_timeout = ?, max_assistant_tool_steps = ?,
-      confirm_external_links = ?, tool_call_display = ?, title_generation_mode = ?,
+      memories_max_count = ?, memories_rigor = ?, semantic_recall_enabled = ?, mcp_timeout = ?,
+      max_assistant_tool_steps = ?, confirm_external_links = ?, tool_call_display = ?, title_generation_mode = ?,
       title_generation_profile_id = ?, speech_cleanup_enabled = ?,
       speech_cleanup_profile_id = ?, speech_cleanup_prompt = ?, updated_at = ?
     WHERE id = 1
@@ -106,6 +109,7 @@ export function updateGlobalPreferences(input: Partial<GlobalPreferences>) {
     next.memoriesEnabled ? 1 : 0,
     next.memoriesMaxCount,
     normalizeMemoryRigor(next.memoriesRigor),
+    next.semanticRecallEnabled ? 1 : 0,
     next.mcpTimeout,
     next.maxAssistantToolSteps,
     next.confirmExternalLinks ? 1 : 0,

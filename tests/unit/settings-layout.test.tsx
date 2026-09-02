@@ -64,6 +64,7 @@ const settings: GeneralSectionSettings = {
   memoriesEnabled: true,
   memoriesMaxCount: 100,
   memoriesRigor: "balanced",
+  semanticRecallEnabled: false,
   mcpTimeout: 120_000,
   maxAssistantToolSteps: 25,
   confirmExternalLinks: true,
