@@ -7,6 +7,7 @@ import type { McpServer, McpTool, MemoryRigor, Skill, ToolDefinition, VisionMode
 export type ToolSet = {
   server: McpServer;
   tools: McpTool[];
+  authRequired?: boolean;
 };
 
 export function mcpToolFunctionName(serverSlug: string, toolName: string) {

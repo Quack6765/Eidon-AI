@@ -8,6 +8,7 @@ import {
   getConversationShare
 } from "@/lib/conversations";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
+import { getRequestOrigin } from "@/lib/request-url";
 
 const paramsSchema = z.object({
   conversationId: z.string().min(1)
@@ -18,12 +19,7 @@ const updateSchema = z.object({
 });
 
 function buildSharePayload(request: Request, share: { enabled: boolean; token: string | null }) {
-  const forwardedProto = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
-  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
-  const host = forwardedHost || request.headers.get("host");
-  const origin = host
-    ? `${forwardedProto || new URL(request.url).protocol.replace(":", "")}://${host}`
-    : new URL(request.url).origin;
+  const origin = getRequestOrigin(request);
   const url = share.enabled && share.token ? `${origin}/share/${share.token}` : null;
 
   return {
