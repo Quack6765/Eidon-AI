@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { CalendarDays, Clock3, Plus, Trash2 } from "lucide-react";
 
 import { ProfileCard } from "@/components/settings/profile-card";
+import { BotAvatar } from "@/components/agents/bot-avatar";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 import { DetailActionBar } from "@/components/settings/detail-action-bar";
 import { DetailHeader } from "@/components/settings/detail-header";
@@ -17,7 +18,7 @@ import { useToastState } from "@/hooks/use-toast-state";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
-import type { Automation, Persona } from "@/lib/types";
+import type { Automation, BotSummary, Persona } from "@/lib/types";
 
 type SettingsPayload = {
   defaultProviderProfileId: string | null;
@@ -32,6 +33,7 @@ type AutomationFormState = {
   prompt: string;
   providerProfileId: string;
   personaId: string | null;
+  botId: string | null;
   scheduleKind: "interval" | "calendar";
   intervalMinutes: number;
   calendarFrequency: "daily" | "weekly";
@@ -56,6 +58,7 @@ function createDefaultForm(providerProfileId = ""): AutomationFormState {
     prompt: "",
     providerProfileId,
     personaId: null,
+    botId: null,
     scheduleKind: "interval",
     intervalMinutes: 5,
     calendarFrequency: "daily",
@@ -84,6 +87,7 @@ function automationToForm(automation: Automation): AutomationFormState {
     prompt: automation.prompt,
     providerProfileId: automation.providerProfileId,
     personaId: automation.personaId,
+    botId: automation.botId,
     scheduleKind: automation.scheduleKind,
     intervalMinutes: automation.intervalMinutes ?? 5,
     calendarFrequency: automation.calendarFrequency ?? "daily",
@@ -96,6 +100,7 @@ function automationToForm(automation: Automation): AutomationFormState {
 export function AutomationsSection() {
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [bots, setBots] = useState<BotSummary[]>([]);
   const [providerProfiles, setProviderProfiles] = useState<Array<{ id: string; name: string }>>([]);
   const [defaultProviderProfileId, setDefaultProviderProfileId] = useState("");
   const [form, setForm] = useState<AutomationFormState>(createDefaultForm());
@@ -157,6 +162,17 @@ export function AutomationsSection() {
       setIsLoading(false);
     }
   }
+
+  useEffect(() => {
+    fetch("/api/bots")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { bots?: BotSummary[] } | null) => {
+        if (payload && Array.isArray(payload.bots)) {
+          setBots(payload.bots);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     void loadData().catch(() => {
@@ -279,7 +295,8 @@ export function AutomationsSection() {
       name: form.name.trim(),
       prompt: form.prompt.trim(),
       providerProfileId: resolvedProviderProfileId,
-      personaId: form.personaId,
+      personaId: form.botId ? null : form.personaId,
+      botId: form.botId,
       scheduleKind: form.scheduleKind,
       intervalMinutes: form.scheduleKind === "interval" ? form.intervalMinutes : null,
       calendarFrequency: form.scheduleKind === "calendar" ? form.calendarFrequency : null,
@@ -422,15 +439,29 @@ export function AutomationsSection() {
             </div>
           ) : (
             <>
-              {automations.map((automation) => (
-                <ProfileCard
-                  key={automation.id}
-                  isActive={automation.id === selectedAutomationId}
-                  onClick={() => openAutomation(automation)}
-                  title={automation.name}
-                  subtitle={describeSchedule(automation)}
-                />
-              ))}
+              {automations.map((automation) => {
+                const boundBot = automation.botId
+                  ? bots.find((bot) => bot.id === automation.botId)
+                  : undefined;
+
+                return (
+                  <ProfileCard
+                    key={automation.id}
+                    isActive={automation.id === selectedAutomationId}
+                    onClick={() => openAutomation(automation)}
+                    title={automation.name}
+                    subtitle={describeSchedule(automation)}
+                    meta={
+                      boundBot ? (
+                        <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-violet-500/20 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-violet-300">
+                          <BotAvatar seed={boundBot.avatarSeed} size={14} className="rounded-[4px] border-0" />
+                          <span className="truncate">{boundBot.name}</span>
+                        </span>
+                      ) : undefined
+                    }
+                  />
+                );
+              })}
             </>
           )
         }
@@ -492,6 +523,34 @@ export function AutomationsSection() {
                       </div>
 
                       <div>
+                        <label className={fieldLabel}>Run as bot</label>
+                        <select
+                          aria-label="Run as bot"
+                          className={`${selectLike} ${isFieldDirty("botId") ? "!border-amber-500/40" : ""}`}
+                          value={form.botId ?? ""}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              botId: event.target.value || null
+                            }))
+                          }
+                        >
+                          <option value="">No bot (regular automation)</option>
+                          {bots.map((bot) => (
+                            <option key={bot.id} value={bot.id}>
+                              {bot.isChief ? `${bot.name} (chief)` : bot.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {form.botId ? (
+                      <p className="text-xs text-[var(--muted)]">
+                        This automation runs in the selected bot&apos;s thread, as that bot. The persona picker is disabled while a bot is selected.
+                      </p>
+                    ) : (
+                      <div>
                         <label className={fieldLabel}>Persona</label>
                         <select
                           aria-label="Persona"
@@ -512,7 +571,7 @@ export function AutomationsSection() {
                           ))}
                         </select>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
 

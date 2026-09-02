@@ -190,6 +190,7 @@ export function approveMemoryProposal(
 ) {
   const pending = loadPendingMemoryProposalAction(actionId, userId);
   const finalPayload = applyProposalOverrides(pending.proposalPayload, overrides);
+  const scope = finalPayload.botId ? { botId: finalPayload.botId } : undefined;
 
   if (finalPayload.operation === "create") {
     const proposedMemory = finalPayload.proposedMemory;
@@ -198,7 +199,7 @@ export function approveMemoryProposal(
     }
 
     const settings = getSettings();
-    const currentCount = getMemoryCount(userId);
+    const currentCount = getMemoryCount(userId, scope);
 
     if (currentCount >= settings.memoriesMaxCount) {
       throw new Error(
@@ -206,7 +207,7 @@ export function approveMemoryProposal(
       );
     }
 
-    createMemory(proposedMemory.content, proposedMemory.category, userId);
+    createMemory(proposedMemory.content, proposedMemory.category, userId, scope);
   }
 
   if (finalPayload.operation === "update") {
@@ -217,7 +218,7 @@ export function approveMemoryProposal(
       throw new Error("Memory proposal payload is missing");
     }
 
-    const liveMemory = getMemory(targetMemoryId, userId);
+    const liveMemory = getMemory(targetMemoryId, userId, scope);
 
     if (!liveMemory) {
       throw new Error("Target memory no longer exists");
@@ -231,7 +232,8 @@ export function approveMemoryProposal(
         content: proposedMemory.content,
         category: proposedMemory.category
       },
-      userId
+      userId,
+      scope
     );
 
     if (!updated) {
@@ -246,7 +248,7 @@ export function approveMemoryProposal(
       throw new Error("Memory proposal payload is missing");
     }
 
-    const liveMemory = getMemory(targetMemoryId, userId);
+    const liveMemory = getMemory(targetMemoryId, userId, scope);
 
     if (!liveMemory) {
       throw new Error("Target memory no longer exists");
@@ -254,7 +256,7 @@ export function approveMemoryProposal(
 
     ensureCurrentMemorySnapshotMatches(liveMemory, finalPayload);
 
-    deleteMemory(targetMemoryId, userId);
+    deleteMemory(targetMemoryId, userId, scope);
   }
 
   const timestamp = nowIso();
@@ -303,10 +305,12 @@ export function normalizeMemoryCategory(category: unknown): MemoryCategory {
 export function buildCreateMemoryProposal(input: {
   content: string;
   category: unknown;
+  botId?: string | null;
 }): MemoryProposalPayload {
   return {
     operation: "create",
     targetMemoryId: null,
+    ...(input.botId ? { botId: input.botId } : {}),
     proposedMemory: {
       content: input.content.trim(),
       category: normalizeMemoryCategory(input.category)
@@ -318,10 +322,12 @@ export function buildUpdateMemoryProposal(input: {
   memory: UserMemory;
   content: string;
   category?: unknown;
+  botId?: string | null;
 }): MemoryProposalPayload {
   return {
     operation: "update",
     targetMemoryId: input.memory.id,
+    ...(input.botId ? { botId: input.botId } : {}),
     currentMemory: toProposalMemorySnapshot(input.memory),
     proposedMemory: {
       content: input.content.trim(),
@@ -332,10 +338,11 @@ export function buildUpdateMemoryProposal(input: {
   };
 }
 
-export function buildDeleteMemoryProposal(memory: UserMemory): MemoryProposalPayload {
+export function buildDeleteMemoryProposal(memory: UserMemory, botId?: string | null): MemoryProposalPayload {
   return {
     operation: "delete",
     targetMemoryId: memory.id,
+    ...(botId ? { botId } : {}),
     currentMemory: toProposalMemorySnapshot(memory)
   };
 }

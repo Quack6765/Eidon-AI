@@ -40,7 +40,7 @@
 
 Eidon is a self-hostable AI assistant workspace for everyday work. It runs as one Docker image, stores app data locally, and lets you connect the model providers you already trust instead of committing to a locked-in hosted platform.
 
-Use it as a private assistant, a day-to-day work companion, or a shared workspace for a group. Eidon packages the chat experience, tool layer, memory, automation, and administration pieces behind a responsive UI that is easy to use and easy to self-host.
+Use it as a private assistant, a day-to-day work companion, or a shared workspace for a group. Eidon packages the chat experience, tool layer, memory, automation, bots, and administration pieces behind a responsive UI that is easy to use and easy to self-host.
 
 ## Feature Highlights
 
@@ -53,6 +53,7 @@ Use it as a private assistant, a day-to-day work companion, or a shared workspac
 - MCP server support over `streamable_http` and `stdio`
 - Docker image already includes both `uvx` and `npx` for `stdio` MCP workflows
 - Scheduled automations with run history and transcript views
+- Bot teammates with a Chief of Staff that delegates work, spawns new specialist bots, and gives every bot its own browser session and workspace
 - Personas you can switch in the composer to change assistant behavior per task
 - Full mobile PWA support for chat and admin flows
 - Streaming chat with visible action timelines
@@ -67,6 +68,17 @@ Use it as a private assistant, a day-to-day work companion, or a shared workspac
 - Multiple clients live sync
 - Support native or dedicated MCP server for vision capabilites
 - Temporary chat
+
+## Bot Teammates
+
+The **Agents** area gives every user a team of persistent bots. The Chief of Staff is created automatically: message it directly for anything, and it will answer small asks itself, delegate bigger or recurring work to specialist bots, or create a new focused bot when a job deserves a long-lived owner.
+
+- Every bot has its own conversation thread, memory, generated avatar, and live status (idle, queued, running)
+- Each bot runs in an isolated sandbox: a dedicated persistent browser session (its own cookies and logins) and its own file workspace
+- Bots can be messaged directly, like teammates in a messaging app
+- Automations can be bound to a bot as routines, running on a schedule inside the bot's thread
+- Delegations and bot creation render as inline activity cards so you always see who did what
+- Bots use the provider and settings already configured in your workspace
 
 ## Supported Providers
 

@@ -48,6 +48,22 @@ describe("SidebarFooterNav", () => {
     ).toBeTruthy();
   });
 
+  it("renders the Agents entry between Settings and Automations", () => {
+    render(<SidebarFooterNav onNavigateAction={vi.fn()} />);
+
+    const agentsLink = screen.getByRole("link", { name: "Open agents" });
+    const settingsLink = screen.getByRole("link", { name: "Open settings" });
+    const automationsLink = screen.getByRole("link", { name: "Open automations" });
+
+    expect(agentsLink).toHaveAttribute("href", "/agents");
+    expect(
+      settingsLink.compareDocumentPosition(agentsLink) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      agentsLink.compareDocumentPosition(automationsLink) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
   it("delegates plain left-click navigation through the provided action", () => {
     const onNavigateAction = vi.fn();
 

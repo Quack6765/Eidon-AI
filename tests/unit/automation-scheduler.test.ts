@@ -527,6 +527,7 @@ describe("automation scheduler", () => {
       completedRun.conversationId,
       "Run the shared pipeline",
       [],
+      undefined,
       undefined
     );
     expect(conversation).toMatchObject({

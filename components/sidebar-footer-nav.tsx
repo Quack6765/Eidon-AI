@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { Clock3, Settings } from "lucide-react";
+import { Bot, Clock3, Settings } from "lucide-react";
 import { isUnmodifiedPrimaryClick } from "@/lib/navigation";
 
 const baseLinkClassName =
@@ -34,6 +34,16 @@ export function SidebarFooterNav({ onNavigateAction }: SidebarFooterNavProps) {
       >
         <Settings className="h-4.5 w-4.5 opacity-60" />
         <span className="font-medium">Settings</span>
+      </Link>
+
+      <Link
+        href="/agents"
+        aria-label="Open agents"
+        className={baseLinkClassName}
+        onClick={(event) => interceptNavigation(event, "/agents", onNavigateAction)}
+      >
+        <Bot className="h-4.5 w-4.5 opacity-60" />
+        <span className="font-medium">Agents</span>
       </Link>
 
       <Link

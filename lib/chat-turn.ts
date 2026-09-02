@@ -38,6 +38,14 @@ import {
   getRuntimeProviderProfile
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
+import { nowIso } from "@/lib/utils";
+import { buildBotSystemPrompt, buildChiefRoster, getBotByConversationId } from "@/lib/bots";
+import {
+  broadcastBotRunUpdate,
+  createBotRunRecord,
+  deleteBotRun,
+  updateBotRunStatus
+} from "@/lib/bot-runs";
 import { createAssistantContentPersistenceTracker as createAssistantContentPersistenceTrackerImpl, attachAssistantFilesFromCompletedAction as attachAssistantFilesFromCompletedActionImpl } from "./content-persistence";
 import type { ChatStreamEvent } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
@@ -64,6 +72,7 @@ export type StartChatTurn = (
   options?: {
     source?: "live" | "queue";
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
+    botRun?: { record?: false; trigger?: "dm" | "delegated" | "routine" };
   }
 ) => Promise<ChatTurnResult>;
 
@@ -256,6 +265,14 @@ async function startAssistantTurn(
   }
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
+  const bot = getBotByConversationId(conversation.id);
+  const botSystemPrompt = bot ? buildBotSystemPrompt(bot) : undefined;
+  const botTeam = bot
+    ? {
+        isChief: bot.isChief,
+        roster: bot.isChief ? buildChiefRoster(bot.userId ?? undefined) : []
+      }
+    : undefined;
   let assistantMessageId: string | null = null;
   let contentPersistence: ReturnType<typeof createAssistantContentPersistenceTracker> | null = null;
   let started = false;
@@ -335,7 +352,7 @@ async function startAssistantTurn(
           event: { type: "compaction_end" }
         });
       }
-    }, personaId, appSettings.memoriesEnabled, appSettings.memoriesRigor, control.abortController.signal);
+    }, personaId, appSettings.memoriesEnabled, appSettings.memoriesRigor, control.abortController.signal, botSystemPrompt, bot?.id);
     control.throwIfStopped();
     let promptMessages = compacted.promptMessages;
     const skills = appSettings.skillsEnabled ? listEnabledSkills() : [];
@@ -375,6 +392,7 @@ async function startAssistantTurn(
       appSettings,
       conversationId: conversation.id,
       assistantMessageId: assistantMessage.id,
+      botTeam,
       async onEvent(event: ChatStreamEvent) {
         manager.broadcast(conversationId, {
           type: "delta",
@@ -699,6 +717,7 @@ export async function startChatTurn(
   options?: {
     source?: "live" | "queue";
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
+    botRun?: { record?: false; trigger?: "dm" | "delegated" | "routine" };
   }
 ): Promise<ChatTurnResult> {
   const preflight = getAssistantTurnStartPreflight(conversationId);
@@ -722,6 +741,37 @@ export async function startChatTurn(
     return { status: "failed", errorMessage: ACTIVE_TURN_ERROR_MESSAGE };
   }
 
+  const bot = getBotByConversationId(conversationId);
+  const botRun =
+    bot && options?.botRun?.record !== false
+      ? createBotRunRecord({
+          botId: bot.id,
+          conversationId,
+          triggerSource: options?.botRun?.trigger ?? "dm"
+        })
+      : null;
+  if (botRun) {
+    const running = updateBotRunStatus(botRun.id, {
+      status: "running",
+      startedAt: nowIso()
+    });
+    if (running) broadcastBotRunUpdate(running);
+  }
+
+  const finalizeBotRun = (result: ChatTurnResult) => {
+    if (!botRun) return;
+    if (result.status === "skipped") {
+      deleteBotRun(botRun.id);
+      return;
+    }
+    const finished = updateBotRunStatus(botRun.id, {
+      status: result.status,
+      finishedAt: nowIso(),
+      errorMessage: result.status === "failed" ? result.errorMessage ?? "Bot run failed" : null
+    });
+    if (finished) broadcastBotRunUpdate(finished);
+  };
+
   try {
     const { userMessage, assistantMessage } = createChatTurnMessages({
       conversationId,
@@ -731,13 +781,23 @@ export async function startChatTurn(
 
     void generateConversationTitleFromFirstUserMessage(conversationId, userMessage.id);
 
-    return startAssistantTurn(manager, conversationId, preflight, claimed.control, personaId, {
+    const result = await startAssistantTurn(manager, conversationId, preflight, claimed.control, personaId, {
       userMessageId: userMessage.id,
       assistantMessage,
       onMessagesCreated: options?.onMessagesCreated
     });
+    finalizeBotRun(result);
+    return result;
   } catch (error) {
     releaseChatTurnStart(conversationId, claimed.control);
+    if (botRun) {
+      const finished = updateBotRunStatus(botRun.id, {
+        status: "failed",
+        finishedAt: nowIso(),
+        errorMessage: error instanceof Error ? error.message : "Bot run failed"
+      });
+      if (finished) broadcastBotRunUpdate(finished);
+    }
     throw error;
   }
 }

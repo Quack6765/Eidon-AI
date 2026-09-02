@@ -334,6 +334,10 @@ export async function resolveAssistantTurn(input: {
   appSettings?: import("@/lib/types").RuntimeAppSettings;
   conversationId?: string;
   assistantMessageId?: string;
+  botTeam?: {
+    isChief: boolean;
+    roster: Array<{ name: string; title: string; description: string }>;
+  };
 }) {
   const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
   const maxSteps = input.appSettings?.maxAssistantToolSteps ?? MAX_ASSISTANT_CONTROL_STEPS;
@@ -373,7 +377,7 @@ export async function resolveAssistantTurn(input: {
   const loadedSkillIds = new Set<string>();
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
 
-  const parallelizableToolNames = new Set<string>(["web_search"]);
+  const parallelizableToolNames = new Set<string>(["web_search", "delegate_task"]);
   let webSearchDirectiveAdded = false;
   for (const { server, tools } of input.mcpToolSets) {
     if (server.isVisionMcp && effectiveVisionMode !== "mcp") continue;
@@ -467,7 +471,8 @@ export async function resolveAssistantTurn(input: {
       visionToolEnabled:
         effectiveVisionMode === "provider" &&
         input.visionProfile !== undefined &&
-        !getProviderReadinessError(input.visionProfile)
+        !getProviderReadinessError(input.visionProfile),
+      chiefRoster: input.botTeam?.isChief ? input.botTeam.roster : undefined
     });
 
     const providerPromptMessages = appendTrailingGuidance(
