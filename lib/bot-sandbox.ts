@@ -31,6 +31,18 @@ export function ensureBotWorkspace(bot: Pick<Bot, "id" | "userId">) {
   return workspaceDir;
 }
 
+export function removeBotWorkspace(bot: Pick<Bot, "id" | "userId">) {
+  rmSync(getBotWorkspaceDir(bot), { recursive: true, force: true });
+}
+
+export async function removeBotBrowserSession(bot: Pick<Bot, "id">) {
+  const socketDir = getBotBrowserSocketDir(bot);
+  await runAgentBrowserCloseAll(socketDir);
+  try {
+    rmSync(socketDir, { recursive: true, force: true });
+  } catch {}
+}
+
 export function resolveBotSandbox(bot: Pick<Bot, "id" | "userId">): BotSandbox {
   const workspaceDir = getBotWorkspaceDir(bot);
   const browserSocketDir = getBotBrowserSocketDir(bot);

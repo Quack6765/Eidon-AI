@@ -1,9 +1,11 @@
+import { randomInt } from "node:crypto";
+
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { createConversation, deleteConversation, getConversation, renameConversation } from "@/lib/conversations";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { nowIso } from "@/lib/utils";
-import { ensureBotWorkspace } from "@/lib/bot-sandbox";
+import { ensureBotWorkspace, removeBotBrowserSession, removeBotWorkspace } from "@/lib/bot-sandbox";
 import type { Bot, BotStatus, BotSummary } from "@/lib/types";
 
 export const MAX_BOTS_PER_USER = 25;
@@ -143,6 +145,27 @@ function countBots(userId?: string) {
   return row.count;
 }
 
+const BOT_ID_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789";
+
+function generateBotId() {
+  let suffix = "";
+  for (let index = 0; index < 6; index += 1) {
+    suffix += BOT_ID_ALPHABET[randomInt(BOT_ID_ALPHABET.length)];
+  }
+  return `bot-${suffix}`;
+}
+
+function nextBotId() {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const id = generateBotId();
+    const existing = getDb().prepare("SELECT 1 FROM bots WHERE id = ?").get(id);
+    if (!existing) {
+      return id;
+    }
+  }
+  throw new Error("Could not allocate a unique bot id");
+}
+
 function insertBot(input: {
   userId?: string;
   name: string;
@@ -154,7 +177,7 @@ function insertBot(input: {
 }): Bot {
   const timestamp = nowIso();
   const bot: Bot = {
-    id: createId("bot"),
+    id: nextBotId(),
     userId: input.userId ?? null,
     name: input.name,
     title: input.title,
@@ -327,6 +350,8 @@ export function deleteBot(botId: string, userId?: string): boolean {
   transaction();
 
   deleteConversation(bot.homeConversationId, userId ?? undefined);
+  removeBotWorkspace(bot);
+  void removeBotBrowserSession(bot).catch(() => {});
 
   void import("@/lib/automation-scheduler")
     .then(({ wakeAutomationSchedulers }) => wakeAutomationSchedulers())

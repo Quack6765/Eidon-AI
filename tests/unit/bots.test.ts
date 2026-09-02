@@ -32,6 +32,17 @@ describe("bots", () => {
     expect(statSync(workspaceDir).isDirectory()).toBe(true);
   });
 
+  it("issues short bot- prefixed ids without collisions", async () => {
+    const user = await createLocalUser({ username: "botids", password: "password-123", role: "user" as const });
+    const ids = new Set<string>();
+    for (let index = 0; index < 12; index += 1) {
+      const bot = createBot({ name: `Bot ${index}` }, user.id);
+      expect(bot.id).toMatch(/^bot-[a-z0-9]{6}$/);
+      ids.add(bot.id);
+    }
+    expect(ids.size).toBe(12);
+  });
+
   it("rejects duplicate names per user and enforces the cap", async () => {
     const user = await createLocalUser({ username: "botlimits", password: "password-123", role: "user" as const });
 
@@ -112,10 +123,23 @@ describe("bots", () => {
       user.id
     );
 
+    const { existsSync, mkdirSync, writeFileSync } = await import("node:fs");
+    const { getBotBrowserSocketDir, getBotWorkspaceDir, resolveBotSandbox } = await import("@/lib/bot-sandbox");
+    const workspaceDir = getBotWorkspaceDir(bot);
+    mkdirSync(`${workspaceDir}/nested`, { recursive: true });
+    writeFileSync(`${workspaceDir}/nested/keep.txt`, "data");
+    const socketDir = getBotBrowserSocketDir(bot);
+    mkdirSync(socketDir, { recursive: true });
+    writeFileSync(`${socketDir}/profile-data.json`, "{}");
+    resolveBotSandbox(bot);
+
     expect(deleteBot(bot.id, user.id)).toBe(true);
     expect(getBot(bot.id, user.id)).toBeNull();
     expect(getConversation(bot.homeConversationId, user.id)).toBeNull();
     expect(getBotByConversationId(bot.homeConversationId)).toBeNull();
+    expect(existsSync(workspaceDir)).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(existsSync(socketDir)).toBe(false);
 
     const { getAutomation } = await import("@/lib/automations");
     const updated = getAutomation(automation.id, user.id);
