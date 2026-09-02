@@ -24,6 +24,7 @@ function makeServer(
     isVisionMcp: false,
     hasHeaders,
     hasEnv: false,
+    oauth: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
     ...overrides
@@ -140,6 +141,12 @@ describe("MCP servers section", () => {
           })
         } as Response;
       }
+      if (url === "/api/mcp-servers/test" && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ success: true, toolCount: 0, text: "0 tools discovered" })
+        } as Response;
+      }
       throw new Error(`Unhandled fetch ${String(init?.method ?? "GET")} ${url}`);
     });
     render(React.createElement(McpServersSection));
@@ -184,6 +191,12 @@ describe("MCP servers section", () => {
               slug: "canonical_server"
             })
           })
+        } as Response;
+      }
+      if (url === "/api/mcp-servers/test" && init?.method === "POST") {
+        return {
+          ok: true,
+          json: async () => ({ success: true, toolCount: 0, text: "0 tools discovered" })
         } as Response;
       }
       throw new Error(`Unhandled fetch ${String(init?.method ?? "GET")} ${url}`);

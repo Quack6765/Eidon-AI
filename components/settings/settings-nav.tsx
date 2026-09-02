@@ -37,7 +37,7 @@ const ASSISTANT_ITEMS = [
 ] as const;
 
 const CAPABILITY_ITEMS = [
-  { href: "/settings/mcp-servers", label: "MCP Servers", icon: Server },
+  { href: "/settings/mcp-servers", label: "MCP", icon: Server },
   { href: "/settings/skills", label: "Skills", icon: Zap }
 ] as const;
 

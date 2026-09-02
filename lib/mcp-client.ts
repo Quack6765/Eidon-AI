@@ -1,6 +1,11 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import { OAuthError } from "@modelcontextprotocol/sdk/server/auth/errors.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  StreamableHTTPClientTransport,
+  StreamableHTTPError
+} from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { deserializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
 
 import { MCP_PROTOCOL_VERSION } from "@/lib/constants";
@@ -9,6 +14,15 @@ import {
   MAX_RUNTIME_TOOL_RESULT_CHARS,
   truncateText
 } from "@/lib/bounded-text";
+import {
+  getMcpOAuthConnection,
+  markMcpOAuthConnectionAuthRequired,
+  markMcpOAuthConnectionConnected,
+  markMcpOAuthConnectionExpired,
+  McpAuthenticationRequiredError,
+  McpOAuthProvider,
+  MCP_AUTH_REQUIRED_MESSAGE
+} from "@/lib/mcp-oauth";
 import type { McpServer, McpTool, McpToolCallResult } from "@/lib/types";
 
 export const MAX_MCP_RESULT_CHARS = MAX_RUNTIME_TOOL_RESULT_CHARS;
@@ -136,6 +150,7 @@ export async function boundedMcpFetch(url: string | URL, init?: RequestInit) {
 
 type ConnectedMcpClient = {
   key: string;
+  serverId: string | null;
   client: Client;
   transport: StdioClientTransport | StreamableHTTPClientTransport;
 };
@@ -172,6 +187,38 @@ function getServerKey(server: TestableMcpServer) {
   });
 }
 
+function isMcpAuthFailure(error: unknown) {
+  if (
+    error instanceof McpAuthenticationRequiredError ||
+    error instanceof UnauthorizedError ||
+    error instanceof OAuthError
+  ) {
+    return true;
+  }
+  if (error instanceof StreamableHTTPError && error.code === 401) {
+    return true;
+  }
+  return error instanceof Error && /HTTP 401/.test(error.message);
+}
+
+function mapMcpConnectionError(server: TestableMcpServer, error: unknown) {
+  if (!isMcpAuthFailure(error)) {
+    return error;
+  }
+  const serverId = server.id ?? null;
+  if (serverId && serverId !== "draft") {
+    const connection = getMcpOAuthConnection(serverId);
+    if (connection?.accessToken) {
+      markMcpOAuthConnectionExpired(serverId);
+    } else if (connection) {
+      markMcpOAuthConnectionAuthRequired(serverId);
+    }
+  }
+  return new McpAuthenticationRequiredError(
+    `"${server.name}" ${MCP_AUTH_REQUIRED_MESSAGE}`
+  );
+}
+
 function createTransport(server: TestableMcpServer) {
   if (server.transport === "stdio") {
     const transport = new StdioClientTransport({
@@ -185,10 +232,24 @@ function createTransport(server: TestableMcpServer) {
     return transport;
   }
 
+  const serverId = server.id && server.id !== "draft" ? server.id : null;
+  const oauthConnection = serverId ? getMcpOAuthConnection(serverId) : null;
+  const staticHeaders: Record<string, string> = { ...server.headers };
+  if (oauthConnection && (oauthConnection.accessToken || oauthConnection.clientId)) {
+    for (const headerName of Object.keys(staticHeaders)) {
+      if (headerName.toLowerCase() === "authorization") {
+        delete staticHeaders[headerName];
+      }
+    }
+  }
+
   const transport = new StreamableHTTPClientTransport(new URL(server.url), {
     requestInit: {
-      headers: server.headers
+      headers: staticHeaders
     },
+    ...(oauthConnection && (oauthConnection.accessToken || oauthConnection.clientId)
+      ? { authProvider: new McpOAuthProvider(serverId as string, server.url) }
+      : {}),
     fetch: boundedMcpFetch
   });
 
@@ -246,7 +307,11 @@ function drainTransportStderr(transport: StdioClientTransport | StreamableHTTPCl
 async function createConnectedClient(server: TestableMcpServer, abortSignal?: AbortSignal) {
   const transport = createTransport(server);
   const client = createClient();
-  transport.onerror = () => {
+  let firstTransportError: unknown;
+  transport.onerror = (error) => {
+    if (error) {
+      firstTransportError ??= error;
+    }
     const key = getServerKey(server);
     if (connectedClients.get(key)?.transport === transport) {
       connectedClients.delete(key);
@@ -267,10 +332,19 @@ async function createConnectedClient(server: TestableMcpServer, abortSignal?: Ab
     });
   } catch (error) {
     await closeTransport(transport);
-    throw error;
+    throw mapMcpConnectionError(server, firstTransportError ?? error);
+  }
+  const connectedServerId = server.id && server.id !== "draft" ? server.id : null;
+  if (connectedServerId) {
+    markMcpOAuthConnectionConnected(connectedServerId);
   }
   drainTransportStderr(transport, server.name);
-  return { key: getServerKey(server), client, transport };
+  return {
+    key: getServerKey(server),
+    serverId: connectedServerId,
+    client,
+    transport
+  };
 }
 
 export async function getConnectedClient(server: McpServer, abortSignal?: AbortSignal) {
@@ -383,7 +457,10 @@ export function getToolResultText(result: McpToolCallResult) {
   return result.isError ? "Tool call failed." : "Tool call completed.";
 }
 
-export async function discoverMcpTools(server: McpServer, abortSignal?: AbortSignal): Promise<McpTool[]> {
+export async function discoverMcpToolsWithStatus(
+  server: McpServer,
+  abortSignal?: AbortSignal
+): Promise<{ tools: McpTool[]; authRequired: boolean }> {
   try {
     const connection = await getConnectedClient(server, abortSignal);
     const result = await connection.client.listTools(undefined, {
@@ -391,13 +468,23 @@ export async function discoverMcpTools(server: McpServer, abortSignal?: AbortSig
       maxTotalTimeout: 30_000,
       signal: abortSignal
     });
-    return result.tools.slice(0, MAX_MCP_DISCOVERED_TOOLS).map(normalizeTool);
+    return {
+      tools: result.tools.slice(0, MAX_MCP_DISCOVERED_TOOLS).map(normalizeTool),
+      authRequired: false
+    };
   } catch (error) {
     if (abortSignal?.aborted) {
       throw error;
     }
-    return [];
+    return {
+      tools: [],
+      authRequired: error instanceof McpAuthenticationRequiredError
+    };
   }
+}
+
+export async function discoverMcpTools(server: McpServer, abortSignal?: AbortSignal): Promise<McpTool[]> {
+  return (await discoverMcpToolsWithStatus(server, abortSignal)).tools;
 }
 
 export async function callMcpTool(
@@ -455,14 +542,17 @@ export async function callMcpTool(
     if (abortSignal?.aborted) {
       throw error;
     }
+    const authError = mapMcpConnectionError(server, error);
     return {
       content: [
         {
           type: "text",
-          text: truncateText(
-            error instanceof Error ? error.message : "MCP tool call failed",
-            MAX_MCP_RESULT_CHARS
-          )
+          text: authError instanceof McpAuthenticationRequiredError
+            ? truncateText(authError.message, MAX_MCP_RESULT_CHARS)
+            : truncateText(
+                error instanceof Error ? error.message : "MCP tool call failed",
+                MAX_MCP_RESULT_CHARS
+              )
         }
       ],
       isError: true
@@ -477,16 +567,26 @@ export async function gatherAllMcpTools(
   Array<{
     server: McpServer;
     tools: McpTool[];
+    authRequired?: boolean;
   }>
 > {
   const results = await Promise.all(
     servers.map(async (server) => ({
       server,
-      tools: await discoverMcpTools(server, abortSignal)
+      ...(await discoverMcpToolsWithStatus(server, abortSignal))
     }))
   );
 
-  return results.filter((result) => result.tools.length > 0);
+  return results.filter((result) => result.tools.length > 0 || result.authRequired);
+}
+
+export function evictMcpClientsByServerId(serverId: string) {
+  for (const [key, connection] of connectedClients) {
+    if (connection.serverId === serverId) {
+      connectedClients.delete(key);
+      void closeTransport(connection.transport);
+    }
+  }
 }
 
 export async function disconnectMcpServer(server: McpServer) {
@@ -557,6 +657,8 @@ export async function testMcpServerConnection(server: TestableMcpServer) {
           : stderrOutput
         : undefined
     };
+  } catch (error) {
+    throw mapMcpConnectionError(server, error);
   } finally {
     await closeTransport(transport);
   }

@@ -1,5 +1,7 @@
 import { getDb } from "@/lib/db";
 import { decryptValue, encryptValue } from "@/lib/crypto";
+import { evictMcpClientsByServerId } from "@/lib/mcp-client";
+import { deleteMcpOAuthConnection, listMcpOAuthConnectionSummaries } from "@/lib/mcp-oauth";
 import { createId } from "@/lib/ids";
 import type { McpServer, McpServerSummary, McpTransport } from "@/lib/types";
 import { nowIso } from "@/lib/utils";
@@ -66,18 +68,25 @@ function encryptSecretRecord(value: Record<string, string> | null) {
   return value === null ? null : encryptValue(JSON.stringify(value));
 }
 
-export function sanitizeMcpServer(server: McpServer): McpServerSummary {
+export function sanitizeMcpServer(
+  server: McpServer,
+  oauth: McpServerSummary["oauth"] = null
+): McpServerSummary {
   return {
     ...server,
     headers: {},
     env: null,
     hasHeaders: Object.keys(server.headers).length > 0,
-    hasEnv: Boolean(server.env && Object.keys(server.env).length > 0)
+    hasEnv: Boolean(server.env && Object.keys(server.env).length > 0),
+    oauth
   };
 }
 
 export function listSanitizedMcpServers() {
-  return listMcpServers().map(sanitizeMcpServer);
+  const oauthSummaries = listMcpOAuthConnectionSummaries();
+  return listMcpServers().map((server) =>
+    sanitizeMcpServer(server, oauthSummaries[server.id] ?? null)
+  );
 }
 
 const SELECT_COLUMNS = `id, name, slug, url, headers, transport, command, args, env, enabled, is_vision_mcp, created_at, updated_at`;
@@ -231,6 +240,11 @@ export function updateMcpServer(
       : null;
   const enabled = input.enabled ?? current.enabled;
   const isVisionMcp = input.isVisionMcp ?? current.isVisionMcp;
+
+  if (url !== current.url || transport !== current.transport) {
+    deleteMcpOAuthConnection(serverId);
+    evictMcpClientsByServerId(serverId);
+  }
 
   getDb()
     .prepare(

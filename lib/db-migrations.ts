@@ -900,6 +900,26 @@ export function migrate(db: Database.Database) {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (profile_id) REFERENCES provider_profiles(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS mcp_server_connections (
+      server_id TEXT NOT NULL PRIMARY KEY,
+      credentials_encrypted TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS mcp_oauth_flows (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      payload_encrypted TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
     CREATE TABLE IF NOT EXISTS provider_profiles (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -1640,6 +1660,8 @@ export function migrate(db: Database.Database) {
       ON auth_sessions(user_id, purpose, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_provider_connection_flows_user_created
       ON provider_connection_flows(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mcp_oauth_flows_server_created
+      ON mcp_oauth_flows(server_id, created_at DESC);
   `);
 
   const queuedMessagesCols = db.prepare("PRAGMA table_info(queued_messages)").all() as Array<{ name: string }>;

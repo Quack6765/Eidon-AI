@@ -302,11 +302,20 @@ export type McpServer = {
   updatedAt: string;
 };
 
+export type McpOAuthStatus = "connected" | "expired" | "auth_required";
+
+export type McpServerOAuthSummary = {
+  status: McpOAuthStatus;
+  expiresAt: string | null;
+  scope: string | null;
+};
+
 export type McpServerSummary = Omit<McpServer, "headers" | "env"> & {
   headers: Record<string, never>;
   env: null;
   hasHeaders: boolean;
   hasEnv: boolean;
+  oauth: McpServerOAuthSummary | null;
 };
 
 export type McpTool = {

@@ -47,7 +47,7 @@ describe("settings nav", () => {
 
     expect(screen.getByText("Users")).toBeInTheDocument();
     expect(screen.getByText("Providers")).toBeInTheDocument();
-    expect(screen.getByText("MCP Servers")).toBeInTheDocument();
+    expect(screen.getByText("MCP")).toBeInTheDocument();
     expect(screen.getByText("Skills")).toBeInTheDocument();
     expect(screen.getByText("Personal")).toBeInTheDocument();
     expect(screen.getByText("Assistant")).toBeInTheDocument();
