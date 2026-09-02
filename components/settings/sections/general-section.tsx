@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Brain, Gauge, Image as ImageIcon, Mic2, Monitor, Search, Type } from "lucide-react";
+import { Archive, Bot, Brain, Gauge, Image as ImageIcon, Mic2, Monitor, Search, Type } from "lucide-react";
 
 import {
   buildIntegrationUpdate,
@@ -20,10 +20,12 @@ import { WebSearchSettings } from "@/components/settings/integration-settings/we
 import { SettingsMenuItem } from "@/components/settings/settings-menu-item";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 import { Button } from "@/components/ui/button";
+import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
+import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
 import { getImageGenerationReadinessError } from "@/lib/image-generation/catalog";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import { getTranscriptionReadinessError } from "@/lib/speech/transcription-catalog";
@@ -90,6 +92,13 @@ const GENERAL_SECTIONS = [
     description: "Preferences and recall",
     detail: "Choose how Eidon saves facts about you and how it recalls them in conversations.",
     icon: Brain
+  },
+  {
+    id: "bots",
+    label: "Bots",
+    description: "Team base prompt",
+    detail: "Set the base system prompt shared by every bot on the team.",
+    icon: Bot
   }
 ] as const;
 
@@ -108,6 +117,7 @@ export function GeneralSection({
   const [draft, setDraft] = useState(initialDraft);
   const [activeSection, setActiveSection] = useState<GeneralSectionId>("display");
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
+  const [isBotPromptOpen, setIsBotPromptOpen] = useState(false);
   const persistedDraft = useRef(initialDraft);
   const [isSaving, setIsSaving] = useState(false);
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState(draft);
@@ -211,6 +221,7 @@ export function GeneralSection({
                   profileId: draft.speechCleanup.profileId,
                   prompt: draft.speechCleanup.prompt
                 },
+                botPrompt: { prompt: draft.botPrompt.prompt },
                 semanticRecall: {
                   enabled: draft.semanticRecall.enabled
                 }
@@ -455,6 +466,47 @@ export function GeneralSection({
           />
         ) : null}
       </div>
+    ),
+    bots: (
+      <div className="space-y-4">
+        {!canManageGlobalIntegrations ? (
+          <p className="text-xs leading-5 text-[var(--muted)]">Only admins can change the bot base prompt.</p>
+        ) : null}
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className={fieldLabel}>Base prompt</label>
+            {canManageGlobalIntegrations ? (
+              <button
+                type="button"
+                onClick={() => setIsBotPromptOpen(true)}
+                className="text-xs text-[var(--accent)] hover:underline"
+              >
+                Edit
+              </button>
+            ) : null}
+          </div>
+          <div
+            onClick={canManageGlobalIntegrations ? () => setIsBotPromptOpen(true) : undefined}
+            className={`rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 ${canManageGlobalIntegrations ? "cursor-pointer hover:bg-white/[0.06] transition-colors" : ""} ${isFieldDirty("botPrompt") ? "border-amber-500/40" : "border-white/6"}`}
+          >
+            {draft.botPrompt.prompt || "No custom base prompt — using the default"}
+          </div>
+          {canManageGlobalIntegrations ? (
+            <div className="mt-1.5 flex items-start justify-between gap-4">
+              <p className="text-xs leading-5 text-[var(--muted)]">Applies to every bot alongside its own role. Leave empty to use the default.</p>
+              {draft.botPrompt.prompt ? (
+                <button
+                  type="button"
+                  onClick={() => updateDraft("botPrompt", { prompt: "" })}
+                  className="shrink-0 text-xs text-[var(--muted)] hover:underline"
+                >
+                  Reset to default
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
     )
   } satisfies Record<GeneralSectionId, React.ReactNode>;
 
@@ -526,6 +578,15 @@ export function GeneralSection({
             }
           />
         }
+      />
+      <TextEditModal
+        open={isBotPromptOpen}
+        onOpenChange={setIsBotPromptOpen}
+        value={draft.botPrompt.prompt}
+        onChange={(next) => updateDraft("botPrompt", { prompt: next })}
+        title="Bot base system prompt"
+        subtitle="Shared by every bot, under its own role context"
+        placeholder={DEFAULT_BOT_BASE_SYSTEM_PROMPT}
       />
       <Toast visible={toast.visible} variant={toast.variant} message={toast.message} />
     </div>

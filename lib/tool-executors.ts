@@ -29,7 +29,7 @@ import {
 import { getLatestUserPromptContent } from "./prompt-analysis";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
-import { executeDelegateTask, executeCreateBotTool, executeUpdateBotTool } from "./bot-delegation";
+import { executeMessageBot, executeCreateBotTool, executeUpdateBotTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
 import { resolveBotSandbox } from "./bot-sandbox";
@@ -1149,8 +1149,8 @@ export async function executeToolCall(
     return executeShellCommand(toolCallId, args, context);
   }
 
-  if (name === "delegate_task") {
-    return executeDelegateTask(toolCallId, args, context);
+  if (name === "message_bot") {
+    return executeMessageBot(toolCallId, args, context);
   }
 
   if (name === "create_bot") {

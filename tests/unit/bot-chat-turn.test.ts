@@ -111,7 +111,7 @@ describe("bot chat turns", () => {
     expect(runs[0].conversationId).toBe(bot.homeConversationId);
   });
 
-  it("gives the chief delegation tools and the roster, workers get none", async () => {
+  it("gives every bot the message_bot tool; management tools stay chief-only", async () => {
     const user = await createLocalUser({ username: "chieftools", password: "password-123", role: "user" as const });
     const chief = ensureChiefBot(user.id);
     createBot({ name: "Researcher", title: "Web research" }, user.id);
@@ -123,16 +123,20 @@ describe("bot chat turns", () => {
 
     const tools = await captureTools();
     const names = tools.map((tool) => tool.function.name);
-    expect(names).toContain("delegate_task");
+    expect(names).toContain("message_bot");
     expect(names).toContain("create_bot");
     expect(names).toContain("update_bot");
-    const delegateTool = tools.find((tool) => tool.function.name === "delegate_task");
-    expect(delegateTool?.function.description).toContain("Researcher");
-    expect(delegateTool?.function.description).toContain("Web research");
+    expect(names).not.toContain("delegate_task");
+    const messageTool = tools.find((tool) => tool.function.name === "message_bot");
+    expect(messageTool?.function.description).toContain("Researcher");
+    expect(messageTool?.function.description).toContain("Web research");
+    const createBotTool = tools.find((tool) => tool.function.name === "create_bot");
+    expect(createBotTool?.function.description).toContain("explicitly confirmed");
   });
 
-  it("does not expose delegation tools in worker bot or normal conversations", async () => {
+  it("exposes message_bot to workers but not create or update tools", async () => {
     const user = await createLocalUser({ username: "workertools", password: "password-123", role: "user" as const });
+    ensureChiefBot(user.id);
     const worker = createBot({ name: "Solo" }, user.id);
     stubStream();
 
@@ -141,15 +145,60 @@ describe("bot chat turns", () => {
     const manager = createConversationManager();
 
     await startChatTurn(manager, worker.homeConversationId, "Hi", []);
-    expect((await captureTools()).map((tool) => tool.function.name)).not.toContain("delegate_task");
+    const workerTools = (await captureTools()).map((tool) => tool.function.name);
+    expect(workerTools).toContain("message_bot");
+    expect(workerTools).not.toContain("create_bot");
+    expect(workerTools).not.toContain("update_bot");
+    expect(workerTools).not.toContain("delegate_task");
 
     const plain = createConversation("Plain", null, {}, user.id);
     streamProviderResponseMock.mockClear();
     await startChatTurn(manager, plain.id, "Hi", []);
-    expect((await captureTools()).map((tool) => tool.function.name)).not.toContain("delegate_task");
+    expect((await captureTools()).map((tool) => tool.function.name)).not.toContain("message_bot");
 
     expect(listRecentBotRuns({ userId: user.id }).map((run) => run.conversationId)).toEqual([
       worker.homeConversationId
     ]);
+  });
+
+  it("delivers a wake turn that broadcasts into the conversation and grounds the reply", async () => {
+    const user = await createLocalUser({ username: "hiddenwake", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    stubStream();
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const { listMessages, listVisibleMessages } = await import("@/lib/conversations");
+    const manager = createConversationManager();
+    const sentEvents: Array<{ type: string; bot?: { id: string; status: string } }> = [];
+    const socket = {
+      readyState: 1,
+      send: (data: string) => {
+        sentEvents.push(JSON.parse(data));
+      },
+      close: vi.fn()
+    } as unknown as import("ws").WebSocket;
+    manager.addConnection(socket, user.id);
+
+    const result = await startChatTurn(
+      manager,
+      chief.homeConversationId,
+      "[Message from Researcher]\nFound 3 sources.\n---\n(Automated delivery)",
+      [],
+      undefined,
+      { botRun: { record: false } }
+    );
+
+    expect(result.status).toBe("completed");
+    const wake = listMessages(chief.homeConversationId).find((message) => message.role === "user");
+    expect(wake?.content).toContain("Found 3 sources.");
+    expect(
+      listVisibleMessages(chief.homeConversationId).map((message) => message.role)
+    ).toEqual(["user", "assistant"]);
+
+    const chiefUpdates = sentEvents.filter(
+      (event) => event.type === "bot_updated" && event.bot?.id === chief.id
+    );
+    expect(chiefUpdates.some((event) => event.bot?.status === "running")).toBe(true);
+    expect(chiefUpdates.at(-1)?.bot?.status).toBe("idle");
   });
 });

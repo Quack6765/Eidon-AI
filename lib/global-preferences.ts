@@ -37,6 +37,7 @@ export type GlobalPreferences = {
   speechCleanupEnabled: boolean;
   speechCleanupProfileId: string | null;
   speechCleanupPrompt: string;
+  botSystemPrompt: string;
   updatedAt: string;
 };
 
@@ -58,6 +59,7 @@ type GlobalPreferencesRow = {
   speech_cleanup_enabled: number;
   speech_cleanup_profile_id: string | null;
   speech_cleanup_prompt: string;
+  bot_system_prompt: string;
   updated_at: string;
 };
 
@@ -80,6 +82,7 @@ function rowToPreferences(row: GlobalPreferencesRow): GlobalPreferences {
     speechCleanupEnabled: Boolean(row.speech_cleanup_enabled),
     speechCleanupProfileId: row.speech_cleanup_profile_id,
     speechCleanupPrompt: row.speech_cleanup_prompt ?? "",
+    botSystemPrompt: row.bot_system_prompt ?? "",
     updatedAt: row.updated_at
   };
 }
@@ -92,6 +95,7 @@ export function getGlobalPreferences() {
       default_view,
       title_generation_mode, title_generation_profile_id,
       speech_cleanup_enabled, speech_cleanup_profile_id, speech_cleanup_prompt,
+      bot_system_prompt,
       updated_at
     FROM global_preferences
     WHERE id = 1
@@ -109,7 +113,7 @@ export function updateGlobalPreferences(input: Partial<GlobalPreferences>) {
       memories_max_count = ?, memories_rigor = ?, semantic_recall_enabled = ?, mcp_timeout = ?,
       max_assistant_tool_steps = ?, confirm_external_links = ?, tool_call_display = ?, default_view = ?, title_generation_mode = ?,
       title_generation_profile_id = ?, speech_cleanup_enabled = ?,
-      speech_cleanup_profile_id = ?, speech_cleanup_prompt = ?, updated_at = ?
+      speech_cleanup_profile_id = ?, speech_cleanup_prompt = ?, bot_system_prompt = ?, updated_at = ?
     WHERE id = 1
   `).run(
     next.defaultProviderProfileId,
@@ -129,6 +133,7 @@ export function updateGlobalPreferences(input: Partial<GlobalPreferences>) {
     next.speechCleanupEnabled ? 1 : 0,
     next.speechCleanupProfileId,
     next.speechCleanupPrompt,
+    next.botSystemPrompt,
     next.updatedAt
   );
   return next;

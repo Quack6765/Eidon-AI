@@ -579,6 +579,7 @@ function migratePreferenceStorage(db: Database.Database) {
       speech_cleanup_enabled INTEGER NOT NULL DEFAULT 0,
       speech_cleanup_profile_id TEXT,
       speech_cleanup_prompt TEXT NOT NULL DEFAULT '',
+      bot_system_prompt TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL,
@@ -1975,6 +1976,9 @@ export function migrate(db: Database.Database) {
   }
   if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_prompt")) {
     db.exec("ALTER TABLE global_preferences ADD COLUMN speech_cleanup_prompt TEXT NOT NULL DEFAULT ''");
+  }
+  if (!globalPreferencesCols.some((column) => column.name === "bot_system_prompt")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN bot_system_prompt TEXT NOT NULL DEFAULT ''");
   }
 
   if (!globalPreferencesCols.some((column) => column.name === "semantic_recall_enabled")) {

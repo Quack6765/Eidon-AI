@@ -35,6 +35,9 @@ const inputSchema = z.object({
     profileId: z.string().nullable(),
     prompt: z.string().min(1).max(20_000)
   }).optional(),
+  botPrompt: z.object({
+    prompt: z.string().max(20_000)
+  }).optional(),
   semanticRecall: z.object({
     enabled: z.boolean()
   }).optional()

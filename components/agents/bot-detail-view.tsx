@@ -114,9 +114,6 @@ function WorkspaceTreeNode({
 }
 
 function buildBotSubtitle(bot: BotSummary) {
-  if (bot.isChief) {
-    return "Chief of staff";
-  }
   const description = bot.description.trim();
   const shortDescription =
     description.length > BOT_SUBTITLE_DESCRIPTION_MAX_CHARS

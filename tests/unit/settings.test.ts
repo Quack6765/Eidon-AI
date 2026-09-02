@@ -638,6 +638,9 @@ describe("settings domains", () => {
         enabled: true,
         profileId: "profile_1",
         prompt: "Clean it up."
+      },
+      botPrompt: {
+        prompt: "Lead the team precisely."
       }
     };
 
@@ -662,6 +665,8 @@ describe("settings domains", () => {
     expect(updated.speechCleanupEnabled).toBe(true);
     expect(updated.speechCleanupProfileId).toBe("profile_1");
     expect(updated.speechCleanupPrompt).toBe("Clean it up.");
+    expect(updated.botSystemPrompt).toBe("Lead the team precisely.");
+    expect(getSettingsForUser(user.id).botSystemPrompt).toBe("Lead the team precisely.");
     expect(JSON.stringify(updated)).not.toContain("google-secret");
     expect(getSettingsForUser(user.id).imageGeneration.credentials.apiKey).toBe("google-secret");
 

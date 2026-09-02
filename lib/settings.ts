@@ -63,6 +63,9 @@ export type GeneralSettingsBundle = {
     profileId: string | null;
     prompt: string;
   };
+  botPrompt?: {
+    prompt: string;
+  };
   semanticRecall?: {
     enabled: boolean;
   };
@@ -93,6 +96,7 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
     speechCleanupEnabled: global.speechCleanupEnabled,
     speechCleanupProfileId: global.speechCleanupProfileId,
     speechCleanupPrompt: global.speechCleanupPrompt,
+    botSystemPrompt: global.botSystemPrompt,
     webSearch: webSearch
       ? {
           ...webSearch,
@@ -218,6 +222,7 @@ export function getSanitizedSettings(userId?: string): PublicAppSettings & {
     speechCleanupEnabled: settings.speechCleanupEnabled,
     speechCleanupProfileId: settings.speechCleanupProfileId,
     speechCleanupPrompt: settings.speechCleanupPrompt,
+    botSystemPrompt: settings.botSystemPrompt,
     updatedAt: settings.updatedAt,
     webSearch: integrations.webSearch as PublicAppSettings["webSearch"],
     imageGeneration: integrations.imageGeneration as PublicAppSettings["imageGeneration"],
@@ -263,6 +268,12 @@ export function updateSpeechCleanupSettings(input: {
   });
 }
 
+export function updateBotPromptSettings(input: { prompt: string }) {
+  return updateGlobalPreferences({
+    botSystemPrompt: input.prompt
+  });
+}
+
 export function updateGeneralSettingsBundleForUser(
   userId: string,
   input: GeneralSettingsBundle,
@@ -275,7 +286,7 @@ export function updateGeneralSettingsBundleForUser(
   ] as Array<[IntegrationCapability, unknown]>).filter(([, update]) => update !== undefined);
   if (
     !canManageGlobalIntegrations &&
-    (integrationUpdates.length > 0 || input.titleGeneration || input.speechCleanup || input.semanticRecall)
+    (integrationUpdates.length > 0 || input.titleGeneration || input.speechCleanup || input.botPrompt || input.semanticRecall)
   ) {
     throw new Error("Only admins can update global settings");
   }
@@ -289,6 +300,7 @@ export function updateGeneralSettingsBundleForUser(
     }
     if (input.titleGeneration) updateTitleGenerationSettings(input.titleGeneration);
     if (input.speechCleanup) updateSpeechCleanupSettings(input.speechCleanup);
+    if (input.botPrompt) updateBotPromptSettings(input.botPrompt);
     if (input.semanticRecall) updateGlobalPreferences({ semanticRecallEnabled: input.semanticRecall.enabled });
   });
   transaction();

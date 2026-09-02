@@ -349,7 +349,7 @@ export async function resolveAssistantTurn(input: {
   assistantMessageId?: string;
   botTeam?: {
     isChief: boolean;
-    roster: Array<{ name: string; title: string; description: string }>;
+    roster: import("@/lib/bots").BotRosterEntry[];
   };
 }) {
   const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
@@ -390,7 +390,7 @@ export async function resolveAssistantTurn(input: {
   const loadedSkillIds = new Set<string>();
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
 
-  const parallelizableToolNames = new Set<string>(["web_search", "delegate_task"]);
+  const parallelizableToolNames = new Set<string>(["web_search", "message_bot"]);
   let webSearchDirectiveAdded = false;
   for (const { server, tools } of input.mcpToolSets) {
     if (server.isVisionMcp && effectiveVisionMode !== "mcp") continue;
@@ -494,7 +494,7 @@ export async function resolveAssistantTurn(input: {
         effectiveVisionMode === "provider" &&
         input.visionProfile !== undefined &&
         !getProviderReadinessError(input.visionProfile),
-      chiefRoster: input.botTeam?.isChief ? input.botTeam.roster : undefined,
+      botTeam: input.botTeam,
       semanticRecallAvailable: Boolean(input.memoryUserId) && isSemanticRecallAvailable()
     });
 
