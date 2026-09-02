@@ -277,6 +277,15 @@ Navigation is compact and persistent, with stronger state than decoration.
 - **Mobile Treatment:** Use full-width list and detail levels. The header carries a named parent action on the left and the current destination in the center; do not compress the desktop rails into side-by-side mobile columns.
 - **Touch And Motion:** Primary mobile actions are at least 44px tall or wide. Use restrained utility transitions for color, focus, rail movement, and directional chevrons; avoid decorative navigation choreography.
 
+### Bot Avatars
+
+Bot avatars are DiceBear Bottts robots, generated once per bot from its immutable seed via the official DiceBear API and served locally thereafter.
+
+- **Palette:** Robots wear one of nine Eidon accent shell colors (violet, indigo, cyan, teal, emerald, amber, pink); the seed decides which. Texture overlays are limited to circuits and dots.
+- **Background:** Transparent. Robots sit directly on tonal containers with hairline borders and 12px rounded corners.
+- **Small Sizes:** At 28px and below, scale the robot 1.2x so the face carries the frame instead of the antennas.
+- **Restraint:** One robot per bot, stable for the bot's lifetime. Avatars are identity markers, not decoration.
+
 ### Settings Accordions
 
 Accordions disclose secondary or long technical groups without turning the editor into stacked cards. Short editors remain open.

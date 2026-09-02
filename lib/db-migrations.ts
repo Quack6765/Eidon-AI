@@ -1161,6 +1161,11 @@ export function migrate(db: Database.Database) {
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
       FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL
     );
+    CREATE TABLE IF NOT EXISTS bot_avatars (
+      seed TEXT PRIMARY KEY,
+      svg TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
   `);
 
   if (needsLegacySettingsMigration) {
