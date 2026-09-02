@@ -153,6 +153,12 @@ describe("Mobile API v1 contracts", () => {
       "/speech/transcription/cleanup",
       "/automations/{automationId}/runs",
       "/automation-runs/{runId}",
+      "/bots",
+      "/bots/{botId}",
+      "/bots/{botId}/memories",
+      "/bots/{botId}/reset-browser-session",
+      "/bots/{botId}/workspace",
+      "/avatars/{seed}",
       "/messages/{messageId}/edit-restart",
       "/message-actions/{actionId}/approve",
       "/settings/providers",
@@ -212,8 +218,8 @@ describe("Mobile API v1 contracts", () => {
     expect(universal35Languages.enum).not.toContain("sw");
     expect(universal2Languages.enum).toContain("sw");
     expect(universal2Languages.enum).toHaveLength(103);
-    expect(compileOpenApiJsonRequestBodies()).toBe(36);
-    expect(compileOpenApiJsonResponses()).toBe(88);
+    expect(compileOpenApiJsonRequestBodies()).toBe(38);
+    expect(compileOpenApiJsonResponses()).toBe(97);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {
@@ -250,6 +256,9 @@ describe("Mobile API v1 contracts", () => {
     const serverMessages = JSON.stringify(contract.$defs.ServerMessage);
     expect(serverMessages).toContain("protocolVersion");
     expect(serverMessages).toContain("conversation_title_updated");
+    expect(serverMessages).toContain("bot_updated");
+    expect(serverMessages).toContain("bot_deleted");
+    expect(serverMessages).toContain("bot_run_updated");
     expect(serverMessages).toContain("code");
 
     expect(contract.$defs.Attachment.properties).not.toHaveProperty("relativePath");
