@@ -1,10 +1,7 @@
 name: Docker Dev
 
 on:
-  push:
-    branches: [dev]
-  pull_request:
-    branches: [dev]
+  workflow_dispatch:
 
 concurrency:
   group: docker-dev-${{ github.ref }}
@@ -12,11 +9,11 @@ concurrency:
 
 jobs:
   docker-dev:
+    if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-      pull-requests: read
 
     steps:
       - uses: actions/checkout@v4
@@ -25,26 +22,7 @@ jobs:
         run: echo "REPO_LOWERCASE=${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Set dev build version
-        if: github.event_name == 'push'
         run: echo "DEV_VERSION=dev-${GITHUB_SHA::7}" >> "$GITHUB_ENV"
-
-      - name: Detect deployment-sensitive changes
-        id: changes
-        if: github.event_name == 'pull_request'
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            deployment:
-              - 'Dockerfile'
-              - '.dockerignore'
-              - '.github/workflows/docker-stable.yml'
-              - '.github/workflows/docker-dev.yml'
-              - '.github/workflows/test.yml'
-              - 'package.json'
-              - 'package-lock.json'
-              - 'next.config.*'
-              - 'public/**'
-              - 'server.cjs'
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -57,7 +35,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish dev image
-        if: github.event_name == 'push'
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -67,37 +44,6 @@ jobs:
           tags: |
             ghcr.io/${{ env.REPO_LOWERCASE }}:dev
             ghcr.io/${{ env.REPO_LOWERCASE }}:${{ env.DEV_VERSION }}
-          cache-from: |
-            type=gha
-            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:main
-            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:dev
-          cache-to: |
-            type=gha,mode=max
-            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:dev,mode=max
-
-      - name: Build full production image (pull request)
-        if: github.event_name == 'pull_request' && steps.changes.outputs.deployment == 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          tags: |
-            ghcr.io/${{ env.REPO_LOWERCASE }}:pr
-          cache-from: |
-            type=gha
-            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:main
-            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:dev
-          cache-to: |
-            type=gha,mode=max
-            type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:dev,mode=max
-
-      - name: Build lightweight builder image
-        if: github.event_name == 'pull_request' && steps.changes.outputs.deployment != 'true'
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          target: builder
-          push: false
           cache-from: |
             type=gha
             type=registry,ref=ghcr.io/${{ env.REPO_LOWERCASE }}/buildcache:main
