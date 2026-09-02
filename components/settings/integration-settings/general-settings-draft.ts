@@ -20,6 +20,7 @@ export type GeneralSettingsDraft = {
     maxAssistantToolSteps: number;
     confirmExternalLinks: boolean;
     toolCallDisplay: AppSettings["toolCallDisplay"];
+    defaultView: AppSettings["defaultView"];
   };
   webSearch: IntegrationDraft<AppSettings["webSearch"]>;
   imageGeneration: IntegrationDraft<AppSettings["imageGeneration"]>;
@@ -56,7 +57,8 @@ export function createGeneralSettingsDraft(settings: AppSettings): GeneralSettin
       mcpTimeout: settings.mcpTimeout,
       maxAssistantToolSteps: settings.maxAssistantToolSteps,
       confirmExternalLinks: settings.confirmExternalLinks,
-      toolCallDisplay: settings.toolCallDisplay
+      toolCallDisplay: settings.toolCallDisplay,
+      defaultView: settings.defaultView
     },
     webSearch: createIntegrationDraft(settings.webSearch),
     imageGeneration: createIntegrationDraft(settings.imageGeneration),

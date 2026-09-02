@@ -1186,6 +1186,43 @@ test.describe("Feature: Automations workspace", () => {
   });
 });
 
+test.describe("Feature: Default view setting", () => {
+  test("lands on the configured default view from the home route", async ({ page }) => {
+    await signIn(page);
+
+    const setResponse = await page.request.put("/api/settings/general", {
+      data: { preferences: { defaultView: "automations" } }
+    });
+    expect(setResponse.ok()).toBeTruthy();
+
+    try {
+      await page.goto("/");
+      await expect(page).toHaveURL(/localhost:3117\/automations$/, { timeout: 10000 });
+
+      await page.getByRole("link", { name: "Open settings" }).first().click();
+      await expect(page).toHaveURL(/\/settings\/general$/, { timeout: 10000 });
+      await page.getByRole("button", { name: "Back" }).click();
+      await expect(page).toHaveURL(/localhost:3117\/automations$/, { timeout: 10000 });
+
+      await page.getByRole("link", { name: "Open chat" }).first().click();
+      await expect(page).toHaveURL(/localhost:3117\/chat$/, { timeout: 10000 });
+
+      await page.getByRole("link", { name: "Open settings" }).first().click();
+      await expect(page).toHaveURL(/\/settings\/general$/, { timeout: 10000 });
+      await page.getByRole("button", { name: "Back" }).click();
+      await expect(page).toHaveURL(/localhost:3117\/chat$/, { timeout: 10000 });
+    } finally {
+      const resetResponse = await page.request.put("/api/settings/general", {
+        data: { preferences: { defaultView: "chat" } }
+      });
+      expect(resetResponse.ok()).toBeTruthy();
+    }
+
+    await page.goto("/");
+    await expect(page).toHaveURL(/localhost:3117\/$/, { timeout: 10000 });
+  });
+});
+
 test.describe("Feature: Chat attachments", () => {
   test("attaches an image from the paperclip flow and sends it", async ({ page }) => {
     await signIn(page);

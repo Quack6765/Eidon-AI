@@ -106,6 +106,8 @@ export type TitleGenerationMode = "same" | "specific" | "local";
 
 export type ToolCallDisplayMode = "pills" | "status_line";
 
+export type DefaultView = "chat" | "agents" | "automations";
+
 type AppSettingsCore = {
   defaultProviderProfileId: string | null;
   skillsEnabled: boolean;
@@ -117,6 +119,7 @@ type AppSettingsCore = {
   maxAssistantToolSteps: number;
   confirmExternalLinks: boolean;
   toolCallDisplay: ToolCallDisplayMode;
+  defaultView: DefaultView;
   titleGenerationMode: TitleGenerationMode;
   titleGenerationProfileId: string | null;
   speechCleanupEnabled: boolean;

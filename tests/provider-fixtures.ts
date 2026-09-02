@@ -121,6 +121,7 @@ export function createRuntimeAppSettings(
     maxAssistantToolSteps: 25,
     confirmExternalLinks: true,
     toolCallDisplay: "pills",
+    defaultView: "chat",
     titleGenerationMode: "same",
     titleGenerationProfileId: null,
     speechCleanupEnabled: false,

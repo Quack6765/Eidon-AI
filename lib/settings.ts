@@ -45,6 +45,7 @@ export type GeneralSettingsBundle = {
       | "maxAssistantToolSteps"
       | "confirmExternalLinks"
       | "toolCallDisplay"
+      | "defaultView"
       | "memoriesEnabled"
       | "memoriesMaxCount"
       | "memoriesRigor"
@@ -82,6 +83,7 @@ function runtimeSettings(userId?: string): RuntimeAppSettings {
     maxAssistantToolSteps: user.maxAssistantToolSteps,
     confirmExternalLinks: user.confirmExternalLinks,
     toolCallDisplay: user.toolCallDisplay,
+    defaultView: user.defaultView,
     titleGenerationMode: global.titleGenerationMode,
     titleGenerationProfileId: global.titleGenerationProfileId,
     speechCleanupEnabled: global.speechCleanupEnabled,
@@ -205,6 +207,7 @@ export function getSanitizedSettings(userId?: string): PublicAppSettings & {
     maxAssistantToolSteps: settings.maxAssistantToolSteps,
     confirmExternalLinks: settings.confirmExternalLinks,
     toolCallDisplay: settings.toolCallDisplay,
+    defaultView: settings.defaultView,
     titleGenerationMode: settings.titleGenerationMode,
     titleGenerationProfileId: settings.titleGenerationProfileId,
     speechCleanupEnabled: settings.speechCleanupEnabled,
