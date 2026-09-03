@@ -11,15 +11,15 @@
   </p>
 
   <p>
-    <a href="#quick-start"><b>Quick start</b></a>
+    <a href="#-quick-start"><b>Quick start</b></a>
     ·
-    <a href="#chat"><b>Features</b></a>
+    <a href="#-chat"><b>Features</b></a>
     ·
-    <a href="#providers"><b>Providers</b></a>
+    <a href="#-providers"><b>Providers</b></a>
     ·
     <a href="./docs/configuration.md"><b>Configuration</b></a>
     ·
-    <a href="#documentation"><b>Docs</b></a>
+    <a href="#-documentation"><b>Docs</b></a>
   </p>
 
   <p>
@@ -57,7 +57,7 @@ Get your own AI platform for everything you need in a matter of minutes.
 There are three parts: **Chat** for normal conversations, **Agents** for bots that do work
 on their own (Grok Bot like), and **Automations** for tasks that run on a schedule.
 
-## What you get
+## ✨ What you get
 
 <table>
 <tr>
@@ -115,7 +115,7 @@ on their own (Grok Bot like), and **Automations** for tasks that run on a schedu
 </tr>
 </table>
 
-## Quick start
+## 🚀 Quick start
 
 ```bash
 export EIDON_ADMIN_PASSWORD="$(openssl rand -base64 24)"
@@ -161,7 +161,7 @@ Full reference in [Configuration](./docs/configuration.md).
 
 </details>
 
-## Chat
+## 💬 Chat
 
 A normal chat for day-to-day questions and getting work done, with solid tools built in.
 
@@ -174,7 +174,7 @@ A normal chat for day-to-day questions and getting work done, with solid tools b
   Eidon tells you when it happens.
 - **Attach any file**, paste images, or dictate instead of typing.
 
-## Agents
+## 🤖 Agents
 
 Agents are bots that work together to achieve a goal. Each one has its own chat, its own memory, and its own
 workspace. You start with a Chief of Staff — ask it for something and it either answers, passes
@@ -208,7 +208,7 @@ A bot can also write its own skill for future use.
 </tr>
 </table>
 
-## Deep research
+## 🔍 Deep research
 
 Turn on **Deep research** and Eidon writes a detailed plan before it starts it's search. Change the steps however
 you want, then let it run.
@@ -234,7 +234,7 @@ you want, then let it run.
 </tr>
 </table>
 
-## Automations
+## ⏰ Automations
 
 Support for automations of tasks. Every couple of minutes, or at a set time each day or week.
 Every run is saved as a chat you can open and read.
@@ -260,7 +260,7 @@ Every run is saved as a chat you can open and read.
 </tr>
 </table>
 
-## Memory
+## 🧠 Memory
 
 Eidon picks up on things worth remembering — what you are working on, who is involved, how
 you like your answers — and brings them back in later conversations without you repeating
@@ -272,7 +272,7 @@ yourself.
 - Search, edit, or delete anything it has remembered.
 - Pin the things that are important and must be added to all chats at all time.
 
-## Tools
+## 🛠️ Tools
 
 Web search, reading web pages, image generation, looking at images, and running commands are
 all built in. Add more with MCP (local or remote).
@@ -281,7 +281,7 @@ all built in. Add more with MCP (local or remote).
 
 Full list in [Features](./docs/features.md).
 
-## Diagrams, code, and math
+## 📊 Diagrams, code, and math
 
 <table>
 <tr>
@@ -302,7 +302,7 @@ Full list in [Features](./docs/features.md).
 </tr>
 </table>
 
-## Providers
+## 🔌 Providers
 
 <p>
   <img alt="OpenAI" src="https://img.shields.io/badge/OpenAI-0a0a0a?style=flat-square" />
@@ -339,7 +339,7 @@ Set up as many as you like and switch between them in any chat. Your keys are en
 
 Setup for each one is in [Providers](./docs/providers.md).
 
-## On your phone
+## 📱 On your phone
 
 Add Eidon to your home screen from the browser and it opens like a normal app. The layout is
 built for a phone, not a shrunk-down desktop. A native iOS app is coming soon.
@@ -350,7 +350,7 @@ built for a phone, not a shrunk-down desktop. A native iOS app is coming soon.
   <img src="./.github/readme/mobile-settings.png" alt="Provider settings on a phone" width="31%" />
 </p>
 
-## Why Eidon
+## 💡 Why Eidon
 
 One Docker container, running in minutes, and you have the whole thing: agents doing real
 work, everyday chat, and automations on a schedule.
@@ -363,7 +363,7 @@ work, everyday chat, and automations on a schedule.
 - **Your chats stay on your server**, in one file you can copy and back up.
 - **Open source**, under AGPL-3.0.
 
-## Documentation
+## 📚 Documentation
 
 | Guide | What it covers |
 | --- | --- |
@@ -373,11 +373,11 @@ work, everyday chat, and automations on a schedule.
 | [Features](./docs/features.md) | Everything Eidon can do |
 | [Development](./docs/development.md) | Running it locally and how it is built |
 
-## License
+## ⚖️ License
 
 [AGPL-3.0-only](./LICENSE).
 
-## AI-assisted development
+## ✍️ AI-assisted development
 
 Eidon is built partly with AI help. Every change is reviewed before it goes in.
 
