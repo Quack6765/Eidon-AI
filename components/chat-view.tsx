@@ -38,7 +38,9 @@ import {
   shouldShowProvisionalImageAction,
   updateStreamingAction
 } from "@/components/chat-snapshot-helpers";
-import { clearChatBootstrap, readChatBootstrap } from "@/lib/chat-bootstrap";
+import { clearChatBootstrap, readChatBootstrap, type ChatBootstrapPayload } from "@/lib/chat-bootstrap";
+import { ResearchPlanCard } from "@/components/research-plan-card";
+import { useResearchPlanDraft } from "@/hooks/use-research-plan-draft";
 import { createStreamBuffer } from "@/lib/stream-buffer";
 import { StreamingMessage } from "@/components/streaming-message";
 import { useStableHandler } from "@/lib/use-stable-handler";
@@ -53,6 +55,7 @@ import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { isScrolledToBottom, shouldAutofocusTextInput } from "@/lib/utils";
 import type { ConversationViewPayload } from "@/lib/conversation-view";
 import type {
+  ChatResearchOptions,
   ChatStreamEvent,
   Conversation,
   MemoryCategory,
@@ -125,6 +128,9 @@ export function ChatView({
   const [isSending, setIsSending] = useState(false);
   const [isStopPending, setIsStopPending] = useState(false);
   const [isTemporaryToggled, setIsTemporaryToggled] = useState(payload.conversation.isTemporary);
+  const [isResearchToggled, setIsResearchToggled] = useState(false);
+  const researchPlan = useResearchPlanDraft();
+  const researchUserMessageIdRef = useRef<string | null>(null);
   const streamBufferRef = useRef<ReturnType<typeof createStreamBuffer> | null>(null);
   streamBufferRef.current ??= createStreamBuffer();
   const streamBuffer = streamBufferRef.current;
@@ -248,11 +254,7 @@ export function ChatView({
   const expandAnchorMessageIdRef = useRef<string | null>(null);
   const earlierMessagesSentinelRef = useRef<HTMLDivElement | null>(null);
   const firstVisibleMessageIdRef = useRef<string | null>(null);
-  const bootstrapPayloadRef = useRef<{
-    message: string;
-    attachments: MessageAttachment[];
-    personaId?: string;
-  } | null>(null);
+  const bootstrapPayloadRef = useRef<ChatBootstrapPayload | null>(null);
   const bootstrapSubmittedRef = useRef(false);
 
   const restorePendingSubmissions = useCallback(() => {
@@ -274,7 +276,12 @@ export function ChatView({
     pendingLocalSubmissionsRef.current = [];
   }, [setPendingAttachments]);
   const submitRef = useRef<
-    (nextInput?: string, nextPendingAttachments?: MessageAttachment[], nextPersonaId?: string) => Promise<void>
+    (
+      nextInput?: string,
+      nextPendingAttachments?: MessageAttachment[],
+      nextPersonaId?: string,
+      nextResearch?: boolean | ChatResearchOptions
+    ) => Promise<void>
   >(async () => {});
   const renderableMessages = useMemo(() => {
     const pendingById = new Map(
@@ -1173,7 +1180,12 @@ export function ChatView({
 
     bootstrapSubmittedRef.current = true;
     clearChatBootstrap(payload.conversation.id);
-    void submitRef.current(bootstrapPayload.message, bootstrapPayload.attachments, bootstrapPayload.personaId);
+    void submitRef.current(
+      bootstrapPayload.message,
+      bootstrapPayload.attachments,
+      bootstrapPayload.personaId,
+      bootstrapPayload.research
+    );
   }, [payload.conversation.id, wsConnected]);
 
   useEffect(() => {
@@ -1795,7 +1807,8 @@ export function ChatView({
   async function submit(
     nextInput = input,
     nextPendingAttachments = pendingAttachments,
-    nextPersonaId?: string
+    nextPersonaId?: string,
+    nextResearch?: boolean | ChatResearchOptions
   ) {
     const value = nextInput.trim();
     const effectivePersonaId = nextPersonaId ?? personaId;
@@ -1843,6 +1856,59 @@ export function ChatView({
       return;
     }
 
+    const researchRequest =
+      typeof nextResearch === "object" && nextResearch.plan?.length
+        ? nextResearch
+        : (nextResearch ?? isResearchToggled)
+          ? null
+          : undefined;
+    if (researchRequest === null) {
+      if (!value) {
+        return;
+      }
+      setError("");
+      setInput("");
+      dismissComposerKeyboardOnTouch();
+      researchUserMessageIdRef.current = null;
+      const attachmentIds = nextPendingAttachments.map((attachment) => attachment.id);
+      researchPlan.open({
+        message: value,
+        load: async () => {
+          const response = await fetch(`/api/conversations/${payload.conversation.id}/research`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: value, attachmentIds })
+          });
+          if (!response.ok) {
+            throw new Error("The research plan could not be generated");
+          }
+          const data = (await response.json()) as { message?: Message; plan?: unknown };
+          if (data.message) {
+            const persisted = data.message;
+            researchUserMessageIdRef.current = persisted.id;
+            setPendingAttachments([]);
+            setMessages((current) => (current.some((m) => m.id === persisted.id) ? current : [...current, persisted]));
+            if (titleGenerationStatus === "pending") {
+              startTitlePolling();
+            }
+          }
+          return data.plan;
+        },
+        regenerate: async () => {
+          const response = await fetch("/api/research/plan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: value, providerProfileId })
+          });
+          if (!response.ok) {
+            throw new Error("The research plan could not be generated");
+          }
+          return ((await response.json()) as { plan?: unknown }).plan;
+        }
+      });
+      return;
+    }
+
     setError("");
     setInput("");
     dismissComposerKeyboardOnTouch();
@@ -1883,8 +1949,10 @@ export function ChatView({
       conversationId: payload.conversation.id,
       content: value,
       attachmentIds: nextPendingAttachments.map((attachment) => attachment.id),
-      personaId: effectivePersonaId ?? undefined
+      personaId: effectivePersonaId ?? undefined,
+      research: researchRequest
     });
+    setIsResearchToggled(false);
     setIsConversationActive(true);
 
     if (titleGenerationStatus === "pending") {
@@ -2121,6 +2189,59 @@ export function ChatView({
             />
           </div>
           <div className="relative">
+          {researchPlan.draft ? (
+            <ResearchPlanCard
+              draft={researchPlan.draft}
+              onUpdateStep={researchPlan.updateStep}
+              onAddStep={researchPlan.addStep}
+              onRemoveStep={researchPlan.removeStep}
+              onMoveStep={researchPlan.moveStep}
+              onRegenerate={researchPlan.regenerate}
+              onCancel={() => {
+                const pendingMessageId = researchUserMessageIdRef.current;
+                researchUserMessageIdRef.current = null;
+                if (pendingMessageId) {
+                  setMessages((current) => current.filter((m) => m.id !== pendingMessageId));
+                  fetch(`/api/conversations/${payload.conversation.id}/research`, {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ userMessageId: pendingMessageId })
+                  }).catch(() => {});
+                }
+                setInput(researchPlan.draft?.message ?? "");
+                researchPlan.close();
+              }}
+              onStart={() => {
+                const draft = researchPlan.draft;
+                if (!draft) return;
+                const plan = draft.plan.map((step) => step.trim());
+                const pendingMessageId = researchUserMessageIdRef.current;
+                researchUserMessageIdRef.current = null;
+                researchPlan.close();
+                setIsResearchToggled(false);
+                if (!pendingMessageId) {
+                  void submit(draft.message, pendingAttachments, undefined, { plan });
+                  return;
+                }
+                setIsConversationActive(true);
+                fetch(`/api/conversations/${payload.conversation.id}/research`, {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ userMessageId: pendingMessageId, plan, personaId: personaId ?? undefined })
+                })
+                  .then(async (response) => {
+                    if (!response.ok) {
+                      setIsConversationActive(false);
+                      setError("Unable to start the research turn");
+                    }
+                  })
+                  .catch(() => {
+                    setIsConversationActive(false);
+                    setError("Unable to start the research turn");
+                  });
+              }}
+            />
+          ) : null}
           <ChatComposer
             input={input}
             onInputChange={setInput}
@@ -2151,6 +2272,8 @@ export function ChatView({
             speechLevel={speechSnapshot.level}
             speechError={speechSnapshot.error}
             queueingEnabled={isConversationActive}
+            isResearch={isResearchToggled}
+            onResearchChange={setIsResearchToggled}
             isTemporary={isTemporaryToggled}
             showTemporaryToggle={messages.length === 0}
             onTemporaryChange={(value: boolean) => {

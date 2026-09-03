@@ -163,6 +163,46 @@ describe("automations storage", () => {
     }
   });
 
+  it("persists the research flag and run timeout with sensible defaults", () => {
+    const plain = createAutomation({
+      name: "Plain",
+      prompt: "Summarize",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 5,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: []
+    });
+    expect(getAutomation(plain.id)).toMatchObject({ research: false, runTimeoutMinutes: null });
+
+    const research = createAutomation({
+      name: "Overnight research",
+      prompt: "Research heat pumps",
+      providerProfileId: "profile_default",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 60,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: [],
+      research: true,
+      runTimeoutMinutes: 240
+    });
+    expect(getAutomation(research.id)).toMatchObject({ research: true, runTimeoutMinutes: 240 });
+    expect(listAutomations().find((automation) => automation.id === research.id)).toMatchObject({
+      research: true,
+      runTimeoutMinutes: 240
+    });
+
+    updateAutomation(research.id, { research: false, runTimeoutMinutes: null });
+    expect(getAutomation(research.id)).toMatchObject({ research: false, runTimeoutMinutes: null });
+
+    updateAutomation(research.id, { runTimeoutMinutes: 90 });
+    expect(getAutomation(research.id)).toMatchObject({ research: false, runTimeoutMinutes: 90 });
+  });
+
   it("creates interval automations with a minimum of 5 minutes", () => {
     expect(() =>
       createAutomation({

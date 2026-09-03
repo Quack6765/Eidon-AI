@@ -11,7 +11,10 @@ export class RequestBodyTooLargeError extends Error {
   }
 }
 
-export async function readRequestBodyWithLimit(request: Request, maxBytes: number): Promise<ArrayBuffer> {
+export async function readRequestBodyWithLimit(
+  request: { headers: { get(name: string): string | null }; body: ReadableStream<Uint8Array> | null },
+  maxBytes: number
+): Promise<ArrayBuffer> {
   const contentLength = Number(request.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maxBytes) {
     throw new RequestBodyTooLargeError(maxBytes);

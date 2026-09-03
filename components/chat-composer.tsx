@@ -18,6 +18,7 @@ import {
   Paperclip,
   Plus,
   Square,
+  Telescope,
   Users,
   X
 } from "lucide-react";
@@ -72,6 +73,8 @@ type ChatComposerProps = {
   isTemporary?: boolean;
   showTemporaryToggle?: boolean;
   onTemporaryChange?: (value: boolean) => void;
+  isResearch?: boolean;
+  onResearchChange?: (value: boolean) => void;
   compactOnMobile?: boolean;
 };
 
@@ -286,6 +289,8 @@ export function ChatComposer({
   isTemporary = false,
   showTemporaryToggle = false,
   onTemporaryChange,
+  isResearch = false,
+  onResearchChange,
   compactOnMobile = false,
 }: ChatComposerProps) {
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -595,6 +600,26 @@ export function ChatComposer({
                         </span>
                         <ChevronRight className="h-4 w-4 text-white/30" />
                       </button>
+
+                      {onResearchChange ? (
+                        <button
+                          type="button"
+                          aria-label="Deep research"
+                          aria-pressed={isResearch}
+                          disabled={!mounted || isSending}
+                          onClick={() => onResearchChange(!isResearch)}
+                          className="flex min-h-14 w-full items-center gap-3 rounded-xl px-3 text-left transition-colors hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <Telescope className={cn("h-4.5 w-4.5 shrink-0", isResearch ? "text-[var(--accent)]" : "text-white/55")} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-[11px] font-medium text-white/55">Deep research</span>
+                            <span className="block truncate text-sm font-medium text-white/90">
+                              {isResearch ? "On for the next message" : "Off"}
+                            </span>
+                          </span>
+                          {isResearch ? <Check className="h-4 w-4 text-[var(--accent)]" /> : null}
+                        </button>
+                      ) : null}
 
                       {showContextUsage ? (
                         <div className="flex min-h-11 items-center gap-3 px-3">
@@ -953,6 +978,27 @@ export function ChatComposer({
                     ariaLabel="Reasoning effort"
                     disabled={!mounted || isSending || reasoningEffortOptions.length === 0}
                   />
+
+                  {onResearchChange ? (
+                    <button
+                      type="button"
+                      aria-label="Deep research"
+                      aria-pressed={isResearch}
+                      disabled={!mounted || isSending}
+                      onClick={() => onResearchChange(!isResearch)}
+                      className={cn(
+                        "flex items-center gap-2 rounded-xl px-2.5 py-1.5 transition-all duration-200",
+                        !isSending && "hover:bg-white/5",
+                        isResearch
+                          ? "bg-[var(--accent-soft)] text-[var(--accent)]"
+                          : "text-white/30 hover:text-white/50",
+                        (!mounted || isSending) && "cursor-not-allowed opacity-50"
+                      )}
+                    >
+                      <Telescope className="h-4 w-4 shrink-0" />
+                      <span className="text-[11px] font-bold">Deep research</span>
+                    </button>
+                  ) : null}
                 </div>
 
                 {showContextUsage && (

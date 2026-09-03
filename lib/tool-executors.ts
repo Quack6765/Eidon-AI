@@ -12,6 +12,7 @@ import { executeLocalShellCommand, getShellCommandLabel, summarizeShellResult } 
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { getWebSearchPipeline } from "@/lib/web-search-catalog";
+import { readWebPage } from "@/lib/web-read";
 import {
   getPipelineUserContext,
   runWebSearchPipeline
@@ -191,6 +192,70 @@ export async function executeWebSearch(
       promptMessages: [...context.promptMessages, resultMsg],
       toolSucceeded: false
     };
+  }
+}
+
+export async function executeReadPage(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      appSettings?: RuntimeAppSettings;
+      abortSignal?: AbortSignal;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  let sortOrder = context.timelineSortOrder;
+  const url = String(args.url ?? "").trim();
+  const maxChars =
+    typeof args.max_chars === "number" && Number.isFinite(args.max_chars) ? args.max_chars : undefined;
+
+  if (!url) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: url is required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+  }
+
+  const detail = truncateText(url, 300);
+  const handle = await context.input.onActionStart?.({
+    kind: "mcp_tool_call",
+    label: "Read page",
+    detail,
+    serverId: "integration_web_search",
+    toolName: "read_page",
+    arguments: { url, ...(maxChars !== undefined ? { max_chars: maxChars } : {}) }
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    const content = await readWebPage({
+      url,
+      maxChars,
+      settings: context.input.appSettings,
+      abortSignal: context.input.abortSignal
+    });
+    throwIfAborted(context.input.abortSignal);
+
+    sortOrder += 1;
+    const title = content.startsWith("# ") ? content.slice(2, content.indexOf("\n")).trim() : "";
+    await context.input.onActionComplete?.(actionHandle, {
+      detail,
+      resultSummary: `${title || "Page"} (${content.length.toLocaleString("en-US")} chars)`
+    });
+
+    const resultMsg = buildToolResultMessage(toolCallId, content);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: true };
+  } catch (error) {
+    throwIfAborted(context.input.abortSignal);
+    const message = error instanceof Error ? error.message : "Page could not be read";
+    await context.input.onActionError?.(actionHandle, { detail, resultSummary: message });
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
   }
 }
 
@@ -976,6 +1041,10 @@ export async function executeToolCall(
 
   if (name === "web_search") {
     return executeWebSearch(toolCallId, args, context);
+  }
+
+  if (name === "read_page") {
+    return executeReadPage(toolCallId, args, context);
   }
 
   if (name === "generate_image") {

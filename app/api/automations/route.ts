@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { MAX_AUTOMATION_RUN_TIMEOUT_MINUTES } from "@/lib/constants";
+
 import { requireUser } from "@/lib/auth";
 import { createAutomation, listAutomations } from "@/lib/automations";
 import { badRequest, ok } from "@/lib/http";
@@ -18,7 +20,9 @@ const createSchema = z.object({
   calendarFrequency: z.enum(["daily", "weekly"]).nullable(),
   timeOfDay: z.string().nullable(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).default([]),
-  enabled: z.boolean().default(true)
+  enabled: z.boolean().default(true),
+  research: z.boolean().default(false),
+  runTimeoutMinutes: z.number().int().min(1).max(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES).nullable().default(null)
 });
 
 export async function GET() {

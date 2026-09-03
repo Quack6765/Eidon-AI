@@ -1316,6 +1316,12 @@ export function migrate(db: Database.Database) {
   if (!automationCols.some((col) => col.name === "bot_id")) {
     db.exec("ALTER TABLE automations ADD COLUMN bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL");
   }
+  if (!automationCols.some((col) => col.name === "research")) {
+    db.exec("ALTER TABLE automations ADD COLUMN research INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!automationCols.some((col) => col.name === "run_timeout_minutes")) {
+    db.exec("ALTER TABLE automations ADD COLUMN run_timeout_minutes INTEGER");
+  }
 
   db.exec(`
     INSERT OR IGNORE INTO users (id, username, role, auth_source, password_hash, created_at, updated_at)

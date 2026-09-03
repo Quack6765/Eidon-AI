@@ -32,6 +32,7 @@ import type { BotRun } from "@/lib/types";
 import type { StartChatTurn } from "@/lib/chat-turn";
 import { startChatTurn } from "@/lib/chat-turn";
 import { requestStop } from "@/lib/chat-turn-control";
+import { DEFAULT_RESEARCH_AUTOMATION_TIMEOUT_MINUTES, RESEARCH_DEADLINE_MARGIN_MS } from "@/lib/constants";
 import {
   AutomationOwnerBusyError,
   configureAutomationExecutionLimit,
@@ -112,6 +113,15 @@ function getNextWakeAt() {
 
 function getAutomationOwnerKey(automationId: string) {
   return getAutomationOwnerId(automationId) ?? "owner:unowned";
+}
+
+export function resolveAutomationRunTimeoutMs(
+  automation: Pick<Automation, "research" | "runTimeoutMinutes">,
+  defaultRunTimeoutMs: number
+) {
+  if (automation.runTimeoutMinutes) return automation.runTimeoutMinutes * 60_000;
+  if (automation.research) return DEFAULT_RESEARCH_AUTOMATION_TIMEOUT_MINUTES * 60_000;
+  return defaultRunTimeoutMs;
 }
 
 async function executeAutomationRun(
@@ -219,19 +229,26 @@ async function executeAutomationRun(
     }
 
     let timeout: ReturnType<typeof setTimeout> | null = null;
+    const runTimeoutMs = resolveAutomationRunTimeoutMs(automation, dependencies.runTimeoutMs);
+    const turnOptions = {
+      ...(bot ? { botRun: { record: false as const } } : {}),
+      ...(automation.research
+        ? { research: { deadlineMs: Math.max(1_000, runTimeoutMs - RESEARCH_DEADLINE_MARGIN_MS) } }
+        : {})
+    };
     const turn = dependencies.startChatTurn(
       dependencies.manager,
       conversation.id,
       automation.prompt,
       [],
       automation.personaId ?? undefined,
-      bot ? { botRun: { record: false } } : undefined
+      Object.keys(turnOptions).length ? turnOptions : undefined
     );
     const deadline = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
         requestStop(conversation.id);
         reject(new AutomationRunDeadlineError(turn));
-      }, dependencies.runTimeoutMs);
+      }, runTimeoutMs);
     });
     let result: Awaited<ReturnType<StartChatTurn>>;
     try {

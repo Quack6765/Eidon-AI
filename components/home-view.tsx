@@ -10,6 +10,7 @@ import { useFileDrop } from "@/hooks/use-file-drop";
 import { usePendingAttachments } from "@/hooks/use-pending-attachments";
 import { usePersonas } from "@/hooks/use-personas";
 import { markHomeSubmitSidebarAutoHide, storeChatBootstrap } from "@/lib/chat-bootstrap";
+import type { ChatResearchOptions } from "@/lib/types";
 import { cn, shouldAutofocusTextInput } from "@/lib/utils";
 import type {
   AppSettings,
@@ -40,6 +41,7 @@ export function HomeView({
   const [personaId, setPersonaId] = useState<string | null>(null);
   const [draftConversationId, setDraftConversationId] = useState<string | null>(null);
   const [isTemporary, setIsTemporary] = useState(false);
+  const [isResearch, setIsResearch] = useState(false);
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [entranceAnimDone, setEntranceAnimDone] = useState(false);
@@ -197,6 +199,10 @@ export function HomeView({
       return;
     }
 
+    await startConversation(value, isResearch && value ? {} : undefined);
+  }
+
+  async function startConversation(value: string, research?: ChatResearchOptions) {
     setError("");
     setIsSubmitting(true);
 
@@ -208,7 +214,8 @@ export function HomeView({
       storeChatBootstrap(conversationId, {
         message: value,
         attachments: pendingAttachments,
-        personaId: personaId ?? undefined
+        personaId: personaId ?? undefined,
+        ...(research ? { research } : {})
       });
       markHomeSubmitSidebarAutoHide(conversationId);
       router.push(`/chat/${conversationId}`);
@@ -280,6 +287,8 @@ export function HomeView({
             isTemporary={isTemporary}
             showTemporaryToggle={true}
             onTemporaryChange={setIsTemporary}
+            isResearch={isResearch}
+            onResearchChange={setIsResearch}
             compactOnMobile
           />
 

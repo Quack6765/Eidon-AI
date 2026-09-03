@@ -14,11 +14,44 @@ type WebSearchInput = {
   timeout?: number;
 };
 
+export type WebPageReadInput = {
+  url: string;
+  maxChars: number;
+  settings: RuntimeAppSettings;
+  abortSignal?: AbortSignal;
+  timeout?: number;
+};
+
 export type WebSearchProvider = {
   id: WebSearchProviderId;
   getReadinessError(settings: RuntimeAppSettings): string | null;
   search(input: WebSearchInput): Promise<string>;
+  readPage?(input: WebPageReadInput): Promise<string>;
 };
+
+export function formatPageContent(title: string, url: string, body: string) {
+  return [title ? `# ${title}` : null, `Source: ${url}`, "", body].filter((line) => line !== null).join("\n");
+}
+
+function parseExtractedPage(text: string, url: string) {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    return text;
+  }
+  if (!payload || typeof payload !== "object") return text;
+  const { results, failed_results: failed } = payload as {
+    results?: Array<{ url?: string; title?: string; raw_content?: string }>;
+    failed_results?: Array<{ url?: string; error?: string }>;
+  };
+  const first = Array.isArray(results) ? results.find((entry) => typeof entry?.raw_content === "string") : undefined;
+  if (first?.raw_content) {
+    return formatPageContent(first.title?.trim() ?? "", first.url?.trim() || url, first.raw_content.trim());
+  }
+  const failure = Array.isArray(failed) ? failed[0] : undefined;
+  throw new Error(failure?.error?.trim() || "The page could not be extracted");
+}
 
 function mcpServer(url: string): McpServer {
   const timestamp = new Date().toISOString();
@@ -70,6 +103,21 @@ async function discoverSearchToolsCached(server: McpServer, abortSignal?: AbortS
   return promise;
 }
 
+function exaServer(settings: RuntimeAppSettings) {
+  const url = new URL("https://mcp.exa.ai/mcp");
+  const apiKey = settings.webSearch.credentials.apiKey?.trim();
+  if (apiKey) {
+    url.searchParams.set("exaApiKey", apiKey);
+  }
+  return mcpServer(url.toString());
+}
+
+function tavilyServer(settings: RuntimeAppSettings) {
+  const url = new URL("https://mcp.tavily.com/mcp/");
+  url.searchParams.set("tavilyApiKey", settings.webSearch.credentials.apiKey?.trim() ?? "");
+  return mcpServer(url.toString());
+}
+
 async function callSearchMcp(input: {
   server: McpServer;
   preferredToolNames: string[];
@@ -83,7 +131,7 @@ async function callSearchMcp(input: {
     .find(Boolean);
   if (!tool) {
     discoveryCache.delete(input.server.url);
-    throw new Error("The configured search provider did not expose its search tool");
+    throw new Error("The configured search provider did not expose the requested tool");
   }
   const result = await callMcpTool(
     input.server,
@@ -108,18 +156,22 @@ const providers: Record<WebSearchProviderId, WebSearchProvider> = {
     id: "exa",
     getReadinessError: (settings) => getCatalogReadinessError(settings.webSearch),
     search(input) {
-      const url = new URL("https://mcp.exa.ai/mcp");
-      const apiKey = input.settings.webSearch.credentials.apiKey?.trim();
-      if (apiKey) {
-        url.searchParams.set("exaApiKey", apiKey);
-      }
       return callSearchMcp({
-        server: mcpServer(url.toString()),
+        server: exaServer(input.settings),
         preferredToolNames: ["web_search_exa", "web_search"],
         args: {
           query: input.query,
           ...(input.maxResults ? { numResults: input.maxResults } : {})
         },
+        timeout: input.timeout,
+        abortSignal: input.abortSignal
+      });
+    },
+    readPage(input) {
+      return callSearchMcp({
+        server: exaServer(input.settings),
+        preferredToolNames: ["web_fetch_exa"],
+        args: { urls: [input.url], maxCharacters: input.maxChars },
         timeout: input.timeout,
         abortSignal: input.abortSignal
       });
@@ -129,10 +181,8 @@ const providers: Record<WebSearchProviderId, WebSearchProvider> = {
     id: "tavily",
     getReadinessError: (settings) => getCatalogReadinessError(settings.webSearch),
     search(input) {
-      const url = new URL("https://mcp.tavily.com/mcp/");
-      url.searchParams.set("tavilyApiKey", input.settings.webSearch.credentials.apiKey?.trim() ?? "");
       return callSearchMcp({
-        server: mcpServer(url.toString()),
+        server: tavilyServer(input.settings),
         preferredToolNames: ["tavily_search", "search"],
         args: {
           query: input.query,
@@ -141,6 +191,16 @@ const providers: Record<WebSearchProviderId, WebSearchProvider> = {
         timeout: input.timeout,
         abortSignal: input.abortSignal
       });
+    },
+    async readPage(input) {
+      const text = await callSearchMcp({
+        server: tavilyServer(input.settings),
+        preferredToolNames: ["tavily_extract"],
+        args: { urls: [input.url], format: "markdown" },
+        timeout: input.timeout,
+        abortSignal: input.abortSignal
+      });
+      return parseExtractedPage(text, input.url);
     }
   },
   searxng: {
@@ -159,6 +219,13 @@ const providers: Record<WebSearchProviderId, WebSearchProvider> = {
 
 export function getWebSearchReadinessError(settings: RuntimeAppSettings) {
   return providers[settings.webSearch.providerId].getReadinessError(settings);
+}
+
+export function getWebPageReader(settings: RuntimeAppSettings | undefined) {
+  if (!settings) return null;
+  const provider = providers[settings.webSearch.providerId];
+  if (!provider.readPage || provider.getReadinessError(settings)) return null;
+  return provider.readPage;
 }
 
 export function searchWeb(input: WebSearchInput) {

@@ -4,7 +4,13 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth";
 import { RequestBodyTooLargeError, readRequestBodyWithLimit } from "@/lib/bounded-request";
 import { runAssistantTurn } from "@/lib/chat-turn";
-import { MAX_ATTACHMENT_IDS_PER_MESSAGE, MAX_CHAT_MESSAGE_CHARS, MAX_CHAT_REQUEST_BYTES } from "@/lib/constants";
+import {
+  MAX_ATTACHMENT_IDS_PER_MESSAGE,
+  MAX_CHAT_MESSAGE_CHARS,
+  MAX_CHAT_REQUEST_BYTES,
+  MAX_RESEARCH_PLAN_STEPS,
+  MAX_RESEARCH_PLAN_STEP_CHARS
+} from "@/lib/constants";
 import { getConversation } from "@/lib/conversations";
 import { badRequest, parseRouteParams, payloadTooLarge } from "@/lib/http";
 import { encodeSseEvent, encodeSseFlushMarker, encodeSsePrelude } from "@/lib/sse";
@@ -20,7 +26,17 @@ const bodySchema = z.object({
       MAX_ATTACHMENT_IDS_PER_MESSAGE,
       `A maximum of ${MAX_ATTACHMENT_IDS_PER_MESSAGE} attachments may be sent per message`
     )
-    .default([])
+    .default([]),
+  research: z
+    .object({
+      plan: z
+        .array(z.string().trim().min(1).max(MAX_RESEARCH_PLAN_STEP_CHARS))
+        .min(1)
+        .max(MAX_RESEARCH_PLAN_STEPS)
+        .optional()
+    })
+    .strict()
+    .optional()
 }).refine(
   (value) => value.message.trim().length > 0 || value.attachmentIds.length > 0,
   "Chat message or attachment is required"
@@ -63,6 +79,7 @@ export async function POST(
         conversationId: conversation.id,
         content: payload.data.message,
         attachmentIds: payload.data.attachmentIds,
+        research: payload.data.research,
         abortSignal: turnAbortController.signal
       })) {
         controller.enqueue(encoder.encode(encodeSseEvent(event)));
