@@ -72,6 +72,18 @@ describe("mcp servers", () => {
     expect(enabled[0].id).toBe(s1.id);
   });
 
+  it("drops the stored OAuth connection when the server url changes", async () => {
+    const { McpOAuthProvider, getMcpOAuthConnection } = await import("@/lib/mcp-oauth");
+    const server = createMcpServer({ name: "Move Me", url: "https://old.example.com/mcp" });
+    const provider = new McpOAuthProvider(server.id, server.url);
+    await provider.saveClientInformation({ client_id: "client_move" });
+    await provider.saveTokens({ access_token: "token_move", token_type: "Bearer" });
+    expect(getMcpOAuthConnection(server.id)?.clientId).toBe("client_move");
+
+    updateMcpServer(server.id, { url: "https://new.example.com/mcp" });
+    expect(getMcpOAuthConnection(server.id)).toBeNull();
+  });
+
   it("creates server without headers", () => {
     const server = createMcpServer({ name: "No Headers", url: "https://c.com" });
     expect(server.headers).toEqual({});

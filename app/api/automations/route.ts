@@ -20,6 +20,7 @@ const createSchema = z.object({
   calendarFrequency: z.enum(["daily", "weekly"]).nullable(),
   timeOfDay: z.string().nullable(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).default([]),
+  continuePreviousConversation: z.boolean().default(false),
   enabled: z.boolean().default(true),
   research: z.boolean().default(false),
   runTimeoutMinutes: z.number().int().min(1).max(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES).nullable().default(null)

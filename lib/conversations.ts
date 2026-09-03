@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { MIN_SEARCH_SCORE, embedQuery, scoreChunks } from "@/lib/semantic-index";
 
 import {
   copyAttachmentsForConversationFork,
@@ -39,6 +40,7 @@ import type {
   MessageStatus,
   MemoryProposalPayload,
   MemoryProposalState,
+  ProposalPayload,
   ReasoningEffort,
   SystemMessageKind
 } from "@/lib/types";
@@ -191,6 +193,24 @@ function rowToMessage(row: {
   };
 }
 
+function parseProposalPayloadJson(
+  rawPayload: string,
+  kind: MessageActionKind
+): ProposalPayload | null {
+  try {
+    const parsed = JSON.parse(rawPayload) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    if (kind === "create_automation") {
+      return parsed as ProposalPayload;
+    }
+    return parsed as MemoryProposalPayload;
+  } catch {
+    return null;
+  }
+}
+
 function rowToMessageAction(row: {
   id: string;
   message_id: string;
@@ -227,7 +247,10 @@ function rowToMessageAction(row: {
     completedAt: row.completed_at,
     proposalState: row.proposal_state,
     proposalPayload: row.proposal_payload_json
-      ? (JSON.parse(row.proposal_payload_json) as MemoryProposalPayload)
+      ? parseProposalPayloadJson(
+          row.proposal_payload_json,
+          row.kind as MessageActionKind
+        )
       : null,
     proposalUpdatedAt: row.proposal_updated_at
   };
@@ -1594,7 +1617,7 @@ export function createMessageAction(input: {
   resultSummary?: string;
   sortOrder?: number;
   proposalState?: MemoryProposalState | null;
-  proposalPayload?: MemoryProposalPayload | null;
+  proposalPayload?: ProposalPayload | null;
   proposalUpdatedAt?: string | null;
 }) {
   const timestamp = nowIso();
@@ -1705,7 +1728,7 @@ export function updateMessageAction(
     resultSummary?: string;
     completedAt?: string | null;
     proposalState?: MemoryProposalState | null;
-    proposalPayload?: MemoryProposalPayload | null;
+    proposalPayload?: ProposalPayload | null;
     proposalUpdatedAt?: string | null;
   }
 ) {
@@ -1781,6 +1804,14 @@ export function updateMessageAction(
     );
 
   return listMessageActionsForMessageIds([current.message_id]).find((action) => action.id === actionId) ?? null;
+}
+
+export function getMessageActionKind(actionId: string): MessageActionKind | null {
+  const row = getDb()
+    .prepare("SELECT kind FROM message_actions WHERE id = ?")
+    .get(actionId) as { kind: MessageActionKind } | undefined;
+
+  return row?.kind ?? null;
 }
 
 export function markMessagesCompacted(messageIds: string[]) {
@@ -2036,8 +2067,7 @@ export function searchConversations(query: string, userId?: string): Conversatio
          ON c.id = m.conversation_id
         AND m.content LIKE ?
         AND (m.role != 'system' OR m.system_kind IS NOT NULL)
-       WHERE ${userCondition}c.conversation_origin = ?
-          AND c.is_temporary = 0
+       WHERE ${userCondition}c.is_temporary = 0
           AND (
            c.title LIKE ?
            OR m.id IS NOT NULL
@@ -2047,7 +2077,6 @@ export function searchConversations(query: string, userId?: string): Conversatio
     .all(
       likeQuery,
       ...(userId ? [userId] : []),
-      MANUAL_CONVERSATION_ORIGIN,
       likeQuery
     ) as Array<ConversationRow & { matched_message_content: string | null }>;
 
@@ -2074,6 +2103,44 @@ export function searchConversations(query: string, userId?: string): Conversatio
           }
     );
   });
+
+  return results;
+}
+
+export async function searchConversationsWithRecall(
+  query: string,
+  userId: string
+): Promise<ConversationSearchResult[]> {
+  const lexical = searchConversations(query, userId);
+  const queryVector = await embedQuery(query).catch(() => null);
+  if (!queryVector) return lexical;
+
+  const chunks = scoreChunks({
+    userId,
+    kinds: ["message", "memory_node"],
+    queryVector,
+    limit: 40
+  });
+
+  const results: ConversationSearchResult[] = [];
+  const seen = new Set<string>();
+  for (const chunk of chunks) {
+    if (chunk.score < MIN_SEARCH_SCORE || !chunk.conversationId || seen.has(chunk.conversationId)) continue;
+    const conversation = getConversation(chunk.conversationId, userId);
+    if (!conversation || conversation.isTemporary) continue;
+    seen.add(chunk.conversationId);
+    const snippet = chunk.chunkText.replace(/\s+/g, " ").trim();
+    results.push({
+      ...conversation,
+      matchSnippet: snippet.length > 120 ? `${snippet.slice(0, 119)}…` : snippet
+    });
+  }
+
+  for (const conversation of lexical) {
+    if (seen.has(conversation.id)) continue;
+    seen.add(conversation.id);
+    results.push(conversation);
+  }
 
   return results;
 }

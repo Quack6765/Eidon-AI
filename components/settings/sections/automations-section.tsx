@@ -20,6 +20,7 @@ import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
 import type { Automation, BotSummary, Persona } from "@/lib/types";
+import { AUTOMATION_WEEKDAYS, describeSchedule } from "@/lib/automation-display";
 
 type SettingsPayload = {
   defaultProviderProfileId: string | null;
@@ -40,20 +41,13 @@ type AutomationFormState = {
   calendarFrequency: "daily" | "weekly";
   timeOfDay: string;
   daysOfWeek: number[];
+  continuePreviousConversation: boolean;
   enabled: boolean;
   research: boolean;
   runTimeoutMinutes: number | null;
 };
 
-const WEEKDAYS = [
-  { value: 1, label: "Mon" },
-  { value: 2, label: "Tue" },
-  { value: 3, label: "Wed" },
-  { value: 4, label: "Thu" },
-  { value: 5, label: "Fri" },
-  { value: 6, label: "Sat" },
-  { value: 0, label: "Sun" }
-] as const;
+const WEEKDAYS = AUTOMATION_WEEKDAYS;
 
 function createDefaultForm(providerProfileId = ""): AutomationFormState {
   return {
@@ -67,23 +61,11 @@ function createDefaultForm(providerProfileId = ""): AutomationFormState {
     calendarFrequency: "daily",
     timeOfDay: "09:00",
     daysOfWeek: [1],
+    continuePreviousConversation: false,
     enabled: true,
     research: false,
     runTimeoutMinutes: null
   };
-}
-
-function describeSchedule(automation: Automation) {
-  if (automation.scheduleKind === "interval" && automation.intervalMinutes) {
-    return `Every ${automation.intervalMinutes} min`;
-  }
-
-  if (automation.calendarFrequency === "weekly") {
-    const selectedDays = WEEKDAYS.filter((day) => automation.daysOfWeek.includes(day.value)).map((day) => day.label);
-    return `${selectedDays.join(", ")} at ${automation.timeOfDay ?? "--:--"}`;
-  }
-
-  return `Daily at ${automation.timeOfDay ?? "--:--"}`;
 }
 
 function automationToForm(automation: Automation): AutomationFormState {
@@ -98,6 +80,7 @@ function automationToForm(automation: Automation): AutomationFormState {
     calendarFrequency: automation.calendarFrequency ?? "daily",
     timeOfDay: automation.timeOfDay ?? "09:00",
     daysOfWeek: automation.daysOfWeek.length ? automation.daysOfWeek : [1],
+    continuePreviousConversation: automation.continuePreviousConversation,
     enabled: automation.enabled,
     research: automation.research,
     runTimeoutMinutes: automation.runTimeoutMinutes
@@ -309,6 +292,7 @@ export function AutomationsSection() {
       calendarFrequency: form.scheduleKind === "calendar" ? form.calendarFrequency : null,
       timeOfDay: form.scheduleKind === "calendar" ? form.timeOfDay : null,
       daysOfWeek: form.scheduleKind === "calendar" && form.calendarFrequency === "weekly" ? form.daysOfWeek : [],
+      continuePreviousConversation: form.botId ? false : form.continuePreviousConversation,
       enabled: form.enabled,
       research: form.research,
       runTimeoutMinutes: form.runTimeoutMinutes
@@ -734,6 +718,30 @@ export function AutomationsSection() {
                         ) : null}
                       </div>
                     )}
+
+                    {!form.botId ? (
+                      <label
+                        className={`flex items-start gap-3 rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--text)] cursor-pointer ${isFieldDirty("continuePreviousConversation") ? "!border-amber-500/40" : "border-white/6"}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={form.continuePreviousConversation}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              continuePreviousConversation: event.target.checked
+                            }))
+                          }
+                        />
+                        <span>
+                          Continue previous run&apos;s conversation
+                          <span className="block text-xs font-normal text-[var(--muted)]">
+                            Each run picks up where the last one left off, so briefs build on previous results. Otherwise every run starts a fresh conversation.
+                          </span>
+                        </span>
+                      </label>
+                    ) : null}
                   </div>
                 </div>
 

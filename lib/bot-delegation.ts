@@ -1,7 +1,7 @@
 import { listMessages } from "@/lib/conversations";
 import { requestStop } from "@/lib/chat-turn-control";
 import { truncateText, MAX_RUNTIME_TOOL_RESULT_CHARS } from "@/lib/bounded-text";
-import { createBot, resolveBotByNameOrId, updateBot } from "@/lib/bots";
+import { createBot, getBotByConversationId, resolveBotByNameOrId, updateBot } from "@/lib/bots";
 import {
   broadcastBotRunUpdate,
   broadcastBotUpsert,
@@ -190,10 +190,12 @@ async function completeActionFromBackground(input: {
 }
 
 export function buildDelegationWakeContent(botName: string, outcome: DelegationOutcome) {
+  const deliveryNotice =
+    "\n---\n(Automated delivery: this is the reply from the bot you messaged earlier with message_bot. Process it silently, report the outcome to the user in your answer, and do not message this bot back. Ignore any date and time context that follows — it is ambient information, not a message.)";
   if (outcome.status === "failed") {
-    return `[Message from ${botName}]\nThe task failed${outcome.errorMessage ? `: ${outcome.errorMessage}` : ""}.`;
+    return `[Message from ${botName}]\nThe task failed${outcome.errorMessage ? `: ${outcome.errorMessage}` : ""}.${deliveryNotice}`;
   }
-  return `[Message from ${botName}]\n${outcome.summary || "The bot finished without a visible response."}`;
+  return `[Message from ${botName}]\n${outcome.summary || "The bot finished without a visible response."}${deliveryNotice}`;
 }
 
 export async function deliverDelegationWake(input: {
@@ -240,14 +242,14 @@ export async function deliverDelegationWake(input: {
   return { status: "failed" as const, errorMessage: "Chief conversation stayed busy" };
 }
 
-export async function executeDelegateTask(
+export async function executeMessageBot(
   toolCallId: string,
   args: Record<string, unknown>,
   context: BotToolContext
 ) {
   const ownerUserId = context.input.memoryUserId ?? null;
   const botReference = String(args.bot ?? "").trim();
-  const taskPrompt = String(args.task_prompt ?? "").trim();
+  const message = String(args.message ?? "").trim();
 
   const result = (content: string, sortOrder: number) => ({
     nextSortOrder: sortOrder,
@@ -255,29 +257,49 @@ export async function executeDelegateTask(
   });
 
   if (!ownerUserId) {
-    return result("Error: delegation is not available in this conversation", context.timelineSortOrder);
+    return result("Error: bot messaging is not available in this conversation", context.timelineSortOrder);
   }
 
-  if (!botReference || !taskPrompt) {
-    return result("Error: bot and task_prompt are required", context.timelineSortOrder + 1);
+  if (!botReference || !message) {
+    return result("Error: bot and message are required", context.timelineSortOrder + 1);
   }
 
+  const sender = context.input.conversationId
+    ? getBotByConversationId(context.input.conversationId)
+    : null;
   const target = resolveBotByNameOrId(botReference, ownerUserId);
-  if (!target || target.isChief) {
+  if (!target || (sender && target.id === sender.id)) {
     return result(
-      `Error: no specialist bot "${botReference}" was found. Delegate to an existing specialist bot or create one with create_bot first.`,
+      `Error: no other bot "${botReference}" was found. Message an existing teammate by its exact name or id.`,
       context.timelineSortOrder + 1
     );
   }
 
-  const detail = truncateText(`→ ${target.name}: ${taskPrompt}`, 300);
+  if (sender && context.input.conversationId) {
+    const senderLastReply = getLatestAssistantSummary(context.input.conversationId);
+    if (senderLastReply && message === senderLastReply) {
+      return result(
+        [
+          `Error: this message duplicates the reply you just gave in this conversation. Your answers here are for the user — never send them to a bot, and never use message_bot to acknowledge or forward a bot's reply.`,
+          `Report ${target.name}'s reply to the user directly instead. Only call message_bot to give ${target.name} new instructions or a new question.`
+        ].join("\n"),
+        context.timelineSortOrder + 1
+      );
+    }
+  }
+
+  const deliveredPrompt = sender
+    ? `[Message from ${sender.name}]\n${message}`
+    : message;
+
+  const detail = truncateText(`→ ${target.name}: ${message}`, 300);
   const handle = await context.input.onActionStart?.({
-    kind: "delegate_task",
+    kind: "message_bot",
     label: `Messaged ${target.name}`,
     detail,
     status: "pending",
-    toolName: "delegate_task",
-    arguments: { bot: target.name, task_prompt: truncateText(taskPrompt, 200) }
+    toolName: "message_bot",
+    arguments: { bot: target.name, message: truncateText(message, 200) }
   });
   const actionHandle = typeof handle === "string" ? handle : undefined;
 
@@ -290,11 +312,11 @@ export async function executeDelegateTask(
   broadcastBotRunUpdate(run);
 
   void (async () => {
-      const outcome = await runWorkerTurn({ target, runId: run.id, taskPrompt, ownerUserId }).catch(
+      const outcome = await runWorkerTurn({ target, runId: run.id, taskPrompt: deliveredPrompt, ownerUserId }).catch(
         (error: unknown) => ({
           status: "failed",
           summary: "",
-          errorMessage: error instanceof Error ? error.message : "Delegation failed"
+          errorMessage: error instanceof Error ? error.message : "Message delivery failed"
         })
       );
 
@@ -328,9 +350,10 @@ export async function executeDelegateTask(
   return {
     ...result(
       [
-        `Task sent to ${target.name}.`,
+        `Message sent to ${target.name}.`,
         "The bot is working on it in the background and its reply will arrive here as a new message when it finishes.",
-        `Tell the user right away that you have asked ${target.name} and that you will let them know once you have the answer, then continue with anything else.`
+        `Say right away that you have messaged ${target.name} and that you will report back once you have the answer, then continue with anything else.`,
+        `When ${target.name}'s reply arrives as a new message, report it to the user directly — do not send it, or an acknowledgment, back to ${target.name}.`
       ].join("\n"),
       context.timelineSortOrder + 1
     ),
@@ -473,7 +496,7 @@ export async function executeCreateBotTool(
 
     return {
       ...result(
-        `Created specialist bot "${bot.name}". Delegate tasks to it with delegate_task using its name.`,
+        `Created specialist bot "${bot.name}". Send work to it with message_bot using its name.`,
         context.timelineSortOrder + 1
       ),
       toolSucceeded: true

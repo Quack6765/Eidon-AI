@@ -37,7 +37,7 @@ const ASSISTANT_ITEMS = [
 ] as const;
 
 const CAPABILITY_ITEMS = [
-  { href: "/settings/mcp-servers", label: "MCP Servers", icon: Server },
+  { href: "/settings/mcp-servers", label: "MCP", icon: Server },
   { href: "/settings/skills", label: "Skills", icon: Zap }
 ] as const;
 
@@ -123,6 +123,17 @@ export function SettingsNav({
     }
   }
 
+  function handleBack(event: React.MouseEvent) {
+    if (!isUnmodifiedPrimaryClick(event)) return;
+    event.preventDefault();
+    gateNavigation(() => {
+      const origin = sessionStorage.getItem("eidon:settings:origin");
+      sessionStorage.removeItem("eidon:settings:origin");
+      onCloseAction();
+      router.push(origin && !origin.startsWith("/settings") ? origin : "/");
+    });
+  }
+
   const assistantItems = ASSISTANT_ITEMS.filter(
     (item) => !("adminOnly" in item) || currentUser.role === "admin"
   );
@@ -144,14 +155,14 @@ export function SettingsNav({
     <aside className="flex h-full flex-col bg-[#0f0f0f] text-gray-300">
       <div className="flex min-h-0 flex-1 flex-col px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-5 md:py-6">
         <div className="mb-6 flex min-h-11 items-center gap-3 px-1 md:mb-7">
-          <Link
-            href="/"
-            onClick={(event) => navigateWithGuard("/", event)}
+          <button
+            type="button"
+            onClick={handleBack}
             className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/[0.06] bg-white/[0.035] transition-colors duration-200 hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45 md:h-10 md:w-10"
-            aria-label="Back to chat"
+            aria-label="Back"
           >
             <ArrowLeft className="h-4 w-4 text-white/60" />
-          </Link>
+          </button>
           <span className="text-lg font-semibold tracking-tight text-white/90">
             Settings
           </span>

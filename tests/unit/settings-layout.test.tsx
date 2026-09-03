@@ -64,10 +64,12 @@ const settings: GeneralSectionSettings = {
   memoriesEnabled: true,
   memoriesMaxCount: 100,
   memoriesRigor: "balanced",
+  semanticRecallEnabled: false,
   mcpTimeout: 120_000,
   maxAssistantToolSteps: 25,
   confirmExternalLinks: true,
   toolCallDisplay: "pills",
+  defaultView: "chat",
   speechTranscription: {
     providerId: "browser",
     configuration: { language: "en" },
@@ -94,6 +96,7 @@ const settings: GeneralSectionSettings = {
   speechCleanupEnabled: false,
   speechCleanupProfileId: null,
   speechCleanupPrompt: "",
+  botSystemPrompt: "",
   providerProfiles: [
     { id: "profile_default", name: "Default", model: "gpt-test" }
   ],

@@ -278,7 +278,7 @@ export function Shell({
       return;
     }
 
-    if (pathname === "/") {
+    if (pathname === "/" || pathname === "/chat") {
       hasAppliedDesktopDefaultRef.current = true;
       sessionStorage.removeItem("eidon:sidebar:user-closed");
       setIsSidebarOpen(true);

@@ -113,7 +113,7 @@ describe("agents workspace", () => {
       chiefCard.compareDocumentPosition(inboxCard) & Node.DOCUMENT_POSITION_FOLLOWING
     ).toBeTruthy();
     expect(screen.getByText("Chief")).toBeInTheDocument();
-    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(screen.getByLabelText("Running")).toBeInTheDocument();
     expect(screen.getByText("2 of 20 bots")).toBeInTheDocument();
   });
 
@@ -224,7 +224,7 @@ describe("agents workspace", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText("Running")).toBeInTheDocument();
+      expect(screen.getByLabelText("Running")).toBeInTheDocument();
     });
 
     wsMocks.listener?.({
@@ -233,7 +233,7 @@ describe("agents workspace", () => {
     });
 
     await waitFor(() => {
-      expect(screen.queryByText("Running")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Running")).not.toBeInTheDocument();
     });
   });
 });

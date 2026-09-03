@@ -24,6 +24,7 @@ import type { ChatResearchOptions, Message, QueuedMessage } from "@/lib/types";
 import { initializeMcpServers, shutdownAllProcesses } from "@/lib/mcp-client";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
+import { startSemanticIndex } from "@/lib/semantic-index";
 import { getDb } from "@/lib/db";
 import { sendWebSocketData } from "@/lib/ws-send";
 import { bootstrapRuntimeState } from "@/lib/runtime-bootstrap";
@@ -93,6 +94,7 @@ export {
   getDb,
   initTitleModel,
   initializeMcpServers,
+  startSemanticIndex,
   claimWebSocketUpgradeRouting,
   resolveWebSocketAuthMode,
   routeWebSocketUpgrade,

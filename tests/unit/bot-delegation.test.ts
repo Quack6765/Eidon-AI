@@ -17,12 +17,12 @@ import {
   buildDelegationWakeContent,
   deliverDelegationWake,
   executeCreateBotTool,
-  executeDelegateTask,
+  executeMessageBot,
   executeUpdateBotTool
 } from "@/lib/bot-delegation";
 import type { PromptMessage } from "@/lib/types";
 
-function buildContext(memoryUserId: string | null, assistantMessageId?: string) {
+function buildContext(memoryUserId: string | null, assistantMessageId?: string, conversationId = "conv_chief") {
   const calls: Array<{ label: string; kind: string }> = [];
   const completions: Array<string | undefined> = [];
   const errors: Array<string | undefined> = [];
@@ -30,7 +30,7 @@ function buildContext(memoryUserId: string | null, assistantMessageId?: string) 
     context: {
       input: {
         memoryUserId,
-        conversationId: "conv_chief",
+        conversationId,
         assistantMessageId: assistantMessageId ?? undefined,
         onActionStart: async (action: { label: string; kind: string }) => {
           calls.push({ label: action.label, kind: action.kind });
@@ -63,7 +63,7 @@ describe("bot-delegation", () => {
     resetBotRunLimiter();
   });
 
-  it("delegates asynchronously and reports the send immediately", async () => {
+  it("messages asynchronously, attributing the sender, and reports the send immediately", async () => {
     const user = await createLocalUser({ username: "delegateowner", password: "password-123", role: "user" as const });
     const chief = ensureChiefBot(user.id);
     const chiefMessage = createMessage({
@@ -73,9 +73,11 @@ describe("bot-delegation", () => {
     });
     const worker = createBot({ name: "Researcher" }, user.id);
     const wakeCalls: string[] = [];
+    const workerCalls: string[] = [];
     startChatTurnMock.mockImplementation(
       async (_manager: unknown, conversationId: string, content: string) => {
         if (conversationId === worker.homeConversationId) {
+          workerCalls.push(content);
           stubWorkerAnswer(conversationId, "Found 3 sources.");
           return { status: "completed" as const };
         }
@@ -84,24 +86,28 @@ describe("bot-delegation", () => {
       }
     );
 
-    const { context, calls } = buildContext(user.id, chiefMessage.id);
-    const result = await executeDelegateTask(
+    const { context, calls } = buildContext(user.id, chiefMessage.id, chief.homeConversationId);
+    const result = await executeMessageBot(
       "call_1",
-      { bot: "researcher", task_prompt: "find three sources" },
+      { bot: "researcher", message: "find three sources" },
       context
     );
 
     expect((result as { toolSucceeded?: boolean }).toolSucceeded).toBe(true);
     const toolMessage = result.promptMessages.at(-1);
-    expect(toolMessage?.content).toContain("Task sent to Researcher");
-    expect(toolMessage?.content).toContain("Tell the user right away");
-    expect(calls[0]).toEqual({ label: "Messaged Researcher", kind: "delegate_task" });
+    expect(toolMessage?.content).toContain("Message sent to Researcher");
+    expect(toolMessage?.content).toContain("Say right away");
+    expect(calls[0]).toEqual({ label: "Messaged Researcher", kind: "message_bot" });
 
     await vi.waitFor(() => {
-      if (wakeCalls.length === 0) throw new Error("waiting for wake");
+      if (wakeCalls.length === 0 || workerCalls.length === 0) throw new Error("waiting for wake");
     }, { timeout: 5_000, interval: 10 });
+    expect(workerCalls[0].startsWith("[Message from Chief of Staff]")).toBe(true);
+    expect(workerCalls[0]).toContain("find three sources");
     expect(wakeCalls[0]).toContain("[Message from Researcher]");
     expect(wakeCalls[0]).toContain("Found 3 sources.");
+    expect(wakeCalls[0]).toContain("Automated delivery");
+    expect(wakeCalls[0]).toContain("report the outcome to the user");
 
     const runs = listRecentBotRuns({ userId: user.id });
     expect(runs).toHaveLength(1);
@@ -110,26 +116,92 @@ describe("bot-delegation", () => {
     expect(runs[0].parentMessageId).toBe(chiefMessage.id);
   });
 
-  it("rejects delegation to unknown bots or the chief without creating runs", async () => {
+  it("rejects messaging unknown bots or itself without creating runs", async () => {
     const user = await createLocalUser({ username: "delegatereject", password: "password-123", role: "user" as const });
     const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Selfish" }, user.id);
 
     const unknown = buildContext(user.id);
-    const unknownResult = await executeDelegateTask(
+    const unknownResult = await executeMessageBot(
       "call_3",
-      { bot: "ghost", task_prompt: "anything" },
+      { bot: "ghost", message: "anything" },
       unknown.context
     );
     expect((unknownResult as { toolSucceeded?: boolean }).toolSucceeded).toBeUndefined();
-    expect(unknownResult.promptMessages.at(-1)?.content).toContain("no specialist bot");
+    expect(unknownResult.promptMessages.at(-1)?.content).toContain("no other bot");
 
-    const chiefResult = await executeDelegateTask(
+    const selfResult = await executeMessageBot(
       "call_4",
-      { bot: chief.id, task_prompt: "anything" },
-      buildContext(user.id).context
+      { bot: worker.id, message: "anything" },
+      buildContext(user.id, undefined, worker.homeConversationId).context
     );
-    expect(chiefResult.promptMessages.at(-1)?.content).toContain("no specialist bot");
+    expect(selfResult.promptMessages.at(-1)?.content).toContain("no other bot");
 
+    expect(listRecentBotRuns({ userId: user.id })).toHaveLength(0);
+    expect(startChatTurnMock).not.toHaveBeenCalled();
+    expect(chief).toBeTruthy();
+  });
+
+  it("lets a worker message the chief and wakes the worker with the reply", async () => {
+    const user = await createLocalUser({ username: "workertochief", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Field Agent" }, user.id);
+    const chiefCalls: string[] = [];
+    const workerWakeCalls: string[] = [];
+    startChatTurnMock.mockImplementation(
+      async (_manager: unknown, conversationId: string, content: string) => {
+        if (conversationId === chief.homeConversationId) {
+          chiefCalls.push(content);
+          stubWorkerAnswer(conversationId, "Chief has handled it.");
+          return { status: "completed" as const };
+        }
+        workerWakeCalls.push(content);
+        return { status: "completed" as const };
+      }
+    );
+
+    const { context } = buildContext(user.id, undefined, worker.homeConversationId);
+    const result = await executeMessageBot(
+      "call_wc",
+      { bot: chief.id, message: "the user needs a status summary" },
+      context
+    );
+
+    expect((result as { toolSucceeded?: boolean }).toolSucceeded).toBe(true);
+
+    await vi.waitFor(() => {
+      if (workerWakeCalls.length === 0 || chiefCalls.length === 0) throw new Error("waiting");
+    }, { timeout: 5_000, interval: 10 });
+    expect(chiefCalls[0].startsWith("[Message from Field Agent]")).toBe(true);
+    expect(workerWakeCalls[0]).toContain("[Message from Chief of Staff]");
+    expect(workerWakeCalls[0]).toContain("Chief has handled it.");
+
+    const runs = listRecentBotRuns({ userId: user.id });
+    expect(runs[0].botId).toBe(chief.id);
+    expect(runs[0].status).toBe("completed");
+  });
+
+  it("rejects echoing the sender's own last reply back to a bot", async () => {
+    const user = await createLocalUser({ username: "echoguard", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Echo" }, user.id);
+    createMessage({ conversationId: chief.homeConversationId, role: "user", content: "go" });
+    createMessage({
+      conversationId: chief.homeConversationId,
+      role: "assistant",
+      content: "The Researcher found 3 sources."
+    });
+
+    const { context } = buildContext(user.id, undefined, chief.homeConversationId);
+    const result = await executeMessageBot(
+      "call_echo",
+      { bot: "Echo", message: "The Researcher found 3 sources." },
+      context
+    );
+
+    expect((result as { toolSucceeded?: boolean }).toolSucceeded).toBeUndefined();
+    expect(result.promptMessages.at(-1)?.content).toContain("duplicates the reply");
+    expect(result.promptMessages.at(-1)?.content).toContain("Report Echo's reply to the user");
     expect(listRecentBotRuns({ userId: user.id })).toHaveLength(0);
     expect(startChatTurnMock).not.toHaveBeenCalled();
   });
@@ -150,14 +222,14 @@ describe("bot-delegation", () => {
     expect(tryAcquireBotUserSlot(user.id)).toBe(true);
 
     const { context } = buildContext(user.id);
-    const result = await executeDelegateTask(
+    const result = await executeMessageBot(
       "call_cap",
-      { bot: worker.id, task_prompt: "queue me" },
+      { bot: worker.id, message: "queue me" },
       context
     );
 
     expect((result as { toolSucceeded?: boolean }).toolSucceeded).toBe(true);
-    expect(result.promptMessages.at(-1)?.content).toContain("Task sent to Busy");
+    expect(result.promptMessages.at(-1)?.content).toContain("Message sent to Busy");
 
     await vi.waitFor(() => {
       if (wakeCalls.length === 0) throw new Error("waiting for wake");
@@ -170,12 +242,12 @@ describe("bot-delegation", () => {
 
   it("requires an owner and complete arguments", async () => {
     const noOwner = buildContext(null);
-    const noOwnerResult = await executeDelegateTask("call_n1", { bot: "x", task_prompt: "y" }, noOwner.context);
+    const noOwnerResult = await executeMessageBot("call_n1", { bot: "x", message: "y" }, noOwner.context);
     expect(noOwnerResult.promptMessages.at(-1)?.content).toContain("not available");
 
     const user = await createLocalUser({ username: "argguard", password: "password-123", role: "user" as const });
-    const missingArgs = await executeDelegateTask("call_n2", { bot: "" }, buildContext(user.id).context);
-    expect(missingArgs.promptMessages.at(-1)?.content).toContain("bot and task_prompt are required");
+    const missingArgs = await executeMessageBot("call_n2", { bot: "" }, buildContext(user.id).context);
+    expect(missingArgs.promptMessages.at(-1)?.content).toContain("bot and message are required");
   });
 
   it("delegates asynchronously: returns immediately, then wakes the chief when the bot replies", async () => {
@@ -205,15 +277,15 @@ describe("bot-delegation", () => {
       }
     }, { timeout: 5_000, interval: 10 });
 
-    const result = await executeDelegateTask(
+    const result = await executeMessageBot(
       "call_async",
-      { bot: "Slowpoke", task_prompt: "take your time" },
+      { bot: "Slowpoke", message: "take your time" },
       context
     );
 
     expect((result as { toolSucceeded?: boolean }).toolSucceeded).toBe(true);
-    expect(result.promptMessages.at(-1)?.content).toContain("Task sent to Slowpoke");
-    expect(calls[0]).toEqual({ label: "Messaged Slowpoke", kind: "delegate_task" });
+    expect(result.promptMessages.at(-1)?.content).toContain("Message sent to Slowpoke");
+    expect(calls[0]).toEqual({ label: "Messaged Slowpoke", kind: "message_bot" });
 
     await settled;
 
@@ -242,7 +314,7 @@ describe("bot-delegation", () => {
     );
 
     const { context } = buildContext(user.id);
-    await executeDelegateTask("call_asyncfail", { bot: "Crashy", task_prompt: "anything" }, context);
+    await executeMessageBot("call_asyncfail", { bot: "Crashy", message: "anything" }, context);
 
     await vi.waitFor(() => {
       if (chiefWakeCalls.length === 0) throw new Error("waiting for wake");
@@ -276,6 +348,13 @@ describe("bot-delegation", () => {
 
     expect(wake.status).toBe("completed");
     expect(attempts).toBe(2);
+    for (const call of startChatTurnMock.mock.calls) {
+      expect(call[5]).toMatchObject({
+        botRun: { record: false }
+      });
+      expect(call[5]).not.toHaveProperty("userMessageHidden");
+      expect(typeof (call[5] as { onMessagesCreated?: unknown }).onMessagesCreated).toBe("function");
+    }
   });
 
   it("gives up the wake after the retry budget", async () => {

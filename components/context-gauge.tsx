@@ -6,6 +6,8 @@ type ContextGaugeProps = {
   usedTokens: number | null;
   usableLimit: number;
   maxLimit: number;
+  memoriesUsed?: number | null;
+  memoriesTotal?: number | null;
 };
 
 function formatTokens(tokens: number): string {
@@ -25,7 +27,7 @@ function getGaugeColor(percentage: number): string {
   return "#22c55e"; // green-500
 }
 
-export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGaugeProps) {
+export function ContextGauge({ usedTokens, usableLimit, maxLimit, memoriesUsed, memoriesTotal }: ContextGaugeProps) {
   const [showTooltip, setShowTooltip] = useState(false);
 
   const percentage = usedTokens !== null ? Math.min(100, (usedTokens / usableLimit) * 100) : 0;
@@ -60,6 +62,7 @@ export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGauge
   const usableFormatted = formatTokens(usableLimit);
   const maxFormatted = formatTokens(maxLimit);
   const thresholdPercent = Math.round((usableLimit / maxLimit) * 100);
+  const showMemories = typeof memoriesUsed === "number" && typeof memoriesTotal === "number";
 
   return (
     <div className="relative flex items-center gap-1.5">
@@ -114,6 +117,9 @@ export function ContextGauge({ usedTokens, usableLimit, maxLimit }: ContextGauge
           <div className="text-[11px] text-white/60 text-center">
             <div className="whitespace-nowrap">{usedFormatted} used / {usableFormatted} usable</div>
             <div className="whitespace-nowrap">({thresholdPercent}% of {maxFormatted})</div>
+            {showMemories ? (
+              <div className="whitespace-nowrap">{memoriesUsed} of {memoriesTotal} memories used</div>
+            ) : null}
           </div>
         </div>
       )}

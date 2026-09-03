@@ -60,6 +60,8 @@ type ChatComposerProps = {
   usedTokens: number | null;
   modelContextLimit: number;
   compactionLimit: number;
+  memoriesUsed?: number | null;
+  memoriesTotal?: number | null;
   hasMessages: boolean;
   canStop: boolean;
   isStopPending: boolean;
@@ -276,6 +278,8 @@ export function ChatComposer({
   usedTokens,
   modelContextLimit,
   compactionLimit,
+  memoriesUsed = null,
+  memoriesTotal = null,
   hasMessages,
   canStop,
   isStopPending,
@@ -628,6 +632,8 @@ export function ChatComposer({
                             usedTokens={usedTokens}
                             usableLimit={compactionLimit}
                             maxLimit={modelContextLimit}
+                            memoriesUsed={memoriesUsed}
+                            memoriesTotal={memoriesTotal}
                           />
                         </div>
                       ) : null}
@@ -1008,6 +1014,8 @@ export function ChatComposer({
                       usedTokens={usedTokens}
                       usableLimit={compactionLimit}
                       maxLimit={modelContextLimit}
+                      memoriesUsed={memoriesUsed}
+                      memoriesTotal={memoriesTotal}
                     />
                   </div>
                 )}

@@ -28,6 +28,7 @@ import { getDb } from "@/lib/db";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { resolveConversationReasoningEffort } from "@/lib/provider-profile";
 import { ensureCompactedContext, getConversationContextUsage } from "@/lib/compaction";
+import { queueConversationIndex } from "@/lib/semantic-index";
 import { estimateTextTokens } from "@/lib/tokenization";
 import { listEnabledMcpServers } from "@/lib/mcp-servers";
 import { listEnabledSkills } from "@/lib/skills";
@@ -39,7 +40,7 @@ import {
 } from "@/lib/settings";
 import { createEmitter } from "@/lib/emitter";
 import { nowIso } from "@/lib/utils";
-import { buildBotSystemPrompt, buildChiefRoster, getBotByConversationId } from "@/lib/bots";
+import { buildBotSystemPrompt, buildBotRoster, getBotByConversationId, toBotSummary } from "@/lib/bots";
 import {
   broadcastBotRunUpdate,
   createBotRunRecord,
@@ -286,13 +287,19 @@ async function startAssistantTurn(
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
   const bot = getBotByConversationId(conversation.id);
-  const botSystemPrompt = bot ? buildBotSystemPrompt(bot) : undefined;
+  const botSystemPrompt = bot ? buildBotSystemPrompt(bot, appSettings.botSystemPrompt) : undefined;
   const botTeam = bot
     ? {
         isChief: bot.isChief,
-        roster: bot.isChief ? buildChiefRoster(bot.userId ?? undefined) : []
+        roster: buildBotRoster(bot.userId ?? undefined, bot.id)
       }
     : undefined;
+  const broadcastBotStatus = () => {
+    if (!bot) return;
+    const botOwnerUserId = bot.userId ?? conversationOwnerId ?? null;
+    if (!botOwnerUserId) return;
+    manager.broadcastAll({ type: "bot_updated", bot: toBotSummary(bot) }, botOwnerUserId);
+  };
   let assistantMessageId: string | null = null;
   let contentPersistence: ReturnType<typeof createAssistantContentPersistenceTracker> | null = null;
   let started = false;
@@ -337,6 +344,7 @@ async function startAssistantTurn(
       { type: "conversation_activity", conversationId, isActive: true },
       conversationOwnerId ?? null
     );
+    broadcastBotStatus();
     started = true;
 
     async function flushAnswerBuffer() {
@@ -545,6 +553,7 @@ async function startAssistantTurn(
     });
 
     deleteFailedAssistantMessages(conversation.id);
+    queueConversationIndex(conversation.id);
 
     const completedMessage = getMessage(assistantMessageId);
     manager.broadcast(conversationId, {
@@ -559,20 +568,20 @@ async function startAssistantTurn(
     });
     const contextUsage = getConversationContextUsage(conversationId);
     if (contextUsage) {
+      const contextUsageEvent: ChatStreamEvent = {
+        type: "context_usage",
+        contextTokens: contextUsage.contextTokens ?? 0,
+        compactionLimit: contextUsage.compactionLimit,
+        ...(compacted.memoriesUsed !== undefined
+          ? { memoriesUsed: compacted.memoriesUsed, memoriesTotal: compacted.memoriesTotal }
+          : {})
+      };
       manager.broadcast(conversationId, {
         type: "delta",
         conversationId,
-        event: {
-          type: "context_usage",
-          contextTokens: contextUsage.contextTokens ?? 0,
-          compactionLimit: contextUsage.compactionLimit
-        }
+        event: contextUsageEvent
       });
-      globalEmitter.emit("delta", conversationId, {
-        type: "context_usage",
-        contextTokens: contextUsage.contextTokens ?? 0,
-        compactionLimit: contextUsage.compactionLimit
-      });
+      globalEmitter.emit("delta", conversationId, contextUsageEvent);
     }
     return { status: "completed" };
   } catch (error) {
@@ -670,6 +679,7 @@ async function startAssistantTurn(
         { type: "conversation_activity", conversationId, isActive: false },
         conversationOwnerId ?? null
       );
+      broadcastBotStatus();
       globalEmitter.emit("status", conversationId, "completed");
     }
     void import("@/lib/queued-chat-dispatcher")

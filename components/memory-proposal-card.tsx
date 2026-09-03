@@ -5,24 +5,28 @@ import { Brain } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import type {
   MemoryCategory,
+  MemoryProposalPayload,
   MessageTimelineItem
 } from "@/lib/types";
 
 export function isMemoryProposalAction(
   action: Extract<MessageTimelineItem, { timelineKind: "action" }>
-) {
+): action is Extract<MessageTimelineItem, { timelineKind: "action" }> & {
+  proposalPayload: MemoryProposalPayload;
+} {
   return (
     (action.kind === "create_memory" ||
       action.kind === "update_memory" ||
       action.kind === "delete_memory") &&
-    action.proposalPayload
+    Boolean(action.proposalPayload)
   );
 }
 
 export function getMemoryProposalHeading(
   action: Extract<MessageTimelineItem, { timelineKind: "action" }>
 ) {
-  const operation = action.proposalPayload?.operation;
+  const payload = action.proposalPayload;
+  const operation = payload && "operation" in payload ? payload.operation : undefined;
 
   if (action.status === "error") {
     return "Memory not saved";
@@ -93,7 +97,7 @@ export function MemoryProposalCard({
   onDismiss?: (actionId: string) => Promise<void>;
   readOnly?: boolean;
 }) {
-  const proposal = action.proposalPayload!;
+  const proposal = action.proposalPayload as MemoryProposalPayload;
   const editableMemory = proposal.proposedMemory;
   const displayMemory = proposal.proposedMemory ?? proposal.currentMemory ?? null;
   const currentMemory = proposal.currentMemory ?? null;

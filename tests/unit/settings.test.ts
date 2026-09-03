@@ -376,6 +376,24 @@ describe("settings domains", () => {
     expect(getSanitizedSettings(first.id).toolCallDisplay).toBe("status_line");
   });
 
+  it("defaults defaultView to chat and keeps it user-scoped", async () => {
+    saveProfiles();
+    const first = await createLocalUser({ username: "default-view-first", password: "password-123", role: "user" });
+    const second = await createLocalUser({ username: "default-view-second", password: "password-123", role: "user" });
+
+    expect(getSettingsForUser(first.id).defaultView).toBe("chat");
+
+    updateGeneralSettingsBundleForUser(first.id, {
+      preferences: {
+        defaultView: "automations"
+      }
+    }, false);
+
+    expect(getSettingsForUser(first.id).defaultView).toBe("automations");
+    expect(getSettingsForUser(second.id).defaultView).toBe("chat");
+    expect(getSanitizedSettings(first.id).defaultView).toBe("automations");
+  });
+
   it("manages global capability settings for admins and inherits them for members", async () => {
     saveProfiles();
     const admin = await createLocalUser({ username: "integration-admin", password: "password-123", role: "admin" });
@@ -620,6 +638,9 @@ describe("settings domains", () => {
         enabled: true,
         profileId: "profile_1",
         prompt: "Clean it up."
+      },
+      botPrompt: {
+        prompt: "Lead the team precisely."
       }
     };
 
@@ -644,6 +665,8 @@ describe("settings domains", () => {
     expect(updated.speechCleanupEnabled).toBe(true);
     expect(updated.speechCleanupProfileId).toBe("profile_1");
     expect(updated.speechCleanupPrompt).toBe("Clean it up.");
+    expect(updated.botSystemPrompt).toBe("Lead the team precisely.");
+    expect(getSettingsForUser(user.id).botSystemPrompt).toBe("Lead the team precisely.");
     expect(JSON.stringify(updated)).not.toContain("google-secret");
     expect(getSettingsForUser(user.id).imageGeneration.credentials.apiKey).toBe("google-secret");
 

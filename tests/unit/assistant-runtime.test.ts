@@ -338,6 +338,52 @@ ${JSON.stringify({
     );
   });
 
+  it("tells the model when a configured MCP server requires authentication", async () => {
+    streamProviderResponse.mockReturnValueOnce(
+      createProviderStream([{ type: "answer_delta", text: "Done" }], {
+        answer: "Done",
+        thinking: "",
+        usage: { inputTokens: 10, outputTokens: 1 }
+      })
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    const composioServer = {
+      id: "mcp_composio",
+      slug: "composio",
+      name: "Composio",
+      url: "https://connect.composio.dev/mcp",
+      headers: {},
+      transport: "streamable_http" as const,
+      command: null,
+      args: null,
+      env: null,
+      enabled: true,
+      isVisionMcp: false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Use Composio" }],
+      skills: [],
+      mcpServers: [composioServer],
+      mcpToolSets: [{ server: composioServer, tools: [], authRequired: true }],
+      onEvent: () => {},
+      onActionStart: () => {},
+      onActionComplete: () => {}
+    });
+
+    const firstCallMessages = streamProviderResponse.mock.calls[0][0].promptMessages as Array<{
+      role: string;
+      content: string;
+    }>;
+    const systemMessage = firstCallMessages.find((message) => message.role === "system");
+    expect(systemMessage?.content).toContain("- Composio (requires authentication");
+    expect(systemMessage?.content).toContain("Settings → MCP");
+  });
+
   it("injects enum values into MCP tool descriptions", async () => {
     streamProviderResponse.mockReturnValueOnce(
       createProviderStream([{ type: "answer_delta", text: "Done" }], {
@@ -3244,6 +3290,66 @@ Run browser commands.`
         })
       ]);
       expect(result.answer).toBe("Nice to meet you, Charles.");
+    });
+
+    it("does not force a second assistant pass when a create_automation proposal already has a direct answer", async () => {
+      streamProviderResponse.mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "I can check that every morning for you." }], {
+          answer: "I can check that every morning for you.",
+          thinking: "",
+          toolCalls: [
+            {
+              id: "call_auto",
+              name: "create_automation",
+              arguments: JSON.stringify({
+                name: "Morning check",
+                prompt: "Check the status and summarize it for {{date}}.",
+                schedule_kind: "calendar",
+                calendar_frequency: "daily",
+                time_of_day: "08:00",
+                days_of_week: []
+              })
+            }
+          ],
+          usage: { inputTokens: 10, outputTokens: 5 }
+        })
+      );
+
+      const started: Array<Record<string, unknown>> = [];
+      const persistedSegments: string[] = [];
+      const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+      const result = await resolveAssistantTurn({
+        settings: createSettings(),
+        promptMessages: [{ role: "user", content: "Can you check this every morning?" }],
+        skills: [],
+        mcpToolSets: [],
+        memoriesEnabled: false,
+        onEvent: () => {},
+        onAnswerSegment: (segment) => {
+          persistedSegments.push(segment);
+        },
+        onActionStart: (action) => {
+          started.push(action);
+          return "act_auto";
+        }
+      });
+
+      expect(streamProviderResponse).toHaveBeenCalledTimes(1);
+      expect(persistedSegments).toEqual(["I can check that every morning for you."]);
+      expect(started).toEqual([
+        expect.objectContaining({
+          kind: "create_automation",
+          status: "pending",
+          proposalState: "pending",
+          proposalPayload: expect.objectContaining({
+            name: "Morning check",
+            scheduleKind: "calendar",
+            providerProfileId: createSettings().id
+          })
+        })
+      ]);
+      expect(result.answer).toBe("I can check that every morning for you.");
     });
 
     it("retries when the model narrates a memory save without calling a memory tool", async () => {

@@ -25,7 +25,7 @@ function runStatusClasses(status: BotRunStatus) {
     return "border-red-500/20 bg-red-500/8 text-red-200";
   }
   if (status === "running") {
-    return "border-sky-500/20 bg-sky-500/8 text-sky-200";
+    return "border-[var(--accent)]/20 bg-[var(--accent)]/8 text-[#c4b5fd]";
   }
   return "border-white/8 bg-white/[0.03] text-[#d4d4d8]";
 }

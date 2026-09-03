@@ -54,6 +54,7 @@ import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { isScrolledToBottom, shouldAutofocusTextInput } from "@/lib/utils";
 import type { ConversationViewPayload } from "@/lib/conversation-view";
+import type { AutomationProposalOverrides } from "@/lib/automation-proposals";
 import type {
   ChatResearchOptions,
   ChatStreamEvent,
@@ -140,6 +141,7 @@ export function ChatView({
   const [compactionInProgress, setCompactionInProgress] = useState(false);
   const [usedTokens, setUsedTokens] = useState<number | null>(() => payload.contextTokens);
   const [compactionLimit, setCompactionLimit] = useState<number>(payload.compactionLimit);
+  const [memoryUsage, setMemoryUsage] = useState<{ used: number; total: number } | null>(null);
   const [isConversationActive, setIsConversationActive] = useState(payload.conversation.isActive);
   const hasInitializedTokensRef = useRef(false);
 
@@ -742,6 +744,9 @@ export function ChatView({
     if (event.type === "context_usage") {
       setUsedTokens(event.contextTokens);
       setCompactionLimit(event.compactionLimit);
+      if (typeof event.memoriesUsed === "number" && typeof event.memoriesTotal === "number") {
+        setMemoryUsage({ used: event.memoriesUsed, total: event.memoriesTotal });
+      }
       setTokenUsage(payload.conversation.id, event.contextTokens);
       return;
     }
@@ -1732,6 +1737,73 @@ export function ChatView({
     }
   }
 
+  async function approveAutomationProposal(
+    actionId: string,
+    overrides?: AutomationProposalOverrides
+  ) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/message-actions/${actionId}/approve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(overrides ?? {})
+      });
+
+      const result = (await response.json()) as {
+        action?: MessageAction;
+        error?: string;
+      };
+
+      if (!response.ok || !result.action) {
+        throw new Error(result.error ?? "Unable to schedule automation");
+      }
+
+      setMessages((current) => replaceMessageAction(current, result.action!));
+    } catch (caughtError) {
+      const errorMessage =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to schedule automation";
+      setError(errorMessage);
+      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    }
+  }
+
+  async function dismissAutomationProposal(actionId: string) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/message-actions/${actionId}/dismiss`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({})
+      });
+
+      const result = (await response.json()) as {
+        action?: MessageAction;
+        error?: string;
+      };
+
+      if (!response.ok || !result.action) {
+        throw new Error(result.error ?? "Unable to ignore automation proposal");
+      }
+
+      setMessages((current) => replaceMessageAction(current, result.action!));
+    } catch (caughtError) {
+      const errorMessage =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to ignore automation proposal";
+      setError(errorMessage);
+      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    }
+  }
+
   async function updateProviderProfile(nextProviderProfileId: string) {
     const previousProviderProfileId = providerProfileId;
     setError("");
@@ -2028,6 +2100,8 @@ export function ChatView({
   const onUpdateUserMessageStable = useStableHandler(updateUserMessage);
   const onApproveMemoryProposalStable = useStableHandler(approveMemoryProposal);
   const onDismissMemoryProposalStable = useStableHandler(dismissMemoryProposal);
+  const onApproveAutomationProposalStable = useStableHandler(approveAutomationProposal);
+  const onDismissAutomationProposalStable = useStableHandler(dismissAutomationProposal);
   const onForkAssistantMessageStable = useStableHandler(forkAssistantMessage);
   const onRetryAssistantMessageStable = useStableHandler(retryAssistantMessage);
   const onRegenerateUserMessageStable = useStableHandler(regenerateUserMessage);
@@ -2151,6 +2225,8 @@ export function ChatView({
                   onUpdateUserMessage={onUpdateUserMessageStable}
                   onApproveMemoryProposal={onApproveMemoryProposalStable}
                   onDismissMemoryProposal={onDismissMemoryProposalStable}
+                  onApproveAutomationProposal={onApproveAutomationProposalStable}
+                  onDismissAutomationProposal={onDismissAutomationProposalStable}
                   onForkAssistantMessage={onForkAssistantMessageStable}
                   onRetryAssistantMessage={onRetryAssistantMessageStable}
                   onRegenerateUserMessage={index === lastUserMsgIndex ? onRegenerateUserMessageStable : undefined}
@@ -2263,6 +2339,8 @@ export function ChatView({
             textareaRef={inputRef}
             usedTokens={usedTokens}
             compactionLimit={compactionLimit}
+            memoriesUsed={memoryUsage?.used ?? null}
+            memoriesTotal={memoryUsage?.total ?? null}
             modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
             hasMessages={messages.length > 0}
             canStop={!!streamMessageId && !isStopPending && isConversationActive}

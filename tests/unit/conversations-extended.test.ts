@@ -219,7 +219,7 @@ describe("conversations extended", () => {
     expect((results[0] as { matchSnippet?: string }).matchSnippet).toContain("silver moon");
   });
 
-  it("excludes automation conversations from manual search results", () => {
+  it("includes automation conversations in search results", () => {
     const defaultProviderProfileId =
       getSettings().defaultProviderProfileId ?? listProviderProfiles()[0]?.id ?? "";
     const automation = createAutomation({
@@ -249,7 +249,7 @@ describe("conversations extended", () => {
 
     const results = searchConversations("Chat");
 
-    expect(results.map((conversation) => conversation.title)).toEqual(["Manual Chat"]);
+    expect(results.map((conversation) => conversation.title).sort()).toEqual(["Automation Chat", "Manual Chat"]);
   });
 
   it("does not match hidden system prompts in search results", () => {

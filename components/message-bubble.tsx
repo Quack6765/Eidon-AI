@@ -21,12 +21,19 @@ import {
   MemoryProposalCard
 } from "@/components/memory-proposal-card";
 import {
+  AutomationProposalCard,
+  isAutomationProposalAction
+} from "@/components/automation-proposal-card";
+import {
   AttachmentTile,
   MessageAttachments,
   AssistantInlineImageAttachments
 } from "@/components/message-attachments";
 import { BotAvatar } from "@/components/agents/bot-avatar";
 import { useBotAvatarSeed } from "@/hooks/use-bot-avatar-seeds";
+import type {
+  AutomationProposalOverrides
+} from "@/lib/automation-proposals";
 import type {
   MemoryCategory,
   MessageAction as MessageActionType,
@@ -46,6 +53,10 @@ import {
 const COPY_RESET_DELAY_MS = 1600;
 const DELEGATION_WAKE_PATTERN = /^\[Message from (.+)\]$/;
 const DELEGATE_LABEL_PATTERN = /^Messaged\s+(.+)$/;
+
+function isMessageBotActionKind(kind: MessageActionType["kind"]) {
+  return kind === "delegate_task" || kind === "message_bot";
+}
 
 export function parseDelegationWakeMessage(content: string): { botName: string; content: string } | null {
   if (!content.startsWith("[Message from ")) {
@@ -289,7 +300,7 @@ function CollapsibleActionRow({
   onToggle: () => void;
 }) {
   const isMemoryAction = action.kind === "create_memory" || action.kind === "update_memory" || action.kind === "delete_memory";
-  const kindIcon = action.kind === "delegate_task" ? (
+  const kindIcon = isMessageBotActionKind(action.kind) ? (
     <Forward className="h-3 w-3 shrink-0 text-sky-300" aria-hidden="true" />
   ) : action.kind === "create_bot" ? (
     <BotIcon className="h-3 w-3 shrink-0 text-violet-400" aria-hidden="true" />
@@ -477,6 +488,8 @@ function MessageBubbleImpl({
   isRegenerating = false,
   onApproveMemoryProposal,
   onDismissMemoryProposal,
+  onApproveAutomationProposal,
+  onDismissAutomationProposal,
   onPreviewAttachment,
   readOnly = false
 }: {
@@ -497,6 +510,8 @@ function MessageBubbleImpl({
     overrides?: { content?: string; category?: MemoryCategory }
   ) => Promise<void>;
   onDismissMemoryProposal?: (actionId: string) => Promise<void>;
+  onApproveAutomationProposal?: (actionId: string, overrides?: AutomationProposalOverrides) => Promise<void>;
+  onDismissAutomationProposal?: (actionId: string) => Promise<void>;
   isUpdating?: boolean;
   onForkAssistantMessage?: (messageId: string) => void;
   isForking?: boolean;
@@ -566,7 +581,7 @@ function MessageBubbleImpl({
       timelineKind: "action" as const
     }));
     const assistantBlocks: AssistantBlock[] = [];
-    const deferredMemoryProposalBlocks: Extract<MessageTimelineItem, { timelineKind: "action" }>[] = [];
+    const deferredProposalBlocks: Extract<MessageTimelineItem, { timelineKind: "action" }>[] = [];
     let bufferedText = "";
 
     function appendBufferedText() {
@@ -603,8 +618,8 @@ function MessageBubbleImpl({
       }
 
       if (item.timelineKind === "action") {
-        if (isMemoryProposalAction(item)) {
-          deferredMemoryProposalBlocks.push(item);
+        if (isMemoryProposalAction(item) || isAutomationProposalAction(item)) {
+          deferredProposalBlocks.push(item);
           return;
         }
 
@@ -651,9 +666,9 @@ function MessageBubbleImpl({
       });
     }
 
-    if (deferredMemoryProposalBlocks.length) {
+    if (deferredProposalBlocks.length) {
       assistantBlocks.push(
-        ...deferredMemoryProposalBlocks.map((item, index) => ({
+        ...deferredProposalBlocks.map((item, index) => ({
           ...item,
           sortOrder: assistantBlocks.length + index
         }))
@@ -813,6 +828,23 @@ function MessageBubbleImpl({
   }
 
   function renderAssistantActionItem(item: Extract<MessageTimelineItem, { timelineKind: "action" }>) {
+    if (isAutomationProposalAction(item)) {
+      if (isAssistantStreaming) {
+        return null;
+      }
+
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <AutomationProposalCard
+            action={item}
+            onApprove={onApproveAutomationProposal}
+            onDismiss={onDismissAutomationProposal}
+            readOnly={readOnly}
+          />
+        </div>
+      );
+    }
+
     if (isMemoryProposalAction(item)) {
       if (isAssistantStreaming) {
         return null;
@@ -830,7 +862,7 @@ function MessageBubbleImpl({
       );
     }
 
-    if (item.kind === "delegate_task") {
+    if (isMessageBotActionKind(item.kind)) {
       return (
         <DelegateActionLine
           key={item.id}
@@ -895,7 +927,7 @@ function MessageBubbleImpl({
   const lastBlockIsRunningAction =
     lastAssistantBlock?.timelineKind === "action" && lastAssistantBlock.status === "running";
   const lastBlockIsRunningDelegate =
-    lastBlockIsRunningAction && lastAssistantBlock.kind === "delegate_task";
+    lastBlockIsRunningAction && isMessageBotActionKind(lastAssistantBlock.kind);
   const lastBlockIsRunningThinking =
     lastAssistantBlock?.timelineKind === "thinking" && lastAssistantBlock.status === "running";
   const lastBlockIsStreamingText =
@@ -934,7 +966,7 @@ function MessageBubbleImpl({
         .reverse()
         .find(
           (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
-            isRunningActionBlock(item) && item.kind !== "delegate_task"
+            isRunningActionBlock(item) && !isMessageBotActionKind(item.kind)
         )
     : undefined;
   const statusLineWebSearchQuery = statusLineRunningAction?.toolName === "web_search"
@@ -1034,15 +1066,6 @@ function MessageBubbleImpl({
                 </span>
               </span>
             </div>
-            {delegationWake.content ? (
-              <div className="w-full max-w-full rounded-lg border border-white/6 bg-white/[0.015] px-4 py-3 text-[14.5px] text-[var(--text)]">
-                <div ref={contentRef} className="markdown-body">
-                  <Streamdown mode="static" plugins={userPlugins} linkSafety={linkSafety}>
-                    {delegationWake.content.replace(/\n/g, "  \n")}
-                  </Streamdown>
-                </div>
-              </div>
-            ) : null}
           </div>
         </Message>
       );

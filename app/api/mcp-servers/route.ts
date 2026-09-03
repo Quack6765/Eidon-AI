@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import { requireAdminResponse } from "@/lib/auth";
+import { getMcpOAuthConnectionSummary } from "@/lib/mcp-oauth";
 import {
   createMcpServer,
   getMcpServerBySlug,
@@ -51,5 +52,9 @@ export async function POST(request: Request) {
     return badRequest("An MCP server with a similar name already exists.");
   }
 
-  return ok({ server: sanitizeMcpServer(createMcpServer(body.data)) }, { status: 201 });
+  const created = createMcpServer(body.data);
+  return ok(
+    { server: sanitizeMcpServer(created, getMcpOAuthConnectionSummary(created.id)) },
+    { status: 201 }
+  );
 }

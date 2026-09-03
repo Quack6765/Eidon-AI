@@ -20,6 +20,7 @@ export async function PATCH(
   const body = await request.json() as {
     content?: string;
     category?: MemoryCategory;
+    pinned?: boolean;
   };
 
   const updated = updateMemory(memoryId, body, user.id);

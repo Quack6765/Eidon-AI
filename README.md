@@ -50,7 +50,7 @@ Use it as a private assistant, a day-to-day work companion, or a shared workspac
 - Built-in web search with Exa, Tavily, or SearXNG
 - Automatic memory system with conversation compaction for long-running threads
 - Reusable skills stored in-app and available across chats
-- MCP server support over `streamable_http` and `stdio`
+- MCP server support over `streamable_http` and `stdio`, including OAuth sign-in for remote servers
 - Docker image already includes both `uvx` and `npx` for `stdio` MCP workflows
 - Scheduled automations with run history and transcript views
 - Bot teammates with a Chief of Staff that delegates work, spawns new specialist bots, and gives every bot its own browser session and workspace
@@ -186,6 +186,19 @@ The production image is meant to be useful on its own, not just a way to serve t
 - The browser automation skill is bundled
 - `uvx`, `npx`, and Chromium are available for MCP and browser-backed workflows
 
+## MCP OAuth
+
+Remote MCP servers that follow the [MCP authorization spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) (OAuth 2.1 with PKCE) can be connected with a browser sign-in instead of pasting static API keys. This works with hosted MCP gateways such as [Composio Connect](https://docs.composio.dev/docs/composio-connect):
+
+1. Open **Settings → MCP** and add a server with the Streamable HTTP transport, for example `https://connect.composio.dev/mcp`.
+2. Click **Test**. Eidon detects the server requires authentication and shows an **Authenticate** button.
+3. Click **Authenticate** and approve the provider's consent page.
+4. You are redirected back to the MCP servers settings with the server connected and its tools available.
+
+The first sign-in registers Eidon with the provider automatically via OAuth dynamic client registration; no client credentials need to be configured. The registration includes Eidon's name, avatar, and public URL, so providers can show the app's branding on their consent page. Access and refresh tokens are encrypted with `EIDON_ENCRYPTION_SECRET` and stored in the SQLite database under `/app/data`, so they survive container restarts and recreation. Expired access tokens are refreshed automatically, and a server whose refresh token has been revoked shows an **Authentication expired** state with a one-click reconnect.
+
+Keep `EIDON_ENCRYPTION_SECRET` stable across deployments: changing it makes previously stored MCP OAuth tokens (and other stored credentials) undecryptable, and the servers will need to be reconnected.
+
 ## GitHub Copilot Provider
 
 Eidon can route chats through your GitHub Copilot subscription instead of a direct provider API key. To enable the OAuth flow, register a GitHub App and set:
@@ -222,7 +235,7 @@ If those three environment variables are not set, the GitHub Copilot profile typ
 | `EIDON_ADMIN_USERNAME` | Initial admin username | Yes |
 | `EIDON_ADMIN_PASSWORD` | Initial admin password | Yes |
 | `EIDON_SESSION_SECRET` | Session signing secret | Yes |
-| `EIDON_ENCRYPTION_SECRET` | Encryption seed for stored provider credentials | Yes |
+| `EIDON_ENCRYPTION_SECRET` | Encryption seed for stored provider credentials, MCP secrets, and MCP OAuth tokens | Yes |
 | `EIDON_DATA_DIR` | Directory for SQLite and runtime data | No |
 | `EIDON_GITHUB_APP_CLIENT_ID` | GitHub App client ID for the Copilot provider | No |
 | `EIDON_GITHUB_APP_CLIENT_SECRET` | GitHub App client secret for the Copilot provider | No |

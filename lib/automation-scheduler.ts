@@ -3,14 +3,18 @@ import {
   getAutomationCatchUpWindow,
   getNextAutomationRunAt
 } from "@/lib/automation-schedule";
+import { renderAutomationPrompt } from "@/lib/automation-prompt-templating";
 import {
   attachConversationToRun,
   claimAutomationRun,
   commitScheduledAutomationSlots,
+  countAutomationRuns,
   createAutomationRun,
   getAutomation,
   getAutomationOwnerId,
   getAutomationRun,
+  getPreviousAutomationRunResult,
+  getReusableAutomationConversationId,
   listAutomations,
   listDueAutomations,
   listQueuedAutomationRuns,
@@ -18,7 +22,7 @@ import {
   updateAutomation,
   updateAutomationRunStatus
 } from "@/lib/automations";
-import { createConversation } from "@/lib/conversations";
+import { createConversation, getConversation } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getPersona } from "@/lib/personas";
 import { getProviderProfile } from "@/lib/settings";
@@ -128,7 +132,9 @@ async function executeAutomationRun(
   runId: string,
   dependencies: Required<
     Pick<SchedulerDependencies, "now" | "manager" | "startChatTurn" | "runTimeoutMs">
-  >
+  > & {
+    timeZone?: string;
+  }
 ): Promise<AutomationExecutionOutcome | void> {
   const botRunState: { runId: string | null } = { runId: null };
   try {
@@ -195,13 +201,24 @@ async function executeAutomationRun(
         botRunState.runId = botRun.id;
         conversationId = bot.homeConversationId;
       } else {
-        const conversation = createConversation(automation.name, null, {
-          providerProfileId: automation.providerProfileId,
-          origin: "automation",
-          automationId: automation.id,
-          automationRunId: run.id
-        }, automationOwnerId ?? undefined);
-        conversationId = conversation.id;
+        const reusableConversationId = automation.continuePreviousConversation
+          ? getReusableAutomationConversationId(automation.id, run.id)
+          : null;
+        const reusableConversation = reusableConversationId
+          ? getConversation(reusableConversationId, automationOwnerId ?? undefined)
+          : null;
+
+        if (reusableConversation) {
+          conversationId = reusableConversation.id;
+        } else {
+          const conversation = createConversation(automation.name, null, {
+            providerProfileId: automation.providerProfileId,
+            origin: "automation",
+            automationId: automation.id,
+            automationRunId: run.id
+          }, automationOwnerId ?? undefined);
+          conversationId = conversation.id;
+        }
       }
       attachConversationToRun(run.id, conversationId);
       return { id: conversationId };
@@ -236,10 +253,21 @@ async function executeAutomationRun(
         ? { research: { deadlineMs: Math.max(1_000, runTimeoutMs - RESEARCH_DEADLINE_MARGIN_MS) } }
         : {})
     };
+    const prompt = renderAutomationPrompt({
+      prompt: automation.prompt,
+      date: new Intl.DateTimeFormat("en-CA", {
+        timeZone: dependencies.timeZone ?? env.TZ,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).format(dependencies.now()),
+      runNumber: countAutomationRuns(automation.id),
+      previousResult: getPreviousAutomationRunResult(automation.id, run.id)
+    });
     const turn = dependencies.startChatTurn(
       dependencies.manager,
       conversation.id,
-      automation.prompt,
+      prompt,
       [],
       automation.personaId ?? undefined,
       Object.keys(turnOptions).length ? turnOptions : undefined
@@ -404,7 +432,8 @@ export async function runAutomationNow(
           now,
           manager,
           startChatTurn: runChatTurn,
-          runTimeoutMs: Math.max(1, dependencies.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS)
+          runTimeoutMs: Math.max(1, dependencies.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS),
+          timeZone: dependencies.timeZone ?? env.TZ
         })
     });
   } catch (error) {
@@ -476,7 +505,8 @@ export function createAutomationScheduler(dependencies: SchedulerDependencies = 
           now,
           manager,
           startChatTurn: runChatTurn,
-          runTimeoutMs
+          runTimeoutMs,
+          timeZone
         })
       })
         .catch((error) => {
