@@ -36,6 +36,7 @@ export function buildToolDefinitions(input: {
   mcpToolSets: ToolSet[];
   skills: Skill[];
   loadedSkillIds: Set<string>;
+  botWorkspaceSkillsEnabled?: boolean;
   memoriesEnabled: boolean;
   memoriesRigor?: MemoryRigor;
   webSearchEnabled?: boolean;
@@ -118,6 +119,26 @@ export function buildToolDefinitions(input: {
             skill_name: { type: "string", description: "Name of the skill to load" }
           },
           required: ["skill_name"]
+        }
+      }
+    });
+  }
+
+  if (input.botWorkspaceSkillsEnabled) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "save_skill",
+        description:
+          "Create or update a reusable skill in your own workspace skills folder (skills/<name>/SKILL.md). Saved skills persist across conversations and become available via load_skill in future turns. Use it whenever you develop a workflow or set of instructions worth reusing later.",
+        parameters: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Short skill name (lowercase letters, digits, and hyphens)" },
+            description: { type: "string", description: "One-line description of when the skill applies" },
+            instructions: { type: "string", description: "Full skill instructions in markdown (the SKILL.md body)" }
+          },
+          required: ["name", "description", "instructions"]
         }
       }
     });

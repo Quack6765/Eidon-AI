@@ -137,6 +137,7 @@ export async function* streamGithubCopilotResponse(
   function inferCopilotActionKind(toolName: string): MessageActionKind {
     if (toolName === "execute_shell_command") return "shell_command";
     if (toolName === "load_skill") return "skill_load";
+    if (toolName === "save_skill") return "save_skill";
     if (toolName === "create_memory" || toolName === "update_memory" || toolName === "delete_memory") {
       return toolName;
     }
