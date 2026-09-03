@@ -40,7 +40,7 @@ GitHub Copilot has no preset — it is configured entirely through the OAuth con
 
 ## Per-profile settings
 
-Each profile carries its own behaviour, so you can keep, say, a cheap fast profile and a long-context reasoning profile side by side and switch between them in the composer.
+Each profile carries its own behavior, so you can keep, say, a cheap fast profile and a long-context reasoning profile side by side and switch between them in the composer.
 
 ### Model and prompt
 
@@ -62,7 +62,7 @@ Each profile carries its own behaviour, so you can keep, say, a cheap fast profi
 | Fresh tail count | `28` | Most recent messages always kept verbatim |
 | Tokenizer | `gpt-tokenizer` | Or `off` to skip token counting entirely |
 | Safety margin tokens | `1200` | Reserve held back from the limit |
-| Leaf source token limit | `12000` | Size of a chunk summarised into one leaf node |
+| Leaf source token limit | `12000` | Size of a chunk summarized into one leaf node |
 | Leaf minimum message count | `6` | Fewest messages that will be folded into a leaf |
 | Merged minimum node count | `4` | Leaf nodes needed before they are merged upward |
 | Merged target tokens | `1600` | Target size of a merged summary |
@@ -116,7 +116,7 @@ Access and refresh tokens are encrypted with `EIDON_ENCRYPTION_SECRET` before be
 
 ## OpenCode Go specifics
 
-Two behaviours are automatic for any profile whose base URL starts with `https://opencode.ai/zen/go`:
+Two behaviors are automatic for any profile whose base URL starts with `https://opencode.ai/zen/go`:
 
 - **Per-conversation session header.** Requests carry an `x-opencode-session` header set to the conversation id (falling back to the profile id), so the upstream service can key its own session state per conversation.
 - **Per-model API mode override.** The OpenAI-compatible OpenCode Go preset defaults to Chat Completions, but any model whose id starts with `gpt-5.6` is sent over the Responses API regardless of the profile's configured mode. This is a request rule attached to the preset, so it only applies when the profile's base URL still matches the preset's.

@@ -6,16 +6,16 @@
   <img src="./.github/readme/eidon-wordmark.svg" alt="Eidon" width="420" />
 
   <p>
-    <strong>A self-hosted AI workspace you actually own.</strong><br />
-    Bring your own model provider. One Docker image. Your data stays on your disk.
+    <strong>Self-hosted AI chat, with agents and automations.</strong><br />
+    One Docker image. Your own model keys. Your data stays on your server.
   </p>
 
   <p>
     <a href="#quick-start"><b>Quick start</b></a>
     ·
-    <a href="#chat-that-shows-its-work"><b>Features</b></a>
+    <a href="#chat"><b>Features</b></a>
     ·
-    <a href="#bring-your-own-provider"><b>Providers</b></a>
+    <a href="#providers"><b>Providers</b></a>
     ·
     <a href="./docs/configuration.md"><b>Configuration</b></a>
     ·
@@ -33,17 +33,11 @@
   <img src="./.github/readme/hero.png" alt="Eidon chat, agents, and automations" width="100%" />
 </div>
 
-Eidon is a self-hostable AI assistant workspace that runs as a single Docker image and
-stores everything in SQLite on a volume you control. You connect the model providers you
-already pay for instead of renting a seat on someone else's platform.
+Eidon is a self-hosted AI assistant. It runs as one Docker image, keeps your data in a
+single file on your server, and works with the model providers you already use.
 
-It is three places to work: **Chat** for everyday conversations, **Agents** for a team of
-persistent bots that message each other, and **Automations** for work that should run on a
-schedule without you.
-
-> [!NOTE]
-> Self-hosting is real work. You run the container, keep it updated, and own your backups.
-> Eidon does not ship an API key — you bring the model access you want to use.
+There are three parts: **Chat** for normal conversations, **Agents** for bots that do work
+on their own, and **Automations** for tasks that run on a schedule.
 
 ## Quick start
 
@@ -92,30 +86,32 @@ provider keys and MCP tokens. Full reference in [Configuration](./docs/configura
 
 </details>
 
-## Chat that shows its work
+## Chat
 
-Every turn is a visible timeline: which skill loaded, which tool ran, what it returned.
-Nothing important happens off-screen.
+A normal chat for day-to-day questions and getting work done, with solid tools built in.
 
 <img src="./.github/readme/desktop-chat.png" alt="Eidon chat with a tool timeline, a memory proposal card, and queued follow-ups" width="100%" />
 
-- **You approve what it remembers.** When the assistant wants to save a memory it proposes
-  it — you save, edit, or ignore. Same flow for automations it wants to create.
-- **Queue follow-ups while it works.** Reorder them, edit them, or send one next.
-- **Fork from any reply** to branch a thread, or edit an earlier message and restart from there.
-- **Context gauge and compaction** so long threads keep working instead of falling over.
+- **It asks before it saves a memory.** You can save it, edit it, or ignore it.
+- **Send follow-ups while it is still working.** They queue up in order.
+- **Edit an older message** and carry on from there, or branch off any reply.
+- **Auto compaction for long chats.** Older messages are condensed in the background, and
+  Eidon tells you when it happens.
+- **Attach any file**, paste images, or dictate instead of typing.
 
-## Agents that hand work to each other
+## Agents
 
-The **Agents** area gives you a team of persistent bots. A Chief of Staff is created for
-you: message it directly and it answers, delegates, or proposes a new specialist bot when a
-job deserves a long-lived owner.
+Agents are bots that stick around. Each one has its own chat, its own memory, and its own
+files. You start with a Chief of Staff — ask it for something and it either answers, passes
+the job to another bot, or offers to create a new bot for it.
 
 <img src="./.github/readme/desktop-delegation.png" alt="The Chief of Staff bot messaging two specialist bots" width="100%" />
 
-Delegation is peer-to-peer — any bot can message any other bot, not just the chief. The
-sender keeps working while the target runs in its own thread, and the reply comes back into
-the conversation.
+Any bot can message any other bot, not just the Chief of Staff. The one that asked keeps
+working, and the answer comes back to it when the other bot is done.
+
+A bot can also write its own skill — a set of instructions it keeps for itself and reuses
+next time the same kind of job comes up.
 
 <table>
 <tr>
@@ -123,27 +119,25 @@ the conversation.
 
 <img src="./.github/readme/desktop-agents.png" alt="Bot roster with live status" />
 
-<b>A roster with live status</b><br />
-<sub>Each bot has its own thread, memory, avatar, and an isolated sandbox: its own file
-workspace and its own browser session with its own logins.</sub>
+<b>See what everyone is doing</b><br />
+<sub>Each bot also gets its own browser, so it can stay logged in to sites on its own.</sub>
 
 </td>
 <td width="50%">
 
 <img src="./.github/readme/desktop-agent-proposal.png" alt="A bot proposing a scheduled automation" />
 
-<b>Bots ask before they commit</b><br />
-<sub>A bot that spots repeating work proposes an automation and waits. It shows as
-<i>waiting for input</i> on the roster until you decide.</sub>
+<b>They ask first</b><br />
+<sub>A bot that notices repeating work offers to schedule it, then waits for your answer.</sub>
 
 </td>
 </tr>
 </table>
 
-## Deep research with a plan you control
+## Deep research
 
-Toggle **Deep research** and Eidon drafts a research plan before spending anything. Edit the
-steps, reorder them, delete them, add your own — then start it.
+Turn on **Deep research** and Eidon writes a plan before it starts. Change the steps however
+you want, then let it run.
 
 <table>
 <tr>
@@ -151,26 +145,25 @@ steps, reorder them, delete them, add your own — then start it.
 
 <img src="./.github/readme/desktop-research-plan.png" alt="An editable seven-step research plan" />
 
-<b>Approve the plan first</b><br />
-<sub>Up to 12 steps, each one editable. Regenerate it or cancel before any tool runs.</sub>
+<b>You approve the plan</b><br />
+<sub>Edit, reorder, or remove any step. Nothing runs until you say so.</sub>
 
 </td>
 <td width="50%">
 
 <img src="./.github/readme/desktop-research.png" alt="A cited research report with a comparison table" />
 
-<b>Get a cited report back</b><br />
-<sub>Multi-query search, full-page reads, corroboration across sources, and a report with
-inline citations and a sources list.</sub>
+<b>You get a report with sources</b><br />
+<sub>It searches, reads the pages in full, and links everything it used.</sub>
 
 </td>
 </tr>
 </table>
 
-## Automations that run without you
+## Automations
 
-Interval or calendar schedules, each with its own provider profile and persona. Every run is
-a real transcript you can open and read like any other conversation.
+Automations run on their own — every so many minutes, or at a set time each day or week.
+Every run is saved as a chat you can open and read.
 
 <table>
 <tr>
@@ -178,52 +171,44 @@ a real transcript you can open and read like any other conversation.
 
 <img src="./.github/readme/desktop-automations.png" alt="Automation detail with run history" />
 
-<b>Schedules and run history</b><br />
-<sub>Run now, retry a failed run, or bind an automation to a bot so it runs as a routine in
-that bot's thread.</sub>
+<b>Every run is kept</b><br />
+<sub>Run one now, retry one that failed, or hand an automation to a bot.</sub>
 
 </td>
 <td width="50%">
 
 <img src="./.github/readme/desktop-automation-run.png" alt="A scheduled run transcript with tool calls" />
 
-<b>Every run is auditable</b><br />
-<sub>The full timeline — searches, page reads, shell commands — not just the summary.</sub>
+<b>See what it did</b><br />
+<sub>The whole run, step by step, not just the final answer.</sub>
 
 </td>
 </tr>
 </table>
 
-## Memory, tools, and MCP
+## Memory
 
-<table>
-<tr>
-<td width="50%">
+Eidon picks up on things worth remembering — what you are working on, who is involved, how
+you like your answers — and brings them back in later conversations without you repeating
+yourself.
 
-<img src="./.github/readme/desktop-memories.png" alt="Memory settings with pinned memories" />
+<img src="./.github/readme/desktop-memories.png" alt="Memory settings with pinned memories" width="100%" />
 
-<b>Memory you can read and edit</b><br />
-<sub>Browse, search, and pin memories so they always stay in the prompt. Semantic recall
-indexes past messages and attachments locally.</sub>
+- It asks before saving anything, so nothing is stored behind your back.
+- Search, edit, or delete anything it has remembered.
+- Pin the things it should never forget.
 
-</td>
-<td width="50%">
+## Tools
 
-<img src="./.github/readme/desktop-mcp.png" alt="MCP server configuration" />
+Web search, reading web pages, image generation, looking at images, and running commands are
+all built in. Add more with MCP — local and remote servers both work, and you can sign in to
+a remote one instead of pasting a key.
 
-<b>MCP over HTTP or stdio</b><br />
-<sub>The image ships <code>uvx</code> and <code>npx</code>, so stdio servers work out of the
-box. Remote servers can sign in with OAuth instead of pasted keys.</sub>
+<img src="./.github/readme/desktop-mcp.png" alt="MCP server configuration" width="100%" />
 
-</td>
-</tr>
-</table>
+Full list in [Features](./docs/features.md).
 
-Built in: web search across Exa, Tavily, or a self-hosted SearXNG · full-page reading ·
-image generation · vision · shell commands · reusable skills · a bundled browser-automation
-skill with Chromium. See [Features](./docs/features.md).
-
-## Renders what the answer needs
+## Diagrams, code, and math
 
 <table>
 <tr>
@@ -238,13 +223,13 @@ skill with Chromium. See [Features](./docs/features.md).
 
 <img src="./.github/readme/desktop-code.png" alt="A syntax-highlighted code block" />
 
-<b>Code, and LaTeX math</b>
+<b>Code and math</b>
 
 </td>
 </tr>
 </table>
 
-## Bring your own provider
+## Providers
 
 <p>
   <img alt="OpenAI" src="https://img.shields.io/badge/OpenAI-0a0a0a?style=flat-square" />
@@ -271,21 +256,20 @@ skill with Chromium. See [Features](./docs/features.md).
   <img alt="Plus any OpenAI-compatible or Anthropic-compatible provider" src="https://img.shields.io/badge/%2B%20any%20OpenAI--compatible%20or%20Anthropic--compatible%20provider-8b5cf6?style=flat-square&labelColor=0a0a0a" />
 </p>
 
-Nine of these are one-click presets. The rest work because Eidon speaks the OpenAI and
-Anthropic Messages APIs — point a profile at any compatible endpoint, including a local
-Ollama or LM Studio. Keep several profiles side by side and switch per conversation, each
-with its own reasoning effort, context limit, and vision routing. Credentials are encrypted
-at rest.
+Eidon supports most of the big providers out of the box, and you can bring any other
+OpenAI- or Anthropic-compatible service you want — including Ollama or LM Studio running on
+your own machine.
+
+Set up as many as you like and switch between them in any chat. Your keys are encrypted.
 
 <img src="./.github/readme/desktop-providers.png" alt="Multiple provider profiles configured side by side" width="100%" />
 
-Setup for every provider, including the GitHub Copilot OAuth app, is in
-[Providers](./docs/providers.md).
+Setup for each one is in [Providers](./docs/providers.md).
 
-## Install it on your phone
+## On your phone
 
-Eidon is an installable PWA — add it to your home screen and it runs standalone, with
-layouts built for a phone rather than a shrunken desktop.
+Add Eidon to your home screen from the browser and it opens like a normal app. The layout is
+built for a phone, not a shrunk-down desktop. A native iOS app is coming soon.
 
 <p align="center">
   <img src="./.github/readme/mobile-chat.png" alt="Eidon chat on a phone" width="31%" />
@@ -293,40 +277,28 @@ layouts built for a phone rather than a shrunken desktop.
   <img src="./.github/readme/mobile-settings.png" alt="Provider settings on a phone" width="31%" />
 </p>
 
-## Why self-host this
+## Why Eidon
 
-- **No per-seat subscription.** You pay your provider for tokens you actually use. A local
-  model through Ollama costs nothing per message.
-- **Your conversations sit on your disk**, in a SQLite file you can copy, grep, and back up.
-- **Any model, and more than one.** Route reasoning, coding, and vision to different
-  providers in the same workspace, and change your mind without redeploying.
-- **It is a workspace, not a chat box.** Agents, schedules, memory, tools, MCP, and
-  multi-user administration are built in rather than assembled.
-- **No lock-in.** AGPL-3.0, one container, and a documented export path.
+One Docker container, running in minutes, and you have the whole thing: agents doing real
+work, everyday chat, and automations on a schedule.
 
-## Alternatives
-
-Worth knowing about before you pick Eidon:
-
-- **ChatGPT / Claude.ai** — the polish bar, and genuinely excellent. Use them if you do not
-  care where your conversations live. Eidon exists for when you do.
-- **[Open WebUI](https://github.com/open-webui/open-webui)** — the most established
-  self-hosted chat UI, with a much larger plugin ecosystem. Eidon is lighter to run and
-  leans harder on agents and scheduled work.
-- **[LibreChat](https://github.com/danny-avila/LibreChat)** — closest in scope, with strong
-  multi-provider support. Worth a look if you want a bigger community.
-- **[Jan](https://github.com/menloresearch/jan)** — desktop-first and fully local. Pick Jan
-  if you never want a server; pick Eidon if you want a shared, multi-user workspace.
+- **Start in minutes.** One container and one volume. Nothing else to wire together.
+- **Everything in one place.** Agents, automations, memory, tools, and multiple users are all
+  part of it.
+- **Bring your own model.** No expensive per-person subscription, and nothing tying you to one
+  company's ecosystem.
+- **Your chats stay on your server**, in one file you can copy and back up.
+- **Open source**, under AGPL-3.0.
 
 ## Documentation
 
-| Guide | What is in it |
+| Guide | What it covers |
 | --- | --- |
-| [Configuration](./docs/configuration.md) | Environment variables, secrets, data storage, security notes, backup and restore |
-| [Providers](./docs/providers.md) | All presets, per-profile settings, GitHub Copilot, web search, image generation, speech-to-text |
-| [MCP and skills](./docs/mcp-and-skills.md) | Transports, OAuth sign-in, vision MCP, writing skills, the bundled browser skill |
-| [Features](./docs/features.md) | The complete capability reference |
-| [Development](./docs/development.md) | Local setup, scripts, tests, image channels, architecture, mobile API |
+| [Configuration](./docs/configuration.md) | Settings, secrets, where your data lives, backups |
+| [Providers](./docs/providers.md) | Setting up each provider, web search, images, voice |
+| [MCP and skills](./docs/mcp-and-skills.md) | Adding tools and writing your own skills |
+| [Features](./docs/features.md) | Everything Eidon can do |
+| [Development](./docs/development.md) | Running it locally and how it is built |
 
 ## License
 
@@ -334,6 +306,6 @@ Worth knowing about before you pick Eidon:
 
 ## AI-assisted development
 
-Eidon is developed in part with AI assistance. All code is reviewed before it is accepted.
+Eidon is built partly with AI help. Every change is reviewed before it goes in.
 
 <div align="right"><a href="#readme-top">Back to top ↑</a></div>

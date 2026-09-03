@@ -174,7 +174,7 @@ Mobile sessions are distinct from browser sessions: they use their own JWT audie
 
 ## Reference documents
 
-- [`DESIGN.md`](../DESIGN.md) and [`DESIGN.json`](../DESIGN.json) — the design system: tokens, colour, type, spacing, and component conventions. `DESIGN.json` is the machine-readable form
+- [`DESIGN.md`](../DESIGN.md) and [`DESIGN.json`](../DESIGN.json) — the design system: tokens, color, type, spacing, and component conventions. `DESIGN.json` is the machine-readable form
 - [`PRODUCT.md`](../PRODUCT.md) — product intent, audience, brand personality, anti-references, and design principles. Read it before making product or copy decisions
 
 ## See also
