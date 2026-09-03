@@ -280,6 +280,15 @@ shot "mobile-settings.png" "/settings/providers"    "OpenRouter"     nosidebar
 echo "==> Post-processing..."
 npx tsx "$PROJECT_DIR/scripts/process-readme-images.ts"
 
+echo "==> Syncing onboarding screenshots..."
+ONBOARDING_SCREENSHOT_DIR="$PROJECT_DIR/public/screenshots"
+mkdir -p "$ONBOARDING_SCREENSHOT_DIR"
+for name in desktop-chat.png desktop-delegation.png desktop-automations.png; do
+    if [ -f "$SCREENSHOT_DIR/$name" ]; then
+        cp "$SCREENSHOT_DIR/$name" "$ONBOARDING_SCREENSHOT_DIR/$name"
+    fi
+done
+
 if [ ${#FAILURES[@]} -gt 0 ]; then
     echo ""
     echo "ERROR: ${#FAILURES[@]} shot(s) failed to render: ${FAILURES[*]}" >&2

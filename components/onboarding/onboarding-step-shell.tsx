@@ -22,7 +22,8 @@ export function OnboardingStepShell({
   onNext,
   nextLabel = "Next",
   nextDisabled = false,
-  isBusy = false
+  isBusy = false,
+  wide = false
 }: {
   progress: { current: number; total: number } | null;
   title: string;
@@ -34,9 +35,14 @@ export function OnboardingStepShell({
   nextLabel?: string;
   nextDisabled?: boolean;
   isBusy?: boolean;
+  wide?: boolean;
 }) {
   return (
-    <div className="mx-auto flex w-full max-w-[760px] flex-col px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-10 sm:px-8 sm:pt-16">
+    <div
+      className={`mx-auto flex w-full flex-col px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-10 sm:px-8 sm:pt-16 ${
+        wide ? "max-w-[1100px]" : "max-w-[760px]"
+      }`}
+    >
       {progress ? (
         <p className="text-center text-[11px] font-semibold uppercase tracking-[0.08em] text-[var(--muted)]">
           Step {progress.current} of {progress.total}
@@ -106,7 +112,8 @@ export function OnboardingOptionTile({
   title,
   description,
   children,
-  ariaLabel
+  ariaLabel,
+  className
 }: {
   selected: boolean;
   onSelect: () => void;
@@ -114,6 +121,7 @@ export function OnboardingOptionTile({
   description?: string;
   children?: ReactNode;
   ariaLabel?: string;
+  className?: string;
 }) {
   return (
     <button
@@ -122,7 +130,7 @@ export function OnboardingOptionTile({
       aria-checked={selected}
       aria-label={ariaLabel ?? title}
       onClick={onSelect}
-      className={`flex min-h-11 w-full flex-col gap-2 rounded-xl border p-3 text-left transition-colors ${
+      className={`flex min-h-11 w-full flex-col gap-2 rounded-xl border p-3 text-left transition-colors ${className ?? ""} ${
         selected
           ? "border-[var(--accent)]/45 bg-[var(--accent-soft)] shadow-[0_0_0_3px_var(--accent-soft)]"
           : "border-white/6 bg-white/[0.02] hover:border-white/12"
