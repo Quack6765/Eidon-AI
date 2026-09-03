@@ -8,6 +8,9 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const user = await requireUser();
   const settings = getSanitizedSettings(user.id);
+  if (!settings.hasCompletedOnboarding) {
+    redirect("/onboarding");
+  }
   if (settings.defaultView !== "chat") {
     redirect(settings.defaultView === "agents" ? "/agents" : "/automations");
   }

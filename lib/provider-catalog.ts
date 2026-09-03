@@ -99,6 +99,29 @@ export const PROVIDER_CATALOG = {
 
 export type ProviderKind = keyof typeof PROVIDER_CATALOG;
 
+/**
+ * The kind to use for a hand-configured endpoint that matches no preset. Named
+ * generically so callers outside this catalog never hardcode a vendor kind.
+ */
+export const CUSTOM_PROVIDER_KIND: ProviderKind = "openai_compatible";
+
+/** Kinds that connect by redirecting the user rather than by storing a key. */
+export function getOAuthProviderKindLabels() {
+  return Object.values(PROVIDER_CATALOG)
+    .filter((entry) => entry.connectionMode === "oauth")
+    .map((entry) => entry.label);
+}
+
+/**
+ * Kinds configured with a key plus an endpoint, so they can be pointed at any
+ * compatible server rather than only the vendors covered by a preset.
+ */
+export function getApiKeyProviderKinds(): ProviderKind[] {
+  return (Object.keys(PROVIDER_CATALOG) as ProviderKind[]).filter(
+    (kind) => PROVIDER_CATALOG[kind].connectionMode === "api_key"
+  );
+}
+
 export type ProviderPresetValues = {
   name: string;
   apiBaseUrl: string;

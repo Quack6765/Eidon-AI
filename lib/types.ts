@@ -126,6 +126,7 @@ type AppSettingsCore = {
   confirmExternalLinks: boolean;
   toolCallDisplay: ToolCallDisplayMode;
   defaultView: DefaultView;
+  hasCompletedOnboarding: boolean;
   titleGenerationMode: TitleGenerationMode;
   titleGenerationProfileId: string | null;
   speechCleanupEnabled: boolean;

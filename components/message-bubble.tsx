@@ -10,6 +10,11 @@ import {
   useAttachmentPreviewController
 } from "@/components/attachment-preview-modal";
 import { CompactionIndicator } from "@/components/compaction-indicator";
+import {
+  InProgressIndicator,
+  StatusLine,
+  ToolPill
+} from "@/components/tool-activity";
 import { parseAnsiText } from "@/lib/ansi";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
 import { useStreamdownPlugins } from "@/lib/streamdown-plugins";
@@ -37,6 +42,7 @@ import type {
 import type {
   MemoryCategory,
   MessageAction as MessageActionType,
+  MessageActionStatus,
   MessageTimelineItem,
   PublicMessage,
   PublicMessageAttachment,
@@ -171,42 +177,6 @@ const AssistantMarkdown = React.memo(
     previous.linkSafety === next.linkSafety
 );
 
-export function InProgressIndicator() {
-  return (
-    <div
-      className="w-fit rounded-lg border border-white/5 bg-white/[0.015] px-2 py-1 animate-fade-in"
-      data-testid="assistant-in-progress"
-      role="status"
-      aria-live="polite"
-    >
-      <span className="flex items-center gap-1.5">
-        <span className="flex h-3.5 w-3.5 shrink-0 items-center justify-center">
-          <LoaderCircle className="h-3 w-3 animate-spin text-white/45" aria-hidden="true" />
-        </span>
-        <span className="flex items-center gap-1 text-[11px] leading-[16.5px] text-white/50">
-          <span className="font-medium">Working</span>
-          <span className="text-white/30" aria-hidden="true">...</span>
-        </span>
-      </span>
-    </div>
-  );
-}
-
-export function StatusLine({ label }: { label: string }) {
-  return (
-    <div
-      className="status-line"
-      data-testid="assistant-status-line"
-      role="status"
-      aria-live="polite"
-    >
-      <span className="status-line__label" data-testid="assistant-status-line-label">
-        {label}
-      </span>
-    </div>
-  );
-}
-
 function DelegateBotGlyph({ botName }: { botName: string }) {
   const seed = useBotAvatarSeed(botName);
 
@@ -314,65 +284,21 @@ function CollapsibleActionRow({
     ? argumentQuery || action.detail.trim()
     : "";
   const expandedDetail = webSearchQuery ? "" : action.detail;
-  const actionTitle = (
-    <span
-      className={`min-w-0 break-words text-xs font-medium leading-4 ${
-        action.status === "running" ? "text-white/55" : "text-white/85"
-      }`}
-    >
-      {kindIcon ? (
-        <span className="mr-1 inline-flex translate-y-px align-middle">{kindIcon}</span>
-      ) : null}
-      {action.label}
-      {webSearchQuery ? (
-        <>
-          {": "}
-          <span className={action.status === "running" ? "font-normal text-white/45" : "font-normal text-white/55"}>
-            {webSearchQuery}
-          </span>
-        </>
-      ) : null}
-    </span>
-  );
-
-  const statusIcon = action.status === "running"
-    ? <LoaderCircle className="h-2.5 w-2.5 animate-spin text-white/55" />
-    : action.status === "completed"
-      ? <Check className="h-2.5 w-2.5 text-emerald-400" />
-      : action.status === "stopped"
-        ? <Square className="h-2.5 w-2.5 text-red-400 fill-current" />
-        : <X className="h-2.5 w-2.5 text-red-400" />;
-
-  if (action.status === "running") {
-    return (
-      <div className="inline-flex w-fit max-w-full items-start gap-1.5 rounded-lg border border-white/6 bg-white/[0.02] px-2.5 py-1.5 text-xs">
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
-          {isMemoryAction ? <Brain className="h-2.5 w-2.5 text-violet-400" /> : statusIcon}
-        </span>
-        {actionTitle}
-      </div>
-    );
-  }
+  const isRunning = action.status === "running";
+  const memoryIcon = isMemoryAction ? (
+    <Brain className={isRunning ? "h-2.5 w-2.5 text-violet-400" : "h-3 w-3 text-violet-400"} />
+  ) : undefined;
 
   return (
-    <div
-      className={`inline-flex w-fit max-w-full flex-col rounded-lg border border-white/5 bg-white/[0.015] transition-all duration-300 ${
-        isOpen ? "w-full" : ""
-      }`}
+    <ToolPill
+      label={action.label}
+      query={webSearchQuery || undefined}
+      status={action.status}
+      kindIcon={kindIcon}
+      statusIcon={memoryIcon}
+      isOpen={isOpen}
+      onToggle={isRunning ? undefined : onToggle}
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        className={`flex max-w-full items-start gap-1.5 px-2.5 py-1.5 text-left transition hover:opacity-80 ${isOpen ? "w-full" : "w-fit min-w-0"}`}
-      >
-        <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-white/8 bg-white/[0.03]">
-          {isMemoryAction ? <Brain className="h-3 w-3 text-violet-400" /> : statusIcon}
-        </span>
-        {actionTitle}
-        <span className="ml-auto flex items-center pt-px">
-          {isOpen ? <ChevronDown className="h-3.5 w-3.5 text-white/30" /> : <ChevronRight className="h-3.5 w-3.5 text-white/30" />}
-        </span>
-      </button>
       {isOpen && (expandedDetail || action.resultSummary) ? (
         <div
           className="px-2.5 pb-2"
@@ -394,7 +320,7 @@ function CollapsibleActionRow({
           ) : null}
         </div>
       ) : null}
-    </div>
+    </ToolPill>
   );
 }
 
