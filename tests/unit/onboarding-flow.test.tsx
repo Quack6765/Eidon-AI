@@ -104,6 +104,15 @@ describe("onboarding flow", () => {
     expect(JSON.parse(String((init as RequestInit).body))).toEqual({ defaultView: "agents" });
   });
 
+  it("preselects the chat view for a fresh install", () => {
+    renderFlow("user");
+    startFlow();
+
+    expect(screen.getByRole("radio", { name: /Chat/ }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: /Agents/ }).getAttribute("aria-checked")).toBe("false");
+    expect(screen.getByRole("radio", { name: /Automations/ }).getAttribute("aria-checked")).toBe("false");
+  });
+
   it("renders both tool display demos side by side", async () => {
     renderFlow("user");
     startFlow();
@@ -127,6 +136,20 @@ describe("onboarding flow", () => {
     expect(screen.getByRole("radio", { name: /Automations/ }).getAttribute("aria-checked")).toBe(
       "true"
     );
+  });
+
+  it("shows a README screenshot on every default-view tile", () => {
+    renderFlow("user");
+    startFlow();
+
+    const expected = [
+      ["Eidon chat with a tool timeline and queued follow-ups", "/screenshots/desktop-chat.png"],
+      ["Chief of Staff agent messaging two specialist bots", "/screenshots/desktop-delegation.png"],
+      ["Automations list with run history", "/screenshots/desktop-automations.png"]
+    ] as const;
+    for (const [name, src] of expected) {
+      expect(screen.getByRole("img", { name }).getAttribute("src")).toBe(src);
+    }
   });
 
   /** Walks an admin from the welcome screen to the provider step. */
@@ -217,9 +240,102 @@ describe("onboarding flow", () => {
       "Custom Anthropic compatible endpoint"
     ]);
 
-    // The named vendors stay in their own group.
+    // The named vendors and the sign-in option stay in their own group.
     const presets = screen.getByRole("radiogroup", { name: "Model provider" });
-    expect(within(presets).getAllByRole("radio")).toHaveLength(9);
+    expect(within(presets).getAllByRole("radio")).toHaveLength(10);
+  });
+
+  it("shows each preset's brand logo on its tile", async () => {
+    renderFlow("admin");
+    await gotoProviderStep();
+
+    const presets = screen.getByRole("radiogroup", { name: "Model provider" });
+    const logos = Array.from(presets.querySelectorAll("img"));
+    expect(logos.map((logo) => logo.getAttribute("src"))).toEqual([
+      "/logos/ollama.svg",
+      "/logos/zai.svg",
+      "/logos/openrouter.svg",
+      "/logos/opencode.svg",
+      "/logos/deepseek.svg",
+      "/logos/xiaomi.svg",
+      "/logos/openai.svg",
+      "/logos/anthropic.svg",
+      "/logos/opencode.svg",
+      "/logos/githubcopilot.svg"
+    ]);
+    expect(logos.every((logo) => logo.getAttribute("alt") === "")).toBe(true);
+  });
+
+  it("shows OAuth guidance instead of fields for the sign-in provider", async () => {
+    renderFlow("admin");
+    await gotoProviderStep();
+
+    fireEvent.click(screen.getByRole("radio", { name: /GitHub Copilot/ }));
+    expect(screen.getByText(/signs you in rather than taking a key/)).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Settings › Providers/ })).toBeTruthy();
+    expect(screen.queryByLabelText("API key")).toBeNull();
+    expect(screen.queryByLabelText("Model")).toBeNull();
+    expect(screen.queryByLabelText("API base URL")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save and test" })).toBeNull();
+  });
+
+  it("places the fields directly under the selected provider on narrow viewports", async () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false
+    }));
+    try {
+      renderFlow("admin");
+      await gotoProviderStep();
+
+      fireEvent.click(screen.getByRole("radio", { name: /^OpenAI \(/ }));
+      const model = screen.getByLabelText("Model");
+      const anthropic = screen.getByRole("radio", { name: /Anthropic \(/ });
+      const copilot = screen.getByRole("radio", { name: /GitHub Copilot/ });
+
+      expect(model.compareDocumentPosition(anthropic) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(anthropic.compareDocumentPosition(copilot) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(copilot.compareDocumentPosition(model) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+
+      const presets = screen.getByRole("radiogroup", { name: "Model provider" });
+      const card = screen.getByRole("radio", { name: /^OpenAI \(/ }).parentElement;
+      expect(card?.parentElement).toBe(presets);
+      expect(card).toContainElement(model);
+      expect(card).toContainElement(screen.getByLabelText("API key"));
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("advances without saving when the sign-in provider is selected", async () => {
+    renderFlow("admin");
+    await gotoProviderStep();
+
+    fireEvent.click(screen.getByRole("radio", { name: /GitHub Copilot/ }));
+    const next = screen.getByRole("button", { name: "Next" });
+    expect(next.hasAttribute("disabled")).toBe(false);
+    fireEvent.click(next);
+
+    await waitFor(() => expect(screen.getByText("Add an MCP server")).toBeTruthy());
+    const saved = vi
+      .mocked(global.fetch)
+      .mock.calls.filter(([url]) => String(url) === "/api/settings/providers");
+    expect(saved).toHaveLength(0);
+  });
+
+  it("marks the custom endpoint tiles with a neutral plug instead of a brand logo", async () => {
+    renderFlow("admin");
+    await gotoProviderStep();
+
+    const custom = screen.getByRole("radiogroup", { name: "Custom endpoint" });
+    expect(within(custom).queryAllByRole("img")).toHaveLength(0);
+    expect(custom.querySelectorAll("svg.lucide-plug")).toHaveLength(2);
   });
 
   it("requires a base URL as well as a model for a custom endpoint", async () => {

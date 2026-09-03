@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Clock, MessageSquare } from "lucide-react";
+import Image from "next/image";
 
 import { OnboardingOptionTile } from "@/components/onboarding/onboarding-step-shell";
 import type { DefaultView } from "@/lib/types";
@@ -9,25 +9,29 @@ const VIEWS: Array<{
   id: DefaultView;
   label: string;
   description: string;
-  icon: typeof MessageSquare;
+  screenshot: string;
+  alt: string;
 }> = [
   {
     id: "chat",
     label: "Chat",
-    description: "Open straight into a new conversation.",
-    icon: MessageSquare
+    description: "Open straight into the conversation view.",
+    screenshot: "/screenshots/desktop-chat.png",
+    alt: "Eidon chat with a tool timeline and queued follow-ups"
   },
   {
     id: "agents",
     label: "Agents",
     description: "Start with your bots and their recent work.",
-    icon: Bot
+    screenshot: "/screenshots/desktop-delegation.png",
+    alt: "Chief of Staff agent messaging two specialist bots"
   },
   {
     id: "automations",
     label: "Automations",
     description: "Start with scheduled runs and their history.",
-    icon: Clock
+    screenshot: "/screenshots/desktop-automations.png",
+    alt: "Automations list with run history"
   }
 ];
 
@@ -39,23 +43,28 @@ export function DefaultViewStep({
   onChange: (value: DefaultView) => void;
 }) {
   return (
-    <div role="radiogroup" aria-label="Default main view" className="grid gap-3 sm:grid-cols-3">
-      {VIEWS.map((view) => {
-        const Icon = view.icon;
-        return (
-          <OnboardingOptionTile
-            key={view.id}
-            selected={value === view.id}
-            onSelect={() => onChange(view.id)}
-            title={view.label}
-            description={view.description}
-          >
-            <span className="flex h-16 items-center justify-center rounded-lg border border-white/6 bg-black/20">
-              <Icon className="h-5 w-5 text-white/40" aria-hidden="true" />
-            </span>
-          </OnboardingOptionTile>
-        );
-      })}
+    <div role="radiogroup" aria-label="Default main view" className="flex flex-col gap-3">
+      {VIEWS.map((view) => (
+        <OnboardingOptionTile
+          key={view.id}
+          selected={value === view.id}
+          onSelect={() => onChange(view.id)}
+          title={view.label}
+          description={view.description}
+          className="lg:flex-row lg:items-center lg:gap-6 lg:p-4"
+        >
+          <span className="block overflow-hidden rounded-lg border border-white/6 bg-black/20 lg:w-[54%] lg:shrink-0">
+            <Image
+              src={view.screenshot}
+              alt={view.alt}
+              width={1280}
+              height={1040}
+              unoptimized
+              className="h-auto w-full max-h-64 object-cover object-top sm:max-h-none"
+            />
+          </span>
+        </OnboardingOptionTile>
+      ))}
     </div>
   );
 }

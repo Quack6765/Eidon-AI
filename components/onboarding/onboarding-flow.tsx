@@ -131,7 +131,7 @@ export function OnboardingFlow({
     const targetProfileId =
       settings.defaultProviderProfileId ?? settings.providerProfiles[0]?.id ?? null;
     const choice = providerDraft.choice;
-    if (!targetProfileId || !choice) return;
+    if (!targetProfileId || !choice || choice.kind === "oauth") return;
 
     setIsBusy(true);
     setIsTesting(true);
@@ -310,6 +310,7 @@ export function OnboardingFlow({
           onBack={goBack}
           onNext={() => void commitStep({ defaultView })}
           isBusy={isBusy}
+          wide
         >
           <DefaultViewStep value={defaultView} onChange={setDefaultView} />
         </OnboardingStepShell>
@@ -345,8 +346,10 @@ export function OnboardingFlow({
           subtitle="Eidon needs one provider to answer anything. Pick who you already have a key for."
           onBack={goBack}
           onSkip={goNext}
-          onNext={() => (providerSaved ? goNext() : void saveProvider())}
-          nextLabel={providerSaved ? "Next" : "Save and test"}
+          onNext={() =>
+            providerSaved || providerDraft.choice?.kind === "oauth" ? goNext() : void saveProvider()
+          }
+          nextLabel={providerSaved || providerDraft.choice?.kind === "oauth" ? "Next" : "Save and test"}
           nextDisabled={!providerSaved && !providerDraftIsComplete(providerDraft)}
           isBusy={isBusy}
         >

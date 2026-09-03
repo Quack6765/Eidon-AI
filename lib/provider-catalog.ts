@@ -106,10 +106,10 @@ export type ProviderKind = keyof typeof PROVIDER_CATALOG;
 export const CUSTOM_PROVIDER_KIND: ProviderKind = "openai_compatible";
 
 /** Kinds that connect by redirecting the user rather than by storing a key. */
-export function getOAuthProviderKindLabels() {
-  return Object.values(PROVIDER_CATALOG)
-    .filter((entry) => entry.connectionMode === "oauth")
-    .map((entry) => entry.label);
+export function getOAuthProviderKinds(): ProviderKind[] {
+  return (Object.keys(PROVIDER_CATALOG) as ProviderKind[]).filter(
+    (kind) => PROVIDER_CATALOG[kind].connectionMode === "oauth"
+  );
 }
 
 /**
