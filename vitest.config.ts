@@ -18,6 +18,9 @@ export default defineConfig({
     exclude: ["tests/e2e/**"],
     fileParallelism: false,
     maxWorkers: 1,
+    onConsoleLog(log) {
+      return !/^\[(db|semantic-index)\]/.test(log);
+    },
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],

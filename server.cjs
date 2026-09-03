@@ -181,11 +181,14 @@ app.prepare().then(async () => {
       const db = getDb();
       const row = db.prepare("SELECT semantic_recall_enabled FROM global_preferences WHERE id = 1").get();
       if (row && row.semantic_recall_enabled === 1) {
+        console.log("[semantic-index] Semantic recall enabled - starting background index");
         startSemanticIndex().catch((err) => {
           console.error("[semantic-index] Init failed:", err.message);
         });
       }
-    } catch {}
+    } catch (err) {
+      console.error("[semantic-index] Failed to read semantic recall setting:", err.message);
+    }
   }
 
   // Initialize MCP server connections in the background
