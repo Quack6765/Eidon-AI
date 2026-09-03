@@ -33,6 +33,16 @@ function normalizePrefixes(prefixes: string[]) {
   return [...new Set(prefixes.map((prefix) => prefix.trim()).filter(Boolean))];
 }
 
+export function stripSkillFrontmatter(content: string): string {
+  const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/);
+
+  if (!match) {
+    return content;
+  }
+
+  return content.slice(match[0].length);
+}
+
 export function parseSkillContentMetadata(content: string): SkillContentMetadata {
   const match = content.match(/^---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/);
 

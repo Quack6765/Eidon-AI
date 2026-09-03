@@ -21,13 +21,14 @@ import type { BotWorkspaceNode } from "@/lib/bot-sandbox";
 import { BotAvatar } from "@/components/agents/bot-avatar";
 import { BotStatusChip } from "@/components/agents/bot-status";
 import { BotFormModal } from "@/components/agents/bot-form-modal";
+import { BotSkillModal } from "@/components/agents/bot-skill-modal";
 import { ChatView } from "@/components/chat-view";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/settings/badge";
 import { addGlobalWsListener } from "@/lib/ws-client";
 import type { ConversationViewPayload } from "@/lib/conversation-view";
-import type { Automation, BotSummary, UserMemory } from "@/lib/types";
+import type { Automation, BotSummary, Skill, UserMemory } from "@/lib/types";
 
 function scheduleSummary(automation: Automation) {
   if (automation.scheduleKind === "interval" && automation.intervalMinutes) {
@@ -183,6 +184,11 @@ export function BotDetailView({
   const [botMemories, setBotMemories] = useState<UserMemory[] | null>(null);
   const [botMemoriesError, setBotMemoriesError] = useState<string | null>(null);
   const [memoryDeleteTarget, setMemoryDeleteTarget] = useState<UserMemory | null>(null);
+  const [botSkills, setBotSkills] = useState<Skill[] | null>(null);
+  const [botSkillsError, setBotSkillsError] = useState<string | null>(null);
+  const [skillEditTarget, setSkillEditTarget] = useState<Skill | null>(null);
+  const [isSkillModalOpen, setIsSkillModalOpen] = useState(false);
+  const [skillDeleteTarget, setSkillDeleteTarget] = useState<Skill | null>(null);
   const resetNoticeHandle = useRef<number | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
 
@@ -231,6 +237,21 @@ export function BotDetailView({
     }
   }, [initialBot.id]);
 
+  const loadSkills = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/bots/${initialBot.id}/skills`);
+      if (!response.ok) {
+        setBotSkillsError("Unable to load skills");
+        return;
+      }
+      const payload = (await response.json()) as { skills?: Skill[] };
+      setBotSkills(Array.isArray(payload.skills) ? payload.skills : []);
+      setBotSkillsError(null);
+    } catch {
+      setBotSkillsError("Unable to load skills");
+    }
+  }, [initialBot.id]);
+
   useEffect(() => {
     setBot(initialBot);
   }, [initialBot]);
@@ -243,6 +264,7 @@ export function BotDetailView({
   useEffect(() => {
     void loadWorkspace();
     void loadMemories();
+    void loadSkills();
     const noticeHandle = resetNoticeHandle;
     const refreshHandle = refreshTimerRef;
     return () => {
@@ -253,7 +275,7 @@ export function BotDetailView({
         window.clearTimeout(refreshHandle.current);
       }
     };
-  }, [loadMemories, loadWorkspace]);
+  }, [loadMemories, loadSkills, loadWorkspace]);
 
   useEffect(() => {
     return addGlobalWsListener((msg) => {
@@ -272,10 +294,11 @@ export function BotDetailView({
         refreshTimerRef.current = window.setTimeout(() => {
           refreshTimerRef.current = null;
           void refreshBot();
+          void loadSkills();
         }, 250);
       }
     });
-  }, [initialBot.id, refreshBot, router]);
+  }, [initialBot.id, loadSkills, refreshBot, router]);
 
   async function handleEdit(values: {
     name: string;
@@ -353,6 +376,28 @@ export function BotDetailView({
       await loadMemories();
     } catch {
       setBotMemoriesError("Could not delete memory");
+    }
+  }
+
+  async function handleSkillDelete() {
+    const target = skillDeleteTarget;
+    setSkillDeleteTarget(null);
+    if (!target) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/bots/${bot.id}/skills/${encodeURIComponent(target.id)}`,
+        { method: "DELETE" }
+      );
+      if (!response.ok) {
+        setBotSkillsError("Could not delete skill");
+        return;
+      }
+      await loadSkills();
+    } catch {
+      setBotSkillsError("Could not delete skill");
     }
   }
 
@@ -479,6 +524,69 @@ export function BotDetailView({
                     depth={0}
                   />
                 </div>
+              )}
+            </div>
+          </PanelSection>
+
+          <PanelSection
+            title="Skills"
+            action={
+              <button
+                type="button"
+                onClick={() => {
+                  setSkillEditTarget(null);
+                  setIsSkillModalOpen(true);
+                }}
+                className="shrink-0 rounded-lg border border-white/12 bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-[#cbd5e1] transition-colors hover:border-white/20 hover:bg-white/[0.05] hover:text-white"
+              >
+                Add skill
+              </button>
+            }
+          >
+            <p className="text-xs leading-5 text-[var(--muted)]">
+              Skills this bot keeps in its workspace. It can save skills itself, and you can add or edit them here.
+            </p>
+            <div className="mt-3">
+              {botSkillsError ? (
+                <div className="text-xs text-red-200">{botSkillsError}</div>
+              ) : botSkills === null ? (
+                <div className="text-xs text-[var(--muted)]">Loading skills…</div>
+              ) : botSkills.length === 0 ? (
+                <p className="text-xs text-[var(--muted)]">
+                  No skills yet. This bot saves skills it creates here, and you can add your own.
+                </p>
+              ) : (
+                <ul className="divide-y divide-white/4 rounded-xl border border-white/6 bg-white/[0.02]">
+                  {botSkills.map((skill) => (
+                    <li key={skill.id} className="flex items-start justify-between gap-3 px-3 py-2">
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium text-[#f4f4f5]">{skill.name}</span>
+                        <span className="mt-0.5 block truncate text-[11px] text-[var(--muted)]">{skill.description}</span>
+                      </div>
+                      <span className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSkillEditTarget(skill);
+                            setIsSkillModalOpen(true);
+                          }}
+                          aria-label={`Edit skill ${skill.name}`}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#52525b] transition-colors hover:bg-white/[0.06] hover:text-[#f4f4f5]"
+                        >
+                          <Pencil className="h-3 w-3" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSkillDeleteTarget(skill)}
+                          aria-label={`Delete skill ${skill.name}`}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-md text-[#52525b] transition-colors hover:bg-red-500/10 hover:text-red-300"
+                        >
+                          <Trash2 className="h-3 w-3" aria-hidden="true" />
+                        </button>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           </PanelSection>
@@ -642,6 +750,30 @@ export function BotDetailView({
           </>
         }
         onConfirm={handleMemoryDelete}
+      />
+
+      <BotSkillModal
+        open={isSkillModalOpen}
+        onOpenChange={setIsSkillModalOpen}
+        botId={bot.id}
+        skill={skillEditTarget}
+        onSaved={loadSkills}
+      />
+
+      <ConfirmDialog
+        open={skillDeleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSkillDeleteTarget(null);
+          }
+        }}
+        title="Delete skill?"
+        description={
+          <>
+            <strong className="font-medium text-[var(--text)]">{skillDeleteTarget?.name}</strong> will be removed from this bot&apos;s workspace. This action cannot be undone.
+          </>
+        }
+        onConfirm={handleSkillDelete}
       />
 
       <ConfirmDialog
