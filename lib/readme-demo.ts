@@ -142,10 +142,10 @@ export const README_DEMO_FIXTURES = {
     }),
     buildProviderProfile({
       id: "readme_profile_openrouter",
-      name: "OpenRouter · Claude Sonnet 4",
+      name: "OpenRouter · Claude Sonnet 5",
       apiBaseUrl: "https://openrouter.ai/api/v1",
       apiKey: "sk-readme-openrouter",
-      model: "anthropic/claude-sonnet-4",
+      model: "anthropic/claude-sonnet-5",
       providerPresetId: "openrouter",
       temperature: 0.3
     }),
@@ -232,28 +232,29 @@ Lead with product value, keep claims accurate, and make install steps feel easy.
   ],
   memories: [
     {
-      category: "work" as const,
-      content: "The public launch needs a feature-led README and proof screenshots before release.",
-      pinned: true
-    },
-    {
       category: "preference" as const,
-      content: "Prefer short summaries with explicit owners, dates, and rollback notes.",
+      content:
+        "Prefers short, direct answers. Lead with the answer, then the reasoning, and include a code example instead of a long explanation.",
       pinned: true
     },
     {
-      category: "personal" as const,
-      content: "Comfortable approving infra changes once Docker and restore steps are documented.",
-      pinned: false
+      category: "work" as const,
+      content: "Works on a small backend team. Mostly Python and Postgres, deployed with Docker.",
+      pinned: true
     },
     {
       category: "location" as const,
-      content: "Primary overlap is Toronto mornings and Abuja afternoons.",
+      content: "Works across time zones, so always confirm which one before suggesting a time.",
+      pinned: false
+    },
+    {
+      category: "personal" as const,
+      content: "Learning Spanish and likes being corrected when writing it.",
       pinned: false
     },
     {
       category: "other" as const,
-      content: "Keep image generation labeled as coming at launch until it lands on main.",
+      content: "Allergic to shellfish, so leave it out of any recipe suggestions.",
       pinned: false
     }
   ],
@@ -671,7 +672,7 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     conversationId: secondaryConversation.id,
     role: "assistant",
     content:
-      "Fallback order: OpenAI GPT-5 for primary responses, OpenRouter Claude Sonnet 4 for long-form reasoning, Local Ollama Qwen3 for internal-only workflows, and GitHub Copilot for coding-heavy tasks."
+      "Fallback order: OpenAI GPT-5 for primary responses, OpenRouter Claude Sonnet 5 for long-form reasoning, Local Ollama Qwen3 for internal-only workflows, and GitHub Copilot for coding-heavy tasks."
   });
 
   const automation = createAutomation(
@@ -1093,7 +1094,7 @@ The only gap is a mobile providers screen with the admin controls visible. Every
     conversationId: memoriesConversation.id,
     role: "user",
     content:
-      "Let's get you set up. I self-host everything, I route through OpenRouter by default, and my team works Toronto mornings / Abuja afternoons. Keep responses short with explicit owners."
+      "Quick setup for you: I'm a backend dev, mostly Python and Postgres. My team is spread across time zones. Keep answers short and give me a code example rather than a wall of text."
   });
 
   const memoriesReply = createMessage({
@@ -1114,8 +1115,8 @@ The only gap is a mobile providers screen with the admin controls visible. Every
     kind: "create_memory",
     status: "completed",
     label: "Saved memory",
-    detail: "Stored the preference for self-hosted deployments and OpenRouter (anthropic/claude-sonnet-4) as the default provider.",
-    resultSummary: "Preference · self-hosted + OpenRouter default",
+    detail: "Stored the answer style: lead with the answer, keep it short, and include a code example instead of a long explanation.",
+    resultSummary: "Preference · short answers with a code example",
     sortOrder: 1
   });
   markCompletedAction(memoryActionOne.id);
@@ -1125,8 +1126,8 @@ The only gap is a mobile providers screen with the admin controls visible. Every
     kind: "create_memory",
     status: "completed",
     label: "Saved memory",
-    detail: "Stored the working-hours overlap as Toronto mornings and Abuja afternoons, so scheduling suggestions respect the team's overlap window.",
-    resultSummary: "Location · Toronto mornings / Abuja afternoons",
+    detail: "Noted that the team spans time zones, so any suggested time should name the zone explicitly.",
+    resultSummary: "Location · spans time zones",
     sortOrder: 2
   });
   markCompletedAction(memoryActionTwo.id);
@@ -1136,8 +1137,8 @@ The only gap is a mobile providers screen with the admin controls visible. Every
     kind: "create_memory",
     status: "completed",
     label: "Saved memory",
-    detail: "Stored the communication preference: short summaries with explicit owners, dates, and rollback notes.",
-    resultSummary: "Preference · concise summaries with owners",
+    detail: "Stored the stack as Python and Postgres deployed with Docker, so examples match what you actually run.",
+    resultSummary: "Work · Python, Postgres, Docker",
     sortOrder: 3
   });
   markCompletedAction(memoryActionThree.id);

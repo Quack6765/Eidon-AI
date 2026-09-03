@@ -206,7 +206,7 @@ shot "desktop-mermaid.png"        "/chat/$VISUALS_MERMAID_CONV_ID"              
 shot "desktop-code.png"           "/chat/$VISUALS_CODE_CONV_ID"                        "token-bucket limiter"  sidebar top
 shot "desktop-providers.png"      "/settings/providers"                                "OpenRouter"
 shot "desktop-mcp.png"            "/settings/mcp-servers"                              "Linear Cloud"          sidebar "pick:Linear Cloud"
-shot "desktop-memories.png"       "/settings/memories"                                 "Toronto mornings"      sidebar "pick:Primary overlap is Toronto"
+shot "desktop-memories.png"       "/settings/memories"                                 "Prefers short, direct"  sidebar "pick:Prefers short, direct answers"
 
 echo "==> Deep research pre-flight (driven through the composer)..."
 capture_research_plan() {
