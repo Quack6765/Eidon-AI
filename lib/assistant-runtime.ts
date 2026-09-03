@@ -10,6 +10,7 @@ import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-promp
 import { supportsImageInput } from "@/lib/model-capabilities";
 import { getProviderApiMode } from "@/lib/provider-profile";
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
+import { isBotWorkspaceSkillId } from "./bot-workspace-skills";
 import { type ToolSet, buildToolDefinitions, mcpToolFunctionName } from "./tool-definitions";
 import { type RuntimeAction, type SuccessfulReadOnlyToolResult, buildToolResultMessage, isProposalToolCall, executeToolCall } from "./tool-executors";
 import type {
@@ -105,12 +106,28 @@ function buildCapabilitiesStableSegment(
   return lines.join("\n");
 }
 
-function buildDynamicSkillsSegment(skills: Skill[]) {
-  if (!skills.length) return "";
-  const lines = ["Available skills (metadata only — call load_skill to get full instructions):"];
-  for (const skill of skills) {
-    lines.push(`- ${getSkillResolvedName(skill)}: ${getSkillResolvedDescription(skill)}`);
+function buildDynamicSkillsSegment(skills: Skill[], saveSkillEnabled = false) {
+  if (!skills.length && !saveSkillEnabled) return "";
+
+  const lines: string[] = [];
+
+  if (skills.length) {
+    lines.push("Available skills (metadata only — call load_skill to get full instructions):");
+    for (const skill of skills) {
+      const marker = isBotWorkspaceSkillId(skill.id) ? " (workspace)" : "";
+      lines.push(`- ${getSkillResolvedName(skill)}${marker}: ${getSkillResolvedDescription(skill)}`);
+    }
+    if (saveSkillEnabled) {
+      lines.push(
+        "Skills marked (workspace) are your own — create or update reusable skills with the save_skill tool."
+      );
+    }
+  } else {
+    lines.push(
+      "No skills are available yet. You can create your own reusable skills with the save_skill tool; saved skills become available via load_skill in future turns."
+    );
   }
+
   return lines.join("\n");
 }
 
@@ -351,6 +368,7 @@ export async function resolveAssistantTurn(input: {
     isChief: boolean;
     roster: import("@/lib/bots").BotRosterEntry[];
   };
+  botWorkspaceSkillsEnabled?: boolean;
 }) {
   const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
   const maxSteps = input.appSettings?.maxAssistantToolSteps ?? MAX_ASSISTANT_CONTROL_STEPS;
@@ -437,7 +455,6 @@ export async function resolveAssistantTurn(input: {
       )
     );
   }
-  const dynamicSkillsGuidance = buildDynamicSkillsSegment(turnSkills);
   if (shouldAddInlineAttachmentDirective(promptMessages)) {
     promptMessages = mergeSystemMessage(promptMessages, INLINE_ATTACHMENT_DIRECTIVE);
   }
@@ -495,6 +512,7 @@ export async function resolveAssistantTurn(input: {
         input.visionProfile !== undefined &&
         !getProviderReadinessError(input.visionProfile),
       botTeam: input.botTeam,
+      botWorkspaceSkillsEnabled: input.botWorkspaceSkillsEnabled,
       semanticRecallAvailable: Boolean(input.memoryUserId) && isSemanticRecallAvailable()
     });
 
@@ -504,7 +522,7 @@ export async function resolveAssistantTurn(input: {
         settings: input.settings,
         visionMcpServers
       }),
-      dynamicSkillsGuidance
+      buildDynamicSkillsSegment(turnSkills, input.botWorkspaceSkillsEnabled)
     );
 
     const buildProviderStream = () =>
