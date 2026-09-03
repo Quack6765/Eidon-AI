@@ -53,6 +53,13 @@ function decryptLegacyCredential(value: string | null | undefined) {
   }
 }
 
+function runLoggedDataMigration(db: Database.Database, label: string, runMigration: (db: Database.Database) => void) {
+  console.log(`[db] ${label}...`);
+  const startedAt = Date.now();
+  runMigration(db);
+  console.log(`[db] ${label} done in ${Date.now() - startedAt}ms`);
+}
+
 function migrateProviderConnectionStorage(db: Database.Database) {
   if (!tableExists(db, "provider_profile_connections")) return;
   const columns = db.prepare("PRAGMA table_info(provider_profile_connections)").all() as Array<{
@@ -60,6 +67,8 @@ function migrateProviderConnectionStorage(db: Database.Database) {
   }>;
   if (!columns.some((column) => column.name === "provider_kind")) return;
 
+  console.log("[db] Migrating provider connection storage...");
+  const startedAt = Date.now();
   db.pragma("foreign_keys = OFF");
   try {
     const transaction = db.transaction(() => {
@@ -89,6 +98,7 @@ function migrateProviderConnectionStorage(db: Database.Database) {
   } finally {
     db.pragma("foreign_keys = ON");
   }
+  console.log(`[db] Provider connection storage migration done in ${Date.now() - startedAt}ms`);
 }
 
 function migrateProviderRequestConfiguration(db: Database.Database) {
@@ -143,6 +153,8 @@ function migrateProviderStorage(db: Database.Database) {
     return;
   }
 
+  console.log("[db] Migrating provider storage from legacy schema...");
+  const legacyStartedAt = Date.now();
   const rows = db.prepare("SELECT * FROM provider_profiles").all() as Array<Record<string, unknown>>;
   const flowRows = tableExists(db, "mobile_github_oauth_flows")
     ? db.prepare("SELECT * FROM mobile_github_oauth_flows").all() as Array<Record<string, unknown>>
@@ -343,6 +355,7 @@ function migrateProviderStorage(db: Database.Database) {
     SET compaction_threshold = 0.8
     WHERE ABS(compaction_threshold - 0.78) < 0.000001
   `).run();
+  console.log(`[db] Provider storage migration done in ${Date.now() - legacyStartedAt}ms`);
 }
 
 function migrateIntegrationSettings(db: Database.Database) {
@@ -688,6 +701,8 @@ function migrateCompactionEventsTable(db: Database.Database) {
     return;
   }
 
+  console.log("[db] Rebuilding compaction events table...");
+  const startedAt = Date.now();
   const transaction = db.transaction(() => {
     db.exec("DROP TABLE IF EXISTS compaction_events_new");
     db.exec(COMPACTION_EVENTS_TABLE_SQL.replace("compaction_events", "compaction_events_new"));
@@ -792,6 +807,7 @@ function migrateCompactionEventsTable(db: Database.Database) {
   });
 
   transaction.immediate();
+  console.log(`[db] Compaction events rebuild done in ${Date.now() - startedAt}ms`);
 }
 
 export function reconcileInterruptedRuntimeState(
@@ -856,11 +872,20 @@ export function reconcileInterruptedRuntimeState(
 }
 
 export function migrate(db: Database.Database) {
+  const isFreshDatabase = !tableExists(db, "users");
+  if (isFreshDatabase) {
+    console.log("[db] Initializing new database");
+  }
+  const migrationStartedAt = Date.now();
+  console.log("[db] Running database migrations...");
   const needsLegacySettingsMigration = !(
     tableExists(db, "global_preferences") &&
     tableExists(db, "user_preferences") &&
     tableExists(db, "integration_settings")
   );
+  if (needsLegacySettingsMigration) {
+    console.log("[db] Migrating legacy settings storage (app_settings/user_settings)");
+  }
   db.exec(`
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS users (
@@ -1340,10 +1365,21 @@ export function migrate(db: Database.Database) {
   if (!automationCols.some((col) => col.name === "bot_id")) {
     db.exec("ALTER TABLE automations ADD COLUMN bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL");
   }
+  if (!automationCols.some((col) => col.name === "research")) {
+    db.exec("ALTER TABLE automations ADD COLUMN research INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!automationCols.some((col) => col.name === "run_timeout_minutes")) {
+    db.exec("ALTER TABLE automations ADD COLUMN run_timeout_minutes INTEGER");
+  }
   if (!automationCols.some((col) => col.name === "continue_previous_conversation")) {
     db.exec(
       "ALTER TABLE automations ADD COLUMN continue_previous_conversation INTEGER NOT NULL DEFAULT 0"
     );
+  }
+
+  const botCols = db.prepare("PRAGMA table_info(bots)").all() as Array<{ name: string }>;
+  if (!botCols.some((col) => col.name === "pending_input_seen_at")) {
+    db.exec("ALTER TABLE bots ADD COLUMN pending_input_seen_at TEXT");
   }
 
   db.exec(`
@@ -1932,8 +1968,8 @@ export function migrate(db: Database.Database) {
 
   migrateProviderStorage(db);
   if (needsLegacySettingsMigration) {
-    migrateIntegrationSettings(db);
-    migratePreferenceStorage(db);
+    runLoggedDataMigration(db, "Migrating integration settings", migrateIntegrationSettings);
+    runLoggedDataMigration(db, "Migrating preference storage", migratePreferenceStorage);
   }
   normalizeIntegrationSettingsStorage(db);
   consolidateGlobalIntegrationSettings(db);
@@ -1990,6 +2026,7 @@ export function migrate(db: Database.Database) {
     db.exec("ALTER TABLE user_memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
   }
 
+  const hadSemanticChunksTable = tableExists(db, "semantic_chunks");
   db.exec(`
     CREATE TABLE IF NOT EXISTS semantic_chunks (
       id TEXT PRIMARY KEY,
@@ -2025,6 +2062,10 @@ export function migrate(db: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_semantic_chunks_memory_node ON semantic_chunks(memory_node_id);
     CREATE INDEX IF NOT EXISTS idx_semantic_chunks_attachment ON semantic_chunks(attachment_id);
   `);
+  if (!hadSemanticChunksTable) {
+    console.log("[db] Created semantic_chunks table");
+  }
+  console.log(`[db] Database migrations complete in ${Date.now() - migrationStartedAt}ms`);
 }
 
 export function backfillVisionMcpServers(db: Database.Database) {

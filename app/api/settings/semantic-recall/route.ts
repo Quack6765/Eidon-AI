@@ -16,6 +16,9 @@ export async function POST() {
   if (!getSettings().semanticRecallEnabled) {
     return badRequest("Semantic recall is disabled");
   }
-  void rebuildSemanticIndex().catch(() => undefined);
+  console.log(`[semantic-index] Rebuild requested by ${user.username}`);
+  void rebuildSemanticIndex().catch((error) => {
+    console.error("[semantic-index] Rebuild failed:", error instanceof Error ? error.message : error);
+  });
   return ok({ status: { ...getSemanticIndexStatus(), enabled: true } });
 }

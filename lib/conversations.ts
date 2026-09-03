@@ -1546,6 +1546,29 @@ export function deleteAssistantMessagesAndChildren(
   return snapshot;
 }
 
+export function deletePendingUserMessage(conversationId: string, messageId: string, userId?: string) {
+  const db = getDb();
+  const deletedAttachmentPaths = new Set<string>();
+  const deleted = db.transaction(() => {
+    const message = getMessage(messageId, userId);
+    if (!message || message.role !== "user" || message.conversationId !== conversationId) return false;
+    const latest = listMessages(conversationId).at(-1);
+    if (!latest || latest.id !== message.id) return false;
+
+    listAttachmentsForMessageIds([message.id]).forEach((attachment) => {
+      deletedAttachmentPaths.add(attachment.relativePath);
+    });
+    db.prepare("DELETE FROM message_actions WHERE message_id = ?").run(message.id);
+    db.prepare("DELETE FROM message_text_segments WHERE message_id = ?").run(message.id);
+    db.prepare("DELETE FROM message_attachments WHERE message_id = ?").run(message.id);
+    db.prepare("DELETE FROM messages WHERE id = ?").run(message.id);
+    return true;
+  })();
+
+  if (deleted) deleteAttachmentFiles([...deletedAttachmentPaths]);
+  return deleted;
+}
+
 export function deleteFailedAssistantMessages(conversationId: string): string[] {
   const failedMessages = listMessages(conversationId).filter(
     (message) => message.role === "assistant" && message.status === "error"

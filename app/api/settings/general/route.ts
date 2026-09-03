@@ -61,7 +61,13 @@ export async function PUT(request: Request) {
       disposeTitleModel();
     }
     if (body.data.semanticRecall?.enabled === true) {
-      void startSemanticIndex().catch(() => undefined);
+      console.log("[semantic-index] Enabled via settings - starting index");
+      void startSemanticIndex().catch((error) => {
+        console.error(
+          "[semantic-index] Failed to start index:",
+          error instanceof Error ? error.message : error
+        );
+      });
     } else if (body.data.semanticRecall) {
       stopSemanticIndex();
     }

@@ -49,7 +49,8 @@ import {
   updateBotRunStatus
 } from "@/lib/bot-runs";
 import { createAssistantContentPersistenceTracker as createAssistantContentPersistenceTrackerImpl, attachAssistantFilesFromCompletedAction as attachAssistantFilesFromCompletedActionImpl } from "./content-persistence";
-import type { ChatStreamEvent } from "@/lib/types";
+import { DEFAULT_RESEARCH_DEADLINE_MS } from "@/lib/constants";
+import type { ChatResearchOptions, ChatStreamEvent } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
 export { tokenizeShellCommand, isAgentBrowserToken } from "./shell-tokenizer";
@@ -75,6 +76,7 @@ export type StartChatTurn = (
     source?: "live" | "queue";
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
     botRun?: { record?: false; trigger?: "dm" | "delegated" | "routine" };
+    research?: ChatResearchOptions;
   }
 ) => Promise<ChatTurnResult>;
 
@@ -83,7 +85,7 @@ const globalEmitter = createEmitter<{
   status: [string, string];
 }>();
 
-const ACTIVE_TURN_ERROR_MESSAGE = "Conversation already has an active assistant turn";
+export const ACTIVE_TURN_ERROR_MESSAGE = "Conversation already has an active assistant turn";
 
 const createAssistantContentPersistenceTracker = createAssistantContentPersistenceTrackerImpl;
 const attachAssistantFilesFromCompletedAction = attachAssistantFilesFromCompletedActionImpl;
@@ -97,6 +99,7 @@ export async function* runAssistantTurn(input: {
   content: string;
   attachmentIds?: string[];
   personaId?: string;
+  research?: ChatResearchOptions;
   abortSignal?: AbortSignal;
 }): AsyncGenerator<ChatStreamEvent, ChatTurnResult> {
   const events: ChatStreamEvent[] = [];
@@ -125,7 +128,8 @@ export async function* runAssistantTurn(input: {
     input.conversationId,
     input.content,
     input.attachmentIds ?? [],
-    input.personaId
+    input.personaId,
+    { research: input.research }
   ).then((result) => {
     if (result.status === "failed" || result.status === "skipped") {
       events.push({ type: "error", message: result.errorMessage ?? "Unable to start assistant turn" });
@@ -224,20 +228,35 @@ type AssistantTurnStartReady = Extract<
   { ok: true }
 >;
 
+function createUserMessage(input: { conversationId: string; content: string; attachmentIds: string[] }) {
+  const userMessage = createMessage({
+    conversationId: input.conversationId,
+    role: "user",
+    content: input.content,
+    estimatedTokens: estimateTextTokens(input.content)
+  });
+
+  bindAttachmentsToMessage(input.conversationId, userMessage.id, input.attachmentIds);
+  return userMessage;
+}
+
+export function createPendingUserMessage(input: {
+  conversationId: string;
+  content: string;
+  attachmentIds: string[];
+}) {
+  const userMessage = getDb().transaction(() => createUserMessage(input))();
+  void generateConversationTitleFromFirstUserMessage(input.conversationId, userMessage.id);
+  return userMessage;
+}
+
 export function createChatTurnMessages(input: {
   conversationId: string;
   content: string;
   attachmentIds: string[];
 }) {
   const createMessages = getDb().transaction(() => {
-    const userMessage = createMessage({
-      conversationId: input.conversationId,
-      role: "user",
-      content: input.content,
-      estimatedTokens: estimateTextTokens(input.content)
-    });
-
-    bindAttachmentsToMessage(input.conversationId, userMessage.id, input.attachmentIds);
+    const userMessage = createUserMessage(input);
 
     const assistantMessage = createMessage({
       conversationId: input.conversationId,
@@ -264,6 +283,7 @@ async function startAssistantTurn(
     userMessageId?: string;
     assistantMessage?: ReturnType<typeof createMessage>;
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
+    research?: ChatResearchOptions;
   }
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
@@ -290,6 +310,9 @@ async function startAssistantTurn(
   let latestThinking = "";
   let sawStreamedAnswerSinceLastSegment = false;
   const runningActionHandles = new Set<string>();
+  const researchDeadline = options?.research
+    ? setTimeout(() => requestStop(conversationId), options.research.deadlineMs ?? DEFAULT_RESEARCH_DEADLINE_MS)
+    : null;
 
   try {
     const assistantMessage =
@@ -405,6 +428,7 @@ async function startAssistantTurn(
       assistantMessageId: assistantMessage.id,
       botTeam,
       botWorkspaceSkillsEnabled: appSettings.skillsEnabled && Boolean(bot),
+      research: options?.research,
       async onEvent(event: ChatStreamEvent) {
         manager.broadcast(conversationId, {
           type: "delta",
@@ -650,6 +674,7 @@ async function startAssistantTurn(
       };
     }
   } finally {
+    if (researchDeadline) clearTimeout(researchDeadline);
     releaseChatTurnStart(conversationId, control);
     if (started) {
       setConversationActive(conversation.id, false);
@@ -683,6 +708,7 @@ export async function startAssistantTurnFromExistingUserMessage(
   options?: {
     control?: ChatTurnControl;
     preflight?: AssistantTurnStartReady;
+    research?: ChatResearchOptions;
   }
 ): Promise<ChatTurnResult> {
   const message = getMessage(messageId);
@@ -719,7 +745,9 @@ export async function startAssistantTurnFromExistingUserMessage(
     return { status: "failed", errorMessage: ACTIVE_TURN_ERROR_MESSAGE };
   }
 
-  return startAssistantTurn(manager, conversationId, preflight, claimed.control, personaId);
+  return startAssistantTurn(manager, conversationId, preflight, claimed.control, personaId, {
+    research: options?.research
+  });
 }
 
 export async function startChatTurn(
@@ -732,6 +760,7 @@ export async function startChatTurn(
     source?: "live" | "queue";
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
     botRun?: { record?: false; trigger?: "dm" | "delegated" | "routine" };
+    research?: ChatResearchOptions;
   }
 ): Promise<ChatTurnResult> {
   const preflight = getAssistantTurnStartPreflight(conversationId);
@@ -798,7 +827,8 @@ export async function startChatTurn(
     const result = await startAssistantTurn(manager, conversationId, preflight, claimed.control, personaId, {
       userMessageId: userMessage.id,
       assistantMessage,
-      onMessagesCreated: options?.onMessagesCreated
+      onMessagesCreated: options?.onMessagesCreated,
+      research: options?.research
     });
     finalizeBotRun(result);
     return result;

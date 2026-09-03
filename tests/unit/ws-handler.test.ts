@@ -648,6 +648,81 @@ describe("ws-handler", () => {
     expect(error).toBeDefined();
   });
 
+  it("forwards a validated research payload to startChatTurn", async () => {
+    const { verifySessionToken } = await import("@/lib/auth");
+    (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });
+
+    const { getConversationSnapshot, listActiveConversations } = await import("@/lib/conversations");
+    (listActiveConversations as ReturnType<typeof vi.fn>).mockReturnValue([]);
+    (getConversationSnapshot as ReturnType<typeof vi.fn>).mockReturnValue({
+      conversation: { id: "conv-1", title: "Test", is_active: false },
+      messages: [],
+      queuedMessages: []
+    });
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    (startChatTurn as ReturnType<typeof vi.fn>).mockResolvedValue({ status: "completed" });
+
+    const mockMgr = {
+      addConnection: vi.fn().mockReturnValue(true),
+      removeConnection: vi.fn(),
+      subscribe: vi.fn(),
+      unsubscribe: vi.fn(),
+      disconnect: vi.fn(),
+      broadcast: vi.fn(),
+      broadcastAll: vi.fn(),
+      hasSubscribers: vi.fn().mockReturnValue(true),
+      setActive: vi.fn(),
+      isActive: vi.fn().mockReturnValue(false),
+      getActiveConversationIds: vi.fn().mockReturnValue([])
+    };
+    vi.doMock("@/lib/ws-singleton", () => ({ getConversationManager: () => mockMgr }));
+
+    const { handleConnection } = await import("@/lib/ws-handler");
+    const messageHandlers: Array<(data: string) => void> = [];
+    const ws = {
+      readyState: 1,
+      send: vi.fn(),
+      close: vi.fn(),
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+        if (event === "message") messageHandlers.push((d: string) => handler(d));
+      })
+    } as unknown as WebSocket;
+
+    await handleConnection(ws, "session=valid-token");
+
+    messageHandlers.forEach((handler) =>
+      handler(JSON.stringify({
+        type: "message",
+        conversationId: "conv-1",
+        content: "research this",
+        research: { plan: ["Find sources", "Compare them"] }
+      }))
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(startChatTurn).toHaveBeenCalledWith(
+      mockMgr,
+      "conv-1",
+      "research this",
+      [],
+      undefined,
+      expect.objectContaining({ research: { plan: ["Find sources", "Compare them"] } })
+    );
+
+    (startChatTurn as ReturnType<typeof vi.fn>).mockClear();
+    messageHandlers.forEach((handler) =>
+      handler(JSON.stringify({
+        type: "message",
+        conversationId: "conv-1",
+        content: "research this",
+        research: { plan: Array.from({ length: 13 }, () => "step") }
+      }))
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(startChatTurn).not.toHaveBeenCalled();
+  });
+
   it("broadcasts user_message_persisted when startChatTurn fires onMessagesCreated and snapshot contains the message", async () => {
     const { verifySessionToken } = await import("@/lib/auth");
     (verifySessionToken as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: "user-1" });

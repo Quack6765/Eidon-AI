@@ -25,7 +25,7 @@ import {
 import { referencesEarlierImageInChat } from "@/lib/image-generation/follow-up-context";
 import { buildToolResultMessage } from "@/lib/tool-executors";
 import { ChatTurnStoppedError } from "@/lib/chat-turn-control";
-import { estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
+import { computeCompactionLimit, estimateMessageTokens, estimatePromptTokens, estimateTextTokens } from "@/lib/tokenization";
 import { commitLeafCompaction, commitMergedCompaction, getActiveMemoryNodes, getRenderableMemoryNodes, insertCompactionEvent, insertMemoryNode, renderMemoryNode, supersedeNodes } from "./compaction-memory-nodes";
 import { getVisibleConversationMessages, getLatestVisibleUserMessage, getFreshConversationMessages, getCompactionEligibleMessages } from "./compaction-message-slicing";
 import { buildSummaryPrompt, summarizeBlocks, buildUserPromptContent, getLatestUserMessageIndex, getMostRecentAssistantImageAttachments } from "./compaction-prompt-building";
@@ -354,12 +354,6 @@ export function buildPromptMessages(input: {
   }
 
   return promptMessages;
-}
-
-function computeCompactionLimit(settings: RuntimeProviderProfile): number {
-  const allowedPromptTokens =
-    settings.modelContextLimit - settings.maxOutputTokens - settings.safetyMarginTokens;
-  return Math.floor(allowedPromptTokens * settings.compactionThreshold);
 }
 
 function computeFirstPassContext(

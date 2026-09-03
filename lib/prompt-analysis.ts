@@ -104,7 +104,11 @@ export function hasRecentAssistantImageContext(promptMessages: PromptMessage[]) 
   return false;
 }
 
-export function filterSkillsForTurn(skills: Skill[], promptMessages: PromptMessage[]) {
+export function filterSkillsForTurn(
+  skills: Skill[],
+  promptMessages: PromptMessage[],
+  options: { includeBrowserSkills?: boolean } = {}
+) {
   const latestUserContent = getLatestUserPromptContent(promptMessages).toLowerCase();
 
   return skills.filter((skill) => {
@@ -121,8 +125,13 @@ export function filterSkillsForTurn(skills: Skill[], promptMessages: PromptMessa
       return true;
     }
 
-    if (URLISH_PATTERN.test(latestUserContent) || SHELL_SKILL_INTENT_PATTERN.test(latestUserContent)) {
-      return resolvedName.includes("browser") || resolvedDescription.includes("browser");
+    const isBrowserSkill = resolvedName.includes("browser") || resolvedDescription.includes("browser");
+    if (
+      options.includeBrowserSkills ||
+      URLISH_PATTERN.test(latestUserContent) ||
+      SHELL_SKILL_INTENT_PATTERN.test(latestUserContent)
+    ) {
+      return isBrowserSkill;
     }
 
     return false;

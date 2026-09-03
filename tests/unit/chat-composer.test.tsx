@@ -292,6 +292,50 @@ describe("ChatComposer responsive controls", () => {
     );
   });
 
+  it("offers a deep research button beside the reasoning effort control", () => {
+    const onResearchChange = vi.fn();
+
+    const { rerenderComposer } = renderComposer({ onResearchChange });
+
+    const researchButton = screen.getByRole("button", { name: "Deep research" });
+    expect(researchButton).toHaveAttribute("aria-pressed", "false");
+    expect(researchButton.parentElement).toBe(
+      screen.getByRole("button", { name: "Reasoning effort" }).parentElement?.parentElement
+    );
+
+    fireEvent.click(researchButton);
+    expect(onResearchChange).toHaveBeenCalledWith(true);
+
+    rerenderComposer({ onResearchChange, isResearch: true });
+    expect(screen.getByRole("button", { name: "Deep research" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Deep research" })).toHaveClass("text-[var(--accent)]");
+
+    rerenderComposer({ onResearchChange, isResearch: true, isSending: true });
+    expect(screen.getByRole("button", { name: "Deep research" })).toBeDisabled();
+  });
+
+  it("hides the deep research button when no handler is provided", () => {
+    renderComposer();
+
+    expect(screen.queryByRole("button", { name: "Deep research" })).toBeNull();
+  });
+
+  it("exposes deep research in the mobile tools menu", async () => {
+    installMatchMedia(true);
+    const onResearchChange = vi.fn();
+
+    renderComposer({ compactOnMobile: true, onResearchChange, isResearch: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "Open composer tools" }));
+
+    const researchRow = await screen.findByRole("button", { name: "Deep research" });
+    expect(researchRow).toHaveAttribute("aria-pressed", "true");
+    expect(researchRow).toHaveTextContent("On for the next message");
+
+    fireEvent.click(researchRow);
+    expect(onResearchChange).toHaveBeenCalledWith(false);
+  });
+
   it("keeps model, persona, and context usage available in the mobile menu", async () => {
     installMatchMedia(true);
     const onProviderProfileChange = vi.fn();

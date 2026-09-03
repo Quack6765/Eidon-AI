@@ -5,7 +5,15 @@ import { getWebSearchPipeline } from "@/lib/web-search-catalog";
 import { streamProviderResponse } from "@/lib/provider";
 import { getProviderAdapter, getProviderReadinessError } from "@/lib/provider-adapters";
 import { withStreamRetry } from "@/lib/provider-retry";
-import { MAX_ASSISTANT_CONTROL_STEPS } from "@/lib/constants";
+import { MAX_ASSISTANT_CONTROL_STEPS, RESEARCH_CONTEXT_COLLAPSE_RATIO } from "@/lib/constants";
+import {
+  RESEARCH_FINAL_ANSWER_DIRECTIVE,
+  buildResearchDirective,
+  collapseOlderToolResults,
+  formatResearchPlan,
+  resolveResearchStepBudget
+} from "@/lib/research-mode";
+import { computeCompactionLimit, estimatePromptTokens } from "@/lib/tokenization";
 import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
 import { supportsImageInput } from "@/lib/model-capabilities";
 import { getProviderApiMode } from "@/lib/provider-profile";
@@ -42,7 +50,7 @@ const IMAGE_TOOL_LATEST_REQUEST_DIRECTIVE =
 const IMAGE_TOOL_POST_SUCCESS_DIRECTIVE =
   "Image generation is available in this environment and a generated image is already attached in this turn. Do not claim that image generation is unavailable. Refer to the generated image result directly, do not call generate_image again in this turn, and do not embed markdown image tags or local file links in your response.";
 const WEB_SEARCH_RESULTS_SUFFICIENT_DIRECTIVE =
-  "Web search results have been received in this turn. Answer the user now by synthesizing the results above. Only call web_search again if the results clearly cannot answer the question — never to re-run or refine similar queries, and never for additional confirmation. Users wait while you search, so prefer answering from what you already have.";
+  "Web search results have been received in this turn. Answer the user now by synthesizing the results above, or call read_page on the most relevant result URLs when the snippets are insufficient. Only call web_search again if the results clearly cannot answer the question — never to re-run or refine similar queries, and never for additional confirmation. Users wait while you search, so prefer answering from what you already have.";
 const IMAGE_TOOL_REQUIRED_DIRECTIVE =
   "The latest user request requires generating a new image. Do not claim that an image was generated unless you call generate_image in this response. Call generate_image now.";
 const INLINE_ATTACHMENT_DIRECTIVE =
@@ -78,11 +86,14 @@ function buildCapabilitiesStableSegment(
     "",
     "Skills-first behavior: before choosing an approach for any task, review the available skills provided this turn.",
     "If a skill matches the task, use it instead of a raw tool or command.",
-    "For example, when navigating to a website, use the agent-browser skill (full browser with JS rendering) instead of curl or webfetch.",
+    "For example, to read the content of a web page call the read_page tool first (fast, returns the page as Markdown); use the agent-browser skill (full browser with JS rendering) only for pages that need JavaScript, login, or interaction, or when read_page could not fetch the page. Never fetch pages with curl or shell commands.",
     "Skills provide purpose-built workflows that are more effective than ad-hoc commands."
   );
 
   lines.push("", "Use available tools proactively when they would improve your answer.");
+  lines.push(
+    "Page reading guidance: when you need the contents of a specific URL (a search result, a link the user shared, documentation), call read_page. Read several URLs by issuing multiple read_page calls in the same step; they run in parallel. Pass a smaller max_chars when you only need an overview."
+  );
   lines.push("Do not call the same read-only tool repeatedly once you already have a successful result for it in the current turn.");
   lines.push("If a tool call fails because of invalid arguments, correct the arguments and retry at most once.");
 
@@ -274,15 +285,18 @@ async function forceDirectAnswerAfterToolLoop(input: {
   settings: RuntimeProviderProfile;
   promptMessages: PromptMessage[];
   visionMcpServers?: McpServer[];
+  conversationId?: string;
   abortSignal?: AbortSignal;
   enableStreamRetry?: boolean;
   onEvent?: (event: ChatStreamEvent) => void;
   onAnswerSegment?: (segment: string) => Promise<void> | void;
+  directive?: string;
 }) {
   const providerPromptMessages = prepareProviderPromptMessages({
     promptMessages: mergeSystemMessage(
       input.promptMessages,
-      "Stop using tools now. Answer the user directly from the information already gathered. Do not call any more tools."
+      input.directive ??
+        "Stop using tools now. Answer the user directly from the information already gathered. Do not call any more tools."
     ),
     settings: input.settings,
     visionMcpServers: input.visionMcpServers
@@ -292,6 +306,7 @@ async function forceDirectAnswerAfterToolLoop(input: {
     streamProviderResponse({
       settings: input.settings,
       promptMessages: providerPromptMessages,
+      conversationId: input.conversationId,
       abortSignal: input.abortSignal
     });
   const providerStream =
@@ -369,9 +384,14 @@ export async function resolveAssistantTurn(input: {
     roster: import("@/lib/bots").BotRosterEntry[];
   };
   botWorkspaceSkillsEnabled?: boolean;
+  research?: import("@/lib/types").ChatResearchOptions;
 }) {
   const mcpServers = input.mcpServers ?? input.mcpToolSets.map((e) => e.server);
-  const maxSteps = input.appSettings?.maxAssistantToolSteps ?? MAX_ASSISTANT_CONTROL_STEPS;
+  const baseSteps = input.appSettings?.maxAssistantToolSteps ?? MAX_ASSISTANT_CONTROL_STEPS;
+  const maxSteps = input.research ? resolveResearchStepBudget(baseSteps) : baseSteps;
+  const researchCollapseThreshold = input.research
+    ? Math.floor(computeCompactionLimit(input.settings) * RESEARCH_CONTEXT_COLLAPSE_RATIO)
+    : null;
 
   const assertRunning = () => {
     input.throwIfStopped?.();
@@ -400,7 +420,9 @@ export async function resolveAssistantTurn(input: {
     }
   }
 
-  const turnSkills = filterSkillsForTurn(input.skills, promptMessages);
+  const turnSkills = filterSkillsForTurn(input.skills, promptMessages, {
+    includeBrowserSkills: Boolean(input.research)
+  });
   const toolRuntimeInput = {
     ...input,
     skills: turnSkills
@@ -408,7 +430,7 @@ export async function resolveAssistantTurn(input: {
   const loadedSkillIds = new Set<string>();
   const successfulReadOnlyToolResults = new Map<string, SuccessfulReadOnlyToolResult>();
 
-  const parallelizableToolNames = new Set<string>(["web_search", "message_bot"]);
+  const parallelizableToolNames = new Set<string>(["web_search", "read_page", "message_bot"]);
   let webSearchDirectiveAdded = false;
   for (const { server, tools } of input.mcpToolSets) {
     if (server.isVisionMcp && effectiveVisionMode !== "mcp") continue;
@@ -468,6 +490,16 @@ export async function resolveAssistantTurn(input: {
 
   let timelineSortOrder = 0;
 
+  if (input.research) {
+    promptMessages = mergeSystemMessage(promptMessages, buildResearchDirective(input.research.plan));
+    if (input.research.plan?.length) {
+      const detail = formatResearchPlan(input.research.plan);
+      const handle = await input.onActionStart?.({ kind: "research_plan", label: "Research plan", detail });
+      timelineSortOrder += 1;
+      await input.onActionComplete?.(typeof handle === "string" ? handle : undefined, { detail });
+    }
+  }
+
   const commitAnswerSegment = async (segment: string) => {
     if (!segment) return;
     if (input.onAnswerSegment) {
@@ -477,6 +509,10 @@ export async function resolveAssistantTurn(input: {
 
   for (let step = 0; step < maxSteps; step += 1) {
     assertRunning();
+
+    if (researchCollapseThreshold !== null && estimatePromptTokens(promptMessages) > researchCollapseThreshold) {
+      promptMessages = collapseOlderToolResults(promptMessages);
+    }
 
     const restrictToGenerateImage =
       !imageGenerationToolConsumed &&
@@ -531,6 +567,7 @@ export async function resolveAssistantTurn(input: {
         promptMessages: providerPromptMessages,
         tools: tools.length ? tools : undefined,
         abortSignal: input.abortSignal,
+        conversationId: input.conversationId,
         runtimeToolContext: {
           settings: input.settings,
           visionProfile: input.visionProfile,
@@ -637,7 +674,7 @@ export async function resolveAssistantTurn(input: {
       Boolean(answer.trim()) &&
       toolCalls.every((toolCall) => isProposalToolCall(toolCall.name));
 
-    if (isProposalFinalStep) {
+    if (isProposalFinalStep || (input.research && answer.trim())) {
       await commitAnswerSegment(answer);
     } else {
       input.onEvent?.({ type: "answer_reset" });
@@ -660,10 +697,12 @@ export async function resolveAssistantTurn(input: {
         settings: input.settings,
         promptMessages,
         visionMcpServers,
+        conversationId: input.conversationId,
         abortSignal: input.abortSignal,
         enableStreamRetry: input.enableStreamRetry,
         onEvent: input.onEvent,
-        onAnswerSegment: input.onAnswerSegment
+        onAnswerSegment: input.onAnswerSegment,
+        directive: input.research ? RESEARCH_FINAL_ANSWER_DIRECTIVE : undefined
       });
 
       return { answer: forcedResult.answer, thinking: forcedResult.thinking, usage: forcedResult.usage };
@@ -716,7 +755,7 @@ export async function resolveAssistantTurn(input: {
         if (toolCalls[index].name !== "web_search") return false;
         return entry.status === "fulfilled" && Boolean((entry as PromiseFulfilledResult<{ toolSucceeded?: boolean }>).value.toolSucceeded);
       });
-      if (anyWebSearchSucceeded && !webSearchDirectiveAdded) {
+      if (anyWebSearchSucceeded && !webSearchDirectiveAdded && !input.research) {
         webSearchDirectiveAdded = true;
         promptMessages = mergeSystemMessage(promptMessages, WEB_SEARCH_RESULTS_SUFFICIENT_DIRECTIVE);
       }
@@ -746,7 +785,7 @@ export async function resolveAssistantTurn(input: {
         timelineSortOrder = result.nextSortOrder;
         promptMessages = result.promptMessages;
 
-        if (toolCall.name === "web_search" && result.toolSucceeded && !webSearchDirectiveAdded) {
+        if (toolCall.name === "web_search" && result.toolSucceeded && !webSearchDirectiveAdded && !input.research) {
           webSearchDirectiveAdded = true;
           promptMessages = mergeSystemMessage(promptMessages, WEB_SEARCH_RESULTS_SUFFICIENT_DIRECTIVE);
         }

@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { MAX_AUTOMATION_RUN_TIMEOUT_MINUTES } from "@/lib/constants";
+
 import { requireUser } from "@/lib/auth";
 import { deleteAutomation, getAutomation, updateAutomation } from "@/lib/automations";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
@@ -24,7 +26,9 @@ const updateSchema = z.object({
   timeOfDay: z.string().nullable().optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
   continuePreviousConversation: z.boolean().optional(),
-  enabled: z.boolean().optional()
+  enabled: z.boolean().optional(),
+  research: z.boolean().optional(),
+  runTimeoutMinutes: z.number().int().min(1).max(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES).nullable().optional()
 }).refine(
   (value) => Object.keys(value).length > 0,
   "Invalid automation update"

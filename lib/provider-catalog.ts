@@ -291,6 +291,10 @@ function normalizeApiBaseUrl(value: string) {
   return value.trim().replace(/\/+$/, "").toLowerCase();
 }
 
+export function isOpenCodeGoApiBaseUrl(apiBaseUrl: string) {
+  return normalizeApiBaseUrl(apiBaseUrl).startsWith("https://opencode.ai/zen/go");
+}
+
 function normalizeModelId(value: string) {
   const normalized = value.trim().toLowerCase();
   return normalized.includes("/")

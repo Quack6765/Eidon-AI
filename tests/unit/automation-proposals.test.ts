@@ -260,6 +260,66 @@ describe("automation proposal approval helpers", () => {
     );
   });
 
+  it("broadcasts a bot update when a bot-owned automation proposal is approved or dismissed", async () => {
+    const { createBot } = await import("@/lib/bots");
+    const { getConversationManager } = await import("@/lib/ws-singleton");
+    const manager = getConversationManager();
+
+    const events: Array<{ botId: string; waitingForInput: boolean }> = [];
+    const original = manager.broadcastAll;
+    manager.broadcastAll = (event: Parameters<typeof original>[0], _userId: string | null) => {
+      if (event.type === "bot_updated") {
+        events.push({ botId: event.bot.id, waitingForInput: event.bot.waitingForInput });
+      }
+    };
+
+    try {
+      const user = await createLocalUser({
+        username: "auto-bot-broadcast",
+        password: "Password123!",
+        role: "user"
+      });
+      const bot = createBot({ name: "Automation Bot" }, user.id);
+      const message = createMessage({
+        conversationId: bot.homeConversationId,
+        role: "assistant",
+        content: "",
+        thinkingContent: "",
+        status: "completed",
+        estimatedTokens: 0
+      });
+      const created = createMessageAction({
+        messageId: message.id,
+        kind: "create_automation",
+        status: "pending",
+        label: "Automation proposal",
+        proposalState: "pending",
+        proposalPayload: buildAutomationPayload()
+      });
+
+      dismissAutomationProposal(created.id, user.id);
+      expect(events).toEqual([{ botId: bot.id, waitingForInput: false }]);
+
+      const second = createMessageAction({
+        messageId: message.id,
+        kind: "create_automation",
+        status: "pending",
+        label: "Automation proposal",
+        proposalState: "pending",
+        proposalPayload: buildAutomationPayload({ name: "Evening brief" })
+      });
+
+      registerProviderProfile();
+      approveAutomationProposal(second.id, undefined, user.id);
+      expect(events).toEqual([
+        { botId: bot.id, waitingForInput: false },
+        { botId: bot.id, waitingForInput: false }
+      ]);
+    } finally {
+      manager.broadcastAll = original;
+    }
+  });
+
   it("rejects approval from a different user and creates nothing", async () => {
     const owner = await createUserConversationFixture("auto-approve-owner-2");
     const other = await createLocalUser({

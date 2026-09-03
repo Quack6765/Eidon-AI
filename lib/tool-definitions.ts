@@ -361,6 +361,26 @@ export function buildToolDefinitions(input: {
     });
   }
 
+  tools.push({
+    type: "function",
+    function: {
+      name: "read_page",
+      description:
+        "Fetch a web page by URL and return its main content as Markdown (bounded to 32,000 characters). Use it to read a specific page in full: a web_search result, a link the user shared, an article, or documentation. To read several pages, issue multiple read_page calls in the same step; they run in parallel. Works on static content only; for JavaScript-heavy, login-gated, or interactive pages use the agent-browser skill.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "Absolute http(s) URL of the page to read" },
+          max_chars: {
+            type: "number",
+            description: "Maximum characters to return (1000-32000, default 32000). Use a smaller value when you only need an overview."
+          }
+        },
+        required: ["url"]
+      }
+    }
+  });
+
   if (input.semanticRecallAvailable) {
     tools.push({
       type: "function",

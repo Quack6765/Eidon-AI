@@ -1,4 +1,5 @@
 import { createAutomation, type CreateAutomationInput } from "@/lib/automations";
+import { broadcastBotUpdateForMessage } from "@/lib/bot-runs";
 import { updateMessageAction } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getPersona } from "@/lib/personas";
@@ -204,6 +205,8 @@ export function approveAutomationProposal(
     throw new Error("Automation proposal not found");
   }
 
+  broadcastBotUpdateForMessage(action.messageId);
+
   return { action, automation };
 }
 
@@ -221,6 +224,8 @@ export function dismissAutomationProposal(actionId: string, userId?: string) {
   if (!action) {
     throw new Error("Automation proposal not found");
   }
+
+  broadcastBotUpdateForMessage(action.messageId);
 
   return action;
 }

@@ -105,6 +105,7 @@ user: ${latestUserRequest}`;
 export async function compileImageInstruction(input: {
   settings: RuntimeProviderProfile;
   promptMessages: PromptMessage[];
+  conversationId?: string;
   callProviderText?: typeof callProviderTextDefault;
   abortSignal?: AbortSignal;
 }): Promise<CompiledImageInstruction> {
@@ -114,6 +115,7 @@ export async function compileImageInstruction(input: {
     settings: input.settings,
     prompt,
     purpose: "image_instruction",
+    conversationId: input.conversationId,
     abortSignal: input.abortSignal
   });
 

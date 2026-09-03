@@ -272,4 +272,34 @@ describe("automations section", () => {
       personaId: null
     });
   });
+
+  it("saves the deep research flag and run timeout", async () => {
+    render(React.createElement(AutomationsSection));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Add automation" })).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Add automation" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Overnight research" } });
+    fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Research heat pumps" } });
+
+    const researchToggle = screen.getByLabelText(/Deep research/);
+    expect(researchToggle).not.toBeChecked();
+    fireEvent.click(researchToggle);
+    expect(screen.getByLabelText(/Deep research/)).toBeChecked();
+    expect(screen.getByLabelText("Run timeout (minutes)")).toHaveAttribute("placeholder", "240");
+
+    fireEvent.change(screen.getByLabelText("Run timeout (minutes)"), { target: { value: "300" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Automation saved.")).toBeInTheDocument();
+    });
+
+    expect(fetchState().lastPostBody).toMatchObject({
+      research: true,
+      runTimeoutMinutes: 300
+    });
+  });
 });

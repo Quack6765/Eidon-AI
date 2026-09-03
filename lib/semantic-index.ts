@@ -21,6 +21,14 @@ export const CHUNK_SIZE = 500;
 export const CHUNK_OVERLAP = 50;
 export const MAX_SOURCE_CHARS = 20_000;
 const BACKFILL_BATCH_SIZE = 32;
+const PROGRESS_LOG_INTERVAL_MS = 5000;
+
+const KIND_LOG_LABELS: Record<SemanticChunkKind, string> = {
+  memory: "memories",
+  message: "messages",
+  memory_node: "memory nodes",
+  attachment: "attachments"
+};
 
 export type ScoredChunk = {
   id: string;
@@ -183,9 +191,12 @@ function blobToVector(blob: Buffer) {
   return new Float32Array(copy.buffer);
 }
 
-async function indexBatch(kind: SemanticChunkKind, refIds: string[]) {
-  if (!refIds.length) return;
-  if (!(await awaitEmbeddingModel())) return;
+async function indexBatch(
+  kind: SemanticChunkKind,
+  refIds: string[]
+): Promise<{ sourcesIndexed: number; chunksWritten: number }> {
+  if (!refIds.length) return { sourcesIndexed: 0, chunksWritten: 0 };
+  if (!(await awaitEmbeddingModel())) return { sourcesIndexed: 0, chunksWritten: 0 };
 
   const modelId = getEmbeddingModelId();
   const sources = loadSources(kind, refIds);
@@ -215,11 +226,11 @@ async function indexBatch(kind: SemanticChunkKind, refIds: string[]) {
   }
 
   deleteSemanticChunks(kind, stale);
-  if (!pending.length) return;
+  if (!pending.length) return { sourcesIndexed: 0, chunksWritten: 0 };
 
   const flatChunks = pending.flatMap((entry) => entry.chunks);
   const vectors = await embedTexts(flatChunks);
-  if (!vectors || vectors.length !== flatChunks.length) return;
+  if (!vectors || vectors.length !== flatChunks.length) return { sourcesIndexed: 0, chunksWritten: 0 };
 
   const insert = getDb().prepare(
     `INSERT INTO semantic_chunks (
@@ -257,6 +268,8 @@ async function indexBatch(kind: SemanticChunkKind, refIds: string[]) {
     }
   });
   transaction();
+
+  return { sourcesIndexed: pending.length, chunksWritten: flatChunks.length };
 }
 
 function logIndexError(error: unknown) {
@@ -286,20 +299,79 @@ export function queueConversationIndex(conversationId: string) {
 
 let backfillPromise: Promise<void> | null = null;
 
+function countPendingNonMemorySources() {
+  let pendingCount = 0;
+  for (const kind of SEMANTIC_CHUNK_KINDS) {
+    if (kind === "memory") continue;
+    const alias = sourceAlias(kind);
+    const row = getDb()
+      .prepare(
+        `SELECT COUNT(*) AS count FROM (${sourceSql(kind, "1 = 1")}) ${alias}
+         LEFT JOIN semantic_chunks sc ON sc.kind = ? AND sc.ref_id = ${alias}.id AND sc.chunk_index = 0
+         WHERE sc.id IS NULL`
+      )
+      .get(kind) as { count: number };
+    pendingCount += row.count;
+  }
+  return pendingCount;
+}
+
+function countMemorySources() {
+  return (getDb().prepare("SELECT COUNT(*) AS count FROM user_memories").get() as { count: number }).count;
+}
+
 async function backfill() {
   if (!(await awaitEmbeddingModel())) return;
   getDb().prepare("DELETE FROM semantic_chunks WHERE model_id != ?").run(getEmbeddingModelId());
 
-  for (const kind of SEMANTIC_CHUNK_KINDS) {
+  const pendingCount = countPendingNonMemorySources();
+  const memoryCount = countMemorySources();
+  const totalEstimate = pendingCount + memoryCount;
+  if (!totalEstimate) {
+    console.log("[semantic-index] Index up to date - nothing to backfill");
+    return;
+  }
+
+  const startedAt = Date.now();
+  const totalLabel = totalEstimate.toLocaleString("en-US");
+  console.log(
+    `[semantic-index] Backfill started: ~${totalLabel} sources to index (${pendingCount.toLocaleString("en-US")} pending, ${memoryCount.toLocaleString("en-US")} memories)`
+  );
+
+  let processed = 0;
+  let sourcesIndexed = 0;
+  let chunksWritten = 0;
+  let lastProgressLogAt = startedAt;
+
+  for (let kindIndex = 0; kindIndex < SEMANTIC_CHUNK_KINDS.length; kindIndex += 1) {
+    const kind = SEMANTIC_CHUNK_KINDS[kindIndex];
+    console.log(
+      `[semantic-index] Indexing ${KIND_LOG_LABELS[kind]} (${kindIndex + 1}/${SEMANTIC_CHUNK_KINDS.length})...`
+    );
     let cursor = "";
     while (isEmbeddingModelReady()) {
       const ids = listSourceIds(kind, cursor, BACKFILL_BATCH_SIZE);
       if (!ids.length) break;
-      await indexBatch(kind, ids);
+      const result = await indexBatch(kind, ids);
+      processed += ids.length;
+      sourcesIndexed += result.sourcesIndexed;
+      chunksWritten += result.chunksWritten;
       cursor = ids[ids.length - 1];
+      if (Date.now() - lastProgressLogAt >= PROGRESS_LOG_INTERVAL_MS) {
+        lastProgressLogAt = Date.now();
+        const percent = Math.min(100, Math.round((processed / totalEstimate) * 100));
+        console.log(
+          `[semantic-index] Progress: ${processed.toLocaleString("en-US")}/~${totalLabel} sources, ${chunksWritten.toLocaleString("en-US")} chunks written (${percent}%)`
+        );
+      }
       await new Promise((resolve) => setImmediate(resolve));
     }
   }
+
+  const durationSeconds = ((Date.now() - startedAt) / 1000).toFixed(1);
+  console.log(
+    `[semantic-index] Backfill complete: ${sourcesIndexed.toLocaleString("en-US")} sources indexed, ${chunksWritten.toLocaleString("en-US")} chunks written in ${durationSeconds}s`
+  );
 }
 
 export function runSemanticBackfill(): Promise<void> {
@@ -327,25 +399,16 @@ export function stopSemanticIndex() {
 }
 
 export async function rebuildSemanticIndex() {
+  const chunkCount = (getDb().prepare("SELECT COUNT(*) AS count FROM semantic_chunks").get() as { count: number })
+    .count;
+  console.log(`[semantic-index] Rebuild requested - clearing ${chunkCount.toLocaleString("en-US")} chunks`);
   getDb().prepare("DELETE FROM semantic_chunks").run();
   await startSemanticIndex();
 }
 
 export function getSemanticIndexStatus() {
   const chunkCount = (getDb().prepare("SELECT COUNT(*) AS count FROM semantic_chunks").get() as { count: number }).count;
-  let pendingCount = 0;
-  for (const kind of SEMANTIC_CHUNK_KINDS) {
-    if (kind === "memory") continue;
-    const alias = sourceAlias(kind);
-    const row = getDb()
-      .prepare(
-        `SELECT COUNT(*) AS count FROM (${sourceSql(kind, "1 = 1")}) ${alias}
-         LEFT JOIN semantic_chunks sc ON sc.kind = ? AND sc.ref_id = ${alias}.id AND sc.chunk_index = 0
-         WHERE sc.id IS NULL`
-      )
-      .get(kind) as { count: number };
-    pendingCount += row.count;
-  }
+  const pendingCount = countPendingNonMemorySources();
   return {
     available: !isEmbeddingDisabled(),
     ready: isEmbeddingModelReady(),

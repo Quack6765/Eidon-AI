@@ -9,6 +9,7 @@ const nextConfig: NextConfig = {
     "@huggingface/transformers",
     "pdfjs-dist",
     "sherpa-onnx-node",
+    "undici",
     "ws"
   ],
   experimental: {

@@ -1,3 +1,4 @@
+import OpenAI from "openai";
 import type { ChatStreamEvent, RuntimeProviderProfile } from "@/lib/types";
 import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
 
@@ -1090,6 +1091,93 @@ describe("provider integration", () => {
 
     expect(chatCreate).toHaveBeenCalledOnce();
     expect(responsesCreate).not.toHaveBeenCalled();
+  });
+
+  it("sends the OpenCode session header with the conversation id for OpenCode Go streams", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([{ choices: [{ delta: { content: "done" } }] }])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        apiBaseUrl: "https://opencode.ai/zen/go/v1",
+        apiMode: "chat_completions",
+        model: "kimi-k2.6",
+        providerPresetId: "opencode_go"
+      }),
+      promptMessages: [{ role: "user", content: "Hello" }],
+      conversationId: "conv_session_1"
+    });
+
+    await stream.next();
+
+    expect(vi.mocked(OpenAI).mock.calls.at(-1)?.[0]).toMatchObject({
+      defaultHeaders: { "x-opencode-session": "conv_session_1" }
+    });
+  });
+
+  it("passes the conversation id through OpenCode Go text requests", async () => {
+    chatCreate.mockResolvedValue({ choices: [{ message: { content: "ok" } }] });
+
+    const { callProviderText } = await import("@/lib/provider");
+    await callProviderText({
+      settings: createSettings({
+        apiBaseUrl: "https://opencode.ai/zen/go/v1",
+        apiMode: "chat_completions",
+        model: "kimi-k2.6",
+        providerPresetId: "opencode_go"
+      }),
+      prompt: "Give this conversation a title",
+      purpose: "title",
+      conversationId: "conv_session_2"
+    });
+
+    expect(vi.mocked(OpenAI).mock.calls.at(-1)?.[0]).toMatchObject({
+      defaultHeaders: { "x-opencode-session": "conv_session_2" }
+    });
+  });
+
+  it("falls back to the profile id for the OpenCode session header without a conversation", async () => {
+    chatCreate.mockResolvedValue({ choices: [{ message: { content: "ok" } }] });
+
+    const { callProviderText } = await import("@/lib/provider");
+    await callProviderText({
+      settings: createSettings({
+        id: "prov_opencode_1",
+        apiBaseUrl: "https://opencode.ai/zen/go/v1/",
+        apiMode: "chat_completions",
+        model: "kimi-k2.6",
+        providerPresetId: "opencode_go"
+      }),
+      prompt: "Reply with connected",
+      purpose: "test"
+    });
+
+    expect(vi.mocked(OpenAI).mock.calls.at(-1)?.[0]).toMatchObject({
+      defaultHeaders: { "x-opencode-session": "prov_opencode_1" }
+    });
+  });
+
+  it("omits the OpenCode session header for other providers", async () => {
+    chatCreate.mockResolvedValue(
+      createAsyncStream([{ choices: [{ delta: { content: "done" } }] }])
+    );
+
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const stream = streamProviderResponse({
+      settings: createSettings({
+        apiBaseUrl: "https://api.example.com/v1",
+        apiMode: "chat_completions",
+        model: "some-model"
+      }),
+      promptMessages: [{ role: "user", content: "Hello" }],
+      conversationId: "conv_session_1"
+    });
+
+    await stream.next();
+
+    expect(vi.mocked(OpenAI).mock.calls.at(-1)?.[0]?.defaultHeaders).toBeUndefined();
   });
 
   it("serializes tool outputs and assistant tool calls for responses mode streams", async () => {

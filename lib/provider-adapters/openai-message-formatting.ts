@@ -2,13 +2,14 @@ import OpenAI from "openai";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { resolveCapabilities } from "@/lib/model-capabilities";
-import { getProviderApiBaseUrl, getProviderApiMode } from "@/lib/provider-profile";
+import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiMode } from "@/lib/provider-profile";
 import type { PromptMessage, ProviderProfile } from "@/lib/types";
 
-export function createOpenAIClient(settings: ProviderProfile, apiKey: string) {
+export function createOpenAIClient(settings: ProviderProfile, apiKey: string, conversationId?: string) {
   return new OpenAI({
     apiKey,
-    baseURL: getProviderApiBaseUrl(settings)
+    baseURL: getProviderApiBaseUrl(settings),
+    defaultHeaders: getOpenCodeSessionHeaders(settings, conversationId)
   });
 }
 
