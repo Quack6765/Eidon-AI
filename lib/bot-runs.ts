@@ -1,7 +1,7 @@
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { nowIso } from "@/lib/utils";
-import { getBot, toBotSummary } from "@/lib/bots";
+import { getBot, getBotByConversationId, toBotSummary } from "@/lib/bots";
 import { getConversationManager } from "@/lib/ws-singleton";
 import type { Bot, BotRun, BotRunStatus, BotRunTriggerSource } from "@/lib/types";
 
@@ -159,6 +159,16 @@ export function broadcastBotUpsert(bot: Bot) {
     { type: "bot_updated", bot: toBotSummary(bot) },
     ownerUserId
   );
+}
+
+export function broadcastBotUpdateForMessage(messageId: string) {
+  const row = getDb()
+    .prepare("SELECT conversation_id FROM messages WHERE id = ?")
+    .get(messageId) as { conversation_id: string } | undefined;
+  if (!row) return;
+  const bot = getBotByConversationId(row.conversation_id);
+  if (!bot) return;
+  broadcastBotUpsert(bot);
 }
 
 export function broadcastBotDeleted(botId: string, ownerUserId: string | null) {

@@ -25,11 +25,12 @@ type BotRow = {
   system_prompt: string;
   is_chief: number;
   home_conversation_id: string;
+  pending_input_seen_at: string | null;
   created_at: string;
   updated_at: string;
 };
 
-const BOT_COLUMNS = `id, user_id, name, title, description, avatar_seed, system_prompt, is_chief, home_conversation_id, created_at, updated_at`;
+const BOT_COLUMNS = `id, user_id, name, title, description, avatar_seed, system_prompt, is_chief, home_conversation_id, pending_input_seen_at, created_at, updated_at`;
 
 function rowToBot(row: BotRow): Bot {
   return {
@@ -42,6 +43,7 @@ function rowToBot(row: BotRow): Bot {
     systemPrompt: row.system_prompt,
     isChief: row.is_chief === 1,
     homeConversationId: row.home_conversation_id,
+    pendingInputSeenAt: row.pending_input_seen_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -212,6 +214,7 @@ function insertBot(input: {
     systemPrompt: input.systemPrompt,
     isChief: input.isChief,
     homeConversationId: input.homeConversationId,
+    pendingInputSeenAt: null,
     createdAt: timestamp,
     updatedAt: timestamp
   };
@@ -404,7 +407,29 @@ export function getBotLastRunAt(botId: string): string | null {
   return row?.last_at ?? null;
 }
 
+export function getBotPendingInputAt(bot: Bot): string | null {
+  const row = getDb()
+    .prepare(
+      `SELECT MAX(COALESCE(ma.proposal_updated_at, ma.started_at)) AS pending_at
+       FROM message_actions ma
+       INNER JOIN messages m ON m.id = ma.message_id
+       WHERE m.conversation_id = ? AND ma.status = 'pending' AND ma.proposal_state = 'pending'`
+    )
+    .get(bot.homeConversationId) as { pending_at: string | null } | undefined;
+  return row?.pending_at ?? null;
+}
+
+export function markBotPendingInputSeen(botId: string, userId?: string): Bot | null {
+  const current = getBot(botId, userId);
+  if (!current) return null;
+  getDb()
+    .prepare("UPDATE bots SET pending_input_seen_at = ? WHERE id = ?")
+    .run(nowIso(), botId);
+  return getBot(botId, userId);
+}
+
 export function toBotSummary(bot: Bot): BotSummary {
+  const pendingInputAt = getBotPendingInputAt(bot);
   return {
     id: bot.id,
     name: bot.name,
@@ -414,6 +439,9 @@ export function toBotSummary(bot: Bot): BotSummary {
     isChief: bot.isChief,
     homeConversationId: bot.homeConversationId,
     status: getBotStatus(bot),
+    waitingForInput:
+      pendingInputAt !== null &&
+      (bot.pendingInputSeenAt === null || pendingInputAt > bot.pendingInputSeenAt),
     lastRunAt: getBotLastRunAt(bot.id),
     createdAt: bot.createdAt,
     updatedAt: bot.updatedAt

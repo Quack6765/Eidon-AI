@@ -85,7 +85,7 @@ function BotCard({ bot }: { bot: BotSummary }) {
         <p className="line-clamp-2 text-xs leading-5 text-[#71717a]">{bot.description}</p>
       ) : null}
       <div className="mt-auto flex items-center justify-between gap-2">
-        <BotStatusChip status={bot.status} />
+        <BotStatusChip status={bot.status} waitingForInput={bot.waitingForInput} />
         <span className="truncate text-[11px] text-[#52525b]">{formatBotActivity(bot.lastRunAt)}</span>
       </div>
     </Link>

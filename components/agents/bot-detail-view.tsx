@@ -236,6 +236,11 @@ export function BotDetailView({
   }, [initialBot]);
 
   useEffect(() => {
+    if (!bot.waitingForInput) return;
+    void fetch(`/api/bots/${bot.id}/seen-input`, { method: "POST" }).catch(() => {});
+  }, [bot.id, bot.waitingForInput]);
+
+  useEffect(() => {
     void loadWorkspace();
     void loadMemories();
     const noticeHandle = resetNoticeHandle;
@@ -376,7 +381,7 @@ export function BotDetailView({
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <span className="truncate text-sm font-semibold text-[var(--text)]">{bot.name}</span>
-                <BotStatusChip status={bot.status} />
+                <BotStatusChip status={bot.status} waitingForInput={bot.waitingForInput} />
               </div>
               <div className={`${controlsOpen ? "block" : "hidden"} truncate text-xs text-[var(--muted)] md:block`}>
                 {buildBotSubtitle(bot)}

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createLocalUser } from "@/lib/users";
-import { createBot, deleteBot, ensureChiefBot, getBot, getBotByConversationId, listBots } from "@/lib/bots";
-import { getConversation, createMessage } from "@/lib/conversations";
+import { createBot, deleteBot, ensureChiefBot, getBot, getBotByConversationId, listBots, toBotSummary } from "@/lib/bots";
+import { getConversation, createConversation, createMessage, createMessageAction } from "@/lib/conversations";
 
 describe("bots", () => {
   it("creates a bot with a home conversation and generated identity", async () => {
@@ -245,5 +245,75 @@ describe("bots", () => {
     expect(resolveBotByNameOrId("scout", user.id)?.id).toBe(bot.id);
     expect(resolveBotByNameOrId(" SCOUT ", user.id)?.id).toBe(bot.id);
     expect(resolveBotByNameOrId("missing", user.id)).toBeNull();
+  });
+});
+
+describe("bot pending input summary", () => {
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function createPendingProposal(botId: string, conversationId: string, content: string) {
+    const { buildCreateMemoryProposal } = await import("@/lib/memory-proposals");
+    const message = createMessage({
+      conversationId,
+      role: "assistant",
+      content: "",
+      thinkingContent: "",
+      status: "completed",
+      estimatedTokens: 0
+    });
+    return createMessageAction({
+      messageId: message.id,
+      kind: "create_memory",
+      status: "pending",
+      label: "Create memory proposal",
+      proposalState: "pending",
+      proposalPayload: buildCreateMemoryProposal({
+        content,
+        category: "preference"
+      })
+    });
+  }
+
+  it("flags waitingForInput while a proposal is pending, clears it once seen, and re-lights for newer input", async () => {
+    const { markBotPendingInputSeen } = await import("@/lib/bots");
+    const user = await createLocalUser({ username: "botpending", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Pending Bot" }, user.id);
+
+    expect(toBotSummary(bot).waitingForInput).toBe(false);
+
+    await createPendingProposal(bot.id, bot.homeConversationId, "Likes tea");
+    expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(true);
+
+    await sleep(5);
+    const seen = markBotPendingInputSeen(bot.id, user.id);
+    expect(seen?.pendingInputSeenAt).toBeTruthy();
+    expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(false);
+
+    await sleep(5);
+    await createPendingProposal(bot.id, bot.homeConversationId, "Also likes biscuits");
+    expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(true);
+
+    expect(markBotPendingInputSeen("bot-missing", user.id)).toBeNull();
+  });
+
+  it("clears waitingForInput when the pending proposal is resolved", async () => {
+    const { dismissMemoryProposal } = await import("@/lib/memory-proposals");
+    const user = await createLocalUser({ username: "botresolved", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Resolved Bot" }, user.id);
+
+    const action = await createPendingProposal(bot.id, bot.homeConversationId, "Likes tea");
+    expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(true);
+
+    dismissMemoryProposal(action.id, user.id);
+    expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(false);
+  });
+
+  it("does not flag pending input from another conversation", async () => {
+    const user = await createLocalUser({ username: "botforeign", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Foreign Bot" }, user.id);
+    const other = createConversation(undefined, undefined, undefined, user.id);
+
+    await createPendingProposal(bot.id, other.id, "Unrelated proposal");
+    expect(toBotSummary(getBot(bot.id, user.id)!).waitingForInput).toBe(false);
   });
 });

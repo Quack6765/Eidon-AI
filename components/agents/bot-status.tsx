@@ -18,11 +18,31 @@ const STATUS_LABELS: Record<BotStatus, string> = {
   running: "Running"
 };
 
+const WAITING_FOR_INPUT_CHIP_CLASSES =
+  "border-[var(--accent)]/25 bg-[var(--accent)]/10 text-[#c4b5fd]";
+
 export function botStatusLabel(status: BotStatus) {
   return STATUS_LABELS[status];
 }
 
-export function BotStatusChip({ status }: { status: BotStatus }) {
+export function BotStatusChip({
+  status,
+  waitingForInput = false
+}: {
+  status: BotStatus;
+  waitingForInput?: boolean;
+}) {
+  if (waitingForInput) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[11px] font-medium ${WAITING_FOR_INPUT_CHIP_CLASSES}`}
+      >
+        <span className="h-1.5 w-1.5 rounded-full bg-[var(--accent)]" aria-hidden="true" />
+        Waiting for input
+      </span>
+    );
+  }
+
   if (status === "idle") {
     return null;
   }
@@ -41,7 +61,17 @@ export function BotStatusChip({ status }: { status: BotStatus }) {
   );
 }
 
-export function BotStatusDot({ status }: { status: BotStatus }) {
+export function BotStatusDot({
+  status,
+  waitingForInput = false
+}: {
+  status: BotStatus;
+  waitingForInput?: boolean;
+}) {
+  if (waitingForInput) {
+    return <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-[var(--accent)]" aria-hidden="true" />;
+  }
+
   if (status === "idle") {
     return null;
   }

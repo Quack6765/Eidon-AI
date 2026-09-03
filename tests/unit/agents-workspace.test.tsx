@@ -50,6 +50,7 @@ function buildBot(overrides: Partial<BotSummary> = {}): BotSummary {
     isChief: true,
     homeConversationId: "conv_chief",
     status: "idle",
+    waitingForInput: false,
     lastRunAt: null,
     createdAt: "2026-04-10T12:00:00.000Z",
     updatedAt: "2026-04-10T12:00:00.000Z",

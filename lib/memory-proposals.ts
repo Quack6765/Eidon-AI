@@ -1,4 +1,5 @@
 import { updateMessageAction } from "@/lib/conversations";
+import { broadcastBotUpdateForMessage } from "@/lib/bot-runs";
 import { getDb } from "@/lib/db";
 import {
   createMemory,
@@ -273,6 +274,8 @@ export function approveMemoryProposal(
     throw new Error("Memory proposal not found");
   }
 
+  broadcastBotUpdateForMessage(pending.messageId);
+
   return action;
 }
 
@@ -290,6 +293,8 @@ export function dismissMemoryProposal(actionId: string, userId?: string) {
   if (!action) {
     throw new Error("Memory proposal not found");
   }
+
+  broadcastBotUpdateForMessage(pending.messageId);
 
   return action;
 }

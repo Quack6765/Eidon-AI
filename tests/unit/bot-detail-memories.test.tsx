@@ -75,6 +75,7 @@ function buildBot(overrides: Partial<BotSummary> = {}): BotSummary {
     isChief: false,
     homeConversationId: "conv_1",
     status: "idle",
+    waitingForInput: false,
     lastRunAt: null,
     createdAt: "2026-04-10T12:00:00.000Z",
     updatedAt: "2026-04-10T12:00:00.000Z",
@@ -136,6 +137,13 @@ function mockMemoryEndpoints(memories: UserMemory[]) {
         json: async () => ({
           tree: { name: "bot_1", path: "", isDirectory: true, byteSize: 0, children: [] }
         })
+      } as Response;
+    }
+
+    if (url === "/api/bots/bot_1/seen-input" && method === "POST") {
+      return {
+        ok: true,
+        json: async () => ({ deleted: true })
       } as Response;
     }
 
@@ -225,5 +233,29 @@ describe("bot detail memories", () => {
       expect(screen.queryByText("Prefers concise summaries")).not.toBeInTheDocument();
     });
     expect(screen.getByText("Works at Acme on the platform team")).toBeInTheDocument();
+  });
+
+  it("acknowledges pending input on mount when the bot is waiting for input", async () => {
+    const fetchMock = mockMemoryEndpoints([]);
+
+    renderView(buildBot({ waitingForInput: true }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/bots/bot_1/seen-input",
+        expect.objectContaining({ method: "POST" })
+      );
+    });
+  });
+
+  it("does not acknowledge pending input when nothing is waiting", () => {
+    const fetchMock = mockMemoryEndpoints([]);
+
+    renderView(buildBot());
+
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      "/api/bots/bot_1/seen-input",
+      expect.anything()
+    );
   });
 });
