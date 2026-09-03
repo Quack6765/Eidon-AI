@@ -29,7 +29,7 @@ import {
 } from "@/lib/screenshot-artifact-capabilities";
 import { getLatestUserPromptContent } from "./prompt-analysis";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
-import { buildBotWorkspaceSkillId, getBotSkillsDir, listBotWorkspaceSkills, slugifySkillFolderName } from "./bot-workspace-skills";
+import { buildBotWorkspaceSkillId, buildSkillMarkdown, getBotSkillsDir, listBotWorkspaceSkills, slugifySkillFolderName } from "./bot-workspace-skills";
 import { nowIso } from "@/lib/utils";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -695,7 +695,7 @@ export async function executeSaveSkill(
 
   const skillDir = join(getBotSkillsDir(bot), slug);
   const skillFilePath = join(skillDir, "SKILL.md");
-  const content = `---\nname: ${name}\ndescription: ${description}\n---\n\n${instructions}\n`;
+  const content = buildSkillMarkdown(name, description, instructions);
 
   throwIfAborted(context.input.abortSignal);
   const handle = await context.input.onActionStart?.({
