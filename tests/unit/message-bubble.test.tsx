@@ -521,7 +521,7 @@ describe("delegation event lines", () => {
     const avatar = line.querySelector("[data-inline-avatar] img");
     expect(avatar).not.toBeNull();
     expect(avatar?.getAttribute("src")).toBe("/api/avatars/inbox-seed.svg");
-    expect(line.querySelector("[data-inline-avatar]")?.className).toContain("mr-2");
+    expect(line.querySelector("[data-inline-avatar]")?.className).toContain("ml-2.5 mr-1.5");
     expect(line).toHaveTextContent("Messaged Inbox Bot");
     expect(container.querySelector(".animate-spin")).toBeNull();
   });

@@ -165,6 +165,7 @@ export type Bot = {
   systemPrompt: string;
   isChief: boolean;
   homeConversationId: string;
+  pendingInputSeenAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -193,6 +194,7 @@ export type BotSummary = {
   isChief: boolean;
   homeConversationId: string;
   status: BotStatus;
+  waitingForInput: boolean;
   lastRunAt: string | null;
   createdAt: string;
   updatedAt: string;

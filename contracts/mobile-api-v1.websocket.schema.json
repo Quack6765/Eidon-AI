@@ -220,7 +220,7 @@
     "BotSummary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "title", "description", "avatarSeed", "isChief", "homeConversationId", "status", "lastRunAt", "createdAt", "updatedAt"],
+      "required": ["id", "name", "title", "description", "avatarSeed", "isChief", "homeConversationId", "status", "waitingForInput", "lastRunAt", "createdAt", "updatedAt"],
       "properties": {
         "id": { "$ref": "#/$defs/OpaqueId" },
         "name": { "type": "string" },
@@ -230,6 +230,7 @@
         "isChief": { "type": "boolean" },
         "homeConversationId": { "$ref": "#/$defs/OpaqueId" },
         "status": { "type": "string", "enum": ["idle", "queued", "running"] },
+        "waitingForInput": { "type": "boolean" },
         "lastRunAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
         "createdAt": { "$ref": "#/$defs/Timestamp" },
         "updatedAt": { "$ref": "#/$defs/Timestamp" }

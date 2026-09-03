@@ -211,10 +211,10 @@ function DelegateBotGlyph({ botName }: { botName: string }) {
   const seed = useBotAvatarSeed(botName);
 
   if (!seed) {
-    return <BotIcon className="ml-2 mr-2.5 h-3 w-3 shrink-0 text-white/40" aria-hidden="true" />;
+    return <BotIcon className="ml-2.5 mr-1.5 h-3 w-3 shrink-0 text-white/40" aria-hidden="true" />;
   }
 
-  return <BotAvatar inline seed={seed} size={14} className="ml-2 mr-2.5" />;
+  return <BotAvatar inline seed={seed} size={14} className="ml-2.5 mr-1.5" />;
 }
 
 function DelegateActionLine({

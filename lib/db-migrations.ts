@@ -1346,6 +1346,11 @@ export function migrate(db: Database.Database) {
     );
   }
 
+  const botCols = db.prepare("PRAGMA table_info(bots)").all() as Array<{ name: string }>;
+  if (!botCols.some((col) => col.name === "pending_input_seen_at")) {
+    db.exec("ALTER TABLE bots ADD COLUMN pending_input_seen_at TEXT");
+  }
+
   db.exec(`
     INSERT OR IGNORE INTO users (id, username, role, auth_source, password_hash, created_at, updated_at)
     SELECT id, username, 'admin', 'env_super_admin', NULL, created_at, updated_at

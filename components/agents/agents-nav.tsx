@@ -133,7 +133,7 @@ export function AgentsNav({
                     </div>
                   ) : null}
                 </div>
-                <BotStatusDot status={bot.status} />
+                <BotStatusDot status={bot.status} waitingForInput={bot.waitingForInput} />
               </Link>
             );
           })}
