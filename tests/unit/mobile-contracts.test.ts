@@ -219,7 +219,7 @@ describe("Mobile API v1 contracts", () => {
     expect(universal2Languages.enum).toContain("sw");
     expect(universal2Languages.enum).toHaveLength(103);
     expect(compileOpenApiJsonRequestBodies()).toBe(38);
-    expect(compileOpenApiJsonResponses()).toBe(97);
+    expect(compileOpenApiJsonResponses()).toBe(98);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {

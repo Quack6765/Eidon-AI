@@ -217,6 +217,14 @@ describe("Mobile API v1 REST adapter", () => {
     );
     expect(workspace.status).toBe(200);
     await assertResponseContract("/bots/{botId}/workspace", "get", workspace);
+    const seenInput = await mobilePost(
+      request(["bots", botId, "seen-input"], memberSession.token, { method: "POST" }),
+      context(["bots", botId, "seen-input"])
+    );
+    expect(seenInput.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/seen-input", "post", seenInput);
+    await expect(seenInput.json()).resolves.toMatchObject({ data: { bot: { id: botId } } });
+
 
     const chiefDelete = await mobileDelete(
       request(["bots", chiefId], memberSession.token, { method: "DELETE" }),
