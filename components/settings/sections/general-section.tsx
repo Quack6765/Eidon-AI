@@ -120,7 +120,24 @@ export function GeneralSection({
   const [isBotPromptOpen, setIsBotPromptOpen] = useState(false);
   const persistedDraft = useRef(initialDraft);
   const [isSaving, setIsSaving] = useState(false);
+  const [isReplayingSetup, setIsReplayingSetup] = useState(false);
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState(draft);
+
+  async function replaySetup() {
+    setIsReplayingSetup(true);
+    try {
+      const response = await fetch("/api/onboarding", { method: "DELETE" });
+      if (!response.ok) {
+        toast.showToast("error", "Unable to restart setup");
+        setIsReplayingSetup(false);
+        return;
+      }
+      router.push("/onboarding");
+    } catch {
+      toast.showToast("error", "Unable to restart setup");
+      setIsReplayingSetup(false);
+    }
+  }
 
   useEffect(() => {
     const next = createGeneralSettingsDraft(settings);
@@ -292,6 +309,18 @@ export function GeneralSection({
             <option value="pills">Tool pills</option>
             <option value="status_line">Single status line</option>
           </select>
+        </div>
+        <div className="space-y-1.5 border-t border-white/[0.06] pt-6">
+          <p className={fieldLabel}>First-run setup</p>
+          <p className="text-xs leading-5 text-[var(--muted)]">Walk through the setup questions again, including the side-by-side tool activity demos.</p>
+          <button
+            type="button"
+            onClick={replaySetup}
+            disabled={isReplayingSetup}
+            className="mt-2 inline-flex min-h-9 items-center rounded-full border border-white/8 bg-white/[0.03] px-4 text-[13px] text-[var(--text)] transition hover:bg-white/[0.06] disabled:opacity-40"
+          >
+            {isReplayingSetup ? "Opening…" : "Replay setup"}
+          </button>
         </div>
       </div>
     ),

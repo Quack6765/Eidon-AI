@@ -12,6 +12,8 @@ import * as botRoute from "@/app/api/bots/[botId]/route";
 import * as botMemoriesRoute from "@/app/api/bots/[botId]/memories/route";
 import * as botResetBrowserRoute from "@/app/api/bots/[botId]/reset-browser-session/route";
 import * as botSeenInputRoute from "@/app/api/bots/[botId]/seen-input/route";
+import * as botSkillRoute from "@/app/api/bots/[botId]/skills/[skillId]/route";
+import * as botSkillsRoute from "@/app/api/bots/[botId]/skills/route";
 import * as botWorkspaceRoute from "@/app/api/bots/[botId]/workspace/route";
 import * as botsRoute from "@/app/api/bots/route";
 import * as conversationRoute from "@/app/api/conversations/[conversationId]/route";
@@ -33,6 +35,7 @@ import * as messageEditRestartRoute from "@/app/api/messages/[messageId]/edit-re
 import * as messageForkRoute from "@/app/api/messages/[messageId]/fork/route";
 import * as messageRegenerateRoute from "@/app/api/messages/[messageId]/regenerate/route";
 import * as messageRetryRoute from "@/app/api/messages/[messageId]/retry/route";
+import * as onboardingRoute from "@/app/api/onboarding/route";
 import * as personaRoute from "@/app/api/personas/[personaId]/route";
 import * as personasRoute from "@/app/api/personas/route";
 import * as providerConnectionRoute from "@/app/api/providers/[profileId]/connection/route";
@@ -94,6 +97,8 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["bots", ":botId", "memories"], module: botMemoriesRoute },
   { pattern: ["bots", ":botId", "reset-browser-session"], module: botResetBrowserRoute },
   { pattern: ["bots", ":botId", "seen-input"], module: botSeenInputRoute },
+  { pattern: ["bots", ":botId", "skills"], module: botSkillsRoute },
+  { pattern: ["bots", ":botId", "skills", ":skillId"], module: botSkillRoute },
   { pattern: ["bots", ":botId", "workspace"], module: botWorkspaceRoute },
   { pattern: ["bots", ":botId"], module: botRoute },
   { pattern: ["bots"], module: botsRoute },
@@ -110,6 +115,7 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["messages", ":messageId"], module: messageRoute },
   { pattern: ["message-actions", ":actionId", "approve"], module: messageActionApproveRoute },
   { pattern: ["message-actions", ":actionId", "dismiss"], module: messageActionDismissRoute },
+  { pattern: ["onboarding"], module: onboardingRoute },
   { pattern: ["settings", "general"], module: generalSettingsRoute },
   { pattern: ["settings", "title-generation"], module: titleGenerationSettingsRoute },
   { pattern: ["settings", "providers", "duplicate"], module: providerDuplicateRoute },

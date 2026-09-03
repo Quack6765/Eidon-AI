@@ -569,6 +569,13 @@ select {
   color: rgba(255, 255, 255, 0.5);
 }
 
+/* Scaled-down variant for the onboarding demo tiles, where the status line sits
+   beside message text that has to stay the more prominent of the two. */
+.status-line--compact {
+  font-size: 11px;
+  line-height: 16px;
+}
+
 .status-line__label {
   display: inline-block;
   max-width: 100%;

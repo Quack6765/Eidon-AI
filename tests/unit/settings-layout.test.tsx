@@ -70,6 +70,7 @@ const settings: GeneralSectionSettings = {
   confirmExternalLinks: true,
   toolCallDisplay: "pills",
   defaultView: "chat",
+  hasCompletedOnboarding: true,
   speechTranscription: {
     providerId: "browser",
     configuration: { language: "en" },
