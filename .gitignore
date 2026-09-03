@@ -20,8 +20,7 @@ seed-native-test.cjs
 .conductor/
 .superset/
 agent-memory/
-docs/
-docs/superpowers
+docs/superpowers/
 specs/
 tmp/
 CONTEXT.md
