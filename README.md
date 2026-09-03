@@ -23,7 +23,6 @@
   </p>
 
   <p>
-    <a href="https://github.com/Quack6765/Eidon-AI/actions/workflows/test.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/Quack6765/Eidon-AI/test.yml?branch=main&label=tests&style=flat-square&labelColor=0a0a0a&color=8b5cf6" /></a>
     <a href="https://github.com/Quack6765/Eidon-AI/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Quack6765/Eidon-AI?style=flat-square&labelColor=0a0a0a&color=8b5cf6" /></a>
     <a href="https://github.com/Quack6765/Eidon-AI/pkgs/container/eidon-ai"><img alt="Container image" src="https://img.shields.io/badge/ghcr.io-eidon--ai-8b5cf6?style=flat-square&labelColor=0a0a0a&logo=docker&logoColor=white" /></a>
     <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-8b5cf6?style=flat-square&labelColor=0a0a0a" /></a>
