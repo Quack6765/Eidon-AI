@@ -218,6 +218,55 @@ describe("Mobile API v1 REST adapter", () => {
     expect(workspace.status).toBe(200);
     await assertResponseContract("/bots/{botId}/workspace", "get", workspace);
 
+    const emptySkills = await mobileGet(
+      request(["bots", botId, "skills"], memberSession.token),
+      context(["bots", botId, "skills"])
+    );
+    expect(emptySkills.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/skills", "get", emptySkills);
+    await expect(emptySkills.json()).resolves.toMatchObject({ data: { skills: [] } });
+
+    const createdSkill = await mobilePost(
+      request(["bots", botId, "skills"], memberSession.token, {
+        method: "POST",
+        body: {
+          name: "Weekly digest",
+          description: "Summarize the week",
+          instructions: "Summarize the week into five bullets."
+        }
+      }),
+      context(["bots", botId, "skills"])
+    );
+    expect(createdSkill.status).toBe(201);
+    await assertResponseContract("/bots/{botId}/skills", "post", createdSkill);
+    const createdSkillBody = await createdSkill.json() as {
+      data: { skill: { id: string; name: string } };
+    };
+    const skillId = createdSkillBody.data.skill.id;
+
+    const patchedSkill = await mobilePatch(
+      request(["bots", botId, "skills", skillId], memberSession.token, {
+        method: "PATCH",
+        body: { description: "Summarize the week for the team" }
+      }),
+      context(["bots", botId, "skills", skillId])
+    );
+    expect(patchedSkill.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/skills/{skillId}", "patch", patchedSkill);
+
+    const outsiderSkills = await mobileGet(
+      request(["bots", botId, "skills"], outsiderSession.token),
+      context(["bots", botId, "skills"])
+    );
+    expect(outsiderSkills.status).toBe(404);
+
+    const deletedSkill = await mobileDelete(
+      request(["bots", botId, "skills", skillId], memberSession.token, { method: "DELETE" }),
+      context(["bots", botId, "skills", skillId])
+    );
+    expect(deletedSkill.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/skills/{skillId}", "delete", deletedSkill);
+
     const chiefDelete = await mobileDelete(
       request(["bots", chiefId], memberSession.token, { method: "DELETE" }),
       context(["bots", chiefId])
@@ -242,6 +291,51 @@ describe("Mobile API v1 REST adapter", () => {
       context(["avatars", "seed_x.svg"])
     );
     expect(avatarNoAuth.status).toBe(401);
+  });
+
+  it("saves and resets onboarding preferences through bearer-authenticated handlers", async () => {
+    const member = await createLocalUser({
+      username: "mobile-onboarding-member",
+      password: "MobileOnboardingPassword123!",
+      role: "user"
+    });
+    const memberSession = await createMobileSession(member.id, "Onboarding phone");
+
+    const saved = await mobilePut(
+      request(["onboarding"], memberSession.token, {
+        method: "PUT",
+        body: { defaultView: "agents", toolCallDisplay: "status_line", completed: true }
+      }),
+      context(["onboarding"])
+    );
+    expect(saved.status).toBe(200);
+    await assertResponseContract("/onboarding", "put", saved);
+    const savedBody = await saved.json() as {
+      data: { settings: { defaultView: string; toolCallDisplay: string; hasCompletedOnboarding: boolean } };
+    };
+    expect(savedBody.data.settings.defaultView).toBe("agents");
+    expect(savedBody.data.settings.toolCallDisplay).toBe("status_line");
+    expect(savedBody.data.settings.hasCompletedOnboarding).toBe(true);
+
+    const reset = await mobileDelete(
+      request(["onboarding"], memberSession.token, { method: "DELETE" }),
+      context(["onboarding"])
+    );
+    expect(reset.status).toBe(200);
+    await assertResponseContract("/onboarding", "delete", reset);
+    const resetBody = await reset.json() as {
+      data: { settings: { hasCompletedOnboarding: boolean } };
+    };
+    expect(resetBody.data.settings.hasCompletedOnboarding).toBe(false);
+
+    const invalid = await mobilePut(
+      request(["onboarding"], memberSession.token, {
+        method: "PUT",
+        body: { defaultView: "nonsense" }
+      }),
+      context(["onboarding"])
+    );
+    expect(invalid.status).toBe(400);
   });
 
   it("normalizes shared route responses and redacts provider secrets", async () => {
