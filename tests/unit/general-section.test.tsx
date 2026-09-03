@@ -59,10 +59,13 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
     memoriesEnabled: false,
     memoriesMaxCount: 3,
     memoriesRigor: "balanced",
+    semanticRecallEnabled: false,
     mcpTimeout: 120_000,
     maxAssistantToolSteps: 25,
     confirmExternalLinks: true,
     toolCallDisplay: "pills",
+    defaultView: "chat",
+    hasCompletedOnboarding: true,
     webSearch: !overrides.webSearchEngine && overrides.webSearch ? overrides.webSearch : {
       providerId: searchProvider,
       configuration: searchProvider === "searxng"
@@ -121,14 +124,17 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
     speechCleanupEnabled: false,
     speechCleanupProfileId: null,
     speechCleanupPrompt: "",
+    botSystemPrompt: "",
     ...Object.fromEntries(Object.entries(overrides).filter(([key]) => [
       "defaultProviderProfileId", "skillsEnabled", "conversationRetention",
       "memoriesEnabled", "memoriesMaxCount", "mcpTimeout", "maxAssistantToolSteps",
       "confirmExternalLinks",
       "toolCallDisplay",
+      "defaultView",
       "titleGenerationMode", "titleGenerationProfileId", "providerProfiles", "updatedAt",
       "webSearch", "speechTranscription", "imageGeneration",
-      "speechCleanupEnabled", "speechCleanupProfileId", "speechCleanupPrompt"
+      "speechCleanupEnabled", "speechCleanupProfileId", "speechCleanupPrompt",
+      "botSystemPrompt", "semanticRecallEnabled"
     ].includes(key)))
   };
 }
@@ -200,7 +206,7 @@ describe("general section", () => {
     expect(body.preferences.confirmExternalLinks).toBe(false);
   });
 
-  it("saves the tool activity display preference from the Conversation section", async () => {
+  it("saves the tool activity display preference from the Display section", async () => {
     const settings = makeSettings();
     vi.mocked(global.fetch).mockResolvedValueOnce({
       ok: true,
@@ -224,6 +230,32 @@ describe("general section", () => {
     const putCall = vi.mocked(global.fetch).mock.calls[0];
     const body = JSON.parse(String(putCall[1]?.body));
     expect(body.preferences.toolCallDisplay).toBe("status_line");
+  });
+
+  it("saves the default view preference from the Display section", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    const select = screen.getByLabelText("Default main view");
+    expect(select).toHaveValue("chat");
+
+    fireEvent.change(select, { target: { value: "agents" } });
+    expect(select).toHaveValue("agents");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    const body = JSON.parse(String(putCall[1]?.body));
+    expect(body.preferences.defaultView).toBe("agents");
   });
 
   it("saves speech engine and default language through the general settings endpoint", async () => {
@@ -341,6 +373,58 @@ describe("general section", () => {
     expect(
       await screen.findByText("AI post-cleanup prompt cannot be empty.")
     ).toBeInTheDocument();
+  });
+
+  it("edits and resets the bot base system prompt from the Bots section", async () => {
+    const settings = makeSettings({ botSystemPrompt: "Custom team base." });
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Bots/ }));
+
+    expect(screen.getByText("Custom team base.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reset to default" }));
+    expect(screen.getByText("No custom base prompt — using the default")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    const body = JSON.parse(String(putCall[1]?.body));
+    expect(body.botPrompt).toEqual({ prompt: "" });
+  });
+
+  it("locks the bot base prompt for non-admins", async () => {
+    const settings = makeSettings({ botSystemPrompt: "Admin only." });
+    vi.mocked(global.fetch).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ settings })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    fireEvent.click(screen.getByRole("button", { name: /Bots/ }));
+
+    expect(screen.getByText("Only admins can change the bot base prompt.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reset to default" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    const putCall = vi.mocked(global.fetch).mock.calls[0];
+    const body = JSON.parse(String(putCall[1]?.body));
+    expect(body).not.toHaveProperty("botPrompt");
   });
 
   it("locks AI post-cleanup controls for non-admins", () => {
@@ -1062,6 +1146,212 @@ describe("general section", () => {
     expect(body).not.toHaveProperty("speechTranscription");
     expect(body).not.toHaveProperty("imageGeneration");
     expect(body).not.toHaveProperty("titleGeneration");
+  });
+
+  it("saves memory preferences from the Memory section through the general settings endpoint", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockImplementation(async (input, init) => {
+      if (init?.method === "PUT") {
+        return {
+          ok: true,
+          json: async () => ({ settings: { ...settings, memoriesEnabled: true, memoriesMaxCount: 250, memoriesRigor: "high" } })
+        } as Response;
+      }
+      expect(String(input)).toBe("/api/settings/semantic-recall");
+      return { ok: false, json: async () => ({}) } as Response;
+    });
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Memory Preferences and recall" }));
+    const toggle = screen.getByLabelText("Enable memories");
+    expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);
+    fireEvent.change(screen.getByLabelText("Maximum memories"), { target: { value: "250" } });
+    fireEvent.change(screen.getByLabelText("Memory proactiveness"), { target: { value: "high" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(global.fetch).mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true);
+    });
+    const putCall = vi.mocked(global.fetch).mock.calls.find(([, init]) => init?.method === "PUT")!;
+    expect(putCall[0]).toBe("/api/settings/general");
+    const body = JSON.parse(String(putCall[1]?.body));
+    expect(body.preferences).toMatchObject({
+      memoriesEnabled: true,
+      memoriesMaxCount: 250,
+      memoriesRigor: "high"
+    });
+    expect(body).not.toHaveProperty("semanticRecall");
+  });
+
+  it("ignores maximum memory values outside the 1 to 500 range", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockResolvedValue({ ok: false, json: async () => ({}) } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Memory Preferences and recall" }));
+    const input = screen.getByLabelText("Maximum memories") as HTMLInputElement;
+    expect(input.value).toBe("3");
+
+    fireEvent.change(input, { target: { value: "0" } });
+    expect(input.value).toBe("3");
+    fireEvent.change(input, { target: { value: "501" } });
+    expect(input.value).toBe("3");
+    fireEvent.change(input, { target: { value: "500" } });
+    expect(input.value).toBe("500");
+    expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
+  });
+
+  it("lists every memory proactiveness level in the rigor select", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockResolvedValue({ ok: false, json: async () => ({}) } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Memory Preferences and recall" }));
+    const select = screen.getByLabelText("Memory proactiveness") as HTMLSelectElement;
+    expect(select.value).toBe("balanced");
+    expect(Array.from(select.options).map((option) => option.value)).toEqual(["low", "balanced", "high"]);
+    expect(screen.getByRole("button", { name: "What each proactiveness level does" })).toBeInTheDocument();
+  });
+
+  it("saves the semantic recall bundle when an admin toggles it on", async () => {
+    const settings = makeSettings();
+    vi.mocked(global.fetch).mockImplementation(async (input, init) => {
+      if (init?.method === "PUT") {
+        return {
+          ok: true,
+          json: async () => ({ settings: { ...settings, semanticRecallEnabled: true } })
+        } as Response;
+      }
+      expect(String(input)).toBe("/api/settings/semantic-recall");
+      return {
+        ok: true,
+        json: async () => ({
+          status: {
+            enabled: false,
+            available: true,
+            ready: true,
+            modelId: "Xenova/all-MiniLM-L6-v2",
+            chunkCount: 0,
+            pendingCount: 0,
+            backfillRunning: false
+          }
+        })
+      } as Response;
+    });
+
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Memory Preferences and recall" }));
+    const toggle = screen.getByLabelText("Enable semantic recall");
+    expect(toggle).not.toBeChecked();
+    expect(toggle).not.toBeDisabled();
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(global.fetch).mock.calls.some(([, init]) => init?.method === "PUT")).toBe(true);
+    });
+    const putCall = vi.mocked(global.fetch).mock.calls.find(([, init]) => init?.method === "PUT")!;
+    expect(putCall[0]).toBe("/api/settings/general");
+    const body = JSON.parse(String(putCall[1]?.body));
+    expect(body.semanticRecall).toEqual({ enabled: true });
+  });
+
+  it("renders the semantic recall status line from the status endpoint", async () => {
+    const settings = makeSettings({ semanticRecallEnabled: true });
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: {
+          enabled: true,
+          available: true,
+          ready: true,
+          modelId: "Xenova/all-MiniLM-L6-v2",
+          chunkCount: 128,
+          pendingCount: 7,
+          backfillRunning: false
+        }
+      })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Memory Preferences and recall" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("128 chunks indexed")).toBeInTheDocument();
+    });
+    expect(vi.mocked(global.fetch).mock.calls[0][0]).toBe("/api/settings/semantic-recall");
+    expect(screen.getByText("Xenova/all-MiniLM-L6-v2")).toBeInTheDocument();
+    expect(screen.getByText("7 pending")).toBeInTheDocument();
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Rebuild index/ })).not.toBeDisabled();
+  });
+
+  it("starts a rebuild and disables the button while the backfill runs", async () => {
+    const settings = makeSettings({ semanticRecallEnabled: true });
+    const baseStatus = {
+      enabled: true,
+      available: true,
+      ready: true,
+      modelId: "Xenova/all-MiniLM-L6-v2",
+      chunkCount: 128,
+      pendingCount: 0,
+      backfillRunning: false
+    };
+    vi.mocked(global.fetch).mockImplementation(async (_input, init) => ({
+      ok: true,
+      json: async () => ({
+        status: init?.method === "POST" ? { ...baseStatus, backfillRunning: true, pendingCount: 12 } : baseStatus
+      })
+    } as Response));
+
+    render(React.createElement(GeneralSection, { settings, canManageGlobalIntegrations: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Memory Preferences and recall" }));
+
+    const rebuild = await screen.findByRole("button", { name: /Rebuild index/ });
+    expect(screen.queryByText(/pending/)).toBeNull();
+    fireEvent.click(rebuild);
+
+    await waitFor(() => {
+      expect(screen.getByText("12 pending")).toBeInTheDocument();
+    });
+    const postCall = vi.mocked(global.fetch).mock.calls.find(([, init]) => init?.method === "POST")!;
+    expect(postCall[0]).toBe("/api/settings/semantic-recall");
+    expect(screen.getByRole("button", { name: /Rebuild index/ })).toBeDisabled();
+  });
+
+  it("disables the semantic recall toggle and hides the rebuild button for non-admins", async () => {
+    const settings = makeSettings({ semanticRecallEnabled: true });
+    vi.mocked(global.fetch).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        status: {
+          enabled: true,
+          available: true,
+          ready: false,
+          modelId: "Xenova/all-MiniLM-L6-v2",
+          chunkCount: 3,
+          pendingCount: 0,
+          backfillRunning: false
+        }
+      })
+    } as Response);
+
+    render(React.createElement(GeneralSection, { settings }));
+    fireEvent.click(screen.getByRole("button", { name: "Memory Preferences and recall" }));
+
+    expect(screen.getByLabelText("Enable semantic recall")).toBeDisabled();
+    expect(screen.getByText("Only admins can change semantic recall settings.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("3 chunks indexed")).toBeInTheDocument();
+    });
+    expect(screen.getByText("Loading model…")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Rebuild index/ })).toBeNull();
   });
 
   it("lets non-admins save preferences even when admin-managed integrations are unconfigured", async () => {

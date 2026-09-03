@@ -107,7 +107,15 @@ vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
 }));
 
 vi.mock("@modelcontextprotocol/sdk/client/streamableHttp.js", () => ({
-  StreamableHTTPClientTransport: MockStreamableHTTPTransport
+  StreamableHTTPClientTransport: MockStreamableHTTPTransport,
+  StreamableHTTPError: class StreamableHTTPError extends Error {
+    constructor(
+      public readonly code: number | undefined,
+      message: string | undefined
+    ) {
+      super(message ?? "StreamableHTTPError");
+    }
+  }
 }));
 
 const listEnabledMcpServers = vi.fn();

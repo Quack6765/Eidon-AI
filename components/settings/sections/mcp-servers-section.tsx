@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, Trash2, Zap } from "lucide-react";
+import { LogIn, Plus, Trash2, Zap } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { SettingsAccordion } from "@/components/settings/settings-accordion";
@@ -20,6 +20,13 @@ import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 import { DetailActionBar } from "@/components/settings/detail-action-bar";
 import { DetailHeader } from "@/components/settings/detail-header";
 
+function isStandaloneDisplayMode() {
+  if (typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches) {
+    return true;
+  }
+  return (window.navigator as { standalone?: boolean }).standalone === true;
+}
+
 export function McpServersSection() {
   const [mcpServers, setMcpServers] = useState<McpServerSummary[]>([]);
   const [mcpTransport, setMcpTransport] = useState<McpTransport>("streamable_http");
@@ -30,9 +37,15 @@ export function McpServersSection() {
   const [mcpArgs, setMcpArgs] = useState("");
   const [mcpEnv, setMcpEnv] = useState("");
   const [editingMcpId, setEditingMcpId] = useState<string | null>(null);
-  const [mcpDraftTestResult, setMcpDraftTestResult] = useState<{ text: string; isSuccess: boolean } | null>(null);
-  const [mcpRowTestResults, setMcpRowTestResults] = useState<Record<string, { text: string; isSuccess: boolean }>>({});
+  const [mcpDraftTestResult, setMcpDraftTestResult] = useState<
+    { text: string; isSuccess: boolean; requiresAuth?: boolean } | null
+  >(null);
+  const [mcpRowTestResults, setMcpRowTestResults] = useState<
+    Record<string, { text: string; isSuccess: boolean; requiresAuth?: boolean }>
+  >({});
   const [mcpTestingTarget, setMcpTestingTarget] = useState<string | null>(null);
+  const [mcpAuthStarting, setMcpAuthStarting] = useState(false);
+  const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   const [mcpEnabledDraft, setMcpEnabledDraft] = useState(true);
   const [mcpIsVisionMcpDraft, setMcpIsVisionMcpDraft] = useState(false);
   const [hasStoredHeaders, setHasStoredHeaders] = useState(false);
@@ -40,6 +53,7 @@ export function McpServersSection() {
   const [hasEditedHeaders, setHasEditedHeaders] = useState(false);
   const [hasEditedEnv, setHasEditedEnv] = useState(false);
   const toast = useToastState();
+  const { showToast } = toast;
   const mcpServersRequestVersion = useRef(0);
 
   const [selectedServerId, setSelectedServerId] = useState<string | null>(null);
@@ -98,6 +112,56 @@ export function McpServersSection() {
     };
   }, []);
 
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") return;
+      const requestVersion = ++mcpServersRequestVersion.current;
+      void fetch("/api/mcp-servers")
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Failed to load MCP servers");
+          return response.json() as Promise<{ servers?: McpServerSummary[] }>;
+        })
+        .then((data) => {
+          if (
+            requestVersion === mcpServersRequestVersion.current
+            && Array.isArray(data.servers)
+          ) {
+            setMcpServers((current) =>
+              current.map((server) =>
+                data.servers?.find((fresh) => fresh.id === server.id) ?? server
+              )
+            );
+          }
+        })
+        .catch(() => {});
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const connection = searchParams.get("connection");
+    if (connection === "success" || connection === "failure") {
+      searchParams.delete("connection");
+      searchParams.delete("server");
+      const query = searchParams.toString();
+      window.history.replaceState(
+        {},
+        "",
+        query ? `${window.location.pathname}?${query}` : window.location.pathname
+      );
+      showToast(
+        connection === "success" ? "success" : "error",
+        connection === "success"
+          ? "MCP server authenticated."
+          : "MCP authentication failed."
+      );
+    }
+  }, [showToast]);
+
   function restoreMcpDraft() {
     const saved = mcpServers.find((server) => server.id === editingMcpId);
     if (saved) {
@@ -108,26 +172,30 @@ export function McpServersSection() {
   }
 
   async function saveMcpServer(): Promise<boolean> {
+    return (await persistMcpServer()) !== null;
+  }
+
+  async function persistMcpServer(options?: { skipAuthCheck?: boolean }): Promise<McpServerSummary | null> {
     try {
-      return await saveMcpServerUnsafe();
+      return await saveMcpServerUnsafe(options);
     } catch {
       toast.showToast("error", "Failed to save MCP server");
-      return false;
+      return null;
     }
   }
 
-  async function saveMcpServerUnsafe(): Promise<boolean> {
+  async function saveMcpServerUnsafe(options?: { skipAuthCheck?: boolean }): Promise<McpServerSummary | null> {
     if (!mcpName.trim()) {
       toast.showToast("error", "Server name is required");
-      return false;
+      return null;
     }
     if (mcpTransport === "streamable_http" && !mcpUrl.trim()) {
       toast.showToast("error", "Server URL is required");
-      return false;
+      return null;
     }
     if (mcpTransport === "stdio" && !mcpCommand.trim()) {
       toast.showToast("error", "Server command is required");
-      return false;
+      return null;
     }
 
     let headersObj: Record<string, string> = {};
@@ -198,7 +266,7 @@ export function McpServersSection() {
       } | null;
       if (!patchRes.ok || !patchData?.server) {
         toast.showToast("error", patchData?.error ?? "Failed to update server");
-        return false;
+        return null;
       }
       savedServer = patchData.server;
     } else {
@@ -213,7 +281,7 @@ export function McpServersSection() {
       } | null;
       if (!postRes.ok || !created?.server) {
         toast.showToast("error", created?.error ?? "Failed to add server");
-        return false;
+        return null;
       }
       savedServer = created.server;
     }
@@ -229,10 +297,83 @@ export function McpServersSection() {
     setMobileDetailVisible(true);
 
     toast.showToast("success", "MCP saved.");
-    return true;
+    if (savedServer.transport === "streamable_http" && !options?.skipAuthCheck) {
+      void testMcpServer(savedServer.id, true);
+    }
+    return savedServer;
   }
 
-  async function testMcpServer(serverId?: string) {
+  async function authenticateMcpServer() {
+    setMcpAuthStarting(true);
+    try {
+      const saved = await persistMcpServer({ skipAuthCheck: true });
+      if (!saved) return;
+      const response = await fetch(`/api/mcp-servers/${saved.id}/oauth/flows`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+      const result = (await response.json().catch(() => null)) as {
+        authorizationUrl?: string;
+        error?: string;
+      } | null;
+      if (!response.ok || !result?.authorizationUrl) {
+        toast.showToast("error", result?.error ?? "Failed to start authentication");
+        return;
+      }
+      if (isStandaloneDisplayMode()) {
+        window.open(result.authorizationUrl, "_blank", "noopener,noreferrer");
+        showToast(
+          "info",
+          "Continue the sign-in in your browser, then switch back to the app."
+        );
+      } else {
+        window.location.assign(result.authorizationUrl);
+      }
+    } finally {
+      setMcpAuthStarting(false);
+    }
+  }
+
+  async function disconnectMcpOAuth(serverId: string) {
+    const response = await fetch(`/api/mcp-servers/${serverId}/oauth`, {
+      method: "DELETE"
+    });
+    if (response.ok) {
+      setMcpServers((current) =>
+        current.map((server) =>
+          server.id === serverId ? { ...server, oauth: null } : server
+        )
+      );
+      toast.showToast("success", "MCP server disconnected.");
+      void testMcpServer(serverId, true);
+    } else {
+      toast.showToast("error", "Failed to disconnect");
+    }
+  }
+
+  type McpTestResultView = { text: string; isSuccess: boolean; requiresAuth?: boolean };
+
+  function applyTestResult(serverId: string | undefined, result: McpTestResultView, alsoSelect = false) {
+    if (serverId) {
+      setMcpRowTestResults((current) => ({
+        ...current,
+        [serverId]: result
+      }));
+      if (serverId === editingMcpId || alsoSelect) {
+        setMcpDraftTestResult(result);
+      }
+    } else {
+      setMcpDraftTestResult(result);
+      if (editingMcpId) {
+        setMcpRowTestResults((current) => ({
+          ...current,
+          [editingMcpId]: result
+        }));
+      }
+    }
+  }
+
+  async function testMcpServer(serverId?: string, alsoSelect = false) {
     const target = serverId ?? "draft";
     setMcpTestingTarget(target);
 
@@ -290,33 +431,48 @@ export function McpServersSection() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-      const result = (await response.json()) as { text?: string; error?: string; toolCount?: number; stderr?: string };
+      const result = (await response.json()) as {
+        text?: string;
+        error?: string;
+        toolCount?: number;
+        stderr?: string;
+        success?: boolean;
+        requiresAuth?: boolean;
+        oauth?: McpServerSummary["oauth"];
+      };
       const message = result.text ?? result.error ?? "No result";
       const fullMessage = result.stderr ? `${message}\n${result.stderr}` : message;
-      const isSuccess = response.ok && !result.error;
+      const isSuccess = response.ok && !result.error && result.success !== false && !result.requiresAuth;
+      const testResult = {
+        text: fullMessage,
+        isSuccess,
+        ...(result.requiresAuth ? { requiresAuth: true } : {})
+      };
 
       if (serverId) {
-        setMcpRowTestResults((current) => ({
-          ...current,
-          [serverId]: { text: fullMessage, isSuccess }
-        }));
+        applyTestResult(serverId, testResult, alsoSelect);
+        if (result.oauth !== undefined) {
+          setMcpServers((current) =>
+            current.map((server) =>
+              server.id === serverId ? { ...server, oauth: result.oauth ?? null } : server
+            )
+          );
+        }
       } else {
-        setMcpDraftTestResult({ text: fullMessage, isSuccess });
+        applyTestResult(undefined, testResult);
       }
 
-      if (!response.ok) {
+      if (result.requiresAuth) {
+        showToast(
+          "warning",
+          "Authentication required — click Authenticate to connect this server."
+        );
+      } else if (!response.ok) {
         toast.showToast("error", fullMessage);
       }
     } catch (caughtError) {
       const message = caughtError instanceof Error ? caughtError.message : "MCP connection test failed";
-      if (serverId) {
-        setMcpRowTestResults((current) => ({
-          ...current,
-          [serverId]: { text: message, isSuccess: false }
-        }));
-      } else {
-        setMcpDraftTestResult({ text: message, isSuccess: false });
-      }
+      applyTestResult(serverId, { text: message, isSuccess: false });
       toast.showToast("error", message);
     } finally {
       setMcpTestingTarget(null);
@@ -550,7 +706,12 @@ export function McpServersSection() {
                 badges={[
                   server.transport === "stdio"
                     ? { variant: "stdio" as const, label: "STDIO" }
-                    : { variant: "http" as const, label: "HTTP" }
+                    : { variant: "http" as const, label: "HTTP" },
+                  ...(server.oauth?.status === "expired" ||
+                  server.oauth?.status === "auth_required" ||
+                  mcpRowTestResults[server.id]?.requiresAuth
+                    ? [{ variant: "auth-required" as const, label: "AUTH REQUIRED" }]
+                    : [])
                 ]}
               />
             ))}
@@ -605,6 +766,63 @@ export function McpServersSection() {
                         className={isFieldDirty("mcpUrl") ? "!border-amber-500/40" : ""}
                       />
                     </div>
+                    {selectedServer?.oauth && selectedServer.oauth.status !== "auth_required" ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/6 bg-white/[0.02] px-4 py-3">
+                        {selectedServer.oauth.status === "connected" ? (
+                          <>
+                            <div>
+                              <p className="text-sm text-emerald-400">OAuth connected</p>
+                              <p className="text-xs text-[var(--muted)]">
+                                {selectedServer.oauth.expiresAt
+                                  ? `Token expires ${new Date(selectedServer.oauth.expiresAt).toLocaleString()}`
+                                  : "Token does not expire"}
+                                {selectedServer.oauth.scope
+                                  ? ` · ${selectedServer.oauth.scope}`
+                                  : ""}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              className="text-xs text-red-400/80 transition-colors hover:text-red-300"
+                              onClick={() => setDisconnectConfirmOpen(true)}
+                            >
+                              Disconnect
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm text-amber-400">Authentication expired</p>
+                            <Button
+                              type="button"
+                              size="lg"
+                              className="min-h-11 gap-1.5 px-4 text-sm md:min-h-10"
+                              onClick={() => void authenticateMcpServer()}
+                              disabled={mcpAuthStarting}
+                            >
+                              <LogIn className="h-3.5 w-3.5" />
+                              {mcpAuthStarting ? "Redirecting…" : "Reconnect"}
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    ) : mcpDraftTestResult?.requiresAuth ||
+                      selectedServer?.oauth?.status === "auth_required" ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/25 bg-amber-500/[0.04] px-4 py-3">
+                        <p className="text-sm text-amber-400">
+                          This server requires authentication.
+                        </p>
+                        <Button
+                          type="button"
+                          size="lg"
+                          className="min-h-11 gap-1.5 px-4 text-sm md:min-h-10"
+                          onClick={() => void authenticateMcpServer()}
+                          disabled={mcpAuthStarting}
+                        >
+                          <LogIn className="h-3.5 w-3.5" />
+                          {mcpAuthStarting ? "Redirecting…" : "Authenticate"}
+                        </Button>
+                      </div>
+                    ) : null}
                     <div>
                       <label className={fieldLabel}>Headers (JSON)</label>
                       <Textarea
@@ -732,6 +950,24 @@ export function McpServersSection() {
                 onConfirm={handleDeleteConfirm}
               />
 
+              <ConfirmDialog
+                open={disconnectConfirmOpen}
+                onOpenChange={setDisconnectConfirmOpen}
+                title="Disconnect OAuth?"
+                confirmLabel="Disconnect"
+                description={
+                  <>
+                    Stored credentials for <strong className="text-[var(--text)] font-medium">{selectedServer?.name || "this server"}</strong> will be removed and the server will require authentication again.
+                  </>
+                }
+                onConfirm={() => {
+                  if (editingMcpId) {
+                    void disconnectMcpOAuth(editingMcpId);
+                  }
+                  setDisconnectConfirmOpen(false);
+                }}
+              />
+
               <Toast
                 visible={toast.visible}
                 variant={toast.variant}
@@ -739,7 +975,11 @@ export function McpServersSection() {
               />
 
               {mcpDraftTestResult && (
-                <p className={`pt-2 text-sm ${mcpDraftTestResult.isSuccess ? "text-emerald-400" : "text-red-300"}`}>
+                <p className={`pt-2 text-sm ${mcpDraftTestResult.isSuccess
+                  ? "text-emerald-400"
+                  : mcpDraftTestResult.requiresAuth
+                    ? "text-amber-400"
+                    : "text-red-300"}`}>
                   {mcpDraftTestResult.text}
                 </p>
               )}

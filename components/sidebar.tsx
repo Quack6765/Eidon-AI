@@ -813,7 +813,7 @@ export function Sidebar({
         </div>
 
         <div className="shrink-0 mt-auto bg-white/[0.02] -mx-4 px-4 border-t border-white/[0.12]">
-          <SidebarFooterNav onNavigateAction={navigateToHref} />
+          <SidebarFooterNav currentView="chat" onNavigateAction={navigateToHref} />
         </div>
       </div>
     </aside>

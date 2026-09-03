@@ -142,7 +142,7 @@ function buildRequestParameters(settings: ProviderProfile) {
   };
 }
 
-const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning", "speech_cleanup"]);
+const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning", "research_planning", "speech_cleanup"]);
 
 export async function callOpenAiCompatibleText(input: ProviderTextInput) {
   const { settings } = input;
@@ -155,7 +155,7 @@ export async function callOpenAiCompatibleText(input: ProviderTextInput) {
     : settings;
   const contextualPrompt = withDateContextUserMessage([{ role: "user", content: input.prompt }]);
 
-  const client = createOpenAIClient(profile, getProviderApiKey(profile));
+  const client = createOpenAIClient(profile, getProviderApiKey(profile), input.conversationId);
 
   if (getProviderApiMode(profile) === "responses") {
     const reasoning = buildReasoningConfig(profile);
@@ -222,7 +222,7 @@ export async function* streamOpenAiCompatibleResponse(
   const contextualPromptMessages = withDateContextUserMessage(promptMessages);
   setActiveTokenizer(settings.tokenizerModel ?? "gpt-tokenizer");
 
-  const client = createOpenAIClient(settings, getProviderApiKey(settings));
+  const client = createOpenAIClient(settings, getProviderApiKey(settings), input.conversationId);
   const abortController = new AbortController();
   const signal = input.abortSignal ?? abortController.signal;
   let answer = "";

@@ -1,12 +1,15 @@
 import { buildCreateMemoryDescription } from "@/lib/memory-guidance";
+import { buildCreateAutomationDescription } from "@/lib/automation-guidance";
 import { extractEnumHints } from "@/lib/tool-schema-helpers";
 import { getSkillResolvedName } from "./skill-runtime";
+import type { BotRosterEntry } from "@/lib/bots";
 import type { WebSearchPipelineMode } from "@/lib/web-search-catalog";
 import type { McpServer, McpTool, MemoryRigor, Skill, ToolDefinition, VisionMode } from "@/lib/types";
 
 export type ToolSet = {
   server: McpServer;
   tools: McpTool[];
+  authRequired?: boolean;
 };
 
 export function mcpToolFunctionName(serverSlug: string, toolName: string) {
@@ -33,6 +36,7 @@ export function buildToolDefinitions(input: {
   mcpToolSets: ToolSet[];
   skills: Skill[];
   loadedSkillIds: Set<string>;
+  botWorkspaceSkillsEnabled?: boolean;
   memoriesEnabled: boolean;
   memoriesRigor?: MemoryRigor;
   webSearchEnabled?: boolean;
@@ -42,6 +46,11 @@ export function buildToolDefinitions(input: {
   restrictToGenerateImage?: boolean;
   effectiveVisionMode: VisionMode;
   visionToolEnabled?: boolean;
+  botTeam?: {
+    isChief: boolean;
+    roster: BotRosterEntry[];
+  };
+  semanticRecallAvailable?: boolean;
 }): ToolDefinition[] {
   const imageTool =
     input.imageGenerationToolEnabled !== false &&
@@ -115,6 +124,26 @@ export function buildToolDefinitions(input: {
     });
   }
 
+  if (input.botWorkspaceSkillsEnabled) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "save_skill",
+        description:
+          "Create or update a reusable skill in your own workspace skills folder (skills/<name>/SKILL.md). Saved skills persist across conversations and become available via load_skill in future turns. Use it whenever you develop a workflow or set of instructions worth reusing later.",
+        parameters: {
+          type: "object",
+          properties: {
+            name: { type: "string", description: "Short skill name (lowercase letters, digits, and hyphens)" },
+            description: { type: "string", description: "One-line description of when the skill applies" },
+            instructions: { type: "string", description: "Full skill instructions in markdown (the SKILL.md body)" }
+          },
+          required: ["name", "description", "instructions"]
+        }
+      }
+    });
+  }
+
   if (input.visionToolEnabled) {
     tools.push({
       type: "function",
@@ -157,6 +186,139 @@ export function buildToolDefinitions(input: {
     }
   });
 
+  tools.push({
+    type: "function",
+    function: {
+      name: "create_automation",
+      description: buildCreateAutomationDescription(),
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string", description: "Short name for the automation (max 100 chars)" },
+          prompt: {
+            type: "string",
+            description:
+              "Complete, self-contained instructions the scheduled run will execute. Supports the variables {{date}} (run date), {{run_number}} (1-based ordinal of this run), and {{last_result}} (result of the previous run, empty on the first run)."
+          },
+          schedule_kind: {
+            type: "string",
+            enum: ["interval", "calendar"],
+            description: "interval = every N minutes; calendar = daily or weekly at a local time"
+          },
+          interval_minutes: {
+            type: "number",
+            description: "Minutes between runs for interval schedules (minimum 5)"
+          },
+          calendar_frequency: {
+            type: "string",
+            enum: ["daily", "weekly"],
+            description: "Calendar frequency (required for calendar schedules)"
+          },
+          time_of_day: {
+            type: "string",
+            description: "Run time in HH:MM 24h local format (required for calendar schedules)"
+          },
+          days_of_week: {
+            type: "array",
+            items: { type: "number" },
+            description: "Weekdays for weekly schedules, 0=Sunday through 6=Saturday"
+          },
+          continue_previous_conversation: {
+            type: "boolean",
+            description:
+              "true = each run continues the previous run's conversation so briefs build on prior results; false (default) = each run starts a fresh conversation"
+          }
+        },
+        required: ["name", "prompt", "schedule_kind"]
+      }
+    }
+  });
+
+  if (input.botTeam) {
+    const rosterSummary = input.botTeam.roster.length
+      ? input.botTeam.roster
+          .map((bot) => `- ${bot.name}${bot.isChief ? " — chief of staff" : ""}${bot.title ? ` (${bot.title})` : ""}${bot.description ? `: ${bot.description}` : ""}`)
+          .join("\n")
+      : "(no other bots yet)";
+
+    tools.push({
+      type: "function",
+      function: {
+        name: "message_bot",
+        description:
+          "Send a message to another bot on the team. Returns immediately — the bot works on it in the background in its own conversation with its own browser session and workspace, and its reply arrives here as a new message when it finishes. After sending, say right away what you asked and that you will report back once you have the answer, then continue with other work. When the reply arrives as a new message, report it to the user directly — never message the bot back just to acknowledge or forward its reply. Bots you can message:\n" +
+          rosterSummary,
+        parameters: {
+          type: "object",
+          properties: {
+            bot: {
+              type: "string",
+              description: "Name or id of another bot on the team (not yourself)"
+            },
+            message: {
+              type: "string",
+              description: "Complete, self-contained message or instructions for the bot"
+            }
+          },
+          required: ["bot", "message"]
+        }
+      }
+    });
+
+    if (input.botTeam.isChief) {
+      tools.push(
+        {
+          type: "function",
+          function: {
+            name: "create_bot",
+            description:
+              "Create a new specialist bot when a job deserves a long-lived owner and no existing bot fits. Only call this after the user has explicitly confirmed the creation in this conversation. After creation, send work to it with message_bot.",
+            parameters: {
+              type: "object",
+              properties: {
+                name: { type: "string", description: "Short unique name for the bot" },
+                title: { type: "string", description: "One-line job title (optional)" },
+                description: {
+                  type: "string",
+                  description: "What this bot owns and how it should work (optional)"
+                }
+              },
+              required: ["name"]
+            }
+          }
+        },
+        {
+          type: "function",
+          function: {
+            name: "update_bot",
+            description:
+              "Update an existing specialist bot when its responsibilities change: rename it, or revise its title, description, or system prompt. Prefer this over creating a duplicate bot.",
+            parameters: {
+              type: "object",
+              properties: {
+                bot: {
+                  type: "string",
+                  description: "Name or id of the specialist bot to update (not yourself)"
+                },
+                name: { type: "string", description: "New unique name for the bot (optional)" },
+                title: { type: "string", description: "New one-line job title (optional)" },
+                description: {
+                  type: "string",
+                  description: "New description of what this bot owns (optional)"
+                },
+                system_prompt: {
+                  type: "string",
+                  description: "New base system prompt shaping how the bot works (optional)"
+                }
+              },
+              required: ["bot"]
+            }
+          }
+        }
+      );
+    }
+  }
+
   if (input.webSearchEnabled) {
     const parallelSearch = (input.webSearchPipelineMode ?? "auto") !== "off";
     tools.push({
@@ -195,6 +357,45 @@ export function buildToolDefinitions(input: {
               },
               required: ["query"]
             }
+      }
+    });
+  }
+
+  tools.push({
+    type: "function",
+    function: {
+      name: "read_page",
+      description:
+        "Fetch a web page by URL and return its main content as Markdown (bounded to 32,000 characters). Use it to read a specific page in full: a web_search result, a link the user shared, an article, or documentation. To read several pages, issue multiple read_page calls in the same step; they run in parallel. Works on static content only; for JavaScript-heavy, login-gated, or interactive pages use the agent-browser skill.",
+      parameters: {
+        type: "object",
+        properties: {
+          url: { type: "string", description: "Absolute http(s) URL of the page to read" },
+          max_chars: {
+            type: "number",
+            description: "Maximum characters to return (1000-32000, default 32000). Use a smaller value when you only need an overview."
+          }
+        },
+        required: ["url"]
+      }
+    }
+  });
+
+  if (input.semanticRecallAvailable) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "search_workspace",
+        description:
+          "Semantically search this user's own workspace: saved memories, past conversations (including automation transcripts), conversation summaries, and attached document text. Use it when the user refers to something discussed before, a past decision, or a document they shared, and the answer is not already in the current conversation. Read-only.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Natural-language description of what to find" },
+            limit: { type: "number", description: "Maximum number of results (default 8, max 20)" }
+          },
+          required: ["query"]
+        }
       }
     });
   }

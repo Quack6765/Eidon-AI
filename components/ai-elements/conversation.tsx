@@ -164,6 +164,26 @@ const SCROLLBAR_THUMB_MIN_HEIGHT_PX = 28;
 const SCROLLBAR_HIDE_DELAY_MS = 1000;
 const SCROLLBAR_HOLD_DELAY_MS = 150;
 const SCROLLBAR_TOUCH_SLOP_PX = 10;
+const SCROLLBAR_USER_SCROLL_INTENT_MS = 150;
+
+const SCROLL_INTENT_KEYS = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  " "
+]);
+
+const isEditableEventTarget = (target: EventTarget | null): boolean =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable ||
+    target.tagName === "INPUT" ||
+    target.tagName === "TEXTAREA" ||
+    target.tagName === "SELECT");
 
 const isTouchPointerType = (pointerType: string): boolean =>
   pointerType === "touch" || pointerType === "pen";
@@ -184,6 +204,7 @@ export const ConversationScrollbar = ({
     scrubbing: boolean;
     startY: number;
   } | null>(null);
+  const userScrollAtRef = useRef(Number.NEGATIVE_INFINITY);
   const [dragging, setDragging] = useState(false);
   const [scrubbing, setScrubbing] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
@@ -218,6 +239,10 @@ export const ConversationScrollbar = ({
     );
   }, [scrollRef]);
 
+  const noteUserScroll = useCallback(() => {
+    userScrollAtRef.current = performance.now();
+  }, []);
+
   const reveal = useCallback(() => {
     if (hideTimerRef.current !== null) {
       window.clearTimeout(hideTimerRef.current);
@@ -241,13 +266,27 @@ export const ConversationScrollbar = ({
     const contentElement = contentRef.current;
     if (!scrollElement || !contentElement) return;
 
+    const isUserInitiatedScroll = () =>
+      performance.now() - userScrollAtRef.current <= SCROLLBAR_USER_SCROLL_INTENT_MS;
+
     const handleScroll = () => {
       updateGeometry();
-      reveal();
+      if (isUserInitiatedScroll()) reveal();
+    };
+
+    const handleUserWheel = () => noteUserScroll();
+    const handleUserTouchMove = () => noteUserScroll();
+    const handleUserKeyDown = (event: KeyboardEvent) => {
+      if (!SCROLL_INTENT_KEYS.has(event.key)) return;
+      if (isEditableEventTarget(event.target)) return;
+      noteUserScroll();
     };
 
     updateGeometry();
     scrollElement.addEventListener("scroll", handleScroll, { passive: true });
+    scrollElement.addEventListener("wheel", handleUserWheel, { passive: true });
+    scrollElement.addEventListener("touchmove", handleUserTouchMove, { passive: true });
+    scrollElement.addEventListener("keydown", handleUserKeyDown);
     window.addEventListener("resize", updateGeometry);
     window.addEventListener(IOS_PWA_CONVERSATION_VIEWPORT_EVENT, updateGeometry);
     const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(updateGeometry);
@@ -256,12 +295,15 @@ export const ConversationScrollbar = ({
     return () => {
       observer?.disconnect();
       scrollElement.removeEventListener("scroll", handleScroll);
+      scrollElement.removeEventListener("wheel", handleUserWheel);
+      scrollElement.removeEventListener("touchmove", handleUserTouchMove);
+      scrollElement.removeEventListener("keydown", handleUserKeyDown);
       window.removeEventListener("resize", updateGeometry);
       window.removeEventListener(IOS_PWA_CONVERSATION_VIEWPORT_EVENT, updateGeometry);
       if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
       if (holdTimerRef.current !== null) window.clearTimeout(holdTimerRef.current);
     };
-  }, [contentRef, scrollRef, reveal, updateGeometry]);
+  }, [contentRef, scrollRef, reveal, updateGeometry, noteUserScroll]);
 
   const clearHoldTimer = () => {
     if (holdTimerRef.current !== null) {
@@ -388,6 +430,7 @@ export const ConversationScrollbar = ({
       }, SCROLLBAR_HOLD_DELAY_MS);
       return;
     }
+    noteUserScroll();
     jumpToCenter(event.clientY);
   };
 
@@ -445,7 +488,9 @@ export const ConversationScrollbar = ({
 
   const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
     const scroller = scrollRef.current;
-    if (scroller) scroller.scrollTop += event.deltaY;
+    if (!scroller) return;
+    noteUserScroll();
+    scroller.scrollTop += event.deltaY;
   };
 
   const scrubHandlersRef = useRef({

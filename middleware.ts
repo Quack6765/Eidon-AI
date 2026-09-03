@@ -10,7 +10,7 @@ import {
 import { verifyHs256SessionJwt } from "@/lib/edge-session-token";
 import { env, isPasswordLoginEnabled } from "@/lib/env";
 
-const publicPaths = ["/login", "/share", "/api/share"];
+const publicPaths = ["/login", "/share", "/api/share", "/api/mcp-servers/oauth/callback"];
 
 function getSecret() {
   return new TextEncoder().encode(env.EIDON_SESSION_SECRET);

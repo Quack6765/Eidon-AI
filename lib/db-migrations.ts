@@ -53,6 +53,13 @@ function decryptLegacyCredential(value: string | null | undefined) {
   }
 }
 
+function runLoggedDataMigration(db: Database.Database, label: string, runMigration: (db: Database.Database) => void) {
+  console.log(`[db] ${label}...`);
+  const startedAt = Date.now();
+  runMigration(db);
+  console.log(`[db] ${label} done in ${Date.now() - startedAt}ms`);
+}
+
 function migrateProviderConnectionStorage(db: Database.Database) {
   if (!tableExists(db, "provider_profile_connections")) return;
   const columns = db.prepare("PRAGMA table_info(provider_profile_connections)").all() as Array<{
@@ -60,6 +67,8 @@ function migrateProviderConnectionStorage(db: Database.Database) {
   }>;
   if (!columns.some((column) => column.name === "provider_kind")) return;
 
+  console.log("[db] Migrating provider connection storage...");
+  const startedAt = Date.now();
   db.pragma("foreign_keys = OFF");
   try {
     const transaction = db.transaction(() => {
@@ -89,6 +98,7 @@ function migrateProviderConnectionStorage(db: Database.Database) {
   } finally {
     db.pragma("foreign_keys = ON");
   }
+  console.log(`[db] Provider connection storage migration done in ${Date.now() - startedAt}ms`);
 }
 
 function migrateProviderRequestConfiguration(db: Database.Database) {
@@ -143,6 +153,8 @@ function migrateProviderStorage(db: Database.Database) {
     return;
   }
 
+  console.log("[db] Migrating provider storage from legacy schema...");
+  const legacyStartedAt = Date.now();
   const rows = db.prepare("SELECT * FROM provider_profiles").all() as Array<Record<string, unknown>>;
   const flowRows = tableExists(db, "mobile_github_oauth_flows")
     ? db.prepare("SELECT * FROM mobile_github_oauth_flows").all() as Array<Record<string, unknown>>
@@ -343,6 +355,7 @@ function migrateProviderStorage(db: Database.Database) {
     SET compaction_threshold = 0.8
     WHERE ABS(compaction_threshold - 0.78) < 0.000001
   `).run();
+  console.log(`[db] Provider storage migration done in ${Date.now() - legacyStartedAt}ms`);
 }
 
 function migrateIntegrationSettings(db: Database.Database) {
@@ -573,11 +586,13 @@ function migratePreferenceStorage(db: Database.Database) {
       max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
+      default_view TEXT NOT NULL DEFAULT 'chat',
       title_generation_mode TEXT NOT NULL DEFAULT 'same',
       title_generation_profile_id TEXT,
       speech_cleanup_enabled INTEGER NOT NULL DEFAULT 0,
       speech_cleanup_profile_id TEXT,
       speech_cleanup_prompt TEXT NOT NULL DEFAULT '',
+      bot_system_prompt TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (default_provider_profile_id) REFERENCES provider_profiles(id) ON DELETE SET NULL,
@@ -593,6 +608,8 @@ function migratePreferenceStorage(db: Database.Database) {
       max_assistant_tool_steps INTEGER NOT NULL DEFAULT 25,
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
+      default_view TEXT NOT NULL DEFAULT 'chat',
+      has_completed_onboarding INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -685,6 +702,8 @@ function migrateCompactionEventsTable(db: Database.Database) {
     return;
   }
 
+  console.log("[db] Rebuilding compaction events table...");
+  const startedAt = Date.now();
   const transaction = db.transaction(() => {
     db.exec("DROP TABLE IF EXISTS compaction_events_new");
     db.exec(COMPACTION_EVENTS_TABLE_SQL.replace("compaction_events", "compaction_events_new"));
@@ -789,6 +808,7 @@ function migrateCompactionEventsTable(db: Database.Database) {
   });
 
   transaction.immediate();
+  console.log(`[db] Compaction events rebuild done in ${Date.now() - startedAt}ms`);
 }
 
 export function reconcileInterruptedRuntimeState(
@@ -853,11 +873,20 @@ export function reconcileInterruptedRuntimeState(
 }
 
 export function migrate(db: Database.Database) {
+  const isFreshDatabase = !tableExists(db, "users");
+  if (isFreshDatabase) {
+    console.log("[db] Initializing new database");
+  }
+  const migrationStartedAt = Date.now();
+  console.log("[db] Running database migrations...");
   const needsLegacySettingsMigration = !(
     tableExists(db, "global_preferences") &&
     tableExists(db, "user_preferences") &&
     tableExists(db, "integration_settings")
   );
+  if (needsLegacySettingsMigration) {
+    console.log("[db] Migrating legacy settings storage (app_settings/user_settings)");
+  }
   db.exec(`
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS users (
@@ -897,6 +926,26 @@ export function migrate(db: Database.Database) {
       created_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
       FOREIGN KEY (profile_id) REFERENCES provider_profiles(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS mcp_server_connections (
+      server_id TEXT NOT NULL PRIMARY KEY,
+      credentials_encrypted TEXT NOT NULL,
+      metadata_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS mcp_oauth_flows (
+      id TEXT PRIMARY KEY,
+      server_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      payload_encrypted TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      consumed_at TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (server_id) REFERENCES mcp_servers(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
     CREATE TABLE IF NOT EXISTS provider_profiles (
       id TEXT PRIMARY KEY,
@@ -1107,6 +1156,7 @@ export function migrate(db: Database.Database) {
       calendar_frequency TEXT,
       time_of_day TEXT,
       days_of_week TEXT NOT NULL DEFAULT '[]',
+      continue_previous_conversation INTEGER NOT NULL DEFAULT 0,
       enabled INTEGER NOT NULL DEFAULT 1,
       next_run_at TEXT,
       last_scheduled_for TEXT,
@@ -1130,6 +1180,41 @@ export function migrate(db: Database.Database) {
       created_at TEXT NOT NULL,
       FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE,
       FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS bots (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      name TEXT NOT NULL,
+      title TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      avatar_seed TEXT NOT NULL,
+      system_prompt TEXT NOT NULL,
+      is_chief INTEGER NOT NULL DEFAULT 0,
+      home_conversation_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (home_conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS bot_runs (
+      id TEXT PRIMARY KEY,
+      bot_id TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      trigger_source TEXT NOT NULL,
+      status TEXT NOT NULL,
+      started_at TEXT,
+      finished_at TEXT,
+      parent_message_id TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (bot_id) REFERENCES bots(id) ON DELETE CASCADE,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY (parent_message_id) REFERENCES messages(id) ON DELETE SET NULL
+    );
+    CREATE TABLE IF NOT EXISTS bot_avatars (
+      seed TEXT PRIMARY KEY,
+      svg TEXT NOT NULL,
+      created_at TEXT NOT NULL
     );
   `);
 
@@ -1270,10 +1355,32 @@ export function migrate(db: Database.Database) {
   if (!memoryCols.some((col) => col.name === "user_id")) {
     db.exec("ALTER TABLE user_memories ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
   }
+  if (!memoryCols.some((col) => col.name === "bot_id")) {
+    db.exec("ALTER TABLE user_memories ADD COLUMN bot_id TEXT REFERENCES bots(id) ON DELETE CASCADE");
+  }
 
   const automationCols = db.prepare("PRAGMA table_info(automations)").all() as Array<{ name: string }>;
   if (!automationCols.some((col) => col.name === "user_id")) {
     db.exec("ALTER TABLE automations ADD COLUMN user_id TEXT REFERENCES users(id) ON DELETE CASCADE");
+  }
+  if (!automationCols.some((col) => col.name === "bot_id")) {
+    db.exec("ALTER TABLE automations ADD COLUMN bot_id TEXT REFERENCES bots(id) ON DELETE SET NULL");
+  }
+  if (!automationCols.some((col) => col.name === "research")) {
+    db.exec("ALTER TABLE automations ADD COLUMN research INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!automationCols.some((col) => col.name === "run_timeout_minutes")) {
+    db.exec("ALTER TABLE automations ADD COLUMN run_timeout_minutes INTEGER");
+  }
+  if (!automationCols.some((col) => col.name === "continue_previous_conversation")) {
+    db.exec(
+      "ALTER TABLE automations ADD COLUMN continue_previous_conversation INTEGER NOT NULL DEFAULT 0"
+    );
+  }
+
+  const botCols = db.prepare("PRAGMA table_info(bots)").all() as Array<{ name: string }>;
+  if (!botCols.some((col) => col.name === "pending_input_seen_at")) {
+    db.exec("ALTER TABLE bots ADD COLUMN pending_input_seen_at TEXT");
   }
 
   db.exec(`
@@ -1591,6 +1698,8 @@ export function migrate(db: Database.Database) {
       ON auth_sessions(user_id, purpose, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_provider_connection_flows_user_created
       ON provider_connection_flows(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_mcp_oauth_flows_server_created
+      ON mcp_oauth_flows(server_id, created_at DESC);
   `);
 
   const queuedMessagesCols = db.prepare("PRAGMA table_info(queued_messages)").all() as Array<{ name: string }>;
@@ -1860,8 +1969,8 @@ export function migrate(db: Database.Database) {
 
   migrateProviderStorage(db);
   if (needsLegacySettingsMigration) {
-    migrateIntegrationSettings(db);
-    migratePreferenceStorage(db);
+    runLoggedDataMigration(db, "Migrating integration settings", migrateIntegrationSettings);
+    runLoggedDataMigration(db, "Migrating preference storage", migratePreferenceStorage);
   }
   normalizeIntegrationSettingsStorage(db);
   consolidateGlobalIntegrationSettings(db);
@@ -1889,6 +1998,17 @@ export function migrate(db: Database.Database) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN tool_call_display TEXT NOT NULL DEFAULT 'pills'");
   }
 
+  if (!globalPreferencesCols.some((column) => column.name === "default_view")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN default_view TEXT NOT NULL DEFAULT 'chat'");
+  }
+  if (!userPreferencesCols.some((column) => column.name === "default_view")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN default_view TEXT NOT NULL DEFAULT 'chat'");
+  }
+
+  if (!userPreferencesCols.some((column) => column.name === "has_completed_onboarding")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN has_completed_onboarding INTEGER NOT NULL DEFAULT 0");
+  }
+
   if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_enabled")) {
     db.exec("ALTER TABLE global_preferences ADD COLUMN speech_cleanup_enabled INTEGER NOT NULL DEFAULT 0");
   }
@@ -1898,6 +2018,59 @@ export function migrate(db: Database.Database) {
   if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_prompt")) {
     db.exec("ALTER TABLE global_preferences ADD COLUMN speech_cleanup_prompt TEXT NOT NULL DEFAULT ''");
   }
+  if (!globalPreferencesCols.some((column) => column.name === "bot_system_prompt")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN bot_system_prompt TEXT NOT NULL DEFAULT ''");
+  }
+
+  if (!globalPreferencesCols.some((column) => column.name === "semantic_recall_enabled")) {
+    db.exec("ALTER TABLE global_preferences ADD COLUMN semantic_recall_enabled INTEGER NOT NULL DEFAULT 1");
+  }
+
+  const userMemoryCols = db.prepare("PRAGMA table_info(user_memories)").all() as Array<{ name: string }>;
+  if (!userMemoryCols.some((column) => column.name === "pinned")) {
+    db.exec("ALTER TABLE user_memories ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0");
+  }
+
+  const hadSemanticChunksTable = tableExists(db, "semantic_chunks");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS semantic_chunks (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      ref_id TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL,
+      user_id TEXT,
+      conversation_id TEXT,
+      memory_id TEXT,
+      message_id TEXT,
+      memory_node_id TEXT,
+      attachment_id TEXT,
+      chunk_text TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      dim INTEGER NOT NULL,
+      embedding BLOB NOT NULL,
+      source_created_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (kind, ref_id, chunk_index),
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+      FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
+      FOREIGN KEY (memory_id) REFERENCES user_memories(id) ON DELETE CASCADE,
+      FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+      FOREIGN KEY (memory_node_id) REFERENCES memory_nodes(id) ON DELETE CASCADE,
+      FOREIGN KEY (attachment_id) REFERENCES message_attachments(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_user_kind ON semantic_chunks(user_id, kind);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_model ON semantic_chunks(model_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_conversation ON semantic_chunks(conversation_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_memory ON semantic_chunks(memory_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_message ON semantic_chunks(message_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_memory_node ON semantic_chunks(memory_node_id);
+    CREATE INDEX IF NOT EXISTS idx_semantic_chunks_attachment ON semantic_chunks(attachment_id);
+  `);
+  if (!hadSemanticChunksTable) {
+    console.log("[db] Created semantic_chunks table");
+  }
+  console.log(`[db] Database migrations complete in ${Date.now() - migrationStartedAt}ms`);
 }
 
 export function backfillVisionMcpServers(db: Database.Database) {

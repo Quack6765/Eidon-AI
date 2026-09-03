@@ -139,6 +139,29 @@ describe("scripts/setup-worktree.sh", () => {
     );
   });
 
+  it("finds the primary checkout even when it is not on the main branch", () => {
+    const { mainDir, worktreeDir } = createWorktreeFixture();
+    run("git", ["checkout", "-b", "dev"], mainDir);
+
+    const output = run("./scripts/setup-worktree.sh", [], worktreeDir);
+
+    expect(output).toContain(`Setting up worktree from main: ${fs.realpathSync(mainDir)}`);
+    expect(fs.readFileSync(path.join(worktreeDir, ".env"), "utf8")).toBe("EIDON_DATA_DIR=.data\n");
+    expect(readSqliteLabel(path.join(worktreeDir, ".data/eidon.db"))).toBe("source");
+  });
+
+  it("still copies data when the source has no .env file", () => {
+    const { mainDir, worktreeDir } = createWorktreeFixture();
+    fs.rmSync(path.join(mainDir, ".env"));
+
+    const output = run("./scripts/setup-worktree.sh", [], worktreeDir);
+
+    expect(output).toContain("does not exist, skipping");
+    expect(output).toContain("Worktree setup complete.");
+    expect(fs.existsSync(path.join(worktreeDir, ".env"))).toBe(false);
+    expect(readSqliteLabel(path.join(worktreeDir, ".data/eidon.db"))).toBe("source");
+  });
+
   it("succeeds when main has no .data directory", () => {
     const { mainDir, worktreeDir } = createWorktreeFixture();
     fs.rmSync(path.join(mainDir, ".data"), { recursive: true, force: true });

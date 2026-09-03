@@ -651,7 +651,7 @@ describe("lossless compaction", () => {
 
   it("does not compact an unmatched trailing user message out of visible history", async () => {
     updateDefaultProfile({
-      modelContextLimit: 4096,
+      modelContextLimit: 4352,
       maxOutputTokens: 2000,
       compactionThreshold: 0.6
     });
@@ -837,7 +837,7 @@ describe("lossless compaction", () => {
 
   it("keeps the fresh completed-turn tail un-compacted when leaf compaction runs", async () => {
     updateDefaultProfile({
-      modelContextLimit: 4096,
+      modelContextLimit: 4352,
       maxOutputTokens: 2000,
       compactionThreshold: 0.6
     });
@@ -908,7 +908,7 @@ describe("lossless compaction", () => {
 
   it("prefers rendered memory-node selection before compacting older raw turns when memory pressure is the overflow source", async () => {
     updateDefaultProfile({
-      modelContextLimit: 4096,
+      modelContextLimit: 4352,
       compactionThreshold: 0.7
     });
     getDb()
@@ -1509,7 +1509,8 @@ describe("buildPromptMessages with persona", () => {
 
     expect(result[0].role).toBe("system");
     const systemContent = result[0].content as string;
-    expect(systemContent).toBe("You are a helpful assistant.");
+    expect(systemContent.startsWith("You are a helpful assistant.")).toBe(true);
+    expect(systemContent).toContain("create_automation");
   });
 });
 

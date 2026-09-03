@@ -16,6 +16,7 @@ export type ProviderTextPurpose =
   | "title"
   | "image_instruction"
   | "web_search_planning"
+  | "research_planning"
   | "speech_cleanup";
 
 export type ProviderTextInput = {
@@ -48,6 +49,7 @@ export type ProviderStreamInput = {
   promptMessages: PromptMessage[];
   tools?: ToolDefinition[];
   abortSignal?: AbortSignal;
+  conversationId?: string;
   runtimeToolContext?: RuntimeToolContext;
 };
 

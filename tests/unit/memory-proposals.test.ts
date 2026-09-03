@@ -524,4 +524,72 @@ describe("memory proposal approval routes", () => {
     await expect(response.json()).resolves.toEqual({ error: "Memory proposal not found" });
     expect(getMemory(memory.id, owner.user.id)).toEqual(expect.objectContaining({ id: memory.id }));
   });
+
+  it("broadcasts a bot update when a bot-owned proposal is approved or dismissed", async () => {
+    const { createBot, toBotSummary } = await import("@/lib/bots");
+    const { getConversationManager } = await import("@/lib/ws-singleton");
+    const manager = getConversationManager();
+
+    const events: Array<{ botId: string; waitingForInput: boolean }> = [];
+    const original = manager.broadcastAll;
+    manager.broadcastAll = (event: Parameters<typeof original>[0], _userId: string | null) => {
+      if (event.type === "bot_updated") {
+        events.push({ botId: event.bot.id, waitingForInput: event.bot.waitingForInput });
+      }
+    };
+
+    try {
+      const user = await createLocalUser({
+        username: "memory-bot-broadcast",
+        password: "Password123!",
+        role: "user"
+      });
+      const bot = createBot({ name: "Broadcast Bot" }, user.id);
+      const message = createMessage({
+        conversationId: bot.homeConversationId,
+        role: "assistant",
+        content: "",
+        thinkingContent: "",
+        status: "completed",
+        estimatedTokens: 0
+      });
+      const created = createMessageAction({
+        messageId: message.id,
+        kind: "create_memory",
+        status: "pending",
+        label: "Create memory proposal",
+        proposalState: "pending",
+        proposalPayload: buildCreateMemoryProposal({
+          content: "User prefers green tea",
+          category: "preference"
+        })
+      });
+
+      expect(toBotSummary(bot).waitingForInput).toBe(true);
+      expect(events).toHaveLength(0);
+
+      dismissMemoryProposal(created.id, user.id);
+      expect(events).toEqual([{ botId: bot.id, waitingForInput: false }]);
+
+      const second = createMessageAction({
+        messageId: message.id,
+        kind: "create_memory",
+        status: "pending",
+        label: "Create memory proposal",
+        proposalState: "pending",
+        proposalPayload: buildCreateMemoryProposal({
+          content: "User prefers black coffee",
+          category: "preference"
+        })
+      });
+
+      approveMemoryProposal(second.id, undefined, user.id);
+      expect(events).toEqual([
+        { botId: bot.id, waitingForInput: false },
+        { botId: bot.id, waitingForInput: false }
+      ]);
+    } finally {
+      manager.broadcastAll = original;
+    }
+  });
 });

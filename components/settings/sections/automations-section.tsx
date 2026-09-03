@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { CalendarDays, Clock3, Plus, Trash2 } from "lucide-react";
 
 import { ProfileCard } from "@/components/settings/profile-card";
+import { BotAvatar } from "@/components/agents/bot-avatar";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 import { DetailActionBar } from "@/components/settings/detail-action-bar";
 import { DetailHeader } from "@/components/settings/detail-header";
@@ -12,12 +13,14 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Toast } from "@/components/ui/toast";
+import { DEFAULT_RESEARCH_AUTOMATION_TIMEOUT_MINUTES, MAX_AUTOMATION_RUN_TIMEOUT_MINUTES } from "@/lib/constants";
 import { fieldLabel, selectLike, sectionTitle } from "@/lib/settings-styles";
 import { useToastState } from "@/hooks/use-toast-state";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
-import type { Automation, Persona } from "@/lib/types";
+import type { Automation, BotSummary, Persona } from "@/lib/types";
+import { AUTOMATION_WEEKDAYS, describeSchedule } from "@/lib/automation-display";
 
 type SettingsPayload = {
   defaultProviderProfileId: string | null;
@@ -32,23 +35,19 @@ type AutomationFormState = {
   prompt: string;
   providerProfileId: string;
   personaId: string | null;
+  botId: string | null;
   scheduleKind: "interval" | "calendar";
   intervalMinutes: number;
   calendarFrequency: "daily" | "weekly";
   timeOfDay: string;
   daysOfWeek: number[];
+  continuePreviousConversation: boolean;
   enabled: boolean;
+  research: boolean;
+  runTimeoutMinutes: number | null;
 };
 
-const WEEKDAYS = [
-  { value: 1, label: "Mon" },
-  { value: 2, label: "Tue" },
-  { value: 3, label: "Wed" },
-  { value: 4, label: "Thu" },
-  { value: 5, label: "Fri" },
-  { value: 6, label: "Sat" },
-  { value: 0, label: "Sun" }
-] as const;
+const WEEKDAYS = AUTOMATION_WEEKDAYS;
 
 function createDefaultForm(providerProfileId = ""): AutomationFormState {
   return {
@@ -56,26 +55,17 @@ function createDefaultForm(providerProfileId = ""): AutomationFormState {
     prompt: "",
     providerProfileId,
     personaId: null,
+    botId: null,
     scheduleKind: "interval",
     intervalMinutes: 5,
     calendarFrequency: "daily",
     timeOfDay: "09:00",
     daysOfWeek: [1],
-    enabled: true
+    continuePreviousConversation: false,
+    enabled: true,
+    research: false,
+    runTimeoutMinutes: null
   };
-}
-
-function describeSchedule(automation: Automation) {
-  if (automation.scheduleKind === "interval" && automation.intervalMinutes) {
-    return `Every ${automation.intervalMinutes} min`;
-  }
-
-  if (automation.calendarFrequency === "weekly") {
-    const selectedDays = WEEKDAYS.filter((day) => automation.daysOfWeek.includes(day.value)).map((day) => day.label);
-    return `${selectedDays.join(", ")} at ${automation.timeOfDay ?? "--:--"}`;
-  }
-
-  return `Daily at ${automation.timeOfDay ?? "--:--"}`;
 }
 
 function automationToForm(automation: Automation): AutomationFormState {
@@ -84,18 +74,23 @@ function automationToForm(automation: Automation): AutomationFormState {
     prompt: automation.prompt,
     providerProfileId: automation.providerProfileId,
     personaId: automation.personaId,
+    botId: automation.botId,
     scheduleKind: automation.scheduleKind,
     intervalMinutes: automation.intervalMinutes ?? 5,
     calendarFrequency: automation.calendarFrequency ?? "daily",
     timeOfDay: automation.timeOfDay ?? "09:00",
     daysOfWeek: automation.daysOfWeek.length ? automation.daysOfWeek : [1],
-    enabled: automation.enabled
+    continuePreviousConversation: automation.continuePreviousConversation,
+    enabled: automation.enabled,
+    research: automation.research,
+    runTimeoutMinutes: automation.runTimeoutMinutes
   };
 }
 
 export function AutomationsSection() {
   const [automations, setAutomations] = useState<Automation[]>([]);
   const [personas, setPersonas] = useState<Persona[]>([]);
+  const [bots, setBots] = useState<BotSummary[]>([]);
   const [providerProfiles, setProviderProfiles] = useState<Array<{ id: string; name: string }>>([]);
   const [defaultProviderProfileId, setDefaultProviderProfileId] = useState("");
   const [form, setForm] = useState<AutomationFormState>(createDefaultForm());
@@ -157,6 +152,17 @@ export function AutomationsSection() {
       setIsLoading(false);
     }
   }
+
+  useEffect(() => {
+    fetch("/api/bots")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((payload: { bots?: BotSummary[] } | null) => {
+        if (payload && Array.isArray(payload.bots)) {
+          setBots(payload.bots);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     void loadData().catch(() => {
@@ -279,13 +285,17 @@ export function AutomationsSection() {
       name: form.name.trim(),
       prompt: form.prompt.trim(),
       providerProfileId: resolvedProviderProfileId,
-      personaId: form.personaId,
+      personaId: form.botId ? null : form.personaId,
+      botId: form.botId,
       scheduleKind: form.scheduleKind,
       intervalMinutes: form.scheduleKind === "interval" ? form.intervalMinutes : null,
       calendarFrequency: form.scheduleKind === "calendar" ? form.calendarFrequency : null,
       timeOfDay: form.scheduleKind === "calendar" ? form.timeOfDay : null,
       daysOfWeek: form.scheduleKind === "calendar" && form.calendarFrequency === "weekly" ? form.daysOfWeek : [],
-      enabled: form.enabled
+      continuePreviousConversation: form.botId ? false : form.continuePreviousConversation,
+      enabled: form.enabled,
+      research: form.research,
+      runTimeoutMinutes: form.runTimeoutMinutes
     };
 
     try {
@@ -422,15 +432,29 @@ export function AutomationsSection() {
             </div>
           ) : (
             <>
-              {automations.map((automation) => (
-                <ProfileCard
-                  key={automation.id}
-                  isActive={automation.id === selectedAutomationId}
-                  onClick={() => openAutomation(automation)}
-                  title={automation.name}
-                  subtitle={describeSchedule(automation)}
-                />
-              ))}
+              {automations.map((automation) => {
+                const boundBot = automation.botId
+                  ? bots.find((bot) => bot.id === automation.botId)
+                  : undefined;
+
+                return (
+                  <ProfileCard
+                    key={automation.id}
+                    isActive={automation.id === selectedAutomationId}
+                    onClick={() => openAutomation(automation)}
+                    title={automation.name}
+                    subtitle={describeSchedule(automation)}
+                    meta={
+                      boundBot ? (
+                        <span className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-violet-500/20 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-violet-300">
+                          <BotAvatar seed={boundBot.avatarSeed} size={14} className="rounded-[4px] border-0" />
+                          <span className="truncate">{boundBot.name}</span>
+                        </span>
+                      ) : undefined
+                    }
+                  />
+                );
+              })}
             </>
           )
         }
@@ -492,6 +516,34 @@ export function AutomationsSection() {
                       </div>
 
                       <div>
+                        <label className={fieldLabel}>Run as bot</label>
+                        <select
+                          aria-label="Run as bot"
+                          className={`${selectLike} ${isFieldDirty("botId") ? "!border-amber-500/40" : ""}`}
+                          value={form.botId ?? ""}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              botId: event.target.value || null
+                            }))
+                          }
+                        >
+                          <option value="">No bot (regular automation)</option>
+                          {bots.map((bot) => (
+                            <option key={bot.id} value={bot.id}>
+                              {bot.isChief ? `${bot.name} (chief)` : bot.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {form.botId ? (
+                      <p className="text-xs text-[var(--muted)]">
+                        This automation runs in the selected bot&apos;s thread, as that bot. The persona picker is disabled while a bot is selected.
+                      </p>
+                    ) : (
+                      <div>
                         <label className={fieldLabel}>Persona</label>
                         <select
                           aria-label="Persona"
@@ -512,7 +564,7 @@ export function AutomationsSection() {
                           ))}
                         </select>
                       </div>
-                    </div>
+                    )}
                   </div>
                 </div>
 
@@ -547,6 +599,40 @@ export function AutomationsSection() {
                         />
                         Enabled
                       </label>
+                    </div>
+
+                    <div className="grid gap-5 md:grid-cols-[1fr_200px] md:items-end">
+                      <label className={`flex items-center gap-3 rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--text)] cursor-pointer ${isFieldDirty("research") ? "!border-amber-500/40" : "border-white/6"}`}>
+                        <input
+                          type="checkbox"
+                          checked={form.research}
+                          onChange={(event) => setForm((current) => ({ ...current, research: event.target.checked }))}
+                        />
+                        <span>
+                          Deep research
+                          <span className="block text-xs text-[var(--muted)]">
+                            Searches, reads sources, and ends with a cited report. Runs up to {DEFAULT_RESEARCH_AUTOMATION_TIMEOUT_MINUTES} minutes by default.
+                          </span>
+                        </span>
+                      </label>
+                      <div>
+                        <label className={fieldLabel}>Run timeout (minutes)</label>
+                        <Input
+                          aria-label="Run timeout (minutes)"
+                          type="number"
+                          min={1}
+                          max={MAX_AUTOMATION_RUN_TIMEOUT_MINUTES}
+                          placeholder={form.research ? String(DEFAULT_RESEARCH_AUTOMATION_TIMEOUT_MINUTES) : "30"}
+                          value={form.runTimeoutMinutes === null ? "" : String(form.runTimeoutMinutes)}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              runTimeoutMinutes: event.target.value === "" ? null : Math.max(1, Math.min(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES, Number(event.target.value) || 1))
+                            }))
+                          }
+                          className={isFieldDirty("runTimeoutMinutes") ? "!border-amber-500/40" : ""}
+                        />
+                      </div>
                     </div>
 
                     {form.scheduleKind === "interval" ? (
@@ -632,6 +718,30 @@ export function AutomationsSection() {
                         ) : null}
                       </div>
                     )}
+
+                    {!form.botId ? (
+                      <label
+                        className={`flex items-start gap-3 rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--text)] cursor-pointer ${isFieldDirty("continuePreviousConversation") ? "!border-amber-500/40" : "border-white/6"}`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={form.continuePreviousConversation}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              continuePreviousConversation: event.target.checked
+                            }))
+                          }
+                        />
+                        <span>
+                          Continue previous run&apos;s conversation
+                          <span className="block text-xs font-normal text-[var(--muted)]">
+                            Each run picks up where the last one left off, so briefs build on previous results. Otherwise every run starts a fresh conversation.
+                          </span>
+                        </span>
+                      </label>
+                    ) : null}
                   </div>
                 </div>
 

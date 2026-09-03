@@ -7,6 +7,7 @@ const vendorPattern = /github|copilot|google|assemblyai|elevenlabs|\bexa\b|tavil
 
 const allowedVendorPaths = new Set([
   "app/api/providers/github/callback/route.ts",
+  "components/onboarding/provider-logo.tsx",
   "components/settings/integration-settings/image-generation-settings.tsx",
   "components/settings/integration-settings/web-search-settings.tsx",
   "components/settings/provider-connection-fields.tsx",

@@ -3,14 +3,18 @@ import {
   getAutomationCatchUpWindow,
   getNextAutomationRunAt
 } from "@/lib/automation-schedule";
+import { renderAutomationPrompt } from "@/lib/automation-prompt-templating";
 import {
   attachConversationToRun,
   claimAutomationRun,
   commitScheduledAutomationSlots,
+  countAutomationRuns,
   createAutomationRun,
   getAutomation,
   getAutomationOwnerId,
   getAutomationRun,
+  getPreviousAutomationRunResult,
+  getReusableAutomationConversationId,
   listAutomations,
   listDueAutomations,
   listQueuedAutomationRuns,
@@ -18,13 +22,21 @@ import {
   updateAutomation,
   updateAutomationRunStatus
 } from "@/lib/automations";
-import { createConversation } from "@/lib/conversations";
+import { createConversation, getConversation } from "@/lib/conversations";
 import { getDb } from "@/lib/db";
 import { getPersona } from "@/lib/personas";
 import { getProviderProfile } from "@/lib/settings";
+import { getBot } from "@/lib/bots";
+import {
+  broadcastBotRunUpdate,
+  createBotRunRecord,
+  updateBotRunStatus
+} from "@/lib/bot-runs";
+import type { BotRun } from "@/lib/types";
 import type { StartChatTurn } from "@/lib/chat-turn";
 import { startChatTurn } from "@/lib/chat-turn";
 import { requestStop } from "@/lib/chat-turn-control";
+import { DEFAULT_RESEARCH_AUTOMATION_TIMEOUT_MINUTES, RESEARCH_DEADLINE_MARGIN_MS } from "@/lib/constants";
 import {
   AutomationOwnerBusyError,
   configureAutomationExecutionLimit,
@@ -107,12 +119,24 @@ function getAutomationOwnerKey(automationId: string) {
   return getAutomationOwnerId(automationId) ?? "owner:unowned";
 }
 
+export function resolveAutomationRunTimeoutMs(
+  automation: Pick<Automation, "research" | "runTimeoutMinutes">,
+  defaultRunTimeoutMs: number
+) {
+  if (automation.runTimeoutMinutes) return automation.runTimeoutMinutes * 60_000;
+  if (automation.research) return DEFAULT_RESEARCH_AUTOMATION_TIMEOUT_MINUTES * 60_000;
+  return defaultRunTimeoutMs;
+}
+
 async function executeAutomationRun(
   runId: string,
   dependencies: Required<
     Pick<SchedulerDependencies, "now" | "manager" | "startChatTurn" | "runTimeoutMs">
-  >
+  > & {
+    timeZone?: string;
+  }
 ): Promise<AutomationExecutionOutcome | void> {
+  const botRunState: { runId: string | null } = { runId: null };
   try {
     const run = getAutomationRun(runId);
     if (!run || run.status !== "queued") {
@@ -149,22 +173,65 @@ async function executeAutomationRun(
       return;
     }
 
-    const setupTransaction = getDb().transaction(() => {
+    const bot = automation.botId
+      ? getBot(automation.botId, automationOwnerId ?? undefined)
+      : null;
+    if (automation.botId && !bot) {
+      updateAutomationRunStatus(runId, {
+        status: "failed",
+        errorMessage: "Bot not found",
+        finishedAt: dependencies.now().toISOString()
+      });
+      return;
+    }
+
+    const setupTransaction = getDb().transaction((): { id: string } | null => {
       const startedAt = dependencies.now().toISOString();
       if (!claimAutomationRun(run.id, startedAt)) {
         return null;
       }
 
-      const conversation = createConversation(automation.name, null, {
-        providerProfileId: automation.providerProfileId,
-        origin: "automation",
-        automationId: automation.id,
-        automationRunId: run.id
-      }, automationOwnerId ?? undefined);
-      attachConversationToRun(run.id, conversation.id);
-      return conversation;
+      let conversationId: string;
+      if (bot) {
+        const botRun = createBotRunRecord({
+          botId: bot.id,
+          conversationId: bot.homeConversationId,
+          triggerSource: "routine"
+        });
+        botRunState.runId = botRun.id;
+        conversationId = bot.homeConversationId;
+      } else {
+        const reusableConversationId = automation.continuePreviousConversation
+          ? getReusableAutomationConversationId(automation.id, run.id)
+          : null;
+        const reusableConversation = reusableConversationId
+          ? getConversation(reusableConversationId, automationOwnerId ?? undefined)
+          : null;
+
+        if (reusableConversation) {
+          conversationId = reusableConversation.id;
+        } else {
+          const conversation = createConversation(automation.name, null, {
+            providerProfileId: automation.providerProfileId,
+            origin: "automation",
+            automationId: automation.id,
+            automationRunId: run.id
+          }, automationOwnerId ?? undefined);
+          conversationId = conversation.id;
+        }
+      }
+      attachConversationToRun(run.id, conversationId);
+      return { id: conversationId };
     });
     const conversation = setupTransaction.immediate();
+
+    if (botRunState.runId) {
+      const runningBotRun = updateBotRunStatus(botRunState.runId, {
+        status: "running",
+        startedAt: dependencies.now().toISOString()
+      });
+      if (runningBotRun) broadcastBotRunUpdate(runningBotRun);
+    }
 
     if (!conversation) {
       const current = getAutomationRun(run.id);
@@ -179,18 +246,37 @@ async function executeAutomationRun(
     }
 
     let timeout: ReturnType<typeof setTimeout> | null = null;
+    const runTimeoutMs = resolveAutomationRunTimeoutMs(automation, dependencies.runTimeoutMs);
+    const turnOptions = {
+      ...(bot ? { botRun: { record: false as const } } : {}),
+      ...(automation.research
+        ? { research: { deadlineMs: Math.max(1_000, runTimeoutMs - RESEARCH_DEADLINE_MARGIN_MS) } }
+        : {})
+    };
+    const prompt = renderAutomationPrompt({
+      prompt: automation.prompt,
+      date: new Intl.DateTimeFormat("en-CA", {
+        timeZone: dependencies.timeZone ?? env.TZ,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit"
+      }).format(dependencies.now()),
+      runNumber: countAutomationRuns(automation.id),
+      previousResult: getPreviousAutomationRunResult(automation.id, run.id)
+    });
     const turn = dependencies.startChatTurn(
       dependencies.manager,
       conversation.id,
-      automation.prompt,
+      prompt,
       [],
-      automation.personaId ?? undefined
+      automation.personaId ?? undefined,
+      Object.keys(turnOptions).length ? turnOptions : undefined
     );
     const deadline = new Promise<never>((_resolve, reject) => {
       timeout = setTimeout(() => {
         requestStop(conversation.id);
         reject(new AutomationRunDeadlineError(turn));
-      }, dependencies.runTimeoutMs);
+      }, runTimeoutMs);
     });
     let result: Awaited<ReturnType<StartChatTurn>>;
     try {
@@ -202,6 +288,14 @@ async function executeAutomationRun(
     }
 
     const completedAt = dependencies.now().toISOString();
+    if (botRunState.runId) {
+      const finishedBotRun = updateBotRunStatus(botRunState.runId, {
+        status: result?.status === "completed" ? "completed" : result?.status === "stopped" ? "stopped" : "failed",
+        finishedAt: completedAt,
+        errorMessage: result?.status === "failed" ? result.errorMessage ?? "Automation run failed" : null
+      });
+      if (finishedBotRun) broadcastBotRunUpdate(finishedBotRun);
+    }
     if (result?.status === "failed") {
       updateAutomationRunStatus(run.id, {
         status: "failed",
@@ -224,6 +318,14 @@ async function executeAutomationRun(
       finishedAt: completedAt
     });
   } catch (error) {
+    if (botRunState.runId) {
+      const failedBotRun = updateBotRunStatus(botRunState.runId, {
+        status: "failed",
+        finishedAt: dependencies.now().toISOString(),
+        errorMessage: error instanceof Error ? error.message : "Automation run failed"
+      });
+      if (failedBotRun) broadcastBotRunUpdate(failedBotRun);
+    }
     const current = getAutomationRun(runId);
     if (current?.status === "queued" || current?.status === "running") {
       updateAutomationRunStatus(runId, {
@@ -330,7 +432,8 @@ export async function runAutomationNow(
           now,
           manager,
           startChatTurn: runChatTurn,
-          runTimeoutMs: Math.max(1, dependencies.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS)
+          runTimeoutMs: Math.max(1, dependencies.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS),
+          timeZone: dependencies.timeZone ?? env.TZ
         })
     });
   } catch (error) {
@@ -402,7 +505,8 @@ export function createAutomationScheduler(dependencies: SchedulerDependencies = 
           now,
           manager,
           startChatTurn: runChatTurn,
-          runTimeoutMs
+          runTimeoutMs,
+          timeZone
         })
       })
         .catch((error) => {

@@ -76,7 +76,7 @@ export type AutomationRunStatus =
 
 export type AutomationTriggerSource = "schedule" | "manual_run" | "manual_retry";
 
-export type ConversationOrigin = "manual" | "automation";
+export type ConversationOrigin = "manual" | "automation" | "bot";
 
 export type MessageRole = "user" | "assistant" | "system";
 
@@ -90,7 +90,12 @@ export type ConversationTitleGenerationStatus =
   | "completed"
   | "failed";
 
-export type MessageActionKind = "skill_load" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory" | "image_generation";
+export type MessageActionKind = "skill_load" | "save_skill" | "mcp_tool_call" | "shell_command" | "create_memory" | "update_memory" | "delete_memory" | "image_generation" | "delegate_task" | "message_bot" | "create_bot" | "update_bot" | "create_automation" | "research_plan";
+
+export type ChatResearchOptions = {
+  plan?: string[];
+  deadlineMs?: number;
+};
 
 export type MessageActionStatus = "running" | "pending" | "completed" | "error" | "stopped";
 
@@ -106,6 +111,8 @@ export type TitleGenerationMode = "same" | "specific" | "local";
 
 export type ToolCallDisplayMode = "pills" | "status_line";
 
+export type DefaultView = "chat" | "agents" | "automations";
+
 type AppSettingsCore = {
   defaultProviderProfileId: string | null;
   skillsEnabled: boolean;
@@ -113,15 +120,19 @@ type AppSettingsCore = {
   memoriesEnabled: boolean;
   memoriesMaxCount: number;
   memoriesRigor: MemoryRigor;
+  semanticRecallEnabled: boolean;
   mcpTimeout: number;
   maxAssistantToolSteps: number;
   confirmExternalLinks: boolean;
   toolCallDisplay: ToolCallDisplayMode;
+  defaultView: DefaultView;
+  hasCompletedOnboarding: boolean;
   titleGenerationMode: TitleGenerationMode;
   titleGenerationProfileId: string | null;
   speechCleanupEnabled: boolean;
   speechCleanupProfileId: string | null;
   speechCleanupPrompt: string;
+  botSystemPrompt: string;
   updatedAt: string;
 };
 
@@ -144,6 +155,55 @@ export type RuntimeAppSettings = AppSettingsCore & {
     TranscriptionProviderId,
     { language: SttLanguage | ExternalSttLanguage; model?: ExternalSttModel }
   >;
+};
+
+export type BotRunTriggerSource = "dm" | "delegated" | "routine";
+
+export type BotRunStatus = "queued" | "running" | "completed" | "failed" | "stopped";
+
+export type Bot = {
+  id: string;
+  userId: string | null;
+  name: string;
+  title: string;
+  description: string;
+  avatarSeed: string;
+  systemPrompt: string;
+  isChief: boolean;
+  homeConversationId: string;
+  pendingInputSeenAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type BotRun = {
+  id: string;
+  botId: string;
+  conversationId: string;
+  triggerSource: BotRunTriggerSource;
+  status: BotRunStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
+  parentMessageId: string | null;
+  errorMessage: string | null;
+  createdAt: string;
+};
+
+export type BotStatus = "idle" | "queued" | "running";
+
+export type BotSummary = {
+  id: string;
+  name: string;
+  title: string;
+  description: string;
+  avatarSeed: string;
+  isChief: boolean;
+  homeConversationId: string;
+  status: BotStatus;
+  waitingForInput: boolean;
+  lastRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export type Conversation = {
@@ -176,12 +236,16 @@ export type Automation = {
   prompt: string;
   providerProfileId: string;
   personaId: string | null;
+  botId: string | null;
   scheduleKind: AutomationScheduleKind;
   intervalMinutes: number | null;
   calendarFrequency: AutomationCalendarFrequency | null;
   timeOfDay: string | null;
   daysOfWeek: number[];
+  continuePreviousConversation: boolean;
   enabled: boolean;
+  research: boolean;
+  runTimeoutMinutes: number | null;
   nextRunAt: string | null;
   lastScheduledFor: string | null;
   lastStartedAt: string | null;
@@ -249,11 +313,20 @@ export type McpServer = {
   updatedAt: string;
 };
 
+export type McpOAuthStatus = "connected" | "expired" | "auth_required";
+
+export type McpServerOAuthSummary = {
+  status: McpOAuthStatus;
+  expiresAt: string | null;
+  scope: string | null;
+};
+
 export type McpServerSummary = Omit<McpServer, "headers" | "env"> & {
   headers: Record<string, never>;
   env: null;
   hasHeaders: boolean;
   hasEnv: boolean;
+  oauth: McpServerOAuthSummary | null;
 };
 
 export type McpTool = {
@@ -322,6 +395,7 @@ export type MemoryProposalState = "pending" | "approved" | "dismissed" | "supers
 export type MemoryProposalPayload = {
   operation: MemoryProposalOperation;
   targetMemoryId: string | null;
+  botId?: string | null;
   currentMemory?: {
     id: string;
     content: string;
@@ -333,10 +407,28 @@ export type MemoryProposalPayload = {
   };
 };
 
+export type AutomationProposalPayload = {
+  name: string;
+  prompt: string;
+  scheduleKind: AutomationScheduleKind;
+  intervalMinutes: number | null;
+  calendarFrequency: AutomationCalendarFrequency | null;
+  timeOfDay: string | null;
+  daysOfWeek: number[];
+  providerProfileId: string;
+  personaId: string | null;
+  continuePreviousConversation?: boolean;
+  botId?: string | null;
+  automationId?: string | null;
+};
+
+export type ProposalPayload = MemoryProposalPayload | AutomationProposalPayload;
+
 export type UserMemory = {
   id: string;
   content: string;
   category: MemoryCategory;
+  pinned: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -394,7 +486,7 @@ export type MessageAction = {
   startedAt: string;
   completedAt: string | null;
   proposalState: MemoryProposalState | null;
-  proposalPayload: MemoryProposalPayload | null;
+  proposalPayload: ProposalPayload | null;
   proposalUpdatedAt: string | null;
 };
 
@@ -524,7 +616,13 @@ export type ChatStreamEvent =
       cacheReadTokens?: number;
       cacheCreationTokens?: number;
     }
-  | { type: "context_usage"; contextTokens: number; compactionLimit: number }
+  | {
+      type: "context_usage";
+      contextTokens: number;
+      compactionLimit: number;
+      memoriesUsed?: number;
+      memoriesTotal?: number;
+    }
   | { type: "stream_retry"; attempt: number }
   | { type: "done"; messageId: string; message?: Message }
   | { type: "error"; message: string };
@@ -533,6 +631,8 @@ export type EnsureCompactedContextResult = {
   promptMessages: PromptMessage[];
   promptTokens: number;
   didCompact: boolean;
+  memoriesUsed?: number;
+  memoriesTotal?: number;
 };
 
 export type PromptTextContentPart = {

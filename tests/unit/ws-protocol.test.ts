@@ -142,3 +142,32 @@ describe("ws-protocol", () => {
     });
   });
 });
+
+describe("ws-protocol research payloads", () => {
+  const base = { type: "message", conversationId: "conv-1", content: "Research heat pumps" };
+
+  it("round-trips a research request with and without a plan", async () => {
+    const { parseClientMessage } = await import("@/lib/ws-protocol");
+
+    expect(parseClientMessage(JSON.stringify({ ...base, research: { plan: [" Compare prices ", "Read reviews"] } }))).toEqual({
+      ...base,
+      research: { plan: ["Compare prices", "Read reviews"] }
+    });
+    expect(parseClientMessage(JSON.stringify({ ...base, research: {} }))).toEqual({ ...base, research: {} });
+    expect(parseClientMessage(JSON.stringify(base))).toEqual(base);
+  });
+
+  it.each([
+    ["13 steps", { plan: Array.from({ length: 13 }, (_, index) => `step ${index}`) }],
+    ["an oversized step", { plan: ["x".repeat(10_000)] }],
+    ["a non-string step", { plan: ["ok", { text: "nested" }] }],
+    ["an empty plan", { plan: [] }],
+    ["a non-object payload", "yes"],
+    ["an array payload", ["plan"]],
+    ["unknown keys", { plan: ["ok"], deadlineMs: 5 }]
+  ])("rejects a research payload with %s", async (_label, research) => {
+    const { parseClientMessage } = await import("@/lib/ws-protocol");
+
+    expect(parseClientMessage(JSON.stringify({ ...base, research }))).toBeNull();
+  });
+});

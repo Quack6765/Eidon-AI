@@ -636,6 +636,19 @@ describe("chat view", () => {
     expect(openShareModal).toHaveBeenCalledTimes(1);
   });
 
+  it("hides the conversation header when hideConversationHeader is set", () => {
+    renderWithShareProvider(
+      React.createElement(ChatView, {
+        payload: createPayload(),
+        hideConversationHeader: true
+      })
+    );
+
+    expect(screen.queryByRole("button", { name: "Share conversation" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New chat" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("chat-view-root")).toBeInTheDocument();
+  });
+
   it("uploads an attachment from the file input and removes it from the pending list", async () => {
     const attachment = createAttachment();
     vi.mocked(global.fetch)
@@ -1405,6 +1418,57 @@ describe("chat view", () => {
         personaId: "persona_1"
       });
     });
+  });
+
+  it("forwards a bootstrapped deep research request once the websocket is connected", async () => {
+    bootstrapMock.readChatBootstrap.mockReturnValue({
+      message: "Research heat pump subsidies",
+      attachments: [],
+      research: { plan: ["Find official pages"] }
+    });
+
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await waitFor(() => {
+      expect(wsMock.send).toHaveBeenCalledWith({
+        type: "message",
+        conversationId: "conv_1",
+        content: "Research heat pump subsidies",
+        attachmentIds: [],
+        personaId: undefined,
+        research: { plan: ["Find official pages"] }
+      });
+    });
+  });
+
+  it("opens the research plan card for a bootstrapped research request without a plan", async () => {
+    mockResearchFetch();
+    bootstrapMock.readChatBootstrap.mockReturnValue({
+      message: "Compare heat pump subsidies",
+      attachments: [],
+      research: {}
+    });
+
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Research step 2")).toHaveValue("Compare amounts");
+    });
+    expect(screen.getByRole("region", { name: "Research plan" })).toHaveTextContent("Compare heat pump subsidies");
+    expect(wsMock.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "message" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Start research" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/conversations/conv_1/research",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({ userMessageId: "msg_research_user", plan: ["Find official pages", "Compare amounts"] })
+        })
+      );
+    });
+    expect(wsMock.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "message" }));
   });
 
   it("submits the bootstrapped home prompt once under strict mode remounts", async () => {
@@ -3201,6 +3265,155 @@ describe("chat view", () => {
     expect(stickToBottomMock.scrollToBottom).not.toHaveBeenCalled();
   });
 
+  function mockResearchFetch(options: { prepareOk?: boolean } = {}) {
+    const persistedMessage = {
+      id: "msg_research_user",
+      conversationId: "conv_1",
+      role: "user",
+      content: "Compare heat pump subsidies",
+      thinkingContent: "",
+      status: "completed",
+      estimatedTokens: 4,
+      systemKind: null,
+      compactedAt: null,
+      createdAt: "2026-09-02T12:00:00.000Z",
+      attachments: []
+    };
+    vi.mocked(global.fetch).mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url === "/api/conversations/conv_1/research" && init?.method === "POST") {
+        return options.prepareOk === false
+          ? ({ ok: false, status: 500, json: async () => ({}) } as Response)
+          : ({
+              ok: true,
+              json: async () => ({ message: persistedMessage, plan: ["Find official pages", "Compare amounts"] })
+            } as Response);
+      }
+      if (url === "/api/conversations/conv_1/research") {
+        return { ok: true, json: async () => ({ started: true, deleted: true }) } as Response;
+      }
+      if (url === "/api/research/plan") {
+        return { ok: true, json: async () => ({ plan: ["Regenerated step"] }) } as Response;
+      }
+      return { ok: true, json: async () => ({ personas: [] }) } as Response;
+    });
+    return persistedMessage;
+  }
+
+  it("persists the question, then drafts an editable research plan before starting the turn", async () => {
+    mockResearchFetch();
+
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    const textarea = screen.getByRole("textbox");
+
+    await flushAnimationFrame();
+
+    fireEvent.click(screen.getByRole("button", { name: "Deep research" }));
+    fireEvent.change(textarea, { target: { value: "Compare heat pump subsidies" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Research step 2")).toHaveValue("Compare amounts");
+    });
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/api/conversations/conv_1/research",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ message: "Compare heat pump subsidies", attachmentIds: [] })
+      })
+    );
+    expect(screen.getAllByText("Compare heat pump subsidies").length).toBeGreaterThanOrEqual(2);
+    expect(wsMock.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "message" }));
+    expect(textarea).toHaveValue("");
+
+    fireEvent.click(screen.getByRole("button", { name: "Regenerate plan" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Research step 1")).toHaveValue("Regenerated step");
+    });
+
+    fireEvent.change(screen.getByLabelText("Research step 1"), { target: { value: "Compare amounts by country " } });
+    fireEvent.click(screen.getByRole("button", { name: "Add step" }));
+    fireEvent.change(screen.getByLabelText("Research step 2"), { target: { value: "Check eligibility rules" } });
+    fireEvent.click(screen.getByRole("button", { name: "Move step 2 up" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start research" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/conversations/conv_1/research",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({
+            userMessageId: "msg_research_user",
+            plan: ["Check eligibility rules", "Compare amounts by country"]
+          })
+        })
+      );
+    });
+    expect(wsMock.send).not.toHaveBeenCalledWith(expect.objectContaining({ type: "message" }));
+    expect(screen.queryByRole("region", { name: "Research plan" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Deep research" })).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("removes the pending question when the research plan is cancelled", async () => {
+    mockResearchFetch();
+
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    const textarea = screen.getByRole("textbox");
+
+    await flushAnimationFrame();
+
+    fireEvent.click(screen.getByRole("button", { name: "Deep research" }));
+    fireEvent.change(textarea, { target: { value: "Compare heat pump subsidies" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Research step 1")).toHaveValue("Find official pages");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("region", { name: "Research plan" })).toBeNull();
+    expect(textarea).toHaveValue("Compare heat pump subsidies");
+    expect(screen.getByRole("button", { name: "Deep research" })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/conversations/conv_1/research",
+        expect.objectContaining({ method: "DELETE", body: JSON.stringify({ userMessageId: "msg_research_user" }) })
+      );
+    });
+    expect(screen.queryAllByText("Compare heat pump subsidies").filter((node) => node.tagName !== "TEXTAREA")).toHaveLength(0);
+  });
+
+  it("falls back to a direct research send when the question could not be persisted", async () => {
+    mockResearchFetch({ prepareOk: false });
+
+    renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
+    const textarea = screen.getByRole("textbox");
+
+    await flushAnimationFrame();
+
+    fireEvent.click(screen.getByRole("button", { name: "Deep research" }));
+    fireEvent.change(textarea, { target: { value: "Compare heat pump subsidies" } });
+    fireEvent.keyDown(textarea, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByText(/could not be generated/)).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText("Research step 1")).toHaveValue("Compare heat pump subsidies");
+
+    fireEvent.click(screen.getByRole("button", { name: "Start research" }));
+    await flushAnimationFrame();
+
+    expect(wsMock.send).toHaveBeenCalledWith({
+      type: "message",
+      conversationId: "conv_1",
+      content: "Compare heat pump subsidies",
+      attachmentIds: [],
+      personaId: undefined,
+      research: { plan: ["Compare heat pump subsidies"] }
+    });
+  });
+
   it("hides the scroll-to-newest pill when the user sends from a scrolled-up conversation", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
     const textarea = screen.getByRole("textbox");
@@ -4963,6 +5176,28 @@ describe("chat view", () => {
     await waitFor(() => {
       expect(screen.getByText("75%")).toBeInTheDocument();
     });
+  });
+
+  it("shows memory usage in the gauge tooltip after a context_usage event carries memory counts", async () => {
+    const payload = createPayload({ messages: [createMessage({ id: "a1", role: "assistant", content: "Hi" })] });
+    payload.conversation.id = "conv_ctx_memories";
+    payload.compactionLimit = 12800;
+    renderWithProvider(React.createElement(ChatView, { payload }));
+    await waitFor(() => {
+      expect(screen.getByText("Test conversation")).toBeInTheDocument();
+    });
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_ctx_memories",
+        event: { type: "context_usage", contextTokens: 9600, compactionLimit: 12800, memoriesUsed: 3, memoriesTotal: 40 }
+      });
+    });
+    await waitFor(() => {
+      expect(screen.getByText("75%")).toBeInTheDocument();
+    });
+    fireEvent.mouseEnter(screen.getByRole("progressbar"));
+    expect(screen.getByText("3 of 40 memories used")).toBeInTheDocument();
   });
 
   it("uses compactionLimit as the gauge denominator independent of modelContextLimit", async () => {

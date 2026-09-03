@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Gauge, Image as ImageIcon, Mic2, Search, Type } from "lucide-react";
+import { Archive, Bot, Brain, Gauge, Image as ImageIcon, Mic2, Monitor, Search, Type } from "lucide-react";
 
 import {
   buildIntegrationUpdate,
@@ -13,19 +13,23 @@ import {
 import { DetailActionBar } from "@/components/settings/detail-action-bar";
 import { DetailHeader } from "@/components/settings/detail-header";
 import { ImageGenerationSettings } from "@/components/settings/integration-settings/image-generation-settings";
+import { MemoryPreferencesSettings } from "@/components/settings/integration-settings/memory-preferences-settings";
+import { SemanticRecallSettings } from "@/components/settings/integration-settings/semantic-recall-settings";
 import { SpeechTranscriptionSettings } from "@/components/settings/integration-settings/speech-transcription-settings";
 import { WebSearchSettings } from "@/components/settings/integration-settings/web-search-settings";
 import { SettingsMenuItem } from "@/components/settings/settings-menu-item";
 import { SettingsSplitPane } from "@/components/settings/settings-split-pane";
 import { Button } from "@/components/ui/button";
+import { TextEditModal } from "@/components/ui/text-edit-modal";
 import { Toast } from "@/components/ui/toast";
 import { useDirtyState } from "@/hooks/use-dirty-state";
 import { useToastState } from "@/hooks/use-toast-state";
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard";
+import { DEFAULT_BOT_BASE_SYSTEM_PROMPT } from "@/lib/bot-prompt-defaults";
 import { getImageGenerationReadinessError } from "@/lib/image-generation/catalog";
 import { fieldLabel, selectLike } from "@/lib/settings-styles";
 import { getTranscriptionReadinessError } from "@/lib/speech/transcription-catalog";
-import type { AppSettings, ConversationRetention, ToolCallDisplayMode } from "@/lib/types";
+import type { AppSettings, ConversationRetention, DefaultView, ToolCallDisplayMode } from "@/lib/types";
 import { getWebSearchReadinessError } from "@/lib/web-search-catalog";
 
 type GeneralSectionSettings = AppSettings & {
@@ -33,6 +37,13 @@ type GeneralSectionSettings = AppSettings & {
 };
 
 const GENERAL_SECTIONS = [
+  {
+    id: "display",
+    label: "Display",
+    description: "Appearance and behavior",
+    detail: "Choose where Eidon opens and how tool activity is displayed.",
+    icon: Monitor
+  },
   {
     id: "conversation",
     label: "Conversation",
@@ -74,6 +85,20 @@ const GENERAL_SECTIONS = [
     description: "Conversation naming",
     detail: "Choose which model creates concise titles for new conversations.",
     icon: Type
+  },
+  {
+    id: "memory",
+    label: "Memory",
+    description: "Preferences and recall",
+    detail: "Choose how Eidon saves facts about you and how it recalls them in conversations.",
+    icon: Brain
+  },
+  {
+    id: "bots",
+    label: "Bots",
+    description: "Team base prompt",
+    detail: "Set the base system prompt shared by every bot on the team.",
+    icon: Bot
   }
 ] as const;
 
@@ -90,11 +115,29 @@ export function GeneralSection({
   const toast = useToastState();
   const initialDraft = createGeneralSettingsDraft(settings);
   const [draft, setDraft] = useState(initialDraft);
-  const [activeSection, setActiveSection] = useState<GeneralSectionId>("conversation");
+  const [activeSection, setActiveSection] = useState<GeneralSectionId>("display");
   const [mobileDetailVisible, setMobileDetailVisible] = useState(false);
+  const [isBotPromptOpen, setIsBotPromptOpen] = useState(false);
   const persistedDraft = useRef(initialDraft);
   const [isSaving, setIsSaving] = useState(false);
+  const [isReplayingSetup, setIsReplayingSetup] = useState(false);
   const { isDirty, isFieldDirty, reset: resetDirty } = useDirtyState(draft);
+
+  async function replaySetup() {
+    setIsReplayingSetup(true);
+    try {
+      const response = await fetch("/api/onboarding", { method: "DELETE" });
+      if (!response.ok) {
+        toast.showToast("error", "Unable to restart setup");
+        setIsReplayingSetup(false);
+        return;
+      }
+      router.push("/onboarding");
+    } catch {
+      toast.showToast("error", "Unable to restart setup");
+      setIsReplayingSetup(false);
+    }
+  }
 
   useEffect(() => {
     const next = createGeneralSettingsDraft(settings);
@@ -194,6 +237,10 @@ export function GeneralSection({
                   enabled: draft.speechCleanup.enabled,
                   profileId: draft.speechCleanup.profileId,
                   prompt: draft.speechCleanup.prompt
+                },
+                botPrompt: { prompt: draft.botPrompt.prompt },
+                semanticRecall: {
+                  enabled: draft.semanticRecall.enabled
                 }
               }
             : {})
@@ -228,6 +275,55 @@ export function GeneralSection({
   const activeSectionDefinition = GENERAL_SECTIONS.find((section) => section.id === activeSection) ?? GENERAL_SECTIONS[0];
 
   const detailContent = {
+    "display": (
+      <div className="space-y-6">
+        <div className="space-y-1.5">
+          <label htmlFor="default-view" className={fieldLabel}>Default main view</label>
+          <p className="text-xs leading-5 text-[var(--muted)]">Applies when you open the app, sign in, or return to the home page.</p>
+          <select
+            id="default-view"
+            value={draft.preferences.defaultView}
+            onChange={(event) => updateDraft("preferences", {
+              ...draft.preferences,
+              defaultView: event.target.value as DefaultView
+            })}
+            className={`${selectLike} mt-2 sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
+          >
+            <option value="chat">Chat</option>
+            <option value="agents">Agents</option>
+            <option value="automations">Automations</option>
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor="tool-call-display" className={fieldLabel}>Tool activity display</label>
+          <p className="text-xs leading-5 text-[var(--muted)]">Show a pill for each tool as it runs, or collapse all activity into one animated status line.</p>
+          <select
+            id="tool-call-display"
+            value={draft.preferences.toolCallDisplay}
+            onChange={(event) => updateDraft("preferences", {
+              ...draft.preferences,
+              toolCallDisplay: event.target.value as ToolCallDisplayMode
+            })}
+            className={`${selectLike} mt-2 sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
+          >
+            <option value="pills">Tool pills</option>
+            <option value="status_line">Single status line</option>
+          </select>
+        </div>
+        <div className="space-y-1.5 border-t border-white/[0.06] pt-6">
+          <p className={fieldLabel}>First-run setup</p>
+          <p className="text-xs leading-5 text-[var(--muted)]">Walk through the setup questions again, including the side-by-side tool activity demos.</p>
+          <button
+            type="button"
+            onClick={replaySetup}
+            disabled={isReplayingSetup}
+            className="mt-2 inline-flex min-h-9 items-center rounded-full border border-white/8 bg-white/[0.03] px-4 text-[13px] text-[var(--text)] transition hover:bg-white/[0.06] disabled:opacity-40"
+          >
+            {isReplayingSetup ? "Opening…" : "Replay setup"}
+          </button>
+        </div>
+      </div>
+    ),
     conversation: (
       <div className="space-y-6">
         <div className="space-y-1.5">
@@ -263,22 +359,6 @@ export function GeneralSection({
             <span className="text-xs leading-5 text-[var(--muted)]">When on, tapping a link shows a confirmation. When off, links open immediately.</span>
           </span>
         </label>
-        <div className="space-y-1.5">
-          <label htmlFor="tool-call-display" className={fieldLabel}>Tool activity display</label>
-          <p className="text-xs leading-5 text-[var(--muted)]">Show a pill for each tool as it runs, or collapse all activity into one animated status line.</p>
-          <select
-            id="tool-call-display"
-            value={draft.preferences.toolCallDisplay}
-            onChange={(event) => updateDraft("preferences", {
-              ...draft.preferences,
-              toolCallDisplay: event.target.value as ToolCallDisplayMode
-            })}
-            className={`${selectLike} mt-2 sm:w-auto ${preferencesDirty ? "!border-amber-500/40" : ""}`}
-          >
-            <option value="pills">Tool pills</option>
-            <option value="status_line">Single status line</option>
-          </select>
-        </div>
       </div>
     ),
     "agent-limits": (
@@ -397,6 +477,65 @@ export function GeneralSection({
           ) : <p className="text-xs text-[var(--muted)]">Create a provider profile first.</p>
         ) : null}
       </div>
+    ),
+    memory: (
+      <div className="space-y-6">
+        <MemoryPreferencesSettings
+          preferences={draft.preferences}
+          dirty={preferencesDirty}
+          onChange={(patch) => updateDraft("preferences", { ...draft.preferences, ...patch })}
+        />
+        {activeSection === "memory" ? (
+          <SemanticRecallSettings
+            enabled={draft.semanticRecall.enabled}
+            persistedEnabled={persistedDraft.current.semanticRecall.enabled}
+            canManage={canManageGlobalIntegrations}
+            dirty={isFieldDirty("semanticRecall")}
+            onChange={(enabled) => updateDraft("semanticRecall", { enabled })}
+          />
+        ) : null}
+      </div>
+    ),
+    bots: (
+      <div className="space-y-4">
+        {!canManageGlobalIntegrations ? (
+          <p className="text-xs leading-5 text-[var(--muted)]">Only admins can change the bot base prompt.</p>
+        ) : null}
+        <div>
+          <div className="mb-1.5 flex items-center justify-between">
+            <label className={fieldLabel}>Base prompt</label>
+            {canManageGlobalIntegrations ? (
+              <button
+                type="button"
+                onClick={() => setIsBotPromptOpen(true)}
+                className="text-xs text-[var(--accent)] hover:underline"
+              >
+                Edit
+              </button>
+            ) : null}
+          </div>
+          <div
+            onClick={canManageGlobalIntegrations ? () => setIsBotPromptOpen(true) : undefined}
+            className={`rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--muted)] line-clamp-3 ${canManageGlobalIntegrations ? "cursor-pointer hover:bg-white/[0.06] transition-colors" : ""} ${isFieldDirty("botPrompt") ? "border-amber-500/40" : "border-white/6"}`}
+          >
+            {draft.botPrompt.prompt || "No custom base prompt — using the default"}
+          </div>
+          {canManageGlobalIntegrations ? (
+            <div className="mt-1.5 flex items-start justify-between gap-4">
+              <p className="text-xs leading-5 text-[var(--muted)]">Applies to every bot alongside its own role. Leave empty to use the default.</p>
+              {draft.botPrompt.prompt ? (
+                <button
+                  type="button"
+                  onClick={() => updateDraft("botPrompt", { prompt: "" })}
+                  className="shrink-0 text-xs text-[var(--muted)] hover:underline"
+                >
+                  Reset to default
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      </div>
     )
   } satisfies Record<GeneralSectionId, React.ReactNode>;
 
@@ -468,6 +607,15 @@ export function GeneralSection({
             }
           />
         }
+      />
+      <TextEditModal
+        open={isBotPromptOpen}
+        onOpenChange={setIsBotPromptOpen}
+        value={draft.botPrompt.prompt}
+        onChange={(next) => updateDraft("botPrompt", { prompt: next })}
+        title="Bot base system prompt"
+        subtitle="Shared by every bot, under its own role context"
+        placeholder={DEFAULT_BOT_BASE_SYSTEM_PROMPT}
       />
       <Toast visible={toast.visible} variant={toast.variant} message={toast.message} />
     </div>

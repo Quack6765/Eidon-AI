@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { MAX_AUTOMATION_RUN_TIMEOUT_MINUTES } from "@/lib/constants";
+
 import { requireUser } from "@/lib/auth";
 import { deleteAutomation, getAutomation, updateAutomation } from "@/lib/automations";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
 import { getPersona } from "@/lib/personas";
 import { getProviderProfile } from "@/lib/settings";
+import { getBot } from "@/lib/bots";
 
 const paramsSchema = z.object({
   automationId: z.string().min(1)
@@ -16,12 +19,16 @@ const updateSchema = z.object({
   prompt: z.string().trim().min(1).optional(),
   providerProfileId: z.string().min(1).optional(),
   personaId: z.string().min(1).nullable().optional(),
+  botId: z.string().min(1).nullable().optional(),
   scheduleKind: z.enum(["interval", "calendar"]).optional(),
   intervalMinutes: z.number().int().nullable().optional(),
   calendarFrequency: z.enum(["daily", "weekly"]).nullable().optional(),
   timeOfDay: z.string().nullable().optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
-  enabled: z.boolean().optional()
+  continuePreviousConversation: z.boolean().optional(),
+  enabled: z.boolean().optional(),
+  research: z.boolean().optional(),
+  runTimeoutMinutes: z.number().int().min(1).max(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES).nullable().optional()
 }).refine(
   (value) => Object.keys(value).length > 0,
   "Invalid automation update"
@@ -70,6 +77,10 @@ export async function PATCH(
 
   if (body.data.personaId && !getPersona(body.data.personaId, user.id)) {
     return badRequest("Persona not found", 404);
+  }
+
+  if (body.data.botId && !getBot(body.data.botId, user.id)) {
+    return badRequest("Bot not found", 404);
   }
 
   try {

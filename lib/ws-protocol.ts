@@ -1,5 +1,9 @@
 import { MAX_ATTACHMENT_IDS_PER_MESSAGE, MAX_CHAT_MESSAGE_CHARS } from "@/lib/constants";
+import { parseResearchRequest } from "@/lib/research-mode";
 import type {
+  BotRun,
+  BotSummary,
+  ChatResearchOptions,
   ChatStreamEvent,
   Message,
   MessageAction,
@@ -17,7 +21,7 @@ export type ClientMessage =
   | { type: "subscribe"; conversationId: string }
   | { type: "request_snapshot"; conversationId: string }
   | { type: "unsubscribe"; conversationId: string }
-  | { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string }
+  | { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string; research?: ChatResearchOptions }
   | { type: "stop"; conversationId: string }
   | { type: "queue_message"; conversationId: string; content: string }
   | { type: "update_queued_message"; conversationId: string; queuedMessageId: string; content: string }
@@ -36,7 +40,10 @@ export type ServerMessage =
   | { type: "conversation_deleted"; conversationId: string }
   | { type: "conversation_updated"; conversation: { id: string; title: string; folderId: string | null; updatedAt: string; isActive: boolean } }
   | { type: "conversation_activity"; conversationId: string; isActive: boolean }
-  | { type: "conversation_title_updated"; conversationId: string; title: string };
+  | { type: "conversation_title_updated"; conversationId: string; title: string }
+  | { type: "bot_updated"; bot: BotSummary }
+  | { type: "bot_deleted"; botId: string }
+  | { type: "bot_run_updated"; run: BotRun };
 
 export function serializeClientMessage(msg: ClientMessage): string {
   return JSON.stringify(msg);
@@ -85,6 +92,7 @@ export function parseClientMessage(raw: string): ClientMessage | null {
       const content = parseContent(parsed.content);
       const attachmentIds = parsed.attachmentIds;
       const personaId = parsed.personaId;
+      const research = parseResearchRequest(parsed.research);
       const hasValidAttachmentIds = attachmentIds === undefined || (
         Array.isArray(attachmentIds) &&
         attachmentIds.length <= MAX_ATTACHMENT_IDS_PER_MESSAGE &&
@@ -94,7 +102,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
         content === null ||
         !hasValidAttachmentIds ||
         (!content.trim() && (!Array.isArray(attachmentIds) || attachmentIds.length === 0)) ||
-        (personaId !== undefined && !parseIdentifier(personaId))
+        (personaId !== undefined && !parseIdentifier(personaId)) ||
+        research === null
       ) {
         return null;
       }
@@ -104,7 +113,8 @@ export function parseClientMessage(raw: string): ClientMessage | null {
         conversationId,
         content,
         ...(attachmentIds !== undefined ? { attachmentIds: attachmentIds as string[] } : {}),
-        ...(personaId !== undefined ? { personaId: personaId as string } : {})
+        ...(personaId !== undefined ? { personaId: personaId as string } : {}),
+        ...(research !== undefined ? { research } : {})
       };
     }
 

@@ -2,6 +2,7 @@
 
 import React, { useSyncExternalStore } from "react";
 import { MessageBubble } from "@/components/message-bubble";
+import type { AutomationProposalOverrides } from "@/lib/automation-proposals";
 import type { StreamBuffer, StreamBufferSnapshot } from "@/lib/stream-buffer";
 import type {
   MemoryCategory,
@@ -36,6 +37,8 @@ function StreamingMessageImpl({
   onUpdateUserMessage,
   onApproveMemoryProposal,
   onDismissMemoryProposal,
+  onApproveAutomationProposal,
+  onDismissAutomationProposal,
   onForkAssistantMessage,
   onRetryAssistantMessage,
   onRegenerateUserMessage,
@@ -60,6 +63,11 @@ function StreamingMessageImpl({
     overrides?: { content?: string; category?: MemoryCategory }
   ) => Promise<void>;
   onDismissMemoryProposal?: (actionId: string) => Promise<void>;
+  onApproveAutomationProposal?: (
+    actionId: string,
+    overrides?: AutomationProposalOverrides
+  ) => Promise<void>;
+  onDismissAutomationProposal?: (actionId: string) => Promise<void>;
   onForkAssistantMessage?: (messageId: string) => void;
   onRetryAssistantMessage?: (messageId: string) => void;
   onRegenerateUserMessage?: (messageId: string) => void;
@@ -102,6 +110,8 @@ function StreamingMessageImpl({
       onUpdateUserMessage={onUpdateUserMessage}
       onApproveMemoryProposal={onApproveMemoryProposal}
       onDismissMemoryProposal={onDismissMemoryProposal}
+      onApproveAutomationProposal={onApproveAutomationProposal}
+      onDismissAutomationProposal={onDismissAutomationProposal}
       onForkAssistantMessage={onForkAssistantMessage}
       onRetryAssistantMessage={onRetryAssistantMessage}
       onRegenerateUserMessage={onRegenerateUserMessage}

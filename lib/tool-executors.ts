@@ -1,4 +1,5 @@
 import { resolveAbsoluteImagePathPart } from "@/lib/attachments";
+import { searchWorkspace } from "@/lib/semantic-index";
 import { streamProviderResponse } from "@/lib/provider";
 import { getMemory as getMemoryRecord, getMemoryCount } from "@/lib/memories";
 import {
@@ -7,11 +8,14 @@ import {
   buildUpdateMemoryProposal,
   normalizeMemoryCategory
 } from "@/lib/memory-proposals";
+import { assertValidSchedule } from "@/lib/automations";
+import { describeSchedule } from "@/lib/automation-display";
 import { getSettings } from "@/lib/settings";
 import { executeLocalShellCommand, getShellCommandLabel, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { getWebSearchPipeline } from "@/lib/web-search-catalog";
+import { readWebPage } from "@/lib/web-read";
 import {
   getPipelineUserContext,
   runWebSearchPipeline
@@ -25,14 +29,24 @@ import {
 } from "@/lib/screenshot-artifact-capabilities";
 import { getLatestUserPromptContent } from "./prompt-analysis";
 import { getSkillResolvedDescription, getSkillResolvedName } from "./skill-runtime";
+import { buildBotWorkspaceSkillId, buildSkillMarkdown, getBotSkillsDir, listBotWorkspaceSkills, slugifySkillFolderName } from "./bot-workspace-skills";
+import { nowIso } from "@/lib/utils";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
+import { executeMessageBot, executeCreateBotTool, executeUpdateBotTool } from "./bot-delegation";
+import { getBotByConversationId } from "./bots";
+import type { MemoryScope } from "@/lib/memories";
+import { resolveBotSandbox } from "./bot-sandbox";
 import type {
+  AutomationCalendarFrequency,
+  AutomationScheduleKind,
   McpServer,
   McpTool,
   MessageActionStatus,
-  MemoryProposalPayload,
   MemoryProposalState,
   MessageActionKind,
+  ProposalPayload,
   RuntimeAppSettings,
   RuntimeProviderProfile,
   ProviderToolCall,
@@ -51,7 +65,7 @@ type RuntimeAction = {
   toolName?: string | null;
   arguments?: Record<string, unknown> | null;
   proposalState?: MemoryProposalState | null;
-  proposalPayload?: MemoryProposalPayload | null;
+  proposalPayload?: ProposalPayload | null;
 };
 
 type SuccessfulReadOnlyToolResult = {
@@ -68,8 +82,13 @@ export function buildToolResultMessage(toolCallId: string, content: string): Pro
   };
 }
 
-export function isMemoryProposalToolCall(name: string) {
-  return name === "create_memory" || name === "update_memory" || name === "delete_memory";
+export function isProposalToolCall(name: string) {
+  return (
+    name === "create_memory" ||
+    name === "update_memory" ||
+    name === "delete_memory" ||
+    name === "create_automation"
+  );
 }
 
 function buildShellResultForPrompt(input: { command: string; resultSummary: string; isError: boolean }) {
@@ -190,6 +209,70 @@ export async function executeWebSearch(
   }
 }
 
+export async function executeReadPage(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      appSettings?: RuntimeAppSettings;
+      abortSignal?: AbortSignal;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  let sortOrder = context.timelineSortOrder;
+  const url = String(args.url ?? "").trim();
+  const maxChars =
+    typeof args.max_chars === "number" && Number.isFinite(args.max_chars) ? args.max_chars : undefined;
+
+  if (!url) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: url is required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+  }
+
+  const detail = truncateText(url, 300);
+  const handle = await context.input.onActionStart?.({
+    kind: "mcp_tool_call",
+    label: "Read page",
+    detail,
+    serverId: "integration_web_search",
+    toolName: "read_page",
+    arguments: { url, ...(maxChars !== undefined ? { max_chars: maxChars } : {}) }
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    const content = await readWebPage({
+      url,
+      maxChars,
+      settings: context.input.appSettings,
+      abortSignal: context.input.abortSignal
+    });
+    throwIfAborted(context.input.abortSignal);
+
+    sortOrder += 1;
+    const title = content.startsWith("# ") ? content.slice(2, content.indexOf("\n")).trim() : "";
+    await context.input.onActionComplete?.(actionHandle, {
+      detail,
+      resultSummary: `${title || "Page"} (${content.length.toLocaleString("en-US")} chars)`
+    });
+
+    const resultMsg = buildToolResultMessage(toolCallId, content);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: true };
+  } catch (error) {
+    throwIfAborted(context.input.abortSignal);
+    const message = error instanceof Error ? error.message : "Page could not be read";
+    await context.input.onActionError?.(actionHandle, { detail, resultSummary: message });
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+  }
+}
+
 export async function executeImageGeneration(
   toolCallId: string,
   args: Record<string, unknown>,
@@ -246,6 +329,7 @@ export async function executeImageGeneration(
     const instruction = await compileImageInstruction({
       settings: context.input.settings,
       promptMessages: context.promptMessages,
+      conversationId,
       abortSignal: context.input.abortSignal
     });
     throwIfAborted(context.input.abortSignal);
@@ -441,6 +525,7 @@ export async function executeLoadSkill(
     input: {
       abortSignal?: AbortSignal;
       skills: Skill[];
+      conversationId?: string;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
     };
@@ -453,14 +538,32 @@ export async function executeLoadSkill(
   let sortOrder = context.timelineSortOrder;
   const skillName = String(args.skill_name ?? "").trim().toLowerCase();
 
-  const skill = context.input.skills.find(
+  let skill = context.input.skills.find(
     (candidate) => getSkillResolvedName(candidate).toLowerCase() === skillName
   );
 
+  let workspaceSkills: Skill[] = [];
+  if (!skill) {
+    const bot = context.input.conversationId
+      ? getBotByConversationId(context.input.conversationId)
+      : null;
+    workspaceSkills = bot ? listBotWorkspaceSkills(bot) : [];
+    skill = workspaceSkills.find(
+      (candidate) => getSkillResolvedName(candidate).toLowerCase() === skillName
+    );
+  }
+
   if (!skill || context.loadedSkillIds.has(skill.id)) {
+    const availableNames = [
+      ...new Set(
+        [...context.input.skills, ...workspaceSkills]
+          .map((s) => getSkillResolvedName(s))
+          .filter(Boolean)
+      )
+    ].join(", ");
     const resultMsg = buildToolResultMessage(
       toolCallId,
-      skill ? "This skill is already loaded." : `Skill "${skillName}" not found. Available: ${context.input.skills.map((s) => getSkillResolvedName(s)).join(", ")}`
+      skill ? "This skill is already loaded." : `Skill "${skillName}" not found. Available: ${availableNames}`
     );
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
@@ -503,11 +606,171 @@ export async function executeLoadSkill(
   };
 }
 
+export async function executeSaveSkill(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      abortSignal?: AbortSignal;
+      conversationId?: string;
+      skills?: Skill[];
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (
+        handle: string | undefined,
+        patch: { detail?: string; resultSummary?: string }
+      ) => Promise<void> | void;
+      onActionError?: (
+        handle: string | undefined,
+        patch: { detail?: string; resultSummary?: string }
+      ) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+  }
+): Promise<{
+  nextSortOrder: number;
+  promptMessages: PromptMessage[];
+  toolSucceeded?: boolean;
+}> {
+  throwIfAborted(context.input.abortSignal);
+  let sortOrder = context.timelineSortOrder;
+
+  const name = String(args.name ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const description = String(args.description ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const instructions = String(args.instructions ?? "").trim();
+
+  const invalidReason = !name
+    ? "a name is required"
+    : !description
+      ? "a description is required"
+      : !instructions
+        ? "instructions are required"
+        : null;
+
+  if (invalidReason) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      `Error: Cannot save skill — ${invalidReason}.`
+    );
+    return {
+      nextSortOrder: sortOrder,
+      promptMessages: [...context.promptMessages, resultMsg],
+      toolSucceeded: false
+    };
+  }
+
+  const bot = context.input.conversationId
+    ? getBotByConversationId(context.input.conversationId)
+    : null;
+
+  if (!bot) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      "Error: save_skill is only available in agent conversations that have a workspace."
+    );
+    return {
+      nextSortOrder: sortOrder,
+      promptMessages: [...context.promptMessages, resultMsg],
+      toolSucceeded: false
+    };
+  }
+
+  const slug = slugifySkillFolderName(name);
+
+  if (!slug) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      `Error: Cannot derive a valid skill folder name from "${name}". Use lowercase letters, digits, and hyphens.`
+    );
+    return {
+      nextSortOrder: sortOrder,
+      promptMessages: [...context.promptMessages, resultMsg],
+      toolSucceeded: false
+    };
+  }
+
+  const skillDir = join(getBotSkillsDir(bot), slug);
+  const skillFilePath = join(skillDir, "SKILL.md");
+  const content = buildSkillMarkdown(name, description, instructions);
+
+  throwIfAborted(context.input.abortSignal);
+  const handle = await context.input.onActionStart?.({
+    kind: "save_skill",
+    label: "Save skill",
+    detail: name
+  });
+  throwIfAborted(context.input.abortSignal);
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(skillFilePath, content, "utf8");
+  } catch (error) {
+    throwIfAborted(context.input.abortSignal);
+    const message = error instanceof Error ? error.message : "Failed to write the skill file";
+    await context.input.onActionError?.(actionHandle, { detail: name, resultSummary: message });
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
+    return {
+      nextSortOrder: sortOrder,
+      promptMessages: [...context.promptMessages, resultMsg],
+      toolSucceeded: false
+    };
+  }
+
+  await context.input.onActionComplete?.(actionHandle, {
+    detail: name,
+    resultSummary: "Skill saved to the workspace skills folder."
+  });
+
+  const turnSkills = context.input.skills;
+  if (turnSkills) {
+    const savedSkill: Skill = {
+      id: buildBotWorkspaceSkillId(bot.id, slug),
+      name,
+      description,
+      content,
+      enabled: true,
+      createdAt: nowIso(),
+      updatedAt: nowIso()
+    };
+    const resolvedNameLower = name.toLowerCase();
+    for (let index = turnSkills.length - 1; index >= 0; index -= 1) {
+      const existing = turnSkills[index];
+      if (existing.id !== savedSkill.id && getSkillResolvedName(existing).toLowerCase() === resolvedNameLower) {
+        turnSkills.splice(index, 1);
+      }
+    }
+    const existingIndex = turnSkills.findIndex((skill) => skill.id === savedSkill.id);
+    if (existingIndex >= 0) {
+      turnSkills[existingIndex] = savedSkill;
+    } else {
+      turnSkills.push(savedSkill);
+    }
+  }
+
+  sortOrder += 1;
+
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    `Skill saved: ${name} (skills/${slug}/SKILL.md). It is available via load_skill, including right away in this turn.`
+  );
+  return {
+    nextSortOrder: sortOrder,
+    promptMessages: [...context.promptMessages, resultMsg],
+    toolSucceeded: true
+  };
+}
+
 export async function executeShellCommand(
   toolCallId: string,
   args: Record<string, unknown>,
   context: {
     input: {
+      conversationId?: string;
       abortSignal?: AbortSignal;
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -536,11 +799,17 @@ export async function executeShellCommand(
   const actionHandle = typeof handle === "string" ? handle : undefined;
   const screenshotCandidate = prepareScreenshotArtifact(command);
 
+  const bot = context.input.conversationId
+    ? getBotByConversationId(context.input.conversationId)
+    : null;
+  const sandbox = bot ? resolveBotSandbox(bot) : null;
+
   try {
     const result = await executeLocalShellCommand({
       command,
       timeoutMs,
-      abortSignal: context.input.abortSignal
+      abortSignal: context.input.abortSignal,
+      ...(sandbox ? { cwd: sandbox.cwd, env: { ...process.env, ...sandbox.env } } : {})
     });
     throwIfAborted(context.input.abortSignal);
     const resultSummary = summarizeShellResult(result);
@@ -578,9 +847,16 @@ export async function executeShellCommand(
   }
 }
 
+function resolveMemoryScope(conversationId?: string): MemoryScope | undefined {
+  if (!conversationId) return undefined;
+  const bot = getBotByConversationId(conversationId);
+  return bot ? { botId: bot.id } : undefined;
+}
+
 type MemoryToolExecutionContext = {
   memoryUserId?: string | null;
   input: {
+    conversationId?: string;
     abortSignal?: AbortSignal;
     onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
     onActionComplete?: (
@@ -611,9 +887,14 @@ export async function executeCreateMemory(
   }
 
   const normalizedCategory = normalizeMemoryCategory(args.category);
-  const proposalPayload = buildCreateMemoryProposal({ content, category: normalizedCategory });
+  const memoryScope = resolveMemoryScope(context.input.conversationId);
+  const proposalPayload = buildCreateMemoryProposal({
+    content,
+    category: normalizedCategory,
+    botId: memoryScope?.botId ?? null
+  });
   const maxCount = getSettings().memoriesMaxCount ?? 100;
-  const currentCount = getMemoryCount(context.memoryUserId);
+  const currentCount = getMemoryCount(context.memoryUserId, memoryScope);
   throwIfAborted(context.input.abortSignal);
 
   if (currentCount >= maxCount) {
@@ -657,17 +938,22 @@ export async function executeUpdateMemory(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const existing = getMemoryRecord(id, context.memoryUserId);
+  const memoryScope = resolveMemoryScope(context.input.conversationId);
+  const existing = getMemoryRecord(id, context.memoryUserId, memoryScope);
   throwIfAborted(context.input.abortSignal);
   if (!existing) {
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: Memory ${id} not found`);
+    const notFoundMsg = memoryScope
+      ? `Error: Memory ${id} not found in your bot memory pool. Main account memories are read-only for bots; if this fact lives there, save an updated copy to your own memory instead.`
+      : `Error: Memory ${id} not found`;
+    const resultMsg = buildToolResultMessage(toolCallId, notFoundMsg);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
   const proposalPayload = buildUpdateMemoryProposal({
     memory: existing,
     content,
-    category
+    category,
+    botId: memoryScope?.botId ?? null
   });
 
   throwIfAborted(context.input.abortSignal);
@@ -707,10 +993,14 @@ export async function executeDeleteMemory(
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
-  const existing = getMemoryRecord(id, context.memoryUserId);
+  const memoryScope = resolveMemoryScope(context.input.conversationId);
+  const existing = getMemoryRecord(id, context.memoryUserId, memoryScope);
   throwIfAborted(context.input.abortSignal);
   if (!existing) {
-    const resultMsg = buildToolResultMessage(toolCallId, `Error: Memory ${id} not found`);
+    const notFoundMsg = memoryScope
+      ? `Error: Memory ${id} not found in your bot memory pool. Main account memories are read-only for bots.`
+      : `Error: Memory ${id} not found`;
+    const resultMsg = buildToolResultMessage(toolCallId, notFoundMsg);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
@@ -722,13 +1012,119 @@ export async function executeDeleteMemory(
     detail: existing.content,
     arguments: { id },
     proposalState: "pending",
-    proposalPayload: buildDeleteMemoryProposal(existing)
+    proposalPayload: buildDeleteMemoryProposal(existing, memoryScope?.botId ?? null)
   });
   throwIfAborted(context.input.abortSignal);
 
   const resultMsg = buildToolResultMessage(
     toolCallId,
     `Memory change proposed for approval: delete ${id}`
+  );
+  return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
+}
+
+type AutomationToolExecutionContext = {
+  input: {
+    settings?: RuntimeProviderProfile;
+    conversationId?: string;
+    abortSignal?: AbortSignal;
+    onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+  };
+  timelineSortOrder: number;
+  promptMessages: PromptMessage[];
+};
+
+function parseAutomationScheduleArgs(args: Record<string, unknown>): {
+  scheduleKind: AutomationScheduleKind;
+  intervalMinutes: number | null;
+  calendarFrequency: AutomationCalendarFrequency | null;
+  timeOfDay: string | null;
+  daysOfWeek: number[];
+} {
+  const scheduleKind: AutomationScheduleKind = args.schedule_kind === "calendar" ? "calendar" : "interval";
+  const intervalMinutes =
+    typeof args.interval_minutes === "number" && Number.isFinite(args.interval_minutes)
+      ? Math.round(args.interval_minutes)
+      : null;
+  const calendarFrequency: AutomationCalendarFrequency | null =
+    args.calendar_frequency === "weekly" ? "weekly" : args.calendar_frequency === "daily" ? "daily" : null;
+  const timeOfDay = typeof args.time_of_day === "string" && args.time_of_day.trim() ? args.time_of_day.trim() : null;
+  const daysOfWeek = Array.isArray(args.days_of_week)
+    ? args.days_of_week.filter((day): day is number => Number.isInteger(day) && day >= 0 && day <= 6)
+    : [];
+
+  return { scheduleKind, intervalMinutes, calendarFrequency, timeOfDay, daysOfWeek };
+}
+
+export async function executeCreateAutomationProposal(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: AutomationToolExecutionContext
+) {
+  throwIfAborted(context.input.abortSignal);
+  const sortOrder = context.timelineSortOrder;
+  const name = String(args.name ?? "").trim().slice(0, 100);
+  const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
+  const continuePreviousConversation = args.continue_previous_conversation === true;
+
+  if (!name) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: name is required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  if (!prompt) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: prompt is required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const schedule = parseAutomationScheduleArgs(args);
+
+  try {
+    assertValidSchedule(schedule);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Invalid automation schedule";
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const providerProfileId = context.input.settings?.id ?? "";
+  if (!providerProfileId) {
+    const resultMsg = buildToolResultMessage(
+      toolCallId,
+      "Error: no provider profile is configured for this conversation"
+    );
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const proposalPayload = {
+    name,
+    prompt,
+    scheduleKind: schedule.scheduleKind,
+    intervalMinutes: schedule.intervalMinutes,
+    calendarFrequency: schedule.calendarFrequency,
+    timeOfDay: schedule.timeOfDay,
+    daysOfWeek: schedule.daysOfWeek,
+    providerProfileId,
+    personaId: null,
+    continuePreviousConversation
+  };
+  const scheduleSummary = describeSchedule(proposalPayload);
+
+  throwIfAborted(context.input.abortSignal);
+  await context.input.onActionStart?.({
+    kind: "create_automation",
+    status: "pending",
+    label: "Automation proposal",
+    detail: `${name} — ${scheduleSummary}`,
+    arguments: { name, prompt, ...schedule, continue_previous_conversation: continuePreviousConversation },
+    proposalState: "pending",
+    proposalPayload
+  });
+  throwIfAborted(context.input.abortSignal);
+
+  const resultMsg = buildToolResultMessage(
+    toolCallId,
+    `Automation proposal created and awaiting user approval: "${name}" (${scheduleSummary}). Nothing is scheduled until the user approves it on the proposal card. Tell the user you have proposed the automation and that they can review and approve it.`
   );
   return { nextSortOrder: sortOrder + 1, promptMessages: [...context.promptMessages, resultMsg] };
 }
@@ -830,6 +1226,7 @@ export async function executeAnalyzeImage(
     const providerStream = streamProviderResponse({
       settings: context.input.visionProfile,
       promptMessages,
+      conversationId,
       abortSignal: context.input.abortSignal
     });
 
@@ -866,6 +1263,89 @@ export async function executeAnalyzeImage(
       resultSummary: message
     });
     throw new Error(`Vision analysis failed: ${message}`);
+  }
+}
+
+export async function executeSearchWorkspace(
+  toolCallId: string,
+  args: Record<string, unknown>,
+  context: {
+    input: {
+      memoryUserId?: string | null;
+      abortSignal?: AbortSignal;
+      onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
+      onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+      onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
+    };
+    timelineSortOrder: number;
+    promptMessages: PromptMessage[];
+    memoryUserId?: string | null;
+  }
+) {
+  throwIfAborted(context.input.abortSignal);
+  let sortOrder = context.timelineSortOrder;
+  const query = String(args.query ?? "").trim();
+  const requestedLimit = Number(args.limit);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(20, Math.max(1, Math.floor(requestedLimit))) : 8;
+  const userId = context.input.memoryUserId ?? context.memoryUserId ?? null;
+
+  if (!query) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: query is required");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+  }
+  if (!userId) {
+    const resultMsg = buildToolResultMessage(toolCallId, "Error: workspace search is only available in owned conversations");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg], toolSucceeded: false };
+  }
+
+  const detail = query.length > 140 ? `${query.slice(0, 137)}...` : query;
+  const handle = await context.input.onActionStart?.({
+    kind: "mcp_tool_call",
+    serverId: "integration_search_workspace",
+    toolName: "search_workspace",
+    label: "Search workspace",
+    detail,
+    arguments: { query, limit }
+  });
+  const actionHandle = typeof handle === "string" ? handle : undefined;
+
+  try {
+    const results = await searchWorkspace({ userId, query, limit });
+    throwIfAborted(context.input.abortSignal);
+    if (!results) {
+      throw new Error("Semantic index is unavailable");
+    }
+
+    const resultSummary = results.length
+      ? results
+          .map((result, index) => {
+            const ref =
+              result.kind === "memory"
+                ? `memory ${result.memoryId}`
+                : `conversation ${result.conversationId}`;
+            return `${index + 1}. [${result.kind}] ${result.title} (${result.date.slice(0, 10)}, ${ref}, score ${result.score})\n${result.snippet}`;
+          })
+          .join("\n\n")
+      : "No matching content found in the workspace.";
+
+    sortOrder += 1;
+    await context.input.onActionComplete?.(actionHandle, { detail, resultSummary });
+    const resultMsg = buildToolResultMessage(toolCallId, resultSummary);
+    return {
+      nextSortOrder: sortOrder,
+      promptMessages: [...context.promptMessages, resultMsg],
+      toolSucceeded: true
+    };
+  } catch (error) {
+    throwIfAborted(context.input.abortSignal);
+    const message = error instanceof Error ? error.message : "Workspace search failed";
+    await context.input.onActionError?.(actionHandle, { detail, resultSummary: message });
+    const resultMsg = buildToolResultMessage(toolCallId, `Error: ${message}`);
+    return {
+      nextSortOrder: sortOrder,
+      promptMessages: [...context.promptMessages, resultMsg],
+      toolSucceeded: false
+    };
   }
 }
 
@@ -914,8 +1394,24 @@ export async function executeToolCall(
     return executeLoadSkill(toolCallId, args, context);
   }
 
+  if (name === "save_skill") {
+    return executeSaveSkill(toolCallId, args, context);
+  }
+
   if (name === "execute_shell_command") {
     return executeShellCommand(toolCallId, args, context);
+  }
+
+  if (name === "message_bot") {
+    return executeMessageBot(toolCallId, args, context);
+  }
+
+  if (name === "create_bot") {
+    return executeCreateBotTool(toolCallId, args, context);
+  }
+
+  if (name === "update_bot") {
+    return executeUpdateBotTool(toolCallId, args, context);
   }
 
   if (name === "create_memory") {
@@ -930,8 +1426,20 @@ export async function executeToolCall(
     return executeDeleteMemory(toolCallId, args, context);
   }
 
+  if (name === "create_automation") {
+    return executeCreateAutomationProposal(toolCallId, args, context);
+  }
+
   if (name === "web_search") {
     return executeWebSearch(toolCallId, args, context);
+  }
+
+  if (name === "read_page") {
+    return executeReadPage(toolCallId, args, context);
+  }
+
+  if (name === "search_workspace") {
+    return executeSearchWorkspace(toolCallId, args, context);
   }
 
   if (name === "generate_image") {

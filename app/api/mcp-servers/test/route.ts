@@ -3,6 +3,13 @@ import { z } from "zod";
 import { requireAdminResponse } from "@/lib/auth";
 import { badRequest, forbidden, ok } from "@/lib/http";
 import { testMcpServerConnection } from "@/lib/mcp-client";
+import {
+  checkMcpOAuthSupport,
+  getMcpOAuthConnectionSummary,
+  markMcpOAuthConnectionAuthRequired,
+  markMcpOAuthConnectionConnected,
+  McpAuthenticationRequiredError
+} from "@/lib/mcp-oauth";
 import { getMcpServer } from "@/lib/mcp-servers";
 
 const draftSchema = z.discriminatedUnion("transport", [
@@ -49,9 +56,15 @@ export async function POST(request: Request) {
 
   const storedServer = "serverId" in body.data ? getMcpServer(body.data.serverId) : null;
   const draft = "draft" in body.data ? body.data.draft : "serverId" in body.data ? null : body.data;
+  const usesStoredIdentity = Boolean(
+    storedServer &&
+    draft &&
+    draft.transport === storedServer.transport &&
+    (draft.transport === "stdio" || draft.url === storedServer.url)
+  );
   const server = draft
       ? {
-          id: "draft",
+          id: usesStoredIdentity ? storedServer!.id : "draft",
           name: draft.name,
           url: draft.transport === "streamable_http" ? draft.url : draft.url ?? "",
           headers: draft.headersAction === "preserve"
@@ -82,6 +95,11 @@ export async function POST(request: Request) {
   try {
     const result = await testMcpServerConnection(server);
 
+    const testedServerId = server.id && server.id !== "draft" ? server.id : null;
+    if (testedServerId) {
+      markMcpOAuthConnectionConnected(testedServerId);
+    }
+
     return ok({
       success: true,
       protocolVersion: result.protocolVersion,
@@ -89,9 +107,28 @@ export async function POST(request: Request) {
       sessionId: result.sessionId,
       toolCount: result.toolCount,
       text: `${result.toolCount} tool${result.toolCount === 1 ? "" : "s"} discovered`,
-      stderr: result.stderr
+      stderr: result.stderr,
+      ...(testedServerId ? { oauth: getMcpOAuthConnectionSummary(testedServerId) } : {})
     });
   } catch (error) {
+    const testedServerId = server.id && server.id !== "draft" ? server.id : null;
+    if (
+      error instanceof McpAuthenticationRequiredError &&
+      server.transport === "streamable_http" &&
+      (await checkMcpOAuthSupport(server.url))
+    ) {
+      if (testedServerId) {
+        markMcpOAuthConnectionAuthRequired(testedServerId, { createIfMissing: true });
+      }
+      return ok({
+        success: false,
+        requiresAuth: true,
+        text: "Authentication required",
+        ...(testedServerId
+          ? { oauth: getMcpOAuthConnectionSummary(testedServerId) }
+          : {})
+      });
+    }
     const message = error instanceof Error ? error.message : "MCP connection test failed";
     return badRequest(message, 502);
   }

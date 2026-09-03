@@ -51,7 +51,7 @@ export function DialogShell({
           >
             {description ?? `${title} dialog`}
           </Dialog.Description>
-          {children}
+          {children ? <div className="min-h-0 flex-1 overflow-y-auto">{children}</div> : null}
           {footer ? (
             <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-white/[0.06] pt-4">
               {footer}

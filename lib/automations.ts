@@ -18,11 +18,15 @@ type AutomationRow = {
   prompt: string;
   provider_profile_id: string;
   persona_id: string | null;
+  bot_id: string | null;
+  research: number;
+  run_timeout_minutes: number | null;
   schedule_kind: AutomationScheduleKind;
   interval_minutes: number | null;
   calendar_frequency: AutomationCalendarFrequency | null;
   time_of_day: string | null;
   days_of_week: string;
+  continue_previous_conversation: number;
   enabled: number;
   next_run_at: string | null;
   last_scheduled_for: string | null;
@@ -54,17 +58,21 @@ type ScheduleInput = {
   daysOfWeek: number[];
 };
 
-type CreateAutomationInput = {
+export type CreateAutomationInput = {
   name: string;
   prompt: string;
   providerProfileId: string;
   personaId: string | null;
+  botId?: string | null;
   scheduleKind: AutomationScheduleKind;
   intervalMinutes: number | null;
   calendarFrequency: AutomationCalendarFrequency | null;
   timeOfDay: string | null;
   daysOfWeek: number[];
+  continuePreviousConversation?: boolean;
   enabled?: boolean;
+  research?: boolean;
+  runTimeoutMinutes?: number | null;
 };
 
 type UpdateAutomationInput = Partial<
@@ -168,7 +176,7 @@ function assertValidDaysOfWeek(daysOfWeek: number[]) {
   }
 }
 
-function assertValidSchedule(input: ScheduleInput) {
+export function assertValidSchedule(input: ScheduleInput) {
   const daysOfWeek = normalizeDaysOfWeek(input.daysOfWeek);
 
   if (input.scheduleKind === "interval") {
@@ -201,12 +209,16 @@ function rowToAutomation(row: AutomationRow): Automation {
     prompt: row.prompt,
     providerProfileId: row.provider_profile_id,
     personaId: row.persona_id,
+    botId: row.bot_id,
     scheduleKind: row.schedule_kind,
     intervalMinutes: row.interval_minutes,
     calendarFrequency: row.calendar_frequency,
     timeOfDay: row.time_of_day,
     daysOfWeek: parseDaysOfWeek(row.days_of_week),
+    continuePreviousConversation: row.continue_previous_conversation === 1,
     enabled: row.enabled === 1,
+    research: row.research === 1,
+    runTimeoutMinutes: row.run_timeout_minutes,
     nextRunAt: row.next_run_at,
     lastScheduledFor: row.last_scheduled_for,
     lastStartedAt: row.last_started_at,
@@ -305,6 +317,72 @@ function getLatestAutomationRun(automationId: string) {
   return row ? rowToAutomationRun(row) : null;
 }
 
+export function countAutomationRuns(automationId: string) {
+  const row = getDb()
+    .prepare(
+      "SELECT COUNT(*) as run_count FROM automation_runs WHERE automation_id = ? AND status != 'missed'"
+    )
+    .get(automationId) as { run_count: number };
+
+  return row.run_count;
+}
+
+export function getReusableAutomationConversationId(automationId: string, excludeRunId?: string) {
+  const row = excludeRunId
+    ? getDb()
+        .prepare(
+          `SELECT conversation_id
+           FROM automation_runs
+           WHERE automation_id = ?
+             AND conversation_id IS NOT NULL
+             AND id != ?
+           ORDER BY scheduled_for DESC, created_at DESC, id DESC
+           LIMIT 1`
+        )
+        .get(automationId, excludeRunId) as { conversation_id: string } | undefined
+    : getDb()
+        .prepare(
+          `SELECT conversation_id
+           FROM automation_runs
+           WHERE automation_id = ?
+             AND conversation_id IS NOT NULL
+           ORDER BY scheduled_for DESC, created_at DESC, id DESC
+           LIMIT 1`
+        )
+        .get(automationId) as { conversation_id: string } | undefined;
+
+  return row?.conversation_id ?? null;
+}
+
+export function getPreviousAutomationRunResult(automationId: string, excludeRunId: string) {
+  const row = getDb()
+    .prepare(
+      `SELECT m.content as content
+       FROM automation_runs r
+       JOIN messages m
+         ON m.conversation_id = r.conversation_id
+        AND m.role = 'assistant'
+        AND m.status = 'completed'
+       WHERE r.automation_id = ?
+         AND r.id != ?
+         AND r.status = 'completed'
+         AND r.conversation_id IS NOT NULL
+         AND m.rowid = (
+           SELECT MAX(m2.rowid)
+           FROM messages m2
+           WHERE m2.conversation_id = r.conversation_id
+             AND m2.role = 'assistant'
+             AND m2.status = 'completed'
+         )
+       ORDER BY r.scheduled_for DESC, r.created_at DESC, r.id DESC
+       LIMIT 1`
+    )
+    .get(automationId, excludeRunId) as { content: string } | undefined;
+
+  const content = row?.content?.trim();
+  return content ? content : null;
+}
+
 function refreshAutomationRunSummary(automationId: string, updatedAt: string) {
   const latestRun = getLatestAutomationRun(automationId);
 
@@ -336,12 +414,16 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
     prompt: input.prompt,
     providerProfileId: input.providerProfileId,
     personaId: input.personaId,
+    botId: input.botId ?? null,
     scheduleKind: input.scheduleKind,
     intervalMinutes: input.intervalMinutes,
     calendarFrequency: input.calendarFrequency,
     timeOfDay: input.timeOfDay,
     daysOfWeek: input.daysOfWeek,
+    continuePreviousConversation: input.continuePreviousConversation ?? false,
     enabled: input.enabled ?? true,
+    research: input.research ?? false,
+    runTimeoutMinutes: input.runTimeoutMinutes ?? null,
     nextRunAt: null,
     lastScheduledFor: null,
     lastStartedAt: null,
@@ -372,11 +454,15 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
         prompt,
         provider_profile_id,
         persona_id,
+        bot_id,
+        research,
+        run_timeout_minutes,
         schedule_kind,
         interval_minutes,
         calendar_frequency,
         time_of_day,
         days_of_week,
+        continue_previous_conversation,
         enabled,
         next_run_at,
         last_scheduled_for,
@@ -385,7 +471,7 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
         last_status,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .run(
       automation.id,
@@ -394,11 +480,15 @@ export function createAutomation(input: CreateAutomationInput, userId?: string) 
       automation.prompt,
       automation.providerProfileId,
       automation.personaId,
+      automation.botId,
+      automation.research ? 1 : 0,
+      automation.runTimeoutMinutes,
       automation.scheduleKind,
       automation.intervalMinutes,
       automation.calendarFrequency,
       automation.timeOfDay,
       JSON.stringify(automation.daysOfWeek),
+      automation.continuePreviousConversation ? 1 : 0,
       automation.enabled ? 1 : 0,
       nextRunAt,
       automation.lastScheduledFor,
@@ -619,11 +709,15 @@ export function listAutomations(userId?: string): Automation[] {
             prompt,
             provider_profile_id,
             persona_id,
+            bot_id,
+            research,
+            run_timeout_minutes,
             schedule_kind,
             interval_minutes,
             calendar_frequency,
             time_of_day,
             days_of_week,
+            continue_previous_conversation,
             enabled,
             next_run_at,
             last_scheduled_for,
@@ -645,11 +739,15 @@ export function listAutomations(userId?: string): Automation[] {
             prompt,
             provider_profile_id,
             persona_id,
+            bot_id,
+            research,
+            run_timeout_minutes,
             schedule_kind,
             interval_minutes,
             calendar_frequency,
             time_of_day,
             days_of_week,
+            continue_previous_conversation,
             enabled,
             next_run_at,
             last_scheduled_for,
@@ -676,11 +774,15 @@ export function getAutomation(id: string, userId?: string) {
             prompt,
             provider_profile_id,
             persona_id,
+            bot_id,
+            research,
+            run_timeout_minutes,
             schedule_kind,
             interval_minutes,
             calendar_frequency,
             time_of_day,
             days_of_week,
+            continue_previous_conversation,
             enabled,
             next_run_at,
             last_scheduled_for,
@@ -701,11 +803,15 @@ export function getAutomation(id: string, userId?: string) {
             prompt,
             provider_profile_id,
             persona_id,
+            bot_id,
+            research,
+            run_timeout_minutes,
             schedule_kind,
             interval_minutes,
             calendar_frequency,
             time_of_day,
             days_of_week,
+            continue_previous_conversation,
             enabled,
             next_run_at,
             last_scheduled_for,
@@ -768,11 +874,15 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
              prompt = ?,
              provider_profile_id = ?,
              persona_id = ?,
+             bot_id = ?,
+             research = ?,
+             run_timeout_minutes = ?,
              schedule_kind = ?,
              interval_minutes = ?,
              calendar_frequency = ?,
              time_of_day = ?,
              days_of_week = ?,
+             continue_previous_conversation = ?,
              enabled = ?,
              next_run_at = ?,
              last_scheduled_for = ?,
@@ -787,11 +897,15 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
         next.prompt,
         next.providerProfileId,
         next.personaId,
+        next.botId,
+        next.research ? 1 : 0,
+        next.runTimeoutMinutes,
         next.scheduleKind,
         next.intervalMinutes,
         next.calendarFrequency,
         next.timeOfDay,
         JSON.stringify(next.daysOfWeek),
+        next.continuePreviousConversation ? 1 : 0,
         next.enabled ? 1 : 0,
         next.nextRunAt,
         next.lastScheduledFor,
@@ -810,11 +924,15 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
              prompt = ?,
              provider_profile_id = ?,
              persona_id = ?,
+             bot_id = ?,
+             research = ?,
+             run_timeout_minutes = ?,
              schedule_kind = ?,
              interval_minutes = ?,
              calendar_frequency = ?,
              time_of_day = ?,
              days_of_week = ?,
+             continue_previous_conversation = ?,
              enabled = ?,
              next_run_at = ?,
              last_scheduled_for = ?,
@@ -829,11 +947,15 @@ export function updateAutomation(id: string, patch: UpdateAutomationInput, userI
         next.prompt,
         next.providerProfileId,
         next.personaId,
+        next.botId,
+        next.research ? 1 : 0,
+        next.runTimeoutMinutes,
         next.scheduleKind,
         next.intervalMinutes,
         next.calendarFrequency,
         next.timeOfDay,
         JSON.stringify(next.daysOfWeek),
+        next.continuePreviousConversation ? 1 : 0,
         next.enabled ? 1 : 0,
         next.nextRunAt,
         next.lastScheduledFor,
@@ -1048,6 +1170,7 @@ export function listDueAutomations(nowIsoString: string): Automation[] {
         calendar_frequency,
         time_of_day,
         days_of_week,
+        continue_previous_conversation,
         enabled,
         next_run_at,
         last_scheduled_for,

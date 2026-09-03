@@ -38,7 +38,9 @@ import {
   shouldShowProvisionalImageAction,
   updateStreamingAction
 } from "@/components/chat-snapshot-helpers";
-import { clearChatBootstrap, readChatBootstrap } from "@/lib/chat-bootstrap";
+import { clearChatBootstrap, readChatBootstrap, type ChatBootstrapPayload } from "@/lib/chat-bootstrap";
+import { ResearchPlanCard } from "@/components/research-plan-card";
+import { useResearchPlanDraft } from "@/hooks/use-research-plan-draft";
 import { createStreamBuffer } from "@/lib/stream-buffer";
 import { StreamingMessage } from "@/components/streaming-message";
 import { useStableHandler } from "@/lib/use-stable-handler";
@@ -52,7 +54,9 @@ import { useWebSocket } from "@/lib/ws-client";
 import { deleteConversationIfStillEmpty } from "@/lib/conversation-drafts";
 import { isScrolledToBottom, shouldAutofocusTextInput } from "@/lib/utils";
 import type { ConversationViewPayload } from "@/lib/conversation-view";
+import type { AutomationProposalOverrides } from "@/lib/automation-proposals";
 import type {
+  ChatResearchOptions,
   ChatStreamEvent,
   Conversation,
   MemoryCategory,
@@ -97,8 +101,18 @@ function StickToBottomBridge({
   return null;
 }
 
-export function ChatView({ payload }: { payload: ConversationViewPayload }) {
+export function ChatView({
+  payload,
+  retainEmptyConversation = false,
+  hideConversationHeader = false
+}: {
+  payload: ConversationViewPayload;
+  retainEmptyConversation?: boolean;
+  hideConversationHeader?: boolean;
+}) {
   const router = useRouter();
+  const retainEmptyConversationRef = useRef(retainEmptyConversation);
+  retainEmptyConversationRef.current = retainEmptyConversation;
   const { getTokenUsage, setTokenUsage } = useContextTokens();
   const { canShare, openShareModal } = useShareConversation();
   const previewController = useAttachmentPreviewController();
@@ -115,6 +129,9 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
   const [isSending, setIsSending] = useState(false);
   const [isStopPending, setIsStopPending] = useState(false);
   const [isTemporaryToggled, setIsTemporaryToggled] = useState(payload.conversation.isTemporary);
+  const [isResearchToggled, setIsResearchToggled] = useState(false);
+  const researchPlan = useResearchPlanDraft();
+  const researchUserMessageIdRef = useRef<string | null>(null);
   const streamBufferRef = useRef<ReturnType<typeof createStreamBuffer> | null>(null);
   streamBufferRef.current ??= createStreamBuffer();
   const streamBuffer = streamBufferRef.current;
@@ -124,6 +141,7 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
   const [compactionInProgress, setCompactionInProgress] = useState(false);
   const [usedTokens, setUsedTokens] = useState<number | null>(() => payload.contextTokens);
   const [compactionLimit, setCompactionLimit] = useState<number>(payload.compactionLimit);
+  const [memoryUsage, setMemoryUsage] = useState<{ used: number; total: number } | null>(null);
   const [isConversationActive, setIsConversationActive] = useState(payload.conversation.isActive);
   const hasInitializedTokensRef = useRef(false);
 
@@ -238,11 +256,7 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
   const expandAnchorMessageIdRef = useRef<string | null>(null);
   const earlierMessagesSentinelRef = useRef<HTMLDivElement | null>(null);
   const firstVisibleMessageIdRef = useRef<string | null>(null);
-  const bootstrapPayloadRef = useRef<{
-    message: string;
-    attachments: MessageAttachment[];
-    personaId?: string;
-  } | null>(null);
+  const bootstrapPayloadRef = useRef<ChatBootstrapPayload | null>(null);
   const bootstrapSubmittedRef = useRef(false);
 
   const restorePendingSubmissions = useCallback(() => {
@@ -264,7 +278,12 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
     pendingLocalSubmissionsRef.current = [];
   }, [setPendingAttachments]);
   const submitRef = useRef<
-    (nextInput?: string, nextPendingAttachments?: MessageAttachment[], nextPersonaId?: string) => Promise<void>
+    (
+      nextInput?: string,
+      nextPendingAttachments?: MessageAttachment[],
+      nextPersonaId?: string,
+      nextResearch?: boolean | ChatResearchOptions
+    ) => Promise<void>
   >(async () => {});
   const renderableMessages = useMemo(() => {
     const pendingById = new Map(
@@ -725,6 +744,9 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
     if (event.type === "context_usage") {
       setUsedTokens(event.contextTokens);
       setCompactionLimit(event.compactionLimit);
+      if (typeof event.memoriesUsed === "number" && typeof event.memoriesTotal === "number") {
+        setMemoryUsage({ used: event.memoriesUsed, total: event.memoriesTotal });
+      }
       setTokenUsage(payload.conversation.id, event.contextTokens);
       return;
     }
@@ -1163,7 +1185,12 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
 
     bootstrapSubmittedRef.current = true;
     clearChatBootstrap(payload.conversation.id);
-    void submitRef.current(bootstrapPayload.message, bootstrapPayload.attachments, bootstrapPayload.personaId);
+    void submitRef.current(
+      bootstrapPayload.message,
+      bootstrapPayload.attachments,
+      bootstrapPayload.personaId,
+      bootstrapPayload.research
+    );
   }, [payload.conversation.id, wsConnected]);
 
   useEffect(() => {
@@ -1261,6 +1288,10 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
   useEffect(() => {
     return () => {
       if (typeof window === "undefined") {
+        return;
+      }
+
+      if (retainEmptyConversationRef.current) {
         return;
       }
 
@@ -1706,6 +1737,73 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
     }
   }
 
+  async function approveAutomationProposal(
+    actionId: string,
+    overrides?: AutomationProposalOverrides
+  ) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/message-actions/${actionId}/approve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(overrides ?? {})
+      });
+
+      const result = (await response.json()) as {
+        action?: MessageAction;
+        error?: string;
+      };
+
+      if (!response.ok || !result.action) {
+        throw new Error(result.error ?? "Unable to schedule automation");
+      }
+
+      setMessages((current) => replaceMessageAction(current, result.action!));
+    } catch (caughtError) {
+      const errorMessage =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to schedule automation";
+      setError(errorMessage);
+      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    }
+  }
+
+  async function dismissAutomationProposal(actionId: string) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/message-actions/${actionId}/dismiss`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({})
+      });
+
+      const result = (await response.json()) as {
+        action?: MessageAction;
+        error?: string;
+      };
+
+      if (!response.ok || !result.action) {
+        throw new Error(result.error ?? "Unable to ignore automation proposal");
+      }
+
+      setMessages((current) => replaceMessageAction(current, result.action!));
+    } catch (caughtError) {
+      const errorMessage =
+        caughtError instanceof Error
+          ? caughtError.message
+          : "Unable to ignore automation proposal";
+      setError(errorMessage);
+      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    }
+  }
+
   async function updateProviderProfile(nextProviderProfileId: string) {
     const previousProviderProfileId = providerProfileId;
     setError("");
@@ -1781,7 +1879,8 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
   async function submit(
     nextInput = input,
     nextPendingAttachments = pendingAttachments,
-    nextPersonaId?: string
+    nextPersonaId?: string,
+    nextResearch?: boolean | ChatResearchOptions
   ) {
     const value = nextInput.trim();
     const effectivePersonaId = nextPersonaId ?? personaId;
@@ -1829,6 +1928,59 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
       return;
     }
 
+    const researchRequest =
+      typeof nextResearch === "object" && nextResearch.plan?.length
+        ? nextResearch
+        : (nextResearch ?? isResearchToggled)
+          ? null
+          : undefined;
+    if (researchRequest === null) {
+      if (!value) {
+        return;
+      }
+      setError("");
+      setInput("");
+      dismissComposerKeyboardOnTouch();
+      researchUserMessageIdRef.current = null;
+      const attachmentIds = nextPendingAttachments.map((attachment) => attachment.id);
+      researchPlan.open({
+        message: value,
+        load: async () => {
+          const response = await fetch(`/api/conversations/${payload.conversation.id}/research`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: value, attachmentIds })
+          });
+          if (!response.ok) {
+            throw new Error("The research plan could not be generated");
+          }
+          const data = (await response.json()) as { message?: Message; plan?: unknown };
+          if (data.message) {
+            const persisted = data.message;
+            researchUserMessageIdRef.current = persisted.id;
+            setPendingAttachments([]);
+            setMessages((current) => (current.some((m) => m.id === persisted.id) ? current : [...current, persisted]));
+            if (titleGenerationStatus === "pending") {
+              startTitlePolling();
+            }
+          }
+          return data.plan;
+        },
+        regenerate: async () => {
+          const response = await fetch("/api/research/plan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: value, providerProfileId })
+          });
+          if (!response.ok) {
+            throw new Error("The research plan could not be generated");
+          }
+          return ((await response.json()) as { plan?: unknown }).plan;
+        }
+      });
+      return;
+    }
+
     setError("");
     setInput("");
     dismissComposerKeyboardOnTouch();
@@ -1869,8 +2021,10 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
       conversationId: payload.conversation.id,
       content: value,
       attachmentIds: nextPendingAttachments.map((attachment) => attachment.id),
-      personaId: effectivePersonaId ?? undefined
+      personaId: effectivePersonaId ?? undefined,
+      research: researchRequest
     });
+    setIsResearchToggled(false);
     setIsConversationActive(true);
 
     if (titleGenerationStatus === "pending") {
@@ -1946,6 +2100,8 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
   const onUpdateUserMessageStable = useStableHandler(updateUserMessage);
   const onApproveMemoryProposalStable = useStableHandler(approveMemoryProposal);
   const onDismissMemoryProposalStable = useStableHandler(dismissMemoryProposal);
+  const onApproveAutomationProposalStable = useStableHandler(approveAutomationProposal);
+  const onDismissAutomationProposalStable = useStableHandler(dismissAutomationProposal);
   const onForkAssistantMessageStable = useStableHandler(forkAssistantMessage);
   const onRetryAssistantMessageStable = useStableHandler(retryAssistantMessage);
   const onRegenerateUserMessageStable = useStableHandler(regenerateUserMessage);
@@ -1961,42 +2117,44 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
         {...fileDropProps}
       >
       {isDraggingFiles ? <FileDropOverlay /> : null}
-      <div className="border-b border-white/4 px-4 py-3.5 md:px-6">
-        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div className="min-w-0">
-            <div className="font-medium text-[var(--text)] truncate text-sm">{conversationTitle}</div>
-          </div>
-          <div className="hidden md:flex items-center gap-1">
-            {canShare ? (
+      {hideConversationHeader ? null : (
+        <div className="border-b border-white/4 px-4 py-3.5 md:px-6">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0">
+              <div className="font-medium text-[var(--text)] truncate text-sm">{conversationTitle}</div>
+            </div>
+            <div className="hidden md:flex items-center gap-1">
+              {canShare ? (
+                <button
+                  type="button"
+                  className="h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/6 bg-white/[0.02] text-white/40 transition-colors duration-150 hover:border-white/10 hover:bg-white/[0.05] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 flex"
+                  onClick={openShareModal}
+                  aria-label="Share conversation"
+                  title="Share conversation"
+                >
+                  <Share2 className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
               <button
                 type="button"
-                className="h-8 w-8 shrink-0 items-center justify-center rounded-md border border-white/6 bg-white/[0.02] text-white/40 transition-colors duration-150 hover:border-white/10 hover:bg-white/[0.05] hover:text-white/75 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 flex"
-                onClick={openShareModal}
-                aria-label="Share conversation"
-                title="Share conversation"
+                className="h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-200 hover:opacity-90 hover:scale-[0.98] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 flex"
+                onClick={async () => {
+                  try {
+                    await deleteConversationIfStillEmpty(payload.conversation.id);
+                    const res = await fetch("/api/conversations", { method: "POST" });
+                    const data = (await res.json()) as { conversation: Conversation };
+                    router.push(`/chat/${data.conversation.id}`);
+                  } catch {}
+                }}
+                aria-label="New chat"
+                title="New chat"
               >
-                <Share2 className="h-3.5 w-3.5" />
+                <Plus className="h-3.5 w-3.5" />
               </button>
-            ) : null}
-            <button
-              type="button"
-              className="h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--accent)] text-white shadow-[0_0_20px_var(--accent-glow)] transition-all duration-200 hover:opacity-90 hover:scale-[0.98] active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20 flex"
-              onClick={async () => {
-                try {
-                  await deleteConversationIfStillEmpty(payload.conversation.id);
-                  const res = await fetch("/api/conversations", { method: "POST" });
-                  const data = (await res.json()) as { conversation: Conversation };
-                  router.push(`/chat/${data.conversation.id}`);
-                } catch {}
-              }}
-              aria-label="New chat"
-              title="New chat"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
       <div
         className="relative flex min-h-0 flex-1 flex-col"
@@ -2067,6 +2225,8 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
                   onUpdateUserMessage={onUpdateUserMessageStable}
                   onApproveMemoryProposal={onApproveMemoryProposalStable}
                   onDismissMemoryProposal={onDismissMemoryProposalStable}
+                  onApproveAutomationProposal={onApproveAutomationProposalStable}
+                  onDismissAutomationProposal={onDismissAutomationProposalStable}
                   onForkAssistantMessage={onForkAssistantMessageStable}
                   onRetryAssistantMessage={onRetryAssistantMessageStable}
                   onRegenerateUserMessage={index === lastUserMsgIndex ? onRegenerateUserMessageStable : undefined}
@@ -2105,6 +2265,59 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
             />
           </div>
           <div className="relative">
+          {researchPlan.draft ? (
+            <ResearchPlanCard
+              draft={researchPlan.draft}
+              onUpdateStep={researchPlan.updateStep}
+              onAddStep={researchPlan.addStep}
+              onRemoveStep={researchPlan.removeStep}
+              onMoveStep={researchPlan.moveStep}
+              onRegenerate={researchPlan.regenerate}
+              onCancel={() => {
+                const pendingMessageId = researchUserMessageIdRef.current;
+                researchUserMessageIdRef.current = null;
+                if (pendingMessageId) {
+                  setMessages((current) => current.filter((m) => m.id !== pendingMessageId));
+                  fetch(`/api/conversations/${payload.conversation.id}/research`, {
+                    method: "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ userMessageId: pendingMessageId })
+                  }).catch(() => {});
+                }
+                setInput(researchPlan.draft?.message ?? "");
+                researchPlan.close();
+              }}
+              onStart={() => {
+                const draft = researchPlan.draft;
+                if (!draft) return;
+                const plan = draft.plan.map((step) => step.trim());
+                const pendingMessageId = researchUserMessageIdRef.current;
+                researchUserMessageIdRef.current = null;
+                researchPlan.close();
+                setIsResearchToggled(false);
+                if (!pendingMessageId) {
+                  void submit(draft.message, pendingAttachments, undefined, { plan });
+                  return;
+                }
+                setIsConversationActive(true);
+                fetch(`/api/conversations/${payload.conversation.id}/research`, {
+                  method: "PUT",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ userMessageId: pendingMessageId, plan, personaId: personaId ?? undefined })
+                })
+                  .then(async (response) => {
+                    if (!response.ok) {
+                      setIsConversationActive(false);
+                      setError("Unable to start the research turn");
+                    }
+                  })
+                  .catch(() => {
+                    setIsConversationActive(false);
+                    setError("Unable to start the research turn");
+                  });
+              }}
+            />
+          ) : null}
           <ChatComposer
             input={input}
             onInputChange={setInput}
@@ -2126,6 +2339,8 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
             textareaRef={inputRef}
             usedTokens={usedTokens}
             compactionLimit={compactionLimit}
+            memoriesUsed={memoryUsage?.used ?? null}
+            memoriesTotal={memoryUsage?.total ?? null}
             modelContextLimit={selectedProfile?.modelContextLimit ?? 128000}
             hasMessages={messages.length > 0}
             canStop={!!streamMessageId && !isStopPending && isConversationActive}
@@ -2135,6 +2350,8 @@ export function ChatView({ payload }: { payload: ConversationViewPayload }) {
             speechLevel={speechSnapshot.level}
             speechError={speechSnapshot.error}
             queueingEnabled={isConversationActive}
+            isResearch={isResearchToggled}
+            onResearchChange={setIsResearchToggled}
             isTemporary={isTemporaryToggled}
             showTemporaryToggle={messages.length === 0}
             onTemporaryChange={(value: boolean) => {

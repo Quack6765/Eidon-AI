@@ -527,6 +527,7 @@ describe("automation scheduler", () => {
       completedRun.conversationId,
       "Run the shared pipeline",
       [],
+      undefined,
       undefined
     );
     expect(conversation).toMatchObject({
@@ -535,6 +536,61 @@ describe("automation scheduler", () => {
       conversationOrigin: "automation",
       providerProfileId: "profile_scheduler"
     });
+  });
+
+  it("passes a research deadline into the turn for research automations", async () => {
+    const { createAutomationScheduler, resolveAutomationRunTimeoutMs } = await import("@/lib/automation-scheduler");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    updateProviderCatalog({
+      defaultProviderProfileId: "profile_scheduler",
+      providerProfiles: [createProviderProfile()]
+    });
+
+    expect(resolveAutomationRunTimeoutMs({ research: false, runTimeoutMinutes: null }, 30 * 60_000)).toBe(30 * 60_000);
+    expect(resolveAutomationRunTimeoutMs({ research: true, runTimeoutMinutes: null }, 30 * 60_000)).toBe(240 * 60_000);
+    expect(resolveAutomationRunTimeoutMs({ research: true, runTimeoutMinutes: 90 }, 30 * 60_000)).toBe(90 * 60_000);
+    expect(resolveAutomationRunTimeoutMs({ research: false, runTimeoutMinutes: 10 }, 30 * 60_000)).toBe(10 * 60_000);
+
+    const startChatTurn = vi.fn().mockResolvedValue({ status: "completed" });
+    const manager = createConversationManager();
+    const scheduler = createAutomationScheduler({
+      now: () => new Date("2026-04-10T12:00:00.000Z"),
+      timeZone: "UTC",
+      manager,
+      startChatTurn,
+      pollIntervalMs: 60_000
+    });
+    scheduler.start();
+
+    const automation = createAutomation({
+      name: "Overnight research",
+      prompt: "Research heat pump subsidies",
+      providerProfileId: "profile_scheduler",
+      personaId: null,
+      scheduleKind: "interval",
+      intervalMinutes: 60,
+      calendarFrequency: null,
+      timeOfDay: null,
+      daysOfWeek: [],
+      research: true,
+      runTimeoutMinutes: 5
+    });
+
+    const run = triggerAutomationNow(automation.id);
+    if (!run) {
+      throw new Error("Expected a queued manual run");
+    }
+    const completedRun = await waitForRunStatus(run.id, "completed");
+    scheduler.stop();
+
+    expect(startChatTurn).toHaveBeenCalledWith(
+      manager,
+      completedRun.conversationId,
+      "Research heat pump subsidies",
+      [],
+      undefined,
+      { research: { deadlineMs: 5 * 60_000 - 30_000 } }
+    );
   });
 
   it("creates manual automation conversations for the owning user", async () => {

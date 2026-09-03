@@ -1,4 +1,4 @@
-import type { Message, MessageAttachment, PromptMessage } from "@/lib/types";
+import type { Message, MessageAttachment, PromptMessage, RuntimeProviderProfile } from "@/lib/types";
 import { createTokenizer, Tokenizer } from "@/lib/token-estimator";
 
 let activeTokenizer: Tokenizer | null = null;
@@ -32,4 +32,10 @@ export function estimateAttachmentTokens(attachments: MessageAttachment[]) {
 
 export function estimateMessageTokens(message: Pick<Message, "content" | "thinkingContent" | "attachments">) {
   return getActiveTokenEstimator().estimateMessageTokens(message);
+}
+
+export function computeCompactionLimit(settings: RuntimeProviderProfile): number {
+  const allowedPromptTokens =
+    settings.modelContextLimit - settings.maxOutputTokens - settings.safetyMarginTokens;
+  return Math.floor(allowedPromptTokens * settings.compactionThreshold);
 }

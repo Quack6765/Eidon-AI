@@ -11,6 +11,7 @@ const config = [
   {
     ignores: [
       ".next/**",
+      ".data/**",
       ".test-data/**",
       "coverage/**",
       "node_modules/**",
@@ -18,7 +19,13 @@ const config = [
       "test-results/**"
     ]
   },
-  ...compat.extends("next/core-web-vitals")
+  ...compat.extends("next/core-web-vitals"),
+  {
+    files: ["components/agents/bot-avatar.tsx"],
+    rules: {
+      "@next/next/no-img-element": "off"
+    }
+  }
 ];
 
 export default config;
