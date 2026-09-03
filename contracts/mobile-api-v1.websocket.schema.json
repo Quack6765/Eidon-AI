@@ -81,7 +81,7 @@
         "id": { "$ref": "#/$defs/OpaqueId" },
         "messageId": { "$ref": "#/$defs/OpaqueId" },
         "timelineKind": { "const": "action" },
-        "kind": { "type": "string", "enum": ["skill_load", "mcp_tool_call", "shell_command", "create_memory", "update_memory", "delete_memory", "image_generation", "create_automation"] },
+        "kind": { "type": "string", "enum": ["skill_load", "mcp_tool_call", "shell_command", "create_memory", "update_memory", "delete_memory", "image_generation", "create_automation", "save_skill"] },
         "status": { "type": "string", "enum": ["running", "pending", "completed", "error", "stopped"] },
         "serverId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
         "skillId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
