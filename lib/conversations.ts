@@ -23,6 +23,7 @@ import {
 import { getConversationManager } from "@/lib/ws-singleton";
 import { estimateMessageTokens, estimateTextTokens } from "@/lib/tokenization";
 import type {
+  AutomationProposalPayload,
   Conversation,
   ConversationListPage,
   ConversationOrigin,
@@ -193,6 +194,38 @@ function rowToMessage(row: {
   };
 }
 
+function normalizeAutomationProposalPayload(
+  parsed: Record<string, unknown>
+): AutomationProposalPayload | null {
+  const providerProfileId = typeof parsed.providerProfileId === "string" ? parsed.providerProfileId : "";
+  if (typeof parsed.name !== "string" || typeof parsed.prompt !== "string" || !providerProfileId) {
+    return null;
+  }
+  const payload: AutomationProposalPayload = {
+    name: parsed.name,
+    prompt: parsed.prompt,
+    scheduleKind: parsed.scheduleKind === "calendar" ? "calendar" : "interval",
+    intervalMinutes: typeof parsed.intervalMinutes === "number" ? parsed.intervalMinutes : null,
+    calendarFrequency:
+      parsed.calendarFrequency === "daily" || parsed.calendarFrequency === "weekly"
+        ? parsed.calendarFrequency
+        : null,
+    timeOfDay: typeof parsed.timeOfDay === "string" ? parsed.timeOfDay : null,
+    daysOfWeek: Array.isArray(parsed.daysOfWeek)
+      ? parsed.daysOfWeek.filter((day): day is number => Number.isInteger(day))
+      : [],
+    providerProfileId,
+    personaId: typeof parsed.personaId === "string" ? parsed.personaId : null,
+    continuePreviousConversation:
+      typeof parsed.continuePreviousConversation === "boolean"
+        ? parsed.continuePreviousConversation
+        : false,
+    ...(typeof parsed.automationId === "string" ? { automationId: parsed.automationId } : {}),
+    ...(typeof parsed.botId === "string" ? { botId: parsed.botId } : {})
+  };
+  return payload;
+}
+
 function parseProposalPayloadJson(
   rawPayload: string,
   kind: MessageActionKind
@@ -203,7 +236,7 @@ function parseProposalPayloadJson(
       return null;
     }
     if (kind === "create_automation") {
-      return parsed as ProposalPayload;
+      return normalizeAutomationProposalPayload(parsed as Record<string, unknown>);
     }
     return parsed as MemoryProposalPayload;
   } catch {

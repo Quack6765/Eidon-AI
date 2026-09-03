@@ -417,7 +417,8 @@ export type AutomationProposalPayload = {
   daysOfWeek: number[];
   providerProfileId: string;
   personaId: string | null;
-  continuePreviousConversation: boolean;
+  continuePreviousConversation?: boolean;
+  botId?: string | null;
   automationId?: string | null;
 };
 
