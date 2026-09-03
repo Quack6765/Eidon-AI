@@ -53,36 +53,68 @@
 Eidon is a self-hosted AI assistant. It runs as one Docker image, keeps your data in a
 single file on your server, and works with the model providers you already use.
 
+Get your own AI platform for everything you need in a matter of minutes.
+
 There are three parts: **Chat** for normal conversations, **Agents** for bots that do work
-on their own, and **Automations** for tasks that run on a schedule.
+on their own (Grok Bot like), and **Automations** for tasks that run on a schedule.
 
 ## What you get
 
-- Bring your own provider
-- Agents, with cross-agent messaging (Grok Bot like)
-- Per-agent memory, files, and browser session
+<table>
+<tr>
+<td valign="top" width="50%">
+
+**Chat**
+
 - Chat and conversation
-- Deep research with an editable plan
-- Scheduled automations, with full run history
 - Persistent memory across conversations
-- Built-in web search
-- Built-in browser
-- Image generation
-- Image understanding
-- MCP
-- Skills
-- Shell commands
-- Attachments — any file type, PDFs and text read automatically
-- Voice input with cleanup
-- Mermaid diagrams, syntax highlighting, and LaTeX math
 - Personas
 - Folders, chat search, and forking
 - Read-only share links
 - Temporary chats
+- Chat attachments
+- Voice input with post-processing cleanup
+- Mermaid diagrams, syntax highlighting, and LaTeX math
+
+</td>
+<td valign="top" width="50%">
+
+**Agents and automations**
+
+- Agents, with cross-agent messaging (Grok Bot like)
+- Per-agent memory, files, and browser session
+- Deep research with an editable plan
+- Scheduled automations, with full run history
+
+</td>
+</tr>
+<tr>
+<td valign="top" width="50%">
+
+**Tools**
+
+- MCP
+- Skills
+- Built-in web search
+- Built-in browser
+- Shell commands
+- Image generation
+- Vision support (Native, MCP or with a dedicated vision model)
+
+</td>
+<td valign="top" width="50%">
+
+**Platform**
+
+- Bring your own provider
 - Multi-user, with admin and user roles
-- Installable PWA — native iOS app coming soon
 - Single Docker image, SQLite, encrypted credentials
+- Installable PWA — native iOS app coming soon
 - Live sync across devices
+
+</td>
+</tr>
+</table>
 
 ## Quick start
 
@@ -126,8 +158,7 @@ volumes:
   eidon-data:
 ```
 
-Keep `EIDON_ENCRYPTION_SECRET` stable across deployments — it decrypts your stored
-provider keys and MCP tokens. Full reference in [Configuration](./docs/configuration.md).
+Full reference in [Configuration](./docs/configuration.md).
 
 </details>
 
@@ -137,7 +168,7 @@ A normal chat for day-to-day questions and getting work done, with solid tools b
 
 <img src="./.github/readme/desktop-chat.png" alt="Eidon chat with a tool timeline, a memory proposal card, and queued follow-ups" width="100%" />
 
-- **It asks before it saves a memory.** You can save it, edit it, or ignore it.
+- **Reliable multi-conversations memory** You can approve it, edit it, or ignore it.
 - **Send follow-ups while it is still working.** They queue up in order.
 - **Edit an older message** and carry on from there, or branch off any reply.
 - **Auto compaction for long chats.** Older messages are condensed in the background, and
@@ -146,17 +177,16 @@ A normal chat for day-to-day questions and getting work done, with solid tools b
 
 ## Agents
 
-Agents are bots that stick around. Each one has its own chat, its own memory, and its own
-files. You start with a Chief of Staff — ask it for something and it either answers, passes
+Agents are bots that work together to achieve a goal. Each one has its own chat, its own memory, and its own
+workspace. You start with a Chief of Staff — ask it for something and it either answers, passes
 the job to another bot, or offers to create a new bot for it.
 
 <img src="./.github/readme/desktop-delegation.png" alt="The Chief of Staff bot messaging two specialist bots" width="100%" />
 
-Any bot can message any other bot, not just the Chief of Staff. The one that asked keeps
+Any bot can message any other bot. The one that asked keeps
 working, and the answer comes back to it when the other bot is done.
 
-A bot can also write its own skill — a set of instructions it keeps for itself and reuses
-next time the same kind of job comes up.
+A bot can also write its own skill for future use.
 
 <table>
 <tr>
@@ -164,8 +194,8 @@ next time the same kind of job comes up.
 
 <img src="./.github/readme/desktop-agents.png" alt="Bot roster with live status" />
 
-<b>See what everyone is doing</b><br />
-<sub>Each bot also gets its own browser, so it can stay logged in to sites on its own.</sub>
+<b>See what the crew is doing</b><br />
+<sub>Each bot also gets its own browser, so it can navigate and stay logged in to sites on its own.</sub>
 
 </td>
 <td width="50%">
@@ -181,7 +211,7 @@ next time the same kind of job comes up.
 
 ## Deep research
 
-Turn on **Deep research** and Eidon writes a plan before it starts. Change the steps however
+Turn on **Deep research** and Eidon writes a detailed plan before it starts it's search. Change the steps however
 you want, then let it run.
 
 <table>
@@ -207,7 +237,7 @@ you want, then let it run.
 
 ## Automations
 
-Automations run on their own — every so many minutes, or at a set time each day or week.
+Support for automations of tasks. Every couple of minutes, or at a set time each day or week.
 Every run is saved as a chat you can open and read.
 
 <table>
@@ -217,7 +247,7 @@ Every run is saved as a chat you can open and read.
 <img src="./.github/readme/desktop-automations.png" alt="Automation detail with run history" />
 
 <b>Every run is kept</b><br />
-<sub>Run one now, retry one that failed, or hand an automation to a bot.</sub>
+<sub>Run one now, retry one that failed, or review older runs.</sub>
 
 </td>
 <td width="50%">
@@ -241,13 +271,12 @@ yourself.
 
 - It asks before saving anything, so nothing is stored behind your back.
 - Search, edit, or delete anything it has remembered.
-- Pin the things it should never forget.
+- Pin the things that are important and must be added to all chats at all time.
 
 ## Tools
 
 Web search, reading web pages, image generation, looking at images, and running commands are
-all built in. Add more with MCP — local and remote servers both work, and you can sign in to
-a remote one instead of pasting a key.
+all built in. Add more with MCP (local or remote).
 
 <img src="./.github/readme/desktop-mcp.png" alt="MCP server configuration" width="100%" />
 
