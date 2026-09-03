@@ -1,4 +1,6 @@
 import { attachConversationToRun, createAutomation, createAutomationRun, deleteAutomation, listAutomations, updateAutomationRunStatus } from "@/lib/automations";
+import { createBot, deleteBot, ensureChiefBot, getChiefBot, listBots } from "@/lib/bots";
+import { createBotRunRecord, updateBotRunStatus } from "@/lib/bot-runs";
 import {
   createConversation,
   createMessage,
@@ -10,9 +12,10 @@ import {
   setConversationActive,
   updateMessageAction
 } from "@/lib/conversations";
+import { getDb } from "@/lib/db";
 import { createFolder, deleteFolder, listFolders } from "@/lib/folders";
 import { createMcpServer, deleteMcpServer, listMcpServers } from "@/lib/mcp-servers";
-import { createMemory, deleteMemory, listMemories } from "@/lib/memories";
+import { createMemory, deleteMemory, listMemories, updateMemory } from "@/lib/memories";
 import { createPersona, deletePersona, listPersonas } from "@/lib/personas";
 import { createProviderProfileDraft, type ProviderKind, type ProviderPresetId } from "@/lib/provider-catalog";
 import { updateIntegrationSetting } from "@/lib/integration-settings";
@@ -27,6 +30,16 @@ import {
 import { nowIso } from "@/lib/utils";
 
 const DEMO_PASSWORD = "ReadmeDemo123!";
+
+// Run history has to be anchored to "now". Absolute dates go stale, and once a
+// seeded run's scheduledFor drifts into the past the scheduler backfills every
+// missed occurrence up to today and then fails a real run against the demo's
+// placeholder API keys, which is exactly what a screenshot must not show.
+const SEED_EPOCH = Date.now();
+
+function minutesAgo(minutes: number) {
+  return new Date(SEED_EPOCH - minutes * 60_000).toISOString();
+}
 
 
 function buildProviderProfile(
@@ -220,29 +233,77 @@ Lead with product value, keep claims accurate, and make install steps feel easy.
   memories: [
     {
       category: "work" as const,
-      content: "The public launch needs a feature-led README and proof screenshots before release."
+      content: "The public launch needs a feature-led README and proof screenshots before release.",
+      pinned: true
     },
     {
       category: "preference" as const,
-      content: "Prefer short summaries with explicit owners, dates, and rollback notes."
+      content: "Prefer short summaries with explicit owners, dates, and rollback notes.",
+      pinned: true
     },
     {
       category: "personal" as const,
-      content: "Comfortable approving infra changes once Docker and restore steps are documented."
+      content: "Comfortable approving infra changes once Docker and restore steps are documented.",
+      pinned: false
     },
     {
       category: "location" as const,
-      content: "Primary overlap is Toronto mornings and Abuja afternoons."
+      content: "Primary overlap is Toronto mornings and Abuja afternoons.",
+      pinned: false
     },
     {
       category: "other" as const,
-      content: "Keep image generation labeled as coming at launch until it lands on main."
+      content: "Keep image generation labeled as coming at launch until it lands on main.",
+      pinned: false
+    }
+  ],
+  bots: [
+    {
+      name: "Research Desk",
+      title: "Runs deep research and writes the brief",
+      description:
+        "Owns multi-source research. Searches, reads pages in full, and reports back with citations.",
+      systemPrompt:
+        "You research topics end to end. Always corroborate important claims across at least two independent sources and cite every URL you used."
+    },
+    {
+      name: "Release Watch",
+      title: "Tracks launch blockers and provider health",
+      description:
+        "Watches issues, deploy logs, and provider error rates. Escalates only what is actually blocking.",
+      systemPrompt:
+        "You monitor release readiness. Report blockers with an owner and a rollback note. Stay quiet when nothing is wrong."
+    },
+    {
+      name: "Inbox Triage",
+      title: "Sorts incoming asks into owners",
+      description:
+        "Reads the shared queue each morning and proposes who should own what.",
+      systemPrompt:
+        "You triage incoming requests. Group them by owner, flag anything urgent, and propose automations for work that repeats."
+    },
+    {
+      name: "Docs Editor",
+      title: "Keeps operator docs current",
+      description:
+        "Rewrites docs when the product moves. Biased toward short, accurate, self-hosting-first copy.",
+      systemPrompt:
+        "You maintain operator-facing documentation. Prefer short accurate sentences over comprehensive prose, and never document a feature you have not verified."
     }
   ],
   folders: ["Launch Ops", "Playbooks"],
+  botMemories: [
+    "The MCP authorization spec moved to OAuth 2.1 with PKCE in the 2025-06-18 revision.",
+    "Composio Connect is the gateway we test remote MCP OAuth against.",
+    "Docs Editor owns docs/ and should be messaged before any README restructure."
+  ],
   primaryConversationTitle: "April launch control room",
+  researchConversationTitle: "MCP auth spec · what changed",
+  researchDraftConversationTitle: "Competitor landscape",
+  researchDraftQuestion:
+    "Compare the leading AI assistants for a small team that wants to own its data, and tell me where a self-hosted option genuinely wins or loses.",
   secondaryConversationTitle: "Provider fallback matrix",
-  automationConversationTitle: "Nightly launch scan · Apr 14",
+  automationConversationTitle: "Nightly launch scan · latest run",
   webSearchConversationTitle: "Self-hosting an LLM stack",
   visualsConversationTitle: "Designing a deploy pipeline",
   visualsCodeConversationTitle: "Rate limiter helper",
@@ -316,6 +377,12 @@ export type ReadmeDemoSeedResult = {
   visualsCodeConversationId: string;
   visualsMermaidConversationId: string;
   memoriesConversationId: string;
+  researchConversationId: string;
+  researchDraftConversationId: string;
+  chiefBotId: string;
+  chiefConversationId: string;
+  researchDeskBotId: string;
+  inboxTriageBotId: string;
 };
 
 async function deleteDemoUsers() {
@@ -331,7 +398,23 @@ async function deleteDemoUsers() {
   }
 }
 
+function deleteDemoBots(userId: string) {
+  for (const bot of listBots(userId)) {
+    if (bot.isChief) continue;
+    deleteBot(bot.id, userId);
+  }
+
+  const chief = getChiefBot(userId);
+
+  if (chief) {
+    getDb().prepare("DELETE FROM bots WHERE id = ?").run(chief.id);
+    deleteConversation(chief.homeConversationId, userId);
+  }
+}
+
 function deleteDemoAdminResources(userId: string) {
+  deleteDemoBots(userId);
+
   for (const automation of listAutomations(userId)) {
     deleteAutomation(automation.id, userId);
   }
@@ -448,9 +531,13 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     createPersona(persona, envSuperAdmin.id)
   );
 
-  README_DEMO_FIXTURES.memories.forEach((memory) =>
-    createMemory(memory.content, memory.category, envSuperAdmin.id)
-  );
+  README_DEMO_FIXTURES.memories.forEach((memory) => {
+    const created = createMemory(memory.content, memory.category, envSuperAdmin.id);
+
+    if (memory.pinned) {
+      updateMemory(created.id, { pinned: true }, envSuperAdmin.id);
+    }
+  });
 
   const launchOpsFolder = createFolder(README_DEMO_FIXTURES.folders[0], envSuperAdmin.id);
   const playbooksFolder = createFolder(README_DEMO_FIXTURES.folders[1], envSuperAdmin.id);
@@ -535,16 +622,27 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
       "I also recommend scheduling a nightly launch watch so README drift and screenshot coverage are reviewed automatically."
   });
 
-  const memoryAction = createMessageAction({
+  // Pending rather than completed: memory writes surface as a proposal the user
+  // approves, edits, or dismisses, and that approval step is the point.
+  createMessageAction({
     messageId: assistantReply.id,
     kind: "create_memory",
-    status: "completed",
-    label: "Saved launch preference",
-    detail: "Stored the rule to keep future-launch features explicitly labeled in docs.",
-    resultSummary: "Preference captured for future launches",
+    status: "pending",
+    label: "Save memory",
+    detail: "Noticed a durable preference worth keeping for future launches.",
+    proposalState: "pending",
+    proposalPayload: {
+      operation: "create",
+      targetMemoryId: null,
+      proposedMemory: {
+        content:
+          "Label features that are not yet on main as upcoming in the docs, so operators never read a roadmap item as shipped.",
+        category: "preference"
+      }
+    },
+    proposalUpdatedAt: nowIso(),
     sortOrder: 5
   });
-  markCompletedAction(memoryAction.id);
 
   createQueuedMessage({
     conversationId: primaryConversation.id,
@@ -594,13 +692,13 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
 
   const completedRun = createAutomationRun({
     automationId: automation.id,
-    scheduledFor: "2026-04-14T09:15:00.000Z",
+    scheduledFor: minutesAgo(25),
     triggerSource: "schedule"
   });
 
   updateAutomationRunStatus(completedRun.id, {
     status: "running",
-    startedAt: "2026-04-14T09:15:06.000Z"
+    startedAt: minutesAgo(24)
   });
 
   const automationConversation = createConversation(
@@ -621,18 +719,138 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     role: "user",
     content: README_DEMO_FIXTURES.automation.prompt
   });
-  createMessage({
+
+  const automationReply = createMessage({
     conversationId: automationConversation.id,
     role: "assistant",
+    content: ""
+  });
+
+  createMessageTextSegment({
+    messageId: automationReply.id,
+    sortOrder: 0,
     content:
-      "Nightly check complete. Docker install copy is strong, provider screenshots are ready, and the only missing artifact is a mobile providers screen with admin controls visible."
+      "Starting the nightly sweep. Checking the launch docs first, then provider health, then screenshot coverage."
+  });
+
+  const automationSkillAction = createMessageAction({
+    messageId: automationReply.id,
+    kind: "skill_load",
+    status: "completed",
+    skillId: releaseSkill?.id ?? null,
+    label: "Loaded Release Radar",
+    detail: "Loaded the launch-ops checklist so the sweep covers the same items every night.",
+    resultSummary: "Checklist loaded",
+    sortOrder: 1
+  });
+  markCompletedAction(automationSkillAction.id);
+
+  const automationIssuesAction = createMessageAction({
+    messageId: automationReply.id,
+    kind: "mcp_tool_call",
+    status: "completed",
+    serverId: linearServer?.id ?? null,
+    toolName: "search_issues",
+    label: "Linear Cloud.search_issues",
+    detail: "Queried open issues labelled launch, docs, or onboarding.",
+    arguments: { query: "label:launch OR label:docs state:open", limit: 25 },
+    resultSummary: "2 open, neither blocking",
+    sortOrder: 2
+  });
+  markCompletedAction(automationIssuesAction.id);
+
+  createMessageTextSegment({
+    messageId: automationReply.id,
+    sortOrder: 3,
+    content: "Issues are clean. Now polling each configured provider."
+  });
+
+  const automationShellAction = createMessageAction({
+    messageId: automationReply.id,
+    kind: "shell_command",
+    status: "completed",
+    toolName: "execute_shell_command",
+    label: "execute_shell_command",
+    detail: "curl -s -o /dev/null -w '%{http_code} %{time_total}' https://openrouter.ai/api/v1/models",
+    arguments: { command: "curl -s -o /dev/null -w '%{http_code} %{time_total}' https://openrouter.ai/api/v1/models" },
+    resultSummary: "200 · 0.41s",
+    sortOrder: 4
+  });
+  markCompletedAction(automationShellAction.id);
+
+  const automationReadAction = createMessageAction({
+    messageId: automationReply.id,
+    kind: "mcp_tool_call",
+    status: "completed",
+    toolName: "read_page",
+    label: "Read 2 pages",
+    detail: "Re-read the install and providers docs to diff them against the shipped UI.",
+    arguments: { urls: ["https://eidon.ai/docs/install", "https://eidon.ai/docs/providers"] },
+    resultSummary: "2 pages read in full",
+    sortOrder: 5
+  });
+  markCompletedAction(automationReadAction.id);
+
+  createMessageTextSegment({
+    messageId: automationReply.id,
+    sortOrder: 6,
+    content: `**Nightly sweep complete.** No blockers.
+
+| Check | Result |
+| --- | --- |
+| Open launch issues | 2 open, neither blocking |
+| Provider health | All 4 profiles responding, slowest 0.41s |
+| Docs drift | Install copy matches the shipped flow |
+| Screenshot coverage | 1 gap |
+
+The only gap is a mobile providers screen with the admin controls visible. Everything else is current.`
   });
 
   updateAutomationRunStatus(completedRun.id, {
     status: "completed",
-    startedAt: "2026-04-14T09:15:06.000Z",
-    finishedAt: "2026-04-14T09:16:42.000Z"
+    startedAt: minutesAgo(24),
+    finishedAt: minutesAgo(23)
   });
+
+  // Earlier runs so the run-history view reads as history rather than a single row.
+  for (const minutes of [85, 145, 205]) {
+    const priorRun = createAutomationRun({
+      automationId: automation.id,
+      scheduledFor: minutesAgo(minutes),
+      triggerSource: "schedule"
+    });
+
+    const priorConversation = createConversation(
+      `${README_DEMO_FIXTURES.automation.name} · earlier run`,
+      launchOpsFolder.id,
+      {
+        providerProfileId: README_DEMO_FIXTURES.providerProfiles[0].id,
+        origin: "automation",
+        automationId: automation.id,
+        automationRunId: priorRun.id
+      },
+      envSuperAdmin.id
+    );
+    attachConversationToRun(priorRun.id, priorConversation.id);
+
+    createMessage({
+      conversationId: priorConversation.id,
+      role: "user",
+      content: README_DEMO_FIXTURES.automation.prompt
+    });
+    createMessage({
+      conversationId: priorConversation.id,
+      role: "assistant",
+      content:
+        "Nightly check complete. No new blockers, provider health is green, and screenshot coverage is current."
+    });
+
+    updateAutomationRunStatus(priorRun.id, {
+      status: "completed",
+      startedAt: minutesAgo(minutes - 1),
+      finishedAt: minutesAgo(minutes - 2)
+    });
+  }
 
   for (const fixture of README_DEMO_FIXTURES.extraAutomations) {
     const extra = createAutomation(
@@ -657,8 +875,7 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
       continue;
     }
 
-    const runScheduledFor =
-      fixture.scheduleKind === "interval" ? "2026-04-15T08:00:00.000Z" : "2026-04-15T08:30:00.000Z";
+    const runScheduledFor = minutesAgo(2);
     const run = createAutomationRun({
       automationId: extra.id,
       scheduledFor: runScheduledFor,
@@ -667,11 +884,11 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
 
     updateAutomationRunStatus(run.id, {
       status: "running",
-      startedAt: "2026-04-15T08:30:12.000Z"
+      startedAt: minutesAgo(2)
     });
 
     const runConversation = createConversation(
-      `${fixture.name} · Apr 15`,
+      `${fixture.name} · last run`,
       launchOpsFolder.id,
       {
         providerProfileId: README_DEMO_FIXTURES.providerProfiles[1].id,
@@ -696,14 +913,14 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
 
     updateAutomationRunStatus(run.id, {
       status: "completed",
-      startedAt: "2026-04-15T08:30:12.000Z",
-      finishedAt: "2026-04-15T08:31:48.000Z"
+      startedAt: minutesAgo(2),
+      finishedAt: minutesAgo(1)
     });
   }
 
   const webSearchConversation = createConversation(
     README_DEMO_FIXTURES.webSearchConversationTitle,
-    playbooksFolder.id,
+    null,
     {
       providerProfileId: README_DEMO_FIXTURES.providerProfiles[1].id
     },
@@ -831,7 +1048,7 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     messageId: visualsCodeReply.id,
     sortOrder: 0,
     content:
-      "Here's a compact token-bucket limiter — one bucket per key, refilled lazily, and thread-safe enough for a single Node process:\n\n```ts\ntype Bucket = { tokens: number; updated: number };\n\nexport class RateLimiter {\n  private buckets = new Map<string, Bucket>();\n  constructor(private capacity: number, private refillPerSec: number) {}\n\n  private refill(b: Bucket, now: number) {\n    const elapsed = (now - b.updated) / 1000;\n    b.tokens = Math.min(this.capacity, b.tokens + elapsed * this.refillPerSec);\n    b.updated = now;\n  }\n\n  tryConsume(key: string, now = Date.now()): boolean {\n    let b = this.buckets.get(key);\n    if (!b) {\n      b = { tokens: this.capacity, updated: now };\n      this.buckets.set(key, b);\n    }\n    this.refill(b, now);\n    if (b.tokens < 1) return false;\n    b.tokens -= 1;\n    return true;\n  }\n}\n```\n\nCall `tryConsume(userId)` on every request; returning `false` means you should respond `429 Too Many Requests`."
+      "Here's a compact token-bucket limiter — one bucket per key, refilled lazily:\n\n```ts\ntype Bucket = { tokens: number; updated: number };\n\nexport class RateLimiter {\n  private buckets = new Map<string, Bucket>();\n\n  constructor(\n    private capacity: number,\n    private refillPerSec: number\n  ) {}\n\n  tryConsume(key: string, now = Date.now()): boolean {\n    const b = this.buckets.get(key) ?? { tokens: this.capacity, updated: now };\n    b.tokens = Math.min(this.capacity, b.tokens + ((now - b.updated) / 1000) * this.refillPerSec);\n    b.updated = now;\n    this.buckets.set(key, b);\n\n    if (b.tokens < 1) return false;\n    b.tokens -= 1;\n    return true;\n  }\n}\n```\n\nCall `tryConsume(userId)` on every request; `false` means respond `429 Too Many Requests`."
   });
 
   const visualsMermaidConversation = createConversation(
@@ -860,12 +1077,12 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     messageId: visualsMermaidReply.id,
     sortOrder: 0,
     content:
-      "Here's the full request lifecycle — from the browser, through the API and provider router, down to the model, and back as a streamed response:\n\n```mermaid\nsequenceDiagram\n    participant U as Browser\n    participant A as Eidon API\n    participant R as Provider Router\n    participant M as LLM Provider\n    U->>A: POST /api/chat (messages, history)\n    A->>A: Load skills + memories\n    A->>R: Resolve provider profile\n    R->>M: Forward request (stream)\n    M-->>R: Stream tokens\n    R-->>A: Relay tokens\n    A-->>U: SSE token stream\n    A->>A: Persist message + segments\n    M-->>A: Stream complete\n    A-->>U: Final message + actions\n```"
+      "Here's the request lifecycle — the tool branch is the only part that varies:\n\n```mermaid\nflowchart TD\n    A[Chat request] --> B{Tool needed?}\n    B -- yes --> C[Run tool]\n    B -- no --> D[Stream reply]\n    C --> D\n```"
   });
 
   const memoriesConversation = createConversation(
     README_DEMO_FIXTURES.memoriesConversationTitle,
-    playbooksFolder.id,
+    null,
     {
       providerProfileId: README_DEMO_FIXTURES.providerProfiles[1].id
     },
@@ -932,6 +1149,325 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
       "Three memories saved. I'll lean on these for routing, scheduling, and how I format answers."
   });
 
+  const researchConversation = createConversation(
+    README_DEMO_FIXTURES.researchConversationTitle,
+    launchOpsFolder.id,
+    {
+      providerProfileId: README_DEMO_FIXTURES.providerProfiles[1].id
+    },
+    envSuperAdmin.id
+  );
+
+  createMessage({
+    conversationId: researchConversation.id,
+    role: "user",
+    content:
+      "Deep research: what changed in the MCP authorization spec this year, and what does a self-hosted client have to implement to stay compliant?"
+  });
+
+  const researchReply = createMessage({
+    conversationId: researchConversation.id,
+    role: "assistant",
+    content: ""
+  });
+
+  const researchPlanAction = createMessageAction({
+    messageId: researchReply.id,
+    kind: "research_plan",
+    status: "completed",
+    label: "Research plan",
+    detail: [
+      "1. Find the current MCP authorization specification and identify the revision history",
+      "2. Read each revision in full and extract what changed for clients",
+      "3. Check reference implementations for how dynamic client registration is handled",
+      "4. Cross-check the OAuth 2.1 and PKCE requirements against the spec text",
+      "5. Compile a cited summary of the client-side obligations"
+    ].join("\n"),
+    resultSummary: "5-step plan approved",
+    sortOrder: 0
+  });
+  markCompletedAction(researchPlanAction.id);
+
+  createMessageTextSegment({
+    messageId: researchReply.id,
+    sortOrder: 1,
+    content:
+      "Working through the plan now. Starting with the specification itself, then the reference implementations."
+  });
+
+  const researchSearchAction = createMessageAction({
+    messageId: researchReply.id,
+    kind: "mcp_tool_call",
+    status: "completed",
+    toolName: "web_search",
+    label: "Web search",
+    detail:
+      "Ran 4 parallel queries: MCP authorization spec revisions, OAuth 2.1 PKCE requirements, dynamic client registration RFC 7591, and MCP client compliance.",
+    arguments: {
+      queries: [
+        "MCP authorization specification 2025-06-18",
+        "OAuth 2.1 PKCE mandatory requirements",
+        "RFC 7591 dynamic client registration",
+        "MCP client authorization compliance"
+      ]
+    },
+    resultSummary: "18 sources across 4 queries",
+    sortOrder: 2
+  });
+  markCompletedAction(researchSearchAction.id);
+
+  const researchReadAction = createMessageAction({
+    messageId: researchReply.id,
+    kind: "mcp_tool_call",
+    status: "completed",
+    toolName: "read_page",
+    label: "Read 6 pages",
+    detail:
+      "Read the full text of the spec revisions, RFC 7591, RFC 9126, and two reference client implementations.",
+    arguments: {
+      urls: [
+        "https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization",
+        "https://datatracker.ietf.org/doc/html/rfc7591"
+      ]
+    },
+    resultSummary: "6 pages read in full",
+    sortOrder: 3
+  });
+  markCompletedAction(researchReadAction.id);
+
+  createMessageTextSegment({
+    messageId: researchReply.id,
+    sortOrder: 4,
+    content: `## MCP authorization: what changed
+
+**Summary.** The 2025-06-18 revision replaced ad-hoc bearer tokens with a full **OAuth 2.1 + PKCE** flow and made **dynamic client registration** the default onboarding path [1][2]. A self-hosted client no longer needs pre-provisioned credentials for each server.
+
+### What a client must implement
+
+| Obligation | Required | Notes |
+| --- | --- | --- |
+| Authorization code flow with PKCE | Yes | \`S256\` challenge method only [1] |
+| Dynamic client registration (RFC 7591) | Yes, where offered | Falls back to manual credentials [3] |
+| Protected resource metadata discovery | Yes | Server advertises its authorization server [1] |
+| Refresh token rotation | Recommended | Revoked tokens must surface as a reconnect state [2] |
+
+### Open questions
+
+- Token revocation is described but not mandated, so behaviour varies per gateway.
+- Nothing in the spec bounds refresh-token lifetime, so clients should not assume one.
+
+**Sources**
+1. Model Context Protocol — Authorization (2025-06-18) — https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization
+2. OAuth 2.1 draft — https://datatracker.ietf.org/doc/html/draft-ietf-oauth-v2-1
+3. RFC 7591 — OAuth 2.0 Dynamic Client Registration — https://datatracker.ietf.org/doc/html/rfc7591`
+  });
+
+  // Deliberately empty: the deep-research plan card is client-only state, so the
+  // screenshot has to drive the real composer flow in a clean conversation.
+  const researchDraftConversation = createConversation(
+    README_DEMO_FIXTURES.researchDraftConversationTitle,
+    null,
+    {
+      providerProfileId: README_DEMO_FIXTURES.providerProfiles[1].id
+    },
+    envSuperAdmin.id
+  );
+
+  createMessage({
+    conversationId: researchDraftConversation.id,
+    role: "user",
+    content: README_DEMO_FIXTURES.researchDraftQuestion
+  });
+
+  const chiefBot = ensureChiefBot(envSuperAdmin.id);
+  const seededBots = README_DEMO_FIXTURES.bots.map((fixture) => ({
+    fixture,
+    bot: createBot(
+      {
+        name: fixture.name,
+        title: fixture.title,
+        description: fixture.description,
+        systemPrompt: fixture.systemPrompt
+      },
+      envSuperAdmin.id
+    )
+  }));
+
+  const researchDesk = seededBots[0].bot;
+  const releaseWatch = seededBots[1].bot;
+  const inboxTriage = seededBots[2].bot;
+  const docsEditor = seededBots[3].bot;
+
+  README_DEMO_FIXTURES.botMemories.forEach((content) =>
+    createMemory(content, "work", envSuperAdmin.id, { botId: researchDesk.id })
+  );
+
+  createMessage({
+    conversationId: chiefBot.homeConversationId,
+    role: "user",
+    content: "Nobody owns our release checklist and things keep slipping. Can you fix that?"
+  });
+
+  const chiefFirstReply = createMessage({
+    conversationId: chiefBot.homeConversationId,
+    role: "assistant",
+    content: ""
+  });
+
+  createMessageTextSegment({
+    messageId: chiefFirstReply.id,
+    sortOrder: 0,
+    content:
+      "That is recurring work with a clear scope, so it deserves a long-lived owner rather than a one-off task. I spun up a bot for it."
+  });
+
+  const createBotAction = createMessageAction({
+    messageId: chiefFirstReply.id,
+    kind: "create_bot",
+    status: "completed",
+    label: `Created ${releaseWatch.name}`,
+    detail:
+      "Scope: watch issues, deploy logs, and provider error rates. Escalate only genuine blockers, always with an owner and a rollback note.",
+    resultSummary: `${releaseWatch.name} · ${releaseWatch.title}`,
+    sortOrder: 1
+  });
+  markCompletedAction(createBotAction.id);
+
+  createMessageTextSegment({
+    messageId: chiefFirstReply.id,
+    sortOrder: 2,
+    content:
+      "Release Watch has its own thread, workspace, and browser session. Message it directly, or bind an automation to it if you want a scheduled sweep."
+  });
+
+  createMessage({
+    conversationId: chiefBot.homeConversationId,
+    role: "user",
+    content:
+      "The MCP auth spec moved again. Find out exactly what changed and get our docs updated to match."
+  });
+
+  const chiefSecondReply = createMessage({
+    conversationId: chiefBot.homeConversationId,
+    role: "assistant",
+    content: ""
+  });
+
+  createMessageTextSegment({
+    messageId: chiefSecondReply.id,
+    sortOrder: 0,
+    content:
+      "Splitting this in two: Research Desk pulls what actually changed, then Docs Editor lands the rewrite once the findings are in."
+  });
+
+  const messageResearchAction = createMessageAction({
+    messageId: chiefSecondReply.id,
+    kind: "message_bot",
+    status: "completed",
+    label: `Messaged ${researchDesk.name}`,
+    detail:
+      "Asked for a cited summary of the MCP authorization spec changes and the client-side obligations they create.",
+    arguments: { bot: researchDesk.name },
+    resultSummary:
+      "Reported back: OAuth 2.1 + PKCE is now mandatory and dynamic client registration is the default onboarding path.",
+    sortOrder: 1
+  });
+  markCompletedAction(messageResearchAction.id);
+
+  const messageDocsAction = createMessageAction({
+    messageId: chiefSecondReply.id,
+    kind: "message_bot",
+    status: "completed",
+    label: `Messaged ${docsEditor.name}`,
+    detail:
+      "Handed over the findings and asked for the MCP docs page to be rewritten against them.",
+    arguments: { bot: docsEditor.name },
+    resultSummary: "Rewrote the MCP authorization section and flagged two stale screenshots.",
+    sortOrder: 2
+  });
+  markCompletedAction(messageDocsAction.id);
+
+  createMessageTextSegment({
+    messageId: chiefSecondReply.id,
+    sortOrder: 3,
+    content:
+      "Both reported back. The short version: OAuth 2.1 with PKCE is mandatory, dynamic client registration replaces per-server credentials, and our docs now say so. Two screenshots still show the old consent screen."
+  });
+
+  createQueuedMessage({
+    conversationId: chiefBot.homeConversationId,
+    content: "Ask Release Watch whether the stale screenshots block the release."
+  });
+
+  createMessage({
+    conversationId: inboxTriage.homeConversationId,
+    role: "user",
+    content: "Anything in the queue I should look at before standup?"
+  });
+
+  const inboxTriageReply = createMessage({
+    conversationId: inboxTriage.homeConversationId,
+    role: "assistant",
+    content: ""
+  });
+
+  createMessageTextSegment({
+    messageId: inboxTriageReply.id,
+    sortOrder: 0,
+    content:
+      "Three asks came in overnight and two of them repeat every week. I would rather schedule that than keep triaging it by hand."
+  });
+
+  createMessageAction({
+    messageId: inboxTriageReply.id,
+    kind: "create_automation",
+    status: "pending",
+    label: "Proposed an automation",
+    detail: "Runs the queue sweep every weekday morning and posts the owners into this thread.",
+    proposalState: "pending",
+    proposalPayload: {
+      name: "Weekday queue sweep",
+      prompt:
+        "Read the shared queue, group every open ask by owner, flag anything urgent, and post the result as a short list.",
+      scheduleKind: "calendar",
+      intervalMinutes: null,
+      calendarFrequency: "daily",
+      timeOfDay: "08:15",
+      daysOfWeek: [1, 2, 3, 4, 5],
+      providerProfileId: README_DEMO_FIXTURES.providerProfiles[1].id,
+      personaId: null,
+      continuePreviousConversation: false
+    },
+    proposalUpdatedAt: nowIso(),
+    sortOrder: 1
+  });
+
+  setConversationActive(researchDesk.homeConversationId, true);
+
+  const routineBotRun = createBotRunRecord({
+    botId: releaseWatch.id,
+    conversationId: releaseWatch.homeConversationId,
+    triggerSource: "routine"
+  });
+  updateBotRunStatus(routineBotRun.id, {
+    status: "completed",
+    startedAt: minutesAgo(9),
+    finishedAt: minutesAgo(7)
+  });
+
+  for (const bot of [researchDesk, docsEditor]) {
+    const completedBotRun = createBotRunRecord({
+      botId: bot.id,
+      conversationId: bot.homeConversationId,
+      triggerSource: "delegated"
+    });
+    updateBotRunStatus(completedBotRun.id, {
+      status: "completed",
+      startedAt: minutesAgo(18),
+      finishedAt: minutesAgo(14)
+    });
+  }
+
   return {
     envSuperAdminId: envSuperAdmin.id,
     localAdminId: localAdmin.id,
@@ -945,6 +1481,12 @@ export async function seedReadmeDemoData(): Promise<ReadmeDemoSeedResult> {
     visualsConversationId: visualsConversation.id,
     visualsCodeConversationId: visualsCodeConversation.id,
     visualsMermaidConversationId: visualsMermaidConversation.id,
-    memoriesConversationId: memoriesConversation.id
+    memoriesConversationId: memoriesConversation.id,
+    researchConversationId: researchConversation.id,
+    researchDraftConversationId: researchDraftConversation.id,
+    chiefBotId: chiefBot.id,
+    chiefConversationId: chiefBot.homeConversationId,
+    researchDeskBotId: researchDesk.id,
+    inboxTriageBotId: inboxTriage.id
   };
 }

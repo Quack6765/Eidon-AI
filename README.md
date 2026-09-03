@@ -1,135 +1,59 @@
+<a name="readme-top"></a>
+
 <div align="center">
-  <img src="./public/eidon-banner.png" alt="Eidon banner" width="100%" />
+  <img src="./public/eidon-banner.png" alt="Eidon" width="100%" />
   <br />
-  <img src="./.github/readme/eidon-wordmark.svg" alt="Eidon wordmark" width="460" />
+  <img src="./.github/readme/eidon-wordmark.svg" alt="Eidon" width="420" />
 
   <p>
-    <strong>Eidon is a powerful BYOK AI assistant for everyday work, bundled into one easy self-hosted Docker image.</strong>
+    <strong>A self-hosted AI workspace you actually own.</strong><br />
+    Bring your own model provider. One Docker image. Your data stays on your disk.
   </p>
 
   <p>
-    <a href="#what-is-eidon">What is Eidon?</a>
+    <a href="#quick-start"><b>Quick start</b></a>
     ·
-    <a href="#feature-highlights">Features</a>
+    <a href="#chat-that-shows-its-work"><b>Features</b></a>
     ·
-    <a href="#supported-providers">Providers</a>
+    <a href="#bring-your-own-provider"><b>Providers</b></a>
     ·
-    <a href="#screenshots">Screenshots</a>
+    <a href="./docs/configuration.md"><b>Configuration</b></a>
     ·
-    <a href="#quick-start">Quick Start</a>
-    ·
-    <a href="#github-copilot-provider">GitHub Copilot</a>
-    ·
-    <a href="#configuration-essentials">Configuration</a>
-    ·
-    <a href="#local-development">Local Development</a>
-    ·
-    <a href="#security--storage-notes">Security</a>
+    <a href="#documentation"><b>Docs</b></a>
   </p>
 
   <p>
-    <img src="https://img.shields.io/badge/Single%20Docker-All--in--one-2496ED?logo=docker&logoColor=white" alt="Single Docker" />
-    <img src="https://img.shields.io/badge/BYO%20Provider-OpenAI%20compatible%20%2B%20Copilot-111827" alt="Bring your own provider" />
-    <img src="https://img.shields.io/badge/Multi--user-Admin%20%2B%20User%20roles-0F766E" alt="Multi-user roles" />
-    <img src="https://img.shields.io/badge/MCP%20%2B%20Skills-Built%20in-6D28D9" alt="MCP and skills" />
-    <img src="https://img.shields.io/badge/PWA-Mobile%20ready-334155" alt="PWA mobile ready" />
+    <a href="https://github.com/Quack6765/Eidon-AI/actions/workflows/test.yml"><img alt="Tests" src="https://img.shields.io/github/actions/workflow/status/Quack6765/Eidon-AI/test.yml?branch=main&label=tests&style=flat-square&labelColor=0a0a0a&color=8b5cf6" /></a>
+    <a href="https://github.com/Quack6765/Eidon-AI/releases"><img alt="Release" src="https://img.shields.io/github/v/release/Quack6765/Eidon-AI?style=flat-square&labelColor=0a0a0a&color=8b5cf6" /></a>
+    <a href="https://github.com/Quack6765/Eidon-AI/pkgs/container/eidon-ai"><img alt="Container image" src="https://img.shields.io/badge/ghcr.io-eidon--ai-8b5cf6?style=flat-square&labelColor=0a0a0a&logo=docker&logoColor=white" /></a>
+    <a href="./LICENSE"><img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-8b5cf6?style=flat-square&labelColor=0a0a0a" /></a>
+    <img alt="PWA" src="https://img.shields.io/badge/PWA-installable-8b5cf6?style=flat-square&labelColor=0a0a0a" />
   </p>
+
+  <img src="./.github/readme/hero.png" alt="Eidon chat, agents, and automations" width="100%" />
 </div>
 
-## What is Eidon?
+Eidon is a self-hostable AI assistant workspace that runs as a single Docker image and
+stores everything in SQLite on a volume you control. You connect the model providers you
+already pay for instead of renting a seat on someone else's platform.
 
-Eidon is a self-hostable AI assistant workspace for everyday work. It runs as one Docker image, stores app data locally, and lets you connect the model providers you already trust instead of committing to a locked-in hosted platform.
+It is three places to work: **Chat** for everyday conversations, **Agents** for a team of
+persistent bots that message each other, and **Automations** for work that should run on a
+schedule without you.
 
-Use it as a private assistant, a day-to-day work companion, or a shared workspace for a group. Eidon packages the chat experience, tool layer, memory, automation, bots, and administration pieces behind a responsive UI that is easy to use and easy to self-host.
+> [!NOTE]
+> Self-hosting is real work. You run the container, keep it updated, and own your backups.
+> Eidon does not ship an API key — you bring the model access you want to use.
 
-## Feature Highlights
-
-- Single self-hostable Docker image with SQLite-backed persistence under `/app/data`
-- Bring-your-own-provider model routing instead of a locked-in hosted backend
-- Built-in web browsing through the bundled `agent-browser` skill
-- Built-in web search with Exa, Tavily, or SearXNG
-- Automatic memory system with conversation compaction for long-running threads
-- Reusable skills stored in-app and available across chats
-- MCP server support over `streamable_http` and `stdio`, including OAuth sign-in for remote servers
-- Docker image already includes both `uvx` and `npx` for `stdio` MCP workflows
-- Scheduled automations with run history and transcript views
-- Bot teammates with a Chief of Staff that delegates work, spawns new specialist bots, and gives every bot its own browser session and workspace
-- Personas you can switch in the composer to change assistant behavior per task
-- Full mobile PWA support for chat and admin flows
-- Streaming chat with visible action timelines
-- Multi-user workspace with `admin` and `user` roles
-- Multiple provider profiles per workspace, including OpenAI-compatible endpoints
-- Chat forking from assistant replies when you want to branch a thread without losing context
-- Shareable chat conversations for sending read-only transcript links
-- Previous message editing with restart-from-edit flow for fast iteration
-- Browser-native, self-hosted model, or external provider (ElevenLabs and AssemblyAI) speech-to-text in the chat composer
-- Image generation support
-- Mermaid diagram generation
-- Multiple clients live sync
-- Support native or dedicated MCP server for vision capabilites
-- Temporary chat
-
-## Bot Teammates
-
-The **Agents** area gives every user a team of persistent bots. The Chief of Staff is created automatically: message it directly for anything, and it will answer small asks itself, delegate bigger or recurring work to specialist bots, or create a new focused bot when a job deserves a long-lived owner.
-
-- Every bot has its own conversation thread, memory, generated avatar, and live status (idle, queued, running)
-- Each bot runs in an isolated sandbox: a dedicated persistent browser session (its own cookies and logins) and its own file workspace
-- Bots can be messaged directly, like teammates in a messaging app
-- Automations can be bound to a bot as routines, running on a schedule inside the bot's thread
-- Delegations and bot creation render as inline activity cards so you always see who did what
-- Bots use the provider and settings already configured in your workspace
-
-## Supported Providers
-
-Eidon currently supports these provider options:
-
-- OpenAI-compatible endpoints, including OpenAI and other compatible APIs
-- Anthropic-compatible endpoints, including the official Anthropic API
-- OpenRouter
-- Ollama Cloud
-- GLM Coding Plan
-- OpenCode Go
-- GitHub Copilot
-
-The OpenAI-compatible and Anthropic-compatible profiles are manually configurable, so any service that exposes an OpenAI-compatible or Anthropic Messages API can be connected through the matching provider type.
-
-## Screenshots
-
-![Eidon desktop chat workspace](./.github/readme/desktop-chat.png)
-
-<p align="center">
-  <em>Desktop workspace with sidebar navigation, provider switching, persona selection, queued follow-ups, and visible tool activity.</em>
-</p>
-
-| Desktop providers | Automation transcript |
-| --- | --- |
-| ![Eidon providers desktop screenshot](./.github/readme/desktop-providers.png) | ![Eidon automation transcript screenshot](./.github/readme/desktop-automations.png) |
-| <sub>Multiple saved providers, presets, and admin settings in one workspace.</sub> | <sub>Scheduled automation output captured as a normal transcript you can review like any other chat.</sub> |
-
-| Mobile chat | Mobile providers |
-| --- | --- |
-| ![Eidon mobile chat screenshot](./.github/readme/mobile-chat.png) | ![Eidon mobile provider settings screenshot](./.github/readme/mobile-providers.png) |
-| <sub>Chat, queued work, and provider context on a phone-sized layout.</sub> | <sub>Provider administration still works cleanly on mobile.</sub> |
-
-## Quick Start
-
-### 1. Generate strong secrets on the host
+## Quick start
 
 ```bash
 export EIDON_ADMIN_PASSWORD="$(openssl rand -base64 24)"
 export EIDON_SESSION_SECRET="$(openssl rand -hex 32)"
 export EIDON_ENCRYPTION_SECRET="$(openssl rand -hex 32)"
-```
 
-### 2. Run Eidon with `docker run`
-
-```bash
-docker run -d \
-  --name eidon \
-  --restart unless-stopped \
-  -p 3000:3000 \
-  -v eidon-data:/app/data \
+docker run -d --name eidon --restart unless-stopped \
+  -p 3000:3000 -v eidon-data:/app/data \
   -e EIDON_PASSWORD_LOGIN_ENABLED=true \
   -e EIDON_ADMIN_USERNAME=admin \
   -e EIDON_ADMIN_PASSWORD="$EIDON_ADMIN_PASSWORD" \
@@ -138,7 +62,10 @@ docker run -d \
   ghcr.io/quack6765/eidon-ai
 ```
 
-### 3. Or run it with Docker Compose
+Open your Eidon URL, sign in, go to **Settings → Providers**, add a key, and start chatting.
+
+<details>
+<summary><kbd>Docker Compose</kbd></summary>
 
 ```yaml
 services:
@@ -160,190 +87,253 @@ volumes:
   eidon-data:
 ```
 
-Start it with the exported variables above, or put the same values in a local `.env` file before launching:
+Keep `EIDON_ENCRYPTION_SECRET` stable across deployments — it decrypts your stored
+provider keys and MCP tokens. Full reference in [Configuration](./docs/configuration.md).
 
-```bash
-docker compose up -d
-```
+</details>
 
-### 4. First login
+## Chat that shows its work
 
-1. Open your Eidon URL.
-2. Sign in with `EIDON_ADMIN_USERNAME` and `EIDON_ADMIN_PASSWORD`.
-3. Go to **Settings → Providers**.
-4. Add your provider API key or connect GitHub Copilot.
-5. Start chatting.
+Every turn is a visible timeline: which skill loaded, which tool ran, what it returned.
+Nothing important happens off-screen.
 
-Eidon does not ship with a provider API key. The deployment is ready first; you bring the model access you want to use.
+<img src="./.github/readme/desktop-chat.png" alt="Eidon chat with a tool timeline, a memory proposal card, and queued follow-ups" width="100%" />
 
-## Why the Docker Image Is Different
+- **You approve what it remembers.** When the assistant wants to save a memory it proposes
+  it — you save, edit, or ignore. Same flow for automations it wants to create.
+- **Queue follow-ups while it works.** Reorder them, edit them, or send one next.
+- **Fork from any reply** to branch a thread, or edit an earlier message and restart from there.
+- **Context gauge and compaction** so long threads keep working instead of falling over.
 
-The production image is meant to be useful on its own, not just a way to serve the UI.
+## Agents that hand work to each other
 
-- It runs as a non-root user
-- Runtime data lives under `/app/data`
-- Password login is supported out of the box
-- The browser automation skill is bundled
-- `uvx`, `npx`, and Chromium are available for MCP and browser-backed workflows
+The **Agents** area gives you a team of persistent bots. A Chief of Staff is created for
+you: message it directly and it answers, delegates, or proposes a new specialist bot when a
+job deserves a long-lived owner.
 
-## MCP OAuth
+<img src="./.github/readme/desktop-delegation.png" alt="The Chief of Staff bot messaging two specialist bots" width="100%" />
 
-Remote MCP servers that follow the [MCP authorization spec](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) (OAuth 2.1 with PKCE) can be connected with a browser sign-in instead of pasting static API keys. This works with hosted MCP gateways such as [Composio Connect](https://docs.composio.dev/docs/composio-connect):
+Delegation is peer-to-peer — any bot can message any other bot, not just the chief. The
+sender keeps working while the target runs in its own thread, and the reply comes back into
+the conversation.
 
-1. Open **Settings → MCP** and add a server with the Streamable HTTP transport, for example `https://connect.composio.dev/mcp`.
-2. Click **Test**. Eidon detects the server requires authentication and shows an **Authenticate** button.
-3. Click **Authenticate** and approve the provider's consent page.
-4. You are redirected back to the MCP servers settings with the server connected and its tools available.
+<table>
+<tr>
+<td width="50%">
 
-The first sign-in registers Eidon with the provider automatically via OAuth dynamic client registration; no client credentials need to be configured. The registration includes Eidon's name, avatar, and public URL, so providers can show the app's branding on their consent page. Access and refresh tokens are encrypted with `EIDON_ENCRYPTION_SECRET` and stored in the SQLite database under `/app/data`, so they survive container restarts and recreation. Expired access tokens are refreshed automatically, and a server whose refresh token has been revoked shows an **Authentication expired** state with a one-click reconnect.
+<img src="./.github/readme/desktop-agents.png" alt="Bot roster with live status" />
 
-Keep `EIDON_ENCRYPTION_SECRET` stable across deployments: changing it makes previously stored MCP OAuth tokens (and other stored credentials) undecryptable, and the servers will need to be reconnected.
+<b>A roster with live status</b><br />
+<sub>Each bot has its own thread, memory, avatar, and an isolated sandbox: its own file
+workspace and its own browser session with its own logins.</sub>
 
-## GitHub Copilot Provider
+</td>
+<td width="50%">
 
-Eidon can route chats through your GitHub Copilot subscription instead of a direct provider API key. To enable the OAuth flow, register a GitHub App and set:
+<img src="./.github/readme/desktop-agent-proposal.png" alt="A bot proposing a scheduled automation" />
 
-```bash
-EIDON_GITHUB_APP_CLIENT_ID=Iv1.xxxxxxxx
-EIDON_GITHUB_APP_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-EIDON_GITHUB_APP_CALLBACK_URL=https://your-host/api/providers/github/callback
-```
+<b>Bots ask before they commit</b><br />
+<sub>A bot that spots repeating work proposes an automation and waits. It shows as
+<i>waiting for input</i> on the roster until you decide.</sub>
 
-### Create the GitHub App
+</td>
+</tr>
+</table>
 
-1. Go to [github.com/settings/developers](https://github.com/settings/developers) and create a new GitHub App.
-2. Use your Eidon URL as the homepage.
-3. Set the callback URL to `https://<your-host>/api/providers/github/callback`.
-4. Under user authorization, enable OAuth during installation.
-5. Copy the Client ID and generate a Client Secret.
+## Deep research with a plan you control
 
-### Connect a Copilot profile
+Toggle **Deep research** and Eidon drafts a research plan before spending anything. Edit the
+steps, reorder them, delete them, add your own — then start it.
 
-1. Open **Settings → Providers**.
-2. Add a profile and switch **Provider type** to **GitHub Copilot**.
-3. Click **Connect GitHub**.
-4. Approve the authorization flow.
-5. Pick a model and start chatting.
+<table>
+<tr>
+<td width="50%">
 
-If those three environment variables are not set, the GitHub Copilot profile type is still visible in settings, but the OAuth connection flow will not work. Set all three values before using **Connect GitHub**.
+<img src="./.github/readme/desktop-research-plan.png" alt="An editable seven-step research plan" />
 
-## Configuration Essentials
+<b>Approve the plan first</b><br />
+<sub>Up to 12 steps, each one editable. Regenerate it or cancel before any tool runs.</sub>
 
-| Variable | Purpose | Required in production |
-| --- | --- | --- |
-| `EIDON_PASSWORD_LOGIN_ENABLED` | Enables password-based login | No, but `true` is the normal production mode |
-| `EIDON_ADMIN_USERNAME` | Initial admin username | Yes |
-| `EIDON_ADMIN_PASSWORD` | Initial admin password | Yes |
-| `EIDON_SESSION_SECRET` | Session signing secret | Yes |
-| `EIDON_ENCRYPTION_SECRET` | Encryption seed for stored provider credentials, MCP secrets, and MCP OAuth tokens | Yes |
-| `EIDON_DATA_DIR` | Directory for SQLite and runtime data | No |
-| `EIDON_GITHUB_APP_CLIENT_ID` | GitHub App client ID for the Copilot provider | No |
-| `EIDON_GITHUB_APP_CLIENT_SECRET` | GitHub App client secret for the Copilot provider | No |
-| `EIDON_GITHUB_APP_CALLBACK_URL` | OAuth callback URL for Copilot | No |
+</td>
+<td width="50%">
 
-Useful defaults:
+<img src="./.github/readme/desktop-research.png" alt="A cited research report with a comparison table" />
 
-- Default model: `gpt-5-mini`
-- Default API mode: `responses`
-- Default Docker data path: `/app/data`
+<b>Get a cited report back</b><br />
+<sub>Multi-query search, full-page reads, corroboration across sources, and a report with
+inline citations and a sources list.</sub>
 
-Generate secrets on macOS or Linux with:
+</td>
+</tr>
+</table>
 
-```bash
-openssl rand -hex 32
-openssl rand -hex 32
-```
+## Automations that run without you
 
-## Testing Pre-release Builds
+Interval or calendar schedules, each with its own provider profile and persona. Every run is
+a real transcript you can open and read like any other conversation.
 
-Two image channels are published from GitHub:
+<table>
+<tr>
+<td width="50%">
 
-| Channel | Image tags | Published when |
-| --- | --- | --- |
-| Stable | `:latest`, `:<release version>` | A GitHub release is cut from `main` |
-| Dev | `:dev`, `:dev-<commit sha>` | Every push to the `dev` branch |
+<img src="./.github/readme/desktop-automations.png" alt="Automation detail with run history" />
 
-Most users should stay on the stable channel, which only moves when a release is cut. If you want to test changes before they are released, merge them into `dev`, then run the dev image alongside your stable instance with its own data volume and port (save as `docker-compose.dev.yml`):
+<b>Schedules and run history</b><br />
+<sub>Run now, retry a failed run, or bind an automation to a bot so it runs as a routine in
+that bot's thread.</sub>
 
-```yaml
-services:
-  eidon-dev:
-    image: ghcr.io/quack6765/eidon-ai:dev
-    restart: unless-stopped
-    ports:
-      - "3001:3000"
-    environment:
-      EIDON_PASSWORD_LOGIN_ENABLED: "true"
-      EIDON_ADMIN_USERNAME: "admin"
-      EIDON_ADMIN_PASSWORD: "${EIDON_ADMIN_PASSWORD}"
-      EIDON_SESSION_SECRET: "${EIDON_SESSION_SECRET}"
-      EIDON_ENCRYPTION_SECRET: "${EIDON_ENCRYPTION_SECRET}"
-    volumes:
-      - eidon-dev-data:/app/data
+</td>
+<td width="50%">
 
-volumes:
-  eidon-dev-data:
-```
+<img src="./.github/readme/desktop-automation-run.png" alt="A scheduled run transcript with tool calls" />
 
-The `:dev` tag is mutable and always points at the latest `dev` build, so pull before restarting:
+<b>Every run is auditable</b><br />
+<sub>The full timeline — searches, page reads, shell commands — not just the summary.</sub>
 
-```bash
-docker compose -f docker-compose.dev.yml pull
-docker compose -f docker-compose.dev.yml up -d
-```
+</td>
+</tr>
+</table>
 
-The in-app version shows `dev-<commit sha>`, so you can confirm exactly which build you are testing.
+## Memory, tools, and MCP
 
-## Local Development
+<table>
+<tr>
+<td width="50%">
 
-### Prerequisites
+<img src="./.github/readme/desktop-memories.png" alt="Memory settings with pinned memories" />
 
-- Node.js 22+
-- npm
-- A local toolchain capable of building `better-sqlite3`
+<b>Memory you can read and edit</b><br />
+<sub>Browse, search, and pin memories so they always stay in the prompt. Semantic recall
+indexes past messages and attachments locally.</sub>
 
-### Install and start
+</td>
+<td width="50%">
 
-```bash
-npm install
-```
+<img src="./.github/readme/desktop-mcp.png" alt="MCP server configuration" />
 
-Create a local `.env`:
+<b>MCP over HTTP or stdio</b><br />
+<sub>The image ships <code>uvx</code> and <code>npx</code>, so stdio servers work out of the
+box. Remote servers can sign in with OAuth instead of pasted keys.</sub>
 
-```bash
-EIDON_PASSWORD_LOGIN_ENABLED=false
-EIDON_ADMIN_USERNAME=admin
-EIDON_ADMIN_PASSWORD=dev-password-change-me
-EIDON_SESSION_SECRET=dev-session-secret-change-me-with-32-plus-chars
-EIDON_ENCRYPTION_SECRET=dev-encryption-secret-change-me-with-32-plus-chars
-```
+</td>
+</tr>
+</table>
 
-Run the app:
+Built in: web search across Exa, Tavily, or a self-hosted SearXNG · full-page reading ·
+image generation · vision · shell commands · reusable skills · a bundled browser-automation
+skill with Chromium. See [Features](./docs/features.md).
 
-```bash
-npm run dev
-```
+## Renders what the answer needs
 
-Open [http://localhost:3000](http://localhost:3000).
+<table>
+<tr>
+<td width="50%">
 
-`npm run dev` uses the custom websocket server, which is required for the realtime chat runtime. `npm run dev:next` is available when you explicitly want plain Next.js without that websocket layer.
+<img src="./.github/readme/desktop-mermaid.png" alt="A Mermaid diagram rendered in a conversation" />
 
-### Useful commands
+<b>Mermaid diagrams</b>
 
-| Command | Purpose |
+</td>
+<td width="50%">
+
+<img src="./.github/readme/desktop-code.png" alt="A syntax-highlighted code block" />
+
+<b>Code, and LaTeX math</b>
+
+</td>
+</tr>
+</table>
+
+## Bring your own provider
+
+<p>
+  <img alt="OpenAI" src="https://img.shields.io/badge/OpenAI-0a0a0a?style=flat-square" />
+  <img alt="Anthropic" src="https://img.shields.io/badge/Anthropic-0a0a0a?style=flat-square&logo=anthropic&logoColor=white" />
+  <img alt="OpenRouter" src="https://img.shields.io/badge/OpenRouter-0a0a0a?style=flat-square&logo=openrouter&logoColor=white" />
+  <img alt="Ollama" src="https://img.shields.io/badge/Ollama-0a0a0a?style=flat-square&logo=ollama&logoColor=white" />
+  <img alt="LM Studio" src="https://img.shields.io/badge/LM%20Studio-0a0a0a?style=flat-square&logo=lmstudio&logoColor=white" />
+  <img alt="GitHub Copilot" src="https://img.shields.io/badge/GitHub%20Copilot-0a0a0a?style=flat-square&logo=githubcopilot&logoColor=white" />
+  <img alt="Gemini" src="https://img.shields.io/badge/Gemini-0a0a0a?style=flat-square&logo=googlegemini&logoColor=white" />
+  <img alt="OpenCode" src="https://img.shields.io/badge/OpenCode-0a0a0a?style=flat-square&logo=opencode&logoColor=white" />
+  <img alt="Xiaomi" src="https://img.shields.io/badge/Xiaomi-0a0a0a?style=flat-square&logo=xiaomi&logoColor=white" />
+  <img alt="MiniMax" src="https://img.shields.io/badge/MiniMax-0a0a0a?style=flat-square&logo=minimax&logoColor=white" />
+  <img alt="Z.ai" src="https://img.shields.io/badge/Z.ai-0a0a0a?style=flat-square" />
+  <img alt="Kimi" src="https://img.shields.io/badge/Kimi-0a0a0a?style=flat-square&logo=kimi&logoColor=white" />
+  <img alt="Grok" src="https://img.shields.io/badge/Grok-0a0a0a?style=flat-square" />
+  <img alt="Perplexity" src="https://img.shields.io/badge/Perplexity-0a0a0a?style=flat-square&logo=perplexity&logoColor=white" />
+  <img alt="DeepSeek" src="https://img.shields.io/badge/DeepSeek-0a0a0a?style=flat-square&logo=deepseek&logoColor=white" />
+  <img alt="NVIDIA" src="https://img.shields.io/badge/NVIDIA-0a0a0a?style=flat-square&logo=nvidia&logoColor=white" />
+  <img alt="Alibaba" src="https://img.shields.io/badge/Alibaba-0a0a0a?style=flat-square&logo=alibabacloud&logoColor=white" />
+  <img alt="Mistral" src="https://img.shields.io/badge/Mistral-0a0a0a?style=flat-square&logo=mistralai&logoColor=white" />
+  <img alt="AWS" src="https://img.shields.io/badge/AWS-0a0a0a?style=flat-square" />
+  <img alt="Azure" src="https://img.shields.io/badge/Azure-0a0a0a?style=flat-square" />
+  <br />
+  <img alt="Plus any OpenAI-compatible or Anthropic-compatible provider" src="https://img.shields.io/badge/%2B%20any%20OpenAI--compatible%20or%20Anthropic--compatible%20provider-8b5cf6?style=flat-square&labelColor=0a0a0a" />
+</p>
+
+Nine of these are one-click presets. The rest work because Eidon speaks the OpenAI and
+Anthropic Messages APIs — point a profile at any compatible endpoint, including a local
+Ollama or LM Studio. Keep several profiles side by side and switch per conversation, each
+with its own reasoning effort, context limit, and vision routing. Credentials are encrypted
+at rest.
+
+<img src="./.github/readme/desktop-providers.png" alt="Multiple provider profiles configured side by side" width="100%" />
+
+Setup for every provider, including the GitHub Copilot OAuth app, is in
+[Providers](./docs/providers.md).
+
+## Install it on your phone
+
+Eidon is an installable PWA — add it to your home screen and it runs standalone, with
+layouts built for a phone rather than a shrunken desktop.
+
+<p align="center">
+  <img src="./.github/readme/mobile-chat.png" alt="Eidon chat on a phone" width="31%" />
+  <img src="./.github/readme/mobile-agents.png" alt="Bot roster on a phone" width="31%" />
+  <img src="./.github/readme/mobile-settings.png" alt="Provider settings on a phone" width="31%" />
+</p>
+
+## Why self-host this
+
+- **No per-seat subscription.** You pay your provider for tokens you actually use. A local
+  model through Ollama costs nothing per message.
+- **Your conversations sit on your disk**, in a SQLite file you can copy, grep, and back up.
+- **Any model, and more than one.** Route reasoning, coding, and vision to different
+  providers in the same workspace, and change your mind without redeploying.
+- **It is a workspace, not a chat box.** Agents, schedules, memory, tools, MCP, and
+  multi-user administration are built in rather than assembled.
+- **No lock-in.** AGPL-3.0, one container, and a documented export path.
+
+## Alternatives
+
+Worth knowing about before you pick Eidon:
+
+- **ChatGPT / Claude.ai** — the polish bar, and genuinely excellent. Use them if you do not
+  care where your conversations live. Eidon exists for when you do.
+- **[Open WebUI](https://github.com/open-webui/open-webui)** — the most established
+  self-hosted chat UI, with a much larger plugin ecosystem. Eidon is lighter to run and
+  leans harder on agents and scheduled work.
+- **[LibreChat](https://github.com/danny-avila/LibreChat)** — closest in scope, with strong
+  multi-provider support. Worth a look if you want a bigger community.
+- **[Jan](https://github.com/menloresearch/jan)** — desktop-first and fully local. Pick Jan
+  if you never want a server; pick Eidon if you want a shared, multi-user workspace.
+
+## Documentation
+
+| Guide | What is in it |
 | --- | --- |
-| `npm run dev` | Start the websocket-enabled dev server |
-| `npm run dev:next` | Start plain Next.js without the websocket runtime |
-| `npm run lint` | Run ESLint |
-| `npm run typecheck` | Run TypeScript checks |
-| `npm run test` | Run unit tests with coverage |
-| `npm run test:e2e` | Run Playwright smoke and feature tests |
-| `npm run seed:readme-demo` | Create the disposable README screenshot dataset under `.context/readme-demo-data` |
+| [Configuration](./docs/configuration.md) | Environment variables, secrets, data storage, security notes, backup and restore |
+| [Providers](./docs/providers.md) | All presets, per-profile settings, GitHub Copilot, web search, image generation, speech-to-text |
+| [MCP and skills](./docs/mcp-and-skills.md) | Transports, OAuth sign-in, vision MCP, writing skills, the bundled browser skill |
+| [Features](./docs/features.md) | The complete capability reference |
+| [Development](./docs/development.md) | Local setup, scripts, tests, image channels, architecture, mobile API |
 
 ## License
 
-Eidon is licensed under the GNU Affero General Public License v3.0 (`AGPL-3.0-only`). See [LICENSE](./LICENSE).
+[AGPL-3.0-only](./LICENSE).
 
-## AI-Assisted Development
+## AI-assisted development
 
-Eidon is developed in part with AI assistance. All code is carefully reviewed before it is accepted.
+Eidon is developed in part with AI assistance. All code is reviewed before it is accepted.
+
+<div align="right"><a href="#readme-top">Back to top ↑</a></div>
