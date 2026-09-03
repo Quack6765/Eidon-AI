@@ -30,7 +30,24 @@
     <img alt="PWA" src="https://img.shields.io/badge/PWA-installable-8b5cf6?style=flat-square&labelColor=0a0a0a" />
   </p>
 
-  <img src="./.github/readme/hero.png" alt="Eidon chat, agents, and automations" width="100%" />
+  <table>
+    <tr>
+      <td width="33%" align="center">
+        <a href="./.github/readme/desktop-chat.png"><img src="./.github/readme/desktop-chat.png" alt="Eidon chat" /></a>
+        <br /><b>Chat</b>
+      </td>
+      <td width="33%" align="center">
+        <a href="./.github/readme/desktop-delegation.png"><img src="./.github/readme/desktop-delegation.png" alt="Eidon agents" /></a>
+        <br /><b>Agents</b>
+      </td>
+      <td width="33%" align="center">
+        <a href="./.github/readme/desktop-automations.png"><img src="./.github/readme/desktop-automations.png" alt="Eidon automations" /></a>
+        <br /><b>Automations</b>
+      </td>
+    </tr>
+  </table>
+
+  <sub>Click any screenshot to see it full size.</sub>
 </div>
 
 Eidon is a self-hosted AI assistant. It runs as one Docker image, keeps your data in a
@@ -38,6 +55,34 @@ single file on your server, and works with the model providers you already use.
 
 There are three parts: **Chat** for normal conversations, **Agents** for bots that do work
 on their own, and **Automations** for tasks that run on a schedule.
+
+## What you get
+
+- Bring your own provider
+- Agents, with cross-agent messaging (Grok Bot like)
+- Per-agent memory, files, and browser session
+- Chat and conversation
+- Deep research with an editable plan
+- Scheduled automations, with full run history
+- Persistent memory across conversations
+- Built-in web search
+- Built-in browser
+- Image generation
+- Image understanding
+- MCP
+- Skills
+- Shell commands
+- Attachments — any file type, PDFs and text read automatically
+- Voice input with cleanup
+- Mermaid diagrams, syntax highlighting, and LaTeX math
+- Personas
+- Folders, chat search, and forking
+- Read-only share links
+- Temporary chats
+- Multi-user, with admin and user roles
+- Installable PWA — native iOS app coming soon
+- Single Docker image, SQLite, encrypted credentials
+- Live sync across devices
 
 ## Quick start
 
