@@ -65,6 +65,7 @@ function makeSettings(overrides: GeneralSettingsOverrides = {}): GeneralSectionS
     confirmExternalLinks: true,
     toolCallDisplay: "pills",
     defaultView: "chat",
+    hasCompletedOnboarding: true,
     webSearch: !overrides.webSearchEngine && overrides.webSearch ? overrides.webSearch : {
       providerId: searchProvider,
       configuration: searchProvider === "searxng"

@@ -354,6 +354,22 @@ describe("db", () => {
     expect(globalDefault.tool_call_display).toBe("pills");
   });
 
+  it("adds the onboarding completion column to user preferences only", async () => {
+    const { getDb } = await import("@/lib/db");
+    const db = getDb();
+
+    const userColumns = (
+      db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    const globalColumns = (
+      db.prepare("PRAGMA table_info(global_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+
+    expect(userColumns).toEqual(expect.arrayContaining(["has_completed_onboarding"]));
+    // Purely per-user, so it deliberately has no workspace-wide twin.
+    expect(globalColumns).not.toEqual(expect.arrayContaining(["has_completed_onboarding"]));
+  });
+
   it("adds memory proposal columns to message_actions", async () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();

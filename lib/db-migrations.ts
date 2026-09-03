@@ -609,6 +609,7 @@ function migratePreferenceStorage(db: Database.Database) {
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
       default_view TEXT NOT NULL DEFAULT 'chat',
+      has_completed_onboarding INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -1991,6 +1992,10 @@ export function migrate(db: Database.Database) {
   }
   if (!userPreferencesCols.some((column) => column.name === "default_view")) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN default_view TEXT NOT NULL DEFAULT 'chat'");
+  }
+
+  if (!userPreferencesCols.some((column) => column.name === "has_completed_onboarding")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN has_completed_onboarding INTEGER NOT NULL DEFAULT 0");
   }
 
   if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_enabled")) {
