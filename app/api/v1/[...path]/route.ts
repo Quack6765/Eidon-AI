@@ -11,6 +11,7 @@ import * as avatarRoute from "@/app/api/avatars/[seed]/route";
 import * as botRoute from "@/app/api/bots/[botId]/route";
 import * as botMemoriesRoute from "@/app/api/bots/[botId]/memories/route";
 import * as botResetBrowserRoute from "@/app/api/bots/[botId]/reset-browser-session/route";
+import * as botSeenInputRoute from "@/app/api/bots/[botId]/seen-input/route";
 import * as botSkillRoute from "@/app/api/bots/[botId]/skills/[skillId]/route";
 import * as botSkillsRoute from "@/app/api/bots/[botId]/skills/route";
 import * as botWorkspaceRoute from "@/app/api/bots/[botId]/workspace/route";
@@ -95,6 +96,7 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["avatars", ":seed"], module: avatarRoute },
   { pattern: ["bots", ":botId", "memories"], module: botMemoriesRoute },
   { pattern: ["bots", ":botId", "reset-browser-session"], module: botResetBrowserRoute },
+  { pattern: ["bots", ":botId", "seen-input"], module: botSeenInputRoute },
   { pattern: ["bots", ":botId", "skills"], module: botSkillsRoute },
   { pattern: ["bots", ":botId", "skills", ":skillId"], module: botSkillRoute },
   { pattern: ["bots", ":botId", "workspace"], module: botWorkspaceRoute },
