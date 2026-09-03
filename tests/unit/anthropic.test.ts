@@ -1,4 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@anthropic-ai/sdk", () => ({
+  default: vi.fn().mockImplementation(() => ({
+    messages: {
+      stream: () => ({
+        async *[Symbol.asyncIterator]() {}
+      }),
+      async create() {
+        return { content: [{ type: "text", text: "ok" }] };
+      }
+    }
+  }))
+}));
+
+import Anthropic from "@anthropic-ai/sdk";
 
 vi.mock("@/lib/attachments", () => ({
   getAttachmentDataUrl: vi.fn(() => "data:image/png;base64,IMGDATA")
@@ -535,5 +550,50 @@ describe("anthropic conversion branch coverage", () => {
     });
 
     expect(text).toBe("");
+  });
+});
+
+describe("OpenCode session header", () => {
+  it("sends x-opencode-session with the conversation id for OpenCode Go streams", async () => {
+    const gen = streamAnthropicResponse({
+      settings: baseSettings({
+        providerConfig: { apiBaseUrl: "https://opencode.ai/zen/go" },
+        providerPresetId: "opencode_go_anthropic"
+      }),
+      promptMessages: [{ role: "user", content: "hi" }],
+      conversationId: "conv_session_3"
+    });
+
+    await gen.next();
+
+    expect(vi.mocked(Anthropic).mock.calls.at(-1)?.[0]).toMatchObject({
+      defaultHeaders: { "x-opencode-session": "conv_session_3" }
+    });
+  });
+
+  it("falls back to the profile id without a conversation", async () => {
+    await callAnthropicText({
+      settings: baseSettings({
+        id: "prov_opencode_anthropic",
+        providerConfig: { apiBaseUrl: "https://opencode.ai/zen/go/" }
+      }),
+      messages: [{ role: "user", content: "hi" }]
+    });
+
+    expect(vi.mocked(Anthropic).mock.calls.at(-1)?.[0]).toMatchObject({
+      defaultHeaders: { "x-opencode-session": "prov_opencode_anthropic" }
+    });
+  });
+
+  it("omits the header for other base urls", async () => {
+    const gen = streamAnthropicResponse({
+      settings: baseSettings(),
+      promptMessages: [{ role: "user", content: "hi" }],
+      conversationId: "conv_session_3"
+    });
+
+    await gen.next();
+
+    expect(vi.mocked(Anthropic).mock.calls.at(-1)?.[0]?.defaultHeaders).toBeUndefined();
   });
 });
