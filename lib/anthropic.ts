@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { getAttachmentDataUrl } from "@/lib/attachments";
 import { supportsVisibleReasoning } from "@/lib/model-capabilities";
-import { getProviderApiBaseUrl, getProviderApiKey, getProviderApiMode } from "@/lib/provider-profile";
+import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiKey, getProviderApiMode } from "@/lib/provider-profile";
 import { normalizeLineBreaks } from "@/lib/text-utils";
 import { estimatePromptTokens } from "@/lib/tokenization";
 import type {
@@ -224,10 +224,11 @@ type AnthropicStreamResult = {
   usage: { inputTokens?: number; outputTokens?: number; reasoningTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number };
 };
 
-function createAnthropicClient(settings: RuntimeProviderProfile): Anthropic {
+function createAnthropicClient(settings: RuntimeProviderProfile, conversationId?: string): Anthropic {
   return new Anthropic({
     apiKey: getProviderApiKey(settings),
-    baseURL: getProviderApiBaseUrl(settings)
+    baseURL: getProviderApiBaseUrl(settings),
+    defaultHeaders: getOpenCodeSessionHeaders(settings, conversationId)
   });
 }
 
@@ -236,9 +237,10 @@ export async function* streamAnthropicResponse(input: {
   promptMessages: PromptMessage[];
   tools?: ToolDefinition[];
   abortSignal?: AbortSignal;
+  conversationId?: string;
   client?: Anthropic;
 }): AsyncGenerator<ChatStreamEvent, AnthropicStreamResult, void> {
-  const client = input.client ?? createAnthropicClient(input.settings);
+  const client = input.client ?? createAnthropicClient(input.settings, input.conversationId);
   const showThinking = input.settings.reasoningSummaryEnabled;
   const params = buildAnthropicRequest({
     settings: input.settings,
@@ -328,10 +330,11 @@ export async function* streamAnthropicResponse(input: {
 export async function callAnthropicText(input: {
   settings: RuntimeProviderProfile;
   messages: PromptMessage[];
+  conversationId?: string;
   client?: Anthropic;
   abortSignal?: AbortSignal;
 }): Promise<string> {
-  const client = input.client ?? createAnthropicClient(input.settings);
+  const client = input.client ?? createAnthropicClient(input.settings, input.conversationId);
   const params = buildAnthropicRequest({ settings: input.settings, messages: input.messages });
   const request = {
     ...params,

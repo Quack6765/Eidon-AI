@@ -7,7 +7,7 @@ import { withDateContextUserMessage } from "@/lib/provider-message-formatting";
 import { stripThinkingDelimiters } from "@/lib/thinking-delimiter-parsing";
 import type { ChatStreamEvent, ReasoningEffort, RuntimeProviderProfile } from "@/lib/types";
 import Anthropic from "@anthropic-ai/sdk";
-import { getProviderApiBaseUrl, getProviderApiKey } from "@/lib/provider-profile";
+import { getOpenCodeSessionHeaders, getProviderApiBaseUrl, getProviderApiKey } from "@/lib/provider-profile";
 import type {
   ProviderStreamInput,
   ProviderStreamResult,
@@ -29,6 +29,7 @@ export async function callAnthropicAdapterText(input: ProviderTextInput) {
     await callAnthropicText({
       settings,
       messages: withDateContextUserMessage([{ role: "user", content: input.prompt }]),
+      conversationId: input.conversationId,
       abortSignal: input.abortSignal
     })
   );
@@ -39,7 +40,8 @@ export async function callAnthropicAdapterText(input: ProviderTextInput) {
 export async function discoverAnthropicModels(settings: RuntimeProviderProfile) {
   const client = new Anthropic({
     apiKey: getProviderApiKey(settings),
-    baseURL: getProviderApiBaseUrl(settings)
+    baseURL: getProviderApiBaseUrl(settings),
+    defaultHeaders: getOpenCodeSessionHeaders(settings)
   });
   const models = await client.models.list();
   return models.data.map((model) => ({
@@ -57,6 +59,7 @@ export async function* streamAnthropicAdapterResponse(
     settings: input.settings,
     promptMessages: withDateContextUserMessage(input.promptMessages),
     tools: input.tools,
+    conversationId: input.conversationId,
     abortSignal: input.abortSignal
   });
 }

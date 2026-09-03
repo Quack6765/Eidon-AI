@@ -260,6 +260,7 @@ export async function executeImageGeneration(
     const instruction = await compileImageInstruction({
       settings: context.input.settings,
       promptMessages: context.promptMessages,
+      conversationId,
       abortSignal: context.input.abortSignal
     });
     throwIfAborted(context.input.abortSignal);
@@ -978,6 +979,7 @@ export async function executeAnalyzeImage(
     const providerStream = streamProviderResponse({
       settings: context.input.visionProfile,
       promptMessages,
+      conversationId,
       abortSignal: context.input.abortSignal
     });
 

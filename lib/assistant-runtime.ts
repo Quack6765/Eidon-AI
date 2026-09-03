@@ -257,6 +257,7 @@ async function forceDirectAnswerAfterToolLoop(input: {
   settings: RuntimeProviderProfile;
   promptMessages: PromptMessage[];
   visionMcpServers?: McpServer[];
+  conversationId?: string;
   abortSignal?: AbortSignal;
   enableStreamRetry?: boolean;
   onEvent?: (event: ChatStreamEvent) => void;
@@ -275,6 +276,7 @@ async function forceDirectAnswerAfterToolLoop(input: {
     streamProviderResponse({
       settings: input.settings,
       promptMessages: providerPromptMessages,
+      conversationId: input.conversationId,
       abortSignal: input.abortSignal
     });
   const providerStream =
@@ -513,6 +515,7 @@ export async function resolveAssistantTurn(input: {
         promptMessages: providerPromptMessages,
         tools: tools.length ? tools : undefined,
         abortSignal: input.abortSignal,
+        conversationId: input.conversationId,
         runtimeToolContext: {
           settings: input.settings,
           visionProfile: input.visionProfile,
@@ -642,6 +645,7 @@ export async function resolveAssistantTurn(input: {
         settings: input.settings,
         promptMessages,
         visionMcpServers,
+        conversationId: input.conversationId,
         abortSignal: input.abortSignal,
         enableStreamRetry: input.enableStreamRetry,
         onEvent: input.onEvent,

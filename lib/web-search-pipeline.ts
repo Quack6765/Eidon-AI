@@ -271,6 +271,7 @@ export async function planWebSearch(input: {
   userContext?: string;
   forceFanOut: boolean;
   maxQueries: number;
+  conversationId?: string;
   abortSignal?: AbortSignal;
 }): Promise<WebSearchPipelinePlan> {
   if (!input.providerProfile) return { action: "direct" };
@@ -287,6 +288,7 @@ export async function planWebSearch(input: {
           maxQueries: input.maxQueries
         }),
         purpose: "web_search_planning",
+        conversationId: input.conversationId,
         abortSignal: planningSignal
       }),
       planningSignal,
@@ -570,6 +572,7 @@ export async function runWebSearchPipeline(input: {
       userContext: input.userContext,
       forceFanOut: input.mode === "always",
       maxQueries: input.maxQueries,
+      conversationId: input.conversationId,
       abortSignal: input.abortSignal
     });
     const subqueries = plan.action === "fan_out"

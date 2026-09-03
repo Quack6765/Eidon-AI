@@ -48,6 +48,7 @@ export type ProviderStreamInput = {
   promptMessages: PromptMessage[];
   tools?: ToolDefinition[];
   abortSignal?: AbortSignal;
+  conversationId?: string;
   runtimeToolContext?: RuntimeToolContext;
 };
 

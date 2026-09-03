@@ -1,5 +1,6 @@
 import {
   PROVIDER_CATALOG,
+  isOpenCodeGoApiBaseUrl,
   resolveProviderRequestApiMode,
   type ApiMode,
   type ProviderConnectionMode,
@@ -122,6 +123,14 @@ export function getProviderApiBaseUrl(profile: ProviderProfile) {
   return profile.providerKind === "github_copilot"
     ? ""
     : profile.providerConfig.apiBaseUrl;
+}
+
+export function getOpenCodeSessionHeaders(
+  profile: ProviderProfile,
+  conversationId?: string
+): Record<string, string> | undefined {
+  if (!isOpenCodeGoApiBaseUrl(getProviderApiBaseUrl(profile))) return undefined;
+  return { "x-opencode-session": conversationId ?? profile.id };
 }
 
 export function getProviderApiKey(profile: RuntimeProviderProfile) {
