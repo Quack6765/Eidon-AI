@@ -42,7 +42,7 @@
     "AutomationProposalPayload": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "prompt", "scheduleKind", "intervalMinutes", "calendarFrequency", "timeOfDay", "daysOfWeek", "providerProfileId", "personaId", "continuePreviousConversation"],
+      "required": ["name", "prompt", "scheduleKind", "intervalMinutes", "calendarFrequency", "timeOfDay", "daysOfWeek", "providerProfileId", "personaId"],
       "properties": {
         "name": { "type": "string" },
         "prompt": { "type": "string" },
@@ -54,6 +54,7 @@
         "providerProfileId": { "$ref": "#/$defs/OpaqueId" },
         "personaId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
         "continuePreviousConversation": { "type": "boolean" },
+        "botId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
         "automationId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] }
       }
     },
