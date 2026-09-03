@@ -29,6 +29,7 @@ const bindAttachmentsToMessage = vi.fn();
 const deleteAttachmentById = vi.fn();
 const resolveAttachmentPath = vi.fn();
 const resolveAbsoluteImagePathPart = vi.fn();
+const readWebPage = vi.fn();
 
 vi.mock("@/lib/provider", () => ({
   streamProviderResponse,
@@ -65,6 +66,10 @@ vi.mock("@/lib/settings", () => ({
 
 vi.mock("@/lib/searxng", () => ({
   searchSearxng
+}));
+
+vi.mock("@/lib/web-read", () => ({
+  readWebPage
 }));
 
 vi.mock("@/lib/image-generation/google-nano-banana", () => ({
@@ -832,6 +837,320 @@ ${JSON.stringify({
       "result alpha query",
       "result beta query"
     ]);
+  });
+
+  it("offers read_page even when web search is disabled and reads pages concurrently", async () => {
+    const started: string[] = [];
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    readWebPage.mockImplementation(async ({ url }: { url: string }) => {
+      started.push(url);
+      await gate;
+      return `# Page\nSource: ${url}\n\ncontent`;
+    });
+
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [
+            { id: "call_1", name: "read_page", arguments: JSON.stringify({ url: "https://a.example/" }) },
+            { id: "call_2", name: "read_page", arguments: JSON.stringify({ url: "https://b.example/" }) }
+          ],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Read both" }], {
+          answer: "Read both",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    const actions: string[] = [];
+
+    const runPromise = resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "read two pages" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings({ webSearch: { providerId: "disabled" } }),
+      onEvent: () => {},
+      onActionStart: (action) => {
+        actions.push(action.label);
+        return "act_read";
+      }
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(started).toEqual(["https://a.example/", "https://b.example/"]);
+    expect(actions).toEqual(["Read page", "Read page"]);
+
+    release();
+    const result = await runPromise;
+    expect(result.answer).toBe("Read both");
+
+    const firstCall = streamProviderResponse.mock.calls[0][0] as {
+      tools?: Array<{ function: { name: string } }>;
+      promptMessages: Array<{ role: string; content: unknown }>;
+    };
+    const toolNames = firstCall.tools?.map((tool) => tool.function.name) ?? [];
+    expect(toolNames).toContain("read_page");
+    expect(toolNames).not.toContain("web_search");
+
+    const followUpMessages = streamProviderResponse.mock.calls[1][0].promptMessages as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    expect(followUpMessages.filter((message) => message.role === "tool").map((message) => message.content)).toEqual([
+      "# Page\nSource: https://a.example/\n\ncontent",
+      "# Page\nSource: https://b.example/\n\ncontent"
+    ]);
+    expect(String(followUpMessages[0].content)).not.toContain("Web search results have been received");
+  });
+
+  it("runs research mode with the plan action, browser skill, and no early-stop directive", async () => {
+    searchSearxng.mockResolvedValue("SearXNG result text");
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([], {
+          answer: "",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "web_search", arguments: JSON.stringify({ query: "heat pump subsidies" }) }],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "# Report" }], {
+          answer: "# Report",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    const started: Array<{ kind: string; label: string; detail?: string }> = [];
+    const completed: Array<{ handle?: string; detail?: string }> = [];
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Compare EU heat pump subsidies" }],
+      skills: [
+        createSkill({
+          id: "builtin-agent-browser",
+          name: "Agent Browser",
+          description: "Use for browser automation and page inspection.",
+          content: `---
+name: Agent Browser
+description: Use for browser automation and page inspection.
+shell_command_prefixes:
+  - agent-browser
+---
+
+Run browser commands.`
+        })
+      ],
+      mcpToolSets: [],
+      appSettings: createAppSettings({
+        skillsEnabled: true,
+        webSearch: { providerId: "searxng", configuration: { baseUrl: "https://search.example.com" } }
+      }),
+      research: { plan: ["Find official subsidy pages", "Compare amounts per country"] },
+      onEvent: () => {},
+      onActionStart: (action) => {
+        started.push({ kind: action.kind, label: action.label, detail: action.detail });
+        return `act_${started.length}`;
+      },
+      onActionComplete: (handle, patch) => {
+        completed.push({ handle, detail: patch.detail });
+      }
+    });
+
+    expect(result.answer).toBe("# Report");
+    expect(started[0]).toEqual({
+      kind: "research_plan",
+      label: "Research plan",
+      detail: "1. Find official subsidy pages\n2. Compare amounts per country"
+    });
+    expect(completed[0]).toEqual({ handle: "act_1", detail: "1. Find official subsidy pages\n2. Compare amounts per country" });
+    expect(started[1]?.label).toBe("Web search");
+
+    const firstCall = streamProviderResponse.mock.calls[0][0] as { promptMessages: Array<{ role: string; content: unknown }> };
+    const systemPrompt = String(firstCall.promptMessages[0].content);
+    expect(systemPrompt).toContain("Deep research mode is active");
+    expect(systemPrompt).toContain("1. Find official subsidy pages\n2. Compare amounts per country");
+    expect(String(firstCall.promptMessages.at(-1)?.content)).toContain("Agent Browser");
+
+    const secondCall = streamProviderResponse.mock.calls[1][0] as { promptMessages: Array<{ role: string; content: unknown }> };
+    expect(String(secondCall.promptMessages[0].content)).not.toContain("Web search results have been received");
+  });
+
+  it("keeps text written alongside tool calls visible in research mode", async () => {
+    readWebPage.mockResolvedValue("# Page\nSource: https://a.example/\n\ncontent");
+    const events: string[] = [];
+    const onAnswerSegment = vi.fn();
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Plan: read the official page first." }], {
+          answer: "Plan: read the official page first.",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "read_page", arguments: JSON.stringify({ url: "https://a.example/" }) }],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "# Report" }], {
+          answer: "# Report",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Research heat pumps" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      research: {},
+      onEvent: (event) => events.push(event.type),
+      onAnswerSegment
+    });
+
+    expect(onAnswerSegment.mock.calls.map(([segment]) => segment)).toEqual([
+      "Plan: read the official page first.",
+      "# Report"
+    ]);
+    expect(events).not.toContain("answer_reset");
+
+    streamProviderResponse.mockReset();
+    onAnswerSegment.mockClear();
+    events.length = 0;
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Let me check." }], {
+          answer: "Let me check.",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "read_page", arguments: JSON.stringify({ url: "https://a.example/" }) }],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Answer" }], {
+          answer: "Answer",
+          thinking: "",
+          usage: { inputTokens: 11, outputTokens: 3 }
+        })
+      );
+    await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Check the page" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      onEvent: (event) => events.push(event.type),
+      onAnswerSegment
+    });
+    expect(onAnswerSegment.mock.calls.map(([segment]) => segment)).toEqual(["Answer"]);
+    expect(events).toContain("answer_reset");
+  });
+
+  it("raises the research step budget and forces a report when it runs out", async () => {
+    readWebPage.mockResolvedValue("# Page\nSource: https://a.example/\n\ncontent");
+    streamProviderResponse.mockImplementation(({ tools }: { tools?: unknown[] }) =>
+      tools?.length
+        ? createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{ id: "call_x", name: "read_page", arguments: JSON.stringify({ url: "https://a.example/" }) }],
+            usage: { inputTokens: 9 }
+          })
+        : createProviderStream([{ type: "answer_delta", text: "# Final report" }], {
+            answer: "# Final report",
+            thinking: "",
+            usage: { inputTokens: 11, outputTokens: 3 }
+          })
+    );
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    const baseInput = {
+      settings: createSettings(),
+      promptMessages: [{ role: "user" as const, content: "Research everything about heat pumps" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings({ maxAssistantToolSteps: 1 }),
+      onEvent: () => {}
+    };
+
+    await resolveAssistantTurn(baseInput);
+    expect(streamProviderResponse).toHaveBeenCalledTimes(2);
+    const plainForced = streamProviderResponse.mock.calls[1][0] as { promptMessages: Array<{ content: unknown }> };
+    expect(String(plainForced.promptMessages[0].content)).toContain("Answer the user directly");
+
+    streamProviderResponse.mockClear();
+    const result = await resolveAssistantTurn({ ...baseInput, research: {} });
+
+    expect(result.answer).toBe("# Final report");
+    expect(streamProviderResponse).toHaveBeenCalledTimes(5);
+    const forced = streamProviderResponse.mock.calls[4][0] as { promptMessages: Array<{ content: unknown }> };
+    expect(String(forced.promptMessages[0].content)).toContain("final research report");
+    expect(String(forced.promptMessages[0].content)).toContain("Begin by writing a short numbered research plan");
+  });
+
+  it("collapses older tool results once the research prompt grows past the threshold", async () => {
+    const longPage = "lorem ipsum dolor sit amet consectetur ".repeat(120);
+    readWebPage.mockResolvedValue(longPage);
+    let providerCalls = 0;
+    streamProviderResponse.mockImplementation(() => {
+      providerCalls += 1;
+      return providerCalls <= 2
+        ? createProviderStream([], {
+            answer: "",
+            thinking: "",
+            toolCalls: [{ id: `call_${providerCalls}`, name: "read_page", arguments: JSON.stringify({ url: `https://a.example/${providerCalls}` }) }],
+            usage: { inputTokens: 9 }
+          })
+        : createProviderStream([{ type: "answer_delta", text: "Done" }], {
+            answer: "Done",
+            thinking: "",
+            usage: { inputTokens: 11, outputTokens: 3 }
+          });
+    });
+
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+    await resolveAssistantTurn({
+      settings: createRuntimeProviderProfile({
+        id: "profile_small",
+        name: "Small",
+        model: "gpt-5-mini",
+        systemPrompt: "Be exact.",
+        maxOutputTokens: 100,
+        modelContextLimit: 2000,
+        safetyMarginTokens: 100,
+        compactionThreshold: 0.8,
+        freshTailCount: 12
+      }),
+      promptMessages: [{ role: "user", content: "Research heat pumps thoroughly" }],
+      skills: [],
+      mcpToolSets: [],
+      appSettings: createAppSettings(),
+      research: {},
+      onEvent: () => {}
+    });
+
+    expect(streamProviderResponse).toHaveBeenCalledTimes(3);
+    const finalCall = streamProviderResponse.mock.calls[2][0] as { promptMessages: Array<{ role: string; content: unknown }> };
+    const toolResults = finalCall.promptMessages.filter((message) => message.role === "tool").map((message) => String(message.content));
+    expect(toolResults).toHaveLength(2);
+    expect(toolResults[0]).toContain("[Earlier tool result collapsed to save context");
+    expect(toolResults[0].length).toBeLessThan(longPage.length);
+    expect(toolResults[1]).toBe(longPage);
   });
 
   it("keeps mixed steps sequential and appends results in call order", async () => {

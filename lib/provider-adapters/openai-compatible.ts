@@ -142,7 +142,7 @@ function buildRequestParameters(settings: ProviderProfile) {
   };
 }
 
-const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning", "speech_cleanup"]);
+const LOW_EFFORT_PURPOSES: ReadonlySet<ProviderTextPurpose> = new Set(["title", "web_search_planning", "research_planning", "speech_cleanup"]);
 
 export async function callOpenAiCompatibleText(input: ProviderTextInput) {
   const { settings } = input;

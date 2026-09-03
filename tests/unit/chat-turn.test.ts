@@ -1699,6 +1699,196 @@ describe("chat-turn", () => {
     );
   });
 
+  it("runs research turns with the plan persisted as a completed action", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    const conv = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
+
+    mockedStreamProviderResponse.mockReturnValueOnce((async function* () {
+      yield { type: "answer_delta", text: "# Report" };
+      return { answer: "# Report", thinking: "", usage: { outputTokens: 2 } };
+    })());
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const result = await startChatTurn(manager, conv.id, "Research heat pumps", [], undefined, {
+      research: { plan: ["Find subsidy pages", "Compare amounts"] }
+    });
+
+    expect(result).toEqual({ status: "completed" });
+    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages[0].content);
+    expect(systemPrompt).toContain("Deep research mode is active");
+    expect(systemPrompt).toContain("1. Find subsidy pages\n2. Compare amounts");
+
+    const { listVisibleMessages } = await import("@/lib/conversations");
+    const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+    expect(assistant?.status).toBe("completed");
+    expect(assistant?.actions).toEqual([
+      expect.objectContaining({
+        kind: "research_plan",
+        label: "Research plan",
+        detail: "1. Find subsidy pages\n2. Compare amounts",
+        status: "completed"
+      })
+    ]);
+  });
+
+  it("starts a research turn from a pending user message with the approved plan", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { createConversationManager } = await import("@/lib/conversation-manager");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const manager = createConversationManager();
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    const conv = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
+
+    const { createPendingUserMessage, startAssistantTurnFromExistingUserMessage } = await import("@/lib/chat-turn");
+    const pending = createPendingUserMessage({ conversationId: conv.id, content: "Research heat pumps", attachmentIds: [] });
+    const { listVisibleMessages, deletePendingUserMessage } = await import("@/lib/conversations");
+    expect(listVisibleMessages(conv.id).map((message) => message.role)).toEqual(["user"]);
+
+    mockedStreamProviderResponse.mockReturnValueOnce((async function* () {
+      yield { type: "answer_delta", text: "# Report" };
+      return { answer: "# Report", thinking: "", usage: { outputTokens: 2 } };
+    })());
+
+    const result = await startAssistantTurnFromExistingUserMessage(manager, conv.id, pending.id, undefined, {
+      research: { plan: ["Find subsidy pages"] }
+    });
+
+    expect(result).toEqual({ status: "completed" });
+    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages[0].content);
+    expect(systemPrompt).toContain("Deep research mode is active");
+    expect(systemPrompt).toContain("1. Find subsidy pages");
+    const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+    expect(assistant?.actions).toEqual([expect.objectContaining({ kind: "research_plan", status: "completed" })]);
+
+    expect(deletePendingUserMessage(conv.id, pending.id)).toBe(false);
+    const second = createPendingUserMessage({ conversationId: conv.id, content: "Follow-up", attachmentIds: [] });
+    expect(deletePendingUserMessage(conv.id, second.id)).toBe(true);
+    expect(listVisibleMessages(conv.id).map((message) => message.role)).toEqual(["user", "assistant"]);
+  });
+
+  it("stops a research turn at its deadline and marks running actions as stopped", async () => {
+    vi.useFakeTimers();
+    const { ChatTurnStoppedError } = await import("@/lib/chat-turn-control");
+    const resolveAssistantTurn = vi.fn().mockImplementation(async (input: {
+      abortSignal?: AbortSignal;
+      onActionStart?: (action: { kind: "mcp_tool_call"; label: string; detail?: string }) => Promise<string | void> | string | void;
+    }) => {
+      await input.onActionStart?.({ kind: "mcp_tool_call", label: "Read page", detail: "https://example.com/" });
+      await new Promise<void>((resolve) => input.abortSignal?.addEventListener("abort", () => resolve(), { once: true }));
+      throw new ChatTurnStoppedError();
+    });
+    vi.doMock("@/lib/assistant-runtime", () => ({ resolveAssistantTurn }));
+    try {
+      const { createConversationManager } = await import("@/lib/conversation-manager");
+      const { updateProviderCatalog } = await import("@/lib/settings");
+      const manager = createConversationManager();
+      const { profileId, profile } = setupProviderProfile();
+      updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+      const conv = (await import("@/lib/conversations")).createConversation(undefined, undefined, { providerProfileId: null });
+
+      const { startChatTurn } = await import("@/lib/chat-turn");
+      const run = startChatTurn(manager, conv.id, "Research heat pumps", [], undefined, {
+        research: { deadlineMs: 5_000 }
+      });
+
+      await vi.advanceTimersByTimeAsync(4_000);
+      expect(resolveAssistantTurn).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(run).resolves.toEqual({ status: "stopped" });
+
+      const { listVisibleMessages } = await import("@/lib/conversations");
+      const assistant = listVisibleMessages(conv.id).find((message) => message.role === "assistant");
+      expect(assistant?.status).toBe("stopped");
+      expect(assistant?.actions).toEqual([
+        expect.objectContaining({ label: "Read page", status: "stopped" })
+      ]);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+      vi.useRealTimers();
+    }
+  });
+
+  it("rejects invalid research payloads on the SSE chat route", async () => {
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    const { createLocalUser: createRouteUser } = await import("@/lib/users");
+    const user = await createRouteUser({
+      username: "route-research-user",
+      password: "route-research-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+    const conversation = createConversation("Research route", null, { providerProfileId: profileId }, user.id);
+    const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+
+    for (const research of [
+      { plan: Array.from({ length: 13 }, () => "step") },
+      { plan: ["x".repeat(10_000)] },
+      { plan: ["ok", 42] },
+      { plan: [] },
+      "yes",
+      { plan: ["ok"], deadlineMs: 1 }
+    ]) {
+      const response = await POST(
+        new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Research this", attachmentIds: [], research })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+      expect(response.status).toBe(400);
+    }
+    expect(listVisibleMessages(conversation.id)).toEqual([]);
+  });
+
+  it("passes a valid research payload from the SSE chat route into the turn", async () => {
+    const { streamProviderResponse } = await import("@/lib/provider");
+    const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createConversation } = await import("@/lib/conversations");
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({ defaultProviderProfileId: profileId, skillsEnabled: false, providerProfiles: [profile] });
+    const { createLocalUser: createRouteUser } = await import("@/lib/users");
+    const user = await createRouteUser({
+      username: "route-research-valid-user",
+      password: "route-research-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+    const conversation = createConversation("Research route", null, { providerProfileId: profileId }, user.id);
+    mockedStreamProviderResponse.mockReturnValueOnce((async function* () {
+      yield { type: "answer_delta", text: "# Report" };
+      return { answer: "# Report", thinking: "", usage: { outputTokens: 2 } };
+    })());
+
+    const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+    const response = await POST(
+      new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ message: "Research this", research: { plan: ["Step one"] } })
+      }),
+      { params: Promise.resolve({ conversationId: conversation.id }) }
+    );
+
+    expect(response.status).toBe(200);
+    await response.text();
+    const systemPrompt = String(mockedStreamProviderResponse.mock.calls.at(-1)?.[0].promptMessages[0].content);
+    expect(systemPrompt).toContain("Deep research mode is active");
+    expect(systemPrompt).toContain("1. Step one");
+  });
+
   it("reports an active-turn conflict through the SSE stream before inserting messages", async () => {
     const { updateProviderCatalog } = await import("@/lib/settings");
     const { createConversation, listVisibleMessages } = await import("@/lib/conversations");

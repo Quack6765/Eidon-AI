@@ -16,6 +16,7 @@ export type ProviderTextPurpose =
   | "title"
   | "image_instruction"
   | "web_search_planning"
+  | "research_planning"
   | "speech_cleanup";
 
 export type ProviderTextInput = {

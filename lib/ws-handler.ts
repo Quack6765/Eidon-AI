@@ -20,7 +20,7 @@ import { isPasswordLoginEnabled } from "@/lib/env";
 import { requestStop } from "@/lib/chat-turn-control";
 import { parseClientMessage, serializeServerMessage } from "@/lib/ws-protocol";
 import type { ClientMessage } from "@/lib/ws-protocol";
-import type { Message, QueuedMessage } from "@/lib/types";
+import type { ChatResearchOptions, Message, QueuedMessage } from "@/lib/types";
 import { initializeMcpServers, shutdownAllProcesses } from "@/lib/mcp-client";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { disposeTitleModel, initTitleModel } from "@/lib/local-title-model";
@@ -531,7 +531,7 @@ function broadcastQueueUpdated(mgr: ConversationManager, conversationId: string)
 async function handleUserMessage(
   mgr: ConversationManager,
   ws: WebSocket,
-  msg: { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string },
+  msg: { type: "message"; conversationId: string; content: string; attachmentIds?: string[]; personaId?: string; research?: ChatResearchOptions },
   currentUserId: string,
   versioned = false
 ) {
@@ -544,6 +544,7 @@ async function handleUserMessage(
     mgr.subscribe(msg.conversationId, ws);
   }
   await startChatTurn(mgr, msg.conversationId, msg.content, msg.attachmentIds ?? [], msg.personaId, {
+    research: msg.research,
     onMessagesCreated({ userMessageId }) {
       const userMessage = getMessage(userMessageId, currentUserId);
       if (userMessage) {

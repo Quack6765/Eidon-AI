@@ -254,6 +254,76 @@ describe("home view", () => {
     expect(screen.queryByText("Help me brainstorm ideas")).toBeNull();
   });
 
+  it("carries the deep research choice into the bootstrap payload", async () => {
+    vi.mocked(global.fetch)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ personas: [] })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          conversation: {
+            id: "conv_new"
+          }
+        })
+      } as Response);
+
+    render(
+      React.createElement(HomeView, {
+        providerProfiles: [createProviderProfile()],
+        defaultProviderProfileId: "profile_default",
+        settings: {
+          speechTranscription: {
+            providerId: "browser",
+            configuration: { language: "en" },
+            configured: true,
+            credentialStored: false,
+            scope: "global"
+          },
+          speechCleanupEnabled: false
+        }
+      })
+    );
+
+    fireEvent.change(
+      screen.getByRole("textbox"),
+      {
+        target: {
+          value: "Start this thread"
+        }
+      }
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Deep research" }));
+    expect(screen.getByRole("button", { name: "Deep research" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/api/conversations",
+        expect.objectContaining({
+          method: "POST"
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(push).toHaveBeenCalledWith("/chat/conv_new");
+    });
+
+    expect(JSON.parse(sessionStorage.getItem("eidon:chat-bootstrap:conv_new") ?? "{}")).toMatchObject({
+      message: "Start this thread",
+      research: {}
+    });
+    expect(global.fetch).not.toHaveBeenCalledWith("/api/research/plan", expect.anything());
+    expect(screen.queryByRole("region", { name: "Research plan" })).toBeNull();
+    expect(sessionStorage.getItem("eidon:shell:auto-hide-sidebar-conversation")).toBe(
+      "conv_new"
+    );
+  });
+
   it("carries the selected reasoning effort into the draft conversation", async () => {
     vi.mocked(global.fetch)
       .mockResolvedValueOnce({

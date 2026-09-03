@@ -1,5 +1,7 @@
 import {
   clearWebSearchDiscoveryCache,
+  formatPageContent,
+  getWebPageReader,
   getWebSearchReadinessError,
   searchWeb
 } from "@/lib/web-search";
@@ -138,7 +140,7 @@ describe("web search providers", () => {
     const settings = createRuntimeAppSettings({ webSearch: { providerId: "exa" } });
     discoverMcpToolsMock.mockResolvedValueOnce([{ name: "unrelated", inputSchema: {} }]);
     await expect(searchWeb({ query: "query", settings })).rejects.toThrow(
-      "did not expose its search tool"
+      "did not expose the requested tool"
     );
 
     discoverMcpToolsMock.mockResolvedValueOnce([{ name: "web_search", inputSchema: {} }]);
@@ -168,7 +170,7 @@ describe("web search providers", () => {
     clearWebSearchDiscoveryCache();
     discoverMcpToolsMock.mockResolvedValueOnce([{ name: "unrelated", inputSchema: {} }]);
     await expect(searchWeb({ query: "third", settings })).rejects.toThrow(
-      "did not expose its search tool"
+      "did not expose the requested tool"
     );
     await searchWeb({ query: "fourth", settings });
     expect(discoverMcpToolsMock).toHaveBeenCalledTimes(4);
@@ -268,5 +270,95 @@ describe("web search pipeline configuration", () => {
       providerId: "tavily",
       configuration: { pipeline: { mode: "auto", maxQueries: 4 } }
     });
+  });
+});
+
+describe("web page readers", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearWebSearchDiscoveryCache();
+    discoverMcpToolsMock.mockResolvedValue([
+      { name: "web_fetch_exa", inputSchema: {} },
+      { name: "tavily_extract", inputSchema: {} }
+    ]);
+    callMcpToolMock.mockResolvedValue({ isError: false });
+  });
+
+  it("formats page content with an optional title", () => {
+    expect(formatPageContent("Title", "https://example.com/", "body")).toBe(
+      "# Title\nSource: https://example.com/\n\nbody"
+    );
+    expect(formatPageContent("", "https://example.com/", "body")).toBe("Source: https://example.com/\n\nbody");
+  });
+
+  it("exposes no reader when search is disabled, self-hosted, unconfigured, or missing", () => {
+    expect(getWebPageReader(undefined)).toBeNull();
+    expect(getWebPageReader(createRuntimeAppSettings({ webSearch: { providerId: "disabled" } }))).toBeNull();
+    expect(
+      getWebPageReader(
+        createRuntimeAppSettings({
+          webSearch: { providerId: "searxng", configuration: { baseUrl: "https://search.example.com" } }
+        })
+      )
+    ).toBeNull();
+    expect(getWebPageReader(createRuntimeAppSettings({ webSearch: { providerId: "tavily" } }))).toBeNull();
+  });
+
+  it("reads pages through the Exa fetch tool with an explicit character budget", async () => {
+    getToolResultTextMock.mockReturnValue("# Exa title\nURL: https://example.com/\n\nExa body");
+    const settings = createRuntimeAppSettings({ webSearch: { providerId: "exa" } });
+    const reader = getWebPageReader(settings);
+
+    await expect(
+      reader!({ url: "https://example.com/", maxChars: 5000, settings, timeout: 20_000 })
+    ).resolves.toBe("# Exa title\nURL: https://example.com/\n\nExa body");
+
+    expect(callMcpToolMock).toHaveBeenCalledWith(
+      expect.objectContaining({ url: "https://mcp.exa.ai/mcp" }),
+      "web_fetch_exa",
+      { urls: ["https://example.com/"], maxCharacters: 5000 },
+      20_000,
+      undefined
+    );
+  });
+
+  it("reads pages through Tavily extract and unwraps its JSON payload", async () => {
+    const settings = createRuntimeAppSettings({
+      webSearch: { providerId: "tavily", credentials: { apiKey: "tvly-key" }, credentialStored: true }
+    });
+    const reader = getWebPageReader(settings)!;
+    const read = () => reader({ url: "https://example.com/", maxChars: 32_000, settings });
+
+    getToolResultTextMock.mockReturnValue(
+      JSON.stringify({
+        results: [{ url: "https://example.com/final", title: "Tavily title", raw_content: "# Heading\n\nBody" }],
+        failed_results: []
+      })
+    );
+    await expect(read()).resolves.toBe("# Tavily title\nSource: https://example.com/final\n\n# Heading\n\nBody");
+    expect(callMcpToolMock).toHaveBeenCalledWith(
+      expect.objectContaining({ url: "https://mcp.tavily.com/mcp/?tavilyApiKey=tvly-key" }),
+      "tavily_extract",
+      { urls: ["https://example.com/"], format: "markdown" },
+      undefined,
+      undefined
+    );
+
+    getToolResultTextMock.mockReturnValue(JSON.stringify({ results: [{ raw_content: "body only" }] }));
+    await expect(read()).resolves.toBe("Source: https://example.com/\n\nbody only");
+
+    getToolResultTextMock.mockReturnValue("plain provider text");
+    await expect(read()).resolves.toBe("plain provider text");
+
+    getToolResultTextMock.mockReturnValue(JSON.stringify(null));
+    await expect(read()).resolves.toBe("null");
+
+    getToolResultTextMock.mockReturnValue(
+      JSON.stringify({ results: [], failed_results: [{ url: "https://example.com/", error: "blocked" }] })
+    );
+    await expect(read()).rejects.toThrow("blocked");
+
+    getToolResultTextMock.mockReturnValue(JSON.stringify({ results: [] }));
+    await expect(read()).rejects.toThrow("The page could not be extracted");
   });
 });

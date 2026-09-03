@@ -13,6 +13,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Toast } from "@/components/ui/toast";
+import { DEFAULT_RESEARCH_AUTOMATION_TIMEOUT_MINUTES, MAX_AUTOMATION_RUN_TIMEOUT_MINUTES } from "@/lib/constants";
 import { fieldLabel, selectLike, sectionTitle } from "@/lib/settings-styles";
 import { useToastState } from "@/hooks/use-toast-state";
 import { UnsavedChangesDialog } from "@/components/ui/unsaved-changes-dialog";
@@ -42,6 +43,8 @@ type AutomationFormState = {
   daysOfWeek: number[];
   continuePreviousConversation: boolean;
   enabled: boolean;
+  research: boolean;
+  runTimeoutMinutes: number | null;
 };
 
 const WEEKDAYS = AUTOMATION_WEEKDAYS;
@@ -59,7 +62,9 @@ function createDefaultForm(providerProfileId = ""): AutomationFormState {
     timeOfDay: "09:00",
     daysOfWeek: [1],
     continuePreviousConversation: false,
-    enabled: true
+    enabled: true,
+    research: false,
+    runTimeoutMinutes: null
   };
 }
 
@@ -76,7 +81,9 @@ function automationToForm(automation: Automation): AutomationFormState {
     timeOfDay: automation.timeOfDay ?? "09:00",
     daysOfWeek: automation.daysOfWeek.length ? automation.daysOfWeek : [1],
     continuePreviousConversation: automation.continuePreviousConversation,
-    enabled: automation.enabled
+    enabled: automation.enabled,
+    research: automation.research,
+    runTimeoutMinutes: automation.runTimeoutMinutes
   };
 }
 
@@ -286,7 +293,9 @@ export function AutomationsSection() {
       timeOfDay: form.scheduleKind === "calendar" ? form.timeOfDay : null,
       daysOfWeek: form.scheduleKind === "calendar" && form.calendarFrequency === "weekly" ? form.daysOfWeek : [],
       continuePreviousConversation: form.botId ? false : form.continuePreviousConversation,
-      enabled: form.enabled
+      enabled: form.enabled,
+      research: form.research,
+      runTimeoutMinutes: form.runTimeoutMinutes
     };
 
     try {
@@ -590,6 +599,40 @@ export function AutomationsSection() {
                         />
                         Enabled
                       </label>
+                    </div>
+
+                    <div className="grid gap-5 md:grid-cols-[1fr_200px] md:items-end">
+                      <label className={`flex items-center gap-3 rounded-xl border bg-white/4 px-4 py-3 text-sm text-[var(--text)] cursor-pointer ${isFieldDirty("research") ? "!border-amber-500/40" : "border-white/6"}`}>
+                        <input
+                          type="checkbox"
+                          checked={form.research}
+                          onChange={(event) => setForm((current) => ({ ...current, research: event.target.checked }))}
+                        />
+                        <span>
+                          Deep research
+                          <span className="block text-xs text-[var(--muted)]">
+                            Searches, reads sources, and ends with a cited report. Runs up to {DEFAULT_RESEARCH_AUTOMATION_TIMEOUT_MINUTES} minutes by default.
+                          </span>
+                        </span>
+                      </label>
+                      <div>
+                        <label className={fieldLabel}>Run timeout (minutes)</label>
+                        <Input
+                          aria-label="Run timeout (minutes)"
+                          type="number"
+                          min={1}
+                          max={MAX_AUTOMATION_RUN_TIMEOUT_MINUTES}
+                          placeholder={form.research ? String(DEFAULT_RESEARCH_AUTOMATION_TIMEOUT_MINUTES) : "30"}
+                          value={form.runTimeoutMinutes === null ? "" : String(form.runTimeoutMinutes)}
+                          onChange={(event) =>
+                            setForm((current) => ({
+                              ...current,
+                              runTimeoutMinutes: event.target.value === "" ? null : Math.max(1, Math.min(MAX_AUTOMATION_RUN_TIMEOUT_MINUTES, Number(event.target.value) || 1))
+                            }))
+                          }
+                          className={isFieldDirty("runTimeoutMinutes") ? "!border-amber-500/40" : ""}
+                        />
+                      </div>
                     </div>
 
                     {form.scheduleKind === "interval" ? (
