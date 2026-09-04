@@ -1,8 +1,9 @@
 import { describe, expect, it, beforeEach } from "vitest";
 
 import {
+  acquireBotUserSlot,
   configureBotRunLimits,
-  enqueueBotTask,
+  enqueueSerialTask,
   getBotRunLimiterSnapshot,
   releaseBotUserSlot,
   resetBotRunLimiter,
@@ -25,6 +26,34 @@ describe("bot-run-limiter", () => {
     expect(tryAcquireBotUserSlot("user-1")).toBe(true);
   });
 
+  it("hands a slot to a waiter as soon as one is released", async () => {
+    expect(tryAcquireBotUserSlot("user-1")).toBe(true);
+    expect(tryAcquireBotUserSlot("user-1")).toBe(true);
+
+    let settled: boolean | null = null;
+    const waiting = acquireBotUserSlot("user-1", 1_000).then((acquired) => {
+      settled = acquired;
+      return acquired;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(settled).toBeNull();
+
+    releaseBotUserSlot("user-1");
+    expect(await waiting).toBe(true);
+    expect(getBotRunLimiterSnapshot().activeByUser["user-1"]).toBe(2);
+  });
+
+  it("gives up waiting for a slot after the timeout", async () => {
+    expect(tryAcquireBotUserSlot("user-1")).toBe(true);
+    expect(tryAcquireBotUserSlot("user-1")).toBe(true);
+
+    expect(await acquireBotUserSlot("user-1", 10)).toBe(false);
+    expect(getBotRunLimiterSnapshot().activeByUser["user-1"]).toBe(2);
+
+    releaseBotUserSlot("user-1");
+    expect(getBotRunLimiterSnapshot().activeByUser["user-1"]).toBe(1);
+  });
+
   it("never goes negative on release", () => {
     releaseBotUserSlot("user-1");
     releaseBotUserSlot("user-1");
@@ -33,11 +62,11 @@ describe("bot-run-limiter", () => {
 
   it("serializes tasks for the same bot", async () => {
     const order: string[] = [];
-    const slow = enqueueBotTask("bot-1", async () => {
+    const slow = enqueueSerialTask("bot-1", async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       order.push("slow");
     });
-    const fast = enqueueBotTask("bot-1", async () => {
+    const fast = enqueueSerialTask("bot-1", async () => {
       order.push("fast");
     });
 
@@ -47,11 +76,11 @@ describe("bot-run-limiter", () => {
 
   it("runs tasks for different bots concurrently", async () => {
     const order: string[] = [];
-    const first = enqueueBotTask("bot-1", async () => {
+    const first = enqueueSerialTask("bot-1", async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
       order.push("first");
     });
-    const second = enqueueBotTask("bot-2", async () => {
+    const second = enqueueSerialTask("bot-2", async () => {
       order.push("second");
     });
 
@@ -61,10 +90,10 @@ describe("bot-run-limiter", () => {
 
   it("continues the queue after a failure", async () => {
     const order: string[] = [];
-    const failing = enqueueBotTask("bot-1", async () => {
+    const failing = enqueueSerialTask("bot-1", async () => {
       throw new Error("boom");
     }).catch(() => "failed");
-    const next = enqueueBotTask("bot-1", async () => {
+    const next = enqueueSerialTask("bot-1", async () => {
       order.push("recovered");
     });
 

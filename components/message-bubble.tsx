@@ -36,6 +36,7 @@ import {
 } from "@/components/message-attachments";
 import { BotAvatar } from "@/components/agents/bot-avatar";
 import { useBotAvatarSeed } from "@/hooks/use-bot-avatar-seeds";
+import { describeDelegationStatus, useDelegationStatus, useTicker } from "@/hooks/use-delegation-status";
 import type {
   AutomationProposalOverrides
 } from "@/lib/automation-proposals";
@@ -197,10 +198,14 @@ function DelegateActionLine({
   onToggle: () => void;
 }) {
   const isFailed = action.status === "error" || action.status === "stopped";
-  const canExpand = action.status === "completed" && Boolean(action.resultSummary);
+  const canExpand = (action.status === "completed" || action.status === "error") && Boolean(action.resultSummary);
   const botName =
     DELEGATE_LABEL_PATTERN.exec(action.label)?.[1] ??
     (typeof action.arguments?.bot === "string" ? action.arguments.bot.trim() : "");
+  const isInFlight = action.status === "pending" || action.status === "running";
+  const delegationStatus = useDelegationStatus(action.messageId, botName, isInFlight && Boolean(botName));
+  const now = useTicker(15_000, isInFlight && delegationStatus !== null);
+  const progress = isInFlight ? describeDelegationStatus(delegationStatus, now) : null;
   const line = (
     <span
       className={`flex min-w-0 max-w-full items-center gap-1.5 text-xs leading-4 ${
@@ -251,9 +256,20 @@ function DelegateActionLine({
       ) : (
         line
       )}
+      {progress ? (
+        <span
+          className={`max-w-full truncate text-[11px] leading-4 ${progress.stalled ? "text-amber-300/80" : "text-white/30"}`}
+          data-testid="delegate-action-status"
+        >
+          {progress.text}
+        </span>
+      ) : null}
       {canExpand && isOpen && action.resultSummary ? (
         <div className="max-w-full px-6 text-center text-[11px] break-words whitespace-pre-wrap font-mono">
-          <AnsiText text={action.resultSummary} defaultTextClassName="text-white/35" />
+          <AnsiText
+            text={action.resultSummary}
+            defaultTextClassName={action.status === "error" ? "text-red-300/60" : "text-white/35"}
+          />
         </div>
       ) : null}
     </div>
@@ -1122,8 +1138,8 @@ function MessageBubbleImpl({
                 <InProgressIndicator />
               )
             ) : message.status === "error" ? (
-              <div className="group flex w-full min-w-0 flex-col items-start">
-                <MessageContent className={`w-full ${ASSISTANT_ERROR_MAX_WIDTH} flex-col gap-3`}>
+              <div className="group flex w-full min-w-0 flex-col items-center">
+                <MessageContent className={`w-full ${ASSISTANT_ERROR_MAX_WIDTH} flex-col items-center gap-3`}>
                   {assistantBlocks
                     .filter((item) => item.timelineKind !== "text")
                     .map((item) =>
@@ -1139,7 +1155,7 @@ function MessageBubbleImpl({
                         : renderAssistantActionItem(item)
                     )}
                   <div
-                    className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-red-300/85 shadow-[0_2px_10px_rgba(0,0,0,0.22)] md:px-4 md:py-3"
+                    className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-center text-red-300/85 shadow-[0_2px_10px_rgba(0,0,0,0.22)] md:px-4 md:py-3"
                     data-testid="assistant-error-bubble"
                   >
                     {content || "Something went wrong"}

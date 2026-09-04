@@ -14,7 +14,8 @@ const updateSchema = z.object({
   name: z.string().trim().min(1).max(60).optional(),
   title: z.string().trim().max(120).optional(),
   description: z.string().trim().max(1000).optional(),
-  systemPrompt: z.string().trim().max(8000).optional()
+  systemPrompt: z.string().trim().max(8000).optional(),
+  providerProfileId: z.string().min(1).nullable().optional()
 }).refine(
   (value) => Object.keys(value).length > 0,
   "Invalid bot update"

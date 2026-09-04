@@ -115,6 +115,13 @@ export function updateBotRunStatus(
   return getBotRun(runId);
 }
 
+export function getLatestBotRun(botId: string): BotRun | null {
+  const row = getDb()
+    .prepare(`SELECT ${BOT_RUN_COLUMNS} FROM bot_runs WHERE bot_id = ? ORDER BY created_at DESC, id DESC LIMIT 1`)
+    .get(botId) as BotRunRow | undefined;
+  return row ? rowToBotRun(row) : null;
+}
+
 export function deleteBotRun(runId: string) {
   getDb().prepare("DELETE FROM bot_runs WHERE id = ?").run(runId);
 }

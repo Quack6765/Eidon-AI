@@ -849,6 +849,7 @@ export function ChatView({
 
     if (event.type === "action_complete" || event.type === "action_error") {
       clearCompactionIndicator();
+      setMessages((current) => replaceMessageAction(current, event.action));
       updateStreamTimeline((previous) =>
         updateStreamingAction(
           completeStreamingThinkingPhase(
