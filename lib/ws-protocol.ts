@@ -9,7 +9,8 @@ import type {
   MessageAction,
   MessageAttachment,
   MessageTextSegment,
-  QueuedMessage
+  QueuedMessage,
+  TurnActivity
 } from "@/lib/types";
 
 export type MobileAttachmentDto = Omit<MessageAttachment, "relativePath" | "extractedText">;
@@ -43,7 +44,8 @@ export type ServerMessage =
   | { type: "conversation_title_updated"; conversationId: string; title: string }
   | { type: "bot_updated"; bot: BotSummary }
   | { type: "bot_deleted"; botId: string }
-  | { type: "bot_run_updated"; run: BotRun };
+  | { type: "bot_run_updated"; run: BotRun }
+  | { type: "bot_activity"; conversationId: string; activity: TurnActivity | null };
 
 export function serializeClientMessage(msg: ClientMessage): string {
   return JSON.stringify(msg);

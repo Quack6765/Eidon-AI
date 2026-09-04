@@ -811,6 +811,29 @@ function migrateCompactionEventsTable(db: Database.Database) {
   console.log(`[db] Compaction events rebuild done in ${Date.now() - startedAt}ms`);
 }
 
+function runOnce(db: Database.Database, name: string, apply: () => void) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS migration_flags (
+      name TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL
+    );
+  `);
+  const applied = db.prepare("SELECT 1 FROM migration_flags WHERE name = ?").get(name);
+  if (applied) return;
+  apply();
+  db.prepare("INSERT INTO migration_flags (name, applied_at) VALUES (?, ?)").run(name, new Date().toISOString());
+}
+
+export function migrateBotConversationsToFollowDefaultProvider(db: Database.Database) {
+  runOnce(db, "bot_conversations_follow_default_provider", () => {
+    db.exec(
+      `UPDATE conversations
+       SET provider_profile_id = NULL
+       WHERE id IN (SELECT home_conversation_id FROM bots)`
+    );
+  });
+}
+
 export function reconcileInterruptedRuntimeState(
   db: Database.Database,
   timestamp = new Date().toISOString()
@@ -857,6 +880,24 @@ export function reconcileInterruptedRuntimeState(
          WHERE status = 'running'`
       )
       .run(timestamp).changes;
+    const botRuns = db
+      .prepare(
+        `UPDATE bot_runs
+         SET status = 'failed',
+             error_message = 'Bot run was interrupted by server restart',
+             finished_at = COALESCE(finished_at, ?)
+         WHERE status IN ('queued', 'running')`
+      )
+      .run(timestamp).changes;
+    const delegationActions = db
+      .prepare(
+        `UPDATE message_actions
+         SET status = 'error',
+             result_summary = 'The bot run was interrupted by a server restart.',
+             completed_at = COALESCE(completed_at, ?)
+         WHERE status = 'pending' AND kind IN ('message_bot', 'delegate_task')`
+      )
+      .run(timestamp).changes;
 
     db.prepare(
       `UPDATE automations
@@ -866,7 +907,7 @@ export function reconcileInterruptedRuntimeState(
        WHERE last_status = 'running'`
     ).run(timestamp, timestamp);
 
-    return { conversations, messages, actions, titles, queuedMessages, automationRuns };
+    return { conversations, messages, actions, titles, queuedMessages, automationRuns, botRuns, delegationActions };
   });
 
   return transaction.immediate();
@@ -2070,6 +2111,7 @@ export function migrate(db: Database.Database) {
   if (!hadSemanticChunksTable) {
     console.log("[db] Created semantic_chunks table");
   }
+  migrateBotConversationsToFollowDefaultProvider(db);
   console.log(`[db] Database migrations complete in ${Date.now() - migrationStartedAt}ms`);
 }
 

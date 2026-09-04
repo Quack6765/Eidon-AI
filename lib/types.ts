@@ -191,6 +191,13 @@ export type BotRun = {
 
 export type BotStatus = "idle" | "queued" | "running";
 
+export type TurnActivity = {
+  startedAt: string;
+  lastActivityAt: string;
+  currentAction: string | null;
+  stalled: boolean;
+};
+
 export type BotSummary = {
   id: string;
   name: string;
@@ -199,6 +206,7 @@ export type BotSummary = {
   avatarSeed: string;
   isChief: boolean;
   homeConversationId: string;
+  providerProfileId: string | null;
   status: BotStatus;
   waitingForInput: boolean;
   lastRunAt: string | null;

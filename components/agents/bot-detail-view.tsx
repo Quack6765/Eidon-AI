@@ -305,9 +305,10 @@ export function BotDetailView({
     title: string;
     description: string;
     systemPrompt: string;
+    providerProfileId: string | null;
   }) {
     try {
-      const body: Record<string, string> = {
+      const body: Record<string, string | null> = {
         name: values.name,
         title: values.title,
         description: values.description
@@ -315,6 +316,10 @@ export function BotDetailView({
 
       if (values.systemPrompt !== systemPrompt) {
         body.systemPrompt = values.systemPrompt;
+      }
+
+      if (values.providerProfileId !== bot.providerProfileId) {
+        body.providerProfileId = values.providerProfileId;
       }
 
       const response = await fetch(`/api/bots/${bot.id}`, {
@@ -719,6 +724,8 @@ export function BotDetailView({
         submitLabel="Save changes"
         title="Edit bot"
         description="Update how this bot presents itself and works."
+        providerProfiles={conversationPayload.providerProfiles ?? []}
+        defaultProviderProfileId={conversationPayload.defaultProviderProfileId ?? null}
         onSubmit={handleEdit}
       />
 

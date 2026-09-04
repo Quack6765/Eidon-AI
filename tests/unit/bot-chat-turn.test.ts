@@ -89,6 +89,35 @@ describe("bot chat turns", () => {
     setupProvider();
   });
 
+  it("broadcasts live turn activity for bot conversations to the owner", async () => {
+    const user = await createLocalUser({ username: "activityowner", password: "password-123", role: "user" as const });
+    const bot = createBot({ name: "Tracker" }, user.id);
+    stubStream();
+
+    const { startChatTurn } = await import("@/lib/chat-turn");
+    const { getTurnActivity } = await import("@/lib/turn-activity");
+    const manager = createConversationManager();
+    const events: Array<Record<string, unknown>> = [];
+    const socket = { readyState: 1, send: (data: string) => events.push(JSON.parse(data)), close: () => {} };
+    manager.addConnection(socket as never, user.id);
+
+    const result = await startChatTurn(manager, bot.homeConversationId, "Hi", []);
+    expect(result.status).toBe("completed");
+
+    const activityEvents = events.filter((event) => event.type === "bot_activity");
+    expect(activityEvents.length).toBeGreaterThanOrEqual(2);
+    expect(activityEvents[0]).toMatchObject({
+      conversationId: bot.homeConversationId,
+      activity: { currentAction: null, stalled: false }
+    });
+    expect(activityEvents.at(-1)).toEqual({
+      type: "bot_activity",
+      conversationId: bot.homeConversationId,
+      activity: null
+    });
+    expect(getTurnActivity(bot.homeConversationId)).toBeNull();
+  });
+
   it("uses the bot system prompt and records a dm run", async () => {
     const user = await createLocalUser({ username: "dmowner", password: "password-123", role: "user" as const });
     const bot = createBot({ name: "Keeper", title: "Records" }, user.id);

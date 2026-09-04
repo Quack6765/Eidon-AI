@@ -129,6 +129,37 @@ describe("bots", () => {
     expect(workerPrompt).not.toContain("update_bot");
   });
 
+  it("bot home conversations follow the default provider until one is chosen", async () => {
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createProviderProfileInput } = await import("@/tests/provider-fixtures");
+    const { updateBot } = await import("@/lib/bots");
+
+    const user = await createLocalUser({ username: "botprovider", password: "password-123", role: "user" as const });
+    const primary = createProviderProfileInput({ id: "profile_bot_primary", name: "Primary", model: "gpt-primary" });
+    const secondary = createProviderProfileInput({ id: "profile_bot_secondary", name: "Secondary", model: "gpt-secondary" });
+    updateProviderCatalog({
+      defaultProviderProfileId: primary.id,
+      skillsEnabled: false,
+      providerProfiles: [primary, secondary]
+    });
+
+    const bot = createBot({ name: "Provider Bot" }, user.id);
+    expect(getConversation(bot.homeConversationId, user.id)?.providerProfileId).toBeNull();
+    expect(toBotSummary(bot).providerProfileId).toBeNull();
+
+    updateBot(bot.id, { providerProfileId: secondary.id }, user.id);
+    expect(getConversation(bot.homeConversationId, user.id)?.providerProfileId).toBe(secondary.id);
+    expect(toBotSummary(getBot(bot.id, user.id)!).providerProfileId).toBe(secondary.id);
+
+    expect(() => updateBot(bot.id, { providerProfileId: "profile_missing" }, user.id)).toThrow(
+      "Provider profile not found"
+    );
+    expect(getConversation(bot.homeConversationId, user.id)?.providerProfileId).toBe(secondary.id);
+
+    updateBot(bot.id, { providerProfileId: null }, user.id);
+    expect(getConversation(bot.homeConversationId, user.id)?.providerProfileId).toBeNull();
+  });
+
   it("deleting a bot disables its automations and removes its thread", async () => {
     const { createAutomation } = await import("@/lib/automations");
     const { updateProviderCatalog } = await import("@/lib/settings");

@@ -2,7 +2,14 @@ import { randomInt } from "node:crypto";
 
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
-import { createConversation, deleteConversation, getConversation, renameConversation } from "@/lib/conversations";
+import {
+  createConversation,
+  deleteConversation,
+  getConversation,
+  renameConversation,
+  updateConversationProviderProfile
+} from "@/lib/conversations";
+import { getProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { nowIso } from "@/lib/utils";
 import { ensureBotWorkspace, removeBotBrowserSession, removeBotWorkspace } from "@/lib/bot-sandbox";
@@ -125,6 +132,7 @@ function buildWorkerCommunicationBlock(bot: Bot) {
     "Communicating with other bots:",
     "- Send a message to any other bot on the team, including the chief of staff, with message_bot. It returns immediately — the other bot works on it in the background and its reply arrives in your conversation as a new message.",
     "- When another bot messages you, answer normally in your regular response — your answer is delivered back to the sender automatically. Do not use message_bot to reply to a message; use it only to start a new exchange with another bot.",
+    "- To see how a bot you messaged is doing, use check_bot instead of messaging it again.",
     "- Only the chief of staff can create or edit bots. If a job needs a new teammate or a changed role, message the chief of staff directly.",
     "",
     ...rosterLines
@@ -143,6 +151,8 @@ function buildChiefPolicyBlock(bot: Bot) {
     "How you work:",
     "- Answer directly for quick questions and small tasks you can handle yourself.",
     "- Delegate substantive or recurring work to the specialist bot that owns that area using message_bot. It returns immediately: after sending, tell the user right away what you asked and that you will let them know once you have the answer, then continue with other work. The bot's reply arrives here as a new message — report it to the user directly in this conversation when it lands.",
+    "- You can message several bots at once; they work in parallel and each reply arrives as its own message whenever that bot finishes. Report each reply as it lands and keep track of which bots you are still waiting on.",
+    "- To see how a bot is doing, use check_bot — it reports its status, elapsed time, current step, and output so far without interrupting it. Never message a bot just to ask for a status update.",
     "- Never use message_bot to acknowledge, confirm, or send a bot's reply back to it. Your answers in this conversation are for the user; bots already receive their instructions and their own replies. Only call message_bot to give a bot new instructions or ask it a new question.",
     "- When a bot's responsibilities change, update it with update_bot (rename it, or revise its title, description, or system prompt) instead of creating a duplicate.",
     "- Never message yourself.",
@@ -274,7 +284,7 @@ export function createBot(
   const description = input.description?.trim() ?? "";
 
   const createBotRecord = getDb().transaction(() => {
-    const conversation = createConversation(name, null, { origin: "bot" }, userId ?? undefined);
+    const conversation = createConversation(name, null, { origin: "bot", providerProfileId: null }, userId ?? undefined);
     return insertBot({
       userId: userId ?? undefined,
       name,
@@ -312,11 +322,19 @@ export function updateBot(
     title?: string;
     description?: string;
     systemPrompt?: string;
+    providerProfileId?: string | null;
   },
   userId?: string
 ): Bot | null {
   const current = getBot(botId, userId);
   if (!current) return null;
+
+  if (patch.providerProfileId !== undefined) {
+    if (patch.providerProfileId !== null && !getProviderProfile(patch.providerProfileId)) {
+      throw new Error("Provider profile not found");
+    }
+    updateConversationProviderProfile(current.homeConversationId, patch.providerProfileId, userId);
+  }
 
   const nextName = patch.name?.trim();
   if (nextName !== undefined) {
@@ -431,6 +449,7 @@ export function markBotPendingInputSeen(botId: string, userId?: string): Bot | n
 export function toBotSummary(bot: Bot): BotSummary {
   const pendingInputAt = getBotPendingInputAt(bot);
   return {
+    providerProfileId: getConversation(bot.homeConversationId)?.providerProfileId ?? null,
     id: bot.id,
     name: bot.name,
     title: bot.title,
