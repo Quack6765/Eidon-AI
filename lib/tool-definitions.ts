@@ -265,6 +265,25 @@ export function buildToolDefinitions(input: {
       }
     });
 
+    tools.push({
+      type: "function",
+      function: {
+        name: "check_bot",
+        description:
+          "Check on a bot without interrupting it: returns whether it is idle, queued, running or stalled, how long it has been working, its current step, and its latest output so far. Use this when the user asks how a delegated task is going. Never use message_bot just to ask a bot for a status update.",
+        parameters: {
+          type: "object",
+          properties: {
+            bot: {
+              type: "string",
+              description: "Name or id of a bot on the team"
+            }
+          },
+          required: ["bot"]
+        }
+      }
+    });
+
     if (input.botTeam.isChief) {
       tools.push(
         {

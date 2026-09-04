@@ -221,7 +221,7 @@
     "BotSummary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "name", "title", "description", "avatarSeed", "isChief", "homeConversationId", "status", "waitingForInput", "lastRunAt", "createdAt", "updatedAt"],
+      "required": ["id", "name", "title", "description", "avatarSeed", "isChief", "homeConversationId", "providerProfileId", "status", "waitingForInput", "lastRunAt", "createdAt", "updatedAt"],
       "properties": {
         "id": { "$ref": "#/$defs/OpaqueId" },
         "name": { "type": "string" },
@@ -230,6 +230,7 @@
         "avatarSeed": { "type": "string" },
         "isChief": { "type": "boolean" },
         "homeConversationId": { "$ref": "#/$defs/OpaqueId" },
+        "providerProfileId": { "oneOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
         "status": { "type": "string", "enum": ["idle", "queued", "running"] },
         "waitingForInput": { "type": "boolean" },
         "lastRunAt": { "anyOf": [{ "$ref": "#/$defs/Timestamp" }, { "type": "null" }] },
@@ -237,6 +238,7 @@
         "updatedAt": { "$ref": "#/$defs/Timestamp" }
       }
     },
+    "TurnActivity": { "type": "object", "additionalProperties": false, "required": ["startedAt", "lastActivityAt", "currentAction", "stalled"], "properties": { "startedAt": { "$ref": "#/$defs/Timestamp" }, "lastActivityAt": { "$ref": "#/$defs/Timestamp" }, "currentAction": { "type": ["string", "null"] }, "stalled": { "type": "boolean" } } },
     "BotRun": {
       "type": "object",
       "additionalProperties": false,
@@ -278,7 +280,8 @@
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "title"], "properties": { "type": { "const": "conversation_title_updated" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "title": { "type": "string" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "bot"], "properties": { "type": { "const": "bot_updated" }, "bot": { "$ref": "#/$defs/BotSummary" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "botId"], "properties": { "type": { "const": "bot_deleted" }, "botId": { "$ref": "#/$defs/OpaqueId" } } },
-        { "type": "object", "additionalProperties": false, "required": ["type", "run"], "properties": { "type": { "const": "bot_run_updated" }, "run": { "$ref": "#/$defs/BotRun" } } }
+        { "type": "object", "additionalProperties": false, "required": ["type", "run"], "properties": { "type": { "const": "bot_run_updated" }, "run": { "$ref": "#/$defs/BotRun" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "activity"], "properties": { "type": { "const": "bot_activity" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "activity": { "oneOf": [{ "$ref": "#/$defs/TurnActivity" }, { "type": "null" }] } } }
       ]
     }
   }

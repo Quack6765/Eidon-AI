@@ -276,6 +276,30 @@ export function failQueuedMessage({
   return result.changes > 0;
 }
 
+export function requeueQueuedMessage({
+  conversationId,
+  queuedMessageId
+}: {
+  conversationId: string;
+  queuedMessageId: string;
+}) {
+  const timestamp = nowIso();
+  const result = getDb()
+    .prepare(
+      `UPDATE queued_messages
+       SET status = 'pending',
+           failure_message = NULL,
+           processing_started_at = NULL,
+           updated_at = ?
+       WHERE id = ?
+         AND conversation_id = ?
+         AND status = 'processing'`
+    )
+    .run(timestamp, queuedMessageId, conversationId);
+
+  return result.changes > 0;
+}
+
 export function markOrphanedQueuedMessagesFailed(
   conversationId: string,
   failureMessage = "Queued follow-up was abandoned before dispatch completed"

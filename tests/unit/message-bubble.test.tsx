@@ -4,6 +4,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { MessageBubble, parseDelegationWakeMessage } from "@/components/message-bubble";
+import { ingestBotsPayload, resetDelegationStatusForTests } from "@/hooks/use-delegation-status";
 import type { Message } from "@/lib/types";
 
 function createAssistantMessage(): Message {
@@ -245,6 +246,20 @@ describe("message bubble bot action cards", () => {
     };
   }
 
+  it("centers a failed assistant message instead of anchoring it to the left", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "error", content: "401 Incorrect API key provided." }
+      })
+    );
+
+    const bubble = screen.getByTestId("assistant-error-bubble");
+    expect(bubble).toHaveTextContent("401 Incorrect API key provided.");
+    expect(bubble.className).toContain("text-center");
+    expect(bubble.parentElement?.className).toContain("items-center");
+    expect(bubble.parentElement?.parentElement?.className).toContain("items-center");
+  });
+
   it("renders a running delegate_task action as a centered static muted line", () => {
     const { container } = render(
       React.createElement(MessageBubble, {
@@ -265,6 +280,91 @@ describe("message bubble bot action cards", () => {
     expect(line.dataset.actionStatus).toBe("running");
     expect(line.querySelector(".animate-spin")).toBeNull();
     expect(container.querySelector('[data-testid="assistant-actions-shell"]')).toBeNull();
+  });
+
+  it("shows live progress under a pending message_bot line and highlights stalls", () => {
+    const startedAt = new Date(Date.now() - 6 * 60_000).toISOString();
+    ingestBotsPayload({
+      bots: [
+        {
+          id: "bot_inbox",
+          name: "Inbox Bot",
+          title: "",
+          description: "",
+          avatarSeed: "seed",
+          isChief: false,
+          homeConversationId: "conv_inbox",
+          providerProfileId: null,
+          status: "running",
+          waitingForInput: false,
+          lastRunAt: startedAt,
+          createdAt: startedAt,
+          updatedAt: startedAt
+        }
+      ],
+      runs: [
+        {
+          id: "run_inbox",
+          botId: "bot_inbox",
+          conversationId: "conv_inbox",
+          triggerSource: "delegated",
+          status: "running",
+          startedAt,
+          finishedAt: null,
+          parentMessageId: "msg_assistant",
+          errorMessage: null,
+          createdAt: startedAt
+        }
+      ],
+      activities: {
+        conv_inbox: {
+          startedAt,
+          lastActivityAt: new Date(Date.now() - 4 * 60_000).toISOString(),
+          currentAction: null,
+          stalled: true
+        }
+      }
+    });
+
+    try {
+      render(
+        React.createElement(MessageBubble, {
+          message: createTimelineMessage([
+            {
+              id: "action_delegate_live",
+              kind: "message_bot",
+              status: "pending",
+              label: "Messaged Inbox Bot",
+              detail: "→ Inbox Bot: Triage the inbox"
+            }
+          ])
+        })
+      );
+
+      const status = screen.getByTestId("delegate-action-status");
+      expect(status).toHaveTextContent("working 6m · no activity for 4m");
+      expect(status.className).toContain("text-amber-300/80");
+    } finally {
+      resetDelegationStatusForTests();
+    }
+  });
+
+  it("shows no progress line for a pending message_bot action with no known run", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: createTimelineMessage([
+          {
+            id: "action_delegate_unknown",
+            kind: "message_bot",
+            status: "pending",
+            label: "Messaged Inbox Bot",
+            detail: "→ Inbox Bot: Triage the inbox"
+          }
+        ])
+      })
+    );
+
+    expect(screen.queryByTestId("delegate-action-status")).toBeNull();
   });
 
   it("renders a completed delegate_task action as a muted line while other actions stay cards", () => {
@@ -497,6 +597,31 @@ describe("delegation event lines", () => {
 
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("Triaged 12 emails and filed 3 replies.")).toBeInTheDocument();
+  });
+
+  it("lets a failed delegate line expand to reveal the failure reason", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: createDelegationMessage([
+          {
+            id: "action_delegate_failed_reason",
+            kind: "message_bot",
+            status: "error",
+            label: "Messaged Inbox Bot",
+            detail: "→ Inbox Bot: Tell a joke",
+            resultSummary: "The bot run failed: 401 Incorrect API key provided."
+          }
+        ])
+      })
+    );
+
+    const toggle = screen.getByRole("button", { name: /Messaged Inbox Bot/ });
+    expect(screen.queryByText("The bot run failed: 401 Incorrect API key provided.")).toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(screen.getByText("The bot run failed: 401 Incorrect API key provided.")).toBeInTheDocument();
+    expect(screen.getByTestId("delegate-action-line").dataset.actionStatus).toBe("error");
   });
 
   it("renders the roster avatar inline on the delegate event line", async () => {

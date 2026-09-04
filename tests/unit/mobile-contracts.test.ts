@@ -259,6 +259,7 @@ describe("Mobile API v1 contracts", () => {
     expect(serverMessages).toContain("bot_updated");
     expect(serverMessages).toContain("bot_deleted");
     expect(serverMessages).toContain("bot_run_updated");
+    expect(serverMessages).toContain("bot_activity");
     expect(serverMessages).toContain("code");
 
     expect(contract.$defs.Attachment.properties).not.toHaveProperty("relativePath");

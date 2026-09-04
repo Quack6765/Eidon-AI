@@ -6,7 +6,8 @@ export const DEFAULT_BOT_RUN_TIMEOUT_MS = 30 * 60_000;
 type LimiterState = {
   maxConcurrentPerUser: number;
   activeByUser: Map<string, number>;
-  botQueues: Map<string, Promise<unknown>>;
+  slotWaitersByUser: Map<string, Set<() => void>>;
+  serialQueues: Map<string, Promise<unknown>>;
 };
 
 function getLimiterState() {
@@ -15,7 +16,8 @@ function getLimiterState() {
     scope[LIMITER_REGISTRY_KEY] = {
       maxConcurrentPerUser: DEFAULT_MAX_CONCURRENT_BOT_RUNS_PER_USER,
       activeByUser: new Map(),
-      botQueues: new Map()
+      slotWaitersByUser: new Map(),
+      serialQueues: new Map()
     };
   }
   return scope[LIMITER_REGISTRY_KEY];
@@ -38,6 +40,37 @@ export function tryAcquireBotUserSlot(userId: string): boolean {
   return true;
 }
 
+export function acquireBotUserSlot(userId: string, timeoutMs: number): Promise<boolean> {
+  if (tryAcquireBotUserSlot(userId)) {
+    return Promise.resolve(true);
+  }
+
+  return new Promise<boolean>((resolve) => {
+    const state = getLimiterState();
+    let waiters = state.slotWaitersByUser.get(userId);
+    if (!waiters) {
+      waiters = new Set();
+      state.slotWaitersByUser.set(userId, waiters);
+    }
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const finish = (acquired: boolean) => {
+      if (timer) clearTimeout(timer);
+      state.slotWaitersByUser.get(userId)?.delete(attempt);
+      resolve(acquired);
+    };
+    const attempt = () => {
+      if (tryAcquireBotUserSlot(userId)) {
+        finish(true);
+      }
+    };
+
+    waiters.add(attempt);
+    timer = setTimeout(() => finish(false), timeoutMs);
+    timer.unref?.();
+  });
+}
+
 export function releaseBotUserSlot(userId: string) {
   const state = getLimiterState();
   const active = state.activeByUser.get(userId) ?? 0;
@@ -46,6 +79,15 @@ export function releaseBotUserSlot(userId: string) {
   } else {
     state.activeByUser.set(userId, active - 1);
   }
+
+  const waiters = state.slotWaitersByUser.get(userId);
+  if (!waiters) return;
+  for (const attempt of [...waiters]) {
+    attempt();
+  }
+  if (waiters.size === 0) {
+    state.slotWaitersByUser.delete(userId);
+  }
 }
 
 export function getBotRunLimiterSnapshot() {
@@ -53,26 +95,27 @@ export function getBotRunLimiterSnapshot() {
   return {
     maxConcurrentPerUser: state.maxConcurrentPerUser,
     activeByUser: Object.fromEntries(state.activeByUser),
-    queuedBots: [...state.botQueues.keys()]
+    queuedKeys: [...state.serialQueues.keys()]
   };
 }
 
-export async function enqueueBotTask<T>(botId: string, task: () => Promise<T>): Promise<T> {
+export async function enqueueSerialTask<T>(key: string, task: () => Promise<T>): Promise<T> {
   const state = getLimiterState();
-  const previous = state.botQueues.get(botId) ?? Promise.resolve();
+  const previous = state.serialQueues.get(key) ?? Promise.resolve();
   const run = previous.catch(() => {}).then(task);
   const tracked = run.finally(() => {
-    if (state.botQueues.get(botId) === trackedTail) {
-      state.botQueues.delete(botId);
+    if (state.serialQueues.get(key) === trackedTail) {
+      state.serialQueues.delete(key);
     }
   });
   const trackedTail = tracked.catch(() => {});
-  state.botQueues.set(botId, trackedTail);
+  state.serialQueues.set(key, trackedTail);
   return tracked;
 }
 
 export function resetBotRunLimiter() {
   const state = getLimiterState();
   state.activeByUser.clear();
-  state.botQueues.clear();
+  state.slotWaitersByUser.clear();
+  state.serialQueues.clear();
 }

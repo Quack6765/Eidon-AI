@@ -4,12 +4,17 @@ import {
   failQueuedMessage,
   getConversation,
   listQueuedMessages,
-  markOrphanedQueuedMessagesFailed
+  markOrphanedQueuedMessagesFailed,
+  requeueQueuedMessage
 } from "@/lib/conversations";
 import type { ConversationManager } from "@/lib/conversation-manager";
 import type { StartChatTurn } from "@/lib/chat-turn";
 
 const dispatchLocks = new Set<string>();
+
+function isBusyTurnFailure(errorMessage: string | undefined) {
+  return /already has an active/i.test(errorMessage ?? "");
+}
 
 function broadcastQueueUpdated(manager: ConversationManager, conversationId: string) {
   manager.broadcast(conversationId, {
@@ -68,6 +73,7 @@ export async function ensureQueuedDispatch({
         undefined,
         {
           source: "queue",
+          quietWhenBusy: true,
           onMessagesCreated() {
             messagesCreated = true;
             deleteQueuedMessage({
@@ -80,6 +86,14 @@ export async function ensureQueuedDispatch({
       );
 
       if ((result.status === "failed" || result.status === "skipped") && !messagesCreated) {
+        if (result.status === "failed" && isBusyTurnFailure(result.errorMessage)) {
+          requeueQueuedMessage({
+            conversationId,
+            queuedMessageId: queued.id
+          });
+          broadcastQueueUpdated(manager, conversationId);
+          return;
+        }
         failQueuedMessage({
           conversationId,
           queuedMessageId: queued.id,
