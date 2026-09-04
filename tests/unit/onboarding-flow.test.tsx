@@ -43,9 +43,17 @@ function makeSettings(): OnboardingSettings {
   };
 }
 
-function renderFlow(role: UserRole = "admin") {
+function renderFlow(
+  role: UserRole = "admin",
+  options: { hasProviderConfigured?: boolean; hasMcpServerConfigured?: boolean } = {}
+) {
   return render(
-    React.createElement(OnboardingFlow, { role, settings: makeSettings() })
+    React.createElement(OnboardingFlow, {
+      role,
+      settings: makeSettings(),
+      hasProviderConfigured: options.hasProviderConfigured ?? false,
+      hasMcpServerConfigured: options.hasMcpServerConfigured ?? false
+    })
   );
 }
 
@@ -90,6 +98,36 @@ describe("onboarding flow", () => {
     // Never offered the provider or MCP steps.
     expect(screen.queryByText("Connect a model provider")).toBeNull();
     expect(screen.queryByText("Add an MCP server")).toBeNull();
+  });
+
+  it("skips the provider step for an admin who already has a provider", async () => {
+    renderFlow("admin", { hasProviderConfigured: true });
+    startFlow();
+    expect(screen.getByText("Step 1 of 3")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("Step 2 of 3")).toBeTruthy());
+    expect(screen.getByText("How should tool calls look?")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("Add an MCP server")).toBeTruthy());
+    expect(screen.queryByText("Connect a model provider")).toBeNull();
+  });
+
+  it("goes straight through the preference steps when everything is configured", async () => {
+    renderFlow("admin", { hasProviderConfigured: true, hasMcpServerConfigured: true });
+    startFlow();
+    expect(screen.getByText("Step 1 of 2")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("Step 2 of 2")).toBeTruthy());
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(screen.getByText("You're set up")).toBeTruthy());
+    expect(screen.queryByText("Connect a model provider")).toBeNull();
+    expect(screen.queryByText("Add an MCP server")).toBeNull();
+    expect(screen.getByText("Opening into Chat")).toBeTruthy();
+    expect(screen.getByText("Tool activity shown as pills")).toBeTruthy();
   });
 
   it("saves the chosen default view when advancing", async () => {

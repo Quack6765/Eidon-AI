@@ -51,16 +51,23 @@ async function readError(response: Response, fallback: string) {
 
 export function OnboardingFlow({
   role,
-  settings
+  settings,
+  hasProviderConfigured = false,
+  hasMcpServerConfigured = false
 }: {
   role: UserRole;
   settings: OnboardingSettings;
+  hasProviderConfigured?: boolean;
+  hasMcpServerConfigured?: boolean;
 }) {
   const router = useRouter();
   const toast = useToastState();
   const { showToast } = toast;
 
-  const steps = useMemo(() => getOnboardingSteps(role), [role]);
+  const steps = useMemo(
+    () => getOnboardingSteps(role, { hasProviderConfigured, hasMcpServerConfigured }),
+    [role, hasProviderConfigured, hasMcpServerConfigured]
+  );
   const [stepIndex, setStepIndex] = useState(0);
   const step = steps[stepIndex];
   const progress = getOnboardingProgress(steps, step);

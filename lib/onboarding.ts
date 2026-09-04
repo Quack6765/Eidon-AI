@@ -28,9 +28,21 @@ export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
 /** Provider and MCP configuration are admin-only, so non-admins get a shorter flow. */
 const ADMIN_ONLY_STEPS: ReadonlySet<OnboardingStep> = new Set(["provider", "mcp-server"]);
 
-export function getOnboardingSteps(role: UserRole): OnboardingStep[] {
-  if (role === "admin") return [...ONBOARDING_STEPS];
-  return ONBOARDING_STEPS.filter((step) => !ADMIN_ONLY_STEPS.has(step));
+export type OnboardingStepContext = {
+  hasProviderConfigured?: boolean;
+  hasMcpServerConfigured?: boolean;
+};
+
+export function getOnboardingSteps(
+  role: UserRole,
+  context: OnboardingStepContext = {}
+): OnboardingStep[] {
+  return ONBOARDING_STEPS.filter((step) => {
+    if (ADMIN_ONLY_STEPS.has(step) && role !== "admin") return false;
+    if (step === "provider" && context.hasProviderConfigured) return false;
+    if (step === "mcp-server" && context.hasMcpServerConfigured) return false;
+    return true;
+  });
 }
 
 /**
