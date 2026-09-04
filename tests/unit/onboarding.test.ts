@@ -66,6 +66,35 @@ describe("onboarding steps", () => {
     expect(getOnboardingProgress(steps, "default-view")).toEqual({ current: 1, total: 2 });
     expect(getOnboardingProgress(steps, "tool-display")).toEqual({ current: 2, total: 2 });
   });
+
+  it("skips the provider step when a provider is already configured", () => {
+    const steps = getOnboardingSteps("admin", { hasProviderConfigured: true });
+    expect(steps).toEqual(["welcome", "default-view", "tool-display", "mcp-server", "done"]);
+  });
+
+  it("skips the MCP step when an MCP server already exists", () => {
+    const steps = getOnboardingSteps("admin", { hasMcpServerConfigured: true });
+    expect(steps).toEqual(["welcome", "default-view", "tool-display", "provider", "done"]);
+  });
+
+  it("skips both admin setup steps when both are configured", () => {
+    const steps = getOnboardingSteps("admin", {
+      hasProviderConfigured: true,
+      hasMcpServerConfigured: true
+    });
+    expect(steps).toEqual(["welcome", "default-view", "tool-display", "done"]);
+  });
+
+  it("recomputes progress totals over skipped steps", () => {
+    const providerSkipped = getOnboardingSteps("admin", { hasProviderConfigured: true });
+    expect(getOnboardingProgress(providerSkipped, "tool-display")).toEqual({ current: 2, total: 3 });
+
+    const bothSkipped = getOnboardingSteps("admin", {
+      hasProviderConfigured: true,
+      hasMcpServerConfigured: true
+    });
+    expect(getOnboardingProgress(bothSkipped, "tool-display")).toEqual({ current: 2, total: 2 });
+  });
 });
 
 describe("buildProviderCatalogPayload", () => {
