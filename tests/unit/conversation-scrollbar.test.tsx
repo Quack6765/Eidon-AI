@@ -167,7 +167,7 @@ describe("ConversationScrollbar", () => {
     expect(track.className).toContain("opacity-0");
 
     fireEvent.scroll(scroller);
-    expect(track.className).toContain("pointer-fine:opacity-0");
+    expect(track.className).toContain("opacity-0");
 
     fireEvent.wheel(scroller, { deltaY: 24 });
     fireEvent.scroll(scroller);
@@ -379,14 +379,14 @@ describe("ConversationScrollbar", () => {
     expect(scrollMetrics.scrollTop).toBe(278);
   });
 
-  it("keeps the strip always visible and touchable on coarse pointers while hiding it on fine pointers", () => {
+  it("keeps the strip hidden but touchable on every pointer type while overflowing", () => {
     vi.useFakeTimers();
     scrollMetrics = { scrollTop: 0, scrollHeight: 600, clientHeight: 100 };
     const { track } = renderScrollbar();
     const scroller = stickContextMock.scrollRef.current as HTMLElement;
 
-    expect(track.className).toContain("pointer-fine:opacity-0");
-    expect(track.className).not.toContain("pointer-fine:pointer-events-none");
+    expect(track.className.split(" ")).toContain("opacity-0");
+    expect(track.className).not.toContain("pointer-fine:opacity-0");
     expect(track.className.split(" ")).not.toContain("pointer-events-none");
 
     fireEvent.wheel(scroller, { deltaY: 24 });
@@ -396,7 +396,7 @@ describe("ConversationScrollbar", () => {
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(track.className).toContain("pointer-fine:opacity-0");
+    expect(track.className.split(" ")).toContain("opacity-0");
     expect(track.className.split(" ")).not.toContain("pointer-events-none");
   });
 
@@ -405,7 +405,7 @@ describe("ConversationScrollbar", () => {
     scrollMetrics = { scrollTop: 0, scrollHeight: 600, clientHeight: 100 };
     const { track } = renderScrollbar();
 
-    expect(track.className).toContain("pointer-fine:opacity-0");
+    expect(track.className).toContain("opacity-0");
 
     fireEvent.pointerOver(track, { pointerType: "mouse" });
     expect(track.className).toContain("opacity-100");
@@ -424,7 +424,7 @@ describe("ConversationScrollbar", () => {
     act(() => {
       vi.advanceTimersByTime(1);
     });
-    expect(track.className).toContain("pointer-fine:opacity-0");
+    expect(track.className).toContain("opacity-0");
   });
 
   it("does not pin visibility from touch pointer enter events", () => {
@@ -434,7 +434,7 @@ describe("ConversationScrollbar", () => {
     const scroller = stickContextMock.scrollRef.current as HTMLElement;
 
     fireEvent.pointerOver(track, { pointerType: "touch" });
-    expect(track.className).toContain("pointer-fine:opacity-0");
+    expect(track.className).toContain("opacity-0");
 
     fireEvent.wheel(scroller, { deltaY: 24 });
     fireEvent.scroll(scroller);
@@ -443,7 +443,7 @@ describe("ConversationScrollbar", () => {
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(track.className).toContain("pointer-fine:opacity-0");
+    expect(track.className).toContain("opacity-0");
   });
 
   it("jumps on a quick tap even when the fade state is idle", () => {
@@ -451,7 +451,7 @@ describe("ConversationScrollbar", () => {
     const { track } = renderScrollbar();
     stubTrackRect(track, 240);
 
-    expect(track.className).toContain("pointer-fine:opacity-0");
+    expect(track.className).toContain("opacity-0");
 
     fireEvent.pointerDown(track, { pointerId: 31, pointerType: "touch", clientY: 120 });
     expect(track.className).toContain("opacity-100");
@@ -514,7 +514,7 @@ describe("ConversationScrollbar", () => {
     }
 
     expect(track.className).not.toContain("opacity-100");
-    expect(track.className).toContain("pointer-fine:opacity-0");
+    expect(track.className).toContain("opacity-0");
     const expectedThumbHeight = Math.max(28, (100 / 600) * 256);
     expect(thumb.style.height).toBe(`${expectedThumbHeight}px`);
     expect(parseFloat(thumb.style.top)).toBeCloseTo((60 / 500) * (256 - expectedThumbHeight));
@@ -533,7 +533,7 @@ describe("ConversationScrollbar", () => {
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(track.className).toContain("pointer-fine:opacity-0");
+    expect(track.className).toContain("opacity-0");
 
     scrollMetrics.scrollTop = 300;
     fireEvent.scroll(scroller);

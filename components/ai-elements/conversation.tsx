@@ -550,7 +550,7 @@ export const ConversationScrollbar = ({
         shown
           ? "opacity-100"
           : geometry.overflowing
-            ? "pointer-fine:opacity-0"
+            ? "opacity-0"
             : "opacity-0 pointer-events-none",
         className
       )}
