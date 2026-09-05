@@ -4,6 +4,8 @@ import { requireUser } from "@/lib/auth";
 import { createBot, ensureChiefBot, listBots, toBotSummary, MAX_BOTS_PER_USER } from "@/lib/bots";
 import { broadcastBotUpsert, listRecentBotRuns } from "@/lib/bot-runs";
 import { badRequest, ok } from "@/lib/http";
+import { getTurnActivity } from "@/lib/turn-activity";
+import type { TurnActivity } from "@/lib/types";
 
 const createSchema = z.object({
   name: z.string().trim().min(1).max(60),
@@ -17,7 +19,12 @@ export async function GET() {
   ensureChiefBot(user.id);
   const bots = listBots(user.id).map(toBotSummary);
   const runs = listRecentBotRuns({ userId: user.id, limit: 20 });
-  return ok({ bots, runs, limits: { maxBots: MAX_BOTS_PER_USER } });
+  const activities: Record<string, TurnActivity> = {};
+  for (const bot of bots) {
+    const activity = getTurnActivity(bot.homeConversationId);
+    if (activity) activities[bot.homeConversationId] = activity;
+  }
+  return ok({ bots, runs, activities, limits: { maxBots: MAX_BOTS_PER_USER } });
 }
 
 export async function POST(request: Request) {

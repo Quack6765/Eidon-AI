@@ -54,6 +54,7 @@ export {
   updateQueuedMessage,
   deleteQueuedMessage,
   failQueuedMessage,
+  requeueQueuedMessage,
   markOrphanedQueuedMessagesFailed,
   moveQueuedMessageToFront,
   reorderQueuedMessages,
@@ -506,7 +507,8 @@ export function createConversation(
     title: trimmedTitle || DEFAULT_CONVERSATION_TITLE,
     titleGenerationStatus: (trimmedTitle ? "completed" : "pending") as ConversationTitleGenerationStatus,
     folderId: folderId ?? null,
-    providerProfileId: options?.providerProfileId ?? settings.defaultProviderProfileId,
+    providerProfileId:
+      options?.providerProfileId !== undefined ? options.providerProfileId : settings.defaultProviderProfileId,
     reasoningEffort: options?.reasoningEffort ?? null,
     automationId: options?.automationId ?? null,
     automationRunId: options?.automationRunId ?? null,
@@ -2026,7 +2028,7 @@ export function moveConversationToFolder(conversationId: string, folderId: strin
 
 export function updateConversationProviderProfile(
   conversationId: string,
-  providerProfileId: string,
+  providerProfileId: string | null,
   userId?: string
 ) {
   const timestamp = nowIso();

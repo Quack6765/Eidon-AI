@@ -34,7 +34,7 @@ import { nowIso } from "@/lib/utils";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
-import { executeMessageBot, executeCreateBotTool, executeUpdateBotTool } from "./bot-delegation";
+import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
 import { resolveBotSandbox } from "./bot-sandbox";
@@ -1404,6 +1404,10 @@ export async function executeToolCall(
 
   if (name === "message_bot") {
     return executeMessageBot(toolCallId, args, context);
+  }
+
+  if (name === "check_bot") {
+    return executeCheckBot(toolCallId, args, context);
   }
 
   if (name === "create_bot") {

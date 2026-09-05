@@ -50,6 +50,13 @@ import {
 } from "@/lib/bot-runs";
 import { createAssistantContentPersistenceTracker as createAssistantContentPersistenceTrackerImpl, attachAssistantFilesFromCompletedAction as attachAssistantFilesFromCompletedActionImpl } from "./content-persistence";
 import { DEFAULT_RESEARCH_DEADLINE_MS } from "@/lib/constants";
+import {
+  beginTurnActivity,
+  endTurnActivity,
+  finishTurnAction,
+  startTurnAction,
+  touchTurnActivity
+} from "@/lib/turn-activity";
 import type { ChatResearchOptions, ChatStreamEvent } from "@/lib/types";
 import type { ConversationManager } from "@/lib/conversation-manager";
 
@@ -77,6 +84,7 @@ export type StartChatTurn = (
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
     botRun?: { record?: false; trigger?: "dm" | "delegated" | "routine" };
     research?: ChatResearchOptions;
+    quietWhenBusy?: boolean;
   }
 ) => Promise<ChatTurnResult>;
 
@@ -328,6 +336,13 @@ async function startAssistantTurn(
     assistantMessageId = assistantMessage.id;
     contentPersistence = createAssistantContentPersistenceTracker(conversationId, assistantMessageId);
 
+    if (options?.userMessageId && options.onMessagesCreated) {
+      options.onMessagesCreated({
+        userMessageId: options.userMessageId,
+        assistantMessageId: assistantMessage.id
+      });
+    }
+
     manager.broadcast(conversationId, {
       type: "delta",
       conversationId,
@@ -347,6 +362,12 @@ async function startAssistantTurn(
     );
     broadcastBotStatus();
     started = true;
+    const activityOwnerId = bot ? bot.userId ?? conversationOwnerId ?? null : null;
+    beginTurnActivity(conversationId, {
+      onChange: activityOwnerId
+        ? (activity) => manager.broadcastAll({ type: "bot_activity", conversationId, activity }, activityOwnerId)
+        : undefined
+    });
 
     async function flushAnswerBuffer() {
       if (!assistantMessageId || !answerBuffer || !contentPersistence) return;
@@ -362,15 +383,10 @@ async function startAssistantTurn(
       });
       answerBuffer = "";
     }
-    if (options?.userMessageId && options.onMessagesCreated) {
-      options.onMessagesCreated({
-        userMessageId: options.userMessageId,
-        assistantMessageId: assistantMessage.id
-      });
-    }
 
     const compacted = await ensureCompactedContext(conversation.id, settings, {
       onCompactionStart() {
+        touchTurnActivity(conversationId);
         manager.broadcast(conversationId, {
           type: "delta",
           conversationId,
@@ -378,6 +394,7 @@ async function startAssistantTurn(
         });
       },
       onCompactionEnd() {
+        touchTurnActivity(conversationId);
         manager.broadcast(conversationId, {
           type: "delta",
           conversationId,
@@ -430,6 +447,7 @@ async function startAssistantTurn(
       botWorkspaceSkillsEnabled: appSettings.skillsEnabled && Boolean(bot),
       research: options?.research,
       async onEvent(event: ChatStreamEvent) {
+        touchTurnActivity(conversationId);
         manager.broadcast(conversationId, {
           type: "delta",
           conversationId,
@@ -489,6 +507,7 @@ async function startAssistantTurn(
         });
         if (persisted.status === "running") {
           runningActionHandles.add(persisted.id);
+          startTurnAction(conversationId, persisted.id, persisted.label);
         }
         manager.broadcast(conversationId, {
           type: "delta",
@@ -501,6 +520,7 @@ async function startAssistantTurn(
       async onActionComplete(handle, patch) {
         if (!handle) return;
         runningActionHandles.delete(handle);
+        finishTurnAction(conversationId, handle);
         const updated = updateMessageAction(handle, {
           status: "completed",
           detail: patch.detail,
@@ -520,6 +540,7 @@ async function startAssistantTurn(
       onActionError(handle, patch) {
         if (!handle) return;
         runningActionHandles.delete(handle);
+        finishTurnAction(conversationId, handle);
         const updated = updateMessageAction(handle, {
           status: "error",
           detail: patch.detail,
@@ -677,6 +698,7 @@ async function startAssistantTurn(
     if (researchDeadline) clearTimeout(researchDeadline);
     releaseChatTurnStart(conversationId, control);
     if (started) {
+      endTurnActivity(conversationId);
       setConversationActive(conversation.id, false);
       manager.setActive(conversationId, false);
       manager.broadcastAll(
@@ -761,6 +783,7 @@ export async function startChatTurn(
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
     botRun?: { record?: false; trigger?: "dm" | "delegated" | "routine" };
     research?: ChatResearchOptions;
+    quietWhenBusy?: boolean;
   }
 ): Promise<ChatTurnResult> {
   const preflight = getAssistantTurnStartPreflight(conversationId);
@@ -777,10 +800,12 @@ export async function startChatTurn(
 
   const claimed = claimChatTurnStart(conversationId);
   if (!claimed.ok) {
-    manager.broadcast(conversationId, {
-      type: "error",
-      message: ACTIVE_TURN_ERROR_MESSAGE
-    });
+    if (!options?.quietWhenBusy) {
+      manager.broadcast(conversationId, {
+        type: "error",
+        message: ACTIVE_TURN_ERROR_MESSAGE
+      });
+    }
     return { status: "failed", errorMessage: ACTIVE_TURN_ERROR_MESSAGE };
   }
 

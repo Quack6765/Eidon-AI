@@ -114,7 +114,8 @@ vi.mock("@/lib/ws-client", () => ({
   useWebSocket: (options: { onMessage?: (msg: unknown) => void }) => {
     wsMock.onMessage = options.onMessage ?? null;
     return wsMock;
-  }
+  },
+  addGlobalWsListener: () => () => {}
 }));
 
 vi.mock("@/lib/conversation-drafts", () => ({
@@ -683,6 +684,79 @@ describe("chat view", () => {
 
     await waitFor(() => {
       expect(screen.queryByText("photo.png")).toBeNull();
+    });
+  });
+
+  it("updates a delegation action inside a completed message when the bot reply lands", async () => {
+    const startedAt = new Date().toISOString();
+    const action = {
+      id: "act_delegate",
+      messageId: "msg_chief",
+      kind: "message_bot" as const,
+      status: "pending" as const,
+      serverId: null,
+      skillId: null,
+      toolName: "message_bot",
+      label: "Messaged Researcher",
+      detail: "→ Researcher: find sources",
+      arguments: { bot: "Researcher", message: "find sources" },
+      resultSummary: "",
+      sortOrder: 0,
+      startedAt,
+      completedAt: null,
+      proposalState: null,
+      proposalPayload: null,
+      proposalUpdatedAt: null
+    };
+    const payload = createPayload({
+      messages: [
+        {
+          id: "msg_chief",
+          conversationId: "conv_1",
+          role: "assistant",
+          content: "I messaged Researcher and will report back.",
+          thinkingContent: "",
+          status: "completed",
+          estimatedTokens: 0,
+          systemKind: null,
+          compactedAt: null,
+          createdAt: startedAt,
+          timeline: [
+            { ...action, timelineKind: "action" as const },
+            {
+              id: "seg_1",
+              timelineKind: "text" as const,
+              sortOrder: 1,
+              createdAt: startedAt,
+              content: "I messaged Researcher and will report back."
+            }
+          ]
+        }
+      ]
+    });
+
+    renderWithProvider(React.createElement(ChatView, { payload }));
+
+    expect(screen.getByTestId("delegate-action-line")).toHaveAttribute("data-action-status", "pending");
+
+    act(() => {
+      wsMock.onMessage!({
+        type: "delta",
+        conversationId: "conv_1",
+        event: {
+          type: "action_complete",
+          action: {
+            ...action,
+            status: "completed",
+            resultSummary: "Found 3 sources.",
+            completedAt: new Date().toISOString()
+          }
+        }
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("delegate-action-line")).toHaveAttribute("data-action-status", "completed");
     });
   });
 

@@ -7,14 +7,15 @@ import { Button } from "@/components/ui/button";
 import { DialogShell } from "@/components/ui/dialog-shell";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { fieldLabel } from "@/lib/settings-styles";
-import type { BotSummary } from "@/lib/types";
+import { fieldLabel, selectLike } from "@/lib/settings-styles";
+import type { BotSummary, ProviderProfileSummary } from "@/lib/types";
 
 export type BotFormValues = {
   name: string;
   title: string;
   description: string;
   systemPrompt: string;
+  providerProfileId: string | null;
 };
 
 function valuesFromBot(bot?: BotSummary | null, systemPrompt?: string): BotFormValues {
@@ -22,8 +23,13 @@ function valuesFromBot(bot?: BotSummary | null, systemPrompt?: string): BotFormV
     name: bot?.name ?? "",
     title: bot?.title ?? "",
     description: bot?.description ?? "",
-    systemPrompt: systemPrompt ?? ""
+    systemPrompt: systemPrompt ?? "",
+    providerProfileId: bot?.providerProfileId ?? null
   };
+}
+
+function describeProfile(profile: ProviderProfileSummary) {
+  return profile.model ? `${profile.name} · ${profile.model}` : profile.name;
 }
 
 export function BotFormModal({
@@ -34,6 +40,8 @@ export function BotFormModal({
   submitLabel,
   title,
   description,
+  providerProfiles,
+  defaultProviderProfileId = null,
   onSubmit
 }: {
   open: boolean;
@@ -43,8 +51,11 @@ export function BotFormModal({
   submitLabel: string;
   title: string;
   description: string;
+  providerProfiles?: ProviderProfileSummary[];
+  defaultProviderProfileId?: string | null;
   onSubmit: (values: BotFormValues) => Promise<string | null>;
 }) {
+  const defaultProfile = providerProfiles?.find((profile) => profile.id === defaultProviderProfileId) ?? null;
   const [values, setValues] = useState<BotFormValues>(() => valuesFromBot(bot, currentSystemPrompt));
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -75,7 +86,8 @@ export function BotFormModal({
         name: values.name.trim(),
         title: values.title.trim(),
         description: values.description.trim(),
-        systemPrompt: values.systemPrompt.trim()
+        systemPrompt: values.systemPrompt.trim(),
+        providerProfileId: values.providerProfileId
       });
 
       if (failure) {
@@ -160,6 +172,28 @@ export function BotFormModal({
             maxLength={1000}
           />
         </div>
+        {providerProfiles ? (
+          <div>
+            <label htmlFor="bot-provider-profile" className={fieldLabel}>Provider</label>
+            <p className="mb-2 text-xs leading-5 text-[var(--muted)]">The provider and model this bot runs on. Following the default keeps it in step with your default provider whenever that changes.</p>
+            <select
+              id="bot-provider-profile"
+              aria-label="Provider profile"
+              value={values.providerProfileId ?? ""}
+              onChange={(event) => update("providerProfileId", event.target.value || null)}
+              className={`${selectLike} w-full`}
+            >
+              <option value="">
+                {defaultProfile ? `Default · ${describeProfile(defaultProfile)}` : "Default provider"}
+              </option>
+              {providerProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>
+                  {describeProfile(profile)}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : null}
         <div>
           <label className={fieldLabel}>System prompt</label>
           <p className="mb-2 text-xs leading-5 text-[var(--muted)]">Defines the bot&apos;s role and specialty. Its environment and team-communication context are added automatically.</p>

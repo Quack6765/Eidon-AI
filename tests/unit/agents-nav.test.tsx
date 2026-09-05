@@ -48,6 +48,7 @@ function buildBot(overrides: Partial<BotSummary> = {}): BotSummary {
     avatarSeed: "seed_research",
     isChief: false,
     homeConversationId: "conv_1",
+    providerProfileId: null,
     status: "idle",
     waitingForInput: false,
     lastRunAt: null,

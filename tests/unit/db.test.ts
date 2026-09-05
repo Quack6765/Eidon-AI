@@ -927,6 +927,23 @@ describe("db", () => {
       content: "Pending during restart"
     });
     conversations.claimNextQueuedMessageForDispatch(conversation.id);
+    const users = await import("@/lib/users");
+    const bots = await import("@/lib/bots");
+    const botRuns = await import("@/lib/bot-runs");
+    const owner = await users.createLocalUser({ username: "restart-owner", password: "password-123", role: "user" });
+    const worker = bots.createBot({ name: "Interrupted worker" }, owner.id);
+    const botRun = botRuns.createBotRunRecord({
+      botId: worker.id,
+      conversationId: worker.homeConversationId,
+      triggerSource: "delegated"
+    });
+    botRuns.updateBotRunStatus(botRun.id, { status: "running", startedAt: "2026-07-12T12:00:00.000Z" });
+    const delegationAction = conversations.createMessageAction({
+      messageId: assistantMessage.id,
+      kind: "message_bot",
+      label: "Messaged Interrupted worker",
+      status: "pending"
+    });
     const automation = automations.createAutomation({
       name: "Interrupted automation",
       prompt: "Run",
@@ -992,6 +1009,12 @@ describe("db", () => {
     const recoveredRun = reopened
       .prepare("SELECT status, finished_at FROM automation_runs WHERE id = ?")
       .get(automationRun.id) as { status: string; finished_at: string | null };
+    const recoveredBotRun = reopened
+      .prepare("SELECT status, finished_at, error_message FROM bot_runs WHERE id = ?")
+      .get(botRun.id) as { status: string; finished_at: string | null; error_message: string | null };
+    const recoveredDelegationAction = reopened
+      .prepare("SELECT status, result_summary, completed_at FROM message_actions WHERE id = ?")
+      .get(delegationAction.id) as { status: string; result_summary: string; completed_at: string | null };
 
     expect(recoveredConversation).toEqual({ is_active: 0, title_generation_status: "failed" });
     expect(recoveredMessage.status).toBe("error");
@@ -1001,6 +1024,12 @@ describe("db", () => {
     expect(recoveredPendingQueue).toEqual({ status: "pending", processing_started_at: null });
     expect(recoveredRun.status).toBe("failed");
     expect(recoveredRun.finished_at).not.toBeNull();
+    expect(recoveredBotRun.status).toBe("failed");
+    expect(recoveredBotRun.finished_at).not.toBeNull();
+    expect(recoveredBotRun.error_message).toContain("interrupted by server restart");
+    expect(recoveredDelegationAction.status).toBe("error");
+    expect(recoveredDelegationAction.result_summary).toContain("interrupted");
+    expect(recoveredDelegationAction.completed_at).not.toBeNull();
     expect(bootstrapResult).toMatchObject({
       recovered: {
         conversations: 1,
@@ -1008,7 +1037,9 @@ describe("db", () => {
         actions: 1,
         titles: 1,
         queuedMessages: 1,
-        automationRuns: 1
+        automationRuns: 1,
+        botRuns: 1,
+        delegationActions: 1
       }
     });
 
@@ -1016,6 +1047,34 @@ describe("db", () => {
     conversations.setConversationActive(laterConversation.id, true);
     expect(runtimeBootstrap.bootstrapRuntimeState()).toBeNull();
     expect(conversations.getConversation(laterConversation.id)?.isActive).toBe(true);
+  });
+
+  it("clears provider pins on bot conversations exactly once so bots follow the default provider", async () => {
+    const dbModule = await import("@/lib/db");
+    const conversations = await import("@/lib/conversations");
+    const users = await import("@/lib/users");
+    const bots = await import("@/lib/bots");
+    const { migrate } = await import("@/lib/db-migrations");
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createProviderProfileInput } = await import("@/tests/provider-fixtures");
+
+    const profile = createProviderProfileInput({ id: "profile_pin", name: "Pinned", model: "gpt-pin" });
+    updateProviderCatalog({ defaultProviderProfileId: profile.id, skillsEnabled: false, providerProfiles: [profile] });
+    const owner = await users.createLocalUser({ username: "pin-owner", password: "password-123", role: "user" });
+    const bot = bots.createBot({ name: "Pinned bot" }, owner.id);
+    const plainConversation = conversations.createConversation("Plain", null, { providerProfileId: profile.id }, owner.id);
+    conversations.updateConversationProviderProfile(bot.homeConversationId, profile.id, owner.id);
+
+    const db = dbModule.getDb();
+    db.prepare("DELETE FROM migration_flags WHERE name = ?").run("bot_conversations_follow_default_provider");
+    migrate(db);
+
+    expect(conversations.getConversation(bot.homeConversationId)?.providerProfileId).toBeNull();
+    expect(conversations.getConversation(plainConversation.id)?.providerProfileId).toBe(profile.id);
+
+    conversations.updateConversationProviderProfile(bot.homeConversationId, profile.id, owner.id);
+    migrate(db);
+    expect(conversations.getConversation(bot.homeConversationId)?.providerProfileId).toBe(profile.id);
   });
 
   it("recovers exact partial compaction copies but rejects conflicting duplicate ids", async () => {
