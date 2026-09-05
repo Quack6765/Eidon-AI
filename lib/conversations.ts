@@ -626,6 +626,31 @@ export function deleteConversationIfEmpty(conversationId: string, userId?: strin
   return result.deleted;
 }
 
+export function clearConversationContent(conversationId: string) {
+  const relativePaths = listAttachmentsForConversation(conversationId).map(
+    (attachment) => attachment.relativePath
+  );
+
+  const transaction = getDb().transaction((id: string) => {
+    const deleted = getDb()
+      .prepare("DELETE FROM message_attachments WHERE conversation_id = ?")
+      .run(id).changes;
+    getDb().prepare("DELETE FROM queued_messages WHERE conversation_id = ?").run(id);
+    getDb().prepare("DELETE FROM memory_nodes WHERE conversation_id = ?").run(id);
+    getDb().prepare("DELETE FROM compaction_events WHERE conversation_id = ?").run(id);
+    getDb().prepare("DELETE FROM semantic_chunks WHERE conversation_id = ?").run(id);
+    getDb().prepare("DELETE FROM messages WHERE conversation_id = ?").run(id);
+    getDb()
+      .prepare("UPDATE conversations SET is_active = 0, updated_at = ? WHERE id = ?")
+      .run(nowIso(), id);
+    return deleted;
+  });
+
+  const deletedAttachments = transaction(conversationId);
+  deleteAttachmentFiles(relativePaths);
+  return { deletedAttachments };
+}
+
 export function renameConversation(conversationId: string, title: string) {
   updateConversationTitleRecord({
     conversationId,

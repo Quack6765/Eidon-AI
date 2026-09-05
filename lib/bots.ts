@@ -3,12 +3,14 @@ import { randomInt } from "node:crypto";
 import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import {
+  clearConversationContent,
   createConversation,
   deleteConversation,
   getConversation,
   renameConversation,
   updateConversationProviderProfile
 } from "@/lib/conversations";
+import { claimChatTurnStart, releaseChatTurnStart, requestStop } from "@/lib/chat-turn-control";
 import { getProviderProfile } from "@/lib/settings";
 import { getConversationManager } from "@/lib/ws-singleton";
 import { nowIso } from "@/lib/utils";
@@ -404,6 +406,91 @@ export function deleteBot(botId: string, userId?: string): boolean {
     .catch(() => {});
 
   return true;
+}
+
+export class BotClearBusyError extends Error {
+  constructor() {
+    super("This bot is still finishing a run. Try again in a moment.");
+    this.name = "BotClearBusyError";
+  }
+}
+
+const CLEAR_CONTEXT_WAIT_POLL_MS = 100;
+const CLEAR_CONTEXT_WAIT_TIMEOUT_MS = 8_000;
+
+function delay(ms: number) {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, ms).unref?.();
+  });
+}
+
+async function stopQueuedBotRuns(bot: Bot) {
+  const rows = getDb()
+    .prepare("SELECT id FROM bot_runs WHERE bot_id = ? AND status = 'queued'")
+    .all(bot.id) as Array<{ id: string }>;
+  if (!rows.length) return;
+
+  const { broadcastBotRunUpdate, updateBotRunStatus } = await import("@/lib/bot-runs");
+  for (const row of rows) {
+    const run = updateBotRunStatus(row.id, { status: "stopped", finishedAt: nowIso() });
+    if (run) broadcastBotRunUpdate(run);
+  }
+}
+
+async function claimTurnForClear(conversationId: string) {
+  const deadline = Date.now() + CLEAR_CONTEXT_WAIT_TIMEOUT_MS;
+  for (;;) {
+    const claimed = claimChatTurnStart(conversationId);
+    if (claimed.ok) return claimed.control;
+    if (Date.now() >= deadline) return null;
+    await delay(CLEAR_CONTEXT_WAIT_POLL_MS);
+  }
+}
+
+export async function clearBotContext(botId: string, userId?: string): Promise<BotSummary> {
+  const bot = getBot(botId, userId);
+  if (!bot) throw new Error("Bot not found");
+
+  await stopQueuedBotRuns(bot);
+
+  const manager = getConversationManager();
+  getDb().prepare("DELETE FROM queued_messages WHERE conversation_id = ?").run(bot.homeConversationId);
+  manager.broadcast(bot.homeConversationId, {
+    type: "queue_updated",
+    conversationId: bot.homeConversationId,
+    queuedMessages: []
+  });
+
+  requestStop(bot.homeConversationId);
+
+  const control = await claimTurnForClear(bot.homeConversationId);
+  if (!control) {
+    throw new BotClearBusyError();
+  }
+
+  try {
+    clearConversationContent(bot.homeConversationId);
+    manager.broadcast(bot.homeConversationId, {
+      type: "conversation_cleared",
+      conversationId: bot.homeConversationId
+    });
+    manager.broadcast(bot.homeConversationId, {
+      type: "conversation_activity",
+      conversationId: bot.homeConversationId,
+      isActive: false
+    });
+
+    const refreshed = getBot(botId, userId);
+    if (!refreshed) {
+      throw new Error("Bot not found");
+    }
+    if (refreshed.userId) {
+      manager.broadcastAll({ type: "bot_updated", bot: toBotSummary(refreshed) }, refreshed.userId);
+    }
+    return toBotSummary(refreshed);
+  } finally {
+    releaseChatTurnStart(bot.homeConversationId, control);
+  }
 }
 
 export function getBotStatus(bot: Bot): BotStatus {

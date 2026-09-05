@@ -41,6 +41,7 @@ export type ServerMessage =
   | { type: "conversation_deleted"; conversationId: string }
   | { type: "conversation_updated"; conversation: { id: string; title: string; folderId: string | null; updatedAt: string; isActive: boolean } }
   | { type: "conversation_activity"; conversationId: string; isActive: boolean }
+  | { type: "conversation_cleared"; conversationId: string }
   | { type: "conversation_title_updated"; conversationId: string; title: string }
   | { type: "bot_updated"; bot: BotSummary }
   | { type: "bot_deleted"; botId: string }
