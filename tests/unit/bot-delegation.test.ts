@@ -11,8 +11,8 @@ vi.mock("@/lib/chat-turn", () => ({
 import { createLocalUser } from "@/lib/users";
 import { createBot, ensureChiefBot, getBot, listBots, MAX_BOTS_PER_USER } from "@/lib/bots";
 import { createMessage } from "@/lib/conversations";
-import { listRecentBotRuns } from "@/lib/bot-runs";
-import { resetBotRunLimiter } from "@/lib/bot-run-limiter";
+import { getBotRun, listRecentBotRuns, updateBotRunStatus } from "@/lib/bot-runs";
+import { enqueueBotTask, resetBotRunLimiter } from "@/lib/bot-run-limiter";
 import {
   buildDelegationWakeContent,
   deliverDelegationWake,
@@ -375,6 +375,51 @@ describe("bot-delegation", () => {
     });
 
     expect(wake.status).toBe("failed");
+  });
+
+  it("skips a queued delegated run that was stopped before it started", async () => {
+    const user = await createLocalUser({ username: "stopqueued", password: "password-123", role: "user" as const });
+    const chief = ensureChiefBot(user.id);
+    const worker = createBot({ name: "Researcher" }, user.id);
+
+    let releaseBlocker!: () => void;
+    const blocker = new Promise<void>((resolve) => {
+      releaseBlocker = resolve;
+    });
+    void enqueueBotTask(worker.id, () => blocker);
+
+    startChatTurnMock.mockImplementation(async () => ({ status: "completed" as const }));
+
+    const { context } = buildContext(user.id, undefined, chief.homeConversationId);
+    const result = await executeMessageBot(
+      "call_stop",
+      { bot: "researcher", message: "find three sources" },
+      context
+    );
+    expect(result.promptMessages.at(-1)?.content).toContain("Message sent to Researcher");
+
+    const queuedRun = listRecentBotRuns({ userId: user.id, limit: 10 }).find(
+      (run) => run.botId === worker.id && run.status === "queued"
+    );
+    expect(queuedRun).toBeTruthy();
+
+    updateBotRunStatus(queuedRun!.id, { status: "stopped", finishedAt: new Date().toISOString() });
+    releaseBlocker();
+
+    await vi.waitFor(() => {
+      expect(
+        startChatTurnMock.mock.calls.some(
+          ([, conversationId]) => conversationId === chief.homeConversationId
+        )
+      ).toBe(true);
+    });
+
+    expect(getBotRun(queuedRun!.id)?.status).toBe("stopped");
+    expect(
+      startChatTurnMock.mock.calls.filter(
+        ([, conversationId]) => conversationId === worker.homeConversationId
+      )
+    ).toHaveLength(0);
   });
 
   it("creates a bot via the create_bot tool and reports it", async () => {

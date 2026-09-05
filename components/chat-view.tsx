@@ -1094,6 +1094,23 @@ export function ChatView({
         case "queue_updated":
           setQueuedMessages((msg.queuedMessages as QueuedMessage[] | undefined) ?? []);
           break;
+        case "conversation_cleared":
+          if (msg.conversationId !== payload.conversation.id) {
+            break;
+          }
+          resetStreamingState();
+          setMessages([]);
+          setQueuedMessages([]);
+          setError("");
+          setIsConversationActive(false);
+          setIsSending(false);
+          setUsedTokens(0);
+          setTokenUsage(payload.conversation.id, 0);
+          dispatchConversationActivityUpdated({
+            conversationId: payload.conversation.id,
+            isActive: false
+          });
+          break;
         case "error":
           if (isQueuedMessageOperationError(msg.message)) {
             setError(msg.message);

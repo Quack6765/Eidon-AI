@@ -1931,6 +1931,56 @@ describe("chat view", () => {
     });
   });
 
+  it("clears messages and queued messages when a conversation_cleared WebSocket message arrives", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          messages: [
+            createMessage({ id: "msg_user_clear", role: "user", content: "Hello there" }),
+            createMessage()
+          ],
+          queuedMessages: [createQueuedMessage()]
+        })
+      })
+    );
+
+    expect(screen.getByText("Hello there")).toBeInTheDocument();
+    expect(screen.getByText("Assistant reply")).toBeInTheDocument();
+    expect(screen.getByText("Queued follow-up")).toBeInTheDocument();
+
+    act(() => {
+      wsMock.onMessage!({ type: "conversation_cleared", conversationId: "conv_1" });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText("Hello there")).toBeNull();
+    });
+    expect(screen.queryByText("Assistant reply")).toBeNull();
+    expect(screen.queryByText("Queued follow-up")).toBeNull();
+    expect(conversationEventMock.dispatchConversationActivityUpdated).toHaveBeenCalledWith({
+      conversationId: "conv_1",
+      isActive: false
+    });
+  });
+
+  it("ignores conversation_cleared for a different conversation", async () => {
+    renderWithProvider(
+      React.createElement(ChatView, {
+        payload: createPayload({
+          messages: [createMessage({ id: "msg_user_keep", role: "user", content: "Keep me around" })]
+        })
+      })
+    );
+
+    expect(screen.getByText("Keep me around")).toBeInTheDocument();
+
+    act(() => {
+      wsMock.onMessage!({ type: "conversation_cleared", conversationId: "conv_other" });
+    });
+
+    expect(screen.getByText("Keep me around")).toBeInTheDocument();
+  });
+
   it("forks from an assistant message and redirects to the new conversation", async () => {
     vi.mocked(global.fetch)
       .mockResolvedValueOnce({
