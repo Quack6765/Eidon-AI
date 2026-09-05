@@ -16,7 +16,7 @@
       "additionalProperties": false,
       "required": ["operation", "targetMemoryId"],
       "properties": {
-        "operation": { "type": "string", "enum": ["create", "update", "delete"] },
+        "botId": { "oneOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] }, "operation": { "type": "string", "enum": ["create", "update", "delete"] },
         "targetMemoryId": { "anyOf": [{ "$ref": "#/$defs/OpaqueId" }, { "type": "null" }] },
         "currentMemory": {
           "type": "object",
