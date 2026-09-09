@@ -421,7 +421,7 @@ export async function resolveAssistantTurn(input: {
   }
 
   const turnSkills = filterSkillsForTurn(input.skills, promptMessages, {
-    includeBrowserSkills: Boolean(input.research)
+    includeBrowserSkills: Boolean(input.research) || Boolean(input.botTeam)
   });
   const toolRuntimeInput = {
     ...input,

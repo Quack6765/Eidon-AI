@@ -41,6 +41,7 @@ Use agent-browser for ALL web browsing tasks including:
 - Taking screenshots
 - Scraping data
 - Testing web applications
+- Verifying your own work — after you build, change, or deploy something on a website, open it yourself and confirm it works instead of asking the user to check
 
 Always use \`snapshot\` after \`open\` or any interaction to understand the page state. Use refs (@e1, @e2) from snapshots for clicking and filling.
 
