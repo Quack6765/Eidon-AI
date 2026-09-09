@@ -138,7 +138,7 @@ describe("workspace skills in chat turns", () => {
     expect(toolNames(withoutEither)).not.toContain("save_skill");
   });
 
-  it("teaches save_skill on a first bot turn with no existing skills", async () => {
+  it("teaches save_skill on a first bot turn with no workspace skills, offering the builtin browser skill", async () => {
     setupProvider(true);
     const user = await createLocalUser({ username: "firstskill", password: "password-123", role: "user" as const });
     const bot = createBot({ name: "Fresh", title: "Skills" }, user.id);
@@ -156,7 +156,8 @@ describe("workspace skills in chat turns", () => {
     const trailing = promptMessages.at(-1);
     expect(trailing?.role).toBe("user");
     const trailingText = typeof trailing?.content === "string" ? trailing.content : "";
-    expect(trailingText).toContain("No skills are available yet");
+    expect(trailingText).toContain("Available skills");
+    expect(trailingText).toContain("Agent Browser");
     expect(trailingText).toContain("save_skill");
   });
 
@@ -259,7 +260,7 @@ describe("workspace skills in chat turns", () => {
       promptMessages?: Array<{ role: string; content: unknown }>;
     })?.promptMessages) ?? [];
     const firstTrailing = firstCallPromptMessages.at(-1)?.content;
-    expect(typeof firstTrailing === "string" && firstTrailing.includes("No skills are available yet")).toBe(true);
+    expect(typeof firstTrailing === "string" && firstTrailing.includes("Agent Browser")).toBe(true);
 
     const { tools, promptMessages } = captureLastProviderCall();
     const trailing = promptMessages.at(-1);
