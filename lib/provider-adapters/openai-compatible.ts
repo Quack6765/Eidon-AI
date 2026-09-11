@@ -113,6 +113,17 @@ function buildChatCompletionsOptions(settings: ProviderProfile) {
     return {};
   }
 
+  if (caps.extraBody === "reasoning_effort") {
+    return effort
+      ? {
+          thinking: {
+            type: "enabled"
+          },
+          reasoning_effort: effort
+        } as const
+      : {};
+  }
+
   if (caps.extraBody === "thinking") {
     return {
       thinking: {

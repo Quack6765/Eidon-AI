@@ -49,7 +49,7 @@ Each profile carries its own behavior, so you can keep, say, a cheap fast profil
 | System prompt | A step-by-step reasoning prompt | Prepended to every turn using this profile |
 | Temperature | `0.7` | Only offered when the endpoint and model support it. It is hidden for the official OpenAI endpoint and for models the model registry knows reject it |
 | Max output tokens | `1200` | Raise this for long answers; several presets raise it for you |
-| Reasoning effort | `medium` | `none`, `low`, `medium`, `high`, `xhigh`. `max` is additionally offered on the official OpenAI endpoint with a `gpt-5.6*` model |
+| Reasoning effort | `medium` | `none`, `low`, `medium`, `high`, `xhigh`. `max` is additionally offered on the official OpenAI endpoint with a `gpt-5.6*` model, and GLM models offer `low`–`max` without `none` (see [GLM specifics](#glm-specifics)) |
 | Reasoning summaries | on | Streams the model's reasoning summary into the message's thinking block when the provider emits one |
 | Processing mode | `standard` | `standard` or `fast`, offered only on the official OpenAI endpoint |
 
@@ -113,6 +113,15 @@ All three are required. Without them the GitHub Copilot profile type is still vi
 5. Pick a model from the discovered list and start chatting.
 
 Access and refresh tokens are encrypted with `EIDON_ENCRYPTION_SECRET` before being stored. Copilot profiles do not expose temperature, API mode, or tokenizer settings — those are fixed by the Copilot API.
+
+## GLM specifics
+
+GLM 5.x and 4.7 models take part in reasoning effort rather than a binary thinking flag, so their profiles show the effort dropdown instead of the **Thinking** checkbox:
+
+- Requests carry `reasoning_effort` at the level you pick, alongside `thinking: { type: "enabled" }`, which the endpoint requires for the effort to apply.
+- The coding plan accepts the full `low`–`max` range and maps it upstream (`medium` → `high`, `xhigh` → `max`, `low` → `low`), so every level is valid even where the endpoint collapses them.
+- `none` is not offered and `thinking.type: "disabled"` is never sent, because GLM-5.3-class models (what the coding plan routes `glm-5.1` and `glm-4.7` to) reject a disabled thinking flag. Thinking stays on; only its depth changes.
+- Models served through another endpoint keep their own parameter shape — an Ollama Cloud GLM profile still uses mirrored reasoning parameters.
 
 ## OpenCode Go specifics
 
