@@ -1,4 +1,8 @@
-import { buildCreateMemoryDescription } from "@/lib/memory-guidance";
+import {
+  buildCreateMemoryDescription,
+  buildDeleteMemoryDescription,
+  buildUpdateMemoryDescription
+} from "@/lib/memory-guidance";
 import { buildCreateAutomationDescription } from "@/lib/automation-guidance";
 import { extractEnumHints } from "@/lib/tool-schema-helpers";
 import { getSkillResolvedName } from "./skill-runtime";
@@ -444,7 +448,7 @@ export function buildToolDefinitions(input: {
         type: "function",
         function: {
           name: "update_memory",
-          description: "Update an existing memory when a fact has changed.",
+          description: buildUpdateMemoryDescription(),
           parameters: {
             type: "object",
             properties: {
@@ -460,7 +464,7 @@ export function buildToolDefinitions(input: {
         type: "function",
         function: {
           name: "delete_memory",
-          description: "Delete a stored memory that is no longer relevant or accurate.",
+          description: buildDeleteMemoryDescription(),
           parameters: {
             type: "object",
             properties: {

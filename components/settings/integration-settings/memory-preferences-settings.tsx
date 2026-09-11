@@ -15,8 +15,8 @@ export type MemoryPreferences = {
 
 export const RIGOR_OPTIONS: Array<{ value: MemoryRigor; label: string; description: string }> = [
   { value: "low", label: "Low", description: "Only saves when you explicitly ask." },
-  { value: "balanced", label: "Balanced", description: "Proactively saves durable facts (name, location, role, preferences)." },
-  { value: "high", label: "High", description: "Captures broadly, including implied and stated personal context." }
+  { value: "balanced", label: "Balanced", description: "Saves durable, cross-conversation facts (name, location, role, preferences) and skips chat-only details." },
+  { value: "high", label: "High", description: "Also captures clearly implied personal context, still excluding one-off task details." }
 ];
 
 export function MemoryPreferencesSettings({

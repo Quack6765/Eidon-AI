@@ -1709,7 +1709,8 @@ describe("buildPromptMessages with memories", () => {
     const systemContent = result[0].content as string;
     expect(systemContent).not.toContain("<memory>");
     expect(systemContent).toContain("create_memory");
-    expect(systemContent).toContain("Proactively capture");
+    expect(systemContent).toContain("Memory is global");
+    expect(systemContent).toContain("Do not save conversation-local content");
   });
 
   it("reflects the configured memory rigor in the guidance", () => {
@@ -1736,7 +1737,7 @@ describe("buildPromptMessages with memories", () => {
       memoriesRigor: "low"
     });
     expect((low[0].content as string)).toContain("Only propose a memory when the user explicitly asks");
-    expect((low[0].content as string)).not.toContain("Proactively capture");
+    expect((low[0].content as string)).not.toContain("Memory is global");
 
     const high = buildPromptMessages({
       systemPrompt: "Be helpful.",
@@ -1745,7 +1746,8 @@ describe("buildPromptMessages with memories", () => {
       memoriesEnabled: true,
       memoriesRigor: "high"
     });
-    expect((high[0].content as string)).toContain("Capture broadly and proactively");
+    expect((high[0].content as string)).toContain("Proactively capture durable personal context");
+    expect((high[0].content as string)).toContain("Do not save conversation-local content");
   });
 });
 
