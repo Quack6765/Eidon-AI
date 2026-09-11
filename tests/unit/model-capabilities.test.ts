@@ -15,6 +15,7 @@ describe("resolveCapabilities", () => {
     expect(caps.thinkingReplay).toBe(false);
     expect(caps.extraBody).toBe("none");
     expect(caps.strictExtraRejection).toBe(false);
+    expect(caps.reasoningEfforts).toBeNull();
   });
 
   it("returns defaults for empty model string", () => {
@@ -40,13 +41,22 @@ describe("resolveCapabilities", () => {
     const caps = resolveCapabilities("glm-5-turbo", "chat_completions");
     expect(caps.reasoning).toBe(true);
     expect(caps.vision).toBe(false);
-    expect(caps.extraBody).toBe("thinking");
+    expect(caps.extraBody).toBe("reasoning_effort");
+    expect(caps.reasoningEfforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  });
+
+  it("offers reasoning effort levels for glm-4.7", () => {
+    const caps = resolveCapabilities("glm-4.7:cloud", "chat_completions");
+    expect(caps.extraBody).toBe("reasoning_effort");
+    expect(caps.reasoningEfforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 
   it("matches glm-5v before glm-5 for vision", () => {
     const caps = resolveCapabilities("glm-5v-turbo", "chat_completions");
     expect(caps.reasoning).toBe(true);
     expect(caps.vision).toBe(true);
+    expect(caps.extraBody).toBe("thinking");
+    expect(caps.reasoningEfforts).toBeNull();
   });
 
   it("applies user overrides on top of registry", () => {

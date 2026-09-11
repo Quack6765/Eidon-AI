@@ -1291,4 +1291,115 @@ describe("providers section", () => {
     expect(screen.getByLabelText("Enable thinking mode")).toBeInTheDocument();
     expect(screen.queryByText("Show reasoning when supported")).toBeNull();
   });
+
+  it("shows the Reasoning effort dropdown with glm levels for a GLM Coding Plan profile", async () => {
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [
+            {
+              ...makeSettings().providerProfiles[0],
+              model: "glm-5.1",
+              apiBaseUrl: "https://api.z.ai/api/coding/paas/v4",
+              apiMode: "chat_completions",
+              providerPresetId: "glm_coding_plan",
+              reasoningEffort: "medium"
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.queryByLabelText("Enable thinking mode")).toBeNull();
+
+    const effortSelect = screen.getByDisplayValue("medium");
+    expect(
+      Array.from(effortSelect.querySelectorAll("option")).map((option) => option.textContent)
+    ).toEqual(["low", "medium", "high", "xhigh", "max"]);
+  });
+
+  it("keeps an unsupported stored effort selectable on GLM profiles", async () => {
+    render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [
+            {
+              ...makeSettings().providerProfiles[0],
+              model: "glm-5.1",
+              apiBaseUrl: "https://api.z.ai/api/coding/paas/v4",
+              apiMode: "chat_completions",
+              providerPresetId: "glm_coding_plan",
+              reasoningEffort: "none"
+            }
+          ]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    expect(screen.getByDisplayValue("disabled")).toBeInTheDocument();
+  });
+
+  it("persists the selected GLM reasoning effort", async () => {
+    const fetchMock = vi.mocked(global.fetch);
+    const settings = makeSettings({
+      providerProfiles: [
+        {
+          ...makeSettings().providerProfiles[0],
+          model: "glm-5.1",
+          apiBaseUrl: "https://api.z.ai/api/coding/paas/v4",
+          apiMode: "chat_completions",
+          providerPresetId: "glm_coding_plan",
+          reasoningEffort: "medium",
+          reasoningSummaryEnabled: true
+        }
+      ]
+    });
+
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url === "/api/mcp-servers") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ servers: [], models: [] })
+        } as Response);
+      }
+      if (url === "/api/settings/providers" && init?.method === "PUT") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ settings })
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: async () => ({}) } as Response);
+    });
+
+    render(React.createElement(ProvidersSection, { settings }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    fireEvent.change(screen.getByDisplayValue("medium"), { target: { value: "xhigh" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/settings/providers",
+        expect.objectContaining({ method: "PUT" })
+      );
+    });
+
+    const putCall = fetchMock.mock.calls.find(
+      ([url, init]) => url === "/api/settings/providers" && init?.method === "PUT"
+    );
+    const body = JSON.parse(String(putCall?.[1]?.body));
+    expect(body.providerProfiles[0].reasoningEffort).toBe("xhigh");
+  });
 });

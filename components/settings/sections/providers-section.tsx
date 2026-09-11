@@ -156,10 +156,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
   const activeProviderCapabilities = activeProviderProfile
     ? resolveProviderProfileCapabilities(activeProviderProfile)
     : null;
-  const usesThinkingToggle =
-    activeProviderEditor?.apiMode &&
-    activeProviderProfile &&
-    getProviderApiMode(activeProviderProfile) === "chat_completions";
+  const usesThinkingToggle = activeProviderCapabilities?.reasoningControl === "toggle";
+  const supportedReasoningEfforts = activeProviderCapabilities?.reasoningEfforts ?? [];
+  const activeReasoningEffortOptions = activeProviderProfile?.reasoningEffort &&
+    !supportedReasoningEfforts.includes(activeProviderProfile.reasoningEffort)
+      ? [...supportedReasoningEfforts, activeProviderProfile.reasoningEffort]
+      : supportedReasoningEfforts;
   const isDuplicateName = activeProviderProfile
     ? providerProfiles.some(
         (p) =>
@@ -936,7 +938,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                           }
                           className={`${selectLike} ${isFieldDirty("activeReasoningEffort") ? "!border-amber-500/40" : ""}`}
                         >
-                          {(activeProviderCapabilities?.reasoningEfforts ?? []).map((effort) => (
+                          {activeReasoningEffortOptions.map((effort) => (
                             <option key={effort} value={effort}>
                               {effort === "none" ? "disabled" : effort}
                             </option>

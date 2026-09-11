@@ -1,4 +1,5 @@
 import type { ApiMode, VisionMode } from "@/lib/types";
+import type { ReasoningEffort } from "@/lib/provider-catalog";
 import {
   MODEL_REGISTRY,
   MODEL_REQUEST_QUIRKS,
@@ -15,6 +16,7 @@ type ResolvedCapabilities = {
   thinkingReplay: boolean;
   extraBody: "none" | "thinking" | "reasoning_effort";
   strictExtraRejection: boolean;
+  reasoningEfforts: ReasoningEffort[] | null;
 };
 
 function bareModelId(model: string) {
@@ -31,6 +33,7 @@ const DEFAULT_CAPABILITIES: ResolvedCapabilities = {
   thinkingReplay: false,
   extraBody: "none",
   strictExtraRejection: false,
+  reasoningEfforts: null,
 };
 
 function resolveCapabilityFlag(flag: CapabilityFlag, apiMode: ApiMode): boolean {
