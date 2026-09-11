@@ -14,9 +14,9 @@ export type MemoryPreferences = {
 };
 
 export const RIGOR_OPTIONS: Array<{ value: MemoryRigor; label: string; description: string }> = [
-  { value: "low", label: "Low", description: "Only saves when you explicitly ask." },
-  { value: "balanced", label: "Balanced", description: "Proactively saves durable facts (name, location, role, preferences)." },
-  { value: "high", label: "High", description: "Captures broadly, including implied and stated personal context." }
+  { value: "low", label: "Low", description: "Only saves when you ask, or when you state something unmistakably durable like a birthday." },
+  { value: "balanced", label: "Balanced", description: "Proactively offers durable facts about you that apply in any conversation." },
+  { value: "high", label: "High", description: "Offers broadly — implied context, work, environment, and memorable personal details — still only beyond the current chat." }
 ];
 
 export function MemoryPreferencesSettings({
@@ -35,7 +35,7 @@ export function MemoryPreferencesSettings({
       <div className="flex items-center justify-between gap-3 rounded-xl border border-white/6 bg-white/4 px-4 py-3 sm:max-w-md">
         <div className="min-w-0">
           <div className="text-sm font-medium text-[var(--text)]">Enable memories</div>
-          <div className="mt-0.5 text-xs leading-5 text-[var(--muted)]">Save and recall facts across conversations</div>
+          <div className="mt-0.5 text-xs leading-5 text-[var(--muted)]">Save durable facts about you and recall them in every conversation</div>
         </div>
         <label className="relative inline-flex shrink-0 cursor-pointer items-center">
           <input

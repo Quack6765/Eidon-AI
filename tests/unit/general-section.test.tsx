@@ -1214,7 +1214,14 @@ describe("general section", () => {
     const select = screen.getByLabelText("Memory proactiveness") as HTMLSelectElement;
     expect(select.value).toBe("balanced");
     expect(Array.from(select.options).map((option) => option.value)).toEqual(["low", "balanced", "high"]);
-    expect(screen.getByRole("button", { name: "What each proactiveness level does" })).toBeInTheDocument();
+    expect(screen.getByText("Save durable facts about you and recall them in every conversation")).toBeInTheDocument();
+
+    const helpButton = screen.getByRole("button", { name: "What each proactiveness level does" });
+    expect(helpButton).toBeInTheDocument();
+    fireEvent.click(helpButton);
+    expect(
+      await screen.findByText(/Proactively offers durable facts about you that apply in any conversation/, { exact: false })
+    ).toBeInTheDocument();
   });
 
   it("saves the semantic recall bundle when an admin toggles it on", async () => {
