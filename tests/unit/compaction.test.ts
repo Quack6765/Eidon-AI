@@ -1710,6 +1710,10 @@ describe("buildPromptMessages with memories", () => {
     expect(systemContent).not.toContain("<memory>");
     expect(systemContent).toContain("create_memory");
     expect(systemContent).toContain("Proactively capture");
+    expect(systemContent).toContain("memory is global");
+    expect(systemContent).toContain(
+      "would this fact matter in a future conversation about a completely different topic?"
+    );
   });
 
   it("reflects the configured memory rigor in the guidance", () => {
@@ -1737,6 +1741,18 @@ describe("buildPromptMessages with memories", () => {
     });
     expect((low[0].content as string)).toContain("Only propose a memory when the user explicitly asks");
     expect((low[0].content as string)).not.toContain("Proactively capture");
+    expect((low[0].content as string)).toContain("memory is global");
+
+    const balanced = buildPromptMessages({
+      systemPrompt: "Be helpful.",
+      activeMemoryNodes: [],
+      messages: baseMessages,
+      memoriesEnabled: true,
+      memoriesRigor: "balanced"
+    });
+    expect((balanced[0].content as string)).toContain(
+      "Memories must describe the user, not the topic under discussion"
+    );
 
     const high = buildPromptMessages({
       systemPrompt: "Be helpful.",
@@ -1746,6 +1762,9 @@ describe("buildPromptMessages with memories", () => {
       memoriesRigor: "high"
     });
     expect((high[0].content as string)).toContain("Capture broadly and proactively");
+    expect((high[0].content as string)).toContain(
+      "never about the content of the current conversation"
+    );
   });
 });
 

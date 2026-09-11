@@ -444,7 +444,8 @@ export function buildToolDefinitions(input: {
         type: "function",
         function: {
           name: "update_memory",
-          description: "Update an existing memory when a fact has changed.",
+          description:
+            "Update an existing memory when a durable fact about the user has changed or needs correcting. Memory is global — shared across all conversations — so never use this to append details from the current conversation (topics discussed, task progress, one-off context).",
           parameters: {
             type: "object",
             properties: {

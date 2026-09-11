@@ -67,7 +67,7 @@ A toggle in the composer switches a turn into deep research mode.
 
 ## Memory
 
-**Memory tools with a rigor setting.** When memories are enabled the model gets `create_memory`, `update_memory`, and `delete_memory`. A rigor preference of `low`, `balanced` (default), or `high` changes the guidance in those tool descriptions, tuning how proactively the assistant reaches for them.
+**Memory tools with a rigor setting.** When memories are enabled the model gets `create_memory`, `update_memory`, and `delete_memory`. A rigor preference of `low`, `balanced` (default), or `high` changes the guidance in those tool descriptions, tuning how proactively the assistant reaches for them. All levels share one rule: memory is global across every conversation, so only durable facts about the user belong there — never the content of the current chat.
 
 **Approval flow.** Memory writes are never silent. Every create, update, or delete surfaces in the transcript as a proposal card showing exactly what would change; nothing is written until you approve it, and you can dismiss it instead. A superseded proposal is marked as such.
 
