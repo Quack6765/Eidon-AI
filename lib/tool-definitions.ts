@@ -433,7 +433,11 @@ export function buildToolDefinitions(input: {
           parameters: {
             type: "object",
             properties: {
-              content: { type: "string", description: "The fact to remember" },
+              content: {
+                type: "string",
+                description:
+                  "The fact to remember, written as a general statement about the user (for example \"Prefers concise answers without preamble\") rather than a note about this conversation"
+              },
               category: { type: "string", description: "One of: personal, preference, work, location, other" }
             },
             required: ["content", "category"]
@@ -444,13 +448,20 @@ export function buildToolDefinitions(input: {
         type: "function",
         function: {
           name: "update_memory",
-          description: "Update an existing memory when a fact has changed.",
+          description:
+            "Change an existing memory when a fact you already hold is now wrong or has been superseded; the call itself is the offer, showing them a card they approve, edit, or dismiss. Rewrite it as a general fact about the user; do not append detail that only matters in the current conversation.",
           parameters: {
             type: "object",
             properties: {
-              id: { type: "string", description: "The memory ID to update" },
-              content: { type: "string", description: "The updated fact" },
-              category: { type: "string", description: "New category (optional)" }
+              id: { type: "string", description: "The memory ID shown before the fact in the memory list" },
+              content: {
+                type: "string",
+                description: "The full replacement fact, written to stand on its own outside this conversation"
+              },
+              category: {
+                type: "string",
+                description: "New category (optional). One of: personal, preference, work, location, other"
+              }
             },
             required: ["id", "content"]
           }
@@ -460,7 +471,8 @@ export function buildToolDefinitions(input: {
         type: "function",
         function: {
           name: "delete_memory",
-          description: "Delete a stored memory that is no longer relevant or accurate.",
+          description:
+            "Delete a stored memory that is no longer true or no longer useful; the call itself is the offer, showing them a card they approve or dismiss. Requires the memory's ID.",
           parameters: {
             type: "object",
             properties: {
