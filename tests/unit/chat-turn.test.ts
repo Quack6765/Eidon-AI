@@ -2326,6 +2326,84 @@ describe("chat-turn", () => {
     }
   });
 
+  it("keeps preamble text streamed before a tool step ordered above the action", async () => {
+    const { createLocalUser: createRouteUser } = await import("@/lib/users");
+    const user = await createRouteUser({
+      username: "route-preamble-user",
+      password: "route-preamble-secret-123",
+      role: "user"
+    });
+    requireUserMock.mockResolvedValue(user);
+
+    const { updateProviderCatalog } = await import("@/lib/settings");
+    const { createConversation, listVisibleMessages } = await import("@/lib/conversations");
+    const { profileId, profile } = setupProviderProfile();
+    updateProviderCatalog({
+      defaultProviderProfileId: profileId,
+      skillsEnabled: false,
+      providerProfiles: [profile]
+    });
+
+    const conversation = createConversation("Route preamble", null, { providerProfileId: null }, user.id);
+
+    vi.doMock("@/lib/assistant-runtime", () => ({
+      resolveAssistantTurn: vi.fn(async (input: {
+        onEvent?: (event: { type: string; text: string }) => void;
+        onAnswerSegment?: (segment: string) => Promise<void> | void;
+        onActionStart?: (action: {
+          kind: "skill_load";
+          label: string;
+          detail?: string;
+        }) => string | void;
+      }) => {
+        input.onEvent?.({ type: "answer_delta", text: "Let me check the docs." });
+        await input.onAnswerSegment?.("Let me check the docs.");
+        input.onActionStart?.({
+          kind: "skill_load",
+          label: "Load skill",
+          detail: "Checking docs"
+        });
+        input.onEvent?.({ type: "answer_delta", text: "Here are the results." });
+        await input.onAnswerSegment?.("Here are the results.");
+        return {
+          answer: "Here are the results.",
+          thinking: "",
+          usage: {}
+        };
+      })
+    }));
+
+    try {
+      const { POST } = await import("@/app/api/conversations/[conversationId]/chat/route");
+      const response = await POST(
+        new Request(`http://localhost/api/conversations/${conversation.id}/chat`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ message: "Find the docs", attachmentIds: [] })
+        }),
+        { params: Promise.resolve({ conversationId: conversation.id }) }
+      );
+
+      expect(response.status).toBe(200);
+      await response.text();
+
+      const assistant = listVisibleMessages(conversation.id).find((message) => message.role === "assistant");
+      const segments = assistant?.textSegments ?? [];
+      const action = assistant?.actions?.[0];
+
+      expect(segments.map((segment) => segment.content)).toEqual([
+        "Let me check the docs.",
+        "Here are the results."
+      ]);
+      expect(assistant?.content).toBe("Let me check the docs.Here are the results.");
+      expect(action).toEqual(expect.objectContaining({ label: "Load skill" }));
+      expect(segments[0].sortOrder).toBeLessThan(action!.sortOrder);
+      expect(action!.sortOrder).toBeLessThan(segments[1].sortOrder);
+    } finally {
+      vi.doUnmock("@/lib/assistant-runtime");
+    }
+  });
+
   it("broadcasts a context_usage event at turn end", async () => {
     const { streamProviderResponse } = await import("@/lib/provider");
     const mockedStreamProviderResponse = vi.mocked(streamProviderResponse);

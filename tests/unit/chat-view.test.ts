@@ -4698,7 +4698,7 @@ describe("chat view", () => {
     });
   });
 
-  it("clears streamed preamble text on answer_reset before a tool action", async () => {
+  it("clears streamed answer text when the server resets the answer", async () => {
     renderWithProvider(React.createElement(ChatView, { payload: createPayload() }));
 
     const send = (event: unknown) =>
