@@ -208,6 +208,9 @@ describe("Mobile API v1 contracts", () => {
     expect(attachmentProperties).not.toHaveProperty("relativePath");
     expect(attachmentProperties).not.toHaveProperty("extractedText");
     expect(contract.components.schemas.User.properties).not.toHaveProperty("passwordHash");
+    expect(contract.components.schemas.MemoryProposalPayload.properties!.botId).toEqual({
+      $ref: "#/components/schemas/NullableId"
+    });
     const speechTranscriptionUpdate = contract.components.schemas.SpeechTranscriptionUpdate as unknown as {
       oneOf: Array<{
         properties: {
