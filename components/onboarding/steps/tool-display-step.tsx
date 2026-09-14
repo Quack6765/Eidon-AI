@@ -31,8 +31,8 @@ export function ToolDisplayStep({
         selected={value === "status_line"}
         onSelect={() => onChange("status_line")}
         title="Single status line"
-        description="One quiet line, nothing left behind."
-        ariaLabel="Single status line: one quiet line, nothing left behind"
+        description="One quiet line that keeps a short record of the turn."
+        ariaLabel="Single status line: one quiet line that keeps a short record of the turn"
       >
         <StatusLineDemo phase={phase} />
       </OnboardingOptionTile>

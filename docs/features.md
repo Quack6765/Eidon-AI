@@ -6,7 +6,7 @@ The complete capability reference: what Eidon does, where the controls are, and 
 
 **Streaming over WebSocket.** Turns stream over a WebSocket connection rather than an HTTP response, and every event is broadcast to all subscribers of the conversation. Open the same chat in two browsers or on a phone and a laptop, and both watch the same reply arrive token by token. Reconnecting requests a snapshot so a client that was asleep catches up.
 
-**Action timeline.** Each assistant message carries an ordered timeline interleaved with its text: thinking blocks with the model's reasoning summary, and one entry per tool call with its arguments, live status, and result. Statuses are `running`, `pending`, `completed`, `error`, and `stopped`. A per-user preference renders tool calls either as expandable **pills** (default) or as a single compact **status line**.
+**Action timeline.** Each assistant message carries an ordered timeline interleaved with its text: thinking blocks with the model's reasoning summary, and one entry per tool call with its arguments, live status, and result. Statuses are `running`, `pending`, `completed`, `error`, and `stopped`. A per-user preference renders tool calls either as expandable **pills** (default) or as a single compact **status line**, which carries the live activity while the turn runs and then rests on a count summary — for example `3 tools, 4 web searches, 6 pages read` — that expands on click to list every call of the turn.
 
 **Branching and redoing.** Three different ways to change course:
 

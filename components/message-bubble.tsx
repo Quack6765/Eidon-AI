@@ -17,6 +17,10 @@ import {
 } from "@/components/tool-activity";
 import { parseAnsiText } from "@/lib/ansi";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
+import {
+  isMessageBotActionKind,
+  summarizeToolActivity
+} from "@/lib/tool-activity-summary";
 import { useStreamdownPlugins } from "@/lib/streamdown-plugins";
 import { useLinkSafety } from "@/components/link-safety-modal";
 import { writeRichTextToClipboard } from "@/lib/clipboard";
@@ -60,10 +64,6 @@ import {
 const COPY_RESET_DELAY_MS = 1600;
 const DELEGATION_WAKE_PATTERN = /^\[Message from (.+)\]$/;
 const DELEGATE_LABEL_PATTERN = /^Messaged\s+(.+)$/;
-
-function isMessageBotActionKind(kind: MessageActionType["kind"]) {
-  return kind === "delegate_task" || kind === "message_bot";
-}
 
 export function parseDelegationWakeMessage(content: string): { botName: string; content: string } | null {
   if (!content.startsWith("[Message from ")) {
@@ -466,6 +466,7 @@ function MessageBubbleImpl({
 }) {
   const [thinkingOpenItems, setThinkingOpenItems] = useState<Record<string, boolean>>({});
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
+  const [statusLineOpen, setStatusLineOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
@@ -683,6 +684,16 @@ function MessageBubbleImpl({
     renderedAssistantBlockContentById,
     lastRenderableAssistantTextId
   } = derived;
+  const toolActivity = useMemo(
+    () =>
+      summarizeToolActivity(
+        assistantBlocks.filter(
+          (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
+            item.timelineKind === "action"
+        )
+      ),
+    [assistantBlocks]
+  );
   const delegationWake = message.role === "user" ? parseDelegationWakeMessage(content) : null;
 
   function toggleToolItem(id: string) {
@@ -895,13 +906,14 @@ function MessageBubbleImpl({
     !(showThinkingShell && thinkingInProgress);
   const showStatusLine =
     useStatusLine &&
-    isAssistantStreaming &&
-    message.status !== "error" &&
-    message.status !== "stopped" &&
     !compactionInProgress &&
-    !lastBlockIsStreamingText &&
-    !lastBlockIsRunningDelegate &&
-    (lastBlockIsRunningAction || lastBlockIsRunningThinking || thinkingInProgress || betweenSteps);
+    (awaitingFirstToken ||
+      toolActivity.total > 0 ||
+      (isAssistantStreaming &&
+        (lastBlockIsRunningAction ||
+          lastBlockIsRunningThinking ||
+          thinkingInProgress ||
+          betweenSteps)));
   const statusLineRunningAction = useStatusLine
     ? assistantBlocks
         .slice()
@@ -916,13 +928,29 @@ function MessageBubbleImpl({
         ? statusLineRunningAction.arguments.query.trim()
         : "") || statusLineRunningAction.detail.trim()
     : "";
-  const statusLineLabel = statusLineRunningAction
+  const statusLineLive =
+    awaitingFirstToken ||
+    Boolean(statusLineRunningAction) ||
+    lastBlockIsRunningThinking ||
+    thinkingInProgress ||
+    (toolActivity.total === 0 && betweenSteps);
+  const statusLineLiveLabel = statusLineRunningAction
     ? statusLineWebSearchQuery
       ? `${statusLineRunningAction.label}: ${statusLineWebSearchQuery}`
       : statusLineRunningAction.label
     : lastBlockIsRunningThinking || thinkingInProgress
       ? "Thinking…"
       : "Working…";
+  const statusLineLabel = statusLineLive ? statusLineLiveLabel : toolActivity.text;
+  const statusLineRecord = showStatusLine ? (
+    <StatusLine
+      label={statusLineLabel}
+      live={statusLineLive}
+      rows={toolActivity.rows}
+      isOpen={statusLineOpen}
+      onToggle={() => setStatusLineOpen((open) => !open)}
+    />
+  ) : null;
 
   function setCopyFeedback(nextState: "copied" | "error") {
     setCopyState(nextState);
@@ -1133,13 +1161,14 @@ function MessageBubbleImpl({
               compactionInProgress ? (
                 <CompactionIndicator />
               ) : useStatusLine ? (
-                <StatusLine label="Working…" />
+                <StatusLine label="Working…" live />
               ) : (
                 <InProgressIndicator />
               )
             ) : message.status === "error" ? (
               <div className="group flex w-full min-w-0 flex-col items-center">
                 <MessageContent className={`w-full ${ASSISTANT_ERROR_MAX_WIDTH} flex-col items-center gap-3`}>
+                  {statusLineRecord ? <div className="w-full">{statusLineRecord}</div> : null}
                   {assistantBlocks
                     .filter((item) => item.timelineKind !== "text")
                     .map((item) =>
@@ -1182,9 +1211,7 @@ function MessageBubbleImpl({
               <div className="group flex w-full min-w-0 flex-col items-start">
                 <MessageContent className="w-full">
                   <div ref={contentRef} className="flex flex-col gap-3">
-                    {showStatusLine ? (
-                      <StatusLine label={statusLineLabel} />
-                    ) : null}
+                    {statusLineRecord ? <div className="w-full">{statusLineRecord}</div> : null}
                     {assistantBlocks.map((item) => {
                       if (item.timelineKind === "thinking") {
                         return renderThinkingShell({
@@ -1297,8 +1324,8 @@ function MessageBubbleImpl({
                   </div>
                 ) : null}
               </div>
-            ) : showStatusLine ? (
-              <StatusLine label={statusLineLabel} />
+            ) : statusLineRecord ? (
+              <div className="w-full">{statusLineRecord}</div>
             ) : null}
           </div>
         </div>

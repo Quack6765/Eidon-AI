@@ -11,8 +11,9 @@ export type DemoPill = {
 };
 
 export type DemoPhase = {
-  /** Empty means the status line is hidden, the way it is once text starts streaming. */
+  /** Live activity text. Empty when the line rests on the turn summary instead. */
   statusLabel: string;
+  summaryLabel: string;
   pills: DemoPill[];
   answer: string;
 };
@@ -33,22 +34,23 @@ const done = (pill: DemoPill): DemoPill => ({ ...pill, status: "completed" });
 /**
  * One scripted turn, rendered by both demos so the comparison is honest: the
  * pills column accumulates a record while the status line replaces itself and
- * then disappears entirely.
+ * then rests on the count summary.
  */
 export const DEMO_SCRIPT: Array<{ phase: DemoPhase; holdMs: number }> = [
-  { phase: { statusLabel: "Working…", pills: [], answer: "" }, holdMs: 700 },
-  { phase: { statusLabel: "Thinking…", pills: [THINK], answer: "" }, holdMs: 900 },
+  { phase: { statusLabel: "Working…", summaryLabel: "", pills: [], answer: "" }, holdMs: 700 },
+  { phase: { statusLabel: "Thinking…", summaryLabel: "", pills: [THINK], answer: "" }, holdMs: 900 },
   {
-    phase: { statusLabel: "Search workspace", pills: [done(THINK), WORKSPACE], answer: "" },
+    phase: { statusLabel: "Search workspace", summaryLabel: "", pills: [done(THINK), WORKSPACE], answer: "" },
     holdMs: 1000
   },
   {
-    phase: { statusLabel: "Working…", pills: [done(THINK), done(WORKSPACE)], answer: "" },
+    phase: { statusLabel: "", summaryLabel: "1 tool", pills: [done(THINK), done(WORKSPACE)], answer: "" },
     holdMs: 500
   },
   {
     phase: {
       statusLabel: "Web search: q3 industry benchmarks",
+      summaryLabel: "",
       pills: [done(THINK), done(WORKSPACE), SEARCH],
       answer: ""
     },
@@ -57,6 +59,7 @@ export const DEMO_SCRIPT: Array<{ phase: DemoPhase; holdMs: number }> = [
   {
     phase: {
       statusLabel: "",
+      summaryLabel: "1 tool, 1 web search",
       pills: [done(THINK), done(WORKSPACE), done(SEARCH)],
       answer: "Revenue grew 12%,"
     },
@@ -65,6 +68,7 @@ export const DEMO_SCRIPT: Array<{ phase: DemoPhase; holdMs: number }> = [
   {
     phase: {
       statusLabel: "",
+      summaryLabel: "1 tool, 1 web search",
       pills: [done(THINK), done(WORKSPACE), done(SEARCH)],
       // Kept to one short line so it never wraps out of the fixed-height frame.
       answer: "Revenue grew 12%, ahead of market."

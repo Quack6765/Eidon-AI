@@ -1795,7 +1795,7 @@ describe("message bubble", () => {
     expect(screen.queryByTestId("assistant-in-progress")).toBeNull();
   });
 
-  it("shows a working status line between steps in status line mode", () => {
+  it("rests on the turn summary between steps in status line mode", () => {
     render(
       React.createElement(MessageBubble, {
         message: { ...createAssistantMessage(), status: "streaming", content: "" },
@@ -1817,8 +1817,21 @@ describe("message bubble", () => {
       })
     );
 
-    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("Working");
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("1 tool");
     expect(screen.queryByTestId("assistant-actions-shell")).toBeNull();
+  });
+
+  it("keeps the working label between steps while no call has been made yet", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [createThinkingItem()]
+      })
+    );
+
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("Working");
   });
 
   it("hides the status line while answer text is streaming in status line mode", () => {
@@ -1836,7 +1849,104 @@ describe("message bubble", () => {
     expect(screen.queryByTestId("assistant-status-line")).toBeNull();
   });
 
-  it("renders a clean transcript for completed turns in status line mode", () => {
+  it("keeps the turn summary on screen while answer text streams", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "So far" },
+        streamingAnswer: "So far",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            ...createToolAction({
+              id: "act_search",
+              messageId: "msg_assistant",
+              toolName: "web_search",
+              label: "Web search",
+              detail: "",
+              arguments: { query: "Eidon docs" },
+              resultSummary: "Found results"
+            }),
+            timelineKind: "action"
+          },
+          { id: "txt_1", timelineKind: "text", sortOrder: 1, createdAt: new Date().toISOString(), content: "So far" }
+        ]
+      })
+    );
+
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("1 web search");
+  });
+
+  it("opens the turn record from the status line in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            ...createToolAction({
+              id: "act_search",
+              messageId: "msg_assistant",
+              toolName: "web_search",
+              label: "Web search",
+              detail: "",
+              arguments: { query: "Eidon docs" },
+              resultSummary: ""
+            }),
+            timelineKind: "action"
+          },
+          {
+            ...createToolAction({
+              id: "act_page",
+              messageId: "msg_assistant",
+              toolName: "read_page",
+              label: "Read page",
+              detail: "https://example.com/report",
+              resultSummary: "Report (1,024 chars)",
+              status: "error"
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const toggle = screen.getByTestId("assistant-status-line-toggle");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByTestId("assistant-status-line-rows")).toBeNull();
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    const rows = screen.getAllByTestId("assistant-status-line-row");
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent("Web search: Eidon docs");
+    expect(rows[1]).toHaveTextContent("Read page: https://example.com/report");
+    expect(screen.getByTestId("assistant-status-line-toggle")).toHaveTextContent(
+      "1 web search, 1 page read"
+    );
+
+    fireEvent.click(toggle);
+
+    expect(screen.queryByTestId("assistant-status-line-rows")).toBeNull();
+  });
+
+  it("renders a static status line when a turn only thought", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          timeline: [createThinkingItem()]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    expect(screen.queryByTestId("assistant-status-line")).toBeNull();
+    expect(screen.queryByTestId("assistant-status-line-toggle")).toBeNull();
+  });
+
+  it("keeps a summary line for completed turns in status line mode", () => {
     render(
       React.createElement(MessageBubble, {
         message: {
@@ -1861,7 +1971,7 @@ describe("message bubble", () => {
     );
 
     expect(screen.getByTestId("assistant-message-content")).toHaveTextContent("Final answer");
-    expect(screen.queryByTestId("assistant-status-line")).toBeNull();
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("1 tool");
     expect(screen.queryByTestId("assistant-actions-shell")).toBeNull();
     expect(screen.queryByTestId("assistant-thinking-shell")).toBeNull();
   });
@@ -1876,6 +1986,96 @@ describe("message bubble", () => {
 
     expect(screen.getByText("Save memory")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+
+  it("keeps the turn record on an errored turn in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Something went wrong",
+          status: "error",
+          timeline: [
+            {
+              ...createToolAction({
+                id: "act_page",
+                messageId: "msg_assistant",
+                toolName: "read_page",
+                label: "Read page",
+                detail: "https://example.com/report",
+                status: "error",
+                resultSummary: "Request failed"
+              }),
+              timelineKind: "action"
+            }
+          ]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    expect(screen.getByTestId("assistant-error-bubble")).toHaveTextContent("Something went wrong");
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("1 page read");
+  });
+
+  it("keeps the turn record on a stopped turn in status line mode", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "Partial",
+          status: "stopped",
+          timeline: [
+            {
+              ...createToolAction({
+                id: "act_shell",
+                messageId: "msg_assistant",
+                kind: "shell_command",
+                toolName: "execute_shell_command",
+                label: "Local command",
+                detail: "npm test",
+                status: "stopped",
+                resultSummary: ""
+              }),
+              timelineKind: "action"
+            }
+          ]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("1 tool");
+    expect(screen.getByText("Stopped")).toBeInTheDocument();
+  });
+
+  it("leaves delegated bots out of the status line record", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          timeline: [
+            {
+              ...createToolAction({
+                id: "act_delegate",
+                messageId: "msg_assistant",
+                kind: "delegate_task",
+                toolName: "message_bot",
+                label: "Messaged Researcher",
+                detail: "Summarize the report",
+                resultSummary: "Sent"
+              }),
+              timelineKind: "action"
+            }
+          ]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    expect(screen.queryByTestId("assistant-status-line")).toBeNull();
+    expect(screen.getByTestId("delegate-action-line")).toHaveTextContent("Messaged");
+    expect(screen.getByTestId("delegate-action-line")).toHaveTextContent("Researcher");
   });
 
   it("renders running action pills in the default pills mode", () => {

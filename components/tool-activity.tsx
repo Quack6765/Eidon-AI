@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import { Check, ChevronDown, ChevronRight, LoaderCircle, Square, X } from "lucide-react";
 
+import type { ToolActivityRow } from "@/lib/tool-activity-summary";
 import type { MessageActionStatus } from "@/lib/types";
 
 /**
@@ -135,17 +136,76 @@ export function InProgressIndicator() {
   );
 }
 
-export function StatusLine({ label, compact = false }: { label: string; compact?: boolean }) {
+export function StatusLine({
+  label,
+  live = false,
+  rows,
+  isOpen = false,
+  onToggle,
+  compact = false
+}: {
+  label: string;
+  live?: boolean;
+  rows?: ToolActivityRow[];
+  isOpen?: boolean;
+  onToggle?: () => void;
+  compact?: boolean;
+}) {
+  const expandable = Boolean(rows?.length) && Boolean(onToggle);
+  const className = [
+    compact ? "status-line status-line--compact" : "status-line",
+    live ? "status-line--live" : "status-line--static",
+    expandable ? "status-line--interactive" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const labelNode = (
+    <span className="status-line__label" data-testid="assistant-status-line-label">
+      {label}
+    </span>
+  );
+
+  if (!expandable) {
+    return (
+      <div className={className} data-testid="assistant-status-line" role="status" aria-live="polite">
+        {labelNode}
+      </div>
+    );
+  }
+
   return (
     <div
-      className={compact ? "status-line status-line--compact" : "status-line"}
+      className={className}
       data-testid="assistant-status-line"
+      data-open={isOpen ? "true" : "false"}
       role="status"
       aria-live="polite"
     >
-      <span className="status-line__label" data-testid="assistant-status-line-label">
-        {label}
-      </span>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={isOpen}
+        className="status-line__toggle focus-visible:ring-2 focus-visible:ring-white/20 focus-visible:outline-none"
+        data-testid="assistant-status-line-toggle"
+      >
+        {labelNode}
+        <ChevronRight className="status-line__chevron" aria-hidden="true" />
+      </button>
+      {isOpen ? (
+        <ul className="status-line__rows" data-testid="assistant-status-line-rows" aria-live="off">
+          {rows!.map((row) => (
+            <li className="status-line__row" data-testid="assistant-status-line-row" key={row.id}>
+              <span className="status-line__row-icon">
+                <ToolPillStatusIcon status={row.status} />
+              </span>
+              <span className="status-line__row-text">
+                <span className="status-line__row-label">{row.label}</span>
+                {row.meta ? <span className="status-line__row-meta">: {row.meta}</span> : null}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
