@@ -278,7 +278,7 @@ export function OnboardingFlow({
       `Opening into ${VIEW_LABELS[defaultView]}`,
       toolCallDisplay === "pills"
         ? "Tool activity shown as pills"
-        : "Tool activity shown as a single status line"
+        : "Tool activity kept in one expandable status line"
     ];
     if (providerSaved) {
       const choice = providerDraft.choice;
