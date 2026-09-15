@@ -133,6 +133,8 @@ Use a separate volume, as shown. Pointing a dev image at your production volume 
 
 The in-app version shows `dev-<short sha>` on dev builds and the release tag on stable ones, so you can confirm exactly which build you are looking at.
 
+Cutting a release also means writing its user-facing highlights. `lib/release-notes/` holds one small file per release and feeds the "What's new" pop-up that every user sees once after their server is updated. Because each release gets its own file, no single file grows as the project ships weekly releases. The entries are bundled into the image, so the new file has to land in the same PR as the release. `AGENTS.md` carries the authoring rules, and the version label in Settings opens the pop-up on demand so a change can be previewed before it ships.
+
 ## Architecture orientation
 
 | Layer | Choice |

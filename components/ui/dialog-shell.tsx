@@ -13,6 +13,7 @@ export function DialogShell({
   icon,
   children,
   footer,
+  titleClassName,
   size = "sm"
 }: {
   open: boolean;
@@ -22,7 +23,8 @@ export function DialogShell({
   icon?: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
-  size?: "sm" | "lg";
+  titleClassName?: string;
+  size?: "sm" | "md" | "lg";
 }) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -35,12 +37,12 @@ export function DialogShell({
         <Dialog.Content
           className={cn(
             "fixed left-1/2 top-1/2 z-[81] flex max-h-[80vh] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-2xl border border-white/[0.08] bg-[#121214] p-6 shadow-2xl outline-none",
-            size === "lg" ? "max-w-[720px]" : "max-w-sm"
+            size === "lg" ? "max-w-[720px]" : size === "md" ? "max-w-[540px]" : "max-w-sm"
           )}
         >
           <div className="mb-4 flex items-center gap-3">
             {icon}
-            <Dialog.Title className="text-sm font-semibold text-[var(--text)]">
+            <Dialog.Title className={cn("text-sm font-semibold text-[var(--text)]", titleClassName)}>
               {title}
             </Dialog.Title>
           </div>
@@ -51,7 +53,9 @@ export function DialogShell({
           >
             {description ?? `${title} dialog`}
           </Dialog.Description>
-          {children ? <div className="min-h-0 flex-1 overflow-y-auto">{children}</div> : null}
+          {children ? (
+            <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">{children}</div>
+          ) : null}
           {footer ? (
             <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-white/[0.06] pt-4">
               {footer}

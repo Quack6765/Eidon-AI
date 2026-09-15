@@ -1,4 +1,9 @@
 export const APP_NAME = "Eidon";
+
+export function getAppVersion(): string {
+  return process.env.NEXT_PUBLIC_APP_VERSION || "dev";
+}
+
 export const SESSION_COOKIE_NAME = "eidon_session";
 export const SESSION_TOKEN_ISSUER = "eidon";
 export const SESSION_TOKEN_AUDIENCE = "eidon-session";
