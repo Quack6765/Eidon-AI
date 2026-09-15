@@ -990,7 +990,7 @@ Run browser commands.`
     expect(String(secondCall.promptMessages[0].content)).not.toContain("Web search results have been received");
   });
 
-  it("keeps text written alongside tool calls visible in research mode", async () => {
+  it("keeps text written alongside tool calls visible", async () => {
     readWebPage.mockResolvedValue("# Page\nSource: https://a.example/\n\ncontent");
     const events: string[] = [];
     const onAnswerSegment = vi.fn();
@@ -1057,8 +1057,11 @@ Run browser commands.`
       onEvent: (event) => events.push(event.type),
       onAnswerSegment
     });
-    expect(onAnswerSegment.mock.calls.map(([segment]) => segment)).toEqual(["Answer"]);
-    expect(events).toContain("answer_reset");
+    expect(onAnswerSegment.mock.calls.map(([segment]) => segment)).toEqual([
+      "Let me check.",
+      "Answer"
+    ]);
+    expect(events).not.toContain("answer_reset");
   });
 
   it("raises the research step budget and forces a report when it runs out", async () => {
@@ -3031,7 +3034,7 @@ Run browser commands.`
     })]);
   });
 
-  it("discards preamble answer text streamed before tool calls", async () => {
+  it("keeps preamble answer text streamed before tool calls", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([{ type: "answer_delta", text: "Let me search." }], {
@@ -3072,8 +3075,8 @@ Run browser commands.`
       "Let me search.",
       "Here are the results."
     ]);
-    expect(emitted.some((event) => event.type === "answer_reset")).toBe(true);
-    expect(persistedSegments).toEqual(["Here are the results."]);
+    expect(emitted.some((event) => event.type === "answer_reset")).toBe(false);
+    expect(persistedSegments).toEqual(["Let me search.", "Here are the results."]);
   });
 
   describe("memory tools", () => {

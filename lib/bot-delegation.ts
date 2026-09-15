@@ -144,6 +144,11 @@ async function runWorkerTurn(input: {
     }
 
     try {
+      const currentRun = getBotRun(runId);
+      if (!currentRun || currentRun.status !== "queued") {
+        return { status: "stopped", summary: "" };
+      }
+
       updateBotRunStatus(runId, { status: "running", startedAt: new Date().toISOString() });
       const runningRun = getBotRun(runId);
       if (runningRun) broadcastBotRunUpdate(runningRun);

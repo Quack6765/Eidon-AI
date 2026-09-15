@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import {
   ChevronDown,
   ChevronRight,
+  Eraser,
   FileText,
   Folder,
   FolderOpen,
@@ -176,6 +177,9 @@ export function BotDetailView({
   const [isResetOpen, setIsResetOpen] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
   const [resetNotice, setResetNotice] = useState<string | null>(null);
+  const [isClearOpen, setIsClearOpen] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
+  const [clearNotice, setClearNotice] = useState<string | null>(null);
   const [showPanel, setShowPanel] = useState(false);
   const [controlsOpen, setControlsOpen] = useState(false);
   const [workspaceTree, setWorkspaceTree] = useState<BotWorkspaceNode | null>(null);
@@ -362,6 +366,29 @@ export function BotDetailView({
     }
   }
 
+  async function handleClearContext() {
+    setIsClearOpen(false);
+    setIsClearing(true);
+    setClearNotice(null);
+
+    try {
+      const response = await fetch(`/api/bots/${bot.id}/clear-context`, { method: "POST" });
+      if (!response.ok) {
+        const failure = (await response.json().catch(() => null)) as { error?: string } | null;
+        setClearNotice(failure?.error ?? "Could not clear the conversation");
+      } else {
+        setClearNotice("Conversation cleared");
+        window.setTimeout(() => setClearNotice(null), 2500);
+        setShowPanel(false);
+        router.refresh();
+      }
+    } catch {
+      setClearNotice("Could not clear the conversation");
+    } finally {
+      setIsClearing(false);
+    }
+  }
+
   async function handleMemoryDelete() {
     const target = memoryDeleteTarget;
     setMemoryDeleteTarget(null);
@@ -507,6 +534,29 @@ export function BotDetailView({
               className="flex min-h-0 w-full shrink-0 flex-col overflow-y-auto border-t border-white/4 bg-[#101012] lg:w-[320px] lg:border-l lg:border-t-0"
               aria-label="Bot details"
             >
+          <PanelSection title="Conversation">
+            <p className="text-xs leading-5 text-[var(--muted)]">
+              Clear this bot&apos;s thread and start fresh. Its files, skills, memories, and browser
+              session are kept.
+            </p>
+            {clearNotice ? (
+              <p className="mt-2 text-xs text-[var(--muted)]">{clearNotice}</p>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setIsClearOpen(true)}
+              disabled={isClearing}
+              className="mt-3 inline-flex items-center gap-1.5 rounded-lg border border-white/12 bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-[#cbd5e1] transition-colors hover:border-white/20 hover:bg-white/[0.05] hover:text-white disabled:cursor-not-allowed disabled:text-[#71717a]"
+            >
+              {isClearing ? (
+                <LoaderCircle className="h-3 w-3 animate-spin" />
+              ) : (
+                <Eraser className="h-3 w-3" />
+              )}
+              {isClearing ? "Clearing…" : "Clear conversation"}
+            </button>
+          </PanelSection>
+
           <PanelSection title="Workspace">
             <p className="text-xs leading-5 text-[var(--muted)]">
               This bot keeps its files in its own dedicated workspace.
@@ -727,6 +777,20 @@ export function BotDetailView({
         providerProfiles={conversationPayload.providerProfiles ?? []}
         defaultProviderProfileId={conversationPayload.defaultProviderProfileId ?? null}
         onSubmit={handleEdit}
+      />
+
+      <ConfirmDialog
+        open={isClearOpen}
+        onOpenChange={setIsClearOpen}
+        variant="default"
+        confirmLabel="Clear"
+        title="Clear conversation?"
+        description={
+          <>
+            All messages and context in <strong className="font-medium text-[var(--text)]">{bot.name}</strong>&apos;s thread will be removed and the thread starts fresh. Any running task is stopped. Files, skills, memories, and the browser session are kept. This action cannot be undone.
+          </>
+        }
+        onConfirm={handleClearContext}
       />
 
       <ConfirmDialog

@@ -155,6 +155,7 @@ describe("Mobile API v1 contracts", () => {
       "/automation-runs/{runId}",
       "/bots",
       "/bots/{botId}",
+      "/bots/{botId}/clear-context",
       "/bots/{botId}/memories",
       "/bots/{botId}/reset-browser-session",
       "/bots/{botId}/workspace",
@@ -181,6 +182,17 @@ describe("Mobile API v1 contracts", () => {
       requestBody: { $ref: "#/components/requestBodies/RecordedSpeechAudio" },
       responses: { "200": { $ref: "#/components/responses/SpeechTranscription" } }
     });
+    expect(contract.paths["/bots/{botId}/clear-context"]).toMatchObject({
+      parameters: [{ $ref: "#/components/parameters/botId" }]
+    });
+    expect(contract.paths["/bots/{botId}/clear-context"].post).toMatchObject({
+      operationId: "clearBotContext",
+      tags: ["Agents"],
+      responses: {
+        "200": { $ref: "#/components/responses/BotContextCleared" },
+        "409": { $ref: "#/components/responses/Error" }
+      }
+    });
     expect(contract.paths["/speech/transcription/cleanup"].post).toMatchObject({
       requestBody: { $ref: "#/components/requestBodies/SpeechCleanup" },
       responses: { "200": { $ref: "#/components/responses/SpeechCleanup" } }
@@ -196,6 +208,9 @@ describe("Mobile API v1 contracts", () => {
     expect(attachmentProperties).not.toHaveProperty("relativePath");
     expect(attachmentProperties).not.toHaveProperty("extractedText");
     expect(contract.components.schemas.User.properties).not.toHaveProperty("passwordHash");
+    expect(contract.components.schemas.MemoryProposalPayload.properties!.botId).toEqual({
+      $ref: "#/components/schemas/NullableId"
+    });
     const speechTranscriptionUpdate = contract.components.schemas.SpeechTranscriptionUpdate as unknown as {
       oneOf: Array<{
         properties: {
@@ -219,7 +234,7 @@ describe("Mobile API v1 contracts", () => {
     expect(universal2Languages.enum).toContain("sw");
     expect(universal2Languages.enum).toHaveLength(103);
     expect(compileOpenApiJsonRequestBodies()).toBe(41);
-    expect(compileOpenApiJsonResponses()).toBe(104);
+    expect(compileOpenApiJsonResponses()).toBe(106);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {
@@ -256,6 +271,7 @@ describe("Mobile API v1 contracts", () => {
     const serverMessages = JSON.stringify(contract.$defs.ServerMessage);
     expect(serverMessages).toContain("protocolVersion");
     expect(serverMessages).toContain("conversation_title_updated");
+    expect(serverMessages).toContain("conversation_cleared");
     expect(serverMessages).toContain("bot_updated");
     expect(serverMessages).toContain("bot_deleted");
     expect(serverMessages).toContain("bot_run_updated");

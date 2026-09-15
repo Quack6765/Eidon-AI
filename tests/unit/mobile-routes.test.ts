@@ -225,6 +225,16 @@ describe("Mobile API v1 REST adapter", () => {
     await assertResponseContract("/bots/{botId}/seen-input", "post", seenInput);
     await expect(seenInput.json()).resolves.toMatchObject({ data: { bot: { id: botId } } });
 
+    const cleared = await mobilePost(
+      request(["bots", botId, "clear-context"], memberSession.token, { method: "POST" }),
+      context(["bots", botId, "clear-context"])
+    );
+    expect(cleared.status).toBe(200);
+    await assertResponseContract("/bots/{botId}/clear-context", "post", cleared);
+    await expect(cleared.json()).resolves.toMatchObject({
+      data: { cleared: true, bot: { id: botId } }
+    });
+
 
     const emptySkills = await mobileGet(
       request(["bots", botId, "skills"], memberSession.token),

@@ -674,7 +674,7 @@ export async function resolveAssistantTurn(input: {
       Boolean(answer.trim()) &&
       toolCalls.every((toolCall) => isProposalToolCall(toolCall.name));
 
-    if (isProposalFinalStep || (input.research && answer.trim())) {
+    if (answer.trim()) {
       await commitAnswerSegment(answer);
     } else {
       input.onEvent?.({ type: "answer_reset" });

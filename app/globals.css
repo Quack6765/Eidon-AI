@@ -108,11 +108,13 @@ html.ios-pwa .app-shell {
   color: white;
 }
 
-button,
-input,
-textarea,
-select {
-  font: inherit;
+@layer base {
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
 }
 
 .scrollbar-thin {
