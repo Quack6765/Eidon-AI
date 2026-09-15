@@ -370,6 +370,52 @@ describe("db", () => {
     expect(globalColumns).not.toEqual(expect.arrayContaining(["has_completed_onboarding"]));
   });
 
+  it("defaults the last seen release to empty so an upgraded install still gets announced", async () => {
+    const { getDb, migrate } = await import("@/lib/db");
+    const db = getDb();
+
+    db.exec(
+      `INSERT INTO users (id, username, role, auth_source, password_hash, created_at, updated_at)
+       VALUES ('user_legacy', 'legacy', 'admin', 'local', '', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`
+    );
+    db.prepare(
+      `INSERT INTO user_preferences (user_id, created_at, updated_at) VALUES ('user_legacy', ?, ?)`
+    ).run("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z");
+
+    db.exec("ALTER TABLE user_preferences DROP COLUMN last_seen_release");
+    const before = (
+      db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>
+    ).map((column) => column.name);
+    expect(before).not.toContain("last_seen_release");
+
+    process.env.NEXT_PUBLIC_APP_VERSION = "v4.9.0";
+    try {
+      migrate(db);
+
+      const row = db
+        .prepare("SELECT last_seen_release FROM user_preferences WHERE user_id = 'user_legacy'")
+        .get() as { last_seen_release: string };
+      expect(row.last_seen_release).toBe("");
+    } finally {
+      delete process.env.NEXT_PUBLIC_APP_VERSION;
+    }
+  });
+
+  it("seeds new accounts with the running version so a fresh install is not announced", async () => {
+    process.env.NEXT_PUBLIC_APP_VERSION = "v4.9.0";
+    try {
+      const { createLocalUser } = await import("@/lib/users");
+      const { getGlobalPreferences } = await import("@/lib/global-preferences");
+      const { getUserPreferences } = await import("@/lib/user-preferences");
+
+      const created = await createLocalUser({ username: "fresh", password: "password123", role: "admin" });
+
+      expect(getUserPreferences(created.id, getGlobalPreferences()).lastSeenRelease).toBe("v4.9.0");
+    } finally {
+      delete process.env.NEXT_PUBLIC_APP_VERSION;
+    }
+  });
+
   it("adds memory proposal columns to message_actions", async () => {
     const { getDb } = await import("@/lib/db");
     const db = getDb();

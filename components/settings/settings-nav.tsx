@@ -19,11 +19,10 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { WhatsNewVersionButton } from "@/components/whats-new-dialog";
 import { useUnsavedChangesGate } from "@/hooks/use-unsaved-changes-gate";
 import { isUnmodifiedPrimaryClick } from "@/lib/navigation";
 import type { AuthUser } from "@/lib/types";
-
-const appVersion = process.env.NEXT_PUBLIC_APP_VERSION || "dev";
 
 const ACCOUNT_ITEMS = [
   { href: "/settings/account", label: "Account", icon: Shield }
@@ -224,9 +223,7 @@ export function SettingsNav({
               <LogOut className="h-3 w-3" />
               Sign out
             </Button>
-            <p className="mt-2.5 text-[11px] font-medium text-white/45 tracking-[0.04em] tabular-nums">
-              {appVersion}
-            </p>
+            <WhatsNewVersionButton />
           </div>
         </div>
       </div>

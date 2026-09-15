@@ -8,6 +8,10 @@ import { registerUnsavedChangesGuard } from "@/lib/unsaved-changes-guard";
 const mockPush = vi.fn();
 let mockPathname = "/settings/general";
 
+vi.mock("@/components/whats-new-dialog", () => ({
+  WhatsNewVersionButton: () => null
+}));
+
 vi.mock("next/navigation", () => ({
   usePathname: () => mockPathname,
   useRouter: () => ({
