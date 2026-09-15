@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Bot as BotIcon, Brain, Check, ChevronDown, ChevronRight, Copy, Forward, GitFork, LoaderCircle, PenLine, Pencil, RefreshCw, Square, X } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { math } from "@streamdown/math";
@@ -951,6 +951,15 @@ function MessageBubbleImpl({
       onToggle={() => setStatusLineOpen((open) => !open)}
     />
   ) : null;
+  const statusLineInsertionIndex = assistantBlocks.reduce((insertionIndex, item, index) => {
+    const isActivity =
+      item.timelineKind === "thinking" ||
+      (item.timelineKind === "action" &&
+        !isMemoryProposalAction(item) &&
+        !isAutomationProposalAction(item));
+
+    return isActivity ? index + 1 : insertionIndex;
+  }, 0);
 
   function setCopyFeedback(nextState: "copied" | "error") {
     setCopyState(nextState);
@@ -1168,7 +1177,6 @@ function MessageBubbleImpl({
             ) : message.status === "error" ? (
               <div className="group flex w-full min-w-0 flex-col items-center">
                 <MessageContent className={`w-full ${ASSISTANT_ERROR_MAX_WIDTH} flex-col items-center gap-3`}>
-                  {statusLineRecord ? <div className="w-full">{statusLineRecord}</div> : null}
                   {assistantBlocks
                     .filter((item) => item.timelineKind !== "text")
                     .map((item) =>
@@ -1183,6 +1191,7 @@ function MessageBubbleImpl({
                           })
                         : renderAssistantActionItem(item)
                     )}
+                  {statusLineRecord ? <div className="w-full">{statusLineRecord}</div> : null}
                   <div
                     className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-center text-red-300/85 shadow-[0_2px_10px_rgba(0,0,0,0.22)] md:px-4 md:py-3"
                     data-testid="assistant-error-bubble"
@@ -1211,8 +1220,14 @@ function MessageBubbleImpl({
               <div className="group flex w-full min-w-0 flex-col items-start">
                 <MessageContent className="w-full">
                   <div ref={contentRef} className="flex flex-col gap-3">
-                    {statusLineRecord ? <div className="w-full">{statusLineRecord}</div> : null}
-                    {assistantBlocks.map((item) => {
+                    {assistantBlocks.map((item, index) => {
+                      const statusLineSlot =
+                        index === statusLineInsertionIndex && statusLineRecord ? (
+                          <div key="status-line" className="w-full">
+                            {statusLineRecord}
+                          </div>
+                        ) : null;
+
                       if (item.timelineKind === "thinking") {
                         return renderThinkingShell({
                           id: item.id,
@@ -1225,42 +1240,52 @@ function MessageBubbleImpl({
                       }
 
                       if (item.timelineKind === "action") {
-                        return renderAssistantActionItem(item);
+                        return (
+                          <Fragment key={item.id}>
+                            {statusLineSlot}
+                            {renderAssistantActionItem(item)}
+                          </Fragment>
+                        );
                       }
                       const renderedContent =
                         renderedAssistantBlockContentById.get(item.id) ?? item.content;
 
                       if (!renderedContent) {
-                        return null;
+                        return statusLineSlot;
                       }
                       const isStreamingTailBlock =
                         isAssistantStreaming && item.id === lastRenderableAssistantTextId;
                       return (
-                        <div
-                          key={item.id}
-                          className={ASSISTANT_CONTENT}
-                          data-testid="assistant-message-content"
-                        >
-                          <div className="markdown-body">
-                            <AssistantMarkdown
-                              content={renderedContent}
-                              isAnimating={isStreamingTailBlock}
-                              showCaret={isStreamingTailBlock}
-                              isStatic={!isStreamingTailBlock && message.status === "completed"}
-                              linkSafety={linkSafety}
-                            />
-                          </div>
-                          {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
-                            <div className="mt-3">
-                              <AssistantInlineImageAttachments
-                                attachments={assistantImageAttachments}
-                                onPreview={handleAttachmentPreview}
+                        <Fragment key={item.id}>
+                          {statusLineSlot}
+                          <div
+                            className={ASSISTANT_CONTENT}
+                            data-testid="assistant-message-content"
+                          >
+                            <div className="markdown-body">
+                              <AssistantMarkdown
+                                content={renderedContent}
+                                isAnimating={isStreamingTailBlock}
+                                showCaret={isStreamingTailBlock}
+                                isStatic={!isStreamingTailBlock && message.status === "completed"}
+                                linkSafety={linkSafety}
                               />
                             </div>
-                          ) : null}
-                        </div>
+                            {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
+                              <div className="mt-3">
+                                <AssistantInlineImageAttachments
+                                  attachments={assistantImageAttachments}
+                                  onPreview={handleAttachmentPreview}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                        </Fragment>
                       );
                     })}
+                    {statusLineRecord && statusLineInsertionIndex >= assistantBlocks.length ? (
+                      <div className="w-full">{statusLineRecord}</div>
+                    ) : null}
                     {showStandaloneAssistantImageBubble ? (
                       <div
                         className={ASSISTANT_CONTENT}
