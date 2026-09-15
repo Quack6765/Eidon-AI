@@ -51,6 +51,7 @@ export type ProviderProfileCapabilities = {
   supportsTemperature: boolean;
   processingModes: readonly ProcessingMode[];
   reasoningEfforts: readonly ReasoningEffort[];
+  reasoningControl: "levels" | "toggle";
   explicitDisabledReasoning: boolean;
   outputTokenBudgetIncludesReasoning: boolean;
   longContextPricingThreshold: number | null;
@@ -151,8 +152,21 @@ export function resolveProviderProfileCapabilities(
     profile.providerConfig.apiBaseUrl.trim().replace(/\/+$/, "").toLowerCase() ===
       "https://api.openai.com/v1";
   const hasExtendedReasoning = isOfficialEndpoint && modelMatchesPrefix(profile.model, "gpt-5.6");
-  const reasoningEfforts = ["none", "low", "medium", "high", "xhigh"] as const;
+  const defaultReasoningEfforts: readonly ReasoningEffort[] = [
+    "none",
+    "low",
+    "medium",
+    "high",
+    "xhigh"
+  ];
   const modelCapabilities = resolveCapabilities(profile.model, getProviderApiMode(profile));
+  const supportedReasoningEfforts = modelCapabilities.reasoningEfforts ?? defaultReasoningEfforts;
+  const reasoningControl: ProviderProfileCapabilities["reasoningControl"] =
+    PROVIDER_CATALOG[profile.providerKind].editor.apiMode &&
+    getProviderApiMode(profile) === "chat_completions" &&
+    modelCapabilities.extraBody === "thinking"
+      ? "toggle"
+      : "levels";
 
   return {
     supportsTemperature:
@@ -161,8 +175,9 @@ export function resolveProviderProfileCapabilities(
       modelCapabilities.supportsTemperature,
     processingModes: isOfficialEndpoint ? ["standard", "fast"] : [],
     reasoningEfforts: hasExtendedReasoning
-      ? [...reasoningEfforts, "max"]
-      : reasoningEfforts,
+      ? [...supportedReasoningEfforts, "max"]
+      : supportedReasoningEfforts,
+    reasoningControl,
     explicitDisabledReasoning: hasExtendedReasoning,
     outputTokenBudgetIncludesReasoning: hasExtendedReasoning,
     longContextPricingThreshold: hasExtendedReasoning ? 272000 : null

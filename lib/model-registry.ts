@@ -1,8 +1,11 @@
+import type { ReasoningEffort } from "@/lib/provider-catalog";
+
 export type ModelCapabilityOverride = {
   prefix: string;
   reasoning?: boolean | { apiModes: Array<"responses" | "chat_completions"> };
   vision?: boolean | { apiModes: Array<"responses" | "chat_completions"> };
   supportsTemperature?: boolean;
+  reasoningEfforts?: ReasoningEffort[];
 };
 
 export type ModelRequestQuirk = {
@@ -26,8 +29,16 @@ export const MODEL_REGISTRY: ModelCapabilityOverride[] = [
   { prefix: "gpt-4.1", vision: true },
   { prefix: "gpt-4o", vision: true },
   { prefix: "glm-5v", reasoning: true, vision: true },
-  { prefix: "glm-5", reasoning: true },
-  { prefix: "glm-4.7", reasoning: true },
+  {
+    prefix: "glm-5",
+    reasoning: true,
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"]
+  },
+  {
+    prefix: "glm-4.7",
+    reasoning: true,
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"]
+  },
   { prefix: "kimi-", reasoning: true, vision: true },
   { prefix: "deepseek-", reasoning: { apiModes: ["chat_completions"] } },
   { prefix: "mimo-", reasoning: true, vision: true },
@@ -46,8 +57,8 @@ export const MODEL_REQUEST_QUIRKS: ModelRequestQuirk[] = [
   { prefix: "o4", extraBody: "thinking" },
   { prefix: "gpt-oss", extraBody: "thinking" },
   { prefix: "glm-5v", extraBody: "thinking" },
-  { prefix: "glm-5", extraBody: "thinking" },
-  { prefix: "glm-4.7", extraBody: "thinking" },
+  { prefix: "glm-5", extraBody: "reasoning_effort" },
+  { prefix: "glm-4.7", extraBody: "reasoning_effort" },
   { prefix: "kimi-", strictExtraRejection: true },
   { prefix: "deepseek-", thinkingReplay: true, extraBody: "thinking" },
   { prefix: "mimo-", thinkingReplay: true, extraBody: "thinking" }

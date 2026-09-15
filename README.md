@@ -269,6 +269,7 @@ yourself.
 <img src="./.github/readme/desktop-memories.png" alt="Memory settings with pinned memories" width="100%" />
 
 - It asks before saving anything, so nothing is stored behind your back.
+- **Global, not per-chat.** It offers to remember things that outlive the conversation — a birthday, something you dislike, a preference you keep stating — and never the details of the task you just finished.
 - Search, edit, or delete anything it has remembered.
 - Pin the things that are important and must be added to all chats at all time.
 

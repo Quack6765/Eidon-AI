@@ -6,7 +6,7 @@ The complete capability reference: what Eidon does, where the controls are, and 
 
 **Streaming over WebSocket.** Turns stream over a WebSocket connection rather than an HTTP response, and every event is broadcast to all subscribers of the conversation. Open the same chat in two browsers or on a phone and a laptop, and both watch the same reply arrive token by token. Reconnecting requests a snapshot so a client that was asleep catches up.
 
-**Action timeline.** Each assistant message carries an ordered timeline interleaved with its text: thinking blocks with the model's reasoning summary, and one entry per tool call with its arguments, live status, and result. Statuses are `running`, `pending`, `completed`, `error`, and `stopped`. A per-user preference renders tool calls either as expandable **pills** (default) or as a single compact **status line**.
+**Action timeline.** Each assistant message carries an ordered timeline interleaved with its text: thinking blocks with the model's reasoning summary, and one entry per tool call with its arguments, live status, and result. Statuses are `running`, `pending`, `completed`, `error`, and `stopped`. A per-user preference renders tool calls either as expandable **pills** (default) or as a single compact **status line**, which carries the live activity while the turn runs and then rests on a count summary — for example `3 tools, 4 web searches, 6 pages read` — that expands on click to list every call of the turn.
 
 **Branching and redoing.** Three different ways to change course:
 
@@ -67,7 +67,9 @@ A toggle in the composer switches a turn into deep research mode.
 
 ## Memory
 
-**Memory tools with a rigor setting.** When memories are enabled the model gets `create_memory`, `update_memory`, and `delete_memory`. A rigor preference of `low`, `balanced` (default), or `high` changes the guidance in those tool descriptions, tuning how proactively the assistant reaches for them.
+**Global scope.** Memory is not per-conversation: nothing else from a chat follows the user into another one. The model proposes a memory only when the fact would still matter in an unrelated future conversation — facts about the user (identity, environment, stable preferences), never the topic, task, or document being discussed, and never credentials unless the user asks. It is expected to be proactive about the inherently memorable cases: birthdays and important dates, dislikes, favourites, allergies and dietary needs, family, and constraints. Calling the tool **is** the offer — that is what puts the approval card in the transcript.
+
+**Memory tools with a rigor setting.** When memories are enabled the model gets `create_memory`, `update_memory`, and `delete_memory`. A rigor preference of `low`, `balanced` (default), or `high` changes how broadly the model hunts for durable user facts, while the global test above applies at every level. The guidance in those tool descriptions is what tunes how proactively the assistant reaches for them.
 
 **Approval flow.** Memory writes are never silent. Every create, update, or delete surfaces in the transcript as a proposal card showing exactly what would change; nothing is written until you approve it, and you can dismiss it instead. A superseded proposal is marked as such.
 

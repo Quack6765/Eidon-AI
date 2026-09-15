@@ -296,7 +296,7 @@ export function GeneralSection({
         </div>
         <div className="space-y-1.5">
           <label htmlFor="tool-call-display" className={fieldLabel}>Tool activity display</label>
-          <p className="text-xs leading-5 text-[var(--muted)]">Show a pill for each tool as it runs, or collapse all activity into one animated status line.</p>
+          <p className="text-xs leading-5 text-[var(--muted)]">Show a pill for each tool as it runs, or keep one quiet status line that summarizes the turn and opens on click.</p>
           <select
             id="tool-call-display"
             value={draft.preferences.toolCallDisplay}

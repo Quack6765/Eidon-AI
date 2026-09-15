@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Bot as BotIcon, Brain, Check, ChevronDown, ChevronRight, Copy, Forward, GitFork, LoaderCircle, PenLine, Pencil, RefreshCw, Square, X } from "lucide-react";
 import { Streamdown } from "streamdown";
 import { math } from "@streamdown/math";
@@ -17,6 +17,10 @@ import {
 } from "@/components/tool-activity";
 import { parseAnsiText } from "@/lib/ansi";
 import { stripAttachmentStyleImageMarkdown } from "@/lib/assistant-image-markdown";
+import {
+  isMessageBotActionKind,
+  summarizeToolActivity
+} from "@/lib/tool-activity-summary";
 import { useStreamdownPlugins } from "@/lib/streamdown-plugins";
 import { useLinkSafety } from "@/components/link-safety-modal";
 import { writeRichTextToClipboard } from "@/lib/clipboard";
@@ -60,10 +64,6 @@ import {
 const COPY_RESET_DELAY_MS = 1600;
 const DELEGATION_WAKE_PATTERN = /^\[Message from (.+)\]$/;
 const DELEGATE_LABEL_PATTERN = /^Messaged\s+(.+)$/;
-
-function isMessageBotActionKind(kind: MessageActionType["kind"]) {
-  return kind === "delegate_task" || kind === "message_bot";
-}
 
 export function parseDelegationWakeMessage(content: string): { botName: string; content: string } | null {
   if (!content.startsWith("[Message from ")) {
@@ -466,6 +466,7 @@ function MessageBubbleImpl({
 }) {
   const [thinkingOpenItems, setThinkingOpenItems] = useState<Record<string, boolean>>({});
   const [toolOpenItems, setToolOpenItems] = useState<Record<string, boolean>>({});
+  const [statusLineOpen, setStatusLineOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState(message.content);
@@ -683,6 +684,16 @@ function MessageBubbleImpl({
     renderedAssistantBlockContentById,
     lastRenderableAssistantTextId
   } = derived;
+  const toolActivity = useMemo(
+    () =>
+      summarizeToolActivity(
+        assistantBlocks.filter(
+          (item): item is Extract<MessageTimelineItem, { timelineKind: "action" }> =>
+            item.timelineKind === "action"
+        )
+      ),
+    [assistantBlocks]
+  );
   const delegationWake = message.role === "user" ? parseDelegationWakeMessage(content) : null;
 
   function toggleToolItem(id: string) {
@@ -895,13 +906,14 @@ function MessageBubbleImpl({
     !(showThinkingShell && thinkingInProgress);
   const showStatusLine =
     useStatusLine &&
-    isAssistantStreaming &&
-    message.status !== "error" &&
-    message.status !== "stopped" &&
     !compactionInProgress &&
-    !lastBlockIsStreamingText &&
-    !lastBlockIsRunningDelegate &&
-    (lastBlockIsRunningAction || lastBlockIsRunningThinking || thinkingInProgress || betweenSteps);
+    (awaitingFirstToken ||
+      toolActivity.total > 0 ||
+      (isAssistantStreaming &&
+        (lastBlockIsRunningAction ||
+          lastBlockIsRunningThinking ||
+          thinkingInProgress ||
+          betweenSteps)));
   const statusLineRunningAction = useStatusLine
     ? assistantBlocks
         .slice()
@@ -916,13 +928,38 @@ function MessageBubbleImpl({
         ? statusLineRunningAction.arguments.query.trim()
         : "") || statusLineRunningAction.detail.trim()
     : "";
-  const statusLineLabel = statusLineRunningAction
+  const statusLineLive =
+    awaitingFirstToken ||
+    Boolean(statusLineRunningAction) ||
+    lastBlockIsRunningThinking ||
+    thinkingInProgress ||
+    (toolActivity.total === 0 && betweenSteps);
+  const statusLineLiveLabel = statusLineRunningAction
     ? statusLineWebSearchQuery
       ? `${statusLineRunningAction.label}: ${statusLineWebSearchQuery}`
       : statusLineRunningAction.label
     : lastBlockIsRunningThinking || thinkingInProgress
       ? "Thinking…"
       : "Working…";
+  const statusLineLabel = statusLineLive ? statusLineLiveLabel : toolActivity.text;
+  const statusLineRecord = showStatusLine ? (
+    <StatusLine
+      label={statusLineLabel}
+      live={statusLineLive}
+      rows={toolActivity.rows}
+      isOpen={statusLineOpen}
+      onToggle={() => setStatusLineOpen((open) => !open)}
+    />
+  ) : null;
+  const statusLineInsertionIndex = assistantBlocks.reduce((insertionIndex, item, index) => {
+    const isActivity =
+      item.timelineKind === "thinking" ||
+      (item.timelineKind === "action" &&
+        !isMemoryProposalAction(item) &&
+        !isAutomationProposalAction(item));
+
+    return isActivity ? index + 1 : insertionIndex;
+  }, 0);
 
   function setCopyFeedback(nextState: "copied" | "error") {
     setCopyState(nextState);
@@ -1133,7 +1170,7 @@ function MessageBubbleImpl({
               compactionInProgress ? (
                 <CompactionIndicator />
               ) : useStatusLine ? (
-                <StatusLine label="Working…" />
+                <StatusLine label="Working…" live />
               ) : (
                 <InProgressIndicator />
               )
@@ -1154,6 +1191,7 @@ function MessageBubbleImpl({
                           })
                         : renderAssistantActionItem(item)
                     )}
+                  {statusLineRecord ? <div className="w-full">{statusLineRecord}</div> : null}
                   <div
                     className="w-fit max-w-full rounded-2xl border border-red-400/10 bg-red-500/5 px-2.5 py-2 text-center text-red-300/85 shadow-[0_2px_10px_rgba(0,0,0,0.22)] md:px-4 md:py-3"
                     data-testid="assistant-error-bubble"
@@ -1182,10 +1220,14 @@ function MessageBubbleImpl({
               <div className="group flex w-full min-w-0 flex-col items-start">
                 <MessageContent className="w-full">
                   <div ref={contentRef} className="flex flex-col gap-3">
-                    {showStatusLine ? (
-                      <StatusLine label={statusLineLabel} />
-                    ) : null}
-                    {assistantBlocks.map((item) => {
+                    {assistantBlocks.map((item, index) => {
+                      const statusLineSlot =
+                        index === statusLineInsertionIndex && statusLineRecord ? (
+                          <div key="status-line" className="w-full">
+                            {statusLineRecord}
+                          </div>
+                        ) : null;
+
                       if (item.timelineKind === "thinking") {
                         return renderThinkingShell({
                           id: item.id,
@@ -1198,42 +1240,52 @@ function MessageBubbleImpl({
                       }
 
                       if (item.timelineKind === "action") {
-                        return renderAssistantActionItem(item);
+                        return (
+                          <Fragment key={item.id}>
+                            {statusLineSlot}
+                            {renderAssistantActionItem(item)}
+                          </Fragment>
+                        );
                       }
                       const renderedContent =
                         renderedAssistantBlockContentById.get(item.id) ?? item.content;
 
                       if (!renderedContent) {
-                        return null;
+                        return statusLineSlot;
                       }
                       const isStreamingTailBlock =
                         isAssistantStreaming && item.id === lastRenderableAssistantTextId;
                       return (
-                        <div
-                          key={item.id}
-                          className={ASSISTANT_CONTENT}
-                          data-testid="assistant-message-content"
-                        >
-                          <div className="markdown-body">
-                            <AssistantMarkdown
-                              content={renderedContent}
-                              isAnimating={isStreamingTailBlock}
-                              showCaret={isStreamingTailBlock}
-                              isStatic={!isStreamingTailBlock && message.status === "completed"}
-                              linkSafety={linkSafety}
-                            />
-                          </div>
-                          {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
-                            <div className="mt-3">
-                              <AssistantInlineImageAttachments
-                                attachments={assistantImageAttachments}
-                                onPreview={handleAttachmentPreview}
+                        <Fragment key={item.id}>
+                          {statusLineSlot}
+                          <div
+                            className={ASSISTANT_CONTENT}
+                            data-testid="assistant-message-content"
+                          >
+                            <div className="markdown-body">
+                              <AssistantMarkdown
+                                content={renderedContent}
+                                isAnimating={isStreamingTailBlock}
+                                showCaret={isStreamingTailBlock}
+                                isStatic={!isStreamingTailBlock && message.status === "completed"}
+                                linkSafety={linkSafety}
                               />
                             </div>
-                          ) : null}
-                        </div>
+                            {item.id === lastRenderableAssistantTextId && assistantImageAttachments.length ? (
+                              <div className="mt-3">
+                                <AssistantInlineImageAttachments
+                                  attachments={assistantImageAttachments}
+                                  onPreview={handleAttachmentPreview}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                        </Fragment>
                       );
                     })}
+                    {statusLineRecord && statusLineInsertionIndex >= assistantBlocks.length ? (
+                      <div className="w-full">{statusLineRecord}</div>
+                    ) : null}
                     {showStandaloneAssistantImageBubble ? (
                       <div
                         className={ASSISTANT_CONTENT}
@@ -1297,8 +1349,8 @@ function MessageBubbleImpl({
                   </div>
                 ) : null}
               </div>
-            ) : showStatusLine ? (
-              <StatusLine label={statusLineLabel} />
+            ) : statusLineRecord ? (
+              <div className="w-full">{statusLineRecord}</div>
             ) : null}
           </div>
         </div>

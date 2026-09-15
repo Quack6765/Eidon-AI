@@ -1745,7 +1745,7 @@ describe("buildPromptMessages with memories", () => {
       memoriesEnabled: true,
       memoriesRigor: "high"
     });
-    expect((high[0].content as string)).toContain("Capture broadly and proactively");
+    expect((high[0].content as string)).toContain("Propose memory eagerly");
   });
 });
 
