@@ -70,6 +70,37 @@ function getResponseSchema(pathname: string, method: string, status: number) {
   return json?.schema as JsonRecord | undefined;
 }
 
+function getRequestBodySchema(pathname: string, method: string) {
+  const operation = getOperation(pathname, method);
+  let requestBody = operation.requestBody as JsonRecord | undefined;
+  if (typeof requestBody?.$ref === "string") {
+    requestBody = resolveLocalRef(openApi, requestBody.$ref) as JsonRecord;
+  }
+  const content = requestBody?.content as JsonRecord | undefined;
+  const json = content?.["application/json"] as JsonRecord | undefined;
+  return json?.schema as JsonRecord | undefined;
+}
+
+function assertAgainstSchema(
+  validators: Map<string, ValidateFunction>,
+  key: string,
+  schema: JsonRecord,
+  body: unknown
+) {
+  let validate = validators.get(key);
+  if (!validate) {
+    validate = openApiAjv.compile({
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      ...schema,
+      components: openApi.components
+    });
+    validators.set(key, validate);
+  }
+  if (!validate(body)) {
+    throw new Error(`${key} failed contract validation: ${formatErrors(validate)}`);
+  }
+}
+
 export function assertOpenApiResponse(
   pathname: string,
   method: string,
@@ -81,18 +112,18 @@ export function assertOpenApiResponse(
   if (!schema) {
     throw new Error(`OpenAPI JSON response schema is missing: ${key}`);
   }
-  let validate = responseValidators.get(key);
-  if (!validate) {
-    validate = openApiAjv.compile({
-      $schema: "https://json-schema.org/draft/2020-12/schema",
-      ...schema,
-      components: openApi.components
-    });
-    responseValidators.set(key, validate);
+  assertAgainstSchema(responseValidators, key, schema, body);
+}
+
+const requestBodyValidators = new Map<string, ValidateFunction>();
+
+export function assertOpenApiRequestBody(pathname: string, method: string, body: unknown) {
+  const key = `${method.toUpperCase()} ${pathname} request body`;
+  const schema = getRequestBodySchema(pathname, method);
+  if (!schema) {
+    throw new Error(`OpenAPI JSON request body schema is missing: ${key}`);
   }
-  if (!validate(body)) {
-    throw new Error(`${key} failed contract validation: ${formatErrors(validate)}`);
-  }
+  assertAgainstSchema(requestBodyValidators, key, schema, body);
 }
 
 export function compileOpenApiJsonResponses() {
@@ -121,18 +152,10 @@ export function compileOpenApiJsonResponses() {
 export function compileOpenApiJsonRequestBodies() {
   const paths = openApi.paths as JsonRecord;
   let compiled = 0;
-  for (const pathValue of Object.values(paths)) {
-    for (const [method, operationValue] of Object.entries(pathValue as JsonRecord)) {
+  for (const [pathname, pathValue] of Object.entries(paths)) {
+    for (const method of Object.keys(pathValue as JsonRecord)) {
       if (!["get", "post", "put", "patch", "delete"].includes(method)) continue;
-      const operation = operationValue as JsonRecord;
-      let requestBody = operation.requestBody as JsonRecord | undefined;
-      if (!requestBody) continue;
-      if (typeof requestBody.$ref === "string") {
-        requestBody = resolveLocalRef(openApi, requestBody.$ref) as JsonRecord;
-      }
-      const content = requestBody.content as JsonRecord | undefined;
-      const json = content?.["application/json"] as JsonRecord | undefined;
-      const schema = json?.schema as JsonRecord | undefined;
+      const schema = getRequestBodySchema(pathname, method);
       if (!schema) continue;
       openApiAjv.compile({
         $schema: "https://json-schema.org/draft/2020-12/schema",

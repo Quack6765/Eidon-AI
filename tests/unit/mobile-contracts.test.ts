@@ -7,6 +7,8 @@ import { GET as getServerInfo } from "@/app/api/v1/server-info/route";
 import {
   MAX_ATTACHMENTS_PER_UPLOAD,
   MAX_ATTACHMENT_BYTES,
+  MAX_RESEARCH_PLAN_STEPS,
+  MAX_RESEARCH_PLAN_STEP_CHARS,
   MOBILE_API_MINIMUM_SERVER_VERSION
 } from "@/lib/constants";
 import {
@@ -110,6 +112,7 @@ describe("Mobile API v1 contracts", () => {
       providerConnections: true,
       releaseHighlights: true,
       providerReasoningControl: true,
+      deepResearch: true,
       offlineMutations: false,
       pushNotifications: false
     });
@@ -273,6 +276,20 @@ describe("Mobile API v1 contracts", () => {
     expect(contract.paths["/settings/providers"].put).toMatchObject({
       responses: { "400": { $ref: "#/components/responses/Error" } }
     });
+    expect(contract.components.schemas.ChatMessageRequest.properties!.research).toEqual({
+      $ref: "#/components/schemas/ChatResearchRequest"
+    });
+    expect(contract.components.schemas.ChatResearchRequest).toMatchObject({
+      additionalProperties: false,
+      properties: {
+        plan: {
+          type: "array",
+          minItems: 1,
+          maxItems: MAX_RESEARCH_PLAN_STEPS,
+          items: { type: "string", minLength: 1, maxLength: MAX_RESEARCH_PLAN_STEP_CHARS }
+        }
+      }
+    });
     expect(compileOpenApiJsonRequestBodies()).toBe(41);
     expect(compileOpenApiJsonResponses()).toBe(109);
   });
@@ -308,6 +325,18 @@ describe("Mobile API v1 contracts", () => {
     expect(clientMessages).toContain("request_snapshot");
     expect(clientMessages).toContain("reorder_queued_messages");
     expect(clientMessages).not.toContain('"edit"');
+    expect(contract.$defs.ChatResearchRequest).toMatchObject({
+      properties: { plan: { maxItems: MAX_RESEARCH_PLAN_STEPS } }
+    });
+    const message = { type: "message", conversationId: "conv_1", content: "Compare the options" };
+    expect(() => assertWebSocketMessage("ClientMessage", { ...message, research: {} })).not.toThrow();
+    expect(() => assertWebSocketMessage("ClientMessage", {
+      ...message,
+      research: { plan: ["Survey the sources"] }
+    })).not.toThrow();
+    expect(() => assertWebSocketMessage("ClientMessage", { ...message, research: true })).toThrow(
+      /ClientMessage failed contract validation/
+    );
     const serverMessages = JSON.stringify(contract.$defs.ServerMessage);
     expect(serverMessages).toContain("protocolVersion");
     expect(serverMessages).toContain("conversation_title_updated");
