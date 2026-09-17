@@ -28,6 +28,8 @@ function makeProfile(): ProviderProfileSummary {
       reasoningParameterMode: flat.reasoningParameterMode
     },
     connection: { mode: "api_key", status: "disconnected", accountLabel: null, expiresAt: null },
+    reasoningControl: "levels",
+    reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
     createdAt: timestamp,
     updatedAt: timestamp
   } as ProviderProfileSummary) as ProviderProfileSummary;

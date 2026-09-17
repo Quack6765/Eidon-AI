@@ -214,6 +214,7 @@
         { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "const": "usage" }, "inputTokens": { "type": "integer" }, "outputTokens": { "type": "integer" }, "reasoningTokens": { "type": "integer" }, "cacheReadTokens": { "type": "integer" }, "cacheCreationTokens": { "type": "integer" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "contextTokens", "compactionLimit"], "properties": { "type": { "const": "context_usage" }, "contextTokens": { "type": "integer" }, "compactionLimit": { "type": "integer" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "attempt"], "properties": { "type": { "const": "stream_retry" }, "attempt": { "type": "integer" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "const": "answer_reset" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "messageId"], "properties": { "type": { "const": "done" }, "messageId": { "$ref": "#/$defs/OpaqueId" }, "message": { "$ref": "#/$defs/Message" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "message"], "properties": { "type": { "const": "error" }, "message": { "type": "string" } } }
       ]
