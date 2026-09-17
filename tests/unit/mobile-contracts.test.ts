@@ -107,6 +107,7 @@ describe("Mobile API v1 contracts", () => {
       conversations: true,
       automations: true,
       providerConnections: true,
+      releaseHighlights: true,
       offlineMutations: false,
       pushNotifications: false
     });
@@ -140,6 +141,7 @@ describe("Mobile API v1 contracts", () => {
 
     expect(Object.keys(contract.paths)).toEqual(expect.arrayContaining([
       "/server-info",
+      "/whats-new",
       "/auth/login",
       "/auth/session",
       "/auth/sessions/{sessionId}",
@@ -175,6 +177,21 @@ describe("Mobile API v1 contracts", () => {
       "/providers/{profileId}/models"
     ]));
     expect(contract.paths["/server-info"].get).toMatchObject({ security: [] });
+    expect(contract.paths["/whats-new"].get).toMatchObject({
+      operationId: "getReleaseHighlights",
+      responses: { "200": { $ref: "#/components/responses/ReleaseHighlights" } }
+    });
+    expect(contract.paths["/whats-new"].post).toMatchObject({
+      operationId: "acknowledgeReleaseHighlights",
+      responses: { "200": { $ref: "#/components/responses/ReleaseHighlightsAcknowledged" } }
+    });
+    const releaseHighlightsEnvelope = contract.components
+      .schemas.ReleaseHighlightsEnvelope as unknown as {
+      properties: { data: { properties: { whatsNew: { oneOf: unknown[] } } } };
+    };
+    expect(releaseHighlightsEnvelope.properties.data.properties.whatsNew.oneOf).toContainEqual({
+      type: "null"
+    });
     expect(contract.paths["/auth/login"].post).toMatchObject({ security: [] });
     expect(contract.paths["/users"].get).toMatchObject({ "x-eidon-role": "admin" });
     expect(contract.paths["/speech/transcription/transcribe"].post).toMatchObject({
@@ -234,7 +251,7 @@ describe("Mobile API v1 contracts", () => {
     expect(universal2Languages.enum).toContain("sw");
     expect(universal2Languages.enum).toHaveLength(103);
     expect(compileOpenApiJsonRequestBodies()).toBe(41);
-    expect(compileOpenApiJsonResponses()).toBe(106);
+    expect(compileOpenApiJsonResponses()).toBe(108);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {

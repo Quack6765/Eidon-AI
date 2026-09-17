@@ -43,6 +43,12 @@ async function readBody<T>(response: Response) {
   return (await response.json()) as T;
 }
 
+async function newestReleaseVersion() {
+  const { getNewestReleaseNote } = await import("@/lib/release-highlights");
+
+  return getNewestReleaseNote()?.version;
+}
+
 describe("whats-new route", () => {
   beforeEach(async () => {
     vi.resetModules();
@@ -60,9 +66,10 @@ describe("whats-new route", () => {
     const { getUserPreferences } = await import("@/lib/user-preferences");
     const { getGlobalPreferences } = await import("@/lib/global-preferences");
     const { RELEASE_NOTES } = await import("@/lib/release-notes");
+    const runningRelease = RELEASE_NOTES.find((note) => note.version === SEEDED_VERSION);
 
     expect(getUserPreferences(USER.id, getGlobalPreferences()).lastSeenRelease).toBe("");
-    expect(RELEASE_NOTES[0].version).toBe(SEEDED_VERSION);
+    expect(runningRelease).toBeDefined();
 
     const { GET } = await import("@/app/api/whats-new/route");
     const response = await GET();
@@ -76,7 +83,7 @@ describe("whats-new route", () => {
     expect(body.whatsNew).toEqual({
       version: SEEDED_VERSION,
       autoOpen: true,
-      bullets: RELEASE_NOTES[0].bullets
+      bullets: runningRelease!.bullets
     });
   });
 
@@ -117,7 +124,7 @@ describe("whats-new route", () => {
     const body = await readBody<{ whatsNew: { version: string; autoOpen: boolean } }>(await GET());
 
     expect(body.whatsNew.autoOpen).toBe(false);
-    expect(body.whatsNew.version).toBe(SEEDED_VERSION);
+    expect(body.whatsNew.version).toBe(await newestReleaseVersion());
   });
 
   it("falls back to the newest authored entry for a release with no highlights", async () => {
@@ -126,7 +133,10 @@ describe("whats-new route", () => {
     const { GET } = await import("@/app/api/whats-new/route");
     const body = await readBody<{ whatsNew: { version: string; autoOpen: boolean } }>(await GET());
 
-    expect(body.whatsNew).toMatchObject({ version: SEEDED_VERSION, autoOpen: false });
+    expect(body.whatsNew).toMatchObject({
+      version: await newestReleaseVersion(),
+      autoOpen: false
+    });
   });
 
   it("does not announce to a second user who already saw the release", async () => {

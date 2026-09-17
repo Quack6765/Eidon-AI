@@ -19,6 +19,10 @@
     { "name": "Administration" }
   ],
   "paths": {
+    "/whats-new": {
+      "get": { "operationId": "getReleaseHighlights", "tags": ["Compatibility"], "responses": { "200": { "$ref": "#/components/responses/ReleaseHighlights" } } },
+      "post": { "operationId": "acknowledgeReleaseHighlights", "tags": ["Compatibility"], "responses": { "200": { "$ref": "#/components/responses/ReleaseHighlightsAcknowledged" } } }
+    },
     "/server-info": {
       "get": { "operationId": "getServerInfo", "tags": ["Compatibility"], "security": [], "responses": { "200": { "$ref": "#/components/responses/ServerInfo" } } }
     },
@@ -235,6 +239,8 @@
       "SpeechCleanup": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SpeechCleanupRequest" } } } }
     },
     "responses": {
+      "ReleaseHighlights": { "description": "Release highlights for the running server version", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReleaseHighlightsEnvelope" } } } },
+      "ReleaseHighlightsAcknowledged": { "description": "The running release version recorded as seen", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReleaseHighlightsAcknowledgedEnvelope" } } } },
       "Success": { "description": "Successful response", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SuccessEnvelope" } } } },
       "Error": { "description": "Stable error response", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ErrorEnvelope" } } } },
       "Login": { "description": "Mobile bearer session created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginEnvelope" } } } },
@@ -290,6 +296,9 @@
       "SpeechCleanup": { "description": "Cleaned transcript text", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SpeechCleanupEnvelope" } } } }
     },
     "schemas": {
+      "ReleaseHighlightsEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["whatsNew"], "properties": { "whatsNew": { "oneOf": [{ "$ref": "#/components/schemas/ReleaseHighlights" }, { "type": "null" }] } } } } },
+      "ReleaseHighlights": { "type": "object", "additionalProperties": false, "required": ["version", "autoOpen", "bullets"], "properties": { "version": { "type": "string" }, "autoOpen": { "type": "boolean" }, "bullets": { "type": "array", "items": { "type": "string" } } } },
+      "ReleaseHighlightsAcknowledgedEnvelope": { "type": "object", "additionalProperties": false, "required": ["data"], "properties": { "data": { "type": "object", "additionalProperties": false, "required": ["seenReleaseVersion"], "properties": { "seenReleaseVersion": { "type": "string" } } } } },
       "Rfc3339": { "type": "string", "format": "date-time" },
       "OpaqueId": { "type": "string", "minLength": 1, "maxLength": 512 },
       "NullableId": { "oneOf": [{ "$ref": "#/components/schemas/OpaqueId" }, { "type": "null" }] },
