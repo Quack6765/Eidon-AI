@@ -11,8 +11,8 @@ import {
   type VisionMode
 } from "@/lib/provider-catalog";
 import {
-  getProviderApiMode,
   isProviderKind,
+  profileSupportsImageInput,
   resolveProviderProfileCapabilities,
   toProviderProfileSummary,
   type ProviderConnectionMetadata,
@@ -20,7 +20,6 @@ import {
   type ProviderProfile,
   type RuntimeProviderProfile
 } from "@/lib/provider-profile";
-import { supportsImageInput } from "@/lib/model-capabilities";
 
 export const secretActionSchema = z.enum(["preserve", "replace", "clear"]);
 export type SecretAction = z.infer<typeof secretActionSchema>;
@@ -150,7 +149,7 @@ export const providerCatalogInputSchema = z.object({
             path: ["providerProfiles", index, "visionProviderProfileId"],
             message: "Vision provider profile must reference a profile saved in this catalog"
           });
-        } else if (!supportsImageInput(target.model, getProviderApiMode(target))) {
+        } else if (!profileSupportsImageInput(target)) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["providerProfiles", index, "visionProviderProfileId"],

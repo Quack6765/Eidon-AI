@@ -54,6 +54,16 @@ describe("provider profile editor", () => {
     });
   });
 
+  it("re-derives the vision mode when a preset changes the model", () => {
+    const openAi = createProviderProfileEditorDraft({ providerKind: "openai_compatible" });
+    expect(openAi.visionMode).toBe("native");
+
+    const deepseek = applyPresetToProviderProfile(openAi, "deepseek");
+
+    expect(deepseek.model).toBe("deepseek-v4-flash");
+    expect(deepseek.visionMode).toBe("none");
+  });
+
   it("matches presets using each provider configuration shape", () => {
     const openAi = createProviderProfileEditorDraft({ providerKind: "openai_compatible" });
     const anthropic = createProviderProfileEditorDraft({ providerKind: "anthropic" });

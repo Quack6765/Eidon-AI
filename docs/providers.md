@@ -76,7 +76,7 @@ The compaction settings shape the hierarchical summary tree described in [Featur
 | Mode | Behaviour |
 | --- | --- |
 | `none` | Images are attached to the conversation but never sent to the model |
-| `native` | Images are sent inline in the request. Falls back to `none` if the model is not known to accept image input |
+| `native` | Images are sent inline in the request. This is honoured as configured, including for models Eidon has no image-capability data for — if the model rejects images the provider returns an error, and you can switch to `mcp` or `provider` |
 | `mcp` | Image handling is delegated to MCP servers flagged as vision servers. Their tools are only exposed to the model in this mode |
 | `provider` | A second provider profile does the looking. Set `visionProviderProfileId` to that profile, and the model gets an `analyze_image` tool that routes image paths to it |
 

@@ -921,7 +921,15 @@ describe("providers section", () => {
               ...base,
               id: "profile_nonvision",
               name: "Plain",
-              model: "glm-4.7"
+              model: "glm-4.7",
+              visionMode: "none"
+            },
+            {
+              ...base,
+              id: "profile_declared",
+              name: "Declared",
+              model: "deepseek-v4.1-flash",
+              visionMode: "native"
             }
           ]
         })
@@ -934,6 +942,9 @@ describe("providers section", () => {
 
     expect(screen.getByRole("option", { name: "other provider" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "Vision · gpt-4o" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("option", { name: "Declared · deepseek-v4.1-flash" })
+    ).toBeInTheDocument();
     expect(screen.queryByRole("option", { name: "Plain · glm-4.7" })).toBeNull();
     expect(screen.queryByRole("option", { name: "Main · glm-5.1" })).toBeNull();
 
@@ -961,7 +972,8 @@ describe("providers section", () => {
               ...base,
               id: "profile_nonvision",
               name: "Plain",
-              model: "glm-4.7"
+              model: "glm-4.7",
+              visionMode: "none"
             }
           ]
         })

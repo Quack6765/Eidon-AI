@@ -28,7 +28,8 @@ import {
   DEFAULT_PROFILE_BEHAVIOR,
   getProviderPreset,
   PROVIDER_CATALOG,
-  PROVIDER_PRESETS
+  PROVIDER_PRESETS,
+  resolveDefaultVisionMode
 } from "@/lib/provider-catalog";
 import {
   applyPresetToProviderProfile,
@@ -45,9 +46,9 @@ import {
   getProviderApiBaseUrl,
   getProviderApiMode,
   getProviderProcessingMode,
+  profileSupportsImageInput,
   resolveProviderProfileCapabilities
 } from "@/lib/provider-profile";
-import { supportsImageInput } from "@/lib/model-capabilities";
 import type { AppSettings, McpServer, ProviderKind, ProviderPresetId, ProviderProfileSummary, ReasoningEffort, VisionMode } from "@/lib/types";
 
 import { SettingsSplitPane } from "../settings-split-pane";
@@ -174,7 +175,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       ? providerProfiles.filter(
           (profile) =>
             profile.id !== activeProviderProfile.id &&
-            supportsImageInput(profile.model, getProviderApiMode(profile))
+            profileSupportsImageInput(profile)
         )
       : [],
     [providerProfiles, activeProviderProfile]
@@ -298,7 +299,12 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
       modelContextLimit: DEFAULT_PROFILE_BEHAVIOR.modelContextLimit,
       compactionThreshold: DEFAULT_PROFILE_BEHAVIOR.compactionThreshold,
       freshTailCount: DEFAULT_PROFILE_BEHAVIOR.freshTailCount,
-      visionMode: DEFAULT_PROFILE_BEHAVIOR.visionMode,
+      visionMode: resolveDefaultVisionMode({
+        providerKind: activeProviderProfile.providerKind,
+        apiBaseUrl: getProviderApiBaseUrl(activeProviderProfile),
+        apiMode: getProviderApiMode(activeProviderProfile),
+        model: activeProviderProfile.model
+      }),
       visionProviderProfileId: null
     };
 
@@ -1131,7 +1137,7 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                     <div>
                       <label className={fieldLabel}>Vision mode</label>
                        <select
-                         value={activeProviderProfile.visionMode ?? "native"}
+                         value={activeProviderProfile.visionMode ?? "none"}
                          onChange={(event) =>
                            updateActiveProviderProfile({ visionMode: event.target.value as VisionMode })
                          }
