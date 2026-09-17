@@ -5,6 +5,7 @@ import { Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { DialogShell } from "@/components/ui/dialog-shell";
+import { buildReleaseUrl } from "@/lib/release-highlights";
 
 type WhatsNew = {
   version: string;
@@ -142,14 +143,24 @@ export function WhatsNewDialog({
         </div>
       }
       footer={
-        <Button
-          type="button"
-          autoFocus
-          className="min-h-11 rounded-full px-6 focus-visible:border-[var(--accent)]/40 focus-visible:ring-[var(--accent)]/40"
-          onClick={() => handleOpenChange(false)}
-        >
-          Got it
-        </Button>
+        <div className="flex w-full flex-wrap items-center justify-between gap-2">
+          <a
+            href={buildReleaseUrl(payload.version)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-md px-1 py-1 text-[13px] font-medium text-primary underline-offset-4 transition-colors duration-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]/45"
+          >
+            Read the detailed changelog
+          </a>
+          <Button
+            type="button"
+            autoFocus
+            className="min-h-11 rounded-full px-6 focus-visible:border-[var(--accent)]/40 focus-visible:ring-[var(--accent)]/40"
+            onClick={() => handleOpenChange(false)}
+          >
+            Got it
+          </Button>
+        </div>
       }
     >
       <ul

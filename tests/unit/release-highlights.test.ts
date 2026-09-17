@@ -7,6 +7,7 @@ import { RELEASE_NOTES } from "@/lib/release-notes";
 import type { ReleaseHighlight } from "@/lib/release-notes";
 import {
   buildReleaseAnnouncement,
+  buildReleaseUrl,
   compareReleaseVersions,
   isReleaseVersion,
   parseReleaseVersion
@@ -44,6 +45,20 @@ describe("release version parsing", () => {
 
   it("treats a missing trailing segment as zero", () => {
     expect(compareReleaseVersions(parseReleaseVersion("v4.1")!, parseReleaseVersion("v4.1.0")!)).toBe(0);
+  });
+});
+
+describe("buildReleaseUrl", () => {
+  it("links a release tag to its GitHub release page", () => {
+    expect(buildReleaseUrl("v4.1.0")).toBe(
+      "https://github.com/Quack6765/Eidon-AI/releases/tag/v4.1.0"
+    );
+  });
+
+  it("falls back to the releases list for non-release builds", () => {
+    for (const value of ["dev", "dev-abc1234", "v3.7.0-native-test", "", "latest"]) {
+      expect(buildReleaseUrl(value)).toBe("https://github.com/Quack6765/Eidon-AI/releases");
+    }
   });
 });
 
