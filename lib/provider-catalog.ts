@@ -1,3 +1,5 @@
+import { getDefaultVisionMode } from "@/lib/model-capabilities";
+
 export type ProviderConnectionMode = "api_key" | "oauth";
 export type ApiMode = "responses" | "chat_completions";
 export type ReasoningParameterMode = "standard" | "mirrored";
@@ -33,7 +35,7 @@ export const DEFAULT_PROFILE_BEHAVIOR = {
   leafMinMessageCount: 6,
   mergedMinNodeCount: 4,
   mergedTargetTokens: 1600,
-  visionMode: "native" as VisionMode
+  visionMode: "none" as VisionMode
 } as const;
 
 export const PROVIDER_CATALOG = {
@@ -341,6 +343,10 @@ export function resolveProviderRequestApiMode(profile: ProviderRequestProfile): 
   return rule?.apiMode ?? profile.apiMode;
 }
 
+export function resolveDefaultVisionMode(profile: ProviderRequestProfile): VisionMode {
+  return getDefaultVisionMode(profile.model, resolveProviderRequestApiMode(profile));
+}
+
 export function applyProviderPreset<T extends PresetCompatibleProfile>(
   profile: T,
   presetId: ProviderPresetId
@@ -393,12 +399,21 @@ export function createProviderProfileDraft(input?: {
     reasoningSummaryEnabled: DEFAULT_PROFILE_BEHAVIOR.reasoningSummaryEnabled,
     modelContextLimit: DEFAULT_PROFILE_BEHAVIOR.modelContextLimit
   };
+  const presetVisionMode = preset
+    ? (preset.values as ProviderPresetValues).visionMode
+    : undefined;
 
   return {
     id: input?.id ?? `profile_${crypto.randomUUID()}`,
     providerKind,
     ...DEFAULT_PROFILE_BEHAVIOR,
     ...providerValues,
+    visionMode: presetVisionMode ?? resolveDefaultVisionMode({
+      providerKind,
+      apiBaseUrl: providerValues.apiBaseUrl,
+      apiMode: providerValues.apiMode,
+      model: providerValues.model
+    }),
     visionProviderProfileId: null,
     processingMode: "processingMode" in providerValues
       ? providerValues.processingMode

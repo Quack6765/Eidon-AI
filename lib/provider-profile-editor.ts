@@ -3,6 +3,7 @@ import {
   getMatchingProviderPresetId,
   getProviderPreset,
   PROVIDER_CATALOG,
+  resolveDefaultVisionMode,
   type ProviderKind,
   type ProviderPresetId,
   type ProviderPresetValues
@@ -120,6 +121,12 @@ export function applyPresetToProviderProfile(
   return {
     ...profile,
     ...behavior,
+    visionMode: values.visionMode ?? resolveDefaultVisionMode({
+      providerKind: profile.providerKind,
+      apiBaseUrl,
+      apiMode,
+      model: values.model
+    }),
     providerConfig,
     providerPresetId: presetId,
     credential: "",

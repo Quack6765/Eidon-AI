@@ -15,8 +15,6 @@ import {
 } from "@/lib/research-mode";
 import { computeCompactionLimit, estimatePromptTokens } from "@/lib/tokenization";
 import { MARKDOWN_FORMATTING_RULES } from "@/lib/markdown/formatting-rules-prompt";
-import { supportsImageInput } from "@/lib/model-capabilities";
-import { getProviderApiMode } from "@/lib/provider-profile";
 import { getSkillResolvedName, getSkillResolvedDescription, getLatestUserPromptContent, shouldAddInlineAttachmentDirective, filterSkillsForTurn, hasUnfulfilledMemoryIntent, hasUnfulfilledImageGenerationIntent } from "./prompt-analysis";
 import { isBotWorkspaceSkillId } from "./bot-workspace-skills";
 import { type ToolSet, buildToolDefinitions, mcpToolFunctionName } from "./tool-definitions";
@@ -235,7 +233,7 @@ function getEffectiveVisionMode(
   hasVisionServers: boolean
 ): VisionMode {
   if (settings.visionMode === "native") {
-    return supportsImageInput(settings.model, getProviderApiMode(settings)) ? "native" : "none";
+    return "native";
   }
   if (settings.visionMode === "mcp") {
     return hasVisionServers ? "mcp" : "none";

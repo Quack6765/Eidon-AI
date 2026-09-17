@@ -2156,10 +2156,10 @@ Run browser commands.`
     });
   });
 
-  it("uses the non-native vision directive when native vision is set on a non-vision model", async () => {
+  it("sends images inline when native vision is set on a model without registry vision data", async () => {
     streamProviderResponse.mockReturnValueOnce(
-      createProviderStream([{ type: "answer_delta", text: "I cannot view images." }], {
-        answer: "I cannot view images.",
+      createProviderStream([{ type: "answer_delta", text: "A shopping cart icon." }], {
+        answer: "A shopping cart icon.",
         thinking: "",
         usage: { inputTokens: 4, outputTokens: 4 }
       })
@@ -2168,7 +2168,7 @@ Run browser commands.`
     const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
     await resolveAssistantTurn({
-      settings: { ...createSettings(), model: "gpt-3.5-turbo", visionMode: "native" as const },
+      settings: { ...createSettings(), model: "deepseek-v4.1-flash", visionMode: "native" as const },
       promptMessages: [
         {
           role: "user",
@@ -2184,8 +2184,18 @@ Run browser commands.`
     });
 
     const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
-    expect(firstCall.promptMessages[0].content).toContain("cannot inspect attached images directly");
-    expect(firstCall.promptMessages[0].content).not.toContain("Vision MCP servers:");
+    const lastMessage = firstCall.promptMessages.at(-1);
+    expect(lastMessage.content).toContainEqual({
+      type: "image",
+      attachmentId: "att_image",
+      filename: "photo.png",
+      mimeType: "image/png",
+      relativePath: "conv_image/photo.png"
+    });
+    const serialized = JSON.stringify(firstCall.promptMessages);
+    expect(serialized).not.toContain("cannot inspect attached images directly");
+    expect(serialized).not.toContain("Attached image: photo.png");
+    expect(serialized).not.toContain("Vision MCP servers:");
   });
 
   it("excludes vision-flagged MCP tools in native mode but keeps other MCP tools", async () => {

@@ -11,7 +11,7 @@ import {
   type ReasoningEffort,
   type VisionMode
 } from "@/lib/provider-catalog";
-import { modelMatchesPrefix, resolveCapabilities } from "@/lib/model-capabilities";
+import { modelMatchesPrefix, resolveCapabilities, supportsImageInput } from "@/lib/model-capabilities";
 
 export type ProviderConnectionStatus = "disconnected" | "connected" | "expired";
 
@@ -120,6 +120,16 @@ export function getProviderApiMode(profile: {
     apiMode: profile.providerConfig.apiMode ?? "responses",
     model: profile.model
   });
+}
+
+export function profileSupportsImageInput(profile: {
+  providerKind: ProviderKind;
+  model: string;
+  providerConfig: { apiBaseUrl?: string; apiMode?: ApiMode };
+  visionMode: VisionMode;
+}): boolean {
+  return profile.visionMode === "native" ||
+    supportsImageInput(profile.model, getProviderApiMode(profile));
 }
 
 export function getProviderApiBaseUrl(profile: ProviderProfile) {
