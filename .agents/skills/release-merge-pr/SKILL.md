@@ -86,7 +86,8 @@ git diff --shortstat origin/main...origin/dev
 git diff --name-only origin/main...origin/dev -- contracts/   # non-empty → include the callout
 ```
 
-When the contract changed, the callout is required by `AGENTS.md` and reads:
+`AGENTS.md` requires the PR description to say that native clients must
+regenerate their derived specs. This is the wording this repo's release PRs use:
 
 > This merge changes the mobile API v1 contract. Native clients must
 > **regenerate their derived specs** from `contracts/mobile-api-v1.openapi.json`
