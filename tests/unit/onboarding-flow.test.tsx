@@ -28,6 +28,8 @@ function makeProfile(): ProviderProfileSummary {
       reasoningParameterMode: flat.reasoningParameterMode
     },
     connection: { mode: "api_key", status: "disconnected", accountLabel: null, expiresAt: null },
+    reasoningControl: "levels",
+    reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
     createdAt: timestamp,
     updatedAt: timestamp
   } as ProviderProfileSummary) as ProviderProfileSummary;
@@ -703,7 +705,7 @@ describe("onboarding flow", () => {
     await waitFor(() => expect(screen.getByText("You're set up")).toBeTruthy());
 
     expect(screen.getByText("Opening into Agents")).toBeTruthy();
-    expect(screen.getByText("Tool activity shown as a single status line")).toBeTruthy();
+    expect(screen.getByText("Tool activity kept in one expandable status line")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Start using Eidon" }));
 

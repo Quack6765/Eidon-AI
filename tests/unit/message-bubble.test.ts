@@ -1971,7 +1971,12 @@ describe("message bubble", () => {
     );
 
     expect(screen.getByTestId("assistant-message-content")).toHaveTextContent("Final answer");
-    expect(screen.getByTestId("assistant-status-line")).toHaveTextContent("1 tool");
+    const statusLine = screen.getByTestId("assistant-status-line");
+    expect(statusLine).toHaveTextContent("1 tool");
+    expect(
+      statusLine.compareDocumentPosition(screen.getByTestId("assistant-message-content")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(screen.queryByTestId("assistant-actions-shell")).toBeNull();
     expect(screen.queryByTestId("assistant-thinking-shell")).toBeNull();
   });
@@ -2076,6 +2081,223 @@ describe("message bubble", () => {
     expect(screen.queryByTestId("assistant-status-line")).toBeNull();
     expect(screen.getByTestId("delegate-action-line")).toHaveTextContent("Messaged");
     expect(screen.getByTestId("delegate-action-line")).toHaveTextContent("Researcher");
+  });
+
+  it("keeps the status line below the intermediate message that a running action follows", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "Let me look at the file.",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            id: "txt_look",
+            timelineKind: "text",
+            sortOrder: 0,
+            createdAt: new Date().toISOString(),
+            content: "Let me look at the file."
+          },
+          {
+            ...createToolAction({
+              id: "act_read",
+              messageId: "msg_assistant",
+              toolName: "read_page",
+              label: "Read page",
+              detail: "https://example.com/file",
+              resultSummary: "",
+              status: "running",
+              completedAt: null
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    const [intermediateText] = screen.getAllByTestId("assistant-message-content");
+
+    expect(statusLine).toHaveTextContent("Read page");
+    expect(
+      intermediateText.compareDocumentPosition(statusLine) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("keeps the status line between the intermediate message and the answer that streams after it", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "Let me look at the file. The final answer is 42.",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            id: "txt_look",
+            timelineKind: "text",
+            sortOrder: 0,
+            createdAt: new Date().toISOString(),
+            content: "Let me look at the file."
+          },
+          {
+            ...createToolAction({
+              id: "act_read",
+              messageId: "msg_assistant",
+              toolName: "read_page",
+              label: "Read page",
+              detail: "https://example.com/file",
+              resultSummary: "File (204 chars)"
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    const textBlocks = screen.getAllByTestId("assistant-message-content");
+
+    expect(statusLine).toHaveTextContent("1 page read");
+    expect(textBlocks).toHaveLength(2);
+    expect(
+      textBlocks[0].compareDocumentPosition(statusLine) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      statusLine.compareDocumentPosition(textBlocks[1]) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("keeps the status line above the answer when no intermediate message precedes the tools", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "The final answer is 42.",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            ...createToolAction({
+              id: "act_search",
+              messageId: "msg_assistant",
+              toolName: "web_search",
+              label: "Web search",
+              detail: "",
+              arguments: { query: "Eidon docs" },
+              resultSummary: "Found results"
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    const [answer] = screen.getAllByTestId("assistant-message-content");
+
+    expect(statusLine).toHaveTextContent("1 web search");
+    expect(
+      statusLine.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("keeps the status line at the top of the column while the turn has no activity", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "Let me look at the file.",
+        streamingThinking: "Reasoning about the request",
+        thinkingInProgress: true,
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            id: "txt_look",
+            timelineKind: "text",
+            sortOrder: 0,
+            createdAt: new Date().toISOString(),
+            content: "Let me look at the file."
+          }
+        ]
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    const [textBlock] = screen.getAllByTestId("assistant-message-content");
+
+    expect(statusLine).toHaveTextContent("Thinking");
+    expect(
+      statusLine.compareDocumentPosition(textBlock) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("anchors the status line after a delegate line", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: { ...createAssistantMessage(), status: "streaming", content: "" },
+        streamingAnswer: "Handing this to Researcher.",
+        toolCallDisplay: "status_line",
+        streamingTimeline: [
+          {
+            id: "txt_handoff",
+            timelineKind: "text",
+            sortOrder: 0,
+            createdAt: new Date().toISOString(),
+            content: "Handing this to Researcher."
+          },
+          {
+            ...createToolAction({
+              id: "act_delegate",
+              messageId: "msg_assistant",
+              kind: "delegate_task",
+              toolName: "message_bot",
+              label: "Messaged Researcher",
+              detail: "Summarize the report",
+              resultSummary: "Sent"
+            }),
+            timelineKind: "action"
+          }
+        ]
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    const delegateLine = screen.getByTestId("delegate-action-line");
+
+    expect(screen.getAllByTestId("assistant-message-content")).toHaveLength(1);
+    expect(
+      delegateLine.compareDocumentPosition(statusLine) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+  });
+
+  it("keeps the status line above a deferred proposal card", () => {
+    render(
+      React.createElement(MessageBubble, {
+        message: {
+          ...createAssistantMessage(),
+          content: "I can remember that.",
+          timeline: [
+            {
+              ...createToolAction({
+                id: "act_search",
+                messageId: "msg_assistant",
+                toolName: "web_search",
+                label: "Web search",
+                detail: "",
+                arguments: { query: "Eidon docs" },
+                resultSummary: "Found results"
+              }),
+              timelineKind: "action"
+            },
+            createMemoryProposalAction()
+          ]
+        },
+        toolCallDisplay: "status_line"
+      })
+    );
+
+    const statusLine = screen.getByTestId("assistant-status-line");
+    const proposalShell = screen.getByTestId("assistant-actions-shell");
+
+    expect(statusLine).toHaveTextContent("1 web search");
+    expect(
+      statusLine.compareDocumentPosition(proposalShell) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it("renders running action pills in the default pills mode", () => {

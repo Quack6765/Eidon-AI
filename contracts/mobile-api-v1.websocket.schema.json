@@ -11,6 +11,7 @@
     "OpaqueId": { "type": "string", "minLength": 1, "maxLength": 512 },
     "Timestamp": { "type": "string", "format": "date-time" },
     "MemoryCategory": { "type": "string", "enum": ["personal", "preference", "work", "location", "other"] },
+    "ChatResearchRequest": { "type": "object", "additionalProperties": false, "description": "Runs the message as a deep research turn. Send `{}` to let the server generate the research plan, or `plan` to run explicit non-blank steps. Omit the field for a normal turn.", "properties": { "plan": { "type": "array", "minItems": 1, "maxItems": 12, "items": { "type": "string", "minLength": 1, "maxLength": 500, "pattern": "\\S" } } } },
     "MemoryProposalPayload": {
       "type": "object",
       "additionalProperties": false,
@@ -214,6 +215,7 @@
         { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "const": "usage" }, "inputTokens": { "type": "integer" }, "outputTokens": { "type": "integer" }, "reasoningTokens": { "type": "integer" }, "cacheReadTokens": { "type": "integer" }, "cacheCreationTokens": { "type": "integer" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "contextTokens", "compactionLimit"], "properties": { "type": { "const": "context_usage" }, "contextTokens": { "type": "integer" }, "compactionLimit": { "type": "integer" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "attempt"], "properties": { "type": { "const": "stream_retry" }, "attempt": { "type": "integer" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type"], "properties": { "type": { "const": "answer_reset" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "messageId"], "properties": { "type": { "const": "done" }, "messageId": { "$ref": "#/$defs/OpaqueId" }, "message": { "$ref": "#/$defs/Message" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "message"], "properties": { "type": { "const": "error" }, "message": { "type": "string" } } }
       ]
@@ -259,7 +261,7 @@
     "ClientMessage": {
       "oneOf": [
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId"], "properties": { "type": { "enum": ["subscribe", "request_snapshot", "unsubscribe", "stop"] }, "conversationId": { "$ref": "#/$defs/OpaqueId" } } },
-        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "content"], "properties": { "type": { "const": "message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "maxLength": 65536 }, "attachmentIds": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/OpaqueId" } }, "personaId": { "$ref": "#/$defs/OpaqueId" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "content"], "properties": { "type": { "const": "message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "maxLength": 65536 }, "attachmentIds": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/OpaqueId" } }, "personaId": { "$ref": "#/$defs/OpaqueId" }, "research": { "$ref": "#/$defs/ChatResearchRequest" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "content"], "properties": { "type": { "const": "queue_message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "minLength": 1, "maxLength": 65536 } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessageId", "content"], "properties": { "type": { "const": "update_queued_message" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessageId": { "$ref": "#/$defs/OpaqueId" }, "content": { "type": "string", "minLength": 1, "maxLength": 65536 } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "queuedMessageId"], "properties": { "type": { "enum": ["delete_queued_message", "send_queued_message_now"] }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "queuedMessageId": { "$ref": "#/$defs/OpaqueId" } } },
@@ -276,6 +278,7 @@
         { "type": "object", "additionalProperties": false, "required": ["type", "code", "message"], "properties": { "type": { "const": "error" }, "code": { "type": "string" }, "message": { "type": "string" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversation"], "properties": { "type": { "enum": ["conversation_created", "conversation_updated"] }, "conversation": { "$ref": "#/$defs/Conversation" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId"], "properties": { "type": { "const": "conversation_deleted" }, "conversationId": { "$ref": "#/$defs/OpaqueId" } } },
+        { "type": "object", "additionalProperties": false, "required": ["type", "conversationId"], "properties": { "type": { "const": "conversation_cleared" }, "conversationId": { "$ref": "#/$defs/OpaqueId" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "isActive"], "properties": { "type": { "const": "conversation_activity" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "isActive": { "type": "boolean" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "conversationId", "title"], "properties": { "type": { "const": "conversation_title_updated" }, "conversationId": { "$ref": "#/$defs/OpaqueId" }, "title": { "type": "string" } } },
         { "type": "object", "additionalProperties": false, "required": ["type", "bot"], "properties": { "type": { "const": "bot_updated" }, "bot": { "$ref": "#/$defs/BotSummary" } } },

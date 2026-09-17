@@ -1,8 +1,10 @@
 import {
   applyProviderPreset,
+  createProviderProfileDraft,
   DEFAULT_PROFILE_BEHAVIOR,
   getMatchingProviderPresetId,
   getProviderPreset,
+  resolveDefaultVisionMode,
   resolveProviderRequestApiMode
 } from "@/lib/provider-catalog";
 
@@ -322,5 +324,45 @@ describe("provider presets", () => {
     };
 
     expect(getMatchingProviderPresetId(profile)).toBe("xiaomi_mimo");
+  });
+});
+
+describe("provider vision defaults", () => {
+  it("defaults to native vision for models the registry knows accept image input", () => {
+    expect(resolveDefaultVisionMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://api.anthropic.com",
+      apiMode: "chat_completions",
+      model: "claude-opus-4-8"
+    })).toBe("native");
+  });
+
+  it("defaults to no vision for models without image input data", () => {
+    expect(resolveDefaultVisionMode({
+      providerKind: "openai_compatible",
+      apiBaseUrl: "https://api.deepseek.com",
+      apiMode: "chat_completions",
+      model: "deepseek-v4.1-flash"
+    })).toBe("none");
+  });
+
+  it("follows the request api mode when the model only accepts images there", () => {
+    const profile = {
+      providerKind: "openai_compatible" as const,
+      apiBaseUrl: "https://gateway.example.com/v1",
+      model: "gpt-oss-120b"
+    };
+
+    expect(resolveDefaultVisionMode({ ...profile, apiMode: "responses" })).toBe("native");
+    expect(resolveDefaultVisionMode({ ...profile, apiMode: "chat_completions" })).toBe("none");
+  });
+
+  it("seeds new profiles from their model instead of always enabling native", () => {
+    const openAi = createProviderProfileDraft({ providerKind: "openai_compatible" });
+    const copilot = createProviderProfileDraft({ providerKind: "github_copilot" });
+
+    expect(openAi.model).toBe("gpt-5.6-luna");
+    expect(openAi.visionMode).toBe("native");
+    expect(copilot.visionMode).toBe("none");
   });
 });

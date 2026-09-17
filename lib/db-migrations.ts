@@ -610,6 +610,7 @@ function migratePreferenceStorage(db: Database.Database) {
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
       default_view TEXT NOT NULL DEFAULT 'chat',
       has_completed_onboarding INTEGER NOT NULL DEFAULT 0,
+      last_seen_release TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -2048,6 +2049,10 @@ export function migrate(db: Database.Database) {
 
   if (!userPreferencesCols.some((column) => column.name === "has_completed_onboarding")) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN has_completed_onboarding INTEGER NOT NULL DEFAULT 0");
+  }
+
+  if (!userPreferencesCols.some((column) => column.name === "last_seen_release")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN last_seen_release TEXT NOT NULL DEFAULT ''");
   }
 
   if (!globalPreferencesCols.some((column) => column.name === "speech_cleanup_enabled")) {

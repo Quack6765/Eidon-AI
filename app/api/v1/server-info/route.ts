@@ -33,6 +33,9 @@ export async function GET() {
         memories: true,
         administratorSettings: true,
         providerConnections: true,
+        releaseHighlights: true,
+        providerReasoningControl: true,
+        deepResearch: true,
         offlineMutations: false,
         pushNotifications: false,
         semanticRecall: isSemanticRecallAvailable()

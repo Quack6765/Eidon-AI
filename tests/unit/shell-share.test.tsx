@@ -54,6 +54,26 @@ const conversationPage: ConversationListPage = {
   nextCursor: null
 };
 
+function jsonResponse(body: unknown) {
+  return { ok: true, json: async () => body } as Response;
+}
+
+function fetchForShare(routes: { load: unknown; update?: unknown }) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+
+    if (url.includes("/api/whats-new")) {
+      return jsonResponse({ whatsNew: null });
+    }
+
+    if (init?.method === "PATCH") {
+      return jsonResponse(routes.update ?? routes.load);
+    }
+
+    return jsonResponse(routes.load);
+  });
+}
+
 describe("Shell sharing control", () => {
   beforeEach(() => {
     push.mockReset();
@@ -69,23 +89,18 @@ describe("Shell sharing control", () => {
   });
 
   it("opens a share modal from the mobile header without moving the new chat button", async () => {
-    global.fetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          enabled: false,
-          token: null,
-          url: null
-        })
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          enabled: true,
-          token: "share_public_token",
-          url: "http://localhost/share/share_public_token"
-        })
-      } as Response);
+    global.fetch = fetchForShare({
+      load: {
+        enabled: false,
+        token: null,
+        url: null
+      },
+      update: {
+        enabled: true,
+        token: "share_public_token",
+        url: "http://localhost/share/share_public_token"
+      }
+    });
 
     render(
       <Shell
@@ -153,15 +168,13 @@ describe("Shell sharing control", () => {
   });
 
   it("uses one sharing switch and keeps copying on the link icon button", async () => {
-    global.fetch = vi.fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          enabled: true,
-          token: "share_public_token",
-          url: "http://localhost/share/share_public_token"
-        })
-      } as Response);
+    global.fetch = fetchForShare({
+      load: {
+        enabled: true,
+        token: "share_public_token",
+        url: "http://localhost/share/share_public_token"
+      }
+    });
     render(
       <Shell
         currentUser={user}

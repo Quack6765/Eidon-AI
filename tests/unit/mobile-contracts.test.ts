@@ -7,10 +7,13 @@ import { GET as getServerInfo } from "@/app/api/v1/server-info/route";
 import {
   MAX_ATTACHMENTS_PER_UPLOAD,
   MAX_ATTACHMENT_BYTES,
+  MAX_RESEARCH_PLAN_STEPS,
+  MAX_RESEARCH_PLAN_STEP_CHARS,
   MOBILE_API_MINIMUM_SERVER_VERSION
 } from "@/lib/constants";
 import {
   assertOpenApiResponse,
+  assertWebSocketMessage,
   compileOpenApiJsonRequestBodies,
   compileOpenApiJsonResponses
 } from "@/tests/fixtures/mobile-contract-validator";
@@ -107,6 +110,9 @@ describe("Mobile API v1 contracts", () => {
       conversations: true,
       automations: true,
       providerConnections: true,
+      releaseHighlights: true,
+      providerReasoningControl: true,
+      deepResearch: true,
       offlineMutations: false,
       pushNotifications: false
     });
@@ -140,6 +146,7 @@ describe("Mobile API v1 contracts", () => {
 
     expect(Object.keys(contract.paths)).toEqual(expect.arrayContaining([
       "/server-info",
+      "/whats-new",
       "/auth/login",
       "/auth/session",
       "/auth/sessions/{sessionId}",
@@ -155,6 +162,7 @@ describe("Mobile API v1 contracts", () => {
       "/automation-runs/{runId}",
       "/bots",
       "/bots/{botId}",
+      "/bots/{botId}/clear-context",
       "/bots/{botId}/memories",
       "/bots/{botId}/reset-browser-session",
       "/bots/{botId}/workspace",
@@ -174,12 +182,38 @@ describe("Mobile API v1 contracts", () => {
       "/providers/{profileId}/models"
     ]));
     expect(contract.paths["/server-info"].get).toMatchObject({ security: [] });
+    expect(contract.paths["/whats-new"].get).toMatchObject({
+      operationId: "getReleaseHighlights",
+      responses: { "200": { $ref: "#/components/responses/ReleaseHighlights" } }
+    });
+    expect(contract.paths["/whats-new"].post).toMatchObject({
+      operationId: "acknowledgeReleaseHighlights",
+      responses: { "200": { $ref: "#/components/responses/ReleaseHighlightsAcknowledged" } }
+    });
+    const releaseHighlightsEnvelope = contract.components
+      .schemas.ReleaseHighlightsEnvelope as unknown as {
+      properties: { data: { properties: { whatsNew: { oneOf: unknown[] } } } };
+    };
+    expect(releaseHighlightsEnvelope.properties.data.properties.whatsNew.oneOf).toContainEqual({
+      type: "null"
+    });
     expect(contract.paths["/auth/login"].post).toMatchObject({ security: [] });
     expect(contract.paths["/users"].get).toMatchObject({ "x-eidon-role": "admin" });
     expect(contract.paths["/speech/transcription/transcribe"].post).toMatchObject({
       parameters: [{ $ref: "#/components/parameters/speechAudioSampleRate" }],
       requestBody: { $ref: "#/components/requestBodies/RecordedSpeechAudio" },
       responses: { "200": { $ref: "#/components/responses/SpeechTranscription" } }
+    });
+    expect(contract.paths["/bots/{botId}/clear-context"]).toMatchObject({
+      parameters: [{ $ref: "#/components/parameters/botId" }]
+    });
+    expect(contract.paths["/bots/{botId}/clear-context"].post).toMatchObject({
+      operationId: "clearBotContext",
+      tags: ["Agents"],
+      responses: {
+        "200": { $ref: "#/components/responses/BotContextCleared" },
+        "409": { $ref: "#/components/responses/Error" }
+      }
     });
     expect(contract.paths["/speech/transcription/cleanup"].post).toMatchObject({
       requestBody: { $ref: "#/components/requestBodies/SpeechCleanup" },
@@ -196,6 +230,9 @@ describe("Mobile API v1 contracts", () => {
     expect(attachmentProperties).not.toHaveProperty("relativePath");
     expect(attachmentProperties).not.toHaveProperty("extractedText");
     expect(contract.components.schemas.User.properties).not.toHaveProperty("passwordHash");
+    expect(contract.components.schemas.MemoryProposalPayload.properties!.botId).toEqual({
+      $ref: "#/components/schemas/NullableId"
+    });
     const speechTranscriptionUpdate = contract.components.schemas.SpeechTranscriptionUpdate as unknown as {
       oneOf: Array<{
         properties: {
@@ -218,8 +255,43 @@ describe("Mobile API v1 contracts", () => {
     expect(universal35Languages.enum).not.toContain("sw");
     expect(universal2Languages.enum).toContain("sw");
     expect(universal2Languages.enum).toHaveLength(103);
+
+    const providerProfileSummary = contract.components.schemas.ProviderProfileSummary as {
+      required: string[];
+      properties: Record<string, unknown>;
+    };
+    expect(providerProfileSummary.required).toEqual(
+      expect.arrayContaining(["reasoningEffort", "reasoningControl", "reasoningEfforts"])
+    );
+    expect(providerProfileSummary.properties.reasoningControl).toMatchObject({
+      type: "string",
+      enum: ["levels", "toggle"]
+    });
+    expect(providerProfileSummary.properties.reasoningEfforts).toMatchObject({
+      type: "array",
+      minItems: 1,
+      uniqueItems: true,
+      items: { $ref: "#/components/schemas/ReasoningEffort" }
+    });
+    expect(contract.paths["/settings/providers"].put).toMatchObject({
+      responses: { "400": { $ref: "#/components/responses/Error" } }
+    });
+    expect(contract.components.schemas.ChatMessageRequest.properties!.research).toEqual({
+      $ref: "#/components/schemas/ChatResearchRequest"
+    });
+    expect(contract.components.schemas.ChatResearchRequest).toMatchObject({
+      additionalProperties: false,
+      properties: {
+        plan: {
+          type: "array",
+          minItems: 1,
+          maxItems: MAX_RESEARCH_PLAN_STEPS,
+          items: { type: "string", minLength: 1, maxLength: MAX_RESEARCH_PLAN_STEP_CHARS }
+        }
+      }
+    });
     expect(compileOpenApiJsonRequestBodies()).toBe(41);
-    expect(compileOpenApiJsonResponses()).toBe(104);
+    expect(compileOpenApiJsonResponses()).toBe(109);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {
@@ -253,9 +325,22 @@ describe("Mobile API v1 contracts", () => {
     expect(clientMessages).toContain("request_snapshot");
     expect(clientMessages).toContain("reorder_queued_messages");
     expect(clientMessages).not.toContain('"edit"');
+    expect(contract.$defs.ChatResearchRequest).toMatchObject({
+      properties: { plan: { maxItems: MAX_RESEARCH_PLAN_STEPS } }
+    });
+    const message = { type: "message", conversationId: "conv_1", content: "Compare the options" };
+    expect(() => assertWebSocketMessage("ClientMessage", { ...message, research: {} })).not.toThrow();
+    expect(() => assertWebSocketMessage("ClientMessage", {
+      ...message,
+      research: { plan: ["Survey the sources"] }
+    })).not.toThrow();
+    expect(() => assertWebSocketMessage("ClientMessage", { ...message, research: true })).toThrow(
+      /ClientMessage failed contract validation/
+    );
     const serverMessages = JSON.stringify(contract.$defs.ServerMessage);
     expect(serverMessages).toContain("protocolVersion");
     expect(serverMessages).toContain("conversation_title_updated");
+    expect(serverMessages).toContain("conversation_cleared");
     expect(serverMessages).toContain("bot_updated");
     expect(serverMessages).toContain("bot_deleted");
     expect(serverMessages).toContain("bot_run_updated");
@@ -264,6 +349,23 @@ describe("Mobile API v1 contracts", () => {
 
     expect(contract.$defs.Attachment.properties).not.toHaveProperty("relativePath");
     expect(contract.$defs.Attachment.properties).not.toHaveProperty("extractedText");
+  });
+
+  it("declares every retry event the assistant runtime streams to clients", () => {
+    const contract = readJson(websocketSchemaPath) as {
+      $defs: { ChatEvent: { oneOf: Array<{ properties: { type: { const?: string; enum?: string[] } } }> } };
+    };
+    const eventTypes = contract.$defs.ChatEvent.oneOf.flatMap(({ properties }) =>
+      properties.type.const ? [properties.type.const] : properties.type.enum ?? []
+    );
+    expect(eventTypes).toEqual(expect.arrayContaining(["stream_retry", "answer_reset"]));
+
+    const delta = (event: unknown) => ({ type: "delta", conversationId: "conv_1", event });
+    expect(() => assertWebSocketMessage("ServerMessage", delta({ type: "answer_reset" }))).not.toThrow();
+    expect(() => assertWebSocketMessage("ServerMessage", delta({ type: "stream_retry", attempt: 2 }))).not.toThrow();
+    expect(() => assertWebSocketMessage("ServerMessage", delta({ type: "answer_reset", text: "" }))).toThrow(
+      /ServerMessage failed contract validation/
+    );
   });
 
   it("keeps forbidden secret and persistence fields out of response DTO properties", () => {

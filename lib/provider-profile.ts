@@ -11,7 +11,7 @@ import {
   type ReasoningEffort,
   type VisionMode
 } from "@/lib/provider-catalog";
-import { modelMatchesPrefix, resolveCapabilities } from "@/lib/model-capabilities";
+import { modelMatchesPrefix, resolveCapabilities, supportsImageInput } from "@/lib/model-capabilities";
 
 export type ProviderConnectionStatus = "disconnected" | "connected" | "expired";
 
@@ -102,6 +102,8 @@ export type ProviderConnectionSummary = {
 
 export type ProviderProfileSummary = ProviderProfile & {
   connection: ProviderConnectionSummary;
+  reasoningControl: ProviderProfileCapabilities["reasoningControl"];
+  reasoningEfforts: ProviderProfileCapabilities["reasoningEfforts"];
 };
 
 export function getProviderApiMode(profile: {
@@ -118,6 +120,16 @@ export function getProviderApiMode(profile: {
     apiMode: profile.providerConfig.apiMode ?? "responses",
     model: profile.model
   });
+}
+
+export function profileSupportsImageInput(profile: {
+  providerKind: ProviderKind;
+  model: string;
+  providerConfig: { apiBaseUrl?: string; apiMode?: ApiMode };
+  visionMode: VisionMode;
+}): boolean {
+  return profile.visionMode === "native" ||
+    supportsImageInput(profile.model, getProviderApiMode(profile));
 }
 
 export function getProviderApiBaseUrl(profile: ProviderProfile) {
@@ -221,9 +233,12 @@ export function toProviderProfileSummary(
   profile: RuntimeProviderProfile
 ): ProviderProfileSummary {
   const { credentials: _credentials, connectionMetadata: _metadata, ...publicProfile } = profile;
+  const { reasoningControl, reasoningEfforts } = resolveProviderProfileCapabilities(profile);
   return {
     ...publicProfile,
-    connection: getProviderConnectionSummary(profile)
+    connection: getProviderConnectionSummary(profile),
+    reasoningControl,
+    reasoningEfforts
   };
 }
 

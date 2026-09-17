@@ -990,7 +990,7 @@ Run browser commands.`
     expect(String(secondCall.promptMessages[0].content)).not.toContain("Web search results have been received");
   });
 
-  it("keeps text written alongside tool calls visible in research mode", async () => {
+  it("keeps text written alongside tool calls visible", async () => {
     readWebPage.mockResolvedValue("# Page\nSource: https://a.example/\n\ncontent");
     const events: string[] = [];
     const onAnswerSegment = vi.fn();
@@ -1057,8 +1057,11 @@ Run browser commands.`
       onEvent: (event) => events.push(event.type),
       onAnswerSegment
     });
-    expect(onAnswerSegment.mock.calls.map(([segment]) => segment)).toEqual(["Answer"]);
-    expect(events).toContain("answer_reset");
+    expect(onAnswerSegment.mock.calls.map(([segment]) => segment)).toEqual([
+      "Let me check.",
+      "Answer"
+    ]);
+    expect(events).not.toContain("answer_reset");
   });
 
   it("raises the research step budget and forces a report when it runs out", async () => {
@@ -2153,10 +2156,10 @@ Run browser commands.`
     });
   });
 
-  it("uses the non-native vision directive when native vision is set on a non-vision model", async () => {
+  it("sends images inline when native vision is set on a model without registry vision data", async () => {
     streamProviderResponse.mockReturnValueOnce(
-      createProviderStream([{ type: "answer_delta", text: "I cannot view images." }], {
-        answer: "I cannot view images.",
+      createProviderStream([{ type: "answer_delta", text: "A shopping cart icon." }], {
+        answer: "A shopping cart icon.",
         thinking: "",
         usage: { inputTokens: 4, outputTokens: 4 }
       })
@@ -2165,7 +2168,7 @@ Run browser commands.`
     const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
 
     await resolveAssistantTurn({
-      settings: { ...createSettings(), model: "gpt-3.5-turbo", visionMode: "native" as const },
+      settings: { ...createSettings(), model: "deepseek-v4.1-flash", visionMode: "native" as const },
       promptMessages: [
         {
           role: "user",
@@ -2181,8 +2184,18 @@ Run browser commands.`
     });
 
     const firstCall = streamProviderResponse.mock.calls.at(-1)?.[0];
-    expect(firstCall.promptMessages[0].content).toContain("cannot inspect attached images directly");
-    expect(firstCall.promptMessages[0].content).not.toContain("Vision MCP servers:");
+    const lastMessage = firstCall.promptMessages.at(-1);
+    expect(lastMessage.content).toContainEqual({
+      type: "image",
+      attachmentId: "att_image",
+      filename: "photo.png",
+      mimeType: "image/png",
+      relativePath: "conv_image/photo.png"
+    });
+    const serialized = JSON.stringify(firstCall.promptMessages);
+    expect(serialized).not.toContain("cannot inspect attached images directly");
+    expect(serialized).not.toContain("Attached image: photo.png");
+    expect(serialized).not.toContain("Vision MCP servers:");
   });
 
   it("excludes vision-flagged MCP tools in native mode but keeps other MCP tools", async () => {
@@ -3031,7 +3044,7 @@ Run browser commands.`
     })]);
   });
 
-  it("discards preamble answer text streamed before tool calls", async () => {
+  it("keeps preamble answer text streamed before tool calls", async () => {
     streamProviderResponse
       .mockReturnValueOnce(
         createProviderStream([{ type: "answer_delta", text: "Let me search." }], {
@@ -3072,8 +3085,8 @@ Run browser commands.`
       "Let me search.",
       "Here are the results."
     ]);
-    expect(emitted.some((event) => event.type === "answer_reset")).toBe(true);
-    expect(persistedSegments).toEqual(["Here are the results."]);
+    expect(emitted.some((event) => event.type === "answer_reset")).toBe(false);
+    expect(persistedSegments).toEqual(["Let me search.", "Here are the results."]);
   });
 
   describe("memory tools", () => {

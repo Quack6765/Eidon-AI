@@ -11,15 +11,15 @@ import {
   type VisionMode
 } from "@/lib/provider-catalog";
 import {
-  getProviderApiMode,
   isProviderKind,
+  profileSupportsImageInput,
+  resolveProviderProfileCapabilities,
   toProviderProfileSummary,
   type ProviderConnectionMetadata,
   type ProviderCredentials,
   type ProviderProfile,
   type RuntimeProviderProfile
 } from "@/lib/provider-profile";
-import { supportsImageInput } from "@/lib/model-capabilities";
 
 export const secretActionSchema = z.enum(["preserve", "replace", "clear"]);
 export type SecretAction = z.infer<typeof secretActionSchema>;
@@ -87,6 +87,14 @@ export const providerProfileInputSchema = z.discriminatedUnion("providerKind", [
       message: "Output tokens plus the safety margin must be below the context limit"
     });
   }
+  const { reasoningEfforts } = resolveProviderProfileCapabilities(value as ProviderProfile);
+  if (!reasoningEfforts.includes(value.reasoningEffort)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["reasoningEffort"],
+      message: `Reasoning effort "${value.reasoningEffort}" is not supported by model "${value.model}"; supported values are ${reasoningEfforts.join(", ")}`
+    });
+  }
 });
 
 export const providerCatalogInputSchema = z.object({
@@ -141,7 +149,7 @@ export const providerCatalogInputSchema = z.object({
             path: ["providerProfiles", index, "visionProviderProfileId"],
             message: "Vision provider profile must reference a profile saved in this catalog"
           });
-        } else if (!supportsImageInput(target.model, getProviderApiMode(target))) {
+        } else if (!profileSupportsImageInput(target)) {
           context.addIssue({
             code: z.ZodIssueCode.custom,
             path: ["providerProfiles", index, "visionProviderProfileId"],

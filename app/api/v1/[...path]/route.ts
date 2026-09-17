@@ -9,6 +9,7 @@ import * as attachmentRoute from "@/app/api/attachments/[attachmentId]/route";
 import * as attachmentsRoute from "@/app/api/attachments/route";
 import * as avatarRoute from "@/app/api/avatars/[seed]/route";
 import * as botRoute from "@/app/api/bots/[botId]/route";
+import * as botClearContextRoute from "@/app/api/bots/[botId]/clear-context/route";
 import * as botMemoriesRoute from "@/app/api/bots/[botId]/memories/route";
 import * as botResetBrowserRoute from "@/app/api/bots/[botId]/reset-browser-session/route";
 import * as botSeenInputRoute from "@/app/api/bots/[botId]/seen-input/route";
@@ -55,6 +56,7 @@ import * as speechPrepareRoute from "@/app/api/speech/transcription/prepare/rout
 import * as speechTranscribeRoute from "@/app/api/speech/transcription/transcribe/route";
 import * as userRoute from "@/app/api/users/[userId]/route";
 import * as usersRoute from "@/app/api/users/route";
+import * as whatsNewRoute from "@/app/api/whats-new/route";
 import {
   authenticateMobileRequest,
   runWithMobileUser
@@ -94,6 +96,7 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["attachments"], module: attachmentsRoute },
   { pattern: ["attachments", ":attachmentId"], module: attachmentRoute },
   { pattern: ["avatars", ":seed"], module: avatarRoute },
+  { pattern: ["bots", ":botId", "clear-context"], module: botClearContextRoute },
   { pattern: ["bots", ":botId", "memories"], module: botMemoriesRoute },
   { pattern: ["bots", ":botId", "reset-browser-session"], module: botResetBrowserRoute },
   { pattern: ["bots", ":botId", "seen-input"], module: botSeenInputRoute },
@@ -139,7 +142,8 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["providers", ":profileId", "models"], module: providerModelsRoute },
   { pattern: ["speech", "transcription", "prepare"], module: speechPrepareRoute },
   { pattern: ["speech", "transcription", "transcribe"], module: speechTranscribeRoute },
-  { pattern: ["speech", "transcription", "cleanup"], module: speechCleanupRoute }
+  { pattern: ["speech", "transcription", "cleanup"], module: speechCleanupRoute },
+  { pattern: ["whats-new"], module: whatsNewRoute }
 ];
 
 function matchPattern(pattern: string[], path: string[]) {
