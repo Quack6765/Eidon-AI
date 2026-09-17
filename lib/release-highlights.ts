@@ -48,6 +48,13 @@ function sortNewestFirst(entries: ReleaseHighlight[]) {
     .map((candidate) => candidate.entry);
 }
 
+export function getNewestReleaseNote(
+  entries: ReleaseHighlight[] = RELEASE_NOTES
+): ReleaseHighlight | null {
+  const [newest] = sortNewestFirst(entries);
+  return newest ?? null;
+}
+
 export function buildReleaseAnnouncement(input: {
   currentVersion: string;
   lastSeenVersion: string;

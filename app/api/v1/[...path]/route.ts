@@ -56,6 +56,7 @@ import * as speechPrepareRoute from "@/app/api/speech/transcription/prepare/rout
 import * as speechTranscribeRoute from "@/app/api/speech/transcription/transcribe/route";
 import * as userRoute from "@/app/api/users/[userId]/route";
 import * as usersRoute from "@/app/api/users/route";
+import * as whatsNewRoute from "@/app/api/whats-new/route";
 import {
   authenticateMobileRequest,
   runWithMobileUser
@@ -141,7 +142,8 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["providers", ":profileId", "models"], module: providerModelsRoute },
   { pattern: ["speech", "transcription", "prepare"], module: speechPrepareRoute },
   { pattern: ["speech", "transcription", "transcribe"], module: speechTranscribeRoute },
-  { pattern: ["speech", "transcription", "cleanup"], module: speechCleanupRoute }
+  { pattern: ["speech", "transcription", "cleanup"], module: speechCleanupRoute },
+  { pattern: ["whats-new"], module: whatsNewRoute }
 ];
 
 function matchPattern(pattern: string[], path: string[]) {

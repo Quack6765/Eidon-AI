@@ -33,6 +33,7 @@ export async function GET() {
         memories: true,
         administratorSettings: true,
         providerConnections: true,
+        releaseHighlights: true,
         providerReasoningControl: true,
         offlineMutations: false,
         pushNotifications: false,

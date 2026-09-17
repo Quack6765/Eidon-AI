@@ -784,4 +784,57 @@ describe("Mobile API v1 REST adapter", () => {
       error: { code: "not_found", message: "Mobile API operation not found" }
     });
   });
+
+  it("serves release highlights to native clients and records the version they acknowledged", async () => {
+    const originalVersion = process.env.NEXT_PUBLIC_APP_VERSION;
+    const { getNewestReleaseNote } = await import("@/lib/release-highlights");
+    const newest = getNewestReleaseNote()!;
+    process.env.NEXT_PUBLIC_APP_VERSION = newest.version;
+
+    try {
+      const member = await createLocalUser({
+        username: "mobile-release-member",
+        password: "MobileReleasePassword123!",
+        role: "user"
+      });
+      const session = await createMobileSession(member.id, "Member phone");
+      const { getDb } = await import("@/lib/db");
+      getDb()
+        .prepare("UPDATE user_preferences SET last_seen_release = ? WHERE user_id = ?")
+        .run("", member.id);
+
+      const highlights = await mobileGet(
+        request(["whats-new"], session.token),
+        context(["whats-new"])
+      );
+      expect(highlights.status).toBe(200);
+      await assertResponseContract("/whats-new", "get", highlights);
+      await expect(highlights.json()).resolves.toEqual({
+        data: { whatsNew: { version: newest.version, autoOpen: true, bullets: newest.bullets } }
+      });
+
+      const acknowledged = await mobilePost(
+        request(["whats-new"], session.token, { method: "POST" }),
+        context(["whats-new"])
+      );
+      expect(acknowledged.status).toBe(200);
+      await assertResponseContract("/whats-new", "post", acknowledged);
+      await expect(acknowledged.json()).resolves.toEqual({
+        data: { seenReleaseVersion: newest.version }
+      });
+
+      const afterAcknowledgement = await mobileGet(
+        request(["whats-new"], session.token),
+        context(["whats-new"])
+      );
+      expect(afterAcknowledgement.status).toBe(200);
+      await assertResponseContract("/whats-new", "get", afterAcknowledgement);
+      await expect(afterAcknowledgement.json()).resolves.toMatchObject({
+        data: { whatsNew: { version: newest.version, autoOpen: false } }
+      });
+    } finally {
+      if (originalVersion === undefined) delete process.env.NEXT_PUBLIC_APP_VERSION;
+      else process.env.NEXT_PUBLIC_APP_VERSION = originalVersion;
+    }
+  });
 });
