@@ -75,6 +75,45 @@ describe("WhatsNewDialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("links to the detailed GitHub changelog for the shown release", async () => {
+    stubFetch(PAYLOAD);
+    const { WhatsNewDialog } = await import("@/components/whats-new-dialog");
+
+    render(<WhatsNewDialog open={true} onOpenChange={vi.fn()} />);
+
+    const link = await screen.findByRole("link", { name: "Read the detailed changelog" });
+    expect(link).toHaveAttribute(
+      "href",
+      "https://github.com/Quack6765/Eidon-AI/releases/tag/v4.1.0"
+    );
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link.getAttribute("rel")).toContain("noopener");
+  });
+
+  it("falls back to the releases list when the version is not a release tag", async () => {
+    stubFetch({ ...PAYLOAD, version: "dev" });
+    const { WhatsNewDialog } = await import("@/components/whats-new-dialog");
+
+    render(<WhatsNewDialog open={true} onOpenChange={vi.fn()} />);
+
+    const link = await screen.findByRole("link", { name: "Read the detailed changelog" });
+    expect(link).toHaveAttribute("href", "https://github.com/Quack6765/Eidon-AI/releases");
+  });
+
+  it("does not dismiss the dialog when opening the detailed changelog", async () => {
+    const fetchMock = stubFetch(PAYLOAD);
+    const onOpenChange = vi.fn();
+    const { WhatsNewDialog } = await import("@/components/whats-new-dialog");
+
+    render(<WhatsNewDialog open={true} onOpenChange={onOpenChange} />);
+    const link = await screen.findByRole("link", { name: "Read the detailed changelog" });
+
+    await userEvent.click(link);
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+    expect(seenRequests(fetchMock)).toHaveLength(0);
+  });
+
   it("does not re-record a release that is only being re-read", async () => {
     const fetchMock = stubFetch({ ...PAYLOAD, autoOpen: false });
     const { WhatsNewDialog } = await import("@/components/whats-new-dialog");

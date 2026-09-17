@@ -1,5 +1,7 @@
 export const APP_NAME = "Eidon";
 
+export const GITHUB_RELEASES_URL = "https://github.com/Quack6765/Eidon-AI/releases";
+
 export function getAppVersion(): string {
   return process.env.NEXT_PUBLIC_APP_VERSION || "dev";
 }

@@ -1,3 +1,4 @@
+import { GITHUB_RELEASES_URL } from "@/lib/constants";
 import { RELEASE_NOTES } from "@/lib/release-notes";
 import type { ReleaseHighlight } from "@/lib/release-notes";
 
@@ -22,6 +23,14 @@ export function parseReleaseVersion(value: string): number[] | null {
 
 export function isReleaseVersion(value: string): boolean {
   return parseReleaseVersion(value) !== null;
+}
+
+export function buildReleaseUrl(version: string): string {
+  if (!isReleaseVersion(version)) {
+    return GITHUB_RELEASES_URL;
+  }
+
+  return `${GITHUB_RELEASES_URL}/tag/${version.trim()}`;
 }
 
 export function compareReleaseVersions(a: number[], b: number[]): number {
