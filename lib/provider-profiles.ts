@@ -13,6 +13,7 @@ import {
 import {
   getProviderApiMode,
   isProviderKind,
+  resolveProviderProfileCapabilities,
   toProviderProfileSummary,
   type ProviderConnectionMetadata,
   type ProviderCredentials,
@@ -85,6 +86,14 @@ export const providerProfileInputSchema = z.discriminatedUnion("providerKind", [
       code: z.ZodIssueCode.custom,
       path: ["maxOutputTokens"],
       message: "Output tokens plus the safety margin must be below the context limit"
+    });
+  }
+  const { reasoningEfforts } = resolveProviderProfileCapabilities(value as ProviderProfile);
+  if (!reasoningEfforts.includes(value.reasoningEffort)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["reasoningEffort"],
+      message: `Reasoning effort "${value.reasoningEffort}" is not supported by model "${value.model}"; supported values are ${reasoningEfforts.join(", ")}`
     });
   }
 });

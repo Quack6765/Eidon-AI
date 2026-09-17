@@ -102,6 +102,8 @@ export type ProviderConnectionSummary = {
 
 export type ProviderProfileSummary = ProviderProfile & {
   connection: ProviderConnectionSummary;
+  reasoningControl: ProviderProfileCapabilities["reasoningControl"];
+  reasoningEfforts: ProviderProfileCapabilities["reasoningEfforts"];
 };
 
 export function getProviderApiMode(profile: {
@@ -221,9 +223,12 @@ export function toProviderProfileSummary(
   profile: RuntimeProviderProfile
 ): ProviderProfileSummary {
   const { credentials: _credentials, connectionMetadata: _metadata, ...publicProfile } = profile;
+  const { reasoningControl, reasoningEfforts } = resolveProviderProfileCapabilities(profile);
   return {
     ...publicProfile,
-    connection: getProviderConnectionSummary(profile)
+    connection: getProviderConnectionSummary(profile),
+    reasoningControl,
+    reasoningEfforts
   };
 }
 

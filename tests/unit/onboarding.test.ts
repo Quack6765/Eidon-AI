@@ -27,6 +27,8 @@ function makeProfile(overrides: Partial<ProviderProfileSummary> = {}): ProviderP
         accountLabel: null,
         expiresAt: null
       },
+      reasoningControl: "levels",
+      reasoningEfforts: ["none", "low", "medium", "high", "xhigh"],
       createdAt: timestamp,
       updatedAt: timestamp
     } as ProviderProfileSummary),

@@ -168,7 +168,6 @@ Published contracts live in [`contracts/`](../contracts):
 | --- | --- |
 | `mobile-api-v1.openapi.json` | OpenAPI description of the REST surface |
 | `mobile-api-v1.websocket.schema.json` | JSON Schema for the WebSocket message envelope |
-| `mobile-api-v1-handoff.md` | Release notes for client authors: what changed and what it means |
 
 They are attached to stable GitHub releases as assets, and a unit test checks the implementation against them.
 
