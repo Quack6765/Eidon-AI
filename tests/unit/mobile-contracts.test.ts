@@ -11,6 +11,7 @@ import {
 } from "@/lib/constants";
 import {
   assertOpenApiResponse,
+  assertWebSocketMessage,
   compileOpenApiJsonRequestBodies,
   compileOpenApiJsonResponses
 } from "@/tests/fixtures/mobile-contract-validator";
@@ -107,6 +108,7 @@ describe("Mobile API v1 contracts", () => {
       conversations: true,
       automations: true,
       providerConnections: true,
+      providerReasoningControl: true,
       offlineMutations: false,
       pushNotifications: false
     });
@@ -233,8 +235,29 @@ describe("Mobile API v1 contracts", () => {
     expect(universal35Languages.enum).not.toContain("sw");
     expect(universal2Languages.enum).toContain("sw");
     expect(universal2Languages.enum).toHaveLength(103);
+
+    const providerProfileSummary = contract.components.schemas.ProviderProfileSummary as {
+      required: string[];
+      properties: Record<string, unknown>;
+    };
+    expect(providerProfileSummary.required).toEqual(
+      expect.arrayContaining(["reasoningEffort", "reasoningControl", "reasoningEfforts"])
+    );
+    expect(providerProfileSummary.properties.reasoningControl).toMatchObject({
+      type: "string",
+      enum: ["levels", "toggle"]
+    });
+    expect(providerProfileSummary.properties.reasoningEfforts).toMatchObject({
+      type: "array",
+      minItems: 1,
+      uniqueItems: true,
+      items: { $ref: "#/components/schemas/ReasoningEffort" }
+    });
+    expect(contract.paths["/settings/providers"].put).toMatchObject({
+      responses: { "400": { $ref: "#/components/responses/Error" } }
+    });
     expect(compileOpenApiJsonRequestBodies()).toBe(41);
-    expect(compileOpenApiJsonResponses()).toBe(106);
+    expect(compileOpenApiJsonResponses()).toBe(107);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {
@@ -280,6 +303,23 @@ describe("Mobile API v1 contracts", () => {
 
     expect(contract.$defs.Attachment.properties).not.toHaveProperty("relativePath");
     expect(contract.$defs.Attachment.properties).not.toHaveProperty("extractedText");
+  });
+
+  it("declares every retry event the assistant runtime streams to clients", () => {
+    const contract = readJson(websocketSchemaPath) as {
+      $defs: { ChatEvent: { oneOf: Array<{ properties: { type: { const?: string; enum?: string[] } } }> } };
+    };
+    const eventTypes = contract.$defs.ChatEvent.oneOf.flatMap(({ properties }) =>
+      properties.type.const ? [properties.type.const] : properties.type.enum ?? []
+    );
+    expect(eventTypes).toEqual(expect.arrayContaining(["stream_retry", "answer_reset"]));
+
+    const delta = (event: unknown) => ({ type: "delta", conversationId: "conv_1", event });
+    expect(() => assertWebSocketMessage("ServerMessage", delta({ type: "answer_reset" }))).not.toThrow();
+    expect(() => assertWebSocketMessage("ServerMessage", delta({ type: "stream_retry", attempt: 2 }))).not.toThrow();
+    expect(() => assertWebSocketMessage("ServerMessage", delta({ type: "answer_reset", text: "" }))).toThrow(
+      /ServerMessage failed contract validation/
+    );
   });
 
   it("keeps forbidden secret and persistence fields out of response DTO properties", () => {

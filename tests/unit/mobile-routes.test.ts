@@ -379,6 +379,73 @@ describe("Mobile API v1 REST adapter", () => {
     expect(serialized).not.toContain("apiKeyEncrypted");
   });
 
+  it("exposes per-profile reasoning control and rejects unsupported reasoning efforts", async () => {
+    const admin = await createLocalUser({
+      username: "reasoning-admin",
+      password: "ReasoningAdminPassword123!",
+      role: "admin"
+    });
+    const session = await createMobileSession(admin.id, "Reasoning device");
+    const glm = createProviderProfileInput({
+      id: "profile_glm",
+      name: "GLM",
+      model: "glm-5.1",
+      providerConfig: {
+        apiBaseUrl: "https://api.z.ai/api/coding/paas/v4",
+        apiMode: "chat_completions"
+      },
+      credentials: { apiKey: "sk-glm" }
+    });
+    const deepSeek = createProviderProfileInput({
+      id: "profile_deepseek",
+      name: "DeepSeek",
+      model: "deepseek-v4-flash",
+      reasoningEffort: "none",
+      providerConfig: { apiMode: "chat_completions" },
+      credentials: { apiKey: "sk-deepseek" }
+    });
+    updateProviderCatalog(createProviderCatalogInput([glm, deepSeek]));
+
+    const settings = await mobileGet(request(["settings"], session.token), context(["settings"]));
+    expect(settings.status).toBe(200);
+    await assertResponseContract("/settings", "get", settings);
+    const { data } = await settings.json() as {
+      data: { settings: { providerProfiles: Array<Record<string, unknown>> } };
+    };
+    const profiles = data.settings.providerProfiles;
+    expect(profiles.find((profile) => profile.id === glm.id)).toMatchObject({
+      reasoningControl: "levels",
+      reasoningEfforts: ["low", "medium", "high", "xhigh", "max"]
+    });
+    expect(profiles.find((profile) => profile.id === deepSeek.id)).toMatchObject({
+      reasoningControl: "toggle",
+      reasoningEfforts: ["none", "low", "medium", "high", "xhigh"]
+    });
+
+    const rejected = await mobilePut(
+      request(["settings", "providers"], session.token, {
+        method: "PUT",
+        body: createProviderCatalogInput([{ ...glm, reasoningEffort: "none" }, deepSeek])
+      }),
+      context(["settings", "providers"])
+    );
+    expect(rejected.status).toBe(400);
+    await assertResponseContract("/settings/providers", "put", rejected);
+    await expect(rejected.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_request",
+        message: expect.stringContaining('Reasoning effort "none" is not supported by model "glm-5.1"')
+      }
+    });
+    const unchanged = await mobileGet(request(["settings"], session.token), context(["settings"]));
+    const { data: after } = await unchanged.json() as {
+      data: { settings: { providerProfiles: Array<{ id: string; reasoningEffort: string }> } };
+    };
+    expect(
+      after.settings.providerProfiles.find((profile) => profile.id === glm.id)?.reasoningEffort
+    ).toBe(glm.reasoningEffort);
+  });
+
   it("conforms representative resource responses to the OpenAPI contract", async () => {
     const admin = await createLocalUser({
       username: "contract-admin",
