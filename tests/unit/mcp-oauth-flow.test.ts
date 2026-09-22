@@ -315,23 +315,24 @@ describe("mcp oauth end-to-end flow against a mock authorization server", () => 
     }
   });
 
-  it("tests cleanly with a valid token and refreshes transparently when the token is rejected", async () => {
+  it("discovers tools cleanly with a valid token and refreshes transparently when the token is rejected", async () => {
     const as = await startMockAuthorizationServer();
     try {
       const { server: created } = await authenticateServer(as);
-      const { testMcpServerConnection } = await import("@/lib/mcp-client");
+      const { discoverMcpTools, disconnectMcpServer } = await import("@/lib/mcp-client");
       const server = getMcpServer(created.id)!;
 
-      const validResult = await testMcpServerConnection(server);
-      expect(validResult.toolCount).toBe(1);
+      const validTools = await discoverMcpTools(server);
+      expect(validTools).toHaveLength(1);
       expect(as.lastMcpBearer).toBe(INITIAL_ACCESS_TOKEN);
 
       const afterValid = getMcpOAuthConnection(server.id);
       expect(afterValid?.status).toBe("connected");
 
-      as.rotateViaRefresh();
-      const refreshedResult = await testMcpServerConnection(server);
-      expect(refreshedResult.toolCount).toBe(1);
+      await disconnectMcpServer(server);
+      await as.rotateViaRefresh();
+      const refreshedTools = await discoverMcpTools(server);
+      expect(refreshedTools).toHaveLength(1);
       expect(as.refreshCount.value).toBe(2);
       expect(as.lastMcpBearer).toBe(as.currentAccessToken);
 

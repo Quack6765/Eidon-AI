@@ -353,113 +353,49 @@ export function McpServersSection() {
 
   type McpTestResultView = { text: string; isSuccess: boolean; requiresAuth?: boolean };
 
-  function applyTestResult(serverId: string | undefined, result: McpTestResultView, alsoSelect = false) {
-    if (serverId) {
-      setMcpRowTestResults((current) => ({
-        ...current,
-        [serverId]: result
-      }));
-      if (serverId === editingMcpId || alsoSelect) {
-        setMcpDraftTestResult(result);
-      }
-    } else {
+  function applyTestResult(serverId: string, result: McpTestResultView, alsoSelect = false) {
+    setMcpRowTestResults((current) => ({
+      ...current,
+      [serverId]: result
+    }));
+    if (serverId === editingMcpId || alsoSelect) {
       setMcpDraftTestResult(result);
-      if (editingMcpId) {
-        setMcpRowTestResults((current) => ({
-          ...current,
-          [editingMcpId]: result
-        }));
-      }
     }
   }
 
-  async function testMcpServer(serverId?: string, alsoSelect = false) {
-    const target = serverId ?? "draft";
+  async function testMcpServer(serverId: string, alsoSelect = false, target = serverId) {
     setMcpTestingTarget(target);
 
     try {
-      let payload: Record<string, unknown>;
-
-      if (serverId) {
-        payload = { serverId };
-      } else {
-        if (!mcpName.trim()) return;
-        if (mcpTransport === "streamable_http" && !mcpUrl.trim()) return;
-        if (mcpTransport === "stdio" && !mcpCommand.trim()) return;
-
-        payload = {
-          name: mcpName,
-          transport: mcpTransport
-        };
-
-        if (mcpTransport === "streamable_http") {
-          payload.url = mcpUrl;
-          payload.headersAction = hasEditedHeaders
-            ? mcpHeaders.trim()
-              ? "replace"
-              : "clear"
-            : "preserve";
-          if (mcpHeaders.trim()) payload.headers = JSON.parse(mcpHeaders);
-        } else {
-          payload.command = mcpCommand;
-          payload.args = mcpArgs.trim()
-            ? (() => {
-                try {
-                  const parsed = JSON.parse(mcpArgs);
-                  return Array.isArray(parsed) ? parsed : mcpArgs.split(/\s+/).filter(Boolean);
-                } catch {
-                  return mcpArgs.split(/\s+/).filter(Boolean);
-                }
-              })()
-            : [];
-          payload.envAction = hasEditedEnv
-            ? mcpEnv.trim()
-              ? "replace"
-              : "clear"
-            : "preserve";
-          if (mcpEnv.trim()) payload.env = JSON.parse(mcpEnv);
-          payload.url = "";
-        }
-
-        if (editingMcpId) {
-          payload = { serverId: editingMcpId, draft: payload };
-        }
-      }
-
       const response = await fetch("/api/mcp-servers/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({ serverId })
       });
       const result = (await response.json()) as {
         text?: string;
         error?: string;
-        toolCount?: number;
-        stderr?: string;
+        detail?: string;
         success?: boolean;
         requiresAuth?: boolean;
         oauth?: McpServerSummary["oauth"];
       };
-      const message = result.text ?? result.error ?? "No result";
-      const fullMessage = result.stderr ? `${message}\n${result.stderr}` : message;
+      const failure = [result.error, result.detail].filter(Boolean).join(" — ");
+      const message = result.text ?? (failure || "No result");
       const isSuccess = response.ok && !result.error && result.success !== false && !result.requiresAuth;
       const testResult = {
-        text: fullMessage,
+        text: message,
         isSuccess,
         ...(result.requiresAuth ? { requiresAuth: true } : {})
       };
 
-      if (serverId) {
-        applyTestResult(serverId, testResult, alsoSelect);
-        if (result.oauth !== undefined) {
-          setMcpServers((current) =>
-            current.map((server) =>
-              server.id === serverId ? { ...server, oauth: result.oauth ?? null } : server
-            )
-          );
-        }
-      } else {
-        applyTestResult(undefined, testResult);
+      applyTestResult(serverId, testResult, alsoSelect);
+      if (result.oauth !== undefined) {
+        setMcpServers((current) =>
+          current.map((server) =>
+            server.id === serverId ? { ...server, oauth: result.oauth ?? null } : server
+          )
+        );
       }
 
       if (result.requiresAuth) {
@@ -468,15 +404,24 @@ export function McpServersSection() {
           "Authentication required — click Authenticate to connect this server."
         );
       } else if (!response.ok) {
-        toast.showToast("error", fullMessage);
+        toast.showToast("error", message);
       }
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : "MCP connection test failed";
-      applyTestResult(serverId, { text: message, isSuccess: false });
-      toast.showToast("error", message);
+    } catch {
+      applyTestResult(serverId, { text: "MCP connection test failed", isSuccess: false });
+      toast.showToast("error", "MCP connection test failed");
     } finally {
       setMcpTestingTarget(null);
     }
+  }
+
+  async function testMcpServerForm() {
+    setMcpTestingTarget("draft");
+    const saved = await persistMcpServer({ skipAuthCheck: true });
+    if (!saved) {
+      setMcpTestingTarget(null);
+      return;
+    }
+    await testMcpServer(saved.id, true, "draft");
   }
 
   async function deleteMcpServer(id: string) {
@@ -641,7 +586,7 @@ export function McpServersSection() {
             variant="ghost"
             size="lg"
             className="min-h-11 gap-1.5 px-4 text-sm md:min-h-10"
-            onClick={() => void testMcpServer()}
+            onClick={() => void testMcpServerForm()}
             disabled={mcpTestingTarget === "draft"}
           >
             <Zap className="h-3.5 w-3.5" />
