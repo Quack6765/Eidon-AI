@@ -1,6 +1,100 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants as fsConstants } from "node:fs";
+import { accessSync, constants as fsConstants, lstatSync, mkdirSync, realpathSync } from "node:fs";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { appendBoundedText, truncateText } from "@/lib/bounded-text";
+import { env } from "@/lib/env";
+
+export const SHELL_ENV_ALLOWLIST = [
+  "PATH",
+  "HOME",
+  "SHELL",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "TZ",
+  "TMPDIR",
+  "USER",
+  "LOGNAME"
+] as const;
+
+export const SHELL_ENV_EXTRA_ALLOWLIST = [
+  "AGENT_BROWSER_SOCKET_DIR",
+  "AGENT_BROWSER_SESSION",
+  "AGENT_BROWSER_SESSION_NAME"
+] as const;
+
+export function buildShellEnv(extraEnv?: Record<string, string>) {
+  const shellEnv: Record<string, string> = {};
+
+  for (const name of SHELL_ENV_ALLOWLIST) {
+    const value = process.env[name];
+    if (value !== undefined) {
+      shellEnv[name] = value;
+    }
+  }
+
+  for (const name of SHELL_ENV_EXTRA_ALLOWLIST) {
+    const value = extraEnv?.[name];
+    if (value !== undefined) {
+      shellEnv[name] = value;
+    }
+  }
+
+  return shellEnv as NodeJS.ProcessEnv;
+}
+
+export function toPosixSegment(value: string, fallback: string) {
+  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || fallback;
+}
+
+function resolveExistingPath(target: string) {
+  try {
+    return realpathSync(target);
+  } catch {
+    return resolve(target);
+  }
+}
+
+function isPathInsideRoot(candidatePath: string, rootPath: string) {
+  const relativePath = relative(rootPath, candidatePath);
+  return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
+}
+
+export function resolveShellWorkspaceDir(conversationId?: string) {
+  const requestedRoot = `${resolve(env.EIDON_DATA_DIR)}-workspaces`;
+  mkdirSync(requestedRoot, { recursive: true, mode: 0o700 });
+  if (lstatSync(requestedRoot).isSymbolicLink()) {
+    throw new Error("Shell workspace root must not be a symbolic link");
+  }
+
+  const root = realpathSync(requestedRoot);
+  const dataRoot = resolveExistingPath(env.EIDON_DATA_DIR);
+  const envFilePath = resolveExistingPath(join(process.cwd(), ".env"));
+  if (
+    isPathInsideRoot(dataRoot, root) ||
+    isPathInsideRoot(root, dataRoot) ||
+    isPathInsideRoot(envFilePath, root)
+  ) {
+    throw new Error("Shell workspace overlaps application data");
+  }
+
+  const workspaceDir = join(root, toPosixSegment(conversationId ?? "", "shared"));
+  const relativePath = relative(root, workspaceDir);
+  if (!relativePath || relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    throw new Error("Shell workspace path escapes the workspace root");
+  }
+
+  mkdirSync(workspaceDir, { recursive: true, mode: 0o700 });
+  const stats = lstatSync(workspaceDir);
+  if (!stats.isDirectory() || stats.isSymbolicLink()) {
+    throw new Error("Shell workspace contains an unsafe directory link");
+  }
+  if (realpathSync(workspaceDir) !== workspaceDir) {
+    throw new Error("Shell workspace resolves outside the workspace root");
+  }
+
+  return workspaceDir;
+}
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const WEB_BROWSER_TIMEOUT_MS = 120_000;
@@ -85,12 +179,14 @@ function resolveShellPath() {
 export async function executeLocalShellCommand(input: {
   command: string;
   cwd?: string;
-  env?: NodeJS.ProcessEnv;
+  env?: Record<string, string>;
   timeoutMs?: number;
   abortSignal?: AbortSignal;
 }) {
   const command = validateCommand(input.command);
   const timeoutMs = input.timeoutMs ?? getDefaultTimeoutMs(command);
+  const cwd = input.cwd ?? resolveShellWorkspaceDir();
+  const shellEnv = buildShellEnv(input.env);
 
   if (input.abortSignal?.aborted) {
     throw createAbortError();
@@ -98,8 +194,8 @@ export async function executeLocalShellCommand(input: {
 
   return await new Promise<ShellExecutionResult>((resolve, reject) => {
     const child = spawn(resolveShellPath(), ["-lc", command], {
-      cwd: input.cwd ?? process.cwd(),
-      env: input.env ?? process.env,
+      cwd,
+      env: shellEnv,
       detached: process.platform !== "win32"
     });
 

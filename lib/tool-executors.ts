@@ -11,7 +11,7 @@ import {
 import { assertValidSchedule } from "@/lib/automations";
 import { describeSchedule } from "@/lib/automation-display";
 import { getSettings } from "@/lib/settings";
-import { executeLocalShellCommand, getShellCommandLabel, summarizeShellResult } from "@/lib/local-shell";
+import { executeLocalShellCommand, getShellCommandLabel, resolveShellWorkspaceDir, summarizeShellResult } from "@/lib/local-shell";
 import { callMcpTool, getToolResultText } from "@/lib/mcp-client";
 import { coerceEnumValues } from "@/lib/tool-schema-helpers";
 import { getWebSearchPipeline } from "@/lib/web-search-catalog";
@@ -805,11 +805,13 @@ export async function executeShellCommand(
   const sandbox = bot ? resolveBotSandbox(bot) : null;
 
   try {
+    const cwd = sandbox ? sandbox.cwd : resolveShellWorkspaceDir(context.input.conversationId);
     const result = await executeLocalShellCommand({
       command,
       timeoutMs,
       abortSignal: context.input.abortSignal,
-      ...(sandbox ? { cwd: sandbox.cwd, env: { ...process.env, ...sandbox.env } } : {})
+      cwd,
+      ...(sandbox ? { env: sandbox.env } : {})
     });
     throwIfAborted(context.input.abortSignal);
     const resultSummary = summarizeShellResult(result);

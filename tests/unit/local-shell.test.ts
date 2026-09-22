@@ -59,7 +59,7 @@ describe("local shell", () => {
       ["-lc", "curl https://example.com && git diff"],
       expect.objectContaining({
         cwd: "/tmp/eidon",
-        env: process.env
+        env: expect.any(Object)
       })
     );
 
@@ -90,8 +90,7 @@ describe("local shell", () => {
       expectedInitialShell,
       ["-lc", 'echo "hello" > /tmp/temp_hello.txt && echo "File created successfully"'],
       expect.objectContaining({
-        cwd: process.cwd(),
-        env: process.env
+        cwd: expect.stringContaining(".test-data-workspaces")
       })
     );
 
@@ -119,8 +118,7 @@ describe("local shell", () => {
       "/bin/sh",
       ["-lc", "git status"],
       expect.objectContaining({
-        cwd: process.cwd(),
-        env: process.env
+        cwd: expect.stringContaining(".test-data-workspaces")
       })
     );
 
@@ -148,8 +146,7 @@ describe("local shell", () => {
       "/bin/sh",
       ["-lc", "git status"],
       expect.objectContaining({
-        cwd: process.cwd(),
-        env: process.env
+        cwd: expect.stringContaining(".test-data-workspaces")
       })
     );
 
@@ -177,8 +174,7 @@ describe("local shell", () => {
       "zsh",
       ["-lc", "git status"],
       expect.objectContaining({
-        cwd: process.cwd(),
-        env: process.env
+        cwd: expect.stringContaining(".test-data-workspaces")
       })
     );
 
@@ -364,5 +360,65 @@ describe("local shell", () => {
       timedOut: true,
       isError: true
     });
+  });
+});
+
+describe("shell environment scrubbing", () => {
+  beforeEach(() => {
+    spawnMock.mockReset();
+  });
+
+  it("spawns with a minimal allowlisted environment and no app secrets", async () => {
+    const { SHELL_ENV_ALLOWLIST, SHELL_ENV_EXTRA_ALLOWLIST, executeLocalShellCommand } = await import("@/lib/local-shell");
+    const child = new MockChild();
+    spawnMock.mockReturnValue(child);
+
+    const resultPromise = executeLocalShellCommand({
+      command: "printenv",
+      env: {
+        AGENT_BROWSER_SESSION_NAME: "probe",
+        EIDON_SESSION_SECRET: "leak",
+        EIDON_ENCRYPTION_SECRET: "leak",
+        EIDON_ADMIN_PASSWORD: "leak",
+        EIDON_GITHUB_APP_CLIENT_SECRET: "leak",
+        AWS_SECRET_ACCESS_KEY: "leak"
+      }
+    });
+
+    const childEnv = spawnMock.mock.calls[0][2].env as Record<string, string>;
+    const allowedNames: readonly string[] = [...SHELL_ENV_ALLOWLIST, ...SHELL_ENV_EXTRA_ALLOWLIST];
+    for (const name of Object.keys(childEnv)) {
+      expect(allowedNames).toContain(name);
+    }
+    expect(childEnv.AGENT_BROWSER_SESSION_NAME).toBe("probe");
+    expect(childEnv.PATH).toBe(process.env.PATH);
+    for (const name of [
+      "EIDON_SESSION_SECRET",
+      "EIDON_ENCRYPTION_SECRET",
+      "EIDON_ADMIN_PASSWORD",
+      "EIDON_GITHUB_APP_CLIENT_SECRET",
+      "EIDON_GITHUB_APP_CLIENT_ID",
+      "EIDON_GITHUB_APP_CALLBACK_URL",
+      "EIDON_DATA_DIR",
+      "AWS_SECRET_ACCESS_KEY"
+    ]) {
+      expect(childEnv).not.toHaveProperty(name);
+    }
+
+    child.emit("close", 0);
+    await resultPromise;
+  });
+
+  it("builds child environments from the allowlist only", async () => {
+    const { SHELL_ENV_ALLOWLIST, buildShellEnv } = await import("@/lib/local-shell");
+    const shellEnv = buildShellEnv({ HOME: "/somewhere/else" });
+
+    expect(shellEnv.HOME).toBe(process.env.HOME);
+    for (const name of ["EIDON_SESSION_SECRET", "EIDON_ENCRYPTION_SECRET", "EIDON_ADMIN_PASSWORD", "EIDON_GITHUB_APP_CLIENT_SECRET"]) {
+      expect(shellEnv).not.toHaveProperty(name);
+    }
+    for (const name of Object.keys(shellEnv)) {
+      expect(SHELL_ENV_ALLOWLIST as readonly string[]).toContain(name);
+    }
   });
 });

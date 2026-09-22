@@ -50,12 +50,14 @@ if (typeof window !== "undefined") {
 beforeEach(async () => {
   const { resetDbForTests } = await import("@/lib/db");
   resetDbForTests();
-  fs.rmSync(dataDir, {
-    recursive: true,
-    force: true,
-    maxRetries: 5,
-    retryDelay: 50
-  });
+  for (const dir of [dataDir, `${dataDir}-workspaces`]) {
+    fs.rmSync(dir, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 50
+    });
+  }
 });
 
 afterEach(async () => {
