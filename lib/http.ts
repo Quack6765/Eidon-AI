@@ -5,8 +5,8 @@ export function ok(data: unknown, init?: ResponseInit) {
   return NextResponse.json(data, init);
 }
 
-export function badRequest(message: string, status = 400) {
-  return NextResponse.json({ error: message }, { status });
+export function badRequest(message: string, status = 400, detail?: string) {
+  return NextResponse.json(detail ? { error: message, detail } : { error: message }, { status });
 }
 
 export function forbidden(message = "Forbidden") {
