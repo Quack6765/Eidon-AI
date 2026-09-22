@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { spawn } from "node:child_process";
+import { buildShellEnv, toPosixSegment } from "@/lib/local-shell";
 import { env } from "@/lib/env";
 import type { Bot } from "@/lib/types";
 
@@ -12,17 +13,13 @@ export type BotSandbox = {
   env: Record<string, string>;
 };
 
-function toPosixSegment(value: string) {
-  return value.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "") || "bot";
-}
-
 export function getBotWorkspaceDir(bot: Pick<Bot, "id" | "userId">) {
-  const ownerSegment = bot.userId ? toPosixSegment(bot.userId) : "shared";
-  return join(env.EIDON_DATA_DIR, "bot-workspaces", ownerSegment, toPosixSegment(bot.id));
+  const ownerSegment = bot.userId ? toPosixSegment(bot.userId, "bot") : "shared";
+  return join(env.EIDON_DATA_DIR, "bot-workspaces", ownerSegment, toPosixSegment(bot.id, "bot"));
 }
 
 export function getBotBrowserSocketDir(bot: Pick<Bot, "id">) {
-  return join(env.EIDON_DATA_DIR, "runtime", "agent-browser", "bots", toPosixSegment(bot.id));
+  return join(env.EIDON_DATA_DIR, "runtime", "agent-browser", "bots", toPosixSegment(bot.id, "bot"));
 }
 
 export function ensureBotWorkspace(bot: Pick<Bot, "id" | "userId">) {
@@ -153,12 +150,11 @@ function runAgentBrowserCloseAll(socketDir: string) {
   return new Promise<void>((resolve) => {
     try {
       const child = spawn("agent-browser", ["close", "--all"], {
-        env: {
-          ...process.env,
+        env: buildShellEnv({
           AGENT_BROWSER_SOCKET_DIR: socketDir,
           AGENT_BROWSER_SESSION: "bot",
           AGENT_BROWSER_SESSION_NAME: "bot"
-        },
+        }),
         stdio: "ignore",
         detached: process.platform !== "win32"
       });

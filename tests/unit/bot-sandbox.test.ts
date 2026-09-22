@@ -75,17 +75,19 @@ describe("bot-sandbox", () => {
     expect(notes.path).toBe("notes.txt");
   });
 
-  it("executeLocalShellCommand honors injected cwd and env", async () => {
+  it("executeLocalShellCommand honors injected cwd and allowlisted env extras", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "eidon-shell-test-"));
     tempDirs.push(cwd);
     const result = await executeLocalShellCommand({
-      command: "pwd && echo \"$BOT_MARKER\"",
+      command: "pwd && echo \"$AGENT_BROWSER_SESSION_NAME\" && echo \"[$LEAKED_SECRET]\"",
       cwd,
-      env: { ...process.env, BOT_MARKER: "isolated" }
+      env: { AGENT_BROWSER_SESSION_NAME: "isolated", LEAKED_SECRET: "leak-me", EIDON_ENCRYPTION_SECRET: "leak-me" }
     });
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain(cwd);
     expect(result.stdout).toContain("isolated");
+    expect(result.stdout).toContain("[]");
+    expect(result.stdout).not.toContain("leak-me");
   });
 });
