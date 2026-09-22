@@ -15,6 +15,28 @@ describe("env validation", () => {
     expect(env.EIDON_ENCRYPTION_SECRET).toBe("development-encryption-secret-please-change");
   });
 
+  it("enables password login unless the env explicitly disables it", () => {
+    const baseInput: NodeJS.ProcessEnv = {
+      NODE_ENV: "development",
+      EIDON_ADMIN_USERNAME: "admin",
+      EIDON_DATA_DIR: ".test-data"
+    };
+
+    expect(parseEnv(baseInput).EIDON_PASSWORD_LOGIN_ENABLED).toBe(true);
+    expect(
+      parseEnv({ ...baseInput, EIDON_PASSWORD_LOGIN_ENABLED: "false" })
+        .EIDON_PASSWORD_LOGIN_ENABLED
+    ).toBe(false);
+    expect(
+      parseEnv({ ...baseInput, EIDON_PASSWORD_LOGIN_ENABLED: "true" })
+        .EIDON_PASSWORD_LOGIN_ENABLED
+    ).toBe(true);
+    expect(
+      parseEnv({ ...baseInput, EIDON_PASSWORD_LOGIN_ENABLED: "1" })
+        .EIDON_PASSWORD_LOGIN_ENABLED
+    ).toBe(true);
+  });
+
   it("fails startup when the admin password is missing in production", () => {
     expect(() =>
       parseEnv({

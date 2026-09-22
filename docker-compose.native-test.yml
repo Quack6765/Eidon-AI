@@ -19,7 +19,6 @@ services:
       NODE_ENV: production
       PORT: "3000"
       EIDON_DATA_DIR: /app/data/native-test
-      EIDON_PASSWORD_LOGIN_ENABLED: "true"
       EIDON_NATIVE_TEST_SEED_ENABLED: "true"
       EIDON_ADMIN_USERNAME: native_super_admin
       EIDON_ADMIN_PASSWORD: NativeTestSuperAdmin123!

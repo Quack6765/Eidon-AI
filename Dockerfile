@@ -23,7 +23,6 @@ FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV EIDON_DATA_DIR=/app/data
-ENV EIDON_PASSWORD_LOGIN_ENABLED=true
 ENV HOME=/app/data/home
 ENV TMPDIR=/app/data/tmp
 ENV XDG_RUNTIME_DIR=/app/data/runtime
