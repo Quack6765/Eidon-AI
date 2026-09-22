@@ -29,9 +29,9 @@ const nodeEnvSchema = z.object({
     .transform((value) => value ?? getSystemTimeZone())
     .refine(isValidIanaTimeZone, "TZ must be a valid IANA timezone"),
   EIDON_PASSWORD_LOGIN_ENABLED: z
-    .enum(["true", "false"])
-    .default("false")
-    .transform((value) => value === "true"),
+    .string()
+    .default("true")
+    .transform((value) => value !== "false"),
   EIDON_ADMIN_USERNAME: z.string().min(1).default("admin"),
   EIDON_ADMIN_PASSWORD: z.string().min(8).optional(),
   EIDON_SESSION_SECRET: z.string().min(32).optional(),

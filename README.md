@@ -124,7 +124,6 @@ export EIDON_ENCRYPTION_SECRET="$(openssl rand -hex 32)"
 
 docker run -d --name eidon --restart unless-stopped \
   -p 3000:3000 -v eidon-data:/app/data \
-  -e EIDON_PASSWORD_LOGIN_ENABLED=true \
   -e EIDON_ADMIN_USERNAME=admin \
   -e EIDON_ADMIN_PASSWORD="$EIDON_ADMIN_PASSWORD" \
   -e EIDON_SESSION_SECRET="$EIDON_SESSION_SECRET" \
@@ -145,7 +144,6 @@ services:
     ports:
       - "3000:3000"
     environment:
-      EIDON_PASSWORD_LOGIN_ENABLED: "true"
       EIDON_ADMIN_USERNAME: "admin"
       EIDON_ADMIN_PASSWORD: "${EIDON_ADMIN_PASSWORD}"
       EIDON_SESSION_SECRET: "${EIDON_SESSION_SECRET}"

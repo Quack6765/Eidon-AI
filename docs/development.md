@@ -17,14 +17,13 @@ npm install
 Create a local `.env`:
 
 ```bash
-EIDON_PASSWORD_LOGIN_ENABLED=false
 EIDON_ADMIN_USERNAME=admin
 EIDON_ADMIN_PASSWORD=dev-password-change-me
 EIDON_SESSION_SECRET=dev-session-secret-change-me-with-32-plus-chars
 EIDON_ENCRYPTION_SECRET=dev-encryption-secret-change-me-with-32-plus-chars
 ```
 
-Outside production these three secrets fall back to development placeholders if unset, so the file is a convenience rather than a requirement. Production startup rejects both missing values and those placeholder values. See [Configuration](./configuration.md#environment-variables) for the full list, including `EIDON_DATA_DIR`, which defaults to `./.data` in development.
+Sign-in is enforced by default; set `EIDON_PASSWORD_LOGIN_ENABLED` to the string `false` to skip it in local development. Outside production these three secrets fall back to development placeholders if unset, so the file is a convenience rather than a requirement. Production startup rejects both missing values and those placeholder values. See [Configuration](./configuration.md#environment-variables) for the full list, including `EIDON_DATA_DIR`, which defaults to `./.data` in development.
 
 Then:
 
@@ -110,7 +109,6 @@ services:
     ports:
       - "3001:3000"
     environment:
-      EIDON_PASSWORD_LOGIN_ENABLED: "true"
       EIDON_ADMIN_USERNAME: "admin"
       EIDON_ADMIN_PASSWORD: "${EIDON_ADMIN_PASSWORD}"
       EIDON_SESSION_SECRET: "${EIDON_SESSION_SECRET}"

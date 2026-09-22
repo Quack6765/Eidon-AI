@@ -150,7 +150,7 @@ Streaming-safe rendering means partially-received Markdown does not flicker or b
 
 ## Multi-user
 
-Password login is optional. With `EIDON_PASSWORD_LOGIN_ENABLED=false` the app runs without a sign-in step, which suits a single-user deployment behind your own authentication. With it enabled:
+Password login is on by default: authentication is enforced and every caller needs a real account. Setting `EIDON_PASSWORD_LOGIN_ENABLED` to the string `false` opts out, and the app then runs without a sign-in step, which suits a single-user deployment behind your own authentication. With password login on:
 
 - The credentials in `EIDON_ADMIN_USERNAME` / `EIDON_ADMIN_PASSWORD` are an **environment super-admin** that always exists.
 - Additional **local accounts** are created in-app and stored in the database with Argon2id password hashes.
