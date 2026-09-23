@@ -4,6 +4,7 @@ import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 import { ProvidersSection } from "@/components/settings/sections/providers-section";
+import type { ProviderPresetId } from "@/lib/provider-catalog";
 import { toProviderProfileSummary } from "@/lib/provider-profile";
 import type { AppSettings, ProviderProfileSummary } from "@/lib/types";
 import { createRuntimeProviderProfile } from "@/tests/provider-fixtures";
@@ -38,7 +39,7 @@ type ProviderProfileFixture = {
   mergedMinNodeCount: number;
   mergedTargetTokens: number;
   visionMode: "none" | "native" | "mcp";
-  providerPresetId: "ollama_cloud" | "glm_coding_plan" | "openai_official" | "openrouter" | "opencode_go" | "deepseek" | "xiaomi_mimo" | "anthropic_official" | "opencode_go_anthropic" | null;
+  providerPresetId: ProviderPresetId | null;
   githubAccountLogin: string | null;
   githubAccountName: string | null;
   githubTokenExpiresAt: string | null;
@@ -357,6 +358,62 @@ describe("providers section", () => {
     expect(profileNameInput).toHaveValue("Default");
     expect(apiBaseUrlInput).toHaveValue("https://openrouter.ai/api/v1");
     expect(modelInput).toHaveValue("");
+  });
+
+  it("applies the Command Code preset from the providers settings dropdown", async () => {
+    const { container } = render(
+      React.createElement(ProvidersSection, { settings: makeSettings() })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    const presetSelect = screen.getByDisplayValue("Manual configuration");
+    const apiBaseUrlInput = screen.getByDisplayValue("https://api.example.com/v1");
+    const modelInput = container.querySelector<HTMLInputElement>('input[name="provider-model"]');
+
+    expect(screen.getByRole("option", { name: "Command Code" })).toBeInTheDocument();
+    expect(modelInput).toHaveValue("gpt-test");
+
+    fireEvent.change(presetSelect, {
+      target: { value: "command_code" }
+    });
+
+    expect(apiBaseUrlInput).toHaveValue("https://api.commandcode.ai/provider/v1");
+    expect(modelInput).toHaveValue("deepseek/deepseek-v4-flash");
+    expect(
+      container.querySelector('input[name="provider-model-context-limit"]')
+    ).toHaveValue(1000000);
+  });
+
+  it("opens the Configuration group by default and re-expands it when entering a provider", async () => {
+    const settings = makeSettings();
+    const alpha = settings.providerProfiles[0];
+    const { container } = render(
+      React.createElement(ProvidersSection, {
+        settings: makeSettings({
+          providerProfiles: [alpha, { ...alpha, id: "profile_beta", name: "Beta" }]
+        })
+      })
+    );
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith("/api/mcp-servers");
+    });
+
+    const configurationGroup = () =>
+      Array.from(container.querySelectorAll("details")).find((node) =>
+        node.querySelector("summary")?.textContent?.startsWith("Configuration")
+      ) as HTMLDetailsElement | undefined;
+
+    expect(configurationGroup()?.open).toBe(true);
+
+    fireEvent.click(screen.getByText("Configuration"));
+    expect(configurationGroup()?.open).toBe(false);
+
+    fireEvent.click(screen.getByText("Beta"));
+    expect(configurationGroup()?.open).toBe(true);
   });
 
   it("applies request capabilities from the official provider preset", async () => {

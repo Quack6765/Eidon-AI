@@ -291,7 +291,7 @@ Bot avatars are DiceBear Bottts robots, generated once per bot from its immutabl
 Accordions disclose secondary or long technical groups without turning the editor into stacked cards. Short editors remain open.
 
 - **Structure:** Full-width sections separated by top hairlines, with title and optional description in a minimum 58px summary row.
-- **State:** Open the first essential setup groups when that shortens the path to completion; collapse advanced or secondary groups by default.
+- **State:** Open the first essential setup groups when that shortens the path to completion; collapse advanced or secondary groups by default. The provider editor is the deliberate exception: its Configuration group opens too, so the tunable settings stay visible, and every group returns to these defaults when a provider is entered.
 - **Motion:** Limit animation to a restrained 200ms chevron rotation and existing state-color transitions.
 - **Containment:** Accordion content stays on the editor plane. Do not wrap it in another card.
 

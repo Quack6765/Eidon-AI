@@ -865,8 +865,10 @@ export function ProvidersSection({ settings }: { settings: SettingsPayload }) {
                 </SettingsAccordion>
 
                 <SettingsAccordion
+                  key={activeProviderProfile.id}
                   title="Configuration"
                   description="Reasoning, context, compaction, and vision"
+                  defaultOpen
                 >
                   <div className="flex items-center justify-end">
                     <Button
