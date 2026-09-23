@@ -587,7 +587,7 @@ describe("MCP client", () => {
     expect(clientInstances).toHaveLength(2);
   });
 
-  it("captures stderr output during stdio connection tests", async () => {
+  it("pipes stdio connection test stderr to the server log", async () => {
     nextListToolsResult = {
       tools: [
         {
@@ -603,16 +603,33 @@ describe("MCP client", () => {
     await testMcpServerConnection(createStdioServer());
 
     expect(stdioTransportInstances[0].stderr?.on).toHaveBeenCalledWith("data", expect.any(Function));
+    expect(stdioTransportInstances[0].stderr?.on).toHaveBeenCalledWith("close", expect.any(Function));
   });
 
-  it("bounds stdio test stderr before accumulating large chunks", async () => {
-    nextStderrChunks = [Buffer.from("x".repeat(80_000)), Buffer.from("y".repeat(80_000))];
+  it("logs bounded stdio test stderr server-side instead of returning it", async () => {
+    nextStderrChunks = [Buffer.from("x".repeat(80_000)), Buffer.from("SECRET_TAIL_MARKER")];
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
-    const { MAX_MCP_RESULT_CHARS, testMcpServerConnection } = await import("@/lib/mcp-client");
-    const result = await testMcpServerConnection(createStdioServer());
+    try {
+      const { testMcpServerConnection } = await import("@/lib/mcp-client");
+      const result = await testMcpServerConnection(createStdioServer());
 
-    expect(result.stderr?.length).toBeLessThanOrEqual(MAX_MCP_RESULT_CHARS);
-    expect(result.stderr).toContain("...[truncated]");
+      expect(result).not.toHaveProperty("stderr");
+
+      const closeHandler = stdioTransportInstances[0].stderr?.on.mock.calls.find(
+        ([event]) => event === "close"
+      )?.[1] as (() => void) | undefined;
+      closeHandler?.();
+
+      expect(consoleError).toHaveBeenCalledTimes(1);
+      const logged = String(consoleError.mock.calls[0]?.[0] ?? "");
+      expect(logged).toContain("[mcp-stderr stdio Server]");
+      expect(logged).toContain("SECRET_TAIL_MARKER");
+      expect(logged.length).toBeLessThan(8_500);
+      expect(logged).not.toContain("x".repeat(80_000));
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("drains chatty stdio server stderr so persistent tool calls complete", async () => {

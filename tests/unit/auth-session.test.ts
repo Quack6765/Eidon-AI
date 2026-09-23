@@ -199,6 +199,28 @@ describe("session lifecycle", () => {
     }
   });
 
+  it("requires a real session when password login is not explicitly disabled", async () => {
+    const previous = process.env.EIDON_PASSWORD_LOGIN_ENABLED;
+    delete process.env.EIDON_PASSWORD_LOGIN_ENABLED;
+    vi.resetModules();
+
+    try {
+      const auth = await import("@/lib/auth");
+      const currentUser = await auth.getCurrentUser();
+
+      expect(currentUser).toBeNull();
+      await expect(auth.requireUser(false)).resolves.toBeNull();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.EIDON_PASSWORD_LOGIN_ENABLED;
+      } else {
+        process.env.EIDON_PASSWORD_LOGIN_ENABLED = previous;
+      }
+
+      vi.resetModules();
+    }
+  });
+
   it("rejects account credential updates for env-managed users", async () => {
     const auth = await import("@/lib/auth");
     await auth.ensureAdminBootstrap();

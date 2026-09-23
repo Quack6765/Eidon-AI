@@ -11,7 +11,7 @@ Eidon parses and validates its environment at startup (`lib/env.ts`). Anything n
 | `NODE_ENV` | `development`, `test`, or `production`. Production mode enforces the secret checks below. | `development` | Set to `production` (the Docker image already does) |
 | `PORT` | Port the server listens on. | `3000` in production; a random free port in 3000–4000 in development | No |
 | `TZ` | IANA timezone used for calendar automation schedules and date formatting. Must be a zone name such as `Europe/Paris`; fixed offsets like `+02:00` are rejected. | The host's system timezone, falling back to `UTC` | No |
-| `EIDON_PASSWORD_LOGIN_ENABLED` | `true` or `false`. Enables password login and the multi-user account system. | `false` (the Docker image sets `true`) | No, but `true` is the normal production mode |
+| `EIDON_PASSWORD_LOGIN_ENABLED` | Enables password login and the multi-user account system. Only the exact string `false` disables it; unset or any other value leaves authentication on. | `true` | No — authentication is enforced by default |
 | `EIDON_ADMIN_USERNAME` | Username of the environment super-admin. | `admin` | No |
 | `EIDON_ADMIN_PASSWORD` | Password of the environment super-admin. Minimum 8 characters. | Development-only placeholder | Yes |
 | `EIDON_SESSION_SECRET` | HMAC key for signing session JWTs. Minimum 32 characters. | Development-only placeholder | Yes |

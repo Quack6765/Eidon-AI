@@ -1315,7 +1315,8 @@ Run browser commands.`
     ]);
     expect(localShellMocks.executeLocalShellCommand).toHaveBeenCalledWith({
       command: "curl -I https://example.com",
-      timeoutMs: undefined
+      timeoutMs: undefined,
+      cwd: expect.stringContaining("test-data-workspaces")
     });
     expect(result.answer).toBe("Probed the endpoint.");
   });

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ToastVariant } from "@/components/ui/toast";
 
 type ToastState = {
@@ -14,6 +14,12 @@ export function useToastState() {
     variant: "success",
   });
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    };
+  }, []);
 
   const showToast = useCallback((variant: ToastVariant, message: string) => {
     if (timerRef.current) clearTimeout(timerRef.current);
