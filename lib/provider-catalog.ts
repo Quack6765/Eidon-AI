@@ -280,6 +280,42 @@ export const PROVIDER_PRESETS = [
       reasoningSummaryEnabled: false,
       modelContextLimit: 200000
     }
+  },
+  {
+    id: "command_code",
+    label: "Command Code",
+    providerKind: "openai_compatible",
+    requestRules: [
+      {
+        modelPrefix: "gpt-5",
+        apiMode: "responses"
+      }
+    ],
+    values: {
+      name: "Command Code",
+      apiBaseUrl: "https://api.commandcode.ai/provider/v1",
+      model: "deepseek/deepseek-v4-flash",
+      apiMode: "chat_completions",
+      reasoningEffort: "medium",
+      reasoningSummaryEnabled: true,
+      modelContextLimit: 1000000,
+      temperature: 1.3,
+      maxOutputTokens: 8192
+    }
+  },
+  {
+    id: "command_code_anthropic",
+    label: "Command Code",
+    providerKind: "anthropic",
+    values: {
+      name: "Command Code",
+      apiBaseUrl: "https://api.commandcode.ai/provider",
+      model: "claude-sonnet-5",
+      apiMode: "chat_completions",
+      reasoningEffort: "medium",
+      reasoningSummaryEnabled: true,
+      modelContextLimit: 1000000
+    }
   }
 ] as const satisfies ReadonlyArray<{
   id: string;

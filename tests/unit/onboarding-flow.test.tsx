@@ -282,7 +282,7 @@ describe("onboarding flow", () => {
 
     // The named vendors and the sign-in option stay in their own group.
     const presets = screen.getByRole("radiogroup", { name: "Model provider" });
-    expect(within(presets).getAllByRole("radio")).toHaveLength(10);
+    expect(within(presets).getAllByRole("radio")).toHaveLength(12);
   });
 
   it("shows each preset's brand logo on its tile", async () => {
@@ -301,6 +301,8 @@ describe("onboarding flow", () => {
       "/logos/openai.svg",
       "/logos/anthropic.svg",
       "/logos/opencode.svg",
+      "/logos/commandcode.svg",
+      "/logos/commandcode.svg",
       "/logos/githubcopilot.svg"
     ]);
     expect(logos.every((logo) => logo.getAttribute("alt") === "")).toBe(true);
