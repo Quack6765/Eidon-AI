@@ -52,7 +52,6 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
     overridesBuiltInTool:
       definition.function.name === "load_skill" ||
       definition.function.name === "execute_shell_command",
-    skipPermission: true,
     handler: async (argumentsValue: unknown) => {
       throwIfChatTurnAborted(context.abortSignal);
       const toolCallId = `copilot_tool_${crypto.randomUUID()}`;
@@ -77,7 +76,8 @@ export function buildCopilotTools(context: RuntimeToolContext): Tool[] {
             appSettings: context.appSettings,
             conversationId: context.conversationId,
             assistantMessageId: context.assistantMessageId,
-            abortSignal: context.abortSignal
+            abortSignal: context.abortSignal,
+            toolApproval: context.toolApproval
           },
           mcpServers,
           loadedSkillIds: context.loadedSkillIds,

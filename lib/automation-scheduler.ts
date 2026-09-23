@@ -248,6 +248,7 @@ async function executeAutomationRun(
     let timeout: ReturnType<typeof setTimeout> | null = null;
     const runTimeoutMs = resolveAutomationRunTimeoutMs(automation, dependencies.runTimeoutMs);
     const turnOptions = {
+      unattended: true,
       ...(bot ? { botRun: { record: false as const } } : {}),
       ...(automation.research
         ? { research: { deadlineMs: Math.max(1_000, runTimeoutMs - RESEARCH_DEADLINE_MARGIN_MS) } }

@@ -291,7 +291,7 @@ describe("Mobile API v1 contracts", () => {
       }
     });
     expect(compileOpenApiJsonRequestBodies()).toBe(41);
-    expect(compileOpenApiJsonResponses()).toBe(109);
+    expect(compileOpenApiJsonResponses()).toBe(112);
   });
 
   it("publishes a concrete WebSocket schema for recovery, queues, and lifecycle events", () => {

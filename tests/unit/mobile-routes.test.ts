@@ -11,6 +11,7 @@ import { createAutomationRun } from "@/lib/automations";
 import { createMobileSession, verifyMobileSessionToken } from "@/lib/auth";
 import { createConversation, createMessage } from "@/lib/conversations";
 import { updateProviderCatalog } from "@/lib/settings";
+import { createToolApprovalRules } from "@/lib/tool-approvals";
 import { createLocalUser } from "@/lib/users";
 import { assertOpenApiResponse } from "@/tests/fixtures/mobile-contract-validator";
 import { createProviderCatalogInput, createProviderProfileInput } from "@/tests/provider-fixtures";
@@ -377,6 +378,44 @@ describe("Mobile API v1 REST adapter", () => {
     expect(serialized).toContain('"status":"connected"');
     expect(serialized).not.toContain("sk-mobile-route-secret");
     expect(serialized).not.toContain("apiKeyEncrypted");
+  });
+
+  it("lists and revokes standing tool approval rules with contract-checked responses", async () => {
+    const user = await createLocalUser({
+      username: "tool-approvals-member",
+      password: "ToolApprovalsPassword123!",
+      role: "user"
+    });
+    const session = await createMobileSession(user.id, "Approvals phone");
+    createToolApprovalRules(user.id, "shell", ["curl"]);
+
+    const list = await mobileGet(
+      request(["tool-approvals"], session.token),
+      context(["tool-approvals"])
+    );
+    expect(list.status).toBe(200);
+    await assertResponseContract("/tool-approvals", "get", list);
+    const listBody = (await list.json()) as {
+      data: { rules: Array<{ id: string; scope: string; family: string }> };
+    };
+    expect(listBody.data.rules).toEqual([
+      expect.objectContaining({ scope: "shell", family: "curl" })
+    ]);
+
+    const ruleId = listBody.data.rules[0].id;
+    const revoked = await mobileDelete(
+      request(["tool-approvals", ruleId], session.token, { method: "DELETE" }),
+      context(["tool-approvals", ruleId])
+    );
+    expect(revoked.status).toBe(200);
+    await assertResponseContract("/tool-approvals/{ruleId}", "delete", revoked);
+
+    const missing = await mobileDelete(
+      request(["tool-approvals", ruleId], session.token, { method: "DELETE" }),
+      context(["tool-approvals", ruleId])
+    );
+    expect(missing.status).toBe(404);
+    await assertResponseContract("/tool-approvals/{ruleId}", "delete", missing);
   });
 
   it("exposes per-profile reasoning control and rejects unsupported reasoning efforts", async () => {

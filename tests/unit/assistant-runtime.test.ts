@@ -149,8 +149,11 @@ function createSkill(overrides: Partial<Skill> = {}): Skill {
 }
 
 describe("assistant runtime", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
+    const { createToolApprovalRules } = await import("@/lib/tool-approvals");
+    createToolApprovalRules(null, "shell", ["echo", "curl", "agent-browser"]);
+    createToolApprovalRules(null, "mcp", ["docs:search_docs", "exa:search", "exa_docs:search"]);
     streamProviderResponse.mockReset();
     callProviderText.mockReset();
     callMcpTool.mockReset();

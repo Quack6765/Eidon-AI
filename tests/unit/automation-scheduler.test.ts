@@ -528,7 +528,7 @@ describe("automation scheduler", () => {
       "Run the shared pipeline",
       [],
       undefined,
-      undefined
+      { unattended: true }
     );
     expect(conversation).toMatchObject({
       automationId: automation.id,
@@ -589,7 +589,7 @@ describe("automation scheduler", () => {
       "Research heat pump subsidies",
       [],
       undefined,
-      { research: { deadlineMs: 5 * 60_000 - 30_000 } }
+      { research: { deadlineMs: 5 * 60_000 - 30_000 }, unattended: true }
     );
   });
 

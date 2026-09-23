@@ -14,6 +14,7 @@ export type RuntimeToolContext = {
   appSettings?: RuntimeAppSettings;
   conversationId?: string;
   assistantMessageId?: string;
+  toolApproval?: { userId: string | null; unattended: boolean };
   promptMessages?: PromptMessage[];
   mcpToolSets: ToolSet[];
   skills: Skill[];

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { CopilotClient } from "@github/copilot-sdk";
-import type { Tool } from "@github/copilot-sdk";
+import type { PermissionRequest, PermissionRequestResult, Tool } from "@github/copilot-sdk";
 
 import { env } from "@/lib/env";
 import { getProviderConnectionSummary } from "@/lib/provider-profile";
@@ -23,6 +23,24 @@ const COPILOT_EXCLUDED_TOOLS: string[] = [
   "write_task_specification",
   "agent_github_mcp"
 ];
+
+export function buildCopilotPermissionRouter(customToolNames: Iterable<string>) {
+  const knownToolNames = new Set(customToolNames);
+  return (request: PermissionRequest): PermissionRequestResult => {
+    if (request.kind === "read") {
+      return { kind: "approved" };
+    }
+
+    if (request.kind === "custom-tool") {
+      const toolName = typeof request.toolName === "string" ? request.toolName : "";
+      if (!toolName || knownToolNames.has(toolName)) {
+        return { kind: "approved" };
+      }
+    }
+
+    return { kind: "denied-by-permission-request-hook" };
+  };
+}
 
 function ensureCopilotWorkDir(): string {
   mkdirSync(COPILOT_WORK_DIR, { recursive: true });
@@ -363,7 +381,7 @@ export async function runGithubCopilotChat(
   try {
     session = await withAbort(client.createSession({
       model: input.model,
-      onPermissionRequest: () => ({ kind: "approved" as const })
+      onPermissionRequest: buildCopilotPermissionRouter([])
     }), input.abortSignal);
 
     return await withAbort(session.send({
@@ -406,7 +424,7 @@ export async function streamGithubCopilotChat(
       streaming: true as const,
       workingDirectory: ensureCopilotWorkDir(),
       excludedTools: COPILOT_EXCLUDED_TOOLS,
-      onPermissionRequest: () => ({ kind: "approved" as const }),
+      onPermissionRequest: buildCopilotPermissionRouter((input.tools ?? []).map((tool) => tool.name)),
       onEvent: (rawEvent: unknown) => {
         const event = rawEvent as { type: string; data?: Record<string, unknown> };
 

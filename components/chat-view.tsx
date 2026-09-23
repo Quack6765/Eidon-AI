@@ -1755,6 +1755,74 @@ export function ChatView({
     }
   }
 
+  function applyToolApprovalAction(action: MessageAction) {
+    setMessages((current) => replaceMessageAction(current, action));
+    updateStreamTimeline((previous) => updateStreamingAction(previous, action));
+  }
+
+  async function approveToolApproval(
+    actionId: string,
+    options?: { allowAlways?: boolean }
+  ) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/message-actions/${actionId}/approve`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ allowAlways: options?.allowAlways ?? false })
+      });
+
+      const result = (await response.json()) as {
+        action?: MessageAction;
+        error?: string;
+      };
+
+      if (!response.ok || !result.action) {
+        throw new Error(result.error ?? "Unable to approve tool request");
+      }
+
+      applyToolApprovalAction(result.action!);
+    } catch (caughtError) {
+      const errorMessage =
+        caughtError instanceof Error ? caughtError.message : "Unable to approve tool request";
+      setError(errorMessage);
+      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    }
+  }
+
+  async function dismissToolApproval(actionId: string) {
+    setError("");
+
+    try {
+      const response = await fetch(`/api/message-actions/${actionId}/dismiss`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({})
+      });
+
+      const result = (await response.json()) as {
+        action?: MessageAction;
+        error?: string;
+      };
+
+      if (!response.ok || !result.action) {
+        throw new Error(result.error ?? "Unable to deny tool request");
+      }
+
+      applyToolApprovalAction(result.action!);
+    } catch (caughtError) {
+      const errorMessage =
+        caughtError instanceof Error ? caughtError.message : "Unable to deny tool request";
+      setError(errorMessage);
+      throw caughtError instanceof Error ? caughtError : new Error(errorMessage);
+    }
+  }
+
   async function approveAutomationProposal(
     actionId: string,
     overrides?: AutomationProposalOverrides
@@ -2118,6 +2186,8 @@ export function ChatView({
   const onUpdateUserMessageStable = useStableHandler(updateUserMessage);
   const onApproveMemoryProposalStable = useStableHandler(approveMemoryProposal);
   const onDismissMemoryProposalStable = useStableHandler(dismissMemoryProposal);
+  const onApproveToolApprovalStable = useStableHandler(approveToolApproval);
+  const onDismissToolApprovalStable = useStableHandler(dismissToolApproval);
   const onApproveAutomationProposalStable = useStableHandler(approveAutomationProposal);
   const onDismissAutomationProposalStable = useStableHandler(dismissAutomationProposal);
   const onForkAssistantMessageStable = useStableHandler(forkAssistantMessage);
@@ -2243,6 +2313,8 @@ export function ChatView({
                   onUpdateUserMessage={onUpdateUserMessageStable}
                   onApproveMemoryProposal={onApproveMemoryProposalStable}
                   onDismissMemoryProposal={onDismissMemoryProposalStable}
+                  onApproveToolApproval={onApproveToolApprovalStable}
+                  onDismissToolApproval={onDismissToolApprovalStable}
                   onApproveAutomationProposal={onApproveAutomationProposalStable}
                   onDismissAutomationProposal={onDismissAutomationProposalStable}
                   onForkAssistantMessage={onForkAssistantMessageStable}

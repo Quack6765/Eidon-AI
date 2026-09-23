@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/auth";
 import { badRequest, ok, parseRouteParams } from "@/lib/http";
 import { dismissMemoryProposal } from "@/lib/memory-proposals";
 import { dismissAutomationProposal } from "@/lib/automation-proposals";
+import { dismissToolApproval } from "@/lib/tool-approvals";
 import { getMessageActionKind } from "@/lib/conversations";
 
 const paramsSchema = z.object({
@@ -22,6 +23,11 @@ export async function POST(
   try {
     if (getMessageActionKind(params.actionId) === "create_automation") {
       const action = dismissAutomationProposal(params.actionId, user.id);
+      return ok({ action });
+    }
+
+    if (getMessageActionKind(params.actionId) === "tool_approval") {
+      const action = dismissToolApproval(params.actionId, user.id);
       return ok({ action });
     }
 

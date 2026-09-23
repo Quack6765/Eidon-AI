@@ -34,6 +34,10 @@ import {
   isAutomationProposalAction
 } from "@/components/automation-proposal-card";
 import {
+  isToolApprovalAction,
+  ToolApprovalCard
+} from "@/components/tool-approval-card";
+import {
   AttachmentTile,
   MessageAttachments,
   AssistantInlineImageAttachments
@@ -432,6 +436,8 @@ function MessageBubbleImpl({
   onDismissMemoryProposal,
   onApproveAutomationProposal,
   onDismissAutomationProposal,
+  onApproveToolApproval,
+  onDismissToolApproval,
   onPreviewAttachment,
   readOnly = false
 }: {
@@ -454,6 +460,11 @@ function MessageBubbleImpl({
   onDismissMemoryProposal?: (actionId: string) => Promise<void>;
   onApproveAutomationProposal?: (actionId: string, overrides?: AutomationProposalOverrides) => Promise<void>;
   onDismissAutomationProposal?: (actionId: string) => Promise<void>;
+  onApproveToolApproval?: (
+    actionId: string,
+    options?: { allowAlways?: boolean }
+  ) => Promise<void>;
+  onDismissToolApproval?: (actionId: string) => Promise<void>;
   isUpdating?: boolean;
   onForkAssistantMessage?: (messageId: string) => void;
   isForking?: boolean;
@@ -561,7 +572,7 @@ function MessageBubbleImpl({
       }
 
       if (item.timelineKind === "action") {
-        if (isMemoryProposalAction(item) || isAutomationProposalAction(item)) {
+        if (isMemoryProposalAction(item) || isAutomationProposalAction(item) || isToolApprovalAction(item)) {
           deferredProposalBlocks.push(item);
           return;
         }
@@ -815,6 +826,19 @@ function MessageBubbleImpl({
       );
     }
 
+    if (isToolApprovalAction(item)) {
+      return (
+        <div key={item.id} data-testid="assistant-actions-shell">
+          <ToolApprovalCard
+            action={item}
+            onApprove={onApproveToolApproval}
+            onDismiss={onDismissToolApproval}
+            readOnly={readOnly}
+          />
+        </div>
+      );
+    }
+
     if (isMessageBotActionKind(item.kind)) {
       return (
         <DelegateActionLine
@@ -956,7 +980,8 @@ function MessageBubbleImpl({
       item.timelineKind === "thinking" ||
       (item.timelineKind === "action" &&
         !isMemoryProposalAction(item) &&
-        !isAutomationProposalAction(item));
+        !isAutomationProposalAction(item) &&
+        !isToolApprovalAction(item));
 
     return isActivity ? index + 1 : insertionIndex;
   }, 0);

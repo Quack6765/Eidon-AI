@@ -439,7 +439,17 @@ describe("github copilot helpers", () => {
       onPermissionRequest: expect.any(Function)
     });
     const onPermissionRequest = client.createSession.mock.calls[0]?.[0]?.onPermissionRequest;
-    expect(onPermissionRequest()).toEqual({ kind: "approved" });
+    expect(onPermissionRequest({ kind: "read" })).toEqual({ kind: "approved" });
+    expect(onPermissionRequest({ kind: "custom-tool" })).toEqual({ kind: "approved" });
+    expect(onPermissionRequest({ kind: "shell" })).toEqual({
+      kind: "denied-by-permission-request-hook"
+    });
+    expect(onPermissionRequest({ kind: "mcp" })).toEqual({
+      kind: "denied-by-permission-request-hook"
+    });
+    expect(onPermissionRequest({ kind: "custom-tool", toolName: "unknown_tool" })).toEqual({
+      kind: "denied-by-permission-request-hook"
+    });
     expect(session.send).toHaveBeenCalledWith({
       prompt: "First line\nSecond line"
     });

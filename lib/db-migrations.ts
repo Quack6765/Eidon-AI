@@ -1186,6 +1186,16 @@ export function migrate(db: Database.Database) {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS tool_approval_rules (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      scope TEXT NOT NULL,
+      family TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_tool_approval_rules_owner
+      ON tool_approval_rules (user_id, scope, family);
     CREATE TABLE IF NOT EXISTS automations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
