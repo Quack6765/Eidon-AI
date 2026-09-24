@@ -366,9 +366,11 @@ function isRunningActionBlock(
 
 function clampStreamingTimeline(
   timeline: MessageTimelineItem[],
-  display: string
+  display: string,
+  revealedFloor: number
 ): MessageTimelineItem[] {
   const clamped: MessageTimelineItem[] = [];
+  const budget = Math.max(display.length, revealedFloor);
   let offset = 0;
 
   for (const item of timeline) {
@@ -378,7 +380,7 @@ function clampStreamingTimeline(
     }
 
     const visibleLength = Math.min(
-      Math.max(display.length - offset, 0),
+      Math.max(budget - offset, 0),
       item.content.length
     );
 
@@ -491,6 +493,11 @@ function MessageBubbleImpl({
   const previewController = useAttachmentPreviewController();
   const linkSafety = useLinkSafety(confirmExternalLinks);
   const useStatusLine = toolCallDisplay === "status_line";
+  const revealedAnswerCharsRef = useRef(0);
+  const streamingAnswerLength = streamingAnswer?.length ?? 0;
+  if (streamingAnswerLength > revealedAnswerCharsRef.current) {
+    revealedAnswerCharsRef.current = streamingAnswerLength;
+  }
   const sharedUserPlugins = useStreamdownPlugins(
     message.role === "user" ? streamingAnswer ?? message.content : ""
   );
@@ -527,7 +534,7 @@ function MessageBubbleImpl({
     const actions = message.actions ?? [];
     const liveTimeline =
       streamingTimeline !== undefined && streamingAnswer !== undefined
-        ? clampStreamingTimeline(streamingTimeline, streamingAnswer)
+        ? clampStreamingTimeline(streamingTimeline, streamingAnswer, revealedAnswerCharsRef.current)
         : streamingTimeline ?? message.timeline;
     const contentForComparison = normalizeRealLineBreaks(rawContent);
     const timeline = liveTimeline ?? actions.map((action) => ({
@@ -572,6 +579,10 @@ function MessageBubbleImpl({
       }
 
       if (item.timelineKind === "action") {
+        if (isToolApprovalAction(item) && (item.status !== "pending" || item.proposalState !== "pending")) {
+          return;
+        }
+
         if (isMemoryProposalAction(item) || isAutomationProposalAction(item) || isToolApprovalAction(item)) {
           deferredProposalBlocks.push(item);
           return;

@@ -4,6 +4,7 @@ import { getDb } from "@/lib/db";
 import { createId } from "@/lib/ids";
 import { tokenizeShellCommand } from "@/lib/shell-tokenizer";
 import type { RuntimeAction } from "@/lib/tool-executors";
+import { getUserAllowAllTools } from "@/lib/user-preferences";
 import type {
   MessageAction,
   ToolApprovalProposalPayload,
@@ -58,6 +59,7 @@ const SHELL_KEYWORDS = new Set([
 
 export type ShellCommandClassification = {
   families: string[];
+  segmentWords: string[][];
   classified: boolean;
 };
 
@@ -159,44 +161,39 @@ function skipFlagWords(words: string[], startIndex: number, wrapper: string) {
   return index;
 }
 
-function extractCommandFamily(segment: string): string | null {
-  const words = tokenizeShellCommand(segment);
+function extractCommandWords(segmentWords: string[]): string[] | null {
   let index = 0;
 
-  while (index < words.length) {
-    while (index < words.length && ASSIGNMENT_PATTERN.test(words[index])) {
+  while (index < segmentWords.length) {
+    while (index < segmentWords.length && ASSIGNMENT_PATTERN.test(segmentWords[index])) {
       index += 1;
     }
 
-    const word = words[index];
+    const word = segmentWords[index];
     if (!word) {
       return null;
     }
 
     const normalized = word.toLowerCase();
 
-    if (WRAPPER_WORDS.has(normalized)) {
-      index = skipFlagWords(words, index + 1, normalized);
-      continue;
-    }
-
-    if (RUNNER_WORDS.has(normalized)) {
-      index = skipFlagWords(words, index + 1, normalized);
+    if (WRAPPER_WORDS.has(normalized) || RUNNER_WORDS.has(normalized)) {
+      index = skipFlagWords(segmentWords, index + 1, normalized);
       continue;
     }
 
     if (
       PACKAGE_RUNNERS.has(normalized) &&
-      RUNNER_SUBCOMMANDS.has((words[index + 1] ?? "").toLowerCase())
+      RUNNER_SUBCOMMANDS.has((segmentWords[index + 1] ?? "").toLowerCase())
     ) {
-      index = skipFlagWords(words, index + 2, normalized);
+      index = skipFlagWords(segmentWords, index + 2, normalized);
       continue;
     }
 
     break;
   }
 
-  const binary = words[index];
+  const rest = segmentWords.slice(index);
+  const binary = rest[0];
   if (!binary) {
     return null;
   }
@@ -206,28 +203,54 @@ function extractCommandFamily(segment: string): string | null {
     return null;
   }
 
-  return basename;
+  return [basename, ...rest.slice(1)];
 }
 
 export function classifyShellCommand(command: string): ShellCommandClassification {
   const { segments, classified: scanClassified } = scanShellSegments(command);
 
   if (!scanClassified || !segments.length) {
-    return { families: [], classified: false };
+    return { families: [], segmentWords: [], classified: false };
+  }
+
+  const segmentWords: string[][] = [];
+  for (const segment of segments) {
+    const words = extractCommandWords(tokenizeShellCommand(segment));
+    if (!words) {
+      return { families: [], segmentWords: [], classified: false };
+    }
+    segmentWords.push(words);
   }
 
   const families: string[] = [];
-  for (const segment of segments) {
-    const family = extractCommandFamily(segment);
-    if (!family) {
-      return { families: [], classified: false };
-    }
-    if (!families.includes(family)) {
-      families.push(family);
+  for (const words of segmentWords) {
+    if (!families.includes(words[0])) {
+      families.push(words[0]);
     }
   }
 
-  return { families, classified: true };
+  return {
+    families,
+    segmentWords,
+    classified: true
+  };
+}
+
+const RULE_WORD_PATTERN = /^[A-Za-z0-9._/:@+-]+$/;
+const MAX_RULE_WORDS = 8;
+
+export function normalizeCommandRule(text: string): string[] | null {
+  const tokens = text.trim().split(/\s+/).filter(Boolean);
+
+  if (!tokens.length || tokens.length > MAX_RULE_WORDS) {
+    return null;
+  }
+
+  if (!tokens.every((token) => RULE_WORD_PATTERN.test(token))) {
+    return null;
+  }
+
+  return extractCommandWords(tokens);
 }
 
 export function mcpToolApprovalFamily(serverSlug: string, toolName: string) {
@@ -268,6 +291,59 @@ export function listToolApprovalRules(userId?: string | null): ToolApprovalRule[
   ) as ToolApprovalRuleRow[];
 
   return rows.map(rowToToolApprovalRule);
+}
+
+function ruleMatchesWords(ruleFamily: string, segmentWords: string[]) {
+  const ruleWords = ruleFamily.split(" ").filter(Boolean);
+
+  if (!ruleWords.length || ruleWords.length > segmentWords.length) {
+    return false;
+  }
+
+  return ruleWords.every((word, index) => word === segmentWords[index]);
+}
+
+export function isShellInvocationAllowed(
+  userId: string | null | undefined,
+  command: string
+) {
+  const classification = classifyShellCommand(command);
+
+  if (!classification.classified || !classification.segmentWords.length) {
+    return false;
+  }
+
+  const rules = listToolApprovalRules(userId).filter((rule) => rule.scope === "shell");
+
+  return classification.segmentWords.every((words) =>
+    rules.some((rule) => ruleMatchesWords(rule.family, words))
+  );
+}
+
+export function createCommandApprovalRule(
+  userId: string | null | undefined,
+  text: string
+): ToolApprovalRule {
+  const words = normalizeCommandRule(text);
+
+  if (!words) {
+    throw new Error(
+      "Enter a command prefix like \"git\" or \"git checkout\" using plain words only"
+    );
+  }
+
+  const family = words.join(" ");
+  createToolApprovalRules(userId, "shell", [family]);
+
+  const rule = listToolApprovalRules(userId).find(
+    (candidate) => candidate.scope === "shell" && candidate.family === family
+  );
+
+  if (!rule) {
+    throw new Error("Unable to save the tool approval rule");
+  }
+
+  return rule;
 }
 
 function isToolFamilyApproved(
@@ -398,9 +474,32 @@ type PendingToolApprovalEntry = {
   settle: (approved: boolean) => void;
 };
 
-const pendingToolApprovals = new Map<string, PendingToolApprovalEntry>();
+const PENDING_TOOL_APPROVALS_KEY = Symbol.for("eidon:pending-tool-approvals");
+
+function getPendingToolApprovals() {
+  const registry = globalThis as Record<
+    symbol,
+    Map<string, PendingToolApprovalEntry> | undefined
+  >;
+  registry[PENDING_TOOL_APPROVALS_KEY] ??= new Map<string, PendingToolApprovalEntry>();
+  return registry[PENDING_TOOL_APPROVALS_KEY];
+}
+
+function readProposalState(actionId: string) {
+  const row = getDb()
+    .prepare("SELECT proposal_state, proposal_payload_json FROM message_actions WHERE id = ?")
+    .get(actionId) as
+    | { proposal_state: string | null; proposal_payload_json: string | null }
+    | undefined;
+
+  return {
+    state: row?.proposal_state ?? null,
+    resolution: parseToolApprovalPayload(row?.proposal_payload_json ?? null)?.resolution
+  };
+}
 
 function settlePendingToolApproval(actionId: string, approved: boolean) {
+  const pendingToolApprovals = getPendingToolApprovals();
   const entry = pendingToolApprovals.get(actionId);
   if (!entry) {
     return false;
@@ -522,10 +621,16 @@ export async function requestToolExecutionApproval(params: {
 }): Promise<ToolApprovalGateOutcome> {
   const { payload, userId } = params;
 
+  if (getUserAllowAllTools(userId)) {
+    return { approved: true };
+  }
+
   if (
     payload.classified &&
     payload.families.length &&
-    payload.families.every((family) => isToolFamilyApproved(userId, payload.scope, family))
+    (payload.scope === "mcp"
+      ? payload.families.every((family) => isToolFamilyApproved(userId, "mcp", family))
+      : Boolean(payload.command) && isShellInvocationAllowed(userId, payload.command ?? ""))
   ) {
     return { approved: true };
   }
@@ -565,25 +670,54 @@ export async function requestToolExecutionApproval(params: {
       settled = true;
       clearTimeout(timer);
       params.abortSignal?.removeEventListener("abort", handleAbort);
+      getPendingToolApprovals().delete(actionId);
       resolve(outcome);
     };
 
+    const adoptRecordedDecision = () => {
+      const { state, resolution } = readProposalState(actionId);
+      if (state === "approved") {
+        finish({ approved: true });
+        return true;
+      }
+      if (state === "dismissed") {
+        finish({
+          approved: false,
+          message:
+            resolution === "expired"
+              ? EXPIRED_MESSAGE
+              : resolution === "stopped"
+                ? STOPPED_MESSAGE
+                : USER_DENIED_MESSAGE,
+          promptActionId: actionId
+        });
+        return true;
+      }
+      return false;
+    };
+
     const timer = setTimeout(() => {
-      pendingToolApprovals.delete(actionId);
+      getPendingToolApprovals().delete(actionId);
+      if (adoptRecordedDecision()) {
+        return;
+      }
       resolvePendingToolApprovalAction(actionId, payload, "expired", "Approval request expired", false);
       finish({ approved: false, message: EXPIRED_MESSAGE, promptActionId: actionId });
     }, params.timeoutMs ?? TOOL_APPROVAL_TIMEOUT_MS);
     timer.unref?.();
 
     function handleAbort() {
-      pendingToolApprovals.delete(actionId);
+      getPendingToolApprovals().delete(actionId);
+      if (adoptRecordedDecision()) {
+        return;
+      }
       resolvePendingToolApprovalAction(actionId, payload, "stopped", "Approval request stopped", false);
       finish({ approved: false, message: STOPPED_MESSAGE, promptActionId: actionId });
     }
 
     params.abortSignal?.addEventListener("abort", handleAbort, { once: true });
 
-    pendingToolApprovals.set(actionId, {
+    getPendingToolApprovals().set(actionId, {
       settle: (approved) => {
         finish(
           approved
@@ -593,13 +727,6 @@ export async function requestToolExecutionApproval(params: {
       }
     });
 
-    const recordedRow = getDb()
-      .prepare("SELECT proposal_state FROM message_actions WHERE id = ?")
-      .get(actionId) as { proposal_state: string | null } | undefined;
-    if (recordedRow?.proposal_state === "approved") {
-      settlePendingToolApproval(actionId, true);
-    } else if (recordedRow?.proposal_state === "dismissed") {
-      settlePendingToolApproval(actionId, false);
-    }
+    adoptRecordedDecision();
   });
 }

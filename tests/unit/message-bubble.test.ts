@@ -132,6 +132,46 @@ function createMemoryProposalMessage(
   };
 }
 
+function createToolApprovalMessage(
+  overrides: Partial<Message> = {},
+  actionOverrides: Partial<Extract<MessageTimelineItem, { timelineKind: "action" }>> = {}
+): Message {
+  return {
+    ...createAssistantMessage(),
+    content: "I want to run a command.",
+    timeline: [
+      {
+        id: "act_tool_approval",
+        messageId: "msg_assistant",
+        timelineKind: "action" as const,
+        kind: "tool_approval" as const,
+        status: "pending" as const,
+        serverId: null,
+        skillId: null,
+        toolName: null,
+        label: 'Allow "curl" commands?',
+        detail: "curl https://example.com",
+        arguments: null,
+        resultSummary: "",
+        sortOrder: 0,
+        startedAt: new Date().toISOString(),
+        completedAt: null,
+        proposalState: "pending" as const,
+        proposalPayload: {
+          operation: "tool_approval" as const,
+          scope: "shell" as const,
+          families: ["curl"],
+          classified: true,
+          command: "curl https://example.com"
+        },
+        proposalUpdatedAt: null,
+        ...actionOverrides
+      }
+    ],
+    ...overrides
+  };
+}
+
 function installMockImage({ fail = false }: { fail?: boolean } = {}) {
   class MockImage {
     onload: null | (() => void) = null;
@@ -444,6 +484,96 @@ describe("message bubble", () => {
     expect(screen.getByText("Memory updated")).toBeInTheDocument();
     expect(screen.getByText("Prefers strict TypeScript")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Update memory proposal" })).toBeNull();
+  });
+
+  it("keeps revealed timeline text visible when the stream display buffer resets", () => {
+    const streamTextItem = {
+      id: "stream_text_0",
+      timelineKind: "text" as const,
+      sortOrder: 0,
+      createdAt: new Date().toISOString(),
+      content: "Here is what I found for you."
+    };
+    const { rerender } = render(
+      React.createElement(MessageBubble, {
+        message: createAssistantMessage(),
+        streamingTimeline: [streamTextItem],
+        streamingAnswer: "Here is what I found for you."
+      })
+    );
+
+    expect(screen.getByText("Here is what I found for you.")).toBeInTheDocument();
+
+    rerender(
+      React.createElement(MessageBubble, {
+        message: createAssistantMessage(),
+        streamingTimeline: [streamTextItem],
+        streamingAnswer: ""
+      })
+    );
+
+    expect(screen.getByText("Here is what I found for you.")).toBeInTheDocument();
+  });
+
+  it("renders a pending tool approval prompt and removes it once a decision is recorded", () => {
+    const { rerender } = render(
+      React.createElement(MessageBubble, {
+        message: createToolApprovalMessage()
+      })
+    );
+
+    expect(screen.getByText('Allow "curl" commands?')).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Allow once" })).toBeInTheDocument();
+
+    rerender(
+      React.createElement(MessageBubble, {
+        message: createToolApprovalMessage(
+          {},
+          {
+            status: "completed",
+            proposalState: "approved",
+            resultSummary: "Allowed always",
+            proposalPayload: {
+              operation: "tool_approval",
+              scope: "shell",
+              families: ["curl"],
+              classified: true,
+              command: "curl https://example.com",
+              resolution: "always"
+            }
+          }
+        )
+      })
+    );
+
+    expect(screen.queryByText('Allow "curl" commands?')).toBeNull();
+    expect(screen.queryByText("Always allowed")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
+
+    rerender(
+      React.createElement(MessageBubble, {
+        message: createToolApprovalMessage(
+          {},
+          {
+            status: "completed",
+            proposalState: "dismissed",
+            resultSummary: "Denied",
+            proposalPayload: {
+              operation: "tool_approval",
+              scope: "shell",
+              families: ["curl"],
+              classified: true,
+              command: "curl https://example.com",
+              resolution: "denied"
+            }
+          }
+        )
+      })
+    );
+
+    expect(screen.queryByText('Allow "curl" commands?')).toBeNull();
+    expect(screen.queryByText("Denied")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
   });
 
   it("renders specialized error cards for failed proposal approvals", () => {

@@ -389,6 +389,29 @@ describe("Mobile API v1 REST adapter", () => {
     const session = await createMobileSession(user.id, "Approvals phone");
     createToolApprovalRules(user.id, "shell", ["curl"]);
 
+    const created = await mobilePost(
+      request(["tool-approvals"], session.token, {
+        method: "POST",
+        body: { command: "git checkout" }
+      }),
+      context(["tool-approvals"])
+    );
+    expect(created.status).toBe(201);
+    await assertResponseContract("/tool-approvals", "post", created);
+
+    const toggled = await mobilePut(
+      request(["tool-approvals"], session.token, {
+        method: "PUT",
+        body: { allowAll: true }
+      }),
+      context(["tool-approvals"])
+    );
+    expect(toggled.status).toBe(200);
+    await assertResponseContract("/tool-approvals", "put", toggled);
+    expect((await toggled.json()) as { data: { allowAll: boolean } }).toEqual({
+      data: { allowAll: true }
+    });
+
     const list = await mobileGet(
       request(["tool-approvals"], session.token),
       context(["tool-approvals"])
@@ -398,9 +421,13 @@ describe("Mobile API v1 REST adapter", () => {
     const listBody = (await list.json()) as {
       data: { rules: Array<{ id: string; scope: string; family: string }> };
     };
-    expect(listBody.data.rules).toEqual([
-      expect.objectContaining({ scope: "shell", family: "curl" })
-    ]);
+    expect(listBody.data.rules).toHaveLength(2);
+    expect(listBody.data.rules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ scope: "shell", family: "curl" }),
+        expect.objectContaining({ scope: "shell", family: "git checkout" })
+      ])
+    );
 
     const ruleId = listBody.data.rules[0].id;
     const revoked = await mobileDelete(

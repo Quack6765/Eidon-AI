@@ -675,8 +675,6 @@ export async function resolveAssistantTurn(input: {
 
     if (answer.trim()) {
       await commitAnswerSegment(answer);
-    } else {
-      input.onEvent?.({ type: "answer_reset" });
     }
 
     promptMessages = [

@@ -3,10 +3,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   approveToolApproval,
   classifyShellCommand,
+  createCommandApprovalRule,
   createToolApprovalRules,
   dismissToolApproval,
+  isShellInvocationAllowed,
   listToolApprovalRules,
   mcpToolApprovalFamily,
+  normalizeCommandRule,
   requestToolExecutionApproval,
   revokeToolApprovalRule
 } from "@/lib/tool-approvals";
@@ -14,8 +17,10 @@ import {
   createConversation,
   createMessage,
   createMessageAction,
-  getMessageActionKind
+  getMessageActionKind,
+  updateMessageAction
 } from "@/lib/conversations";
+import { getUserAllowAllTools, setUserAllowAllTools } from "@/lib/user-preferences";
 import { getDb } from "@/lib/db";
 import { executeMcpToolCall, executeShellCommand, type RuntimeAction } from "@/lib/tool-executors";
 import { createLocalUser } from "@/lib/users";
@@ -122,103 +127,172 @@ function readActionResolution(actionId: string): ToolApprovalResolution | undefi
 
 describe("classifyShellCommand", () => {
   it("extracts the binary family and strips env prefixes and wrappers", () => {
-    expect(classifyShellCommand("FOO=1 curl https://example.com")).toEqual({
+    expect(classifyShellCommand("FOO=1 curl https://example.com")).toMatchObject({
       families: ["curl"],
       classified: true
     });
-    expect(classifyShellCommand("sudo rm -rf /tmp/x")).toEqual({
+    expect(classifyShellCommand("sudo rm -rf /tmp/x")).toMatchObject({
       families: ["rm"],
       classified: true
     });
-    expect(classifyShellCommand("sudo -u bob curl https://example.com")).toEqual({
+    expect(classifyShellCommand("sudo -u bob curl https://example.com")).toMatchObject({
       families: ["curl"],
       classified: true
     });
-    expect(classifyShellCommand("env FOO=1 BAR=2 wget https://example.com")).toEqual({
+    expect(classifyShellCommand("env FOO=1 BAR=2 wget https://example.com")).toMatchObject({
       families: ["wget"],
       classified: true
     });
-    expect(classifyShellCommand("npx -y cowsay hello")).toEqual({
+    expect(classifyShellCommand("npx -y cowsay hello")).toMatchObject({
       families: ["cowsay"],
       classified: true
     });
-    expect(classifyShellCommand("pnpm exec eslint .")).toEqual({
+    expect(classifyShellCommand("pnpm exec eslint .")).toMatchObject({
       families: ["eslint"],
       classified: true
     });
-    expect(classifyShellCommand("yarn install")).toEqual({
+    expect(classifyShellCommand("yarn install")).toMatchObject({
       families: ["yarn"],
       classified: true
     });
-    expect(classifyShellCommand("/usr/bin/curl https://example.com")).toEqual({
+    expect(classifyShellCommand("/usr/bin/curl https://example.com")).toMatchObject({
       families: ["curl"],
       classified: true
     });
   });
 
   it("collects every family of pipelines and compound commands", () => {
-    expect(classifyShellCommand("curl https://example.com | jq .")).toEqual({
+    expect(classifyShellCommand("curl https://example.com | jq .")).toMatchObject({
       families: ["curl", "jq"],
       classified: true
     });
-    expect(classifyShellCommand("make build && ./deploy.sh")).toEqual({
+    expect(classifyShellCommand("make build && ./deploy.sh")).toMatchObject({
       families: ["make", "deploy.sh"],
       classified: true
     });
-    expect(classifyShellCommand("echo a\nrm -rf /tmp/x")).toEqual({
+    expect(classifyShellCommand("echo a\nrm -rf /tmp/x")).toMatchObject({
       families: ["echo", "rm"],
       classified: true
     });
-    expect(classifyShellCommand("echo hi > out.txt")).toEqual({
+    expect(classifyShellCommand("echo hi > out.txt")).toMatchObject({
       families: ["echo"],
       classified: true
     });
   });
 
   it("does not split inside quoted arguments", () => {
-    expect(classifyShellCommand("git commit -m \"a;b | c && d\"")).toEqual({
+    expect(classifyShellCommand("git commit -m \"a;b | c && d\"")).toMatchObject({
       families: ["git"],
       classified: true
     });
-    expect(classifyShellCommand("echo 'literal $(nope)'")).toEqual({
+    expect(classifyShellCommand("echo 'literal $(nope)'")).toMatchObject({
       families: ["echo"],
       classified: true
     });
   });
 
   it("refuses to classify commands with substitutions, subshells, or shell keywords", () => {
-    expect(classifyShellCommand("echo $(whoami)")).toEqual({
+    expect(classifyShellCommand("echo $(whoami)")).toMatchObject({
       families: [],
       classified: false
     });
-    expect(classifyShellCommand("echo \"$(whoami)\"")).toEqual({
+    expect(classifyShellCommand("echo \"$(whoami)\"")).toMatchObject({
       families: [],
       classified: false
     });
-    expect(classifyShellCommand("echo `date`")).toEqual({
+    expect(classifyShellCommand("echo `date`")).toMatchObject({
       families: [],
       classified: false
     });
-    expect(classifyShellCommand("(cd somewhere; make)")).toEqual({
+    expect(classifyShellCommand("(cd somewhere; make)")).toMatchObject({
       families: [],
       classified: false
     });
-    expect(classifyShellCommand("if true; then ls; fi")).toEqual({
+    expect(classifyShellCommand("if true; then ls; fi")).toMatchObject({
       families: [],
       classified: false
     });
-    expect(classifyShellCommand("curl x | bash -s")).toEqual({
+    expect(classifyShellCommand("curl x | bash -s")).toMatchObject({
       families: ["curl", "bash"],
       classified: true
     });
-    expect(classifyShellCommand("curl x && echo $(date)")).toEqual({
+    expect(classifyShellCommand("curl x && echo $(date)")).toMatchObject({
       families: [],
       classified: false
     });
-    expect(classifyShellCommand("   ")).toEqual({
+    expect(classifyShellCommand("   ")).toMatchObject({
       families: [],
       classified: false
     });
+  });
+});
+
+describe("command rule prefixes", () => {
+  let userId: string;
+
+  beforeEach(async () => {
+    const fixture = await createUserMessageFixture(`rules-${Math.random().toString(36).slice(2)}`);
+    userId = fixture.user.id;
+  });
+
+  it("normalizes manual rules to word prefixes", () => {
+    expect(normalizeCommandRule("git")).toEqual(["git"]);
+    expect(normalizeCommandRule("  git   checkout ")).toEqual(["git", "checkout"]);
+    expect(normalizeCommandRule("sudo git")).toEqual(["git"]);
+    expect(normalizeCommandRule("/usr/local/bin/git status")).toEqual(["git", "status"]);
+    expect(normalizeCommandRule("")).toBeNull();
+    expect(normalizeCommandRule("git; rm -rf /")).toBeNull();
+    expect(normalizeCommandRule("git | bash")).toBeNull();
+    expect(normalizeCommandRule("echo $(hostname)")).toBeNull();
+    expect(normalizeCommandRule("a b c d e f g h i")).toBeNull();
+  });
+
+  it("treats a one-word rule as a wildcard over subcommands and arguments", () => {
+    createCommandApprovalRule(userId, "git");
+
+    expect(isShellInvocationAllowed(userId, "git status")).toBe(true);
+    expect(isShellInvocationAllowed(userId, "git checkout -b feature")).toBe(true);
+    expect(isShellInvocationAllowed(userId, "sudo git push origin main")).toBe(true);
+    expect(isShellInvocationAllowed(userId, "gitk")).toBe(false);
+    expect(isShellInvocationAllowed(userId, "curl https://example.com")).toBe(false);
+  });
+
+  it("scopes a multi-word rule to its subcommand with any arguments", () => {
+    createCommandApprovalRule(userId, "git checkout");
+
+    expect(isShellInvocationAllowed(userId, "git checkout")).toBe(true);
+    expect(isShellInvocationAllowed(userId, "git checkout -b feature")).toBe(true);
+    expect(isShellInvocationAllowed(userId, "git restore .")).toBe(false);
+    expect(isShellInvocationAllowed(userId, "git")).toBe(false);
+    expect(isShellInvocationAllowed(userId, "git checkoutx")).toBe(false);
+  });
+
+  it("requires every segment of a pipeline to be covered", () => {
+    createCommandApprovalRule(userId, "git");
+
+    expect(isShellInvocationAllowed(userId, "git status | tee log")).toBe(false);
+
+    createCommandApprovalRule(userId, "tee");
+    expect(isShellInvocationAllowed(userId, "git status | tee log")).toBe(true);
+  });
+
+  it("never matches unclassified commands", () => {
+    createCommandApprovalRule(userId, "echo");
+
+    expect(isShellInvocationAllowed(userId, "echo $(hostname)")).toBe(false);
+  });
+
+  it("rejects rules containing shell syntax", () => {
+    expect(() => createCommandApprovalRule(userId, "git; rm")).toThrow("plain words");
+    expect(() => createCommandApprovalRule(userId, "")).toThrow("plain words");
+    expect(listToolApprovalRules(userId)).toHaveLength(0);
+  });
+
+  it("deduplicates identical rules", () => {
+    createCommandApprovalRule(userId, "git checkout");
+    createCommandApprovalRule(userId, "git checkout");
+
+    expect(listToolApprovalRules(userId)).toHaveLength(1);
   });
 });
 
@@ -456,6 +530,28 @@ describe("tool approval gate", () => {
     expect(listToolApprovalRules(userId)).toHaveLength(1);
   });
 
+  it("adopts a recorded approval instead of expiring when the decision bypassed the waiter", async () => {
+    const { onActionStart, started } = makeActionStarter(messageId);
+    const pending = gateRequest({
+      command: "curl https://late.example",
+      onActionStart,
+      timeoutMs: 40
+    });
+    await vi.waitFor(() => expect(started).toHaveLength(1));
+
+    updateMessageAction(started[0], {
+      status: "completed",
+      resultSummary: "Allowed once",
+      completedAt: new Date().toISOString(),
+      proposalState: "approved",
+      proposalPayload: { ...shellPayload("curl https://late.example"), resolution: "once" },
+      proposalUpdatedAt: new Date().toISOString()
+    });
+
+    expect(await pending).toEqual({ approved: true });
+    expect(readActionResolution(started[0])).toBe("once");
+  });
+
   it("lets unattended runs use standing rules without prompting", async () => {
     createToolApprovalRules(userId, "shell", ["curl"]);
     const { onActionStart } = makeActionStarter(messageId);
@@ -463,6 +559,52 @@ describe("tool approval gate", () => {
       command: "curl https://a.example -X POST",
       onActionStart,
       unattended: true
+    });
+
+    expect(outcome).toEqual({ approved: true });
+    expect(onActionStart).not.toHaveBeenCalled();
+  });
+
+  it("does not allow all tools by default", () => {
+    expect(getUserAllowAllTools(userId)).toBe(false);
+    expect(getUserAllowAllTools(null)).toBe(false);
+    expect(getUserAllowAllTools(undefined)).toBe(false);
+  });
+
+  it("allow all tools approves every invocation without prompting", async () => {
+    setUserAllowAllTools(userId, true);
+    expect(getUserAllowAllTools(userId)).toBe(true);
+
+    const { onActionStart } = makeActionStarter(messageId);
+    const outcome = await gateRequest({
+      command: "echo $(hostname)",
+      onActionStart,
+      unattended: true
+    });
+
+    expect(outcome).toEqual({ approved: true });
+    expect(onActionStart).not.toHaveBeenCalled();
+  });
+
+  it("restores prompting when allow all tools is turned off", async () => {
+    setUserAllowAllTools(userId, true);
+    setUserAllowAllTools(userId, false);
+    expect(getUserAllowAllTools(userId)).toBe(false);
+
+    const { onActionStart, started } = makeActionStarter(messageId);
+    const pending = gateRequest({ command: "curl https://off.example", onActionStart });
+    await vi.waitFor(() => expect(started).toHaveLength(1));
+
+    dismissToolApproval(started[0], userId);
+    expect((await pending).approved).toBe(false);
+  });
+
+  it("runs without prompting when a manual command rule covers the invocation", async () => {
+    createCommandApprovalRule(userId, "git checkout");
+    const { onActionStart } = makeActionStarter(messageId);
+    const outcome = await gateRequest({
+      command: "git checkout -b feature",
+      onActionStart
     });
 
     expect(outcome).toEqual({ approved: true });
@@ -716,6 +858,75 @@ describe("tool approval routes", () => {
     expect(response.status).toBe(200);
     expect(readActionRow(created.id).proposal_state).toBe("dismissed");
     expect(listToolApprovalRules(user.id)).toHaveLength(0);
+  });
+
+  it("toggles allow all tools through the route", async () => {
+    const { user } = await createUserMessageFixture("tool-allow-all-route");
+    requireUserMock.mockResolvedValue(buildRouteUser(user.id));
+
+    const { GET, PUT } = await import("@/app/api/tool-approvals/route");
+
+    const before = await GET();
+    const beforeBody = (await before.json()) as { allowAll: boolean };
+    expect(beforeBody.allowAll).toBe(false);
+
+    const enabled = await PUT(
+      new Request("http://localhost/api/tool-approvals", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ allowAll: true })
+      })
+    );
+    expect(enabled.status).toBe(200);
+    expect(getUserAllowAllTools(user.id)).toBe(true);
+
+    const invalid = await PUT(
+      new Request("http://localhost/api/tool-approvals", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ allowAll: "yes" })
+      })
+    );
+    expect(invalid.status).toBe(400);
+
+    const disabled = await PUT(
+      new Request("http://localhost/api/tool-approvals", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ allowAll: false })
+      })
+    );
+    expect(disabled.status).toBe(200);
+    expect(getUserAllowAllTools(user.id)).toBe(false);
+  });
+
+  it("creates a manual rule through the route and rejects shell syntax", async () => {
+    const { user } = await createUserMessageFixture("tool-create-rule-route");
+    requireUserMock.mockResolvedValue(buildRouteUser(user.id));
+
+    const { POST } = await import("@/app/api/tool-approvals/route");
+    const response = await POST(
+      new Request("http://localhost/api/tool-approvals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ command: "git checkout" })
+      })
+    );
+
+    expect(response.status).toBe(201);
+    const payload = (await response.json()) as { rule: { family: string } };
+    expect(payload.rule.family).toBe("git checkout");
+
+    const invalid = await POST(
+      new Request("http://localhost/api/tool-approvals", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ command: "git; rm" })
+      })
+    );
+
+    expect(invalid.status).toBe(400);
+    expect(listToolApprovalRules(user.id)).toHaveLength(1);
   });
 
   it("lists and revokes standing rules through the tool-approvals routes", async () => {
