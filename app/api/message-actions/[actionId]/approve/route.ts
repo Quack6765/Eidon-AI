@@ -7,6 +7,7 @@ import { approveMemoryProposal } from "@/lib/memory-proposals";
 import {
   approveAutomationProposal
 } from "@/lib/automation-proposals";
+import { approveToolApproval } from "@/lib/tool-approvals";
 import { getMessageActionKind } from "@/lib/conversations";
 
 const paramsSchema = z.object({
@@ -23,7 +24,8 @@ const bodySchema = z.object({
   calendarFrequency: z.enum(["daily", "weekly"]).nullable().optional(),
   timeOfDay: z.string().nullable().optional(),
   daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
-  continuePreviousConversation: z.boolean().optional()
+  continuePreviousConversation: z.boolean().optional(),
+  allowAlways: z.boolean().optional()
 });
 
 async function parseApprovalBody(request: Request) {
@@ -62,6 +64,11 @@ export async function POST(
     if (getMessageActionKind(params.actionId) === "create_automation") {
       const { action, automation } = approveAutomationProposal(params.actionId, body.data, user.id);
       return ok({ action, automation });
+    }
+
+    if (getMessageActionKind(params.actionId) === "tool_approval") {
+      const action = approveToolApproval(params.actionId, { allowAlways: body.data.allowAlways }, user.id);
+      return ok({ action });
     }
 
     const action = approveMemoryProposal(params.actionId, body.data, user.id);

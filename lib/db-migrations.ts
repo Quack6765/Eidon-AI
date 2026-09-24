@@ -609,6 +609,7 @@ function migratePreferenceStorage(db: Database.Database) {
       confirm_external_links INTEGER NOT NULL DEFAULT 1,
       tool_call_display TEXT NOT NULL DEFAULT 'pills',
       default_view TEXT NOT NULL DEFAULT 'chat',
+      allow_all_tools INTEGER NOT NULL DEFAULT 0,
       has_completed_onboarding INTEGER NOT NULL DEFAULT 0,
       last_seen_release TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
@@ -1186,6 +1187,16 @@ export function migrate(db: Database.Database) {
       updated_at TEXT NOT NULL,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
+    CREATE TABLE IF NOT EXISTS tool_approval_rules (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      scope TEXT NOT NULL,
+      family TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_tool_approval_rules_owner
+      ON tool_approval_rules (user_id, scope, family);
     CREATE TABLE IF NOT EXISTS automations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -2024,6 +2035,9 @@ export function migrate(db: Database.Database) {
   const userPreferencesCols = db.prepare("PRAGMA table_info(user_preferences)").all() as Array<{ name: string }>;
   if (!userPreferencesCols.some((column) => column.name === "confirm_external_links")) {
     db.exec("ALTER TABLE user_preferences ADD COLUMN confirm_external_links INTEGER NOT NULL DEFAULT 1");
+  }
+  if (!userPreferencesCols.some((column) => column.name === "allow_all_tools")) {
+    db.exec("ALTER TABLE user_preferences ADD COLUMN allow_all_tools INTEGER NOT NULL DEFAULT 0");
   }
 
   if (!globalPreferencesCols.some((column) => column.name === "memories_rigor")) {

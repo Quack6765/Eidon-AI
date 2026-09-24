@@ -149,8 +149,11 @@ function createSkill(overrides: Partial<Skill> = {}): Skill {
 }
 
 describe("assistant runtime", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.resetModules();
+    const { createToolApprovalRules } = await import("@/lib/tool-approvals");
+    createToolApprovalRules(null, "shell", ["echo", "curl", "agent-browser"]);
+    createToolApprovalRules(null, "mcp", ["docs:search_docs", "exa:search", "exa_docs:search"]);
     streamProviderResponse.mockReset();
     callProviderText.mockReset();
     callMcpTool.mockReset();
@@ -2622,6 +2625,55 @@ Run browser commands.`
 
     expect(streamProviderResponse).toHaveBeenCalledTimes(2);
     expect(result.answer).toBe("Fallback answer");
+  });
+
+  it("does not reset committed answer text when a tool step carries no prose", async () => {
+    streamProviderResponse
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Let me look that up." }], {
+          answer: "Let me look that up.",
+          thinking: "",
+          toolCalls: [{ id: "call_1", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "MCP" }) }],
+          usage: { inputTokens: 9 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "thinking_delta", text: "Checking results." }], {
+          answer: "",
+          thinking: "Checking results.",
+          toolCalls: [{ id: "call_2", name: "mcp_docs_search_docs", arguments: JSON.stringify({ query: "more" }) }],
+          usage: { inputTokens: 12 }
+        })
+      )
+      .mockReturnValueOnce(
+        createProviderStream([{ type: "answer_delta", text: "Done." }], {
+          answer: "Done.",
+          thinking: "",
+          usage: { inputTokens: 14, outputTokens: 2 }
+        })
+      );
+    callMcpTool.mockResolvedValue({ content: [{ type: "text", text: "Found MCP docs" }] });
+
+    const events: Array<{ type: string }> = [];
+    const { resolveAssistantTurn } = await import("@/lib/assistant-runtime");
+
+    const result = await resolveAssistantTurn({
+      settings: createSettings(),
+      promptMessages: [{ role: "user", content: "Find MCP docs" }],
+      skills: [],
+      mcpToolSets: [{
+        server: { id: "mcp_docs", slug: "docs", name: "Docs", url: "https://mcp.example.com", headers: {}, transport: "streamable_http", command: null, args: null, env: null, enabled: true, isVisionMcp: false, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        tools: [{ name: "search_docs", title: "Search docs", description: "Search docs", inputSchema: { type: "object" }, annotations: { readOnlyHint: true } }]
+      }],
+      onEvent: (event) => {
+        events.push(event);
+      },
+      onActionStart: () => "act_tool",
+      onActionComplete: () => {}
+    });
+
+    expect(events.some((event) => event.type === "answer_reset")).toBe(false);
+    expect(result.answer).toContain("Done.");
   });
 
   it("resolves MCP tool calls against the most specific matching slug", async () => {

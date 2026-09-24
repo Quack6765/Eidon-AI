@@ -34,6 +34,12 @@ import { nowIso } from "@/lib/utils";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type ToolSet, getToolLabel, buildArgumentsSummary, buildShellDetail } from "./tool-definitions";
+import {
+  classifyShellCommand,
+  mcpToolApprovalFamily,
+  requestToolExecutionApproval
+} from "@/lib/tool-approvals";
+import { buildToolApprovalPromptHeading } from "@/lib/tool-approval-display";
 import { executeCheckBot, executeMessageBot, executeCreateBotTool, executeUpdateBotTool } from "./bot-delegation";
 import { getBotByConversationId } from "./bots";
 import type { MemoryScope } from "@/lib/memories";
@@ -47,6 +53,7 @@ import type {
   MemoryProposalState,
   MessageActionKind,
   ProposalPayload,
+  ToolApprovalProposalPayload,
   RuntimeAppSettings,
   RuntimeProviderProfile,
   ProviderToolCall,
@@ -412,6 +419,7 @@ export async function executeMcpToolCall(
       mcpToolSets: ToolSet[];
       mcpTimeout?: number;
       abortSignal?: AbortSignal;
+      toolApproval?: { userId: string | null; unattended: boolean };
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -473,6 +481,46 @@ export async function executeMcpToolCall(
   }
 
   const correctedArgs = coerceEnumValues(resolvedTool.inputSchema ?? {}, args);
+
+  const approvalPayload: ToolApprovalProposalPayload = {
+    operation: "tool_approval",
+    scope: "mcp",
+    families: [mcpToolApprovalFamily(resolvedServer.slug, resolvedTool.name)],
+    classified: true,
+    mcpServerId: resolvedServer.id,
+    mcpServerName: resolvedServer.name,
+    mcpToolName: resolvedTool.name,
+    arguments: correctedArgs
+  };
+  const approval = await requestToolExecutionApproval({
+    payload: approvalPayload,
+    label: buildToolApprovalPromptHeading(approvalPayload),
+    detail: getToolLabel(resolvedTool),
+    userId: context.input.toolApproval?.userId ?? null,
+    unattended: context.input.toolApproval?.unattended ?? true,
+    abortSignal: context.input.abortSignal,
+    onActionStart: context.input.onActionStart
+  });
+
+  if (!approval.approved) {
+    if (!approval.promptActionId) {
+      const denialHandle = await context.input.onActionStart?.({
+        kind: "mcp_tool_call",
+        label: getToolLabel(resolvedTool),
+        detail: buildArgumentsSummary(correctedArgs),
+        serverId: resolvedServer.id,
+        toolName: resolvedTool.name,
+        arguments: correctedArgs
+      });
+      const denialActionHandle = typeof denialHandle === "string" ? denialHandle : undefined;
+      await context.input.onActionError?.(denialActionHandle, {
+        detail: buildArgumentsSummary(correctedArgs),
+        resultSummary: approval.message
+      });
+    }
+    const resultMsg = buildToolResultMessage(toolCallId, approval.message);
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
 
   const handle = await context.input.onActionStart?.({
     kind: "mcp_tool_call",
@@ -772,6 +820,7 @@ export async function executeShellCommand(
     input: {
       conversationId?: string;
       abortSignal?: AbortSignal;
+      toolApproval?: { userId: string | null; unattended: boolean };
       onActionStart?: (action: RuntimeAction) => Promise<string | void> | string | void;
       onActionComplete?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
       onActionError?: (handle: string | undefined, patch: { detail?: string; resultSummary?: string }) => Promise<void> | void;
@@ -787,6 +836,42 @@ export async function executeShellCommand(
 
   if (!command) {
     const resultMsg = buildToolResultMessage(toolCallId, "Error: Shell command is required.");
+    return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
+  }
+
+  const classification = classifyShellCommand(command);
+  const approvalPayload: ToolApprovalProposalPayload = {
+    operation: "tool_approval",
+    scope: "shell",
+    families: classification.families,
+    classified: classification.classified,
+    command
+  };
+  const approval = await requestToolExecutionApproval({
+    payload: approvalPayload,
+    label: buildToolApprovalPromptHeading(approvalPayload),
+    detail: buildShellDetail(command),
+    userId: context.input.toolApproval?.userId ?? null,
+    unattended: context.input.toolApproval?.unattended ?? true,
+    abortSignal: context.input.abortSignal,
+    onActionStart: context.input.onActionStart
+  });
+
+  if (!approval.approved) {
+    if (!approval.promptActionId) {
+      const denialHandle = await context.input.onActionStart?.({
+        kind: "shell_command",
+        label: getShellCommandLabel(command),
+        detail: buildShellDetail(command),
+        arguments: { command, timeoutMs }
+      });
+      const denialActionHandle = typeof denialHandle === "string" ? denialHandle : undefined;
+      await context.input.onActionError?.(denialActionHandle, {
+        detail: buildShellDetail(command),
+        resultSummary: approval.message
+      });
+    }
+    const resultMsg = buildToolResultMessage(toolCallId, approval.message);
     return { nextSortOrder: sortOrder, promptMessages: [...context.promptMessages, resultMsg] };
   }
 
@@ -1370,6 +1455,7 @@ export async function executeToolCall(
       conversationId?: string;
       assistantMessageId?: string;
       abortSignal?: AbortSignal;
+      toolApproval?: { userId: string | null; unattended: boolean };
     };
     mcpServers: McpServer[];
     loadedSkillIds: Set<string>;

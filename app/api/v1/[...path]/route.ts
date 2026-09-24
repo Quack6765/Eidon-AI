@@ -54,6 +54,8 @@ import * as skillsRoute from "@/app/api/skills/route";
 import * as speechCleanupRoute from "@/app/api/speech/transcription/cleanup/route";
 import * as speechPrepareRoute from "@/app/api/speech/transcription/prepare/route";
 import * as speechTranscribeRoute from "@/app/api/speech/transcription/transcribe/route";
+import * as toolApprovalRoute from "@/app/api/tool-approvals/[ruleId]/route";
+import * as toolApprovalsRoute from "@/app/api/tool-approvals/route";
 import * as userRoute from "@/app/api/users/[userId]/route";
 import * as usersRoute from "@/app/api/users/route";
 import * as whatsNewRoute from "@/app/api/whats-new/route";
@@ -129,6 +131,8 @@ const routes: Array<{ pattern: string[]; module: RouteModule }> = [
   { pattern: ["personas", ":personaId"], module: personaRoute },
   { pattern: ["memories"], module: memoriesRoute },
   { pattern: ["memories", ":memoryId"], module: memoryRoute },
+  { pattern: ["tool-approvals"], module: toolApprovalsRoute },
+  { pattern: ["tool-approvals", ":ruleId"], module: toolApprovalRoute },
   { pattern: ["mcp-servers", "test"], module: mcpServersTestRoute },
   { pattern: ["mcp-servers"], module: mcpServersRoute },
   { pattern: ["mcp-servers", ":serverId"], module: mcpServerRoute },

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Archive, Bot, Brain, Gauge, Image as ImageIcon, Mic2, Monitor, Search, Type } from "lucide-react";
+import { Archive, Bot, Brain, Gauge, Image as ImageIcon, Mic2, Monitor, Search, ShieldCheck, Type } from "lucide-react";
 
 import {
   buildIntegrationUpdate,
@@ -15,6 +15,7 @@ import { DetailHeader } from "@/components/settings/detail-header";
 import { ImageGenerationSettings } from "@/components/settings/integration-settings/image-generation-settings";
 import { MemoryPreferencesSettings } from "@/components/settings/integration-settings/memory-preferences-settings";
 import { SemanticRecallSettings } from "@/components/settings/integration-settings/semantic-recall-settings";
+import { ToolApprovalRulesSettings } from "@/components/settings/integration-settings/tool-approval-rules-settings";
 import { SpeechTranscriptionSettings } from "@/components/settings/integration-settings/speech-transcription-settings";
 import { WebSearchSettings } from "@/components/settings/integration-settings/web-search-settings";
 import { SettingsMenuItem } from "@/components/settings/settings-menu-item";
@@ -57,6 +58,13 @@ const GENERAL_SECTIONS = [
     description: "Tool timeouts and steps",
     detail: "Set the boundaries for tool calls and multi-step assistant work.",
     icon: Gauge
+  },
+  {
+    id: "tool-approvals",
+    label: "Tool approvals",
+    description: "Allowed commands and tools",
+    detail: "Review and revoke the commands and MCP tools that are always allowed to run.",
+    icon: ShieldCheck
   },
   {
     id: "speech",
@@ -395,6 +403,9 @@ export function GeneralSection({
           />
         </div>
       </div>
+    ),
+    "tool-approvals": (
+      <ToolApprovalRulesSettings active={activeSection === "tool-approvals"} />
     ),
     speech: (
       <SpeechTranscriptionSettings

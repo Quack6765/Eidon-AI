@@ -85,6 +85,7 @@ export type StartChatTurn = (
     botRun?: { record?: false; trigger?: "dm" | "delegated" | "routine" };
     research?: ChatResearchOptions;
     quietWhenBusy?: boolean;
+    unattended?: boolean;
   }
 ) => Promise<ChatTurnResult>;
 
@@ -292,10 +293,15 @@ async function startAssistantTurn(
     assistantMessage?: ReturnType<typeof createMessage>;
     onMessagesCreated?: (payload: { userMessageId: string; assistantMessageId: string }) => void;
     research?: ChatResearchOptions;
+    unattended?: boolean;
   }
 ) : Promise<ChatTurnResult> {
   const { conversation, conversationOwnerId, settings, appSettings } = preflight;
   const bot = getBotByConversationId(conversation.id);
+  const toolApproval = {
+    userId: conversationOwnerId ?? null,
+    unattended: Boolean(bot) || Boolean(options?.unattended)
+  };
   const botSystemPrompt = bot ? buildBotSystemPrompt(bot, appSettings.botSystemPrompt) : undefined;
   const botTeam = bot
     ? {
@@ -436,6 +442,7 @@ async function startAssistantTurn(
       memoriesEnabled: appSettings.memoriesEnabled,
       memoriesRigor: appSettings.memoriesRigor,
       memoryUserId: conversationOwnerId,
+      toolApproval,
       mcpTimeout: appSettings.mcpTimeout,
       abortSignal: control.abortController.signal,
       enableStreamRetry: true,
@@ -784,6 +791,7 @@ export async function startChatTurn(
     botRun?: { record?: false; trigger?: "dm" | "delegated" | "routine" };
     research?: ChatResearchOptions;
     quietWhenBusy?: boolean;
+    unattended?: boolean;
   }
 ): Promise<ChatTurnResult> {
   const preflight = getAssistantTurnStartPreflight(conversationId);
@@ -853,7 +861,8 @@ export async function startChatTurn(
       userMessageId: userMessage.id,
       assistantMessage,
       onMessagesCreated: options?.onMessagesCreated,
-      research: options?.research
+      research: options?.research,
+      unattended: options?.unattended
     });
     finalizeBotRun(result);
     return result;
